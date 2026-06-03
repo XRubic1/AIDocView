@@ -1,0 +1,35 @@
+// Type definitions for Brokers
+
+export type EmailCategory = 'accounting' | 'paperwork' | 'noa'
+export type PhoneCategory = 'accounts_payable' | 'accounts_receivable' | 'rate_verification'
+
+export interface BrokerEmail {
+  email: string
+  category: EmailCategory
+}
+
+export interface BrokerPhone {
+  phone: string
+  category: PhoneCategory
+}
+
+export interface Broker {
+  id: string
+  name: string
+  contact_person?: string
+  email?: string // Legacy field for backward compatibility
+  emails?: BrokerEmail[] // New field for multiple emails with categories
+  phone?: string // Legacy field for backward compatibility
+  phones?: BrokerPhone[] // New field for multiple phones with categories
+  fax?: string
+  address?: string
+  city?: string
+  state?: string
+  zip?: string
+  mc_number?: string
+  dot_number?: string
+  notes?: string
+  payment_terms_days?: number // Payment terms in days (e.g., 30 for Net 30)
+}
+
+

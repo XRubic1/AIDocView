@@ -1,0 +1,101 @@
+import { ClientDashboardData } from '../types/clientDashboard'
+
+export const mockClientDashboardData: ClientDashboardData = {
+  client_id: 'client-1',
+  client_name: 'ABC Trucking',
+  summary: {
+    total_ar: 125000.0,
+    pending_invoices: 12,
+    approved_invoices: 45,
+    on_hold_invoices: 3,
+    paid_this_month: 87500.0,
+    overdue_invoices: 8,
+  },
+  aging_ar: {
+    '1_15': 25000.0,
+    '16_30': 35000.0,
+    '31_45': 28000.0,
+    '46_60': 15000.0,
+    '61_90': 12000.0,
+    over_91: 10000.0,
+    total: 125000.0,
+  },
+  recent_invoices: [
+    {
+      id: 'inv-1',
+      invoice_number: 'INV-2025-001',
+      broker_name: 'TQL',
+      amount: 5000.0,
+      status: 'approved',
+      invoice_date: '2025-11-28',
+      due_date: '2025-12-28',
+    },
+    {
+      id: 'inv-2',
+      invoice_number: 'INV-2025-002',
+      broker_name: 'C.H. Robinson',
+      amount: 3200.0,
+      status: 'pending',
+      invoice_date: '2025-11-27',
+      due_date: '2025-12-27',
+    },
+    {
+      id: 'inv-3',
+      invoice_number: 'INV-2025-003',
+      broker_name: 'XPO Logistics',
+      amount: 7800.0,
+      status: 'approved',
+      invoice_date: '2025-11-26',
+      due_date: '2025-12-26',
+    },
+    {
+      id: 'inv-4',
+      invoice_number: 'INV-2025-004',
+      broker_name: 'Ryder System',
+      amount: 4500.0,
+      status: 'hold',
+      invoice_date: '2025-11-25',
+      due_date: '2025-12-25',
+    },
+    {
+      id: 'inv-5',
+      invoice_number: 'INV-2025-005',
+      broker_name: 'J.B. Hunt',
+      amount: 6200.0,
+      status: 'approved',
+      invoice_date: '2025-11-24',
+      due_date: '2025-12-24',
+    },
+  ],
+  recent_activity: [
+    {
+      id: 'act-1',
+      type: 'invoice_approved',
+      description: 'Invoice INV-2025-001 approved',
+      timestamp: '2025-11-28T14:30:00Z',
+      invoice_id: 'inv-1',
+    },
+    {
+      id: 'act-2',
+      type: 'invoice_submitted',
+      description: 'Invoice INV-2025-002 submitted for review',
+      timestamp: '2025-11-27T10:15:00Z',
+      invoice_id: 'inv-2',
+    },
+    {
+      id: 'act-3',
+      type: 'invoice_hold',
+      description: 'Invoice INV-2025-004 placed on hold',
+      timestamp: '2025-11-25T16:20:00Z',
+      invoice_id: 'inv-4',
+    },
+    {
+      id: 'act-4',
+      type: 'payment_received',
+      description: 'Payment received for invoice INV-2025-010',
+      timestamp: '2025-11-24T09:00:00Z',
+    },
+  ],
+}
+
+

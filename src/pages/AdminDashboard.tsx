@@ -1,0 +1,465 @@
+import { useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Header } from '../components/admin/Header'
+import { SummaryCards } from '../components/admin/SummaryCards'
+import { CollectionsQueue } from '../components/admin/CollectionsQueue'
+import { QuickActions } from '../components/admin/QuickActions'
+import { ARTrendChart } from '../components/admin/charts/ARTrendChart'
+import { AgingDistributionChart } from '../components/admin/charts/AgingDistributionChart'
+import { CriticalAlerts } from '../components/admin/widgets/CriticalAlerts'
+import { BatchPipeline } from '../components/admin/widgets/BatchPipeline'
+import { TodaysActions } from '../components/admin/widgets/TodaysActions'
+import BatchStatusWidget from '../components/client/BatchStatusWidget'
+import { getAllBatches } from '../data/mockBatches'
+import { mockInvoices } from '../data/mockInvoices'
+import { mockClientCollections } from '../data/mockCollections'
+import { getAllAuditLogs } from '../utils/auditLogger'
+import { PendingBatch, CollectionsAlert, AgingAR } from '../types/admin'
+import { formatCurrency } from '../utils/format'
+
+export default function AdminDashboard() {
+  const navigate = useNavigate()
+  
+  // Get all real data
+  const allBatches = getAllBatches()
+  const allInvoices = mockInvoices
+  const allCollections = mockClientCollections
+  const allAuditLogs = getAllAuditLogs()
+  
+  // Calculate pending batches from real data
+  const pendingBatches = useMemo(() => {
+    return allBatches.filter((batch): batch is PendingBatch => 
+      batch.status === 'ready_to_post' || 
+      batch.status === 'verification' || 
+      batch.status === 'approval'
+    ).sort((a, b) => {
+      return new Date(a.submitted_at).getTime() - new Date(b.submitted_at).getTime()
+    })
+  }, [allBatches])
+  
+  // Calculate invoices on hold
+  const invoicesOnHold = useMemo(() => {
+    return allInvoices.filter(inv => inv.status === 'hold').length
+  }, [allInvoices])
+  
+  // Calculate total A/R
+  const totalAR = useMemo(() => {
+    return allInvoices
+      .filter(inv => inv.status !== 'hold' && inv.status !== 'pending' && inv.status !== 'paid' && inv.status !== 'force_closed')
+      .reduce((sum, inv) => sum + inv.amount, 0)
+  }, [allInvoices])
+  
+  // Calculate collections alerts
+  const collectionsAlerts = useMemo(() => {
+    return allInvoices.filter(inv => {
+      const daysSinceExpected = inv.days_since_expected || 0
+      return daysSinceExpected >= 15 && inv.status !== 'paid' && inv.status !== 'force_closed'
+    }).length
+  }, [allInvoices])
+  
+  // Calculate collections queue
+  const collectionsQueue = useMemo((): CollectionsAlert[] => {
+    return allInvoices
+      .filter(inv => {
+        const daysSinceExpected = inv.days_since_expected || 0
+        return daysSinceExpected >= 15 && inv.status !== 'paid' && inv.status !== 'force_closed'
+      })
+      .map(inv => {
+        const collection = allCollections.find(c => c.invoice_id === inv.id)
+        return {
+          invoice_id: inv.id,
+          inv_number: inv.invoice_number,
+          client_name: inv.client_name,
+          broker_name: inv.broker_name,
+          amount: inv.amount,
+          expected_payment_date: inv.expected_payment_date,
+          days_since_expected: inv.days_since_expected || 0,
+          client_response: collection?.payment_status === 'paid' ? 'received' : 
+                          collection?.payment_status === 'not_received' ? 'not_received' : 'no_response',
+          broker_contacted: inv.broker_contacted || false,
+          last_broker_contact: inv.last_broker_contact || null,
+        }
+      })
+      .sort((a, b) => b.days_since_expected - a.days_since_expected)
+      .slice(0, 10)
+  }, [allInvoices, allCollections])
+  
+  // Calculate force close rate
+  const forceCloseRate = useMemo(() => {
+    const thirtyDaysAgo = new Date()
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    
+    const recentInvoices = allInvoices.filter(inv => {
+      const updatedAt = inv.updated_at ? new Date(inv.updated_at) : new Date(inv.created_at)
+      return updatedAt >= thirtyDaysAgo
+    })
+    
+    if (recentInvoices.length === 0) return 0
+    
+    const forceClosed = recentInvoices.filter(inv => inv.status === 'force_closed').length
+    return ((forceClosed / recentInvoices.length) * 100).toFixed(1)
+  }, [allInvoices])
+  
+  // Calculate average review time
+  const avgReviewTime = useMemo(() => {
+    const reviewedBatches = allBatches.filter(b => b.reviewed_at && b.submitted_at)
+    if (reviewedBatches.length === 0) return 0
+    
+    const totalHours = reviewedBatches.reduce((sum, batch) => {
+      const submitted = new Date(batch.submitted_at)
+      const reviewed = new Date(batch.reviewed_at!)
+      const diffMs = reviewed.getTime() - submitted.getTime()
+      const diffHours = diffMs / (1000 * 60 * 60)
+      return sum + diffHours
+    }, 0)
+    
+    return (totalHours / reviewedBatches.length).toFixed(1)
+  }, [allBatches])
+  
+  // Calculate unattached documents
+  const unattachedDocuments = useMemo(() => {
+    return allInvoices.filter(inv => !inv.documents_count || inv.documents_count === 0).length
+  }, [allInvoices])
+
+  // Calculate Aging A/R from real invoices
+  const agingAR = useMemo((): AgingAR => {
+    const aging: AgingAR = {
+      '1_15': 0,
+      '16_30': 0,
+      '31_45': 0,
+      '46_60': 0,
+      '61_90': 0,
+      over_91: 0,
+      total: 0,
+    }
+    
+    allInvoices
+      .filter(inv => inv.status !== 'hold' && inv.status !== 'pending' && inv.status !== 'paid' && inv.status !== 'force_closed')
+      .forEach(inv => {
+        const days = inv.days_since_expected || 0
+        if (days >= 1 && days <= 15) {
+          aging['1_15'] += inv.amount
+        } else if (days >= 16 && days <= 30) {
+          aging['16_30'] += inv.amount
+        } else if (days >= 31 && days <= 45) {
+          aging['31_45'] += inv.amount
+        } else if (days >= 46 && days <= 60) {
+          aging['46_60'] += inv.amount
+        } else if (days >= 61 && days <= 90) {
+          aging['61_90'] += inv.amount
+        } else if (days > 90) {
+          aging.over_91 += inv.amount
+        }
+        aging.total += inv.amount
+      })
+    
+    return aging
+  }, [allInvoices])
+
+  // Calculate A/R Trend Chart Data (last 30 days)
+  const arTrendData = useMemo(() => {
+    const data: Array<{ date: string; totalAR: number; collected: number }> = []
+    const today = new Date()
+    
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(today)
+      date.setDate(date.getDate() - i)
+      const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      
+      const totalAR = allInvoices
+        .filter(inv => {
+          if (inv.status === 'hold' || inv.status === 'pending' || inv.status === 'paid' || inv.status === 'force_closed') {
+            return false
+          }
+          const approvedDate = inv.approved_at ? new Date(inv.approved_at) : new Date(inv.created_at)
+          return approvedDate <= date
+        })
+        .reduce((sum, inv) => sum + inv.amount, 0)
+      
+      const collected = allInvoices
+        .filter(inv => inv.status === 'paid' && inv.approved_at)
+        .filter(inv => {
+          const paidDate = new Date(inv.approved_at)
+          return paidDate <= date
+        })
+        .reduce((sum, inv) => sum + inv.amount, 0)
+      
+      data.push({ date: dateStr, totalAR, collected })
+    }
+    
+    return data
+  }, [allInvoices])
+
+  // Calculate Critical Alerts
+  const criticalAlerts = useMemo(() => {
+    const alerts: Array<{
+      id: string
+      type: 'stale_batch' | 'overdue_invoice' | 'missing_document' | 'short_paid'
+      severity: 'high' | 'medium' | 'low'
+      title: string
+      description: string
+      relatedId?: string
+      relatedType?: 'batch' | 'invoice'
+      timestamp?: string
+    }> = []
+    
+    // Stale batches (in same stage >48 hours)
+    const now = new Date()
+    allBatches.forEach(batch => {
+      const submitted = new Date(batch.submitted_at)
+      const hoursSinceSubmitted = (now.getTime() - submitted.getTime()) / (1000 * 60 * 60)
+      
+      if (hoursSinceSubmitted > 48 && (batch.status === 'ready_to_post' || batch.status === 'verification' || batch.status === 'approval')) {
+        alerts.push({
+          id: `stale-${batch.id}`,
+          type: 'stale_batch',
+          severity: hoursSinceSubmitted > 72 ? 'high' : 'medium',
+          title: `Batch ${batch.batch_number} stuck in ${batch.status}`,
+          description: `Batch has been in ${batch.status} for ${Math.round(hoursSinceSubmitted)} hours`,
+          relatedId: batch.id,
+          relatedType: 'batch',
+          timestamp: batch.submitted_at,
+        })
+      }
+    })
+    
+    // Overdue invoices >60 days
+    allInvoices
+      .filter(inv => {
+        const daysSinceExpected = inv.days_since_expected || 0
+        return daysSinceExpected > 60 && inv.status !== 'paid' && inv.status !== 'force_closed'
+      })
+      .forEach(inv => {
+        alerts.push({
+          id: `overdue-${inv.id}`,
+          type: 'overdue_invoice',
+          severity: (inv.days_since_expected || 0) > 90 ? 'high' : 'medium',
+          title: `Invoice ${inv.invoice_number} overdue ${inv.days_since_expected} days`,
+          description: `${formatCurrency(inv.amount)} from ${inv.client_name} - ${inv.broker_name}`,
+          relatedId: inv.id,
+          relatedType: 'invoice',
+          timestamp: inv.created_at,
+        })
+      })
+    
+    return alerts.sort((a, b) => {
+      const severityOrder = { high: 0, medium: 1, low: 2 }
+      return severityOrder[a.severity] - severityOrder[b.severity]
+    }).slice(0, 10)
+  }, [allBatches, allInvoices])
+
+  // Calculate Batch Pipeline
+  const batchPipeline = useMemo(() => {
+    const stages = [
+      { stage: 'ready_to_post', label: 'Ready to Post', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#C2A558' },
+      { stage: 'verification', label: 'Verification', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#819291' },
+      { stage: 'approval', label: 'Approval', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#113543' },
+      { stage: 'submitted', label: 'Submitted', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#2E7D32' },
+    ]
+    
+    const now = new Date()
+    allBatches.forEach(batch => {
+      const stageIndex = stages.findIndex(s => s.stage === batch.status)
+      if (stageIndex >= 0) {
+        stages[stageIndex].count += 1
+        stages[stageIndex].totalAmount += batch.total_amount
+        
+        const submitted = new Date(batch.submitted_at)
+        const hoursSinceSubmitted = (now.getTime() - submitted.getTime()) / (1000 * 60 * 60)
+        if (stages[stageIndex].avgTimeHours === 0) {
+          stages[stageIndex].avgTimeHours = hoursSinceSubmitted
+        } else {
+          stages[stageIndex].avgTimeHours = (stages[stageIndex].avgTimeHours + hoursSinceSubmitted) / 2
+        }
+      }
+    })
+    
+    return stages.filter(s => s.count > 0)
+  }, [allBatches])
+
+  // Calculate Today's Actions
+  const todaysActions = useMemo(() => {
+    const actions: Array<{
+      id: string
+      type: 'batch_review' | 'broker_call' | 'document_upload' | 'invoice_approval'
+      title: string
+      description: string
+      priority: 'high' | 'medium' | 'low'
+      relatedId?: string
+    }> = []
+    
+    // Batches to review (oldest first)
+    pendingBatches.slice(0, 5).forEach(batch => {
+      const hoursSinceSubmitted = (new Date().getTime() - new Date(batch.submitted_at).getTime()) / (1000 * 60 * 60)
+      actions.push({
+        id: `batch-${batch.id}`,
+        type: 'batch_review',
+        title: `Review batch ${batch.batch_number}`,
+        description: `${batch.client_name} - ${batch.total_invoices} invoices`,
+        priority: hoursSinceSubmitted > 24 ? 'high' : 'medium',
+        relatedId: batch.id,
+      })
+    })
+    
+    // Broker calls needed (overdue invoices not contacted)
+    allInvoices
+      .filter(inv => {
+        const daysSinceExpected = inv.days_since_expected || 0
+        return daysSinceExpected >= 15 && !inv.broker_contacted && inv.status !== 'paid' && inv.status !== 'force_closed'
+      })
+      .slice(0, 5)
+      .forEach(inv => {
+        actions.push({
+          id: `call-${inv.id}`,
+          type: 'broker_call',
+          title: `Call broker for ${inv.invoice_number}`,
+          description: `${inv.broker_name} - ${inv.days_since_expected} days overdue`,
+          priority: (inv.days_since_expected || 0) > 30 ? 'high' : 'medium',
+          relatedId: inv.id,
+        })
+      })
+    
+    return actions.sort((a, b) => {
+      const priorityOrder = { high: 0, medium: 1, low: 2 }
+      return priorityOrder[a.priority] - priorityOrder[b.priority]
+    }).slice(0, 8)
+  }, [pendingBatches, allInvoices])
+
+  const handleCardClick = (cardType: string) => {
+    switch (cardType) {
+      case 'batches':
+        navigate('/batches')
+        break
+      case 'invoices':
+        navigate('/invoice-search')
+        break
+      case 'ar':
+        navigate('/aging-ar')
+        break
+      case 'collections':
+        navigate('/collections')
+        break
+      default:
+        break
+    }
+  }
+
+  const handleBatchClick = (batchId: string) => {
+    navigate(`/batches?batch=${batchId}`)
+  }
+
+  const handleInvoiceClick = (invoiceId: string) => {
+    navigate(`/invoice-search?invoice=${invoiceId}`)
+  }
+
+  const handleCallBroker = (invoiceId: string) => {
+    navigate(`/collections?invoice=${invoiceId}`)
+  }
+
+  const handleMarkContacted = (invoiceId: string) => {
+    const invoice = allInvoices.find(inv => inv.id === invoiceId)
+    if (invoice) {
+      invoice.broker_contacted = true
+      invoice.last_broker_contact = new Date().toISOString()
+    }
+  }
+
+  const handleAlertClick = (alert: any) => {
+    if (alert.relatedType === 'batch' && alert.relatedId) {
+      navigate(`/batches?batch=${alert.relatedId}`)
+    } else if (alert.relatedType === 'invoice' && alert.relatedId) {
+      navigate(`/invoice-search?invoice=${alert.relatedId}`)
+    }
+  }
+
+  const handleStageClick = (stage: string) => {
+    navigate(`/batches?stage=${stage}`)
+  }
+
+  const handleActionClick = (action: any) => {
+    if (action.type === 'batch_review' && action.relatedId) {
+      navigate(`/batches?batch=${action.relatedId}`)
+    } else if (action.type === 'broker_call' && action.relatedId) {
+      navigate(`/collections?invoice=${action.relatedId}`)
+    } else if (action.type === 'document_upload' && action.relatedId) {
+      navigate(`/invoice-search?invoice=${action.relatedId}`)
+    }
+  }
+
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: '#F5F5F5' }}>
+      <Header userName="Admin User" userRole="Administrator" />
+
+      <main className="w-full px-4 py-6">
+        <div className="space-y-6">
+          {/* Summary Cards */}
+          <SummaryCards
+            totalBatchesPending={pendingBatches.length}
+            totalInvoicesHLD={invoicesOnHold}
+            totalAR={totalAR}
+            collectionsAlerts={collectionsAlerts}
+            forceCloseRate={parseFloat(forceCloseRate)}
+            avgReviewTime={parseFloat(avgReviewTime)}
+            onCardClick={handleCardClick}
+          />
+
+          {/* Quick Actions */}
+          <QuickActions
+            pendingBatchesCount={pendingBatches.length}
+            collectionsAlertsCount={collectionsAlerts}
+            unattachedDocumentsCount={unattachedDocuments}
+            onReviewBatch={() => {
+              if (pendingBatches.length > 0) {
+                handleBatchClick(pendingBatches[0].id)
+              } else {
+                navigate('/batches')
+              }
+            }}
+            onCollectionsQueue={() => navigate('/collections')}
+            onUnattachedDocuments={() => navigate('/invoice-search')}
+            onCreateBroker={() => navigate('/brokers')}
+            onCreateClient={() => navigate('/clients')}
+            onUploadDocuments={() => navigate('/invoice-search')}
+          />
+
+          {/* Main Content Grid - 2 Column Layout */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            {/* Left Column - 2/3 width */}
+            <div className="xl:col-span-2 space-y-6">
+              {/* A/R Charts Row */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ARTrendChart data={arTrendData} />
+                <AgingDistributionChart aging={agingAR} />
+              </div>
+
+          {/* Collections Queue */}
+          <CollectionsQueue
+                alerts={collectionsQueue}
+            onInvoiceClick={handleInvoiceClick}
+            onCallBroker={handleCallBroker}
+            onMarkContacted={handleMarkContacted}
+          />
+            </div>
+
+            {/* Right Column - 1/3 width */}
+            <div className="space-y-6">
+              {/* Status Widget - Sticky */}
+              <div className="sticky top-4">
+                <BatchStatusWidget />
+              </div>
+
+              {/* Batch Pipeline */}
+              <BatchPipeline stages={batchPipeline} onStageClick={handleStageClick} />
+
+              {/* Critical Alerts */}
+              <CriticalAlerts alerts={criticalAlerts} onAlertClick={handleAlertClick} />
+
+              {/* Today's Actions */}
+              <TodaysActions actions={todaysActions} onActionClick={handleActionClick} />
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  )
+}
