@@ -1,10 +1,9 @@
 import { Link, useLocation } from 'react-router-dom'
-import { FileText, History, Home, Shield } from 'lucide-react'
+import { FileText, History, Home } from 'lucide-react'
 
 const NAV = [
   { to: '/engine', label: 'Review', icon: FileText },
   { to: '/dev/load-history', label: 'History', icon: History },
-  { to: '/dev/rules', label: 'Rules', icon: Shield },
 ] as const
 
 const DOC_TAGS = ['BOL', 'Invoice', 'POD', 'Rate Con', 'Lumper'] as const

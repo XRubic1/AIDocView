@@ -3,13 +3,15 @@ import { useNavigate } from 'react-router-dom'
 import '../styles/landing.css'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
 import { useCountAnimation } from '../hooks/useCountAnimation'
+import { useLandingLiveData } from '../hooks/useLandingLiveData'
+import { HERO_HEADLINE_TIMING, HERO_SUB_COPY } from '../data/landingMetrics'
 import {
-  TICKER_ITEMS,
   WORKFLOW_STEPS,
   SAMPLE_DOCS,
   VERDICT_CARDS,
-  RULE_CARDS,
-  HERO_STATS,
+  EXAMPLE_RULE_CARDS,
+  DEMO_REVIEW_PANEL,
+  type TickerItem,
 } from '../data/landingData'
 
 function PlusIcon() {
@@ -20,27 +22,30 @@ function PlusIcon() {
   )
 }
 
-function TickerRow() {
-  const items = [...TICKER_ITEMS, ...TICKER_ITEMS]
+function TickerRow({ items }: { items: TickerItem[] }) {
+  const doubled = [...items, ...items]
   return (
-    <div className="ticker">
-      <div className="ticker-track">
-        {items.map((item, i) => (
-          <div className="ticker-item" key={`${item.loadId}-${i}`}>
-            <span className={`dot ${item.status}`} />
-            <span className={`status-label ${item.status}`}>{item.label}</span>
-            <span className="load-id">{item.loadId}</span>
-          </div>
-        ))}
+    <div className="ticker-wrap">
+      <div className="ticker">
+        <div className="ticker-track">
+          {doubled.map((item, i) => (
+            <div className="ticker-item" key={`${item.loadId}-${i}`}>
+              <span className={`dot ${item.status}`} />
+              <span className={`status-label ${item.status}`}>{item.label}</span>
+              <span className="load-id">{item.loadId}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
 }
 
-/** AIDocView marketing landing — freight document intelligence */
+/** AIDocView marketing landing — uses saved review history when available. */
 export default function LandingPage() {
   const navigate = useNavigate()
   const rootRef = useRef<HTMLDivElement>(null)
+  const live = useLandingLiveData()
 
   useRevealOnScroll(rootRef)
   useCountAnimation(rootRef)
@@ -82,52 +87,57 @@ export default function LandingPage() {
         </button>
       </nav>
 
-      <section className="hero">
-        <div className="hero-grid-bg" aria-hidden />
-        <div className="hero-accent-bar" aria-hidden />
+      <div className="hero-fold">
+        <section className="hero">
+          <div className="hero-grid-bg" aria-hidden />
+          <div className="hero-accent-bar" aria-hidden />
 
-        <div className="hero-tag">Freight Document Intelligence</div>
+          <div className="hero-main">
+            <div className="hero-copy">
+              <div className="hero-tag">Freight Document Intelligence</div>
 
-        <h1 className="hero-headline">
-          <div>Every Load.</div>
-          <div className="line2">Every Doc.</div>
-          <div className="line3">
-            10 Seconds<span className="cursor" />
-          </div>
-        </h1>
+              <h1 className="hero-headline">
+                <div>{HERO_HEADLINE_TIMING.line1}</div>
+                <div className="line2">{HERO_HEADLINE_TIMING.line2}</div>
+                <div className="line3">
+                  {HERO_HEADLINE_TIMING.line3}
+                  <span className="cursor" />
+                </div>
+              </h1>
 
-        <p className="hero-sub">
-          AIDocView automatically audits your load paperwork — rate cons, BOLs, invoices, PODs — against your load
-          sheet, flagging mismatches and missing pages before they become problems.
-        </p>
+              <p className="hero-sub">{HERO_SUB_COPY}</p>
 
-        <div className="hero-buttons">
-          <button type="button" className="btn-primary" onClick={() => navigate('/dev/load-review')}>
-            <PlusIcon />
-            Open Review Engine
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => scrollTo('review')}>
-            See How It Works →
-          </button>
-        </div>
-
-        <div className="hero-stats">
-          {HERO_STATS.map((stat) => (
-            <div className="hero-stat" key={stat.label}>
-              <div className="hero-stat-num">
-                {stat.prefix}
-                <span className="count-num" data-target={stat.target}>
-                  0
-                </span>
-                <span className="accent">{stat.suffix}</span>
+              <div className="hero-buttons">
+                <button type="button" className="btn-primary" onClick={() => navigate('/dev/load-review')}>
+                  <PlusIcon />
+                  Open Review Engine
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => scrollTo('review')}>
+                  See How It Works →
+                </button>
               </div>
-              <div className="hero-stat-label">{stat.label}</div>
             </div>
-          ))}
-        </div>
-      </section>
 
-      <TickerRow />
+            <div className="hero-stats">
+              {live.heroStats.map((stat) => (
+                <div className="hero-stat" key={stat.label}>
+                  <div className="hero-stat-num">
+                    {stat.prefix}
+                    <span className="count-num" data-target={stat.target}>
+                      0
+                    </span>
+                    <span className="accent">{stat.suffix}</span>
+                  </div>
+                  <div className="hero-stat-label">{stat.label}</div>
+                  {stat.footnote && <div className="hero-stat-footnote">{stat.footnote}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <TickerRow items={live.tickerItems} />
+      </div>
 
       <section className="workflow" id="workflow">
         <div className="section-header reveal">
@@ -162,10 +172,12 @@ export default function LandingPage() {
             </h2>
           </div>
 
+          <p className="panel-demo-tag reveal">Illustration only</p>
+
           <div className="doc-panel reveal reveal-delay-1">
             <div className="panel-header">
-              <span className="panel-title">LD-48294 · Kroger Distribution · 5 documents</span>
-              <span className="panel-status rejected">Rejected</span>
+              <span className="panel-title">{DEMO_REVIEW_PANEL.title}</span>
+              <span className={`panel-status ${DEMO_REVIEW_PANEL.status}`}>Rejected</span>
             </div>
             {SAMPLE_DOCS.map((doc) => (
               <div className="doc-item" key={doc.name}>
@@ -181,9 +193,9 @@ export default function LandingPage() {
           <div className="section-header reveal">
             <div className="section-tag">Flags Raised</div>
             <h2 className="section-title">
-              Why This Load
+              Why a Load
               <br />
-              Was Rejected
+              Gets Rejected
             </h2>
           </div>
 
@@ -203,8 +215,8 @@ export default function LandingPage() {
               <div>
                 <div className="flag-title">POD Receiver Signature Missing</div>
                 <div className="flag-desc">
-                  Kroger DC delivery requires receiver signature on POD. Only a facility stamp was detected. Manual
-                  review required.
+                  Delivery requires receiver signature on POD. Only a facility stamp was detected — flagged for manual
+                  review.
                 </div>
               </div>
             </div>
@@ -213,8 +225,8 @@ export default function LandingPage() {
               <div>
                 <div className="flag-title">Load Number Variation</div>
                 <div className="flag-desc">
-                  BOL references <code>KR-48294-B</code>, rate con shows <code>48294</code>. Matched via suffix rule.
-                  No action needed.
+                  BOL references <code>KR-48294-B</code>, rate con shows <code>48294</code>. Matched via suffix rule when
+                  configured.
                 </div>
               </div>
             </div>
@@ -265,49 +277,28 @@ export default function LandingPage() {
             </h2>
           </div>
           <p className="reveal learn-copy">
-            When a dispatcher overrides a verdict, AIDocView doesn&apos;t forget. That correction is converted into a
-            permanent, named rule — specific to that shipper, broker, or lane. The system gets smarter for{' '}
-            <em>your operation</em> over time.
+            When a dispatcher overrides a verdict, that correction becomes a permanent rule — shipper-specific
+            overrides, tolerances, and custom checks. The system gets smarter for your operation over time.
           </p>
         </div>
 
         <div className="reveal reveal-delay-1">
-          <div className="rules-label">Active Rules — 14 total</div>
+          <div className="rules-label">{live.rulesCountLabel}</div>
 
-          {RULE_CARDS.map((rule) => (
-            <div key={rule.name} className={`rule-card ${rule.isNew ? 'new-rule' : ''}`}>
+          {EXAMPLE_RULE_CARDS.map((rule) => (
+            <div key={rule.name} className="rule-card">
               <div className="rule-header">
                 <span className="rule-name">{rule.name}</span>
                 <span className={`rule-badge ${rule.badge}`}>{rule.badgeLabel}</span>
               </div>
-              <div className="rule-body">
-                {rule.name === 'Standard BOL Signature' && (
-                  <>
-                    Require <code>receiver_signature</code> + <code>delivery_date</code> on all BOLs
-                  </>
-                )}
-                {rule.name === 'Walmart: Stamp Accepted' && (
-                  <>
-                    For <code>shipper = &quot;WALMART*&quot;</code>, facility stamp counts as valid receiver signature
-                  </>
-                )}
-                {rule.name === 'Echo Global: Name Variants' && (
-                  <>
-                    Match <code>&quot;Echo Global&quot;</code>, <code>&quot;Echo Logistics&quot;</code>,{' '}
-                    <code>&quot;ECHO&quot;</code> as same broker
-                  </>
-                )}
-                {rule.name === 'Kroger: Photo POD Valid' && (
-                  <>
-                    For <code>shipper = &quot;KROGER*&quot;</code>, driver photo of unloaded trailer accepted as POD
-                  </>
-                )}
-              </div>
+              <div className="rule-body">{rule.bodyText}</div>
               <div className="rule-meta">{rule.meta}</div>
             </div>
           ))}
 
-          <div className="rules-more">+ 10 more rules active</div>
+          {live.rulesCount > EXAMPLE_RULE_CARDS.length && (
+            <div className="rules-more">+ {live.rulesCount - EXAMPLE_RULE_CARDS.length} more rules configured</div>
+          )}
         </div>
       </section>
 

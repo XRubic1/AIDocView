@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
 import { BatchDocumentReviewResult, DocumentReviewResult } from '../../../types/documentReview'
 import { buildExtractionLog, LogLine } from '../../../utils/buildExtractionLog'
-import TechnicalRulesPanel from './TechnicalRulesPanel'
 
 interface TechnicalLogPaneProps {
   doc: DocumentReviewResult
@@ -9,13 +8,10 @@ interface TechnicalLogPaneProps {
   excelFileName?: string | null
   /** Nested under Summary tab — fills remaining panel height. */
   embedded?: boolean
-  rulesRefreshKey?: number
-  onRulesChanged?: () => void
 }
 
 function groupLines(lines: LogLine[]): {
   meta: LogLine[]
-  rules: LogLine[]
   classify: LogLine[]
   extract: LogLine[]
   checks: LogLine[]
@@ -23,7 +19,6 @@ function groupLines(lines: LogLine[]): {
   footer: LogLine[]
 } {
   const meta: LogLine[] = []
-  const rules: LogLine[] = []
   const classify: LogLine[] = []
   const extract: LogLine[] = []
   const checks: LogLine[] = []
@@ -31,8 +26,8 @@ function groupLines(lines: LogLine[]): {
   const footer: LogLine[] = []
 
   for (const line of lines) {
-    if (line.kind === 'rule') rules.push(line)
-    else if (line.kind === 'classify') classify.push(line)
+    if (line.kind === 'rule') continue
+    if (line.kind === 'classify') classify.push(line)
     else if (line.kind === 'extract') extract.push(line)
     else if (line.kind === 'check' || line.kind === 'warn') checks.push(line)
     else if (line.kind === 'excel') excel.push(line)
@@ -40,7 +35,7 @@ function groupLines(lines: LogLine[]): {
     else meta.push(line)
   }
 
-  return { meta, rules, classify, extract, checks, excel, footer }
+  return { meta, classify, extract, checks, excel, footer }
 }
 
 function LogColumn({ title, lines }: { title: string; lines: LogLine[] }) {
@@ -69,20 +64,15 @@ export default function TechnicalLogPane({
   batchResult,
   excelFileName,
   embedded = false,
-  rulesRefreshKey = 0,
-  onRulesChanged,
 }: TechnicalLogPaneProps) {
   const lines = useMemo(
     () => buildExtractionLog(doc, batchResult, excelFileName),
-    [doc, batchResult, excelFileName, rulesRefreshKey]
+    [doc, batchResult, excelFileName]
   )
   const groups = useMemo(() => groupLines(lines), [lines])
   const verdict = groups.footer[0]
 
-  const colCount =
-    3 +
-    (groups.excel.length > 0 || excelFileName ? 1 : 0) +
-    (groups.rules.length > 0 ? 1 : 0)
+  const colCount = 3 + (groups.excel.length > 0 || excelFileName ? 1 : 0)
 
   return (
     <div className={`engine-tech-panel${embedded ? ' engine-tech-panel--embedded' : ''}`}>
@@ -97,13 +87,10 @@ export default function TechnicalLogPane({
         )}
       </div>
 
-      <TechnicalRulesPanel refreshKey={rulesRefreshKey} onRulesChanged={onRulesChanged} />
-
       <div
         className="engine-tech-grid"
         style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}
       >
-        {groups.rules.length > 0 && <LogColumn title="Rules" lines={groups.rules} />}
         <LogColumn title="Classify" lines={groups.classify} />
         <LogColumn title="Extract" lines={groups.extract} />
         <LogColumn title="Checks" lines={groups.checks} />

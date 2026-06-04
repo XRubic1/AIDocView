@@ -115,40 +115,34 @@ export interface RuleCardData {
   isNew?: boolean
 }
 
-export const RULE_CARDS: RuleCardData[] = [
+/** Example rules shown when none are saved locally yet. */
+export const EXAMPLE_RULE_CARDS: RuleCardData[] = [
   {
     name: 'Standard BOL Signature',
     badge: 'system',
-    badgeLabel: 'System',
+    badgeLabel: 'Built-in',
     bodyText: 'Require receiver_signature + delivery_date on all BOLs',
-    meta: 'Default rule · Applied to all loads',
+    meta: 'Enabled by default in Review Engine → Rules',
   },
   {
-    name: 'Walmart: Stamp Accepted',
+    name: 'Invoice vs Rate Con Amount',
+    badge: 'system',
+    badgeLabel: 'Built-in',
+    bodyText: 'Flag when invoice total differs from rate confirmation beyond your tolerance',
+    meta: 'Tune tolerance in built-in rule settings',
+  },
+  {
+    name: 'Shipper-specific override',
     badge: 'learned',
     badgeLabel: 'Learned',
-    bodyText: 'For shipper = "WALMART*", facility stamp counts as valid receiver signature',
-    meta: 'Added by J. Martinez · Jun 1, 2025 · 847 loads applied',
-  },
-  {
-    name: 'Echo Global: Name Variants',
-    badge: 'learned',
-    badgeLabel: 'Learned',
-    bodyText: 'Match "Echo Global", "Echo Logistics", "ECHO" as same broker',
-    meta: 'Added by T. Rhodes · Apr 14, 2025 · 2,103 loads applied',
-  },
-  {
-    name: 'Kroger: Photo POD Valid',
-    badge: 'learned',
-    badgeLabel: 'Learned · New',
-    bodyText: 'For shipper = "KROGER*", driver photo of unloaded trailer accepted as POD',
-    meta: 'Added by S. Park · Today · 0 loads applied yet',
-    isNew: true,
+    bodyText: 'Example: facility stamp counts as receiver signature for a named shipper',
+    meta: 'You add these in Rules → Shipper after a correction',
   },
 ]
 
-export const HERO_STATS = [
-  { target: 94, suffix: '%', prefix: '', label: 'Auto-approved rate' },
-  { target: 10, suffix: 's', prefix: '<', label: 'Avg review time' },
-  { target: 12, suffix: 'x', prefix: '', label: 'Faster than manual' },
-]
+/** Labels for the static demo panels (not live data). */
+export const DEMO_REVIEW_PANEL = {
+  title: 'Example · LD-48294 · Kroger Distribution · 5 documents',
+  status: 'rejected' as const,
+  flagsTitle: 'Example rejection reasons',
+}

@@ -31,7 +31,12 @@ import TestTailwind from './components/TestTailwind'
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <Routes>
         <Route path="/enroll" element={<Enroll />} />
         <Route path="/how-it-works" element={<HowItWorks />} />

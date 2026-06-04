@@ -10,8 +10,6 @@ interface LoadDetailSummaryProps {
   excelFileName?: string | null
   hideHeader?: boolean
   onCorrectAi?: () => void
-  rulesRefreshKey?: number
-  onRulesChanged?: () => void
 }
 
 /** One-glance labels for the 6 required checks. */
@@ -104,8 +102,6 @@ export default function LoadDetailSummary({
   batchResult,
   excelFileName,
   onCorrectAi,
-  rulesRefreshKey = 0,
-  onRulesChanged,
 }: LoadDetailSummaryProps) {
   const view = useMemo(
     () => buildLoadDetailView(doc, batchResult, { excelFileName }),
@@ -179,14 +175,7 @@ export default function LoadDetailSummary({
 
       <section className="engine-summary-tech" aria-label="Technical pipeline log">
         <div className="engine-summary-tech-head">Technical</div>
-        <TechnicalLogPane
-          doc={doc}
-          batchResult={batchResult}
-          excelFileName={excelFileName}
-          embedded
-          rulesRefreshKey={rulesRefreshKey}
-          onRulesChanged={onRulesChanged}
-        />
+        <TechnicalLogPane doc={doc} batchResult={batchResult} excelFileName={excelFileName} embedded />
       </section>
     </div>
   )

@@ -15,7 +15,6 @@ import { summarizeBatchStatuses } from '../utils/perInvoiceStatus'
 
 import LoadInspector, { InspectorTab } from '../components/loadReview/factorfox/LoadInspector'
 
-import ReviewEstimateBanner from '../components/loadReview/factorfox/ReviewEstimateBanner'
 
 import { recomputeBatchReview } from '../utils/recomputeBatchReview'
 
@@ -27,7 +26,6 @@ import { isAIReviewEnabled } from '../config/aiReview'
 
 import { reviewUploadedDocuments } from '../services/documentReviewService'
 
-import { useReviewBatchEstimate } from '../utils/estimateReviewTokens'
 
 import { BatchDocumentReviewResult, DocumentReviewResult } from '../types/documentReview'
 
@@ -90,17 +88,6 @@ export default function LoadReviewWorkbench() {
   const [reviewedDocs, setReviewedDocs] = useState<DocumentReviewResult[]>([])
 
   const [invoiceJobs, setInvoiceJobs] = useState<Record<string, InvoiceReviewJob>>({})
-
-  const [rulesRefreshKey, setRulesRefreshKey] = useState(0)
-
-
-
-  const batchEstimate = useReviewBatchEstimate(
-    documents.map((doc) => ({ file: doc.file, pageCount: doc.pageCount, fileName: doc.name }))
-  )
-  const reviewTimeLabel = batchEstimate.timeLabel
-
-
 
   const completedReviewCount = Object.values(invoiceJobs).filter(
 
@@ -497,30 +484,6 @@ export default function LoadReviewWorkbench() {
 
 
 
-  const handleRulesChanged = () => {
-
-    setRulesRefreshKey((key) => key + 1)
-
-    setReviewedDocs((docs) => {
-
-      setBatchResult((batch) =>
-
-        batch && docs.length
-
-          ? recomputeBatchReview(docs, batch, selectedRow ?? undefined, loadSheet?.rows, loadSheet?.fileName)
-
-          : batch
-
-      )
-
-      return docs
-
-    })
-
-  }
-
-
-
   const handleExcelRowSelected = (row: LoadSheetRow) => {
 
     setSelectedRow(row)
@@ -645,26 +608,11 @@ export default function LoadReviewWorkbench() {
             id="runBtn"
           >
             <Play className={`w-3 h-3 ${isReviewing ? 'animate-spin' : ''}`} />
-            {isReviewing
-              ? reviewTimeLabel
-                ? `Running… ${reviewTimeLabel}`
-                : 'Running…'
-              : reviewTimeLabel
-                ? `Run Review (${reviewTimeLabel})`
-                : 'Run Review'}
+            {isReviewing ? 'Running…' : 'Run Review'}
           </button>
         </>
       }
     >
-
-      {batchEstimate.tokenEstimate && !isReviewing && (
-        <div className="flex-shrink-0 mx-4 mt-3">
-          <ReviewEstimateBanner
-            estimate={batchEstimate.tokenEstimate}
-            timeLabel={batchEstimate.timeLabel}
-          />
-        </div>
-      )}
 
       {!isAIReviewEnabled() && (
 
@@ -852,10 +800,6 @@ export default function LoadReviewWorkbench() {
                 activeDoc &&
                 batchResult.documents.some((d) => d.documentId === activeDoc.documentId)
             )}
-
-            rulesRefreshKey={rulesRefreshKey}
-
-            onRulesChanged={handleRulesChanged}
 
           />
 

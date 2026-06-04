@@ -55,11 +55,12 @@ export function buildExtractionLog(
     })
 
   const shipperRules = getShipperRulesForPrompt()
-  shipperRules.forEach((line, index) => {
+  shipperRules.forEach((entry, index) => {
+    const summary = `${entry.shipper}: ${entry.rule}`
     lines.push({
       kind: 'rule',
       label: `shipper_${index + 1}`,
-      value: line.slice(0, 72),
+      value: summary.slice(0, 72),
       status: 'pass',
     })
   })

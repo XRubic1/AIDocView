@@ -1,6 +1,8 @@
 /* AIDocView marketing landing — scoped to .landing-page */
 
 .landing-page {
+  width: 100%;
+  max-width: 100%;
   --bg: #0a0a09;
   --bg2: #111110;
   --bg3: #1a1a18;
@@ -128,15 +130,51 @@
   position: relative;
 }
 
-/* ── HERO ── */
+/* ── HERO (fits nav + content + ticker in one viewport) ── */
+.landing-page .hero-fold {
+  width: 100%;
+  max-width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  padding-top: 60px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
 .landing-page .hero {
-  min-height: 100vh;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 2.5vh, 28px) clamp(24px, 4vw, 56px);
+  overflow: hidden;
+  position: relative;
+}
+
+.landing-page .hero-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: clamp(28px, 5vw, 72px);
+  align-items: center;
+  width: 100%;
+  max-width: min(1440px, 96vw);
+  height: 100%;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+}
+
+.landing-page .hero-copy {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 120px 40px 80px;
-  border-bottom: 1px solid var(--border);
-  overflow: hidden;
 }
 
 .landing-page .hero-grid-bg {
@@ -146,7 +184,7 @@
     linear-gradient(var(--border) 1px, transparent 1px),
     linear-gradient(90deg, var(--border) 1px, transparent 1px);
   background-size: 60px 60px;
-  mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 30%, transparent 100%);
+  mask-image: radial-gradient(ellipse 90% 85% at 50% 45%, black 20%, transparent 100%);
   pointer-events: none;
 }
 
@@ -173,11 +211,11 @@
 
 .landing-page .hero-tag {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: clamp(11px, 1.35vh, 14px);
   color: var(--accent);
   letter-spacing: 0.15em;
   text-transform: uppercase;
-  margin-bottom: 24px;
+  margin-bottom: clamp(14px, 2.5vh, 28px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -195,12 +233,12 @@
 
 .landing-page .hero-headline {
   font-family: var(--font-display);
-  font-size: clamp(64px, 8vw, 120px);
+  font-size: clamp(52px, 8.2vh, 108px);
   font-weight: 900;
-  line-height: 0.92;
+  line-height: 0.9;
   letter-spacing: -0.01em;
   text-transform: uppercase;
-  margin-bottom: 32px;
+  margin-bottom: clamp(12px, 2vh, 24px);
   opacity: 0;
   animation: landing-fadeUp 0.7s ease forwards 0.35s;
 }
@@ -214,12 +252,12 @@
 }
 
 .landing-page .hero-sub {
-  font-size: 17px;
+  font-size: clamp(16px, 2.1vh, 22px);
   font-weight: 300;
   color: var(--muted);
-  max-width: 480px;
-  line-height: 1.7;
-  margin-bottom: 48px;
+  line-height: 1.55;
+  max-width: 38em;
+  margin-bottom: clamp(20px, 3.5vh, 40px);
   opacity: 0;
   animation: landing-fadeUp 0.7s ease forwards 0.5s;
 }
@@ -231,7 +269,7 @@
 
 .landing-page .hero-buttons {
   display: flex;
-  gap: 16px;
+  gap: clamp(12px, 2vw, 20px);
   flex-wrap: wrap;
   opacity: 0;
   animation: landing-fadeUp 0.7s ease forwards 0.65s;
@@ -239,14 +277,14 @@
 
 .landing-page .btn-primary {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: clamp(12px, 1.45vh, 15px);
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--bg);
   background: var(--accent);
   border: none;
-  padding: 14px 32px;
+  padding: clamp(14px, 2vh, 20px) clamp(24px, 3vw, 40px);
   cursor: pointer;
   transition: all 0.15s;
   display: inline-flex;
@@ -261,14 +299,14 @@
 
 .landing-page .btn-secondary {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: clamp(12px, 1.45vh, 15px);
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
   background: transparent;
   border: 1px solid var(--border2);
-  padding: 14px 32px;
+  padding: clamp(14px, 2vh, 20px) clamp(24px, 3vw, 40px);
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -279,15 +317,13 @@
 }
 
 .landing-page .hero-stats {
-  position: absolute;
-  right: 40px;
-  top: 50%;
-  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   gap: 1px;
+  flex-shrink: 0;
+  align-self: center;
   opacity: 0;
-  animation: landing-fadeIn 1s ease forwards 1s;
+  animation: landing-fadeIn 1s ease forwards 0.85s;
 }
 
 .landing-page .hero-stat {
@@ -320,6 +356,43 @@
   margin-top: 4px;
 }
 
+.landing-page .hero-stat-footnote {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted2);
+  line-height: 1.4;
+  margin-top: 6px;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.landing-page .hero-fold .ticker-wrap {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Above-the-fold: always visible (no entrance delay) */
+.landing-page .hero-fold .hero-tag,
+.landing-page .hero-fold .hero-headline,
+.landing-page .hero-fold .hero-sub,
+.landing-page .hero-fold .hero-buttons,
+.landing-page .hero-fold .hero-stats {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+
+.landing-page .panel-demo-tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted2);
+  margin-bottom: 8px;
+}
+
 @keyframes landing-fadeUp {
   from {
     opacity: 0;
@@ -342,11 +415,14 @@
 
 /* ── TICKER ── */
 .landing-page .ticker {
+  width: 100%;
+  min-width: 0;
   background: var(--bg2);
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  border-bottom: none;
   padding: 0;
   overflow: hidden;
-  height: 44px;
+  height: 40px;
   display: flex;
   align-items: center;
 }
@@ -354,8 +430,10 @@
 .landing-page .ticker-track {
   display: flex;
   gap: 0;
+  width: max-content;
   animation: landing-ticker 28s linear infinite;
   white-space: nowrap;
+  will-change: transform;
 }
 
 .landing-page .ticker-item {
@@ -1090,13 +1168,51 @@
   }
 }
 
+@media (max-height: 820px) {
+  .landing-page .hero-main {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 20px 28px;
+  }
+
+  .landing-page .hero-headline {
+    font-size: clamp(40px, 6.5vh, 72px);
+  }
+
+  .landing-page .hero-sub {
+    font-size: clamp(14px, 1.8vh, 18px);
+    margin-bottom: 16px;
+  }
+
+  .landing-page .hero-stat-footnote {
+    display: none;
+  }
+}
+
 @media (max-width: 1200px) {
   .landing-page .steps {
     grid-template-columns: repeat(4, 1fr);
   }
+}
+
+@media (max-width: 999px) {
+  .landing-page .hero-main {
+    grid-template-columns: 1fr;
+    gap: clamp(20px, 3vh, 32px);
+    height: auto;
+  }
 
   .landing-page .hero-stats {
-    display: none;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    width: 100%;
+    max-width: none;
+    height: auto;
+  }
+
+  .landing-page .hero-stat {
+    text-align: left;
+    min-width: 0;
+    padding: 20px 28px;
   }
 }
 
@@ -1123,8 +1239,21 @@
     display: none;
   }
 
+  .landing-page .hero-fold {
+    min-height: 100svh;
+  }
+
   .landing-page .hero {
-    padding: 100px 20px 60px;
+    padding: 12px 20px 8px;
+  }
+
+  .landing-page .hero-headline {
+    font-size: clamp(36px, 10vw, 52px);
+  }
+
+  .landing-page .hero-stats {
+    grid-template-columns: 1fr;
+    max-width: none;
   }
 
   .landing-page .workflow,
