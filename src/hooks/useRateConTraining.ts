@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { getAnnotatableFields } from '../utils/annotatableFields'
-import { DocumentReviewResult, ExtractedField, FieldRegionBox } from '../types/documentReview'
+import { DocumentReviewResult, ExtractedField, FieldRegionBox, PageClassification } from '../types/documentReview'
 import {
   buildTrainingFields,
   confirmationsFromTraining,
@@ -18,6 +18,7 @@ export function useDocumentFieldTraining(documentId: string, fileName: string) {
   const [userHints, setUserHints] = useState<Record<string, string>>({})
   const [userRegions, setUserRegions] = useState<Record<string, FieldRegionBox>>({})
   const [userConfirmations, setUserConfirmations] = useState<Record<string, FieldConfirmation>>({})
+  const [pageClassifications, setPageClassificationsState] = useState<PageClassification[]>([])
   const [activeFieldKey, setActiveFieldKey] = useState<string | null>(null)
   const [isTrainingSaved, setIsTrainingSaved] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -30,6 +31,9 @@ export function useDocumentFieldTraining(documentId: string, fileName: string) {
     setUserHints(hintsFromTraining(saved))
     setUserRegions(regionsFromTraining(saved))
     setUserConfirmations(confirmationsFromTraining(saved))
+    if (saved.pageClassifications?.length) {
+      setPageClassificationsState(saved.pageClassifications)
+    }
     setIsTrainingSaved(true)
     setSaveMessage('Loaded your previously saved training for this file.')
   }, [fileName])
@@ -38,6 +42,14 @@ export function useDocumentFieldTraining(documentId: string, fileName: string) {
     setIsTrainingSaved(false)
     setSaveMessage(null)
   }, [])
+
+  const setPageClassifications = useCallback(
+    (pages: PageClassification[]) => {
+      setPageClassificationsState(pages)
+      markDirty()
+    },
+    [markDirty]
+  )
 
   const handleOverrideChange = useCallback(
     (fieldKey: string, value: string | number) => {
@@ -84,8 +96,14 @@ export function useDocumentFieldTraining(documentId: string, fileName: string) {
   const saveTraining = useCallback(
     (aiResult: DocumentReviewResult) => {
       const annotatable = getAnnotatableFields(aiResult)
-      if (annotatable.length === 0) {
-        setSaveMessage('No fields available to save.')
+      const pagesToSave =
+        pageClassifications.length > 0
+          ? pageClassifications
+          : aiResult.extraction.pageClassifications ?? []
+      const hasPageCorrections = pagesToSave.some((page) => page.notes?.includes('User corrected'))
+
+      if (annotatable.length === 0 && !hasPageCorrections) {
+        setSaveMessage('No fields or page corrections to save.')
         return
       }
 
@@ -104,8 +122,14 @@ export function useDocumentFieldTraining(documentId: string, fileName: string) {
       setIsSaving(true)
       try {
         const fields = buildTrainingFields(fieldMap, userOverrides, userHints, userRegions, userConfirmations)
-        if (fields.length === 0) {
-          setSaveMessage('Confirm a field, edit a value, draw a box, or add a hint before saving.')
+        const pagesToSave =
+          pageClassifications.length > 0
+            ? pageClassifications
+            : aiResult.extraction.pageClassifications
+        const hasPageCorrections = pagesToSave?.some((page) => page.notes?.includes('User corrected'))
+
+        if (fields.length === 0 && !hasPageCorrections) {
+          setSaveMessage('Confirm a field, fix a page type, draw a box, or add a hint before saving.')
           setIsSaving(false)
           return
         }
@@ -116,18 +140,25 @@ export function useDocumentFieldTraining(documentId: string, fileName: string) {
           documentType: aiResult.extraction.documentType,
           broker: aiResult.extraction.rateConFields?.broker?.value,
           fields,
-          pageClassifications: aiResult.extraction.pageClassifications,
+          pageClassifications: pagesToSave,
         })
 
         setIsTrainingSaved(true)
-        setSaveMessage(`Saved ${fields.length} training item(s) including marked regions.`)
+        const pageCount = hasPageCorrections ? pagesToSave?.length ?? 0 : 0
+        setSaveMessage(
+          pageCount > 0 && fields.length > 0
+            ? `Saved ${fields.length} field(s) and page classification training.`
+            : pageCount > 0
+              ? 'Saved page classification training.'
+              : `Saved ${fields.length} training item(s) including marked regions.`
+        )
       } catch (error) {
         setSaveMessage(error instanceof Error ? error.message : 'Could not save training.')
       } finally {
         setIsSaving(false)
       }
     },
-    [documentId, fileName, userConfirmations, userHints, userOverrides, userRegions]
+    [documentId, fileName, pageClassifications, userConfirmations, userHints, userOverrides, userRegions]
   )
 
   return {
@@ -135,6 +166,8 @@ export function useDocumentFieldTraining(documentId: string, fileName: string) {
     userHints,
     userRegions,
     userConfirmations,
+    pageClassifications,
+    setPageClassifications,
     activeFieldKey,
     setActiveFieldKey,
     isTrainingSaved,

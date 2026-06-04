@@ -4,7 +4,12 @@ import { ExcelMatchResult, LoadSheetRow } from '../types/loadSheet'
 import { reconcileAccessorialAmount } from './accessorialAmountReconciliation'
 import { freightAmountsMatch } from './amountMatching'
 import { brokersFuzzyMatch } from './brokerFuzzyMatch'
-import { extractFieldsForInvoiceUnit, loadNumbersMatch } from './extractBatchFields'
+import {
+  extractFieldsForInvoiceUnit,
+  invoiceNumberFromFileName,
+  loadNumberFromFileName,
+  loadNumbersMatch,
+} from './extractBatchFields'
 import { autoMatchExcelRow } from './excelLoadMatching'
 import { shouldInvoiceMatchSamePdfOnly } from './reviewRulesEngine'
 
@@ -72,7 +77,30 @@ function normalizeLoadKey(value?: string | null): string | undefined {
   return digits || undefined
 }
 
-/** Collect one invoice unit per extracted invoice page. */
+function fallbackInvoiceForDocument(doc: DocumentReviewResult): InvoiceParse | undefined {
+  const inv = doc.extraction.primaryInvoice
+  if (inv?.load_number || inv?.amount_total != null) return inv
+
+  const rate = doc.extraction.rateConParse
+  const fields = doc.extraction.rateConFields
+  const loadFromFile = loadNumberFromFileName(doc.fileName)
+  const amount =
+    doc.extraction.rate ??
+    (typeof fields?.rate?.value === 'number' ? fields.rate.value : undefined) ??
+    rate?.rate_total
+
+  if (!loadFromFile && amount == null) return undefined
+
+  return {
+    load_number: loadFromFile ?? rate?.load_number ?? fields?.loadNumber?.value?.toString(),
+    amount_total: amount ?? undefined,
+    broker_name: rate?.broker_name ?? fields?.broker?.value?.toString(),
+    carrier_name: rate?.carrier_name ?? fields?.carrier?.value?.toString(),
+    invoice_number: invoiceNumberFromFileName(doc.fileName),
+  }
+}
+
+/** Collect one invoice unit per PDF — each gets its own Excel row match. */
 export function extractInvoiceUnitsFromBatch(documents: DocumentReviewResult[]): InvoiceUnit[] {
   const units: InvoiceUnit[] = []
 
@@ -96,15 +124,25 @@ export function extractInvoiceUnitsFromBatch(documents: DocumentReviewResult[]):
         ?.filter((page) => page.pageType === 'invoice')
         .map((page) => page.pageNumber) ?? []
 
-    if (invoicePages.length === 0) continue
-
     if (doc.extraction.primaryInvoice) {
       units.push({
         id: doc.documentId,
         sourceDocumentId: doc.documentId,
         fileName: doc.fileName,
-        pageNumbers: invoicePages,
+        pageNumbers: invoicePages.length > 0 ? invoicePages : [1],
         invoice: doc.extraction.primaryInvoice,
+      })
+      continue
+    }
+
+    const fallback = fallbackInvoiceForDocument(doc)
+    if (fallback) {
+      units.push({
+        id: `${doc.documentId}-fallback`,
+        sourceDocumentId: doc.documentId,
+        fileName: doc.fileName,
+        pageNumbers: [1],
+        invoice: fallback,
       })
     }
   }

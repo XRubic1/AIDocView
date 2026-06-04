@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AI_REVIEW_CONFIG, getEffectiveTpmBudget } from '../config/aiReview'
+import { estimateCostUsd } from './reviewCost'
 import { getReviewPageCount } from './fileToReviewImage'
 import {
   estimateReviewSecondsForFiles,
@@ -26,6 +27,7 @@ export interface PerFileTokenEstimate {
   totalTokens: number
   peakTokensPerMinute: number
   apiCalls: number
+  estimatedCostUsd: number
 }
 
 /** One parallel batch of PDFs — peak TPM is summed while they run together. */
@@ -39,6 +41,8 @@ export interface ReviewWavePlan {
 
 export interface ReviewBatchTokenEstimate {
   totalTokens: number
+  /** Approximate USD based on configured models and published token rates. */
+  estimatedCostUsd: number
   peakTokensPerMinute: number
   tpmLimit: number
   /** Budget used for batch planning (TPM_LIMIT × throttle ratio). */
@@ -173,6 +177,65 @@ export function estimateTokensForPageCount(pageCount: number): PageTokenEstimate
     peakTokensPerMinute,
     apiCalls,
   }
+}
+
+/** USD cost for one PDF review — mirrors `estimateTokensForPageCount` call mix. */
+export function estimateCostUsdForPageCount(pageCount: number): number {
+  const pages = Math.max(1, pageCount)
+  const batchSize = Math.max(1, AI_REVIEW_CONFIG.CLASSIFY_BATCH_SIZE)
+  const classifyDetail = AI_REVIEW_CONFIG.PAGE_CLASSIFY_DETAIL
+  const extractDetail = AI_REVIEW_CONFIG.DEEP_REVIEW_DETAIL
+  const classifyModel = AI_REVIEW_CONFIG.CLASSIFY_MODEL
+  const extractModel = AI_REVIEW_CONFIG.PRIMARY_MODEL
+
+  let totalUsd = 0
+
+  for (let index = 0; index < pages; index += batchSize) {
+    const batchImages = Math.min(batchSize, pages - index)
+    totalUsd += visionCallCost(batchImages, classifyDetail, PROMPT_TOKENS_CLASSIFY, classifyModel)
+  }
+
+  const rateImages = Math.min(3, pages)
+  totalUsd += visionCallCost(rateImages, extractDetail, PROMPT_TOKENS_EXTRACT, extractModel)
+
+  if (pages >= 2) {
+    totalUsd += visionCallCost(
+      Math.min(2, pages),
+      extractDetail,
+      PROMPT_TOKENS_EXTRACT * 0.85,
+      extractModel
+    )
+  }
+
+  const bolPages = Math.min(4, Math.max(1, Math.ceil(pages * 0.35)))
+  const bolCalls = pages > 6 ? bolPages : 1
+  for (let b = 0; b < bolCalls; b += 1) {
+    totalUsd += visionCallCost(
+      bolCalls === 1 ? bolPages : 1,
+      extractDetail,
+      PROMPT_TOKENS_EXTRACT,
+      extractModel
+    )
+  }
+
+  if (pages > 12) {
+    totalUsd += visionCallCost(1, extractDetail, 1200, extractModel)
+  }
+
+  return totalUsd
+}
+
+function visionCallCost(
+  imageCount: number,
+  detail: 'low' | 'high',
+  promptBase: number,
+  model: string
+): number {
+  const images = Math.max(1, imageCount)
+  const vision = images * estimateVisionTokensPerImage(detail)
+  const promptTokens = Math.round(promptBase + vision)
+  const completionTokens = COMPLETION_TOKENS_AVG
+  return estimateCostUsd(model, promptTokens, completionTokens)
 }
 
 function assessTpmRisk(
@@ -322,6 +385,7 @@ function buildPerFileEstimates(
       totalTokens: row.totalTokens,
       peakTokensPerMinute: row.peakTokensPerMinute,
       apiCalls: row.apiCalls,
+      estimatedCostUsd: estimateCostUsdForPageCount(file.pageCount),
     }
   })
 }
@@ -349,6 +413,7 @@ export function estimateReviewTokensForPageCounts(
   const planBudget = getEffectiveTpmBudget()
 
   const totalTokens = perFile.reduce((sum, row) => sum + row.totalTokens, 0)
+  const estimatedCostUsd = perFile.reduce((sum, row) => sum + row.estimatedCostUsd, 0)
   const apiCalls = perFile.reduce((sum, row) => sum + row.apiCalls, 0)
   const peakTokensPerMinute = estimatePeakTpmForPageCounts(pageCounts)
   const maxConcurrentBeforeLimit = maxConcurrentFilesBeforeLimit(pageCounts, planBudget)
@@ -380,6 +445,7 @@ export function estimateReviewTokensForPageCounts(
 
   return {
     totalTokens,
+    estimatedCostUsd,
     peakTokensPerMinute: throttledPeak,
     tpmLimit,
     planBudget,

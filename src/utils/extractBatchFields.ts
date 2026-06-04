@@ -36,6 +36,13 @@ export function loadNumbersMatch(a?: string | null, b?: string | null): boolean 
   return false
 }
 
+/** Load number from PDF filename stem (e.g. 14503.pdf → 14503). */
+export function loadNumberFromFileName(fileName: string): string | undefined {
+  const stem = fileName.replace(/\.pdf$/i, '').trim()
+  const match = stem.match(/(\d{4,})/)
+  return match?.[1]
+}
+
 /** Try to read invoice number from filename (e.g. INV-12345.pdf). */
 export function invoiceNumberFromFileName(fileName: string): string | undefined {
   const match =
@@ -117,14 +124,14 @@ export function extractFieldsForInvoiceUnit(
   rateCon?: RateConParse
 ): ExtractedBatchFields {
   const inv = unit.invoice
+  const stemLoad = loadNumberFromFileName(unit.fileName)
   return {
-    loadNumber: inv.load_number ?? rateCon?.load_number,
-    invoiceLoadNumber: inv.load_number,
+    loadNumber: inv.load_number ?? stemLoad ?? rateCon?.load_number,
+    invoiceLoadNumber: inv.load_number ?? stemLoad,
     broker: inv.broker_name ?? rateCon?.broker_name,
     carrier: inv.carrier_name ?? rateCon?.carrier_name,
     amount: inv.amount_total ?? rateCon?.rate_total,
-    invoiceNumber:
-      inv.invoice_number ?? invoiceNumberFromFileName(unit.fileName),
+    invoiceNumber: inv.invoice_number ?? invoiceNumberFromFileName(unit.fileName),
     invoiceDate: inv.invoice_date,
   }
 }

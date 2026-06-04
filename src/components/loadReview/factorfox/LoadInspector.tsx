@@ -23,6 +23,8 @@ interface LoadInspectorProps {
   onTabChange: (tab: InspectorTab) => void
   onDocChange: (updated: DocumentReviewResult) => void
   hasReviewResult: boolean
+  rulesRefreshKey?: number
+  onRulesChanged?: () => void
 }
 
 function verdictClassFromLabel(label: string): 'ok' | 'warn' | 'err' {
@@ -42,6 +44,8 @@ export default function LoadInspector({
   onTabChange,
   onDocChange,
   hasReviewResult,
+  rulesRefreshKey = 0,
+  onRulesChanged,
 }: LoadInspectorProps) {
   const view = useMemo(
     () => (doc && batchResult && hasReviewResult ? buildLoadDetailView(doc, batchResult, { excelFileName }) : null),
@@ -165,6 +169,8 @@ export default function LoadInspector({
             batchResult={batchResult}
             excelFileName={excelFileName}
             onCorrectAi={() => onTabChange('teach')}
+            rulesRefreshKey={rulesRefreshKey}
+            onRulesChanged={onRulesChanged}
           />
         )}
 

@@ -61,6 +61,7 @@ export function recomputeBatchReview(
     resolvedExcelRowEarly = findBestExcelRow(sheetRowsEarly, batchFieldsEarly)
   }
 
+  let carrierReconcileFlag: ReturnType<typeof reconcileCarrierNameAcrossDocuments>['flag'] | undefined
   if (shouldUseCarrierOcrExcelCorrection()) {
     const carrierReconcile = reconcileCarrierNameAcrossDocuments(
       effectiveRateConParse,
@@ -70,6 +71,7 @@ export function recomputeBatchReview(
     if (carrierReconcile.parse) {
       effectiveRateConParse = carrierReconcile.parse
     }
+    carrierReconcileFlag = carrierReconcile.flag
   }
 
   const rateConsInBatch = buildRateConsFromBatch(reviewResults).map((ref) => ({
@@ -134,8 +136,8 @@ export function recomputeBatchReview(
   const bolUnits = extractBolUnitsFromBatch(reviewResults)
   const multiStopBol = validateMultiStopBolCoverage(effectiveRateConParse, bolUnits)
 
-  if (carrierReconcile.flag) {
-    crossValidation.flags.push(carrierReconcile.flag)
+  if (carrierReconcileFlag) {
+    crossValidation.flags.push(carrierReconcileFlag)
   }
 
   if (

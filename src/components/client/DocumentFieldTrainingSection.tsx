@@ -1,8 +1,10 @@
 import { useEffect } from 'react'
 import DocumentFieldTrainingPanel from './DocumentFieldTrainingPanel'
 import { mergeFieldUpdate, useDocumentFieldTraining } from '../../hooks/useRateConTraining'
-import { DocumentReviewResult, ExtractedField } from '../../types/documentReview'
+import { DocumentReviewResult, ExtractedField, PageClassification } from '../../types/documentReview'
 import { getAnnotatableFields } from '../../utils/annotatableFields'
+import { applyPageClassificationCorrections } from '../../utils/applyPageClassificationCorrections'
+import type { PageClassificationEdit } from './PageClassificationTrainer'
 
 interface DocumentFieldTrainingSectionProps {
   documentId: string
@@ -32,7 +34,14 @@ export default function DocumentFieldTrainingSection({
   }, [fileName])
 
   const annotatable = getAnnotatableFields(aiResult)
-  if (annotatable.length === 0) return null
+  const pageClassifications = aiResult.extraction.pageClassifications ?? []
+
+  const handlePagesChange = (pages: PageClassification[], _edits: PageClassificationEdit[]) => {
+    training.setPageClassifications(pages)
+    onAiResultChange(applyPageClassificationCorrections(aiResult, pages))
+  }
+
+  if (annotatable.length === 0 && pageClassifications.length === 0) return null
 
   const handleFieldUpdated = (fieldKey: string, field: ExtractedField) => {
     onAiResultChange(mergeFieldUpdate(aiResult, fieldKey, field))
@@ -42,6 +51,8 @@ export default function DocumentFieldTrainingSection({
   return (
     <DocumentFieldTrainingPanel
       result={aiResult}
+      pageClassifications={pageClassifications}
+      onPagesChange={handlePagesChange}
       userOverrides={training.userOverrides}
       userHints={training.userHints}
       userRegions={training.userRegions}

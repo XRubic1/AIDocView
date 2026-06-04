@@ -5,6 +5,7 @@ import {
   DocumentReviewResult,
   ExtractedField,
   FieldRegionBox,
+  PageClassification,
 } from '../../types/documentReview'
 import {
   AnnotatableField,
@@ -14,11 +15,14 @@ import {
 } from '../../utils/annotatableFields'
 import type { FieldConfirmation } from '../../utils/aiTrainingStore'
 import FieldRegionSelector from './FieldRegionSelector'
+import PageClassificationTrainer, { PageClassificationEdit } from './PageClassificationTrainer'
 import { SaveTrainingButton } from './SavedTrainingLibrary'
 import { ff } from '../loadReview/factorfox/factorFoxTheme'
 
 interface DocumentFieldTrainingPanelProps {
   result: DocumentReviewResult
+  pageClassifications?: PageClassification[]
+  onPagesChange?: (pages: PageClassification[], edits: PageClassificationEdit[]) => void
   userOverrides: Record<string, string | number>
   userHints: Record<string, string>
   userRegions: Record<string, FieldRegionBox>
@@ -50,6 +54,8 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
 
 export default function DocumentFieldTrainingPanel({
   result,
+  pageClassifications = [],
+  onPagesChange,
   userOverrides,
   userHints,
   userRegions,
@@ -119,21 +125,23 @@ export default function DocumentFieldTrainingPanel({
     }
   }
 
-  const hasPendingChanges = annotatableFields.some((item) => {
-    const hint = userHints[item.key]?.trim()
-    const region = userRegions[item.key]
-    const confirmation = userConfirmations[item.key]
-    const aiValue = item.aiValue
-    const effective = userOverrides[item.key] ?? aiValue
-    return Boolean(
-      region ||
-        hint ||
-        confirmation ||
-        String(effective ?? '') !== String(aiValue ?? '')
-    )
-  })
+  const hasPendingChanges =
+    pageClassifications.some((page) => page.notes?.includes('User corrected')) ||
+    annotatableFields.some((item) => {
+      const hint = userHints[item.key]?.trim()
+      const region = userRegions[item.key]
+      const confirmation = userConfirmations[item.key]
+      const aiValue = item.aiValue
+      const effective = userOverrides[item.key] ?? aiValue
+      return Boolean(
+        region ||
+          hint ||
+          confirmation ||
+          String(effective ?? '') !== String(aiValue ?? '')
+      )
+    })
 
-  if (annotatableFields.length === 0) {
+  if (annotatableFields.length === 0 && pageClassifications.length === 0) {
     return engine ? (
       <p className="engine-correct-empty">No fields to correct on this document.</p>
     ) : null
@@ -156,6 +164,13 @@ export default function DocumentFieldTrainingPanel({
           />
         </div>
         <div className="engine-correct-fields-pane">
+          {pageClassifications.length > 0 && onPagesChange && (
+            <PageClassificationTrainer
+              pages={pageClassifications}
+              variant={dark ? 'dark' : 'light'}
+              onPagesChange={onPagesChange}
+            />
+          )}
           <div className="engine-correct-fields-head">
             <span>Fields</span>
             <SaveTrainingButton

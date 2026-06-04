@@ -3,6 +3,12 @@ import { LoadSheetRow, ParsedLoadSheet } from '../../../types/loadSheet'
 import ExcelFieldDetectionList from './ExcelFieldDetectionList'
 import { ff } from './factorFoxTheme'
 
+export interface InvoiceExcelMatchChip {
+  fileName: string
+  loadNumber: string
+  status: 'MATCH' | 'PARTIAL' | 'MISMATCH' | 'NONE' | string
+}
+
 interface FactorFoxExcelPanelProps {
   loadSheet: ParsedLoadSheet | null
   selectedRow: LoadSheetRow | null
@@ -11,6 +17,15 @@ interface FactorFoxExcelPanelProps {
   onClear: () => void
   error: string | null
   isParsing: boolean
+  /** Per-PDF Excel row matches when multiple invoices are uploaded. */
+  invoiceMatches?: InvoiceExcelMatchChip[]
+}
+
+function matchStatusClass(status: string): string {
+  if (status === 'MATCH') return 'pass'
+  if (status === 'MISMATCH') return 'fail'
+  if (status === 'PARTIAL') return 'warn'
+  return ''
 }
 
 export default function FactorFoxExcelPanel({
@@ -21,7 +36,10 @@ export default function FactorFoxExcelPanel({
   onClear,
   error,
   isParsing,
+  invoiceMatches = [],
 }: FactorFoxExcelPanelProps) {
+  const multiMatches = invoiceMatches.filter((item) => item.status !== 'NONE')
+
   return (
     <div className="engine-excel-section">
       <div className="engine-excel-label">
@@ -71,7 +89,7 @@ export default function FactorFoxExcelPanel({
             }}
             className="w-full text-xs px-2 py-2"
           >
-            <option value="">Auto-match on review</option>
+            <option value="">Auto-match each invoice</option>
             {loadSheet.rows.map((row) => (
               <option key={row.rowIndex} value={row.rowIndex}>
                 {row.loadNumber}
@@ -80,6 +98,24 @@ export default function FactorFoxExcelPanel({
               </option>
             ))}
           </select>
+
+          {multiMatches.length > 1 && (
+            <ul className="engine-excel-invoice-matches" aria-label="Per-invoice Excel matches">
+              {multiMatches.map((item) => (
+                <li
+                  key={item.fileName}
+                  className={`engine-excel-invoice-chip ${matchStatusClass(item.status)}`}
+                  title={item.fileName}
+                >
+                  <span className="engine-excel-invoice-file">
+                    {item.fileName.replace(/\.pdf$/i, '')}
+                  </span>
+                  <span className="engine-excel-invoice-row">{item.loadNumber}</span>
+                  <span className="engine-excel-invoice-status">{item.status}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

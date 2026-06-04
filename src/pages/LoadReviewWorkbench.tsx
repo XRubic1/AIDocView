@@ -15,6 +15,8 @@ import { summarizeBatchStatuses } from '../utils/perInvoiceStatus'
 
 import LoadInspector, { InspectorTab } from '../components/loadReview/factorfox/LoadInspector'
 
+import ReviewEstimateBanner from '../components/loadReview/factorfox/ReviewEstimateBanner'
+
 import { recomputeBatchReview } from '../utils/recomputeBatchReview'
 
 import { ff } from '../components/loadReview/factorfox/factorFoxTheme'
@@ -88,6 +90,8 @@ export default function LoadReviewWorkbench() {
   const [reviewedDocs, setReviewedDocs] = useState<DocumentReviewResult[]>([])
 
   const [invoiceJobs, setInvoiceJobs] = useState<Record<string, InvoiceReviewJob>>({})
+
+  const [rulesRefreshKey, setRulesRefreshKey] = useState(0)
 
 
 
@@ -237,6 +241,22 @@ export default function LoadReviewWorkbench() {
       setLoadSheet(parsed)
 
       setSelectedRow(null)
+
+      setReviewedDocs((docs) => {
+
+        setBatchResult((batch) =>
+
+          batch && docs.length
+
+            ? recomputeBatchReview(docs, batch, undefined, parsed.rows, parsed.fileName)
+
+            : batch
+
+        )
+
+        return docs
+
+      })
 
     } catch (error) {
 
@@ -477,6 +497,54 @@ export default function LoadReviewWorkbench() {
 
 
 
+  const handleRulesChanged = () => {
+
+    setRulesRefreshKey((key) => key + 1)
+
+    setReviewedDocs((docs) => {
+
+      setBatchResult((batch) =>
+
+        batch && docs.length
+
+          ? recomputeBatchReview(docs, batch, selectedRow ?? undefined, loadSheet?.rows, loadSheet?.fileName)
+
+          : batch
+
+      )
+
+      return docs
+
+    })
+
+  }
+
+
+
+  const handleExcelRowSelected = (row: LoadSheetRow) => {
+
+    setSelectedRow(row)
+
+    setReviewedDocs((docs) => {
+
+      setBatchResult((batch) =>
+
+        batch && docs.length
+
+          ? recomputeBatchReview(docs, batch, row, loadSheet?.rows, loadSheet?.fileName)
+
+          : batch
+
+      )
+
+      return docs
+
+    })
+
+  }
+
+
+
   const handleSaveHistory = () => {
 
     if (!batchResult) return
@@ -590,63 +658,11 @@ export default function LoadReviewWorkbench() {
     >
 
       {batchEstimate.tokenEstimate && !isReviewing && (
-        <div
-          className="flex-shrink-0 mx-4 mt-3 rounded-lg border px-3 py-2 text-xs font-mono"
-          style={{
-            backgroundColor:
-              batchEstimate.tokenEstimate.riskLevel === 'exceeded'
-                ? ff.redLight
-                : batchEstimate.tokenEstimate.riskLevel === 'warning'
-                  ? ff.amberLight
-                  : ff.bg2,
-            borderColor:
-              batchEstimate.tokenEstimate.riskLevel === 'exceeded'
-                ? ff.redBorder
-                : batchEstimate.tokenEstimate.riskLevel === 'warning'
-                  ? ff.amberBorder
-                  : ff.border,
-            color: ff.text,
-          }}
-        >
-          <span className="block" style={{ color: ff.textMuted }}>
-            AI usage estimate (not exact)
-          </span>
-          <span className="block mt-1">{batchEstimate.tokenEstimate.runSummary}</span>
-          <span className="block mt-1" style={{ color: ff.textMuted }}>
-            {batchEstimate.tokenEstimate.message} · planning budget{' '}
-            {batchEstimate.tokenEstimate.planBudget.toLocaleString()} TPM (OpenAI limit{' '}
-            {batchEstimate.tokenEstimate.tpmLimit.toLocaleString()}) · ~
-            {batchEstimate.tokenEstimate.totalTokens.toLocaleString()} tokens total ·{' '}
-            {batchEstimate.tokenEstimate.apiCalls} API calls
-          </span>
-          {batchEstimate.tokenEstimate.suggestedParallel === 1 &&
-            batchEstimate.tokenEstimate.configuredParallel > 1 && (
-              <span className="block mt-1" style={{ color: ff.amber }}>
-                Running 1 PDF at a time to stay under rate limits (high-detail review uses classify +
-                rate con + invoice + BOL in the same minute per file).
-              </span>
-            )}
-          {batchEstimate.tokenEstimate.waves.length > 1 && (
-            <ul className="mt-2 space-y-1 pl-0 list-none">
-              {batchEstimate.tokenEstimate.waves.map((wave) => (
-                <li key={wave.waveIndex} style={{ color: ff.textMuted }}>
-                  Batch {wave.waveIndex} ({wave.fileCount} file{wave.fileCount === 1 ? '' : 's'},{' '}
-                  ~{wave.estimatedPeakTpm.toLocaleString()} TPM):{' '}
-                  <span style={{ color: ff.text }}>{wave.fileNames.join(', ')}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {batchEstimate.tokenEstimate.maxConcurrentBeforeLimit > 0 &&
-            batchEstimate.tokenEstimate.maxConcurrentBeforeLimit <
-              batchEstimate.tokenEstimate.configuredParallel && (
-              <span className="block mt-1" style={{ color: ff.amber }}>
-                Your settings allow {batchEstimate.tokenEstimate.configuredParallel} parallel — only{' '}
-                {batchEstimate.tokenEstimate.maxConcurrentBeforeLimit} fit under{' '}
-                {batchEstimate.tokenEstimate.tpmLimit.toLocaleString()} TPM. Review will use{' '}
-                {batchEstimate.tokenEstimate.suggestedParallel} at a time.
-              </span>
-            )}
+        <div className="flex-shrink-0 mx-4 mt-3">
+          <ReviewEstimateBanner
+            estimate={batchEstimate.tokenEstimate}
+            timeLabel={batchEstimate.timeLabel}
+          />
         </div>
       )}
 
@@ -781,7 +797,17 @@ export default function LoadReviewWorkbench() {
 
               onFileSelected={handleExcelUpload}
 
-              onRowSelected={setSelectedRow}
+              onRowSelected={handleExcelRowSelected}
+
+              invoiceMatches={batchResult?.multiInvoice?.verifications.map((v) => ({
+
+                fileName: v.unit.fileName,
+
+                loadNumber: v.excelMatch?.row.loadNumber ?? v.unit.invoice.load_number ?? '—',
+
+                status: v.excelMatch?.overall ?? 'NONE',
+
+              }))}
 
               onClear={() => {
 
@@ -826,6 +852,10 @@ export default function LoadReviewWorkbench() {
                 activeDoc &&
                 batchResult.documents.some((d) => d.documentId === activeDoc.documentId)
             )}
+
+            rulesRefreshKey={rulesRefreshKey}
+
+            onRulesChanged={handleRulesChanged}
 
           />
 

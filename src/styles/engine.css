@@ -1092,6 +1092,125 @@
   color: #6b6960;
 }
 
+/* ── Pre-run AI / TPM estimate (compact) ── */
+.engine-review-estimate {
+  border: 1px solid;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  color: #eceae2;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.engine-review-estimate-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  margin-bottom: 4px;
+}
+
+.engine-review-estimate-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b6960;
+}
+
+.engine-review-estimate-cost {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #d4f53c;
+}
+
+.engine-review-estimate-stat {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: #9a9890;
+}
+
+.engine-review-estimate-summary {
+  margin: 0 0 4px;
+  line-height: 1.35;
+  color: #c8c6be;
+}
+
+.engine-review-estimate-meta {
+  margin: 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  color: #6b6960;
+  line-height: 1.4;
+}
+
+.engine-review-estimate-warn {
+  margin: 4px 0 0;
+  font-size: 10px;
+  color: #e6c86e;
+  line-height: 1.35;
+}
+
+.engine-review-estimate-batches {
+  margin-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 4px;
+}
+
+.engine-review-estimate-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  color: #8a8880;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.engine-review-estimate-toggle:hover {
+  color: #d4f53c;
+}
+
+.engine-review-estimate-chevron {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s ease;
+}
+
+.engine-review-estimate-chevron.open {
+  transform: rotate(180deg);
+}
+
+.engine-review-estimate-batch-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  max-height: 72px;
+  overflow-y: auto;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  color: #6b6960;
+  line-height: 1.45;
+}
+
+.engine-review-estimate-batch-list li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engine-review-estimate-more {
+  color: #8a8880;
+  font-style: italic;
+}
+
 /* ── Technical log (full viewport) ── */
 .engine-tech-panel {
   flex: 1;
@@ -1236,6 +1355,196 @@
 
 .engine-tech-line.excel .engine-tech-val {
   color: #d4f53c;
+}
+
+.engine-tech-line.rule .engine-tech-val {
+  color: #a8b4ff;
+}
+
+/* Page classifier feedback (Correct AI) */
+.engine-page-mark {
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid #3a3935;
+  background: #1e1d1a;
+  color: #6b6960;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.engine-page-mark:hover {
+  color: #eceae2;
+  border-color: #5a5955;
+}
+
+.engine-page-mark.active.pass {
+  background: rgba(46, 125, 50, 0.2);
+  border-color: #2e7d32;
+  color: #81c784;
+}
+
+.engine-page-mark.active.fail {
+  background: rgba(153, 27, 27, 0.2);
+  border-color: #991b1b;
+  color: #ef9a9a;
+}
+
+/* Inline rules panel under technical log */
+.engine-tech-rules {
+  flex-shrink: 0;
+  margin: 0 0 6px;
+  padding: 8px 10px;
+  border: 1px solid #2a2926;
+  border-radius: 6px;
+  background: #141412;
+}
+
+.engine-tech-rules-head {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b6960;
+  margin-bottom: 6px;
+}
+
+.engine-tech-rules-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  max-height: 72px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.engine-tech-rules-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: #c8c6be;
+}
+
+.engine-tech-rules-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.engine-tech-rules-check span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engine-tech-rules-tag {
+  flex-shrink: 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8px;
+  color: #6b6960;
+  text-transform: uppercase;
+}
+
+.engine-tech-rules-add {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.engine-tech-rules-add-head {
+  grid-column: 1 / -1;
+  font-size: 9px;
+  color: #6b6960;
+  margin-bottom: 2px;
+}
+
+.engine-tech-rules-input {
+  font-size: 10px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid #3a3935;
+  background: #1e1d1a;
+  color: #eceae2;
+}
+
+.engine-tech-rules-btn {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid #5a5955;
+  background: #2a2926;
+  color: #eceae2;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.engine-tech-rules-btn:hover {
+  background: #3a3935;
+}
+
+/* Per-invoice Excel match chips in sidebar */
+.engine-excel-invoice-matches {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 88px;
+  overflow-y: auto;
+}
+
+.engine-excel-invoice-chip {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 4px;
+  align-items: center;
+  font-size: 9px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid #3a3935;
+  background: #1e1d1a;
+  color: #9a9890;
+}
+
+.engine-excel-invoice-chip.pass {
+  border-color: rgba(46, 125, 50, 0.5);
+  color: #81c784;
+}
+
+.engine-excel-invoice-chip.fail {
+  border-color: rgba(153, 27, 27, 0.5);
+  color: #ef9a9a;
+}
+
+.engine-excel-invoice-chip.warn {
+  border-color: rgba(194, 165, 88, 0.5);
+  color: #e6c86e;
+}
+
+.engine-excel-invoice-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engine-excel-invoice-row {
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.engine-excel-invoice-status {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8px;
+  opacity: 0.85;
 }
 
 .engine-tech-foot {

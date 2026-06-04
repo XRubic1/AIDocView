@@ -43,7 +43,7 @@ import {
   extractBolUnitsFromBatch,
   validateMultiStopBolCoverage,
 } from '../utils/multiStopBolValidation'
-import { refinePageClassifications } from '../utils/refinePageClassifications'
+import { refinePageClassifications, mergeTrainingPageClassifications } from '../utils/refinePageClassifications'
 import {
   BolAuditContext,
   finalizeBolAudit,
@@ -1297,6 +1297,11 @@ export async function reviewDocumentFile(
       pageClassifications = single.classifications
       attempts.push(single.attempt)
     }
+
+    pageClassifications = mergeTrainingPageClassifications(
+      refinePageClassifications(pageClassifications),
+      file.name
+    )
 
     extraction = {
       ...extraction,

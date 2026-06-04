@@ -1,4 +1,5 @@
 import { PageClassification, PageDocumentType } from '../types/documentReview'
+import { getSavedTrainingForFile } from './aiTrainingStore'
 
 const RATE_CON_NOTE_HINTS =
   /rate\s*con|load\s*confirm|tender|note\s+to\s+carrier|carrier\s+agreement|terms\s+and\s+conditions|pickup|delivery|commodity|broker|motor\s+carrier|mc[#\s]|dot[#\s]|accessorial|penalt|temperature|reefer|tql|instructions\s+for\s+submission|load\s+details|carrier\s+requirements|shipper|consignee/i
@@ -140,19 +141,46 @@ export function refinePageClassifications(pages: PageClassification[]): PageClas
   return applyCarrierSubmissionPageOrder(refined)
 }
 
+/** Apply saved user page corrections (e.g. page 1 = invoice) after heuristic refinement. */
+export function mergeTrainingPageClassifications(
+  pages: PageClassification[],
+  fileName: string
+): PageClassification[] {
+  const saved = getSavedTrainingForFile(fileName)
+  if (!saved?.pageClassifications?.length) return pages
+
+  const trainedByPage = new Map(saved.pageClassifications.map((page) => [page.pageNumber, page]))
+
+  return pages.map((page) => {
+    const trained = trainedByPage.get(page.pageNumber)
+    if (!trained || trained.pageType === page.pageType) return page
+    const userCorrected = trained.notes?.includes('User corrected')
+    if (!userCorrected) return page
+    return {
+      ...page,
+      pageType: trained.pageType,
+      skipped: trained.pageType === 'blank',
+      skipReason: trained.pageType === 'blank' ? 'Blank or unreadable page' : page.skipReason,
+      notes: trained.notes ?? `Training: page ${page.pageNumber} is ${trained.pageType}`,
+    }
+  })
+}
+
 /**
  * Typical carrier submission: page 1 = carrier invoice, then broker rate con pages, then BOL.
+ * Runs even when another page is tagged invoice (common when page 1 is mis-tagged as rate con).
  */
 function applyCarrierSubmissionPageOrder(pages: PageClassification[]): PageClassification[] {
-  if (pages.length < 3) return pages
-  if (pages.some((page) => page.pageType === 'invoice')) return pages
+  if (pages.length < 2) return pages
+
+  const page1 = pages[0]
+  if (page1.pageType === 'invoice' || isCarrierFreightInvoice(page1)) return pages
 
   const rateConCount = pages.filter((page) => page.pageType === 'rate_confirmation').length
   const hasBol = pages.some((page) => page.pageType === 'bill_of_lading')
 
-  if (!hasBol || rateConCount < 2 || pages[0].pageType !== 'rate_confirmation') {
-    return pages
-  }
+  if (page1.pageType !== 'rate_confirmation' || rateConCount < 1) return pages
+  if (!hasBol && rateConCount < 2) return pages
 
   const refined = pages.map((page) => ({ ...page }))
   refined[0] = {

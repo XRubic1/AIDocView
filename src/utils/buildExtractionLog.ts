@@ -2,8 +2,13 @@ import { getReviewModelSummary } from '../config/aiReview'
 import { BatchDocumentReviewResult, DocumentReviewResult } from '../types/documentReview'
 import { buildStructuredLoadReview } from './loadReviewSummary'
 import { documentHasBolEvidence } from './requiredDocuments'
+import {
+  getCustomReviewRules,
+  getEffectiveBuiltInRules,
+} from './reviewRulesStore'
+import { getShipperRulesForPrompt } from './shipperRulesStore'
 
-export type LogLineKind = 'meta' | 'classify' | 'extract' | 'check' | 'excel' | 'warn' | 'err' | 'ok'
+export type LogLineKind = 'meta' | 'classify' | 'extract' | 'check' | 'excel' | 'rule' | 'warn' | 'err' | 'ok'
 
 export interface LogLine {
   kind: LogLineKind
@@ -26,6 +31,44 @@ export function buildExtractionLog(
   lines.push({ kind: 'meta', label: 'load', value: fileStem })
   lines.push({ kind: 'meta', label: 'model', value: doc.modelUsed })
   lines.push({ kind: 'meta', label: 'pipeline', value: getReviewModelSummary() })
+
+  getEffectiveBuiltInRules()
+    .filter((rule) => rule.enabled)
+    .forEach((rule) => {
+      lines.push({
+        kind: 'rule',
+        label: rule.definition.id,
+        value: rule.definition.name,
+        status: 'pass',
+      })
+    })
+
+  getCustomReviewRules()
+    .filter((rule) => rule.enabled)
+    .forEach((rule) => {
+      lines.push({
+        kind: 'rule',
+        label: 'custom',
+        value: `${rule.title}: ${rule.condition} → ${rule.instruction}`.slice(0, 72),
+        status: 'pass',
+      })
+    })
+
+  const shipperRules = getShipperRulesForPrompt()
+  shipperRules.forEach((line, index) => {
+    lines.push({
+      kind: 'rule',
+      label: `shipper_${index + 1}`,
+      value: line.slice(0, 72),
+      status: 'pass',
+    })
+  })
+
+  if (batch?.auditSummary?.rulesApplied?.length) {
+    batch.auditSummary.rulesApplied.forEach((label) => {
+      lines.push({ kind: 'rule', label: 'audit', value: label, status: 'pass' })
+    })
+  }
 
   const pages = ext.pageClassifications ?? []
   pages.forEach((p) => {
@@ -109,10 +152,41 @@ export function buildExtractionLog(
       }
     })
 
-    const excelMatch = batch.multiInvoice?.verifications.find((v) => v.unit.fileName === doc.fileName)?.excelMatch ?? batch.excelMatch
+    const excelMatch =
+      batch.multiInvoice?.verifications.find((v) => v.unit.fileName === doc.fileName)?.excelMatch ??
+      batch.excelMatch
     if (excelFileName || batch.excelFileName) {
       lines.push({ kind: 'excel', label: 'sheet', value: excelFileName ?? batch.excelFileName ?? '—' })
-      if (excelMatch) {
+
+      const multiVerifications = batch.multiInvoice?.verifications ?? []
+      if (multiVerifications.length > 1) {
+        multiVerifications.forEach((verification) => {
+          const stem = verification.unit.fileName.replace(/\.pdf$/i, '')
+          const match = verification.excelMatch
+          if (match) {
+            lines.push({
+              kind: 'excel',
+              label: stem.slice(0, 12),
+              value: `load ${match.row.loadNumber}${match.row.amount != null ? ` · $${match.row.amount}` : ''} · ${match.overall}`,
+              status:
+                match.overall === 'MATCH' ? 'pass' : match.overall === 'MISMATCH' ? 'fail' : 'warn',
+            })
+          } else {
+            lines.push({
+              kind: 'excel',
+              label: stem.slice(0, 12),
+              value: 'no row match',
+              status: 'warn',
+            })
+          }
+        })
+      } else if (excelMatch) {
+        lines.push({
+          kind: 'excel',
+          label: 'row',
+          value: `load ${excelMatch.row.loadNumber}${excelMatch.row.amount != null ? ` · $${excelMatch.row.amount}` : ''}`,
+          status: excelMatch.overall === 'MATCH' ? 'pass' : excelMatch.overall === 'MISMATCH' ? 'fail' : 'warn',
+        })
         excelMatch.fields.forEach((f) => {
           lines.push({
             kind: 'excel',
