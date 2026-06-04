@@ -22,7 +22,6 @@ import SimpleUploadModal from '../components/client/SimpleUploadModal'
 import BatchStatusWidget from '../components/client/BatchStatusWidget'
 import AgingARChart from '../components/client/AgingARChart'
 import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
-import { addBatch } from '../data/mockBatches'
 
 export default function ClientDashboard() {
   const [data] = useState(mockClientDashboardData)
@@ -83,25 +82,9 @@ export default function ClientDashboard() {
   }, [clientPayments])
 
   const handleSimpleUploadComplete = (files: File[]) => {
-    // Generate batch number
-    const year = new Date().getFullYear()
-    const batchNumber = `BATCH-${year}-${String(Date.now()).slice(-6)}`
-
-    // Create a batch with documents_uploaded status
-    // This batch has no invoices yet - just documents
-    addBatch({
-      batch_number: batchNumber,
-      client_name: data.client_name,
-      client_id: data.client_id,
-      total_invoices: 0, // No invoices created yet
-      total_amount: 0, // No amount calculated yet
-      submitted_at: new Date().toISOString(),
-      status: 'documents_uploaded', // New status for document-only uploads
+    navigate(`/client/batches?tab=create&mode=ai`, {
+      state: { initialFiles: files },
     })
-
-    // Show success message and navigate
-    alert(`Successfully uploaded ${files.length} document(s)! Our team will review and create invoices automatically.`)
-    navigate('/client/batches')
   }
 
   const navItems = [

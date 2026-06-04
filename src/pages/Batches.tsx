@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react'
+import { Plus } from 'lucide-react'
 import { Header } from '../components/admin/Header'
+import AdminCreateBatchPanel from '../components/batches/AdminCreateBatchPanel'
 import ReadyToPostTab from '../components/batches/ReadyToPostTab'
 import VerificationTab from '../components/batches/VerificationTab'
 import ApprovalTab from '../components/batches/ApprovalTab'
@@ -12,6 +14,14 @@ export default function Batches() {
   const [activeTab, setActiveTab] = useState<TabType>('ready_to_post')
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [showCreateBatch, setShowCreateBatch] = useState(false)
+
+  const handleBatchCreated = (batchId: string) => {
+    setRefreshKey((prev) => prev + 1)
+    setShowCreateBatch(false)
+    setActiveTab('ready_to_post')
+    setSelectedBatchId(batchId)
+  }
 
   // Calculate counts dynamically from shared batches data
   const batchCounts = useMemo(() => {
@@ -71,6 +81,56 @@ export default function Batches() {
       <Header userName="Admin User" userRole="Administrator" />
 
       <main className="max-w-[1400px] mx-auto px-6 py-8">
+        <div
+          className={`flex items-center justify-between flex-wrap gap-3 ${showCreateBatch ? 'mb-3' : 'mb-6'}`}
+        >
+          <div>
+            <h1
+              className={`font-bold ${showCreateBatch ? 'text-lg' : 'text-2xl'}`}
+              style={{ color: '#113543' }}
+            >
+              Batches
+            </h1>
+            {!showCreateBatch && (
+              <p className="text-sm mt-1" style={{ color: '#819291' }}>
+                Manage client batches or create a new batch on behalf of a client
+              </p>
+            )}
+          </div>
+          {!showCreateBatch && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedBatchId(null)
+                setShowCreateBatch(true)
+              }}
+              className="flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded transition-colors"
+              style={{ backgroundColor: '#C2A558', color: '#FFFFFF' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#a88d47'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#C2A558'
+              }}
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create batch</span>
+            </button>
+          )}
+        </div>
+
+        {showCreateBatch ? (
+          <div
+            className="border mb-6 flex flex-col min-h-0"
+            style={{ backgroundColor: '#FFFFFF', borderColor: '#819291', maxHeight: 'calc(100vh - 10rem)' }}
+          >
+            <AdminCreateBatchPanel
+              onComplete={handleBatchCreated}
+              onCancel={() => setShowCreateBatch(false)}
+            />
+          </div>
+        ) : (
+          <>
         {/* Tab Navigation */}
         <div className="border-b mb-6" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
           <nav className="flex space-x-1">
@@ -151,6 +211,8 @@ export default function Batches() {
             <AllBatchesTab onBatchSelect={handleAllBatchesSelect} />
           )}
         </div>
+          </>
+        )}
       </main>
     </div>
   )

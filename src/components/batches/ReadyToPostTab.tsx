@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { formatCurrency } from '../../utils/format'
 import { ArrowLeft, CheckCircle } from 'lucide-react'
 import { getAllBatches } from '../../data/mockBatches'
@@ -6,11 +6,7 @@ import { mockInvoices } from '../../data/mockInvoices'
 import { Invoice } from '../../types/invoice'
 import AdminInvoiceDetailView from './AdminInvoiceDetailView'
 import AccountingModal from './AccountingModal'
-
-interface BatchInvoice extends Invoice {
-  paperwork_complete?: boolean
-  broker_assigned?: boolean
-}
+import BatchAiReviewPanel, { InvoiceAiReviewBadge } from './BatchAiReviewPanel'
 
 interface ReadyToPostTabProps {
   batchId: string | null
@@ -25,33 +21,14 @@ export default function ReadyToPostTab({
   onMoveToVerification,
   onBack,
 }: ReadyToPostTabProps) {
-  const [batches] = useState(() => {
-    const allBatches = getAllBatches()
-    return allBatches.filter((b) => b.status === 'ready_to_post')
-  })
+  const batches = getAllBatches().filter((b) => b.status === 'ready_to_post')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
-  const [invoices, setInvoices] = useState<BatchInvoice[]>([])
   const [showAccountingModal, setShowAccountingModal] = useState(false)
+  const [reviewRefresh, setReviewRefresh] = useState(0)
 
   // Find the batch - search in all batches, not just filtered ones
   const allBatches = getAllBatches()
   const batch = batchId ? allBatches.find((b) => b.id === batchId) : null
-
-  // Load invoices for the selected batch and reset selected invoice when batch changes
-  useEffect(() => {
-    if (batchId) {
-      const batchInvoices = mockInvoices
-        .filter((inv) => inv.batch_id === batchId)
-        .map((inv) => ({
-          ...inv,
-          paperwork_complete: !!(inv.documents_count && inv.documents_count > 0),
-          broker_assigned: !!inv.broker_id,
-        }))
-      setInvoices(batchInvoices)
-      // Reset selected invoice when batch changes
-      setSelectedInvoice(null)
-    }
-  }, [batchId])
 
   // If no batch selected, show batch list
   if (!batchId || !batch) {
@@ -237,7 +214,11 @@ export default function ReadyToPostTab({
             <p className="text-sm" style={{ color: '#819291' }}>{batch.client_name}</p>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-wrap gap-2">
+          <BatchAiReviewPanel
+            batchId={batchId}
+            onComplete={() => setReviewRefresh((k) => k + 1)}
+          />
           <button
             onClick={() => setShowAccountingModal(true)}
             className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white transition-colors"
@@ -345,6 +326,9 @@ export default function ReadyToPostTab({
                 Broker
               </th>
               <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
+                AI review
+              </th>
+              <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
                 Actions
               </th>
             </tr>
@@ -352,7 +336,7 @@ export default function ReadyToPostTab({
           <tbody>
             {batchInvoices.map((invoice, index) => (
               <tr
-                key={invoice.id}
+                key={`${invoice.id}-${reviewRefresh}`}
                 className="border-b transition-colors cursor-pointer"
                 style={{
                   borderColor: '#819291',
@@ -399,6 +383,9 @@ export default function ReadyToPostTab({
                   ) : (
                     <span style={{ color: '#C2A558' }}>Not Assigned</span>
                   )}
+                </td>
+                <td className="py-3 px-4 text-center">
+                  <InvoiceAiReviewBadge invoice={invoice} status={invoice.ai_review_status} />
                 </td>
                 <td className="py-3 px-4 text-center">
                       <button

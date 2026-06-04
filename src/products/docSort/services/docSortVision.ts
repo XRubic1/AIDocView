@@ -1,0 +1,113 @@
+import { AI_REVIEW_CONFIG, getOpenAIApiKey } from '../../../config/aiReview'
+import { DOC_SORT_FINGERPRINT_PROMPT } from '../config/prompts'
+import type { DocSortFingerprint, DocSortKind } from '../types'
+import { loadNumberFromFileName } from '../../../utils/extractBatchFields'
+import { parseRateAmount } from '../utils/formatRate'
+import { fileToReviewImages } from '../../../utils/fileToReviewImage'
+import { postOpenAIChatCompletions } from '../../../utils/openaiFetch'
+import type { ReviewImageInfo } from '../../../types/documentReview'
+
+function mapDocType(raw: string): DocSortKind {
+  const t = raw.toUpperCase().replace(/\s+/g, '_')
+  if (t === 'RATE_CON' || t === 'RATE_CONFIRMATION') return 'rate_confirmation'
+  if (t === 'BOL' || t === 'BILL_OF_LADING') return 'bill_of_lading'
+  return 'other'
+}
+
+function buildVisionContent(prompt: string, image: ReviewImageInfo) {
+  return [
+    { type: 'text', text: prompt },
+    { type: 'text', text: `Page 1 of ${image.totalPages}` },
+    {
+      type: 'image_url',
+      image_url: { url: image.previewDataUrl, detail: AI_REVIEW_CONFIG.PAGE_CLASSIFY_DETAIL },
+    },
+  ]
+}
+
+function parseFingerprintResponse(
+  raw: Record<string, unknown>,
+  docId: string,
+  fileName: string
+): DocSortFingerprint {
+  const loadNumbers: string[] = []
+  const rawLoads = raw.load_numbers ?? raw.loadNumbers
+  if (Array.isArray(rawLoads)) {
+    rawLoads.forEach((item) => {
+      if (item != null && String(item).trim()) loadNumbers.push(String(item).trim())
+    })
+  } else if (typeof raw.load_number === 'string' && raw.load_number.trim()) {
+    loadNumbers.push(raw.load_number.trim())
+  }
+
+  const fromFile = loadNumberFromFileName(fileName)
+  if (fromFile && !loadNumbers.some((n) => n.includes(fromFile))) {
+    loadNumbers.push(fromFile)
+  }
+
+  const kind = mapDocType(String(raw.doc_type ?? raw.docType ?? 'OTHER'))
+  const rateRaw = raw.rate_amount ?? raw.rateAmount ?? raw.linehaul_rate
+  const rateAmount = kind === 'rate_confirmation' ? parseRateAmount(rateRaw) : undefined
+  const rateCurrency =
+    typeof raw.rate_currency === 'string' && raw.rate_currency.trim()
+      ? raw.rate_currency.trim().toUpperCase()
+      : rateAmount != null
+        ? 'USD'
+        : undefined
+
+  return {
+    docId,
+    fileName,
+    kind,
+    confidence: Math.max(0, Math.min(1, Number(raw.confidence ?? 0.7))),
+    loadNumbers,
+    broker: typeof raw.broker_name === 'string' ? raw.broker_name.trim() : undefined,
+    carrier: typeof raw.carrier_name === 'string' ? raw.carrier_name.trim() : undefined,
+    pickup: typeof raw.pickup === 'string' ? raw.pickup.trim() : undefined,
+    delivery: typeof raw.delivery === 'string' ? raw.delivery.trim() : undefined,
+    rateAmount,
+    rateCurrency,
+    notes: typeof raw.notes === 'string' ? raw.notes.trim() : undefined,
+  }
+}
+
+/**
+ * One vision call per file — classify + extract match keys (page 1 only).
+ */
+export async function fingerprintDocSortFile(
+  file: File,
+  docId: string
+): Promise<DocSortFingerprint> {
+  if (!getOpenAIApiKey()) {
+    throw new Error('OpenAI API key is not configured. Add VITE_OPENAI_API_KEY to your .env file.')
+  }
+
+  const pages = await fileToReviewImages(file)
+  const firstPage = pages[0]
+  if (!firstPage) {
+    throw new Error('Could not read document image.')
+  }
+
+  const response = await postOpenAIChatCompletions({
+    model: AI_REVIEW_CONFIG.CLASSIFY_MODEL,
+    temperature: 0.1,
+    response_format: { type: 'json_object' },
+    messages: [{ role: 'user', content: buildVisionContent(DOC_SORT_FINGERPRINT_PROMPT, firstPage) }],
+  })
+
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`DocSort scan failed (${response.status}): ${body}`)
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>
+  }
+  const content = payload.choices?.[0]?.message?.content
+  if (!content) {
+    throw new Error('DocSort scan returned empty response.')
+  }
+
+  const raw = JSON.parse(content) as Record<string, unknown>
+  return parseFingerprintResponse(raw, docId, file.name)
+}

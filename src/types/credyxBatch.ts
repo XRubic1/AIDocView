@@ -1,0 +1,53 @@
+import type { DocSortFingerprint, DocSortResult } from '../products/docSort/types'
+import type { Invoice } from './invoice'
+
+/** Client-editable draft before batch submit (AI upload path). */
+export interface CredyxInvoiceDraft {
+  draftId: string
+  groupId: string
+  invoice_number: string
+  load_number: string
+  broker_name: string
+  broker_id: string
+  amount: number
+  invoice_date: string
+  carrier_name?: string
+  rate_missing: boolean
+  confirmed: boolean
+  document_doc_ids: string[]
+  invoice_pdf?: File
+  fingerprints: {
+    rateCons: DocSortFingerprint[]
+    bols: DocSortFingerprint[]
+  }
+}
+
+/** Output of batchIntakePipeline before client confirms and submits. */
+export interface BatchIntakeDraft {
+  batchNumber: string
+  sortResult: DocSortResult
+  invoices: CredyxInvoiceDraft[]
+  unmatched: {
+    rateCons: DocSortFingerprint[]
+    bols: DocSortFingerprint[]
+    other: DocSortFingerprint[]
+  }
+  fileById: Map<string, File>
+}
+
+export type BatchUploadMode = 'ai' | 'manual'
+
+export interface SubmitAiBatchInput {
+  clientId: string
+  clientName: string
+  drafts: CredyxInvoiceDraft[]
+  sortResult: DocSortResult
+  fileById: Map<string, File>
+  confirmedBy: string
+}
+
+export interface SubmitAiBatchResult {
+  batchId: string
+  batchNumber: string
+  invoices: Invoice[]
+}

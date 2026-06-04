@@ -1,6 +1,8 @@
 import { PendingBatch } from '../types/admin'
+import type { Invoice } from '../types/invoice'
+import { addInvoice, getInvoicesByBatchId } from './mockInvoices'
 
-interface Batch extends PendingBatch {
+export interface Batch extends PendingBatch {
   reviewed_at?: string
   reviewed_by?: string
   approved_count?: number
@@ -199,6 +201,18 @@ export const getAllBatches = (): Batch[] => {
   return batchesData
 }
 
+export const getBatchById = (batchId: string): Batch | undefined => {
+  return batchesData.find((b) => b.id === batchId)
+}
+
+export const updateBatchTotals = (batchId: string): void => {
+  const batch = batchesData.find((b) => b.id === batchId)
+  if (!batch) return
+  const invoices = getInvoicesByBatchId(batchId)
+  batch.total_invoices = invoices.length
+  batch.total_amount = invoices.reduce((sum, inv) => sum + inv.amount, 0)
+}
+
 // Function to update batch status
 export const updateBatchStatus = (batchId: string, newStatus: Batch['status']): void => {
   const batch = batchesData.find((b) => b.id === batchId)
@@ -224,3 +238,29 @@ export const addBatch = (batchData: Omit<Batch, 'id' | 'minutes_since_submitted'
   return newBatch
 }
 
+/** Attach invoices to a batch and refresh totals. */
+export const addInvoicesForBatch = (
+  batchId: string,
+  batchNumber: string,
+  invoices: Omit<Invoice, 'id' | 'created_at' | 'batch_id' | 'batch_number'>[]
+): Invoice[] => {
+  const created = invoices.map((inv) =>
+    addInvoice({
+      ...inv,
+      batch_id: batchId,
+      batch_number: batchNumber,
+    })
+  )
+  updateBatchTotals(batchId)
+  return created
+}
+
+export const generateBatchNumber = (): string => {
+  const year = new Date().getFullYear()
+  const month = String(new Date().getMonth() + 1).padStart(2, '0')
+  const day = String(new Date().getDate()).padStart(2, '0')
+  const random = Math.floor(Math.random() * 1000)
+    .toString()
+    .padStart(3, '0')
+  return `BATCH-${year}-${month}${day}-${random}`
+}

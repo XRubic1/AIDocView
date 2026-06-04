@@ -11,6 +11,7 @@ import Login from './pages/Login'
 import ClientLogin from './pages/ClientLogin'
 import Enroll from './pages/Enroll'
 import LandingPage from './pages/LandingPage'
+import PlatformLandingPage from './pages/PlatformLandingPage'
 import HowItWorks from './pages/HowItWorks'
 import Batches from './pages/Batches'
 import CreateBatch from './pages/CreateBatch'
@@ -28,6 +29,8 @@ import LoadReviewWorkbench from './pages/LoadReviewWorkbench'
 import ReviewRulesPage from './pages/ReviewRulesPage'
 import LoadHistoryPage from './pages/LoadHistoryPage'
 import TestTailwind from './components/TestTailwind'
+import DocSortLandingPage from './products/docSort/pages/DocSortLandingPage'
+import DocSortWorkbench from './products/docSort/pages/DocSortWorkbench'
 
 function App() {
   return (
@@ -43,6 +46,9 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/client/login" element={<ClientLogin />} />
         <Route path="/" element={<LandingPage />} />
+        <Route path="/home" element={<PlatformLandingPage />} />
+        <Route path="/docsort" element={<DocSortLandingPage />} />
+        <Route path="/sort" element={<DocSortWorkbench />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/client/dashboard" element={<ClientDashboard />} />
         <Route path="/client/batches" element={<ClientBatches />} />

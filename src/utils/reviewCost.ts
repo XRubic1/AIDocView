@@ -112,6 +112,32 @@ export function aggregateReviewCost(
   }
 }
 
+/** Peak tokens/min from API attempt timestamps (rolling 60s window). */
+export function computePeakTpmFromReviewAttempts(
+  attempts: Array<{ reviewedAt: string; usage?: { totalTokens: number } }>
+): number | null {
+  const events: Array<{ at: number; tokens: number }> = []
+  for (const attempt of attempts) {
+    if (!attempt.usage?.totalTokens) continue
+    const at = new Date(attempt.reviewedAt).getTime()
+    if (Number.isNaN(at)) continue
+    events.push({ at, tokens: attempt.usage.totalTokens })
+  }
+  if (events.length === 0) return null
+
+  events.sort((a, b) => a.at - b.at)
+  const windowMs = 60_000
+  let peak = 0
+  for (let i = 0; i < events.length; i++) {
+    let sum = 0
+    for (let j = i; j < events.length && events[j].at - events[i].at <= windowMs; j++) {
+      sum += events[j].tokens
+    }
+    peak = Math.max(peak, sum)
+  }
+  return Math.round(peak)
+}
+
 export function formatReviewCost(summary: ReviewCostSummary): string {
   const models = summary.byModel.map((row) => `${row.model}: $${row.costUsd.toFixed(4)}`).join(', ')
   return `$${summary.totalUsd.toFixed(4)} (${summary.totalTokens.toLocaleString()} tokens, ${summary.apiCalls} API call${summary.apiCalls !== 1 ? 's' : ''}${models ? ` — ${models}` : ''})`

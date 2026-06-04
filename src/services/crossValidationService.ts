@@ -193,7 +193,10 @@ export function runCrossValidation(input: CrossValidationInput): CrossValidation
     ? `${multiStop.stops.filter((s) => s.status === 'COMPLETE').length}/${stopCount} stops with signed BOL`
     : bolUnits.length === 0
       ? 'No BOL — delivery stop not verified'
-      : 'Single delivery stop with signed BOL'
+      : multiStop.overall === 'COMPLETE'
+        ? 'Single delivery stop with signed BOL'
+        : multiStop.flags.find((f) => f.level === 'ERROR')?.message ??
+          'Single delivery: BOL missing receiver signature or delivery proof'
 
   if (bol?.page_count === 'INCOMPLETE' || bol?.page_count === 'FAIL') {
     const pageNotes = bol.page_count_notes?.trim() ?? ''

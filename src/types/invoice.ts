@@ -42,6 +42,17 @@ export interface Invoice {
   verification_status?: 'Email' | 'Phone' | 'Web' // How the invoice was verified
   contact_persons?: string[] // List of contact persons
   selected_contact_person?: string // Selected contact person
+  /** Client confirmed AI-extracted fields before batch submit */
+  ai_confirmed_at?: string
+  ai_confirmed_by?: string
+  /** Admin AIDocView review outcome */
+  ai_review_status?: 'not_run' | 'running' | 'ready' | 'needs_work'
+  ai_review_summary?: string
+  /** JSON InvoiceAiReviewSnapshot — required checks, issues, gate (survives refresh). */
+  ai_review_snapshot?: string
+  /** DocSort group id + source document ids for admin AI review */
+  doc_sort_group_id?: string
+  document_doc_ids?: string[]
 }
 
 export interface DocumentSendRecord {

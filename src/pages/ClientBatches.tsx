@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams, useLocation } from 'react-router-dom'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { getAllBatches } from '../data/mockBatches'
 import { mockBrokers } from '../data/mockBrokers'
-import { mockClients } from '../data/mockClients'
+import { getInvoicesByBatchId } from '../data/mockInvoices'
+import BatchAiUploadFlow from '../components/client/BatchAiUploadFlow'
+import { submitManualBatch } from '../services/credyx/submitManualBatch'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import { FileText, Calendar, DollarSign, Plus, Trash2, Upload, X, Eye } from 'lucide-react'
@@ -14,45 +17,16 @@ import DocumentReviewResults from '../components/client/DocumentReviewResults'
 import { isAIReviewEnabled, reviewUploadedDocuments } from '../services/documentReviewService'
 import { BatchDocumentReviewResult } from '../types/documentReview'
 
-// Mock batch data for client
-const mockClientBatches = [
-  {
-    id: 'batch-1',
-    batch_number: 'BATCH-2025-001',
-    total_invoices: 25,
-    total_amount: 125000.0,
-    submitted_at: '2025-11-28T10:00:00Z',
-    status: 'pending',
-    reviewed_at: null,
-  },
-  {
-    id: 'batch-2',
-    batch_number: 'BATCH-2025-002',
-    total_invoices: 18,
-    total_amount: 87500.0,
-    submitted_at: '2025-11-25T14:30:00Z',
-    status: 'reviewed',
-    reviewed_at: '2025-11-26T09:15:00Z',
-  },
-  {
-    id: 'batch-3',
-    batch_number: 'BATCH-2025-003',
-    total_invoices: 32,
-    total_amount: 156000.0,
-    submitted_at: '2025-11-22T08:00:00Z',
-    status: 'reviewed',
-    reviewed_at: '2025-11-23T11:30:00Z',
-  },
-  {
-    id: 'batch-4',
-    batch_number: 'BATCH-2025-004',
-    total_invoices: 15,
-    total_amount: 72000.0,
-    submitted_at: '2025-11-20T16:45:00Z',
-    status: 'reviewed',
-    reviewed_at: '2025-11-21T10:20:00Z',
-  },
-]
+type ClientBatchRow = {
+  id: string
+  batch_number: string
+  total_invoices: number
+  total_amount: number
+  submitted_at: string
+  status: string
+  reviewed_at: string | null
+  upload_mode?: string
+}
 
 interface InvoiceDocument {
   id: string
@@ -74,9 +48,32 @@ interface InvoiceFormData {
 
 export default function ClientBatches() {
   const [data] = useState(mockClientDashboardData)
-  const [batches, setBatches] = useState(mockClientBatches)
+  const [batches, setBatches] = useState<ClientBatchRow[]>([])
+  const [createSubMode, setCreateSubMode] = useState<'choose' | 'ai' | 'manual'>('choose')
+  const [dashboardAiFiles, setDashboardAiFiles] = useState<File[] | undefined>(undefined)
+
+  const refreshBatches = useCallback(() => {
+    const rows = getAllBatches()
+      .filter((b) => b.client_id === data.client_id)
+      .map((b) => ({
+        id: b.id,
+        batch_number: b.batch_number,
+        total_invoices: b.total_invoices,
+        total_amount: b.total_amount,
+        submitted_at: b.submitted_at,
+        status: b.status,
+        reviewed_at: b.reviewed_at ?? null,
+        upload_mode: b.upload_mode,
+      }))
+    setBatches(rows)
+  }, [data.client_id])
+
+  useEffect(() => {
+    refreshBatches()
+  }, [refreshBatches])
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   const [highlightedBatchId, setHighlightedBatchId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'create' | 'view'>(() => {
     // Check URL parameter for tab
@@ -104,6 +101,20 @@ export default function ClientBatches() {
       }))
     }
   }, [currentBatchInvoices.length])
+
+  useEffect(() => {
+    const mode = searchParams.get('mode')
+    const state = location.state as { initialFiles?: File[] } | null
+    if (mode === 'ai') {
+      setActiveTab('create')
+      setCreateSubMode('ai')
+      if (state?.initialFiles?.length) {
+        setDashboardAiFiles(state.initialFiles)
+      }
+      searchParams.delete('mode')
+      setSearchParams(searchParams, { replace: true })
+    }
+  }, [searchParams, setSearchParams, location.state])
 
   // Check for highlight parameter from notification
   useEffect(() => {
@@ -158,30 +169,36 @@ export default function ClientBatches() {
   }, [searchParams])
 
   const getStatusBadge = (status: string) => {
-    if (status === 'reviewed') {
+    const submitted = ['submitted', 'processing']
+    const inReview = ['verification', 'approval']
+    if (submitted.includes(status)) {
       return (
         <span
-          className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium capitalize"
+          className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
+          style={{ backgroundColor: '#3ddb7a', color: '#FFFFFF' }}
+        >
+          Submitted
+        </span>
+      )
+    }
+    if (inReview.includes(status)) {
+      return (
+        <span
+          className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
           style={{ backgroundColor: '#819291', color: '#FFFFFF' }}
         >
-          Reviewed
+          In review
         </span>
       )
     }
     return (
       <span
-        className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium capitalize"
+        className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
         style={{ backgroundColor: '#C2A558', color: '#FFFFFF' }}
       >
         Pending
       </span>
     )
-  }
-
-  const generateBatchNumber = () => {
-    const year = new Date().getFullYear()
-    const batchCount = batches.length + 1
-    return `BATCH-${year}-${String(batchCount).padStart(3, '0')}`
   }
 
   const generateNextInvoiceNumber = () => {
@@ -852,68 +869,33 @@ export default function ClientBatches() {
   }
 
   const handleCreateBatch = () => {
-    if (currentBatchInvoices.length === 0) {
-      alert('Please add at least one invoice to the batch')
-      return
+    try {
+      const { batch } = submitManualBatch({
+        clientId: data.client_id,
+        clientName: data.client_name,
+        invoices: currentBatchInvoices.map((inv) => ({
+          invoice_number: inv.invoice_number,
+          load_number: inv.load_number,
+          broker_name: inv.broker_name,
+          amount: inv.amount,
+          invoice_date: inv.invoice_date,
+          notes: inv.notes,
+          documents: inv.documents?.map((d) => ({ id: d.id, file: d.file })),
+        })),
+      })
+      setBatchInvoices((prev) => ({
+        ...prev,
+        [batch.id]: [...currentBatchInvoices],
+      }))
+      setCurrentBatchInvoices([])
+      setCreateSubMode('choose')
+      refreshBatches()
+      setActiveTab('view')
+      setSelectedBatch(batch.id)
+      alert(`Batch ${batch.batch_number} submitted. Credyx will review your paperwork.`)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not create batch')
     }
-
-    const totalAmount = currentBatchInvoices.reduce(
-      (sum, inv) => sum + parseFloat(inv.amount || '0'),
-      0
-    )
-
-    // Get client fee terms
-    const client = mockClients.find((c) => c.id === data.client_id)
-    let feeCalculation: {
-      fee_type?: 'percentage' | 'flat'
-      fee_percentage?: number
-      flat_fee_amount?: number
-      total_fee?: number
-      net_amount?: number
-    } | undefined
-
-    if (client?.fee_terms) {
-      const { fee_type, fee_percentage, flat_fee_amount } = client.fee_terms
-      let totalFee = 0
-
-      if (fee_type === 'percentage' && fee_percentage) {
-        totalFee = (totalAmount * fee_percentage) / 100
-      } else if (fee_type === 'flat' && flat_fee_amount) {
-        totalFee = flat_fee_amount
-      }
-
-      feeCalculation = {
-        fee_type,
-        fee_percentage,
-        flat_fee_amount,
-        total_fee: totalFee,
-        net_amount: totalAmount - totalFee,
-      }
-    }
-
-    const batchId = `batch-${Date.now()}`
-    const batchNumber = generateBatchNumber()
-
-    const newBatch = {
-      id: batchId,
-      batch_number: batchNumber,
-      total_invoices: currentBatchInvoices.length,
-      total_amount: totalAmount,
-      submitted_at: new Date().toISOString(),
-      status: 'pending' as const,
-      reviewed_at: null,
-      fee_calculation: feeCalculation,
-    }
-
-    // Store invoices for this batch
-    setBatchInvoices((prev) => ({
-      ...prev,
-      [batchId]: [...currentBatchInvoices],
-    }))
-
-    setBatches((prev) => [newBatch, ...prev])
-    setCurrentBatchInvoices([])
-    setActiveTab('view')
   }
 
   const handleViewInvoiceDetail = (invoice: InvoiceFormData) => {
@@ -922,6 +904,7 @@ export default function ClientBatches() {
   }
 
   const selectedBatchData = batches.find((b) => b.id === selectedBatch)
+  const selectedBatchStoreInvoices = selectedBatch ? getInvoicesByBatchId(selectedBatch) : []
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
@@ -990,16 +973,81 @@ export default function ClientBatches() {
         </div>
 
         {activeTab === 'create' ? (
-          // Create Batch Tab
           <div className="space-y-6">
+            {createSubMode === 'choose' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <button
+                  type="button"
+                  className="p-8 border-2 rounded text-left transition-shadow hover:shadow-md"
+                  style={{ borderColor: '#C2A558' }}
+                  onClick={() => setCreateSubMode('ai')}
+                >
+                  <h3 className="text-lg font-bold mb-2" style={{ color: '#113543' }}>
+                    AI upload
+                  </h3>
+                  <p className="text-sm" style={{ color: '#819291' }}>
+                    Upload rate cons & BOLs. We sort by load, draft invoices, and you confirm each
+                    before submitting.
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  className="p-8 border-2 rounded text-left transition-shadow hover:shadow-md"
+                  style={{ borderColor: '#819291' }}
+                  onClick={() => setCreateSubMode('manual')}
+                >
+                  <h3 className="text-lg font-bold mb-2" style={{ color: '#113543' }}>
+                    Manual batch
+                  </h3>
+                  <p className="text-sm" style={{ color: '#819291' }}>
+                    Enter invoices one at a time and attach documents yourself.
+                  </p>
+                </button>
+              </div>
+            )}
+
+            {createSubMode === 'ai' && (
+              <div className="bg-white border rounded p-6" style={{ borderColor: '#819291' }}>
+                <BatchAiUploadFlow
+                  clientId={data.client_id}
+                  clientName={data.client_name}
+                  initialFiles={dashboardAiFiles}
+                  onCancel={() => {
+                    setCreateSubMode('choose')
+                    setDashboardAiFiles(undefined)
+                  }}
+                  onComplete={(batchId) => {
+                    setDashboardAiFiles(undefined)
+                    setCreateSubMode('choose')
+                    refreshBatches()
+                    setActiveTab('view')
+                    setSelectedBatch(batchId)
+                    alert('Batch uploaded. Credyx will review your paperwork.')
+                  }}
+                />
+              </div>
+            )}
+
+            {createSubMode === 'manual' && (
+          <div className="space-y-6">
+            <div className="mb-2">
+              <button
+                type="button"
+                className="text-sm underline"
+                style={{ color: '#819291' }}
+                onClick={() => setCreateSubMode('choose')}
+              >
+                Back to upload options
+              </button>
+            </div>
             <div className="bg-white border rounded" style={{ borderColor: '#819291' }}>
               <div className="p-6">
                 <div className="mb-6">
                   <h3 className="text-lg font-bold mb-2" style={{ color: '#113543' }}>
-                    New Batch: {generateBatchNumber()}
+                    Manual batch
                   </h3>
                   <p className="text-sm" style={{ color: '#819291' }}>
-                    Batch number will be auto-generated when you submit
+                    Batch number is auto-generated when you submit
                   </p>
                 </div>
 
@@ -1429,6 +1477,8 @@ export default function ClientBatches() {
               </div>
             </div>
           </div>
+            )}
+          </div>
         ) : selectedBatch ? (
           // Batch Detail View
           <div className="space-y-6">
@@ -1498,7 +1548,65 @@ export default function ClientBatches() {
                     <h4 className="text-lg font-semibold mb-4" style={{ color: '#113543' }}>
                       Invoices in this Batch ({selectedBatchData.total_invoices})
                     </h4>
-                    {batchInvoices[selectedBatch] && batchInvoices[selectedBatch].length > 0 ? (
+                    {selectedBatchStoreInvoices.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b" style={{ borderColor: '#819291' }}>
+                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
+                                Invoice#
+                              </th>
+                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
+                                Load#
+                              </th>
+                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
+                                Broker
+                              </th>
+                              <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
+                                Amount
+                              </th>
+                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
+                                Invoice Date
+                              </th>
+                              <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
+                                Documents
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedBatchStoreInvoices.map((invoice, index) => (
+                              <tr
+                                key={invoice.id}
+                                className="border-b"
+                                style={{
+                                  borderColor: '#819291',
+                                  backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
+                                }}
+                              >
+                                <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
+                                  {invoice.invoice_number}
+                                </td>
+                                <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
+                                  {invoice.load_number || '-'}
+                                </td>
+                                <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
+                                  {invoice.broker_name}
+                                </td>
+                                <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
+                                  {formatCurrency(invoice.amount)}
+                                </td>
+                                <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
+                                  {invoice.invoice_date ? formatDate(invoice.invoice_date) : '-'}
+                                </td>
+                                <td className="py-3 px-4 text-center text-sm" style={{ color: '#819291' }}>
+                                  {invoice.documents_count ?? 0}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : batchInvoices[selectedBatch!] && batchInvoices[selectedBatch!].length > 0 ? (
                       <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead>
@@ -1527,7 +1635,7 @@ export default function ClientBatches() {
                             </tr>
                           </thead>
                           <tbody>
-                            {batchInvoices[selectedBatch].map((invoice, index) => (
+                            {batchInvoices[selectedBatch!].map((invoice, index) => (
                               <tr
                                 key={index}
                                 className="border-b"

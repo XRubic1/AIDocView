@@ -1,5 +1,6 @@
 import { BolAudit, CrossValidationFlag, RateConDestination, RateConParse } from '../types/documentPipeline'
 import { DocumentReviewResult } from '../types/documentReview'
+import { bolAuditMeetsDeliveryRequirements } from './bolAuditSanitizer'
 import { destinationsMatch, formatRateConStop } from './locationMatch'
 
 export interface BolUnit {
@@ -121,12 +122,14 @@ export function validateMultiStopBolCoverage(
 
   if (!isMultiStop) {
     const singleOk =
-      bolUnits.length === 0 || bolUnits.some((unit) => bolReceiverDeliveryProof(unit.bolAudit))
+      bolUnits.length === 0 ||
+      bolUnits.some((unit) => bolAuditMeetsDeliveryRequirements(unit.bolAudit, rateConParse))
     if (bolUnits.length > 0 && !singleOk) {
       flags.push({
         level: 'ERROR',
         field: 'bol_signature',
-        message: 'BOL is missing receiver signature and receiving date.',
+        message:
+          'BOL is missing receiver signature, receiving date (multi-stop), or has blocking delivery issues.',
       })
     }
     return {

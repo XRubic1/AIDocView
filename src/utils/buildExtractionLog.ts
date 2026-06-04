@@ -1,4 +1,5 @@
 import { getReviewModelSummary } from '../config/aiReview'
+import { computePeakTpmFromReviewAttempts } from './reviewCost'
 import { BatchDocumentReviewResult, DocumentReviewResult } from '../types/documentReview'
 import { buildStructuredLoadReview } from './loadReviewSummary'
 import { documentHasBolEvidence } from './requiredDocuments'
@@ -213,6 +214,14 @@ export function buildExtractionLog(
 
   if (batch?.reviewCost?.totalUsd != null) {
     lines.push({ kind: 'meta', label: 'cost', value: `$${batch.reviewCost.totalUsd.toFixed(3)}` })
+  }
+
+  if (batch?.documents?.length) {
+    const attempts = batch.documents.flatMap((d) => d.debugLog.attempts)
+    const peakTpm = computePeakTpmFromReviewAttempts(attempts)
+    if (peakTpm != null) {
+      lines.push({ kind: 'meta', label: 'peak TPM', value: peakTpm.toLocaleString() })
+    }
   }
 
   return lines

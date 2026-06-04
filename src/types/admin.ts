@@ -25,6 +25,14 @@ export interface PendingBatch {
     total_fee?: number
     net_amount?: number // total_amount - total_fee
   }
+  /** How the client created this batch */
+  upload_mode?: 'ai' | 'manual'
+  /** DocSort pipeline status for AI uploads */
+  sort_status?: 'pending' | 'sorting' | 'ready' | 'failed'
+  /** JSON-safe DocSort result snapshot (no File blobs) */
+  doc_sort_snapshot?: string
+  /** Unmatched document ids from DocSort (admin visibility) */
+  unmatched_doc_ids?: string[]
 }
 
 export interface CollectionsAlert {

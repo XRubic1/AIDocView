@@ -8,6 +8,12 @@ import { mockBrokers } from '../../data/mockBrokers'
 import { mockClients } from '../../data/mockClients'
 import jsPDF from 'jspdf'
 import { generateInvoicePDFFile } from '../../utils/generateInvoicePDF'
+import { addBatchFile, getBatchFile } from '../../data/batchFileStore'
+import { updateInvoice } from '../../data/mockInvoices'
+import {
+  invoiceDocumentsMissingFromStore,
+  resolveInvoiceDocuments,
+} from '../../utils/resolveInvoiceDocuments'
 
 interface Document {
   id: string
@@ -273,24 +279,16 @@ export default function AdminInvoiceDetailView({
     }
   }
 
-  const getDocumentsForInvoice = (inv: Invoice): Document[] => {
-    if (!inv || !inv.documents_count) return []
-    return Array.from({ length: inv.documents_count || 0 }).map((_, idx) => ({
-      id: `doc-${inv.id}-${idx}`,
-      name: `Document ${idx + 1}.pdf`,
-      type: 'application/pdf',
-      size: 1024 * 500,
-    }))
-  }
-
-  // Initialize documents when invoice changes
+  // Initialize documents from batch file store (admin/client AI & manual uploads)
   useEffect(() => {
-    if (currentInvoice) {
-      const initialDocs = getDocumentsForInvoice(currentInvoice)
-      setDocuments(initialDocs)
-      setCurrentDocumentIndex(0)
+    if (!currentInvoice) {
+      setDocuments([])
+      return
     }
-  }, [currentInvoice?.id])
+    const storeDocs = resolveInvoiceDocuments(currentInvoice)
+    setDocuments(storeDocs)
+    setCurrentDocumentIndex(0)
+  }, [currentInvoice?.id, currentInvoice?.batch_id, refreshKey])
 
   // Update invoice documents_count when documents change
   useEffect(() => {
@@ -877,13 +875,40 @@ export default function AdminInvoiceDetailView({
 
     setDocuments((prev) => {
       const updated = [...prev, ...processedDocuments]
-      // Switch to the first newly uploaded document
       if (updated.length > 0) {
         setCurrentDocumentIndex(updated.length - processedDocuments.length)
       }
       return updated
     })
-    
+
+    if (currentInvoice?.batch_id) {
+      const newDocIds = [...(currentInvoice.document_doc_ids ?? [])]
+      processedDocuments.forEach((doc) => {
+        if (doc.file) {
+          addBatchFile(currentInvoice.batch_id!, doc.id, doc.file)
+          if (!newDocIds.includes(doc.id)) {
+            newDocIds.push(doc.id)
+          }
+        }
+      })
+      const invPdfKey = currentInvoice.doc_sort_group_id
+        ? `invoice-pdf-${currentInvoice.doc_sort_group_id}`
+        : null
+      const hasInvPdf =
+        !!invPdfKey && !!getBatchFile(currentInvoice.batch_id, invPdfKey)
+      const nextCount = newDocIds.length + (hasInvPdf ? 1 : 0)
+      updateInvoice(currentInvoice.id, {
+        document_doc_ids: newDocIds,
+        documents_count: nextCount,
+      })
+      setCurrentInvoice({
+        ...currentInvoice,
+        document_doc_ids: newDocIds,
+        documents_count: nextCount,
+      })
+      setRefreshKey((k) => k + 1)
+    }
+
     // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
@@ -2884,12 +2909,25 @@ export default function AdminInvoiceDetailView({
                   </div>
                 </>
               ) : (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center">
+                <div className="flex items-center justify-center h-full px-6">
+                  <div className="text-center max-w-sm">
                     <FileText className="w-16 h-16 mx-auto mb-4" style={{ color: '#819291' }} />
-                    <p className="text-sm" style={{ color: '#819291' }}>
-                      No documents available
-                    </p>
+                    {currentInvoice && invoiceDocumentsMissingFromStore(currentInvoice) ? (
+                      <>
+                        <p className="text-sm font-medium mb-1" style={{ color: '#113543' }}>
+                          Documents not loaded
+                        </p>
+                        <p className="text-xs" style={{ color: '#819291' }}>
+                          Files are stored in memory during this session. Refreshing the page clears
+                          them — use Upload to re-attach, or re-create the batch.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm" style={{ color: '#819291' }}>
+                        No documents available. Upload PDFs or run AI batch upload with paperwork
+                        attached.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
