@@ -5,7 +5,7 @@ import { Payment } from '../types/payment'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import { DollarSign, Search, Filter, X, Eye, Calendar, CreditCard, CheckCircle } from 'lucide-react'
-import ClientHeader from '../components/ClientHeader'
+import ClientLayout from '../components/ClientLayout'
 
 export default function ClientPayments() {
   const [data] = useState(mockClientDashboardData)
@@ -28,16 +28,6 @@ export default function ClientPayments() {
     notes: '',
   })
 
-  const navItems = [
-    { label: 'Dashboard', path: '/client/dashboard' },
-    { label: 'Batches', path: '/client/batches' },
-    { label: 'Invoices', path: '/client/invoices' },
-    { label: 'Payments', path: '/client/payments' },
-    { label: 'Collections', path: '/client/collections' },
-    { label: 'Reports', path: '/client/reports' },
-    { label: 'Settings', path: '/client/settings' },
-  ]
-
   // Filter payments based on search, status, and method
   const filteredPayments = payments.filter((payment) => {
     const matchesSearch =
@@ -55,11 +45,11 @@ export default function ClientPayments() {
 
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
-      pending: { bg: '#819291', text: '#FFFFFF', label: 'Pending' },
-      confirmed: { bg: '#C2A558', text: '#FFFFFF', label: 'Confirmed' },
+      pending: { bg: '#64748b', text: '#FFFFFF', label: 'Pending' },
+      confirmed: { bg: '#0891b2', text: '#FFFFFF', label: 'Confirmed' },
     }
 
-    const config = statusConfig[status] || { bg: '#819291', text: '#FFFFFF', label: status }
+    const config = statusConfig[status] || { bg: '#64748b', text: '#FFFFFF', label: status }
 
     return (
       <span
@@ -155,23 +145,21 @@ export default function ClientPayments() {
     .reduce((sum, p) => sum + p.amount, 0)
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
-      <ClientHeader clientName={data.client_name} navItems={navItems} />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
+    <ClientLayout clientName={data.client_name} clientId={data.client_id}>
+      <div>
         <div className="mb-6">
           <h2 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
             Payments
           </h2>
-          <p style={{ color: '#819291' }}>View payment history and track payment status</p>
+          <p style={{ color: '#64748b' }}>View payment history and track payment status</p>
         </div>
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white border rounded p-4" style={{ borderColor: '#819291' }}>
+          <div className="bg-white border rounded p-4" style={{ borderColor: '#e2e8f0' }}>
             <div className="flex items-center space-x-2 mb-2">
-              <DollarSign className="w-4 h-4" style={{ color: '#C2A558' }} />
-              <span className="text-sm" style={{ color: '#819291' }}>
+              <DollarSign className="w-4 h-4" style={{ color: '#0891b2' }} />
+              <span className="text-sm" style={{ color: '#64748b' }}>
                 Total Paid
               </span>
             </div>
@@ -179,24 +167,24 @@ export default function ClientPayments() {
               {formatCurrency(totalPaid)}
             </div>
           </div>
-          <div className="bg-white border rounded p-4" style={{ borderColor: '#819291' }}>
+          <div className="bg-white border rounded p-4" style={{ borderColor: '#e2e8f0' }}>
             <div className="flex items-center space-x-2 mb-2">
-              <DollarSign className="w-4 h-4" style={{ color: '#C2A558' }} />
-              <span className="text-sm" style={{ color: '#819291' }}>
+              <DollarSign className="w-4 h-4" style={{ color: '#0891b2' }} />
+              <span className="text-sm" style={{ color: '#64748b' }}>
                 Pending Payments
               </span>
             </div>
             <div className="text-2xl font-bold" style={{ color: '#113543' }}>
               {pendingPayments}
             </div>
-            <div className="text-xs mt-1" style={{ color: '#819291' }}>
+            <div className="text-xs mt-1" style={{ color: '#64748b' }}>
               {formatCurrency(pendingAmount)}
             </div>
           </div>
-          <div className="bg-white border rounded p-4" style={{ borderColor: '#819291' }}>
+          <div className="bg-white border rounded p-4" style={{ borderColor: '#e2e8f0' }}>
             <div className="flex items-center space-x-2 mb-2">
-              <Calendar className="w-4 h-4" style={{ color: '#C2A558' }} />
-              <span className="text-sm" style={{ color: '#819291' }}>
+              <Calendar className="w-4 h-4" style={{ color: '#0891b2' }} />
+              <span className="text-sm" style={{ color: '#64748b' }}>
                 This Month
               </span>
             </div>
@@ -204,10 +192,10 @@ export default function ClientPayments() {
               {formatCurrency(thisMonthPaid)}
             </div>
           </div>
-          <div className="bg-white border rounded p-4" style={{ borderColor: '#819291' }}>
+          <div className="bg-white border rounded p-4" style={{ borderColor: '#e2e8f0' }}>
             <div className="flex items-center space-x-2 mb-2">
-              <DollarSign className="w-4 h-4" style={{ color: '#C2A558' }} />
-              <span className="text-sm" style={{ color: '#819291' }}>
+              <DollarSign className="w-4 h-4" style={{ color: '#0891b2' }} />
+              <span className="text-sm" style={{ color: '#64748b' }}>
                 Total Payments
               </span>
             </div>
@@ -218,10 +206,10 @@ export default function ClientPayments() {
         </div>
 
         {/* Filters */}
-        <div className="bg-white border rounded mb-6 p-4" style={{ borderColor: '#819291' }}>
+        <div className="bg-white border rounded mb-6 p-4" style={{ borderColor: '#e2e8f0' }}>
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4" style={{ color: '#819291' }} />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4" style={{ color: '#64748b' }} />
               <input
                 type="text"
                 placeholder="Search by invoice number, broker, load number, batch, or reference..."
@@ -229,34 +217,34 @@ export default function ClientPayments() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 text-sm border rounded focus:outline-none"
                 style={{
-                  borderColor: '#819291',
+                  borderColor: '#e2e8f0',
                   color: '#113543',
                   backgroundColor: '#FFFFFF',
                 }}
                 onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#C2A558'
+                  e.currentTarget.style.borderColor = '#0891b2'
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor = '#819291'
+                  e.currentTarget.style.borderColor = '#64748b'
                 }}
               />
             </div>
             <div className="flex items-center space-x-2">
-              <Filter className="w-4 h-4" style={{ color: '#819291' }} />
+              <Filter className="w-4 h-4" style={{ color: '#64748b' }} />
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="px-3 py-2 text-sm border rounded focus:outline-none"
                 style={{
-                  borderColor: '#819291',
+                  borderColor: '#e2e8f0',
                   color: '#113543',
                   backgroundColor: '#FFFFFF',
                 }}
                 onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#C2A558'
+                  e.currentTarget.style.borderColor = '#0891b2'
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor = '#819291'
+                  e.currentTarget.style.borderColor = '#64748b'
                 }}
               >
                 <option value="all">All Status</option>
@@ -265,21 +253,21 @@ export default function ClientPayments() {
               </select>
             </div>
             <div className="flex items-center space-x-2">
-              <CreditCard className="w-4 h-4" style={{ color: '#819291' }} />
+              <CreditCard className="w-4 h-4" style={{ color: '#64748b' }} />
               <select
                 value={methodFilter}
                 onChange={(e) => setMethodFilter(e.target.value)}
                 className="px-3 py-2 text-sm border rounded focus:outline-none"
                 style={{
-                  borderColor: '#819291',
+                  borderColor: '#e2e8f0',
                   color: '#113543',
                   backgroundColor: '#FFFFFF',
                 }}
                 onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#C2A558'
+                  e.currentTarget.style.borderColor = '#0891b2'
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor = '#819291'
+                  e.currentTarget.style.borderColor = '#64748b'
                 }}
               >
                 <option value="all">All Methods</option>
@@ -293,7 +281,7 @@ export default function ClientPayments() {
         </div>
 
         {/* Payments Table */}
-        <div className="bg-white border rounded overflow-hidden" style={{ borderColor: '#819291' }}>
+        <div className="bg-white border rounded overflow-hidden" style={{ borderColor: '#e2e8f0' }}>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead style={{ backgroundColor: '#f8f9fa' }}>
@@ -324,10 +312,10 @@ export default function ClientPayments() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y" style={{ borderColor: '#819291' }}>
+              <tbody className="divide-y" style={{ borderColor: '#e2e8f0' }}>
                 {filteredPayments.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-sm" style={{ color: '#819291' }}>
+                    <td colSpan={8} className="px-6 py-8 text-center text-sm" style={{ color: '#64748b' }}>
                       No payments found matching your criteria.
                     </td>
                   </tr>
@@ -352,10 +340,10 @@ export default function ClientPayments() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium" style={{ color: '#113543' }}>
                         {formatCurrency(payment.amount)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: '#819291' }}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: '#64748b' }}>
                         {formatDate(payment.payment_date)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: '#819291' }}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: '#64748b' }}>
                         {formatDate(payment.received_date)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: '#113543' }}>
@@ -371,15 +359,15 @@ export default function ClientPayments() {
                             className="flex items-center space-x-1 px-3 py-1 rounded transition-colors"
                             style={{
                               color: '#113543',
-                              border: '1px solid #819291',
+                              border: '1px solid #e2e8f0',
                             }}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.backgroundColor = '#f8f9fa'
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onMouseLeave={(e) => {
                               e.currentTarget.style.backgroundColor = '#FFFFFF'
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           >
                             <Eye className="w-3 h-3" />
@@ -390,14 +378,14 @@ export default function ClientPayments() {
                               onClick={() => handleConfirmPayment(payment)}
                               className="flex items-center space-x-1 px-3 py-1 rounded transition-colors"
                               style={{
-                                backgroundColor: '#C2A558',
+                                backgroundColor: '#0891b2',
                                 color: '#FFFFFF',
                               }}
                               onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#b89547'
+                                e.currentTarget.style.backgroundColor = '#0a2529'
                               }}
                               onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = '#C2A558'
+                                e.currentTarget.style.backgroundColor = '#0891b2'
                               }}
                             >
                               <CheckCircle className="w-3 h-3" />
@@ -413,13 +401,13 @@ export default function ClientPayments() {
             </table>
           </div>
         </div>
-      </main>
+      </div>
 
       {/* Confirm Payment Modal */}
       {showConfirmPaymentModal && paymentToConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full" style={{ backgroundColor: '#FFFFFF' }}>
-            <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: '#819291' }}>
+            <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: '#e2e8f0' }}>
               <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                 Confirm Payment Received
               </h3>
@@ -437,11 +425,11 @@ export default function ClientPayments() {
 
             <div className="p-6 space-y-4">
               <div className="p-4 rounded" style={{ backgroundColor: '#f8f9fa' }}>
-                <p className="text-sm" style={{ color: '#819291' }}>Invoice Number</p>
+                <p className="text-sm" style={{ color: '#64748b' }}>Invoice Number</p>
                 <p className="text-sm font-semibold mt-1" style={{ color: '#113543' }}>
                   {paymentToConfirm.invoice_number}
                 </p>
-                <p className="text-sm mt-2" style={{ color: '#819291' }}>Amount</p>
+                <p className="text-sm mt-2" style={{ color: '#64748b' }}>Amount</p>
                 <p className="text-sm font-semibold mt-1" style={{ color: '#113543' }}>
                   {formatCurrency(paymentToConfirm.amount)}
                 </p>
@@ -461,15 +449,15 @@ export default function ClientPayments() {
                   }
                   className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                   style={{
-                    borderColor: '#819291',
+                    borderColor: '#e2e8f0',
                     color: '#113543',
                     backgroundColor: '#FFFFFF',
                   }}
                   onFocus={(e) => {
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.borderColor = '#0891b2'
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = '#819291'
+                    e.currentTarget.style.borderColor = '#64748b'
                   }}
                 >
                   <option value="check">Check</option>
@@ -491,15 +479,15 @@ export default function ClientPayments() {
                   }
                   className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                   style={{
-                    borderColor: '#819291',
+                    borderColor: '#e2e8f0',
                     color: '#113543',
                     backgroundColor: '#FFFFFF',
                   }}
                   onFocus={(e) => {
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.borderColor = '#0891b2'
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = '#819291'
+                    e.currentTarget.style.borderColor = '#64748b'
                   }}
                   placeholder="Enter payment reference"
                 />
@@ -517,15 +505,15 @@ export default function ClientPayments() {
                   }
                   className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                   style={{
-                    borderColor: '#819291',
+                    borderColor: '#e2e8f0',
                     color: '#113543',
                     backgroundColor: '#FFFFFF',
                   }}
                   onFocus={(e) => {
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.borderColor = '#0891b2'
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = '#819291'
+                    e.currentTarget.style.borderColor = '#64748b'
                   }}
                 />
               </div>
@@ -540,21 +528,21 @@ export default function ClientPayments() {
                   rows={3}
                   className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                   style={{
-                    borderColor: '#819291',
+                    borderColor: '#e2e8f0',
                     color: '#113543',
                     backgroundColor: '#FFFFFF',
                   }}
                   onFocus={(e) => {
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.borderColor = '#0891b2'
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = '#819291'
+                    e.currentTarget.style.borderColor = '#64748b'
                   }}
                   placeholder="Add any additional notes about this payment"
                 />
               </div>
 
-              <div className="flex justify-end space-x-3 pt-4 border-t" style={{ borderColor: '#819291' }}>
+              <div className="flex justify-end space-x-3 pt-4 border-t" style={{ borderColor: '#e2e8f0' }}>
                 <button
                   onClick={() => {
                     setShowConfirmPaymentModal(false)
@@ -563,16 +551,16 @@ export default function ClientPayments() {
                   className="px-4 py-2 text-sm font-medium transition-colors"
                   style={{
                     color: '#113543',
-                    border: '1px solid #819291',
+                    border: '1px solid #e2e8f0',
                     backgroundColor: '#FFFFFF',
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.backgroundColor = '#f8f9fa'
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.borderColor = '#0891b2'
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = '#FFFFFF'
-                    e.currentTarget.style.borderColor = '#819291'
+                    e.currentTarget.style.borderColor = '#64748b'
                   }}
                   >
                   Cancel
@@ -581,14 +569,14 @@ export default function ClientPayments() {
                   onClick={handleConfirmPaymentSubmit}
                   className="px-4 py-2 text-sm font-medium transition-colors"
                   style={{
-                    backgroundColor: '#C2A558',
+                    backgroundColor: '#0891b2',
                     color: '#FFFFFF',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#b89547'
+                    e.currentTarget.style.backgroundColor = '#0a2529'
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#C2A558'
+                    e.currentTarget.style.backgroundColor = '#0891b2'
                   }}
                 >
                   <CheckCircle className="w-4 h-4 inline mr-1" />
@@ -604,7 +592,7 @@ export default function ClientPayments() {
       {showPaymentDetailModal && selectedPayment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" style={{ backgroundColor: '#FFFFFF' }}>
-            <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: '#819291' }}>
+            <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: '#e2e8f0' }}>
               <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                 Payment Details
               </h3>
@@ -623,7 +611,7 @@ export default function ClientPayments() {
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                  <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                     Invoice Number
                   </label>
                   <p className="text-sm mt-1" style={{ color: '#113543' }}>
@@ -631,7 +619,7 @@ export default function ClientPayments() {
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                  <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                     Broker Name
                   </label>
                   <p className="text-sm mt-1" style={{ color: '#113543' }}>
@@ -639,7 +627,7 @@ export default function ClientPayments() {
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                  <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                     Amount
                   </label>
                   <p className="text-sm mt-1 font-semibold" style={{ color: '#113543' }}>
@@ -647,7 +635,7 @@ export default function ClientPayments() {
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                  <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                     Status
                   </label>
                   <div className="mt-1">
@@ -655,7 +643,7 @@ export default function ClientPayments() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                  <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                     Payment Date
                   </label>
                   <p className="text-sm mt-1" style={{ color: '#113543' }}>
@@ -663,7 +651,7 @@ export default function ClientPayments() {
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                  <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                     Received Date
                   </label>
                   <p className="text-sm mt-1" style={{ color: '#113543' }}>
@@ -671,7 +659,7 @@ export default function ClientPayments() {
                   </p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                  <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                     Payment Method
                   </label>
                   <p className="text-sm mt-1" style={{ color: '#113543' }}>
@@ -680,7 +668,7 @@ export default function ClientPayments() {
                 </div>
                 {selectedPayment.payment_reference && (
                   <div>
-                    <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                    <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                       Payment Reference
                     </label>
                     <p className="text-sm mt-1" style={{ color: '#113543' }}>
@@ -690,7 +678,7 @@ export default function ClientPayments() {
                 )}
                 {selectedPayment.load_number && (
                   <div>
-                    <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                    <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                       Load Number
                     </label>
                     <p className="text-sm mt-1" style={{ color: '#113543' }}>
@@ -700,7 +688,7 @@ export default function ClientPayments() {
                 )}
                 {selectedPayment.batch_number && (
                   <div>
-                    <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                    <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                       Batch Number
                     </label>
                     <p className="text-sm mt-1" style={{ color: '#113543' }}>
@@ -712,7 +700,7 @@ export default function ClientPayments() {
 
               {selectedPayment.notes && (
                 <div>
-                  <label className="text-sm font-medium" style={{ color: '#819291' }}>
+                  <label className="text-sm font-medium" style={{ color: '#64748b' }}>
                     Notes
                   </label>
                   <p className="text-sm mt-1 p-3 rounded" style={{ color: '#113543', backgroundColor: '#f8f9fa' }}>
@@ -721,7 +709,7 @@ export default function ClientPayments() {
                 </div>
               )}
 
-              <div className="flex justify-end pt-4 border-t" style={{ borderColor: '#819291' }}>
+              <div className="flex justify-end pt-4 border-t" style={{ borderColor: '#e2e8f0' }}>
                 <button
                   onClick={() => {
                     setShowPaymentDetailModal(false)
@@ -746,7 +734,7 @@ export default function ClientPayments() {
           </div>
         </div>
       )}
-    </div>
+    </ClientLayout>
   )
 }
 

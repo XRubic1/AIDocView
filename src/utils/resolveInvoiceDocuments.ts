@@ -1,4 +1,8 @@
 import { getBatchFiles } from '../data/batchFileStore'
+import {
+  getInvoiceDocumentFile,
+  getInvoiceDocuments,
+} from '../services/invoiceDocumentStore'
 import type { Invoice } from '../types/invoice'
 
 export interface ResolvedInvoiceDocument {
@@ -14,35 +18,49 @@ export interface ResolvedInvoiceDocument {
  * Used by admin invoice detail (AI/manual batch uploads).
  */
 export function resolveInvoiceDocuments(invoice: Invoice): ResolvedInvoiceDocument[] {
-  if (!invoice.batch_id) return []
-
-  const fileMap = getBatchFiles(invoice.batch_id)
-  if (fileMap.size === 0) return []
-
-  const orderedIds: string[] = []
-
-  if (invoice.doc_sort_group_id) {
-    const invoicePdfKey = `invoice-pdf-${invoice.doc_sort_group_id}`
-    if (fileMap.has(invoicePdfKey)) {
-      orderedIds.push(invoicePdfKey)
-    }
-  }
-
-  for (const docId of invoice.document_doc_ids ?? []) {
-    if (!orderedIds.includes(docId)) {
-      orderedIds.push(docId)
-    }
-  }
-
   const docs: ResolvedInvoiceDocument[] = []
-  for (const docId of orderedIds) {
-    const file = fileMap.get(docId)
+
+  if (invoice.batch_id) {
+    const fileMap = getBatchFiles(invoice.batch_id)
+    const orderedIds: string[] = []
+
+    if (fileMap.size > 0) {
+      if (invoice.doc_sort_group_id) {
+        const invoicePdfKey = `invoice-pdf-${invoice.doc_sort_group_id}`
+        if (fileMap.has(invoicePdfKey)) {
+          orderedIds.push(invoicePdfKey)
+        }
+      }
+
+      for (const docId of invoice.document_doc_ids ?? []) {
+        if (!orderedIds.includes(docId)) {
+          orderedIds.push(docId)
+        }
+      }
+
+      for (const docId of orderedIds) {
+        const file = fileMap.get(docId)
+        if (file) {
+          docs.push({
+            id: docId,
+            name: file.name,
+            type: file.type || 'application/pdf',
+            size: file.size,
+            file,
+          })
+        }
+      }
+    }
+  }
+
+  for (const clientDoc of getInvoiceDocuments(invoice.id)) {
+    const file = getInvoiceDocumentFile(clientDoc.id)
     if (file) {
       docs.push({
-        id: docId,
-        name: file.name,
-        type: file.type || 'application/pdf',
-        size: file.size,
+        id: clientDoc.id,
+        name: clientDoc.file_name,
+        type: clientDoc.mime_type,
+        size: clientDoc.size,
         file,
       })
     }

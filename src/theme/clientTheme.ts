@@ -1,0 +1,57 @@
+/** Client portal design tokens — Stripe/Mercury-inspired SaaS palette. */
+export const clientTheme = {
+  primary: '#0F172A',
+  primaryHover: '#1E293B',
+  secondary: '#64748B',
+  muted: '#64748B',
+  mutedLight: '#94A3B8',
+  border: '#E2E8F0',
+  surface: '#F8FAFC',
+  card: '#FFFFFF',
+  success: '#10B981',
+  warning: '#F59E0B',
+  error: '#EF4444',
+  info: '#3B82F6',
+  accent: '#3B82F6',
+  accentHover: '#2563EB',
+  accentLight: '#EFF6FF',
+  chart: {
+    blue: '#3B82F6',
+    cyan: '#06B6D4',
+    purple: '#8B5CF6',
+    amber: '#F59E0B',
+    orange: '#F97316',
+    red: '#EF4444',
+  },
+  chartGrid: '#E2E8F0',
+  shadow: {
+    card: '0 2px 8px rgba(15, 23, 42, 0.04)',
+    cardHover: '0 8px 20px rgba(0, 0, 0, 0.08)',
+  },
+  sidebar: {
+    bg: '#FFFFFF',
+    border: '#E2E8F0',
+    text: '#0F172A',
+    muted: '#64748B',
+    hover: '#F8FAFC',
+    active: '#EFF6FF',
+    activeBorder: '#3B82F6',
+    activeText: '#0F172A',
+    badge: '#3B82F6',
+    avatarBg: '#EFF6FF',
+    avatarText: '#3B82F6',
+    collapsedWidth: 72,
+    expandedWidth: 220,
+  },
+  density: {
+    gap: 16,
+    cardPadding: 20,
+    metricHeight: 110,
+  },
+  radius: {
+    card: '16px',
+    button: '10px',
+  },
+} as const
+
+export type ClientTheme = typeof clientTheme

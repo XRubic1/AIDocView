@@ -5,7 +5,7 @@ import { ClientCollectionItem } from '../types/collections'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import { AlertCircle, Eye, CheckCircle } from 'lucide-react'
-import ClientHeader from '../components/ClientHeader'
+import ClientLayout from '../components/ClientLayout'
 import CollectionsInvoiceModal from '../components/collections/CollectionsInvoiceModal'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
@@ -74,16 +74,6 @@ export default function ClientCollections() {
   const [showInvoiceDetailModal, setShowInvoiceDetailModal] = useState(false)
   const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null)
 
-  const navItems = [
-    { label: 'Dashboard', path: '/client/dashboard' },
-    { label: 'Batches', path: '/client/batches' },
-    { label: 'Invoices', path: '/client/invoices' },
-    { label: 'Payments', path: '/client/payments' },
-    { label: 'Collections', path: '/client/collections' },
-    { label: 'Reports', path: '/client/reports' },
-    { label: 'Settings', path: '/client/settings' },
-  ]
-
   // Check for highlight parameter from notification
   useEffect(() => {
     const highlightInvoiceId = searchParams.get('highlight_invoice')
@@ -131,12 +121,12 @@ export default function ClientCollections() {
 
   const getPaymentStatusBadge = (status: string) => {
     const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
-      not_received: { bg: '#C2A558', text: '#FFFFFF', label: 'Not Received' },
-      paid: { bg: '#819291', text: '#FFFFFF', label: 'Paid' },
-      review: { bg: '#C2A558', text: '#FFFFFF', label: 'Review' },
+      not_received: { bg: '#0891b2', text: '#FFFFFF', label: 'Not Received' },
+      paid: { bg: '#64748b', text: '#FFFFFF', label: 'Paid' },
+      review: { bg: '#0891b2', text: '#FFFFFF', label: 'Review' },
     }
 
-    const config = statusConfig[status] || { bg: '#819291', text: '#FFFFFF', label: status }
+    const config = statusConfig[status] || { bg: '#64748b', text: '#FFFFFF', label: status }
 
     return (
       <span
@@ -154,7 +144,7 @@ export default function ClientCollections() {
       <span
         className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
         style={{
-          backgroundColor: isUrgent ? '#C2A558' : '#FFF9E6',
+          backgroundColor: isUrgent ? '#0891b2' : '#FFF9E6',
           color: isUrgent ? '#FFFFFF' : '#113543',
         }}
       >
@@ -277,48 +267,46 @@ export default function ClientCollections() {
           50% { background-color: #FFE699; }
         }
       `}</style>
-      <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
-        <ClientHeader clientName={data.client_name} navItems={navItems} />
-
-        <main className="max-w-[1400px] mx-auto px-6 py-8">
+      <ClientLayout clientName={data.client_name} clientId={data.client_id}>
+        <div>
           <div className="mb-6">
             <h2 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
               Collections
             </h2>
-            <p style={{ color: '#819291' }}>
+            <p style={{ color: '#64748b' }}>
               Track approved invoices awaiting payment
             </p>
           </div>
 
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="bg-white border rounded p-6" style={{ borderColor: '#819291' }}>
+            <div className="bg-white border rounded p-6" style={{ borderColor: '#e2e8f0' }}>
               <div className="flex items-center justify-between mb-2">
-                <div className="text-sm" style={{ color: '#819291' }}>Total Awaiting Payment</div>
-                <AlertCircle className="w-5 h-5" style={{ color: '#C2A558' }} />
+                <div className="text-sm" style={{ color: '#64748b' }}>Total Awaiting Payment</div>
+                <AlertCircle className="w-5 h-5" style={{ color: '#0891b2' }} />
               </div>
               <div className="text-2xl font-bold" style={{ color: '#113543' }}>
                 {formatCurrency(totalOverdue)}
               </div>
             </div>
 
-            <div className="bg-white border rounded p-6" style={{ borderColor: '#819291' }}>
+            <div className="bg-white border rounded p-6" style={{ borderColor: '#e2e8f0' }}>
               <div className="flex items-center justify-between mb-2">
-                <div className="text-sm" style={{ color: '#819291' }}>Urgent (20+ days)</div>
-                <AlertCircle className="w-5 h-5" style={{ color: '#C2A558' }} />
+                <div className="text-sm" style={{ color: '#64748b' }}>Urgent (20+ days)</div>
+                <AlertCircle className="w-5 h-5" style={{ color: '#0891b2' }} />
               </div>
               <div className="text-2xl font-bold" style={{ color: '#113543' }}>
                 {urgentCount} invoices
               </div>
-              <div className="text-sm mt-1" style={{ color: '#819291' }}>
+              <div className="text-sm mt-1" style={{ color: '#64748b' }}>
                 {formatCurrency(urgentAmount)}
               </div>
             </div>
 
-            <div className="bg-white border rounded p-6" style={{ borderColor: '#819291' }}>
+            <div className="bg-white border rounded p-6" style={{ borderColor: '#e2e8f0' }}>
               <div className="flex items-center justify-between mb-2">
-                <div className="text-sm" style={{ color: '#819291' }}>Total Items</div>
-                <AlertCircle className="w-5 h-5" style={{ color: '#819291' }} />
+                <div className="text-sm" style={{ color: '#64748b' }}>Total Items</div>
+                <AlertCircle className="w-5 h-5" style={{ color: '#64748b' }} />
               </div>
               <div className="text-2xl font-bold" style={{ color: '#113543' }}>
                 {filteredCollections.length}
@@ -327,10 +315,10 @@ export default function ClientCollections() {
           </div>
 
           {/* Search and Filters */}
-          <div className="bg-white border rounded p-6 mb-6" style={{ borderColor: '#819291' }}>
+          <div className="bg-white border rounded p-6 mb-6" style={{ borderColor: '#e2e8f0' }}>
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 flex items-center space-x-2">
-                <AlertCircle className="w-4 h-4" style={{ color: '#819291' }} />
+                <AlertCircle className="w-4 h-4" style={{ color: '#64748b' }} />
                 <input
                   type="text"
                   placeholder="Search by invoice, broker, load, or batch..."
@@ -338,15 +326,15 @@ export default function ClientCollections() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="flex-1 px-3 py-2 text-sm border rounded focus:outline-none"
                   style={{
-                    borderColor: '#819291',
+                    borderColor: '#e2e8f0',
                     color: '#113543',
                     backgroundColor: '#FFFFFF',
                   }}
                   onFocus={(e) => {
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.borderColor = '#0891b2'
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = '#819291'
+                    e.currentTarget.style.borderColor = '#64748b'
                   }}
                 />
               </div>
@@ -356,15 +344,15 @@ export default function ClientCollections() {
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="px-3 py-2 text-sm border rounded focus:outline-none"
                   style={{
-                    borderColor: '#819291',
+                    borderColor: '#e2e8f0',
                     color: '#113543',
                     backgroundColor: '#FFFFFF',
                   }}
                   onFocus={(e) => {
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.borderColor = '#0891b2'
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = '#819291'
+                    e.currentTarget.style.borderColor = '#64748b'
                   }}
                 >
                   <option value="all">All Status</option>
@@ -377,14 +365,14 @@ export default function ClientCollections() {
           </div>
 
           {/* Collections Table */}
-          <div className="bg-white border rounded overflow-hidden" style={{ borderColor: '#819291' }}>
+          <div className="bg-white border rounded overflow-hidden" style={{ borderColor: '#e2e8f0' }}>
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-lg font-bold" style={{ color: '#113543' }}>
                     Overdue Invoices
                   </h3>
-                  <p className="text-sm mt-1" style={{ color: '#819291' }}>
+                  <p className="text-sm mt-1" style={{ color: '#64748b' }}>
                     Invoices past expected payment date (Day +15). Invoices 25+ days require immediate action.
                   </p>
                 </div>
@@ -392,11 +380,11 @@ export default function ClientCollections() {
 
               {filteredCollections.length === 0 ? (
                 <div className="text-center py-12">
-                  <CheckCircle className="w-12 h-12 mx-auto mb-3" style={{ color: '#819291' }} />
+                  <CheckCircle className="w-12 h-12 mx-auto mb-3" style={{ color: '#64748b' }} />
                   <p className="text-lg font-medium mb-2" style={{ color: '#113543' }}>
                     No overdue invoices
                   </p>
-                  <p className="text-sm" style={{ color: '#819291' }}>
+                  <p className="text-sm" style={{ color: '#64748b' }}>
                     {searchTerm || statusFilter !== 'all'
                       ? 'Try adjusting your search or filters'
                       : 'No approved invoices awaiting payment'}
@@ -406,7 +394,7 @@ export default function ClientCollections() {
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr className="border-b" style={{ borderColor: '#819291' }}>
+                      <tr className="border-b" style={{ borderColor: '#e2e8f0' }}>
                         <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
                           Invoice#
                         </th>
@@ -443,7 +431,7 @@ export default function ClientCollections() {
                             key={item.invoice_id}
                             className={`border-b cursor-pointer transition-colors ${isHighlighted ? 'highlight-flash' : ''}`}
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               backgroundColor: isHighlighted
                                 ? '#FFF9E6'
                                 : index % 2 === 0
@@ -452,7 +440,7 @@ export default function ClientCollections() {
                               borderLeft: isUrgent 
                                 ? isCritical 
                                   ? '4px solid #dc2626' 
-                                  : '4px solid #C2A558' 
+                                  : '4px solid #0891b2' 
                                 : 'none',
                               animation: isHighlighted ? 'flashHighlight 1.5s ease-in-out 3' : 'none',
                             }}
@@ -472,28 +460,28 @@ export default function ClientCollections() {
                             <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
                               {item.invoice_number}
                             </td>
-                            <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
+                            <td className="py-3 px-4 text-sm" style={{ color: '#64748b' }}>
                               {item.broker_name}
                             </td>
                             <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
                               {formatCurrency(item.amount)}
                             </td>
-                            <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
+                            <td className="py-3 px-4 text-sm" style={{ color: '#64748b' }}>
                               {formatDate(item.expected_payment_date)}
                             </td>
                             <td className="py-3 px-4 text-center">
                               {item.days_since_expected > 0 ? (
                                 getDaysBadge(item.days_since_expected)
                               ) : (
-                                <span className="text-sm" style={{ color: '#819291' }}>On time</span>
+                                <span className="text-sm" style={{ color: '#64748b' }}>On time</span>
                               )}
                             </td>
                             <td className="py-3 px-4 text-sm">{getPaymentStatusBadge(item.payment_status)}</td>
                             <td className="py-3 px-4 text-center">
                               {item.broker_contacted ? (
-                                <span className="text-sm" style={{ color: '#819291' }}>✓ Yes</span>
+                                <span className="text-sm" style={{ color: '#64748b' }}>✓ Yes</span>
                               ) : (
-                                <span className="text-sm" style={{ color: '#819291' }}>No</span>
+                                <span className="text-sm" style={{ color: '#64748b' }}>No</span>
                               )}
                             </td>
                             <td className="py-3 px-4 text-center">
@@ -517,14 +505,14 @@ export default function ClientCollections() {
                                     }}
                                     className="px-2 py-1 text-xs font-medium transition-colors"
                                     style={{
-                                      backgroundColor: '#C2A558',
+                                      backgroundColor: '#0891b2',
                                       color: '#FFFFFF',
                                     }}
                                     onMouseEnter={(e) => {
-                                      e.currentTarget.style.backgroundColor = '#b89547'
+                                      e.currentTarget.style.backgroundColor = '#0a2529'
                                     }}
                                     onMouseLeave={(e) => {
-                                      e.currentTarget.style.backgroundColor = '#C2A558'
+                                      e.currentTarget.style.backgroundColor = '#0891b2'
                                     }}
                                     title="Confirm Payment Received"
                                   >
@@ -533,7 +521,7 @@ export default function ClientCollections() {
                                   </button>
                                 )}
                                 {item.payment_status === 'review' && (
-                                  <span className="text-xs font-medium" style={{ color: '#C2A558' }}>
+                                  <span className="text-xs font-medium" style={{ color: '#0891b2' }}>
                                     Under Review
                                   </span>
                                 )}
@@ -548,23 +536,22 @@ export default function ClientCollections() {
               )}
             </div>
           </div>
-        </main>
-      </div>
+        </div>
 
-      {/* Invoice Detail Modal */}
-      {showInvoiceDetailModal && selectedInvoiceData && (
-        <CollectionsInvoiceModal
-          invoice={selectedInvoiceData}
-          paymentStatus={collectionsState.find((c) => c.invoice_id === selectedInvoice)?.payment_status || 'not_received'}
-          onClose={() => {
-            setShowInvoiceDetailModal(false)
-            setSelectedInvoice(null)
-          }}
-          onAddNote={handleAddNote}
-          onConfirmPayment={handleConfirmPaymentFromModal}
-          onMarkNotReceived={handleMarkNotReceived}
-        />
-      )}
+        {showInvoiceDetailModal && selectedInvoiceData && (
+          <CollectionsInvoiceModal
+            invoice={selectedInvoiceData}
+            paymentStatus={collectionsState.find((c) => c.invoice_id === selectedInvoice)?.payment_status || 'not_received'}
+            onClose={() => {
+              setShowInvoiceDetailModal(false)
+              setSelectedInvoice(null)
+            }}
+            onAddNote={handleAddNote}
+            onConfirmPayment={handleConfirmPaymentFromModal}
+            onMarkNotReceived={handleMarkNotReceived}
+          />
+        )}
+      </ClientLayout>
     </>
   )
 }

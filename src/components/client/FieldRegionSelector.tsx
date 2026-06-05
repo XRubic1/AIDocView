@@ -30,7 +30,7 @@ interface DrawRect {
   height: number
 }
 
-const FIELD_COLORS = ['#C2A558', '#2E7D32', '#1565C0', '#B8860B', '#991B1B', '#113543']
+const FIELD_COLORS = ['#0891b2', '#2E7D32', '#1565C0', '#B8860B', '#991B1B', '#113543']
 
 function colorForField(fieldKey: string, fieldKeys: string[]): string {
   const index = fieldKeys.indexOf(fieldKey)
@@ -193,7 +193,7 @@ export default function FieldRegionSelector({
       style={
         compact
           ? { width: zoomedWidth, height: zoomedHeight, borderColor: 'rgba(255,255,255,0.1)' }
-          : { borderColor: '#819291', backgroundColor: '#f8f9fa' }
+          : { borderColor: '#e2e8f0', backgroundColor: '#f8f9fa' }
       }
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -347,12 +347,12 @@ export default function FieldRegionSelector({
   return (
     <div className="rounded border p-3 space-y-3" style={{ borderColor: '#113543', backgroundColor: '#FFFFFF' }}>
       <div className="flex items-start gap-2">
-        <Crop className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#C2A558' }} />
+        <Crop className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#0891b2' }} />
         <div>
           <div className="text-xs font-semibold" style={{ color: '#113543' }}>
             Where the AI read each field
           </div>
-          <p className="text-[11px] mt-0.5" style={{ color: '#819291' }}>
+          <p className="text-[11px] mt-0.5" style={{ color: '#64748b' }}>
             Dashed boxes show where the AI pulled data from. Click a field and drag to adjust or replace.
           </p>
         </div>
@@ -367,7 +367,7 @@ export default function FieldRegionSelector({
               onClick={() => setActivePage(img.pageNumber)}
               className="px-2 py-1 text-[11px] rounded border"
               style={{
-                borderColor: activePage === img.pageNumber ? '#C2A558' : '#819291',
+                borderColor: activePage === img.pageNumber ? '#0891b2' : '#64748b',
                 backgroundColor: activePage === img.pageNumber ? '#FFFBF0' : '#f8f9fa',
                 color: '#113543',
               }}
@@ -394,7 +394,7 @@ export default function FieldRegionSelector({
                 onClick={() => onActiveFieldChange(fieldKey)}
                 className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border transition-colors"
                 style={{
-                  borderColor: isActive ? color : '#819291',
+                  borderColor: isActive ? color : '#64748b',
                   backgroundColor: isActive ? `${color}18` : '#f8f9fa',
                   color: '#113543',
                 }}
@@ -422,13 +422,13 @@ export default function FieldRegionSelector({
       )}
 
       {!activeFieldKey && showFieldPicker && (
-        <p className="text-[11px]" style={{ color: '#C2A558' }}>
+        <p className="text-[11px]" style={{ color: '#0891b2' }}>
           Select a field to start drawing.
         </p>
       )}
 
       {!activeFieldKey && !showFieldPicker && (
-        <p className="text-[11px]" style={{ color: '#C2A558' }}>
+        <p className="text-[11px]" style={{ color: '#0891b2' }}>
           Select a field on the right, then draw a box on the document.
         </p>
       )}

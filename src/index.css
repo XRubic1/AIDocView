@@ -20,4 +20,18 @@ body {
   margin: 0;
 }
 
+/* Client portal theme tokens */
+.client-portal {
+  --cp-primary: #113543;
+  --cp-primary-hover: #0a2529;
+  --cp-accent: #0891b2;
+  --cp-accent-light: #ecfeff;
+  --cp-muted: #64748b;
+  --cp-border: #e2e8f0;
+  --cp-surface: #f0f4f6;
+  --cp-success: #059669;
+  --cp-warning: #d97706;
+  --cp-error: #dc2626;
+}
+
 

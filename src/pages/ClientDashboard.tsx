@@ -1,472 +1,428 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
-import { formatCurrency } from '../utils/format'
-import { formatDate } from '../utils/format'
+import { formatCurrency, formatDate } from '../utils/format'
 import {
   DollarSign,
   FileText,
   Clock,
   AlertCircle,
   CheckCircle,
-  TrendingUp,
   Upload,
   Plus,
-  ArrowRight,
-  AlertTriangle,
+  BarChart3,
+  Wallet,
+  ArrowUpRight,
+  ExternalLink,
 } from 'lucide-react'
-import ClientHeader from '../components/ClientHeader'
+import ClientLayout from '../components/ClientLayout'
 import SimpleUploadModal from '../components/client/SimpleUploadModal'
-import BatchStatusWidget from '../components/client/BatchStatusWidget'
 import AgingARChart from '../components/client/AgingARChart'
 import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
+import DashboardPanel from '../components/client/dashboard/DashboardPanel'
+import { enrichInvoices } from '../utils/invoiceAging'
+import { clientTheme as c } from '../theme/clientTheme'
+
+type InvoiceStatus = 'pending' | 'approved' | 'hold' | 'overdue'
+
+function StatusPill({ status }: { status: InvoiceStatus | string }) {
+  const normalized = status === 'hold' ? 'hold' : status
+  const classMap: Record<string, string> = {
+    pending: 'status-pill status-pill--pending',
+    approved: 'status-pill status-pill--approved',
+    hold: 'status-pill status-pill--hold',
+    overdue: 'status-pill status-pill--overdue',
+  }
+  const labels: Record<string, string> = {
+    pending: 'Pending',
+    approved: 'Approved',
+    hold: 'On Hold',
+    overdue: 'Overdue',
+  }
+  return (
+    <span className={classMap[normalized] || classMap.pending}>
+      {labels[normalized] || status}
+    </span>
+  )
+}
+
+interface CompactMetricProps {
+  label: string
+  value: number
+  icon: ReactNode
+  bg: string
+  color: string
+}
+
+function CompactMetricCard({ label, value, icon, bg, color }: CompactMetricProps) {
+  return (
+    <div
+      className="dashboard-card dashboard-metric-secondary"
+      style={{ backgroundColor: bg }}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <span style={{ color }}>{icon}</span>
+        <span className="text-sm font-medium truncate" style={{ color: c.secondary }}>
+          {label}
+        </span>
+      </div>
+      <span className="text-xl font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function formatRelativeTime(iso: string) {
+  const date = new Date(iso)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+  if (diffHours < 1) return 'Just now'
+  if (diffHours < 24) return `${diffHours}h ago`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 7) return `${diffDays}d ago`
+  return formatDate(iso)
+}
 
 export default function ClientDashboard() {
   const [data] = useState(mockClientDashboardData)
   const navigate = useNavigate()
   const [showSimpleUpload, setShowSimpleUpload] = useState(false)
 
-  // Get invoices waiting payment confirmation (approved invoices) for this client
-  const invoicesWaitingPayment = useMemo(() => {
-    const clientInvoices = mockInvoices.filter(
-      (inv) => inv.client_id === data.client_id && inv.status === 'approved'
-    )
-
-    return clientInvoices.map((invoice) => {
-      // Calculate days overdue from due_date
-      const dueDate = new Date(invoice.due_date)
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      dueDate.setHours(0, 0, 0, 0)
-      const daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
-      
-      // Warning threshold: 60+ days overdue (approaching force close)
-      const isApproachingForceClose = daysOverdue >= 60
-
-      return {
-        ...invoice,
-        daysOverdue: daysOverdue > 0 ? daysOverdue : 0,
-        isApproachingForceClose,
-      }
-    }).sort((a, b) => {
-      // Sort by: approaching force close first, then by days overdue
-      if (a.isApproachingForceClose !== b.isApproachingForceClose) {
-        return a.isApproachingForceClose ? -1 : 1
-      }
-      return b.daysOverdue - a.daysOverdue
-    })
-  }, [data.client_id])
-
-  // Get all payments for this client (for trends chart)
   const clientPayments = useMemo(() => {
-    // Get client invoice IDs to match with payments
-    const clientInvoiceIds = new Set(
-      mockInvoices
-        .filter((inv) => inv.client_id === data.client_id)
-        .map((inv) => inv.id)
+    const ids = new Set(
+      mockInvoices.filter((inv) => inv.client_id === data.client_id).map((inv) => inv.id)
     )
-
-    return mockPayments.filter((payment) => clientInvoiceIds.has(payment.invoice_id))
+    return mockPayments.filter((p) => ids.has(p.invoice_id))
   }, [data.client_id])
 
-  // Get recent payments for this client
-  const recentPayments = useMemo(() => {
-    return clientPayments
+  const attentionInvoices = useMemo(() => {
+    return enrichInvoices(mockInvoices.filter((inv) => inv.client_id === data.client_id))
+      .filter(
+        (inv) =>
+          inv.isOverdue ||
+          inv.status === 'hold' ||
+          inv.status === 'pending'
+      )
       .sort((a, b) => {
-        // Sort by received_date (most recent first)
-        return new Date(b.received_date).getTime() - new Date(a.received_date).getTime()
+        const severityOrder = (inv: (typeof a)) => {
+          if (inv.isForceCloseEligible) return 0
+          if (inv.overdueSeverity === 'critical') return 1
+          if (inv.overdueSeverity === 'urgent') return 2
+          if (inv.isOverdue) return 3
+          if (inv.status === 'hold') return 4
+          return 5
+        }
+        const pa = severityOrder(a)
+        const pb = severityOrder(b)
+        if (pa !== pb) return pa - pb
+        return b.daysOutstanding - a.daysOutstanding
       })
-      .slice(0, 5) // Show only the 5 most recent payments
-  }, [clientPayments])
+      .slice(0, 6)
+  }, [data.client_id])
+
+  const recentPayments = useMemo(
+    () =>
+      [...clientPayments]
+        .sort((a, b) => new Date(b.received_date).getTime() - new Date(a.received_date).getTime())
+        .slice(0, 5),
+    [clientPayments]
+  )
 
   const handleSimpleUploadComplete = (files: File[]) => {
-    navigate(`/client/batches?tab=create&mode=ai`, {
-      state: { initialFiles: files },
-    })
+    navigate(`/client/batches?tab=create&mode=ai`, { state: { initialFiles: files } })
   }
 
-  const navItems = [
-    { label: 'Dashboard', path: '/client/dashboard' },
-    { label: 'Batches', path: '/client/batches' },
-    { label: 'Invoices', path: '/client/invoices' },
-    { label: 'Payments', path: '/client/payments' },
-    { label: 'Collections', path: '/client/collections' },
-    { label: 'Reports', path: '/client/reports' },
-    { label: 'Settings', path: '/client/settings' },
-  ]
+  const availableFunding = data.summary.paid_this_month
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
-      <ClientHeader clientName={data.client_name} navItems={navItems} />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
-        {/* Quick Upload Section - Prominent */}
-        <div className="mb-8 bg-gradient-to-r rounded-lg p-8 border-2" style={{ 
-          background: 'linear-gradient(135deg, #F5F5F5 0%, #FFFFFF 100%)',
-          borderColor: '#C2A558',
-        }}>
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex-1">
-              <h3 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
-                Upload Your Load Documents
-              </h3>
-              <p className="text-base mb-4" style={{ color: '#819291' }}>
-                Simply drag and drop your POD, BOL, and rate confirmations. We'll handle the rest.
-              </p>
-              <div className="flex flex-wrap gap-3 text-sm" style={{ color: '#819291' }}>
-                <span className="flex items-center gap-1">
-                  <CheckCircle className="w-4 h-4" style={{ color: '#C2A558' }} />
-                  Drag & drop files
-                </span>
-                <span className="flex items-center gap-1">
-                  <CheckCircle className="w-4 h-4" style={{ color: '#C2A558' }} />
-                  Auto-invoice creation
-                </span>
-                <span className="flex items-center gap-1">
-                  <CheckCircle className="w-4 h-4" style={{ color: '#C2A558' }} />
-                  Fast processing
-                </span>
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={() => setShowSimpleUpload(true)}
-                className="flex items-center justify-center space-x-2 px-8 py-4 text-lg font-medium text-white rounded-lg transition-all shadow-lg"
-                style={{ backgroundColor: '#113543' }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#0a2529'
-                  e.currentTarget.style.transform = 'translateY(-2px)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#113543'
-                  e.currentTarget.style.transform = 'translateY(0)'
-                }}
-              >
-                <Upload className="w-5 h-5" />
-                <span>Upload Documents</span>
-              </button>
-              <button
-                onClick={() => navigate('/client/batches?tab=create')}
-                className="flex items-center justify-center space-x-2 px-6 py-4 text-lg font-medium rounded-lg border-2 transition-all"
-                style={{ 
-                  color: '#113543',
-                  borderColor: '#113543',
-                  backgroundColor: 'transparent'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#F5F5F5'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent'
-                }}
-              >
-                <Plus className="w-5 h-5" />
-                <span>Create Batch</span>
-              </button>
-            </div>
+    <ClientLayout clientName={data.client_name} clientId={data.client_id}>
+      <div className="space-y-4">
+        {/* Row 1 — Compact welcome */}
+        <section className="dashboard-card p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold leading-tight" style={{ color: c.primary }}>
+              Welcome Back, {data.client_name}
+            </h1>
+            <p className="alert-inline mt-1">
+              <span className="alert-inline__danger">
+                {data.summary.overdue_invoices} Overdue
+              </span>
+              <span className="mx-1.5" style={{ color: c.border }}>
+                •
+              </span>
+              <span className="alert-inline__warning">
+                {data.summary.on_hold_invoices} On Hold
+              </span>
+              <span className="mx-1.5" style={{ color: c.border }}>
+                •
+              </span>
+              <span className="alert-inline__info">
+                {data.summary.pending_invoices} Pending
+              </span>
+            </p>
           </div>
-        </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowSimpleUpload(true)}
+              className="dashboard-btn-primary"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Upload
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/client/batches?tab=create')}
+              className="dashboard-btn-secondary"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Batch
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/client/reports')}
+              className="dashboard-btn-secondary"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              Report
+            </button>
+          </div>
+        </section>
 
-        <div className="space-y-6">
-          {/* Summary Cards with Status Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Summary Cards - 3 columns */}
-            <div className="lg:col-span-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="bg-white border p-6 rounded" style={{ borderColor: '#819291' }}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm" style={{ color: '#819291' }}>Total A/R</div>
-                <DollarSign className="w-5 h-5" style={{ color: '#C2A558' }} />
+        {/* Row 2 — Primary metrics */}
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="dashboard-card dashboard-card-interactive dashboard-metric-primary">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium" style={{ color: c.secondary }}>
+                  Total A/R
+                </p>
+                <p
+                  className="text-[28px] font-bold tabular-nums mt-1 leading-none"
+                  style={{ color: c.primary }}
+                >
+                  {formatCurrency(data.summary.total_ar)}
+                </p>
+                <div
+                  className="inline-flex items-center gap-1 mt-2 text-xs font-medium"
+                  style={{ color: c.success }}
+                >
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                  +12% vs last month
+                </div>
               </div>
-              <div className="text-2xl font-bold" style={{ color: '#113543' }}>{formatCurrency(data.summary.total_ar)}</div>
-            </div>
-
-            <div className="bg-white border p-6 rounded" style={{ borderColor: '#819291' }}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm" style={{ color: '#819291' }}>Pending Invoices</div>
-                <Clock className="w-5 h-5" style={{ color: '#C2A558' }} />
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ backgroundColor: c.accentLight, color: c.info }}
+              >
+                <DollarSign className="w-4 h-4" />
               </div>
-              <div className="text-2xl font-bold" style={{ color: '#113543' }}>{data.summary.pending_invoices}</div>
-            </div>
-
-            <div className="bg-white border p-6 rounded" style={{ borderColor: '#819291' }}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm" style={{ color: '#819291' }}>Approved Invoices</div>
-                <CheckCircle className="w-5 h-5" style={{ color: '#C2A558' }} />
-              </div>
-              <div className="text-2xl font-bold" style={{ color: '#113543' }}>{data.summary.approved_invoices}</div>
-            </div>
-
-            <div className="bg-white border p-6 rounded" style={{ borderColor: '#819291' }}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm" style={{ color: '#819291' }}>On Hold</div>
-                <AlertCircle className="w-5 h-5" style={{ color: '#C2A558' }} />
-              </div>
-              <div className="text-2xl font-bold" style={{ color: '#113543' }}>{data.summary.on_hold_invoices}</div>
-            </div>
-
-            <div className="bg-white border p-6 rounded" style={{ borderColor: '#819291' }}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm" style={{ color: '#819291' }}>Paid This Month</div>
-                <TrendingUp className="w-5 h-5" style={{ color: '#C2A558' }} />
-              </div>
-              <div className="text-2xl font-bold" style={{ color: '#113543' }}>
-                {formatCurrency(data.summary.paid_this_month)}
-              </div>
-            </div>
-
-            <div className="bg-white border p-6 rounded" style={{ borderColor: '#819291' }}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm" style={{ color: '#819291' }}>Overdue Invoices</div>
-                <FileText className="w-5 h-5" style={{ color: '#C2A558' }} />
-              </div>
-              <div className="text-2xl font-bold" style={{ color: '#113543' }}>{data.summary.overdue_invoices}</div>
-            </div>
-              </div>
-            </div>
-
-            {/* Status Overview Widget - Right side */}
-            <div className="lg:col-span-1">
-              <BatchStatusWidget clientId={data.client_id} />
             </div>
           </div>
 
-          {/* Charts Row - Two Column Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Aging A/R Chart */}
+          <div className="dashboard-card dashboard-card-interactive dashboard-metric-primary">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium" style={{ color: c.secondary }}>
+                  Available Funding
+                </p>
+                <p
+                  className="text-[28px] font-bold tabular-nums mt-1 leading-none"
+                  style={{ color: c.primary }}
+                >
+                  {formatCurrency(availableFunding)}
+                </p>
+                <p className="text-xs font-medium mt-2" style={{ color: c.success }}>
+                  Ready to fund
+                </p>
+              </div>
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ backgroundColor: '#ECFDF5', color: c.success }}
+              >
+                <Wallet className="w-4 h-4" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Row 3 — Compact secondary metrics */}
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <CompactMetricCard
+            label="Pending"
+            value={data.summary.pending_invoices}
+            icon={<Clock className="w-4 h-4" />}
+            bg="#EFF6FF"
+            color={c.info}
+          />
+          <CompactMetricCard
+            label="Approved"
+            value={data.summary.approved_invoices}
+            icon={<CheckCircle className="w-4 h-4" />}
+            bg="#ECFDF5"
+            color={c.success}
+          />
+          <CompactMetricCard
+            label="On Hold"
+            value={data.summary.on_hold_invoices}
+            icon={<AlertCircle className="w-4 h-4" />}
+            bg="#FFFBEB"
+            color={c.warning}
+          />
+          <CompactMetricCard
+            label="Overdue"
+            value={data.summary.overdue_invoices}
+            icon={<FileText className="w-4 h-4" />}
+            bg="#FEF2F2"
+            color={c.error}
+          />
+        </section>
+
+        {/* Row 4 — Invoices (above charts — actionable first) */}
+        <DashboardPanel
+          title="Invoices Requiring Attention"
+          compact
+          actionLabel="View all"
+          onAction={() => navigate('/client/invoices')}
+          interactive={false}
+        >
+          <div className="overflow-x-auto">
+            <table className="dashboard-table">
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Customer</th>
+                  <th>Amount</th>
+                  <th>Days Outstanding</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attentionInvoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-6" style={{ color: c.secondary }}>
+                      No invoices require attention
+                    </td>
+                  </tr>
+                ) : (
+                  attentionInvoices.map((invoice) => (
+                    <tr key={invoice.id}>
+                      <td className="font-semibold">{invoice.invoice_number}</td>
+                      <td style={{ color: c.secondary }}>{invoice.broker_name}</td>
+                      <td className="tabular-nums">{formatCurrency(invoice.amount)}</td>
+                      <td className="tabular-nums">{invoice.daysOutstanding}</td>
+                      <td>
+                        <StatusPill status={invoice.displayStatus} />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate(`/client/invoices?highlight_invoice=${invoice.id}`)
+                          }
+                          className="inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-70"
+                          style={{ color: c.info }}
+                        >
+                          View
+                          <ExternalLink className="w-3 h-3" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </DashboardPanel>
+
+        {/* Row 5 — Analytics */}
+        <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <DashboardPanel title="Aging A/R" compact interactive={false}>
             <AgingARChart aging={data.aging_ar} />
-
-            {/* Payment Trends Chart */}
+          </DashboardPanel>
+          <DashboardPanel title="Payment Trends" compact interactive={false}>
             <PaymentTrendsChart payments={clientPayments} />
-          </div>
+          </DashboardPanel>
+        </section>
 
-          {/* Tables Row - Two Column Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Invoices Waiting Payment Confirmation */}
-            <div className="bg-white border rounded" style={{ borderColor: '#819291' }}>
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold" style={{ color: '#113543' }}>
-                    Invoices Waiting Payment Confirmation
-                  </h3>
-                  {invoicesWaitingPayment.length > 0 && (
-                    <button 
-                      onClick={() => navigate('/client/invoices?status=approved')}
-                      className="flex items-center space-x-1 text-sm transition-colors"
-                      style={{ color: '#819291' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = '#113543'}
-                      onMouseLeave={(e) => e.currentTarget.style.color = '#819291'}
-                    >
-                      <span>View All</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
+        {/* Row 6 — Recent activity */}
+        <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <DashboardPanel
+            title="Recent Payments"
+            compact
+            actionLabel="View all"
+            onAction={() => navigate('/client/payments')}
+            interactive={false}
+          >
+            <div className="overflow-x-auto">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Debtor</th>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentPayments.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="text-center py-6" style={{ color: c.secondary }}>
+                        No recent payments
+                      </td>
+                    </tr>
+                  ) : (
+                    recentPayments.map((payment) => (
+                      <tr key={payment.id}>
+                        <td className="font-semibold">{payment.invoice_number}</td>
+                        <td style={{ color: c.secondary }}>{payment.broker_name}</td>
+                        <td style={{ color: c.secondary }}>{formatDate(payment.received_date)}</td>
+                        <td className="tabular-nums">{formatCurrency(payment.amount)}</td>
+                        <td>
+                          <StatusPill
+                            status={payment.status === 'confirmed' ? 'approved' : 'pending'}
+                          />
+                        </td>
+                      </tr>
+                    ))
                   )}
-                </div>
-                {invoicesWaitingPayment.length === 0 ? (
-                  <div className="text-center py-8">
-                    <CheckCircle className="w-12 h-12 mx-auto mb-2" style={{ color: '#C2A558' }} />
-                    <p className="text-sm" style={{ color: '#819291' }}>
-                      No invoices waiting payment confirmation
-                    </p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b" style={{ borderColor: '#819291' }}>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Invoice#
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Broker
-                          </th>
-                          <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Amount
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Due Date
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Days Overdue
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Status
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {invoicesWaitingPayment.slice(0, 4).map((invoice, index) => (
-                          <tr
-                            key={invoice.id}
-                            className="border-b"
-                            style={{
-                              borderColor: '#819291',
-                              backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
-                              borderLeft: invoice.isApproachingForceClose ? '4px solid #dc2626' : undefined,
-                            }}
-                          >
-                            <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
-                              {invoice.invoice_number}
-                            </td>
-                            <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                              {invoice.broker_name}
-                            </td>
-                            <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
-                              {formatCurrency(invoice.amount)}
-                            </td>
-                            <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                              {formatDate(invoice.due_date)}
-                            </td>
-                            <td className="py-3 px-4 text-sm">
-                              {invoice.daysOverdue > 0 ? (
-                                <span
-                                  className="font-medium"
-                                  style={{
-                                    color: invoice.isApproachingForceClose ? '#dc2626' : '#819291',
-                                  }}
-                                >
-                                  {invoice.daysOverdue}
-                                </span>
-                              ) : (
-                                <span style={{ color: '#819291' }}>—</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 text-sm">
-                              {invoice.isApproachingForceClose ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded"
-                                  style={{ backgroundColor: '#dc2626', color: '#FFFFFF' }}>
-                                  <AlertTriangle className="w-3 h-3" />
-                                  Force Close Warning
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium capitalize"
-                                  style={{ backgroundColor: '#819291', color: '#FFFFFF' }}>
-                                  Waiting Payment
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                        {invoicesWaitingPayment.length > 4 && (
-                          <tr>
-                            <td colSpan={6} className="py-3 px-4 text-center text-sm font-medium" style={{ color: '#113543' }}>
-                              +{invoicesWaitingPayment.length - 4} more invoice{invoicesWaitingPayment.length - 4 !== 1 ? 's' : ''}
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
+                </tbody>
+              </table>
             </div>
+          </DashboardPanel>
 
-            {/* Recent Payments */}
-            <div className="bg-white border rounded" style={{ borderColor: '#819291' }}>
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold" style={{ color: '#113543' }}>Recent Payments</h3>
-                  <button 
-                    onClick={() => navigate('/client/payments')}
-                    className="flex items-center space-x-1 text-sm transition-colors"
-                    style={{ color: '#819291' }}
-                    onMouseEnter={(e) => e.currentTarget.style.color = '#113543'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#819291'}
-                  >
-                    <span>View All</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                </div>
-                {recentPayments.length === 0 ? (
-                  <div className="text-center py-8">
-                    <CheckCircle className="w-12 h-12 mx-auto mb-2" style={{ color: '#C2A558' }} />
-                    <p className="text-sm" style={{ color: '#819291' }}>
-                      No payments received yet
-                    </p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b" style={{ borderColor: '#819291' }}>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Invoice#
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Broker
-                          </th>
-                          <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Amount
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Payment Method
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Received Date
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Status
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {recentPayments.map((payment, index) => (
-                          <tr
-                            key={payment.id}
-                            className="border-b"
-                            style={{ 
-                              borderColor: '#819291',
-                              backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF'
-                            }}
-                          >
-                            <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
-                              {payment.invoice_number}
-                            </td>
-                            <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                              {payment.broker_name}
-                            </td>
-                            <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
-                              {formatCurrency(payment.amount)}
-                            </td>
-                            <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                              <span className="capitalize">{payment.payment_method}</span>
-                            </td>
-                            <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                              {formatDate(payment.received_date)}
-                            </td>
-                            <td className="py-3 px-4 text-sm">
-                              <span 
-                                className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium capitalize ${
-                                  payment.status === 'confirmed' ? '' : ''
-                                }`}
-                                style={{ 
-                                  backgroundColor: payment.status === 'confirmed' ? '#10b981' : '#f59e0b',
-                                  color: '#FFFFFF'
-                                }}
-                              >
-                                {payment.status === 'confirmed' ? (
-                                  <CheckCircle className="w-3 h-3 mr-1" />
-                                ) : (
-                                  <Clock className="w-3 h-3 mr-1" />
-                                )}
-                                {payment.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
+          <DashboardPanel title="Recent Actions" compact interactive={false}>
+            <div className="p-5">
+              {data.recent_activity.length === 0 ? (
+                <p className="text-sm text-center py-3" style={{ color: c.secondary }}>
+                  No recent activity
+                </p>
+              ) : (
+                <ul>
+                  {data.recent_activity.map((activity) => (
+                    <li key={activity.id} className="timeline-item">
+                      <span className="timeline-dot" />
+                      <p className="text-sm font-medium" style={{ color: c.primary }}>
+                        {activity.description}
+                      </p>
+                      <p className="text-xs font-medium mt-0.5" style={{ color: c.secondary }}>
+                        {formatRelativeTime(activity.timestamp)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-          </div>
-        </div>
-      </main>
+          </DashboardPanel>
+        </section>
+      </div>
 
-      {/* Simple Upload Modal */}
       <SimpleUploadModal
         isOpen={showSimpleUpload}
         onClose={() => setShowSimpleUpload(false)}
@@ -474,7 +430,6 @@ export default function ClientDashboard() {
         clientId={data.client_id}
         clientName={data.client_name}
       />
-    </div>
+    </ClientLayout>
   )
 }
-

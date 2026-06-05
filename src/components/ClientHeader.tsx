@@ -46,7 +46,7 @@ export default function ClientHeader({ clientName, navItems }: ClientHeaderProps
 
   return (
     <header className="bg-white border-b sticky top-0 z-50" style={{ borderColor: '#819291' }}>
-      <div className="max-w-[1400px] mx-auto px-6">
+      <div className="w-full px-3 sm:px-4 lg:px-5 xl:px-6">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-8">
             <div>

@@ -13,13 +13,13 @@ interface BolAuditPanelProps {
 /** Prompt 3 — BOL audit results. */
 export default function BolAuditPanel({ audit, variant = 'light' }: BolAuditPanelProps) {
   const dark = variant === 'dark'
-  const border = dark ? ff.border : '#819291'
+  const border = dark ? ff.border : '#64748b'
   const panelBg = dark ? ff.bg2 : '#f8f9fa'
   const textPrimary = dark ? ff.text : '#113543'
-  const textMuted = dark ? ff.textMuted : '#819291'
+  const textMuted = dark ? ff.textMuted : '#64748b'
   const passColor = dark ? ff.green : '#2E7D32'
   const failColor = dark ? ff.red : '#991B1B'
-  const warnColor = dark ? ff.amber : '#C2A558'
+  const warnColor = dark ? ff.amber : '#0891b2'
 
   return (
     <div className="rounded border p-2 text-xs space-y-2 mt-2" style={{ borderColor: border, backgroundColor: panelBg }}>
@@ -111,7 +111,7 @@ function AuthenticityCell({ value, dark }: { value?: string; dark?: boolean }) {
   const unclear = value === 'UNCLEAR'
   const text = value && value !== 'NONE' ? value : '—'
   const failColor = dark ? ff.red : '#991B1B'
-  const warnColor = dark ? ff.amber : '#C2A558'
+  const warnColor = dark ? ff.amber : '#0891b2'
   const textPrimary = dark ? ff.text : '#113543'
   return (
     <span
@@ -128,8 +128,8 @@ function AuditRow({ label, value, dark }: { label: string; value: string; dark?:
   const fail = value === 'FAIL' || value === 'INCOMPLETE' || value === 'REJECTED'
   const passColor = dark ? ff.green : '#2E7D32'
   const failColor = dark ? ff.red : '#991B1B'
-  const warnColor = dark ? ff.amber : '#C2A558'
-  const textMuted = dark ? ff.textMuted : '#819291'
+  const warnColor = dark ? ff.amber : '#0891b2'
+  const textMuted = dark ? ff.textMuted : '#64748b'
   return (
     <div>
       <span style={{ color: textMuted }}>{label}: </span>

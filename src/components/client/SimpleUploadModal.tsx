@@ -124,15 +124,15 @@ export default function SimpleUploadModal({
       <div
         className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
-        style={{ borderColor: '#819291' }}
+        style={{ borderColor: '#e2e8f0' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: '#819291' }}>
+        <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: '#e2e8f0' }}>
           <div>
             <h2 className="text-2xl font-bold" style={{ color: '#113543' }}>
               Upload Documents
             </h2>
-            <p className="text-sm mt-1" style={{ color: '#819291' }}>
+            <p className="text-sm mt-1" style={{ color: '#64748b' }}>
               Drag and drop your POD, BOL, and rate confirmations. We'll handle the rest.
             </p>
           </div>
@@ -140,12 +140,12 @@ export default function SimpleUploadModal({
             onClick={handleClose}
             disabled={isUploading}
             className="p-2 transition-colors disabled:opacity-50"
-            style={{ color: '#819291' }}
+            style={{ color: '#64748b' }}
             onMouseEnter={(e) => {
               if (!isUploading) e.currentTarget.style.color = '#113543'
             }}
             onMouseLeave={(e) => {
-              if (!isUploading) e.currentTarget.style.color = '#819291'
+              if (!isUploading) e.currentTarget.style.color = '#64748b'
             }}
           >
             <X className="w-6 h-6" />
@@ -159,7 +159,7 @@ export default function SimpleUploadModal({
               isDragging ? 'border-opacity-100' : 'border-opacity-50'
             }`}
             style={{
-              borderColor: isDragging ? '#C2A558' : '#819291',
+              borderColor: isDragging ? '#0891b2' : '#64748b',
               backgroundColor: isDragging ? '#FEF9E7' : '#F9FAFB',
             }}
             onDragEnter={handleDragEnter}
@@ -169,12 +169,12 @@ export default function SimpleUploadModal({
           >
             <Upload
               className="w-16 h-16 mx-auto mb-4"
-              style={{ color: isDragging ? '#C2A558' : '#819291' }}
+              style={{ color: isDragging ? '#0891b2' : '#64748b' }}
             />
             <h3 className="text-lg font-semibold mb-2" style={{ color: '#113543' }}>
               {isDragging ? 'Drop files here' : 'Drag and drop files here'}
             </h3>
-            <p className="text-sm mb-4" style={{ color: '#819291' }}>
+            <p className="text-sm mb-4" style={{ color: '#64748b' }}>
               or click to browse
             </p>
             <button
@@ -199,7 +199,7 @@ export default function SimpleUploadModal({
               className="hidden"
               accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
             />
-            <p className="text-xs mt-4" style={{ color: '#819291' }}>
+            <p className="text-xs mt-4" style={{ color: '#64748b' }}>
               Supported: PDF, Images (JPG, PNG), Word Documents
             </p>
           </div>
@@ -215,15 +215,15 @@ export default function SimpleUploadModal({
                   <div
                     key={file.id}
                     className="flex items-center justify-between p-3 border rounded"
-                    style={{ borderColor: '#819291', backgroundColor: '#FFFFFF' }}
+                    style={{ borderColor: '#e2e8f0', backgroundColor: '#FFFFFF' }}
                   >
                     <div className="flex items-center space-x-3 flex-1 min-w-0">
-                      <FileText className="w-5 h-5 flex-shrink-0" style={{ color: '#C2A558' }} />
+                      <FileText className="w-5 h-5 flex-shrink-0" style={{ color: '#0891b2' }} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate" style={{ color: '#113543' }}>
                           {file.name}
                         </p>
-                        <p className="text-xs" style={{ color: '#819291' }}>
+                        <p className="text-xs" style={{ color: '#64748b' }}>
                           {formatFileSize(file.size)}
                         </p>
                       </div>
@@ -232,12 +232,12 @@ export default function SimpleUploadModal({
                       onClick={() => removeFile(file.id)}
                       disabled={isUploading}
                       className="p-1 transition-colors disabled:opacity-50"
-                      style={{ color: '#819291' }}
+                      style={{ color: '#64748b' }}
                       onMouseEnter={(e) => {
                         if (!isUploading) e.currentTarget.style.color = '#dc2626'
                       }}
                       onMouseLeave={(e) => {
-                        if (!isUploading) e.currentTarget.style.color = '#819291'
+                        if (!isUploading) e.currentTarget.style.color = '#64748b'
                       }}
                     >
                       <X className="w-4 h-4" />
@@ -249,14 +249,14 @@ export default function SimpleUploadModal({
           )}
 
           {/* Info Box */}
-          <div className="mt-6 p-4 rounded-lg" style={{ backgroundColor: '#F0F9FF', borderColor: '#C2A558' }}>
+          <div className="mt-6 p-4 rounded-lg" style={{ backgroundColor: '#F0F9FF', borderColor: '#0891b2' }}>
             <div className="flex items-start space-x-3">
-              <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#C2A558' }} />
+              <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#0891b2' }} />
               <div>
                 <p className="text-sm font-medium mb-1" style={{ color: '#113543' }}>
                   What happens next?
                 </p>
-                <p className="text-xs" style={{ color: '#819291' }}>
+                <p className="text-xs" style={{ color: '#64748b' }}>
                   Our team will review your documents, create invoices automatically, and send them to your brokers. 
                   You'll be notified once everything is processed.
                 </p>
@@ -266,12 +266,12 @@ export default function SimpleUploadModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end space-x-4 p-6 border-t" style={{ borderColor: '#819291' }}>
+        <div className="flex items-center justify-end space-x-4 p-6 border-t" style={{ borderColor: '#e2e8f0' }}>
           <button
             onClick={handleClose}
             disabled={isUploading}
             className="px-6 py-2 text-sm font-medium rounded transition-colors disabled:opacity-50"
-            style={{ color: '#819291', border: '1px solid #819291' }}
+            style={{ color: '#64748b', border: '1px solid #e2e8f0' }}
             onMouseEnter={(e) => {
               if (!isUploading) e.currentTarget.style.backgroundColor = '#F5F5F5'
             }}

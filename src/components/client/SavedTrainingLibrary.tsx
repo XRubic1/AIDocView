@@ -20,7 +20,7 @@ export default function SavedTrainingLibrary({ refreshKey = 0, onDeleted }: Save
   return (
     <div
       className="rounded-lg border p-4 space-y-3"
-      style={{ borderColor: '#819291', backgroundColor: '#FFFFFF' }}
+      style={{ borderColor: '#e2e8f0', backgroundColor: '#FFFFFF' }}
       key={refreshKey}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -28,7 +28,7 @@ export default function SavedTrainingLibrary({ refreshKey = 0, onDeleted }: Save
           <h3 className="text-sm font-semibold" style={{ color: '#113543' }}>
             Saved AI training ({records.length})
           </h3>
-          <p className="text-xs mt-0.5" style={{ color: '#819291' }}>
+          <p className="text-xs mt-0.5" style={{ color: '#64748b' }}>
             Your corrections and hints are stored locally for future model improvement.
           </p>
         </div>
@@ -36,7 +36,7 @@ export default function SavedTrainingLibrary({ refreshKey = 0, onDeleted }: Save
           type="button"
           onClick={downloadTrainingExport}
           className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded border"
-          style={{ borderColor: '#819291', color: '#113543' }}
+          style={{ borderColor: '#e2e8f0', color: '#113543' }}
         >
           <Download className="w-3.5 h-3.5" />
           Export JSON
@@ -69,14 +69,14 @@ function TrainingRecordRow({
   return (
     <div
       className="rounded border p-2 text-xs"
-      style={{ borderColor: '#819291', backgroundColor: '#f8f9fa' }}
+      style={{ borderColor: '#e2e8f0', backgroundColor: '#f8f9fa' }}
     >
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="font-medium" style={{ color: '#113543' }}>
             {record.fileName}
           </div>
-          <div style={{ color: '#819291' }}>
+          <div style={{ color: '#64748b' }}>
             {record.fields.length} field(s) · updated{' '}
             {new Date(record.updatedAt).toLocaleString()}
           </div>
@@ -85,7 +85,7 @@ function TrainingRecordRow({
           type="button"
           onClick={onDelete}
           className="p-1 rounded hover:bg-red-50"
-          style={{ color: '#819291' }}
+          style={{ color: '#64748b' }}
           title="Delete saved training"
         >
           <Trash2 className="w-3.5 h-3.5" />
@@ -98,12 +98,12 @@ function TrainingRecordRow({
               {RATE_CON_FIELD_LABELS[field.fieldKey as RateConFieldKey] ?? field.fieldKey}:
             </span>{' '}
             {String(field.correctedValue)}
-            {field.userHint && <span style={{ color: '#819291' }}> · hint</span>}
-            {field.region && <span style={{ color: '#819291' }}> · boxed region</span>}
+            {field.userHint && <span style={{ color: '#64748b' }}> · hint</span>}
+            {field.region && <span style={{ color: '#64748b' }}> · boxed region</span>}
           </div>
         ))}
         {record.fields.length > 4 && (
-          <div style={{ color: '#819291' }}>+{record.fields.length - 4} more</div>
+          <div style={{ color: '#64748b' }}>+{record.fields.length - 4} more</div>
         )}
       </div>
     </div>

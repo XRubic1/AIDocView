@@ -13,7 +13,7 @@ import {
   DollarSign,
   X,
 } from 'lucide-react'
-import ClientHeader from '../components/ClientHeader'
+import ClientLayout from '../components/ClientLayout'
 
 export default function ClientReports() {
   const [data] = useState(mockClientDashboardData)
@@ -25,16 +25,6 @@ export default function ClientReports() {
   })
   const [showReportModal, setShowReportModal] = useState(false)
   const [generatedReport, setGeneratedReport] = useState<any>(null)
-
-  const navItems = [
-    { label: 'Dashboard', path: '/client/dashboard' },
-    { label: 'Batches', path: '/client/batches' },
-    { label: 'Invoices', path: '/client/invoices' },
-    { label: 'Payments', path: '/client/payments' },
-    { label: 'Collections', path: '/client/collections' },
-    { label: 'Reports', path: '/client/reports' },
-    { label: 'Settings', path: '/client/settings' },
-  ]
 
   // Filter data based on date range
   const filterByDateRange = (date: string) => {
@@ -293,19 +283,17 @@ export default function ClientReports() {
   ]
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
-      <ClientHeader clientName={data.client_name} navItems={navItems} />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
+    <ClientLayout clientName={data.client_name} clientId={data.client_id}>
+      <div>
         <div className="mb-6">
           <h2 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
             Reports
           </h2>
-          <p style={{ color: '#819291' }}>Generate and export detailed reports</p>
+          <p style={{ color: '#64748b' }}>Generate and export detailed reports</p>
         </div>
 
         {/* Report Type Selection */}
-        <div className="bg-white border rounded mb-6 p-6" style={{ borderColor: '#819291' }}>
+        <div className="bg-white border rounded mb-6 p-6" style={{ borderColor: '#e2e8f0' }}>
           <h3 className="text-lg font-semibold mb-4" style={{ color: '#113543' }}>
             Select Report Type
           </h3>
@@ -318,29 +306,29 @@ export default function ClientReports() {
                   onClick={() => setSelectedReportType(report.value)}
                   className="p-4 border rounded text-left transition-colors"
                   style={{
-                    borderColor: selectedReportType === report.value ? '#C2A558' : '#819291',
+                    borderColor: selectedReportType === report.value ? '#0891b2' : '#64748b',
                     backgroundColor: selectedReportType === report.value ? '#f8f9fa' : '#FFFFFF',
                   }}
                   onMouseEnter={(e) => {
                     if (selectedReportType !== report.value) {
-                      e.currentTarget.style.borderColor = '#C2A558'
+                      e.currentTarget.style.borderColor = '#0891b2'
                       e.currentTarget.style.backgroundColor = '#f8f9fa'
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (selectedReportType !== report.value) {
-                      e.currentTarget.style.borderColor = '#819291'
+                      e.currentTarget.style.borderColor = '#64748b'
                       e.currentTarget.style.backgroundColor = '#FFFFFF'
                     }
                   }}
                 >
                   <div className="flex items-center space-x-3 mb-2">
-                    <Icon className="w-5 h-5" style={{ color: '#C2A558' }} />
+                    <Icon className="w-5 h-5" style={{ color: '#0891b2' }} />
                     <span className="font-medium" style={{ color: '#113543' }}>
                       {report.label}
                     </span>
                   </div>
-                  <p className="text-xs" style={{ color: '#819291' }}>
+                  <p className="text-xs" style={{ color: '#64748b' }}>
                     {report.description}
                   </p>
                 </button>
@@ -350,13 +338,13 @@ export default function ClientReports() {
         </div>
 
         {/* Date Range Selection */}
-        <div className="bg-white border rounded mb-6 p-6" style={{ borderColor: '#819291' }}>
+        <div className="bg-white border rounded mb-6 p-6" style={{ borderColor: '#e2e8f0' }}>
           <h3 className="text-lg font-semibold mb-4" style={{ color: '#113543' }}>
             Date Range
           </h3>
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
-              <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+              <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                 Start Date
               </label>
               <input
@@ -365,20 +353,20 @@ export default function ClientReports() {
                 onChange={(e) => setDateRange({ ...dateRange, start_date: e.target.value })}
                 className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                 style={{
-                  borderColor: '#819291',
+                  borderColor: '#e2e8f0',
                   color: '#113543',
                   backgroundColor: '#FFFFFF',
                 }}
                 onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#C2A558'
+                  e.currentTarget.style.borderColor = '#0891b2'
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor = '#819291'
+                  e.currentTarget.style.borderColor = '#64748b'
                 }}
               />
             </div>
             <div className="flex-1">
-              <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+              <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                 End Date
               </label>
               <input
@@ -387,15 +375,15 @@ export default function ClientReports() {
                 onChange={(e) => setDateRange({ ...dateRange, end_date: e.target.value })}
                 className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                 style={{
-                  borderColor: '#819291',
+                  borderColor: '#e2e8f0',
                   color: '#113543',
                   backgroundColor: '#FFFFFF',
                 }}
                 onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#C2A558'
+                  e.currentTarget.style.borderColor = '#0891b2'
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor = '#819291'
+                  e.currentTarget.style.borderColor = '#64748b'
                 }}
               />
             </div>
@@ -419,18 +407,18 @@ export default function ClientReports() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
 
       {/* Report Modal */}
       {showReportModal && generatedReport && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" style={{ backgroundColor: '#FFFFFF' }}>
-            <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: '#819291' }}>
+            <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: '#e2e8f0' }}>
               <div>
                 <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                   {generatedReport.title}
                 </h3>
-                <p className="text-sm mt-1" style={{ color: '#819291' }}>
+                <p className="text-sm mt-1" style={{ color: '#64748b' }}>
                   {formatDate(generatedReport.date_range.start_date)} - {formatDate(generatedReport.date_range.end_date)}
                 </p>
               </div>
@@ -440,15 +428,15 @@ export default function ClientReports() {
                   className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded transition-colors"
                   style={{
                     color: '#113543',
-                    border: '1px solid #819291',
+                    border: '1px solid #e2e8f0',
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.backgroundColor = '#f8f9fa'
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.borderColor = '#0891b2'
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = '#FFFFFF'
-                    e.currentTarget.style.borderColor = '#819291'
+                    e.currentTarget.style.borderColor = '#64748b'
                   }}
                 >
                   <Download className="w-4 h-4" />
@@ -459,15 +447,15 @@ export default function ClientReports() {
                   className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded transition-colors"
                   style={{
                     color: '#113543',
-                    border: '1px solid #819291',
+                    border: '1px solid #e2e8f0',
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.backgroundColor = '#f8f9fa'
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.borderColor = '#0891b2'
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = '#FFFFFF'
-                    e.currentTarget.style.borderColor = '#819291'
+                    e.currentTarget.style.borderColor = '#64748b'
                   }}
                 >
                   <Download className="w-4 h-4" />
@@ -493,13 +481,13 @@ export default function ClientReports() {
                   {generatedReport.summary && (
                     <div className="grid grid-cols-2 gap-4 mb-6">
                       <div className="bg-gray-50 p-4 rounded">
-                        <p className="text-sm" style={{ color: '#819291' }}>Total A/R</p>
+                        <p className="text-sm" style={{ color: '#64748b' }}>Total A/R</p>
                         <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                           {formatCurrency(generatedReport.summary.total_ar)}
                         </p>
                       </div>
                       <div className="bg-gray-50 p-4 rounded">
-                        <p className="text-sm" style={{ color: '#819291' }}>Total Invoices</p>
+                        <p className="text-sm" style={{ color: '#64748b' }}>Total Invoices</p>
                         <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                           {generatedReport.summary.total_invoices}
                         </p>
@@ -521,7 +509,7 @@ export default function ClientReports() {
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y" style={{ borderColor: '#819291' }}>
+                      <tbody className="divide-y" style={{ borderColor: '#e2e8f0' }}>
                         {generatedReport.data.map((item: any, index: number) => (
                           <tr key={index}>
                             <td className="px-4 py-3 text-sm" style={{ color: '#113543' }}>
@@ -530,7 +518,7 @@ export default function ClientReports() {
                             <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
                               {formatCurrency(item.amount)}
                             </td>
-                            <td className="px-4 py-3 text-sm" style={{ color: '#819291' }}>
+                            <td className="px-4 py-3 text-sm" style={{ color: '#64748b' }}>
                               {item.invoice_count}
                             </td>
                           </tr>
@@ -546,19 +534,19 @@ export default function ClientReports() {
                 <div>
                   <div className="grid grid-cols-3 gap-4 mb-6">
                     <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#819291' }}>Total Paid</p>
+                      <p className="text-sm" style={{ color: '#64748b' }}>Total Paid</p>
                       <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                         {formatCurrency(generatedReport.data.total_paid)}
                       </p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#819291' }}>Payment Count</p>
+                      <p className="text-sm" style={{ color: '#64748b' }}>Payment Count</p>
                       <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                         {generatedReport.data.payment_count}
                       </p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#819291' }}>Average Payment</p>
+                      <p className="text-sm" style={{ color: '#64748b' }}>Average Payment</p>
                       <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                         {formatCurrency(generatedReport.data.average_payment)}
                       </p>
@@ -579,7 +567,7 @@ export default function ClientReports() {
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y" style={{ borderColor: '#819291' }}>
+                      <tbody className="divide-y" style={{ borderColor: '#e2e8f0' }}>
                         {generatedReport.data.payment_methods.map((item: any, index: number) => (
                           <tr key={index}>
                             <td className="px-4 py-3 text-sm" style={{ color: '#113543' }}>
@@ -588,7 +576,7 @@ export default function ClientReports() {
                             <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
                               {formatCurrency(item.amount)}
                             </td>
-                            <td className="px-4 py-3 text-sm" style={{ color: '#819291' }}>
+                            <td className="px-4 py-3 text-sm" style={{ color: '#64748b' }}>
                               {item.count}
                             </td>
                           </tr>
@@ -604,13 +592,13 @@ export default function ClientReports() {
                 <div>
                   <div className="grid grid-cols-2 gap-4 mb-6">
                     <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#819291' }}>Total Invoices</p>
+                      <p className="text-sm" style={{ color: '#64748b' }}>Total Invoices</p>
                       <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                         {generatedReport.data.total_invoices}
                       </p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#819291' }}>Total Amount</p>
+                      <p className="text-sm" style={{ color: '#64748b' }}>Total Amount</p>
                       <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                         {formatCurrency(generatedReport.data.total_amount)}
                       </p>
@@ -631,13 +619,13 @@ export default function ClientReports() {
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y" style={{ borderColor: '#819291' }}>
+                      <tbody className="divide-y" style={{ borderColor: '#e2e8f0' }}>
                         {generatedReport.data.by_status.map((item: any, index: number) => (
                           <tr key={index}>
                             <td className="px-4 py-3 text-sm" style={{ color: '#113543' }}>
                               {item.status}
                             </td>
-                            <td className="px-4 py-3 text-sm" style={{ color: '#819291' }}>
+                            <td className="px-4 py-3 text-sm" style={{ color: '#64748b' }}>
                               {item.count}
                             </td>
                             <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
@@ -677,13 +665,13 @@ export default function ClientReports() {
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y" style={{ borderColor: '#819291' }}>
+                    <tbody className="divide-y" style={{ borderColor: '#e2e8f0' }}>
                       {generatedReport.data.map((item: any, index: number) => (
                         <tr key={index}>
                           <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
                             {item.broker_name}
                           </td>
-                          <td className="px-4 py-3 text-sm" style={{ color: '#819291' }}>
+                          <td className="px-4 py-3 text-sm" style={{ color: '#64748b' }}>
                             {item.total_invoices}
                           </td>
                           <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
@@ -695,7 +683,7 @@ export default function ClientReports() {
                           <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
                             {formatCurrency(item.pending_amount)}
                           </td>
-                          <td className="px-4 py-3 text-sm" style={{ color: '#819291' }}>
+                          <td className="px-4 py-3 text-sm" style={{ color: '#64748b' }}>
                             {item.average_days_to_pay} days
                           </td>
                         </tr>
@@ -710,31 +698,31 @@ export default function ClientReports() {
                 <div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#819291' }}>Total Invoices</p>
+                      <p className="text-sm" style={{ color: '#64748b' }}>Total Invoices</p>
                       <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                         {generatedReport.data.total_invoices}
                       </p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#819291' }}>Total Invoice Amount</p>
+                      <p className="text-sm" style={{ color: '#64748b' }}>Total Invoice Amount</p>
                       <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                         {formatCurrency(generatedReport.data.total_invoice_amount)}
                       </p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#819291' }}>Total Paid</p>
+                      <p className="text-sm" style={{ color: '#64748b' }}>Total Paid</p>
                       <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                         {formatCurrency(generatedReport.data.total_paid)}
                       </p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#819291' }}>Outstanding</p>
+                      <p className="text-sm" style={{ color: '#64748b' }}>Outstanding</p>
                       <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                         {formatCurrency(generatedReport.data.outstanding)}
                       </p>
                     </div>
                     <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#819291' }}>Collection Rate</p>
+                      <p className="text-sm" style={{ color: '#64748b' }}>Collection Rate</p>
                       <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
                         {generatedReport.data.collection_rate.toFixed(1)}%
                       </p>
@@ -746,7 +734,7 @@ export default function ClientReports() {
           </div>
         </div>
       )}
-    </div>
+    </ClientLayout>
   )
 }
 

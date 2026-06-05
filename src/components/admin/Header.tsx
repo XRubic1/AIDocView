@@ -1,6 +1,15 @@
 
 import { LogOut } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import NotificationBell from '../NotificationBell'
+import {
+  getAdminNotifications,
+  markAdminNotificationRead,
+  markAllAdminNotificationsRead,
+  subscribeAdminNotifications,
+} from '../../services/adminNotificationService'
+import { Notification } from '../../types/notification'
 
 interface HeaderProps {
   userName: string
@@ -10,6 +19,14 @@ interface HeaderProps {
 export function Header({ userName, userRole = 'Admin' }: HeaderProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const [notifications, setNotifications] = useState<Notification[]>(() => getAdminNotifications())
+
+  useEffect(() => {
+    setNotifications(getAdminNotifications())
+    return subscribeAdminNotifications(() => {
+      setNotifications(getAdminNotifications())
+    })
+  }, [])
 
   const navItems = [
     { label: 'Dashboard', path: '/admin/dashboard' },
@@ -71,6 +88,16 @@ export function Header({ userName, userRole = 'Admin' }: HeaderProps) {
           </div>
 
           <div className="flex items-center space-x-4">
+            <NotificationBell
+              notifications={notifications}
+              onMarkAsRead={markAdminNotificationRead}
+              onMarkAllAsRead={markAllAdminNotificationsRead}
+              onNotificationClick={(notification) => {
+                if (notification.link) {
+                  navigate(notification.link)
+                }
+              }}
+            />
             <div className="text-right hidden sm:block">
               <div className="text-sm font-medium" style={{ color: '#113543' }}>{userName}</div>
               <div className="text-xs" style={{ color: '#819291' }}>{userRole}</div>

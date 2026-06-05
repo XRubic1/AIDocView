@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Bell, X, Check, FileText, DollarSign, AlertCircle, Clock } from 'lucide-react'
 import { Notification } from '../types/notification'
 import { formatRelativeTime } from '../utils/format'
+import { clientTheme as t } from '../theme/clientTheme'
 
 interface NotificationBellProps {
   notifications: Notification[]
@@ -52,6 +53,8 @@ export default function NotificationBell({
       case 'batch_submitted':
       case 'batch_reviewed':
         return <FileText className="w-4 h-4" />
+      case 'document_uploaded':
+        return <FileText className="w-4 h-4" />
       default:
         return <Bell className="w-4 h-4" />
     }
@@ -62,15 +65,15 @@ export default function NotificationBell({
       case 'invoice_approved':
       case 'payment_received':
       case 'batch_reviewed':
-        return '#819291' // Success/Info
+        return t.success
       case 'invoice_on_hold':
       case 'payment_pending':
-        return '#C2A558' // Warning
+        return t.warning
       case 'invoice_rejected':
       case 'overdue_alert':
-        return '#C2A558' // Error/Warning
+        return t.error
       default:
-        return '#819291'
+        return t.muted
     }
   }
 
@@ -86,9 +89,9 @@ export default function NotificationBell({
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 transition-colors"
-        style={{ color: '#819291' }}
-        onMouseEnter={(e) => (e.currentTarget.style.color = '#113543')}
-        onMouseLeave={(e) => (e.currentTarget.style.color = '#819291')}
+        style={{ color: t.muted }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = t.primary)}
+        onMouseLeave={(e) => (e.currentTarget.style.color = t.muted)}
         aria-label="Notifications"
       >
         <Bell className="w-5 h-5" />
@@ -96,7 +99,7 @@ export default function NotificationBell({
           <span
             className="absolute top-0 right-0 flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full"
             style={{
-              backgroundColor: '#C2A558',
+              backgroundColor: t.accent,
               color: '#FFFFFF',
             }}
           >
@@ -109,22 +112,22 @@ export default function NotificationBell({
         <div
           className="absolute right-0 mt-2 w-96 bg-white border rounded-lg shadow-xl z-50 max-h-[600px] overflow-hidden flex flex-col"
           style={{
-            borderColor: '#819291',
-            backgroundColor: '#FFFFFF',
+            borderColor: t.border,
+            backgroundColor: t.card,
           }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: '#819291' }}>
+          <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: t.border }}>
             <div className="flex items-center space-x-2">
-              <Bell className="w-5 h-5" style={{ color: '#113543' }} />
-              <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
+              <Bell className="w-5 h-5" style={{ color: t.primary }} />
+              <h3 className="text-lg font-semibold" style={{ color: t.primary }}>
                 Notifications
               </h3>
               {unreadCount > 0 && (
                 <span
                   className="px-2 py-0.5 text-xs font-medium rounded-full"
                   style={{
-                    backgroundColor: '#C2A558',
+                    backgroundColor: t.accent,
                     color: '#FFFFFF',
                   }}
                 >
@@ -141,16 +144,16 @@ export default function NotificationBell({
                   }}
                   className="text-xs px-2 py-1 rounded transition-colors"
                   style={{
-                    color: '#113543',
-                    border: '1px solid #819291',
+                    color: t.primary,
+                    border: `1px solid ${t.border}`,
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#f8f9fa'
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.backgroundColor = t.surface
+                    e.currentTarget.style.borderColor = t.accent
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#FFFFFF'
-                    e.currentTarget.style.borderColor = '#819291'
+                    e.currentTarget.style.backgroundColor = t.card
+                    e.currentTarget.style.borderColor = t.border
                   }}
                 >
                   Mark all read
@@ -159,7 +162,7 @@ export default function NotificationBell({
               <button
                 onClick={() => setIsOpen(false)}
                 className="p-1 hover:bg-gray-100 rounded transition-colors"
-                style={{ color: '#113543' }}
+                style={{ color: t.primary }}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -170,8 +173,8 @@ export default function NotificationBell({
           <div className="overflow-y-auto flex-1">
             {notifications.length === 0 ? (
               <div className="p-8 text-center">
-                <Bell className="w-12 h-12 mx-auto mb-4" style={{ color: '#819291' }} />
-                <p className="text-sm" style={{ color: '#819291' }}>
+                <Bell className="w-12 h-12 mx-auto mb-4" style={{ color: t.mutedLight }} />
+                <p className="text-sm" style={{ color: t.muted }}>
                   No notifications
                 </p>
               </div>
@@ -185,8 +188,8 @@ export default function NotificationBell({
                         key={notification.id}
                         className="p-4 border-b cursor-pointer transition-colors"
                         style={{
-                          borderColor: '#819291',
-                          backgroundColor: '#f8f9fa',
+                          borderColor: t.border,
+                          backgroundColor: t.surface,
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.backgroundColor = '#f0f0f0'
@@ -216,7 +219,7 @@ export default function NotificationBell({
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between">
-                              <p className="text-sm font-medium" style={{ color: '#113543' }}>
+                              <p className="text-sm font-medium" style={{ color: t.primary }}>
                                 {notification.title}
                               </p>
                               <button
@@ -225,22 +228,22 @@ export default function NotificationBell({
                                   onMarkAsRead(notification.id)
                                 }}
                                 className="ml-2 p-1 hover:bg-gray-200 rounded transition-colors"
-                                style={{ color: '#819291' }}
+                                style={{ color: t.muted }}
                                 title="Mark as read"
                               >
                                 <Check className="w-3 h-3" />
                               </button>
                             </div>
-                            <p className="text-sm mt-1" style={{ color: '#819291' }}>
+                            <p className="text-sm mt-1" style={{ color: t.muted }}>
                               {notification.message}
                             </p>
                             <div className="flex items-center justify-between mt-2">
-                              <div className="flex items-center space-x-1 text-xs" style={{ color: '#819291' }}>
+                              <div className="flex items-center space-x-1 text-xs" style={{ color: t.muted }}>
                                 <Clock className="w-3 h-3" />
                                 <span>{formatRelativeTime(notification.timestamp)}</span>
                               </div>
                               {notification.link_label && (
-                                <span className="text-xs font-medium" style={{ color: '#C2A558' }}>
+                                <span className="text-xs font-medium" style={{ color: t.accent }}>
                                   {notification.link_label} →
                                 </span>
                               )}
@@ -256,7 +259,7 @@ export default function NotificationBell({
                 {readNotifications.length > 0 && (
                   <div>
                     {unreadNotifications.length > 0 && (
-                      <div className="px-4 py-2 text-xs font-medium" style={{ color: '#819291', backgroundColor: '#f8f9fa' }}>
+                      <div className="px-4 py-2 text-xs font-medium" style={{ color: t.muted, backgroundColor: t.surface }}>
                         Older
                       </div>
                     )}
@@ -265,8 +268,8 @@ export default function NotificationBell({
                         key={notification.id}
                         className="p-4 border-b cursor-pointer transition-colors"
                         style={{
-                          borderColor: '#819291',
-                          backgroundColor: '#FFFFFF',
+                          borderColor: t.border,
+                          backgroundColor: t.card,
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.backgroundColor = '#f8f9fa'
@@ -292,19 +295,19 @@ export default function NotificationBell({
                             {getNotificationIcon(notification.type)}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium" style={{ color: '#819291' }}>
+                            <p className="text-sm font-medium" style={{ color: t.muted }}>
                               {notification.title}
                             </p>
-                            <p className="text-sm mt-1" style={{ color: '#819291' }}>
+                            <p className="text-sm mt-1" style={{ color: t.muted }}>
                               {notification.message}
                             </p>
                             <div className="flex items-center justify-between mt-2">
-                              <div className="flex items-center space-x-1 text-xs" style={{ color: '#819291' }}>
+                              <div className="flex items-center space-x-1 text-xs" style={{ color: t.muted }}>
                                 <Clock className="w-3 h-3" />
                                 <span>{formatRelativeTime(notification.timestamp)}</span>
                               </div>
                               {notification.link_label && (
-                                <span className="text-xs font-medium" style={{ color: '#C2A558' }}>
+                                <span className="text-xs font-medium" style={{ color: t.accent }}>
                                   {notification.link_label} →
                                 </span>
                               )}
@@ -321,12 +324,12 @@ export default function NotificationBell({
 
           {/* Footer */}
           {notifications.length > 0 && (
-            <div className="p-3 border-t text-center" style={{ borderColor: '#819291' }}>
+            <div className="p-3 border-t text-center" style={{ borderColor: t.border }}>
               <button
                 className="text-sm font-medium transition-colors"
-                style={{ color: '#113543' }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = '#C2A558')}
-                onMouseLeave={(e) => (e.currentTarget.style.color = '#113543')}
+                style={{ color: t.primary }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = t.accent)}
+                onMouseLeave={(e) => (e.currentTarget.style.color = t.primary)}
               >
                 View All Notifications
               </button>

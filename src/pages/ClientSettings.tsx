@@ -11,7 +11,7 @@ import {
   Save,
   Check,
 } from 'lucide-react'
-import ClientHeader from '../components/ClientHeader'
+import ClientLayout from '../components/ClientLayout'
 
 type SettingsTab = 'profile' | 'notifications' | 'preferences' | 'security' | 'remittance'
 
@@ -77,16 +77,6 @@ export default function ClientSettings() {
     routing_number: currentClient.routing_number || '',
   })
 
-  const navItems = [
-    { label: 'Dashboard', path: '/client/dashboard' },
-    { label: 'Batches', path: '/client/batches' },
-    { label: 'Invoices', path: '/client/invoices' },
-    { label: 'Payments', path: '/client/payments' },
-    { label: 'Collections', path: '/client/collections' },
-    { label: 'Reports', path: '/client/reports' },
-    { label: 'Settings', path: '/client/settings' },
-  ]
-
   const tabs = [
     { id: 'profile' as SettingsTab, label: 'Profile', icon: User },
     { id: 'notifications' as SettingsTab, label: 'Notifications', icon: Bell },
@@ -141,21 +131,19 @@ export default function ClientSettings() {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
-      <ClientHeader clientName={data.client_name} navItems={navItems} />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
+    <ClientLayout clientName={data.client_name} clientId={data.client_id}>
+      <div>
         <div className="mb-6">
           <h2 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
             Settings
           </h2>
-          <p style={{ color: '#819291' }}>Manage your account settings and preferences</p>
+          <p style={{ color: '#64748b' }}>Manage your account settings and preferences</p>
         </div>
 
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Sidebar Tabs */}
           <div className="lg:w-64 flex-shrink-0">
-            <div className="bg-white border rounded" style={{ borderColor: '#819291' }}>
+            <div className="bg-white border rounded" style={{ borderColor: '#e2e8f0' }}>
               <div className="p-2">
                 {tabs.map((tab) => {
                   const Icon = tab.icon
@@ -166,7 +154,7 @@ export default function ClientSettings() {
                       className="w-full flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded transition-colors mb-1"
                       style={{
                         backgroundColor: activeTab === tab.id ? '#f8f9fa' : 'transparent',
-                        color: activeTab === tab.id ? '#113543' : '#819291',
+                        color: activeTab === tab.id ? '#113543' : '#64748b',
                       }}
                       onMouseEnter={(e) => {
                         if (activeTab !== tab.id) {
@@ -177,7 +165,7 @@ export default function ClientSettings() {
                       onMouseLeave={(e) => {
                         if (activeTab !== tab.id) {
                           e.currentTarget.style.backgroundColor = 'transparent'
-                          e.currentTarget.style.color = '#819291'
+                          e.currentTarget.style.color = '#64748b'
                         }
                       }}
                     >
@@ -192,13 +180,13 @@ export default function ClientSettings() {
 
           {/* Main Content */}
           <div className="flex-1">
-            <div className="bg-white border rounded" style={{ borderColor: '#819291' }}>
+            <div className="bg-white border rounded" style={{ borderColor: '#e2e8f0' }}>
               <div className="p-6">
                 {/* Profile Tab */}
                 {activeTab === 'profile' && (
                   <div>
                     <div className="flex items-center space-x-2 mb-6">
-                      <Building2 className="w-5 h-5" style={{ color: '#C2A558' }} />
+                      <Building2 className="w-5 h-5" style={{ color: '#0891b2' }} />
                       <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                         Company Profile
                       </h3>
@@ -207,7 +195,7 @@ export default function ClientSettings() {
                     <div className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             Company Name
                           </label>
                           <input
@@ -216,20 +204,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('company_name', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             Contact Person
                           </label>
                           <input
@@ -238,20 +226,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('contact_person', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             Email
                           </label>
                           <input
@@ -260,20 +248,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('email', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             Phone
                           </label>
                           <input
@@ -282,20 +270,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('phone', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             Fax
                           </label>
                           <input
@@ -304,20 +292,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('fax', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             Address
                           </label>
                           <input
@@ -326,20 +314,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('address', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             City
                           </label>
                           <input
@@ -348,20 +336,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('city', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             State
                           </label>
                           <input
@@ -370,20 +358,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('state', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             ZIP Code
                           </label>
                           <input
@@ -392,20 +380,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('zip', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             MC Number
                           </label>
                           <input
@@ -414,20 +402,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('mc_number', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             DOT Number
                           </label>
                           <input
@@ -436,15 +424,15 @@ export default function ClientSettings() {
                             onChange={(e) => handleProfileChange('dot_number', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
@@ -457,7 +445,7 @@ export default function ClientSettings() {
                 {activeTab === 'notifications' && (
                   <div>
                     <div className="flex items-center space-x-2 mb-6">
-                      <Bell className="w-5 h-5" style={{ color: '#C2A558' }} />
+                      <Bell className="w-5 h-5" style={{ color: '#0891b2' }} />
                       <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                         Notification Preferences
                       </h3>
@@ -465,7 +453,7 @@ export default function ClientSettings() {
 
                     <div className="space-y-4">
                       {Object.entries(notificationSettings).map(([key, value]) => (
-                        <div key={key} className="flex items-center justify-between py-3 border-b" style={{ borderColor: '#819291' }}>
+                        <div key={key} className="flex items-center justify-between py-3 border-b" style={{ borderColor: '#e2e8f0' }}>
                           <div>
                             <label className="text-sm font-medium" style={{ color: '#113543' }}>
                               {key
@@ -473,7 +461,7 @@ export default function ClientSettings() {
                                 .replace(/^./, (str) => str.toUpperCase())
                                 .trim()}
                             </label>
-                            <p className="text-xs mt-1" style={{ color: '#819291' }}>
+                            <p className="text-xs mt-1" style={{ color: '#64748b' }}>
                               {key === 'emailNotifications'
                                 ? 'Receive all email notifications'
                                 : key === 'invoiceApproved'
@@ -501,7 +489,7 @@ export default function ClientSettings() {
                             <div
                               className="w-11 h-6 rounded-full transition-colors peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"
                               style={{
-                                backgroundColor: value ? '#C2A558' : '#819291',
+                                backgroundColor: value ? '#0891b2' : '#64748b',
                               }}
                             ></div>
                           </label>
@@ -515,7 +503,7 @@ export default function ClientSettings() {
                 {activeTab === 'preferences' && (
                   <div>
                     <div className="flex items-center space-x-2 mb-6">
-                      <Eye className="w-5 h-5" style={{ color: '#C2A558' }} />
+                      <Eye className="w-5 h-5" style={{ color: '#0891b2' }} />
                       <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                         Display Preferences
                       </h3>
@@ -523,7 +511,7 @@ export default function ClientSettings() {
 
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                           Date Format
                         </label>
                         <select
@@ -531,15 +519,15 @@ export default function ClientSettings() {
                           onChange={(e) => handlePreferenceChange('dateFormat', e.target.value)}
                           className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                           style={{
-                            borderColor: '#819291',
+                            borderColor: '#e2e8f0',
                             color: '#113543',
                             backgroundColor: '#FFFFFF',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#C2A558'
+                            e.currentTarget.style.borderColor = '#0891b2'
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#819291'
+                            e.currentTarget.style.borderColor = '#64748b'
                           }}
                         >
                           <option value="MM/DD/YYYY">MM/DD/YYYY</option>
@@ -548,7 +536,7 @@ export default function ClientSettings() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                           Time Format
                         </label>
                         <select
@@ -556,15 +544,15 @@ export default function ClientSettings() {
                           onChange={(e) => handlePreferenceChange('timeFormat', e.target.value)}
                           className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                           style={{
-                            borderColor: '#819291',
+                            borderColor: '#e2e8f0',
                             color: '#113543',
                             backgroundColor: '#FFFFFF',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#C2A558'
+                            e.currentTarget.style.borderColor = '#0891b2'
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#819291'
+                            e.currentTarget.style.borderColor = '#64748b'
                           }}
                         >
                           <option value="12h">12-hour</option>
@@ -572,7 +560,7 @@ export default function ClientSettings() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                           Currency
                         </label>
                         <select
@@ -580,15 +568,15 @@ export default function ClientSettings() {
                           onChange={(e) => handlePreferenceChange('currency', e.target.value)}
                           className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                           style={{
-                            borderColor: '#819291',
+                            borderColor: '#e2e8f0',
                             color: '#113543',
                             backgroundColor: '#FFFFFF',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#C2A558'
+                            e.currentTarget.style.borderColor = '#0891b2'
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#819291'
+                            e.currentTarget.style.borderColor = '#64748b'
                           }}
                         >
                           <option value="USD">USD ($)</option>
@@ -598,7 +586,7 @@ export default function ClientSettings() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                           Items Per Page
                         </label>
                         <select
@@ -606,15 +594,15 @@ export default function ClientSettings() {
                           onChange={(e) => handlePreferenceChange('itemsPerPage', e.target.value)}
                           className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                           style={{
-                            borderColor: '#819291',
+                            borderColor: '#e2e8f0',
                             color: '#113543',
                             backgroundColor: '#FFFFFF',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#C2A558'
+                            e.currentTarget.style.borderColor = '#0891b2'
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#819291'
+                            e.currentTarget.style.borderColor = '#64748b'
                           }}
                         >
                           <option value="10">10</option>
@@ -631,7 +619,7 @@ export default function ClientSettings() {
                 {activeTab === 'security' && (
                   <div>
                     <div className="flex items-center space-x-2 mb-6">
-                      <Lock className="w-5 h-5" style={{ color: '#C2A558' }} />
+                      <Lock className="w-5 h-5" style={{ color: '#0891b2' }} />
                       <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                         Security Settings
                       </h3>
@@ -639,7 +627,7 @@ export default function ClientSettings() {
 
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                           Current Password
                         </label>
                         <input
@@ -648,20 +636,20 @@ export default function ClientSettings() {
                           onChange={(e) => handleSecurityChange('currentPassword', e.target.value)}
                           className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                           style={{
-                            borderColor: '#819291',
+                            borderColor: '#e2e8f0',
                             color: '#113543',
                             backgroundColor: '#FFFFFF',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#C2A558'
+                            e.currentTarget.style.borderColor = '#0891b2'
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#819291'
+                            e.currentTarget.style.borderColor = '#64748b'
                           }}
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                           New Password
                         </label>
                         <input
@@ -670,20 +658,20 @@ export default function ClientSettings() {
                           onChange={(e) => handleSecurityChange('newPassword', e.target.value)}
                           className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                           style={{
-                            borderColor: '#819291',
+                            borderColor: '#e2e8f0',
                             color: '#113543',
                             backgroundColor: '#FFFFFF',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#C2A558'
+                            e.currentTarget.style.borderColor = '#0891b2'
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#819291'
+                            e.currentTarget.style.borderColor = '#64748b'
                           }}
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                           Confirm New Password
                         </label>
                         <input
@@ -692,15 +680,15 @@ export default function ClientSettings() {
                           onChange={(e) => handleSecurityChange('confirmPassword', e.target.value)}
                           className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                           style={{
-                            borderColor: '#819291',
+                            borderColor: '#e2e8f0',
                             color: '#113543',
                             backgroundColor: '#FFFFFF',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#C2A558'
+                            e.currentTarget.style.borderColor = '#0891b2'
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#819291'
+                            e.currentTarget.style.borderColor = '#64748b'
                           }}
                         />
                       </div>
@@ -720,13 +708,13 @@ export default function ClientSettings() {
                       >
                         Change Password
                       </button>
-                      <div className="pt-4 border-t" style={{ borderColor: '#819291' }}>
+                      <div className="pt-4 border-t" style={{ borderColor: '#e2e8f0' }}>
                         <div className="flex items-center justify-between py-3">
                           <div>
                             <label className="text-sm font-medium" style={{ color: '#113543' }}>
                               Two-Factor Authentication
                             </label>
-                            <p className="text-xs mt-1" style={{ color: '#819291' }}>
+                            <p className="text-xs mt-1" style={{ color: '#64748b' }}>
                               Add an extra layer of security to your account
                             </p>
                           </div>
@@ -740,13 +728,13 @@ export default function ClientSettings() {
                             <div
                               className="w-11 h-6 rounded-full transition-colors peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"
                               style={{
-                                backgroundColor: securitySettings.twoFactorEnabled ? '#C2A558' : '#819291',
+                                backgroundColor: securitySettings.twoFactorEnabled ? '#0891b2' : '#64748b',
                               }}
                             ></div>
                           </label>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2 mt-4" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2 mt-4" style={{ color: '#64748b' }}>
                             Session Timeout (minutes)
                           </label>
                           <input
@@ -755,15 +743,15 @@ export default function ClientSettings() {
                             onChange={(e) => handleSecurityChange('sessionTimeout', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
@@ -776,7 +764,7 @@ export default function ClientSettings() {
                 {activeTab === 'remittance' && (
                   <div>
                     <div className="flex items-center space-x-2 mb-6">
-                      <CreditCard className="w-5 h-5" style={{ color: '#C2A558' }} />
+                      <CreditCard className="w-5 h-5" style={{ color: '#0891b2' }} />
                       <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                         Remittance Information
                       </h3>
@@ -784,7 +772,7 @@ export default function ClientSettings() {
 
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                           Remittance Instructions
                         </label>
                         <textarea
@@ -793,20 +781,20 @@ export default function ClientSettings() {
                           rows={4}
                           className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                           style={{
-                            borderColor: '#819291',
+                            borderColor: '#e2e8f0',
                             color: '#113543',
                             backgroundColor: '#FFFFFF',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#C2A558'
+                            e.currentTarget.style.borderColor = '#0891b2'
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#819291'
+                            e.currentTarget.style.borderColor = '#64748b'
                           }}
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                           Bank Name
                         </label>
                         <input
@@ -815,21 +803,21 @@ export default function ClientSettings() {
                           onChange={(e) => handleRemittanceChange('bank_name', e.target.value)}
                           className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                           style={{
-                            borderColor: '#819291',
+                            borderColor: '#e2e8f0',
                             color: '#113543',
                             backgroundColor: '#FFFFFF',
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#C2A558'
+                            e.currentTarget.style.borderColor = '#0891b2'
                           }}
                           onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#819291'
+                            e.currentTarget.style.borderColor = '#64748b'
                           }}
                         />
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             Account Number
                           </label>
                           <input
@@ -838,20 +826,20 @@ export default function ClientSettings() {
                             onChange={(e) => handleRemittanceChange('account_number', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#819291' }}>
+                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                             Routing Number
                           </label>
                           <input
@@ -860,15 +848,15 @@ export default function ClientSettings() {
                             onChange={(e) => handleRemittanceChange('routing_number', e.target.value)}
                             className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                             style={{
-                              borderColor: '#819291',
+                              borderColor: '#e2e8f0',
                               color: '#113543',
                               backgroundColor: '#FFFFFF',
                             }}
                             onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#C2A558'
+                              e.currentTarget.style.borderColor = '#0891b2'
                             }}
                             onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#819291'
+                              e.currentTarget.style.borderColor = '#64748b'
                             }}
                           />
                         </div>
@@ -878,7 +866,7 @@ export default function ClientSettings() {
                 )}
 
                 {/* Save Button */}
-                <div className="mt-8 pt-6 border-t flex justify-end" style={{ borderColor: '#819291' }}>
+                <div className="mt-8 pt-6 border-t flex justify-end" style={{ borderColor: '#e2e8f0' }}>
                   <button
                     onClick={handleSave}
                     className="flex items-center space-x-2 px-6 py-2 text-sm font-medium transition-colors"
@@ -910,8 +898,8 @@ export default function ClientSettings() {
             </div>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </ClientLayout>
   )
 }
 

@@ -763,6 +763,24 @@ export const mockInvoices: Invoice[] = [
     documents_count: 2,
     broker_contacted: false,
     days_since_expected: 5,
+    disputes: [
+      {
+        id: 'dispute-w2-1',
+        reason: 'amount_discrepancy',
+        description: 'Broker short-paid by $200 on the rate confirmation amount.',
+        status: 'open',
+        created_by: 'ABC Trucking',
+        created_at: '2025-11-22T10:00:00Z',
+      },
+      {
+        id: 'dispute-w2-2',
+        reason: 'payment_delay',
+        description: 'No payment received past expected pay date.',
+        status: 'under_review',
+        created_by: 'ABC Trucking',
+        created_at: '2025-11-24T14:30:00Z',
+      },
+    ],
     document_send_history: [
       {
         email_address: 'accounting@chrobinson.com',
@@ -806,6 +824,20 @@ export const mockInvoices: Invoice[] = [
     broker_contacted: true,
     last_broker_contact: '2025-11-15T10:00:00Z',
     days_since_expected: 74,
+    disputes: [
+      {
+        id: 'dispute-w3-1',
+        reason: 'missing_documents',
+        description: 'Broker requested updated POD before releasing payment.',
+        status: 'under_review',
+        created_by: 'ABC Trucking',
+        created_at: '2025-10-05T09:00:00Z',
+        response:
+          'We sent the updated POD to the broker and confirmed receipt. They expect to release payment within 5 business days.',
+        responded_at: '2025-10-12T11:00:00Z',
+        responded_by: 'Credyx Support',
+      },
+    ],
     document_send_history: [
       {
         email_address: 'ap@xpo.com',

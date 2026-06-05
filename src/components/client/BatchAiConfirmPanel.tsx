@@ -13,7 +13,7 @@ interface BatchAiConfirmPanelProps {
 }
 
 const inputClass =
-  'w-full min-w-0 px-1.5 py-0.5 text-xs border rounded h-7 focus:outline-none focus:border-[#C2A558]'
+  'w-full min-w-0 px-1.5 py-0.5 text-xs border rounded h-7 focus:outline-none focus:border-[#0891b2]'
 
 const thClass = 'text-left py-1.5 px-2 text-[11px] font-semibold whitespace-nowrap'
 const tdClass = 'py-1 px-2 align-middle'
@@ -59,23 +59,23 @@ export default function BatchAiConfirmPanel({
       {/* Compact toolbar */}
       <div
         className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2 px-2 border-b text-xs shrink-0"
-        style={{ borderColor: '#819291', backgroundColor: '#f8f9fa' }}
+        style={{ borderColor: '#e2e8f0', backgroundColor: '#f8f9fa' }}
       >
-        <span className="flex items-center gap-1" style={{ color: '#C2A558' }} title={DOCSORT_AI_DISCLAIMER_SHORT}>
+        <span className="flex items-center gap-1" style={{ color: '#0891b2' }} title={DOCSORT_AI_DISCLAIMER_SHORT}>
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          <span style={{ color: '#819291' }}>{DOCSORT_AI_DISCLAIMER_SHORT}</span>
+          <span style={{ color: '#64748b' }}>{DOCSORT_AI_DISCLAIMER_SHORT}</span>
         </span>
         <span className="font-medium" style={{ color: '#113543' }}>
           {draft.invoices.length} load{draft.invoices.length !== 1 ? 's' : ''}
         </span>
-        <span style={{ color: '#819291' }}>
+        <span style={{ color: '#64748b' }}>
           {confirmedCount}/{draft.invoices.length} confirmed
         </span>
         <span className="font-medium" style={{ color: '#113543' }}>
           Batch total: {formatCurrency(batchTotal)}
         </span>
         {hasUnmatched && (
-          <span style={{ color: '#C2A558' }}>
+          <span style={{ color: '#0891b2' }}>
             {unmatchedTotal} unmatched doc{unmatchedTotal !== 1 ? 's' : ''} (excluded)
           </span>
         )}
@@ -83,7 +83,7 @@ export default function BatchAiConfirmPanel({
         <button
           type="button"
           className="px-2 py-1 text-xs font-medium border rounded"
-          style={{ borderColor: '#819291', color: '#113543' }}
+          style={{ borderColor: '#e2e8f0', color: '#113543' }}
           onClick={handleConfirmAll}
           disabled={allConfirmed}
         >
@@ -93,7 +93,7 @@ export default function BatchAiConfirmPanel({
           type="button"
           className="px-3 py-1 text-xs font-medium rounded"
           style={{
-            backgroundColor: allConfirmed ? '#C2A558' : '#819291',
+            backgroundColor: allConfirmed ? '#0891b2' : '#64748b',
             color: '#FFFFFF',
             opacity: allConfirmed && !submitting ? 1 : 0.55,
             cursor: allConfirmed && !submitting ? 'pointer' : 'not-allowed',
@@ -106,13 +106,13 @@ export default function BatchAiConfirmPanel({
       </div>
 
       {hasUnmatched && (
-        <details className="shrink-0 text-xs border-b" style={{ borderColor: '#819291' }}>
+        <details className="shrink-0 text-xs border-b" style={{ borderColor: '#e2e8f0' }}>
           <summary
             className="cursor-pointer py-1 px-2 list-none flex items-center gap-1"
-            style={{ color: '#C2A558', backgroundColor: 'rgba(194, 165, 88, 0.06)' }}
+            style={{ color: '#0891b2', backgroundColor: 'rgba(194, 165, 88, 0.06)' }}
           >
             <span className="font-medium">Unmatched files ({unmatchedTotal})</span>
-            <span style={{ color: '#819291' }}>— not on invoices</span>
+            <span style={{ color: '#64748b' }}>— not on invoices</span>
           </summary>
           <ul className="px-3 pb-2 max-h-20 overflow-y-auto" style={{ color: '#113543' }}>
             {[
@@ -129,10 +129,10 @@ export default function BatchAiConfirmPanel({
       )}
 
       {/* Dense invoice table — scroll only inside table if many rows */}
-      <div className="flex-1 min-h-0 overflow-auto border-b" style={{ borderColor: '#819291' }}>
+      <div className="flex-1 min-h-0 overflow-auto border-b" style={{ borderColor: '#e2e8f0' }}>
         <table className="w-full text-xs border-collapse" style={{ color: '#113543' }}>
           <thead className="sticky top-0 z-10" style={{ backgroundColor: '#f0f2f2' }}>
-            <tr className="border-b" style={{ borderColor: '#819291' }}>
+            <tr className="border-b" style={{ borderColor: '#e2e8f0' }}>
               <th className={thClass} style={{ width: '4rem' }}>
                 Load
               </th>
@@ -167,10 +167,10 @@ export default function BatchAiConfirmPanel({
                 }}
               >
                 <td className={`${tdClass} font-semibold whitespace-nowrap`}>{inv.load_number}</td>
-                <td className={`${tdClass} whitespace-nowrap`} style={{ color: '#819291' }}>
+                <td className={`${tdClass} whitespace-nowrap`} style={{ color: '#64748b' }}>
                   {inv.fingerprints.rateCons.length} RC · {inv.fingerprints.bols.length} BOL
                   {inv.rate_missing && (
-                    <span className="block" style={{ color: '#C2A558' }}>
+                    <span className="block" style={{ color: '#0891b2' }}>
                       rate?
                     </span>
                   )}
@@ -184,7 +184,7 @@ export default function BatchAiConfirmPanel({
                       onUpdateDraft(inv.draftId, { invoice_number: e.target.value })
                     }
                     className={inputClass}
-                    style={{ borderColor: '#819291' }}
+                    style={{ borderColor: '#e2e8f0' }}
                   />
                 </td>
                 <td className={tdClass}>
@@ -194,7 +194,7 @@ export default function BatchAiConfirmPanel({
                     disabled={inv.confirmed}
                     onChange={(e) => onUpdateDraft(inv.draftId, { load_number: e.target.value })}
                     className={inputClass}
-                    style={{ borderColor: '#819291' }}
+                    style={{ borderColor: '#e2e8f0' }}
                   />
                 </td>
                 <td className={tdClass}>
@@ -204,7 +204,7 @@ export default function BatchAiConfirmPanel({
                     disabled={inv.confirmed}
                     onChange={(e) => onUpdateDraft(inv.draftId, { broker_name: e.target.value })}
                     className={inputClass}
-                    style={{ borderColor: '#819291' }}
+                    style={{ borderColor: '#e2e8f0' }}
                   />
                 </td>
                 <td className={tdClass}>
@@ -221,7 +221,7 @@ export default function BatchAiConfirmPanel({
                       })
                     }
                     className={`${inputClass} text-right`}
-                    style={{ borderColor: '#819291' }}
+                    style={{ borderColor: '#e2e8f0' }}
                   />
                 </td>
                 <td className={`${tdClass} text-center`}>

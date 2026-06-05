@@ -119,7 +119,7 @@ export default function BatchAiUploadFlow({
 
   if (!isAIReviewEnabled()) {
     return (
-      <div className="p-4 border rounded text-sm" style={{ borderColor: '#819291' }}>
+      <div className="p-4 border rounded text-sm" style={{ borderColor: '#e2e8f0' }}>
         Add <code>VITE_OPENAI_API_KEY</code> to your .env file to use AI upload.
         <button type="button" className="ml-4 underline" onClick={onCancel}>
           Back
@@ -135,7 +135,7 @@ export default function BatchAiUploadFlow({
           <h3 className="text-sm font-bold truncate" style={{ color: '#113543' }}>
             Review & confirm · {draft.batchNumber}
           </h3>
-          <button type="button" className="text-xs underline shrink-0" style={{ color: '#819291' }} onClick={onCancel}>
+          <button type="button" className="text-xs underline shrink-0" style={{ color: '#64748b' }} onClick={onCancel}>
             Cancel
           </button>
         </div>
@@ -162,7 +162,7 @@ export default function BatchAiUploadFlow({
           Sorting paperwork & creating invoices…
         </p>
         {progress && (
-          <p className="text-sm mt-2" style={{ color: '#819291' }}>
+          <p className="text-sm mt-2" style={{ color: '#64748b' }}>
             {progress}
           </p>
         )}
@@ -176,17 +176,17 @@ export default function BatchAiUploadFlow({
         <h3 className="text-lg font-bold" style={{ color: '#113543' }}>
           AI upload
         </h3>
-        <button type="button" className="text-sm underline" style={{ color: '#819291' }} onClick={onCancel}>
+        <button type="button" className="text-sm underline" style={{ color: '#64748b' }} onClick={onCancel}>
           Back
         </button>
       </div>
-      <p className="text-sm" style={{ color: '#819291' }}>
+      <p className="text-sm" style={{ color: '#64748b' }}>
         Upload rate cons and BOLs. We will sort by load, extract rates, and draft invoices for your
         confirmation.
       </p>
       <label
         className="block border-2 border-dashed rounded p-8 text-center cursor-pointer"
-        style={{ borderColor: '#C2A558' }}
+        style={{ borderColor: '#0891b2' }}
       >
         <input type="file" accept=".pdf,application/pdf" multiple className="hidden" onChange={handleFileSelect} />
         <span style={{ color: '#113543' }}>Drop PDFs or click to browse</span>
@@ -206,7 +206,7 @@ export default function BatchAiUploadFlow({
       <button
         type="button"
         className="px-6 py-2 rounded font-medium"
-        style={{ backgroundColor: '#C2A558', color: '#FFFFFF' }}
+        style={{ backgroundColor: '#0891b2', color: '#FFFFFF' }}
         disabled={files.length === 0}
         onClick={handleProcess}
       >

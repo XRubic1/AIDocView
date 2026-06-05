@@ -5,7 +5,21 @@ export interface InvoiceNote {
   note: string
   created_by: string
   created_at: string
-  type?: 'note' | 'hold_reason' | 'approval' | 'rejection'
+  type?: 'note' | 'client_note' | 'hold_reason' | 'approval' | 'rejection' | 'dispute'
+}
+
+export interface InvoiceDispute {
+  id: string
+  reason: string
+  description: string
+  status: 'open' | 'under_review' | 'resolved' | 'closed'
+  created_by: string
+  created_at: string
+  resolved_at?: string
+  /** Credyx reply visible to the client on the invoice. */
+  response?: string
+  responded_at?: string
+  responded_by?: string
 }
 
 export interface Invoice {
@@ -16,6 +30,8 @@ export interface Invoice {
   broker_id: string
   broker_name: string
   amount: number
+  /** Amount the client confirmed receiving when marking paid (may differ from invoice amount). */
+  paid_amount?: number
   invoice_date: string
   due_date: string
   expected_payment_date: string
@@ -32,6 +48,7 @@ export interface Invoice {
   hold_reason?: string
   notes?: string
   notes_history?: InvoiceNote[]
+  disputes?: InvoiceDispute[]
   documents_count?: number
   broker_contacted?: boolean
   last_broker_contact?: string

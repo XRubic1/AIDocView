@@ -48,11 +48,11 @@ export default function PageClassificationTrainer({
   onPagesChange,
 }: PageClassificationTrainerProps) {
   const dark = variant === 'dark'
-  const border = dark ? ff.border : '#819291'
+  const border = dark ? ff.border : '#64748b'
   const panelBg = dark ? ff.bg3 : '#f8f9fa'
   const rowBg = dark ? ff.bg2 : '#FFFFFF'
   const textPrimary = dark ? ff.text : '#113543'
-  const textMuted = dark ? ff.textMuted : '#819291'
+  const textMuted = dark ? ff.textMuted : '#64748b'
 
   const initialFeedback = useMemo(() => {
     const map: Record<number, PageClassifyFeedback | undefined> = {}

@@ -72,13 +72,13 @@ export default function ClientLogin() {
         </div>
 
         {/* Login Card */}
-        <div className="border rounded-lg shadow-lg" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
+        <div className="border rounded-lg shadow-lg" style={{ backgroundColor: '#FFFFFF', borderColor: '#e2e8f0' }}>
           <div className="p-8">
             <div className="text-center mb-8">
               <h1 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
                 Client Login
               </h1>
-              <p className="text-sm" style={{ color: '#819291' }}>
+              <p className="text-sm" style={{ color: '#64748b' }}>
                 Sign in to access your client portal
               </p>
             </div>
@@ -104,15 +104,15 @@ export default function ClientLogin() {
                   placeholder="client@example.com"
                   className="w-full px-4 py-2.5 text-sm border rounded focus:outline-none transition-colors"
                   style={{
-                    borderColor: error ? '#ef4444' : '#819291',
+                    borderColor: error ? '#ef4444' : '#64748b',
                     color: '#113543',
                     backgroundColor: '#FFFFFF',
                   }}
                   onFocus={(e) => {
-                    e.currentTarget.style.borderColor = '#C2A558'
+                    e.currentTarget.style.borderColor = '#0891b2'
                   }}
                   onBlur={(e) => {
-                    e.currentTarget.style.borderColor = error ? '#ef4444' : '#819291'
+                    e.currentTarget.style.borderColor = error ? '#ef4444' : '#64748b'
                   }}
                   required
                   disabled={isLoading}
@@ -140,15 +140,15 @@ export default function ClientLogin() {
                     placeholder="Enter your password"
                     className="w-full px-4 py-2.5 pr-10 text-sm border rounded focus:outline-none transition-colors"
                     style={{
-                      borderColor: error ? '#ef4444' : '#819291',
+                      borderColor: error ? '#ef4444' : '#64748b',
                       color: '#113543',
                       backgroundColor: '#FFFFFF',
                     }}
                     onFocus={(e) => {
-                      e.currentTarget.style.borderColor = '#C2A558'
+                      e.currentTarget.style.borderColor = '#0891b2'
                     }}
                     onBlur={(e) => {
-                      e.currentTarget.style.borderColor = error ? '#ef4444' : '#819291'
+                      e.currentTarget.style.borderColor = error ? '#ef4444' : '#64748b'
                     }}
                     required
                     disabled={isLoading}
@@ -157,12 +157,12 @@ export default function ClientLogin() {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1"
-                    style={{ color: '#819291' }}
+                    style={{ color: '#64748b' }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.color = '#113543'
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.color = '#819291'
+                      e.currentTarget.style.color = '#64748b'
                     }}
                     disabled={isLoading}
                   >
@@ -190,7 +190,7 @@ export default function ClientLogin() {
                 type="submit"
                 disabled={isLoading}
                 className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 text-sm font-medium text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ backgroundColor: isLoading ? '#b89547' : '#113543' }}
+                style={{ backgroundColor: isLoading ? '#0a2529' : '#113543' }}
                 onMouseEnter={(e) => {
                   if (!isLoading) {
                     e.currentTarget.style.backgroundColor = '#0a2529'
@@ -217,19 +217,19 @@ export default function ClientLogin() {
             </form>
 
             {/* Link to Admin Login */}
-            <div className="mt-6 pt-6 border-t" style={{ borderColor: '#819291' }}>
-              <p className="text-xs text-center mb-2" style={{ color: '#819291' }}>
+            <div className="mt-6 pt-6 border-t" style={{ borderColor: '#e2e8f0' }}>
+              <p className="text-xs text-center mb-2" style={{ color: '#64748b' }}>
                 Demo Mode: Enter any email and password to continue
               </p>
               <button
                 onClick={() => navigate('/login')}
                 className="w-full text-xs text-center transition-colors"
-                style={{ color: '#819291' }}
+                style={{ color: '#64748b' }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = '#113543'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.color = '#819291'
+                  e.currentTarget.style.color = '#64748b'
                 }}
               >
                 Admin Login →
@@ -240,7 +240,7 @@ export default function ClientLogin() {
 
         {/* Footer */}
         <div className="mt-6 text-center">
-          <p className="text-xs" style={{ color: '#819291' }}>
+          <p className="text-xs" style={{ color: '#64748b' }}>
             © {new Date().getFullYear()} CREDYX A/R SOLUTIONS. All rights reserved.
           </p>
         </div>

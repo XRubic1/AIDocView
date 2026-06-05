@@ -31,11 +31,11 @@ interface PageClassificationPanelProps {
 export default function PageClassificationPanel({ pages, variant = 'light' }: PageClassificationPanelProps) {
   if (!pages.length) return null
   const dark = variant === 'dark'
-  const border = dark ? ff.border : '#819291'
+  const border = dark ? ff.border : '#64748b'
   const panelBg = dark ? ff.bg2 : '#f8f9fa'
   const rowBg = dark ? ff.mainBg : '#FFFFFF'
   const textPrimary = dark ? ff.text : '#113543'
-  const textMuted = dark ? ff.textMuted : '#819291'
+  const textMuted = dark ? ff.textMuted : '#64748b'
 
   return (
     <div className="rounded border p-3 space-y-2" style={{ borderColor: border, backgroundColor: panelBg }}>
@@ -69,7 +69,7 @@ export default function PageClassificationPanel({ pages, variant = 'light' }: Pa
                 <span style={{ color: textMuted }}>{page.skipReason ?? 'Skipped'}</span>
               )}
               {!page.isLegible && !page.isBlank && (
-                <span style={{ color: dark ? ff.amber : '#C2A558' }}>Low legibility</span>
+                <span style={{ color: dark ? ff.amber : '#0891b2' }}>Low legibility</span>
               )}
               {page.notes && (
                 <span className="min-w-0 break-words" style={{ color: textMuted }}>

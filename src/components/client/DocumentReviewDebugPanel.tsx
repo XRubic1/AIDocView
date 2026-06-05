@@ -89,13 +89,13 @@ export default function DocumentReviewDebugPanel({
   const [isOpen, setIsOpen] = useState(defaultOpen)
   const { debugLog, extraction } = result
   const dark = variant === 'dark'
-  const border = dark ? ff.border : '#819291'
+  const border = dark ? ff.border : '#64748b'
   const headerBg = dark ? ff.bg3 : '#f8f9fa'
   const bodyBg = dark ? ff.mainBg : '#FFFFFF'
   const textPrimary = dark ? ff.text : '#113543'
-  const textMuted = dark ? ff.textMuted : '#819291'
-  const accent = dark ? ff.accent : '#C2A558'
-  const imageBorder = dark ? ff.borderLight : '#819291'
+  const textMuted = dark ? ff.textMuted : '#64748b'
+  const accent = dark ? ff.accent : '#0891b2'
+  const imageBorder = dark ? ff.borderLight : '#64748b'
   const imageBg = dark ? ff.bg2 : '#f8f9fa'
   const attemptHighlight = dark ? ff.accentDim : '#FFFBF0'
   const attemptBg = dark ? ff.bg2 : '#f8f9fa'
@@ -182,7 +182,7 @@ export default function DocumentReviewDebugPanel({
             </div>
 
             <div>
-              <div className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#819291' }}>
+              <div className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
                 Extracted fields (final)
               </div>
               <dl className="rounded border divide-y text-xs" style={{ borderColor: border }}>
@@ -199,7 +199,7 @@ export default function DocumentReviewDebugPanel({
           </div>
 
           <div>
-            <div className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#819291' }}>
+            <div className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
               Model attempts
             </div>
             <div className="space-y-2">
@@ -208,7 +208,7 @@ export default function DocumentReviewDebugPanel({
                   key={`${attempt.model}-${index}`}
                   className="rounded border p-2 text-xs"
                   style={{
-                    borderColor: attempt.usedForResult ? (dark ? ff.accentBorder : '#C2A558') : border,
+                    borderColor: attempt.usedForResult ? (dark ? ff.accentBorder : '#0891b2') : border,
                     backgroundColor: attempt.usedForResult ? attemptHighlight : attemptBg,
                   }}
                 >

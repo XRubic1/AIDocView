@@ -7,6 +7,7 @@ import ClientPayments from './pages/ClientPayments'
 import ClientCollections from './pages/ClientCollections'
 import ClientReports from './pages/ClientReports'
 import ClientSettings from './pages/ClientSettings'
+import ClientDocuments from './pages/ClientDocuments'
 import Login from './pages/Login'
 import ClientLogin from './pages/ClientLogin'
 import Enroll from './pages/Enroll'
@@ -56,6 +57,7 @@ function App() {
         <Route path="/client/payments" element={<ClientPayments />} />
         <Route path="/client/collections" element={<ClientCollections />} />
         <Route path="/client/reports" element={<ClientReports />} />
+        <Route path="/client/documents" element={<ClientDocuments />} />
         <Route path="/client/settings" element={<ClientSettings />} />
         <Route path="/batches" element={<Batches />} />
         <Route path="/batches/create" element={<CreateBatch />} />

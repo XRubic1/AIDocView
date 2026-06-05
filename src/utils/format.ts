@@ -25,6 +25,17 @@ export const formatDate = (dateString: string): string => {
   })
 }
 
+/** Formats date + time for activity logs and notes. */
+export const formatDateTime = (dateString: string): string => {
+  return new Date(dateString).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 /**
  * Formats a date as relative time (e.g., "2 hours ago")
  * @param dateString - ISO date string
@@ -44,4 +55,12 @@ export const formatRelativeTime = (dateString: string): string => {
   return formatDate(dateString)
 }
 
+/** Formats byte size for file listings. */
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / Math.pow(1024, i)
+  return `${Math.round(value * 10) / 10} ${units[i]}`
+}
 

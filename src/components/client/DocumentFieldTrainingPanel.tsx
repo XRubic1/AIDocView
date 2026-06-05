@@ -44,7 +44,7 @@ interface DocumentFieldTrainingPanelProps {
 
 function ConfidenceBadge({ confidence }: { confidence: number }) {
   const pct = Math.round(confidence * 100)
-  const color = confidence >= 0.7 ? '#2E7D32' : confidence >= 0.5 ? '#C2A558' : '#991B1B'
+  const color = confidence >= 0.7 ? '#2E7D32' : confidence >= 0.5 ? '#0891b2' : '#991B1B'
   return (
     <span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ backgroundColor: `${color}18`, color }}>
       {pct}%
@@ -76,17 +76,17 @@ export default function DocumentFieldTrainingPanel({
 }: DocumentFieldTrainingPanelProps) {
   const dark = variant === 'dark'
   const engine = engineLayout && dark
-  const border = dark ? ff.border : '#C2A558'
+  const border = dark ? ff.border : '#0891b2'
   const panelBg = dark ? ff.bg2 : '#FFFBF0'
   const textPrimary = dark ? ff.text : '#113543'
-  const textMuted = dark ? ff.textMuted : '#819291'
-  const accent = dark ? ff.accent : '#C2A558'
+  const textMuted = dark ? ff.textMuted : '#64748b'
+  const accent = dark ? ff.accent : '#0891b2'
   const cardBg = dark ? ff.mainBg : '#FFFFFF'
   const cardBorder = (key: string, confirmation?: string) => {
-    if (activeFieldKey === key) return dark ? ff.accentBorder : '#C2A558'
+    if (activeFieldKey === key) return dark ? ff.accentBorder : '#0891b2'
     if (confirmation === 'correct') return dark ? ff.greenBorder : '#2E7D32'
     if (confirmation === 'incorrect') return dark ? ff.redBorder : '#991B1B'
-    return dark ? ff.border : '#819291'
+    return dark ? ff.border : '#64748b'
   }
   const annotatableFields = useMemo(() => getAnnotatableFields(result), [result])
   const aiRegions = useMemo(() => getAiFieldRegions(result), [result])
@@ -313,9 +313,9 @@ export default function DocumentFieldTrainingPanel({
                     }
                     className="p-1.5 rounded border transition-colors"
                     style={{
-                      borderColor: confirmation === 'correct' ? '#2E7D32' : '#819291',
+                      borderColor: confirmation === 'correct' ? '#2E7D32' : '#64748b',
                       backgroundColor: confirmation === 'correct' ? '#E8F5E9' : '#FFFFFF',
-                      color: confirmation === 'correct' ? '#2E7D32' : '#819291',
+                      color: confirmation === 'correct' ? '#2E7D32' : '#64748b',
                     }}
                   >
                     <Check className="w-3.5 h-3.5" />
@@ -329,9 +329,9 @@ export default function DocumentFieldTrainingPanel({
                     }
                     className="p-1.5 rounded border transition-colors"
                     style={{
-                      borderColor: confirmation === 'incorrect' ? '#991B1B' : '#819291',
+                      borderColor: confirmation === 'incorrect' ? '#991B1B' : '#64748b',
                       backgroundColor: confirmation === 'incorrect' ? '#FEE2E2' : '#FFFFFF',
-                      color: confirmation === 'incorrect' ? '#991B1B' : '#819291',
+                      color: confirmation === 'incorrect' ? '#991B1B' : '#64748b',
                     }}
                   >
                     <X className="w-3.5 h-3.5" />
@@ -348,7 +348,7 @@ export default function DocumentFieldTrainingPanel({
                 }}
                 placeholder={`Correct ${label.toLowerCase()}...`}
                 className="w-full px-2 py-1.5 text-xs border rounded focus:outline-none focus:ring-2"
-                style={{ borderColor: dark ? ff.borderLight : '#819291', color: textPrimary, backgroundColor: dark ? ff.bg3 : undefined }}
+                style={{ borderColor: dark ? ff.borderLight : '#64748b', color: textPrimary, backgroundColor: dark ? ff.bg3 : undefined }}
               />
 
               <p
@@ -409,7 +409,7 @@ export default function DocumentFieldTrainingPanel({
                   placeholder='Optional note, e.g. "Carrier is under the Carrier label"'
                   rows={2}
                   className="w-full px-2 py-1.5 text-xs border rounded resize-none focus:outline-none"
-                  style={{ borderColor: dark ? ff.borderLight : '#819291', backgroundColor: dark ? ff.bg3 : undefined, color: textPrimary }}
+                  style={{ borderColor: dark ? ff.borderLight : '#64748b', backgroundColor: dark ? ff.bg3 : undefined, color: textPrimary }}
                 />
               )}
             </div>

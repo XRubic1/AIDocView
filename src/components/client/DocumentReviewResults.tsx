@@ -53,14 +53,14 @@ export default function DocumentReviewResults({
   }
 
   return (
-    <div className="mb-6 rounded border p-4" style={{ borderColor: '#819291', backgroundColor: '#f8f9fa' }}>
+    <div className="mb-6 rounded border p-4" style={{ borderColor: '#e2e8f0', backgroundColor: '#f8f9fa' }}>
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <h4 className="text-sm font-semibold flex items-center gap-2" style={{ color: '#113543' }}>
-            <Sparkles className="w-4 h-4" style={{ color: '#C2A558' }} />
+            <Sparkles className="w-4 h-4" style={{ color: '#0891b2' }} />
             AI Document Review
           </h4>
-          <p className="text-xs mt-1" style={{ color: '#819291' }}>
+          <p className="text-xs mt-1" style={{ color: '#64748b' }}>
             Pipeline: Classify → Rate con → BOL audit → Cross-validate → Summary. Uses{' '}
             {getReviewModelSummary()}.
           </p>
@@ -120,7 +120,7 @@ export default function DocumentReviewResults({
           </div>
 
           {(result.rateConDestination || result.bolShipTo) && (
-            <div className="text-xs rounded border p-2 space-y-1" style={{ borderColor: '#819291', backgroundColor: '#FFFFFF' }}>
+            <div className="text-xs rounded border p-2 space-y-1" style={{ borderColor: '#e2e8f0', backgroundColor: '#FFFFFF' }}>
               {result.rateConDestination && (
                 <div style={{ color: '#113543' }}>
                   Rate con destination: <span className="font-medium">{result.rateConDestination}</span>
@@ -159,18 +159,18 @@ export default function DocumentReviewResults({
               <div
                 key={doc.documentId}
                 className="rounded border p-2 text-xs"
-                style={{ borderColor: '#819291', backgroundColor: '#FFFFFF' }}
+                style={{ borderColor: '#e2e8f0', backgroundColor: '#FFFFFF' }}
               >
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <span className="font-medium" style={{ color: '#113543' }}>
                     {doc.fileName}
                   </span>
-                  <span style={{ color: '#819291' }}>
+                  <span style={{ color: '#64748b' }}>
                     {doc.modelUsed}
                     {doc.upgradedFromMini ? ' (upgraded)' : ''}
                   </span>
                 </div>
-                <div style={{ color: '#819291' }}>
+                <div style={{ color: '#64748b' }}>
                   Type: {formatDocumentType(doc.extraction.documentType)} · Confidence:{' '}
                   {Math.round(doc.extraction.confidence * 100)}%
                 </div>
@@ -195,7 +195,7 @@ export default function DocumentReviewResults({
                       </div>
                     )}
                     {(doc.extraction.totalPagesInFile ?? 1) > 1 && (
-                      <div style={{ color: doc.extraction.isFullyLegible ? '#166534' : '#C2A558' }}>
+                      <div style={{ color: doc.extraction.isFullyLegible ? '#166534' : '#0891b2' }}>
                         {doc.extraction.pagesReviewed ?? 1} of {doc.extraction.totalPagesInFile} pages
                         reviewed ·{' '}
                         {doc.extraction.isFullyLegible ? 'All legible' : 'Legibility issues possible'}

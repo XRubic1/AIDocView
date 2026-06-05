@@ -28,7 +28,7 @@ export default function LoadAuditSummaryPanel({ result, variant = 'light' }: Loa
       ? { bg: '#E8F5E9', border: '#2E7D32', color: '#2E7D32', Icon: CheckCircle }
       : status === 'REJECTED'
         ? { bg: '#FEE2E2', border: '#991B1B', color: '#991B1B', Icon: AlertCircle }
-        : { bg: '#FFF8E1', border: '#C2A558', color: '#C2A558', Icon: FileWarning }
+        : { bg: '#FFF8E1', border: '#0891b2', color: '#0891b2', Icon: FileWarning }
 
   const StatusIcon = statusStyle.Icon
   const errors = (summary?.flags ?? cross?.flags ?? []).filter((f) => f.level === 'ERROR')
@@ -36,7 +36,7 @@ export default function LoadAuditSummaryPanel({ result, variant = 'light' }: Loa
   const infos = (summary?.flags ?? cross?.flags ?? []).filter((f) => f.level === 'INFO')
 
   const textPrimary = dark ? ff.text : '#113543'
-  const textMuted = dark ? ff.textMuted : '#819291'
+  const textMuted = dark ? ff.textMuted : '#64748b'
   const panelBg = dark ? ff.mainBg : '#FFFFFF'
   const sectionBorder = dark ? ff.border : '#e5e7eb'
   const gridBg = dark ? ff.bg2 : '#fafafa'
@@ -147,9 +147,9 @@ export default function LoadAuditSummaryPanel({ result, variant = 'light' }: Loa
 }
 
 function CheckPill({ label, ok, dark }: { label: string; ok?: boolean; dark?: boolean }) {
-  const muted = dark ? ff.textMuted : '#819291'
+  const muted = dark ? ff.textMuted : '#64748b'
   const okColor = dark ? ff.green : '#2E7D32'
-  const pendingColor = dark ? ff.amber : '#C2A558'
+  const pendingColor = dark ? ff.amber : '#0891b2'
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wide mb-0.5" style={{ color: muted, fontFamily: dark ? ff.fontMono : undefined }}>
