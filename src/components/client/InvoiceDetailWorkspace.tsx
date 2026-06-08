@@ -14,7 +14,7 @@ import {
 } from '../../services/clientInvoiceActions'
 import { getInvoiceDocuments } from '../../services/invoiceDocumentStore'
 import InvoiceDocumentUploadModal from './InvoiceDocumentUploadModal'
-import { Eye, Search, Filter, ChevronLeft, X, MessageSquarePlus, AlertTriangle, CircleCheck, Maximize2, Upload, FileText } from 'lucide-react'
+import { Eye, Search, Filter, ChevronLeft, X, MessageSquarePlus, AlertTriangle, CircleCheck, Maximize2, Upload } from 'lucide-react'
 import { enrichInvoice, getOverdueSeverityLabel, isOpenArInvoice, AR_POLICY, getDaysOutstandingColor } from '../../utils/invoiceAging'
 import { clientTheme as c } from '../../theme/clientTheme'
 
@@ -621,18 +621,6 @@ function InvoiceDetailPane({
                   </div>
                   {uploadSuccess && (
                     <p className="invoice-detail-upload-success">{uploadSuccess}</p>
-                  )}
-                  {invoiceDocuments.length > 0 && (
-                    <ul className="invoice-detail-documents-list">
-                      {invoiceDocuments.slice(-3).map((doc) => (
-                        <li key={doc.id} className="invoice-detail-documents-list-item">
-                          <FileText className="w-3 h-3 shrink-0" style={{ color: c.accent }} />
-                          <span className="truncate" title={doc.file_name}>
-                            {doc.file_name}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
                   )}
                 </div>
               </div>

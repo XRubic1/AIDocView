@@ -141,8 +141,8 @@ export default function ClientInvoices() {
   } as const
 
   return (
-    <ClientLayout clientName={data.client_name} clientId={data.client_id}>
-      <div className="dashboard-card overflow-hidden">
+    <ClientLayout clientName={data.client_name} clientId={data.client_id} flushMain>
+      <div className="client-invoices-page overflow-hidden">
         <section
           className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b"
           style={{ borderColor: c.border }}

@@ -1,0 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700&display=swap');
+
+.credyx-wordmark {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+  user-select: none;
+}
+
+.credyx-wordmark--compact {
+  justify-content: center;
+}
+
+.credyx-wordmark__name {
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.credyx-wordmark--compact .credyx-wordmark__name {
+  font-size: 1.2rem;
+}
+
+.credyx-wordmark__tagline {
+  margin-top: 4px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.credyx-wordmark--mark {
+  align-items: center;
+}
+
+.credyx-wordmark__mark-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.credyx-wordmark--admin .credyx-wordmark__mark-letter {
+  box-shadow: 0 1px 3px rgba(17, 53, 67, 0.2);
+}
+
+.credyx-wordmark[role='button']:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+.credyx-wordmark--admin[role='button']:focus-visible {
+  outline-color: #c2a558;
+}

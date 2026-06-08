@@ -18,17 +18,21 @@ import {
   getClientUserDisplayName,
 } from '../config/clientNav'
 import { clientTheme as t } from '../theme/clientTheme'
+import CredyxWordmark from './CredyxWordmark'
 import '../styles/clientPortal.css'
+import '../styles/credyxWordmark.css'
 
 interface ClientLayoutProps {
   clientName: string
   clientId?: string
+  /** Remove main padding for edge-to-edge page layouts (e.g. invoices). */
+  flushMain?: boolean
   children: ReactNode
 }
 
 const SIDEBAR_COLLAPSED_KEY = 'clientSidebarCollapsed'
 
-export default function ClientLayout({ clientName, clientId, children }: ClientLayoutProps) {
+export default function ClientLayout({ clientName, clientId, flushMain = false, children }: ClientLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
@@ -138,12 +142,16 @@ export default function ClientLayout({ clientName, clientId, children }: ClientL
         style={{ borderColor: t.sidebar.border }}
       >
         {collapsed && !isMobile ? (
-          <img src="/Logo.png" alt="CREDYX" className="h-8 w-8 object-contain" />
+          <CredyxWordmark
+            variant="mark"
+            theme="client"
+            onClick={() => navigate('/client/dashboard')}
+          />
         ) : (
-          <img
-            src="/Logo.png"
-            alt="CREDYX A/R Solutions"
-            className="h-9 w-auto max-w-[168px] object-contain object-left"
+          <CredyxWordmark
+            variant="full"
+            theme="client"
+            onClick={() => navigate('/client/dashboard')}
           />
         )}
       </div>
@@ -427,7 +435,9 @@ export default function ClientLayout({ clientName, clientId, children }: ClientL
           </div>
         </header>
 
-        <main className="flex-1 w-full p-5">{children}</main>
+        <main className={`flex-1 w-full min-h-0 ${flushMain ? 'client-main--flush' : 'p-5'}`}>
+          {children}
+        </main>
       </div>
     </div>
   )

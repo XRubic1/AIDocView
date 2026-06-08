@@ -10,6 +10,8 @@ import {
   subscribeAdminNotifications,
 } from '../../services/adminNotificationService'
 import { Notification } from '../../types/notification'
+import CredyxWordmark from '../CredyxWordmark'
+import '../../styles/credyxWordmark.css'
 
 interface HeaderProps {
   userName: string
@@ -53,11 +55,10 @@ export function Header({ userName, userRole = 'Admin' }: HeaderProps) {
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-8">
             <div className="flex items-center">
-              <img 
-                src="/Logo.png" 
-                alt="CREDYX A/R SOLUTIONS" 
-                className="h-10 w-auto"
-                style={{ maxHeight: '40px' }}
+              <CredyxWordmark
+                variant="full"
+                theme="admin"
+                onClick={() => navigate('/admin/dashboard')}
               />
             </div>
             <nav className="hidden md:flex space-x-1">

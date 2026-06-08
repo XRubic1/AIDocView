@@ -3,7 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 import { Notification } from '../types/notification'
 import NotificationBell from './NotificationBell'
+import CredyxWordmark from './CredyxWordmark'
 import { mockNotifications } from '../data/mockNotifications'
+import '../styles/credyxWordmark.css'
 
 interface ClientHeaderProps {
   clientName: string
@@ -50,10 +52,8 @@ export default function ClientHeader({ clientName, navItems }: ClientHeaderProps
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-8">
             <div>
-              <h1 className="text-xl font-bold tracking-tight" style={{ color: '#113543' }}>
-                CREDYX A/R SOLUTIONS
-              </h1>
-              <p className="text-xs mt-0.5" style={{ color: '#819291' }}>{clientName}</p>
+              <CredyxWordmark variant="full" theme="admin" onClick={() => navigate('/client/dashboard')} />
+              <p className="text-xs mt-1.5" style={{ color: '#819291' }}>{clientName}</p>
             </div>
             <nav className="hidden md:flex space-x-1">
               {navItems.map((item) => (
