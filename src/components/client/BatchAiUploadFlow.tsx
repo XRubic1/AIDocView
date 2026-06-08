@@ -216,12 +216,12 @@ export default function BatchAiUploadFlow({
   }, [restoredDraft])
 
   useEffect(() => {
-    if (!draftBatchId || !onPersistDraft || !draftReady || step === 'processing') return
+    if (!onPersistDraft || !draftReady || step === 'processing') return
     const timer = setTimeout(() => {
       onPersistDraft({ step, files, intake: draft })
     }, 900)
     return () => clearTimeout(timer)
-  }, [step, files, draft, draftBatchId, draftReady, onPersistDraft])
+  }, [step, files, draft, draftReady, onPersistDraft])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files

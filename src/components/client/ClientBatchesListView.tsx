@@ -5,6 +5,7 @@ import {
   Clock,
   Plus,
   Search,
+  Trash2,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { clientTheme as c } from '../../theme/clientTheme'
@@ -27,6 +28,7 @@ interface ClientBatchesListViewProps {
   highlightedBatchId: string | null
   onSelectBatch: (batchId: string) => void
   onCreateBatch: () => void
+  onDeleteDraft?: (batchId: string) => void
 }
 
 type StatusFilter = 'all' | 'pending' | 'review' | 'processed'
@@ -58,6 +60,7 @@ export default function ClientBatchesListView({
   highlightedBatchId,
   onSelectBatch,
   onCreateBatch,
+  onDeleteDraft,
 }: ClientBatchesListViewProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -227,12 +230,14 @@ export default function ClientBatchesListView({
                 <th>Status</th>
                 <th>Reviewed</th>
                 <th className="text-center">Outcome</th>
+                {onDeleteDraft && <th className="text-center w-16"> </th>}
               </tr>
             </thead>
             <tbody>
               {filteredBatches.map((batch) => {
                 const isHighlighted = highlightedBatchId === batch.id
                 const isProcessed = STATUS_FILTER_MATCH.processed(batch.status)
+                const isDraft = batch.status === 'draft'
                 return (
                   <tr
                     key={batch.id}
@@ -261,6 +266,25 @@ export default function ClientBatchesListView({
                         <span style={{ color: c.mutedLight }}>—</span>
                       )}
                     </td>
+                    {onDeleteDraft && (
+                      <td className="text-center">
+                        {isDraft ? (
+                          <button
+                            type="button"
+                            className="client-batches-list__delete-draft"
+                            title="Delete draft"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onDeleteDraft(batch.id)
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <span style={{ color: c.mutedLight }}> </span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 )
               })}

@@ -33,6 +33,7 @@ interface ClientManualBatchFormProps {
   onRemoveInvoice: (index: number) => void
   onClearAll: () => void
   onSubmit: () => void
+  draftBatchNumber?: string
 }
 
 /** Manual batch entry — form + live invoice list with sticky submit bar. */
@@ -51,12 +52,15 @@ export default function ClientManualBatchForm({
   onRemoveInvoice,
   onClearAll,
   onSubmit,
+  draftBatchNumber,
 }: ClientManualBatchFormProps) {
   const batchTotal = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0)
   const docCount = invoices.reduce((sum, inv) => sum + (inv.documents?.length ?? 0), 0)
 
   return (
-    <div className="client-manual-batch">
+    <div
+      className={`client-manual-batch${invoices.length > 0 ? ' client-manual-batch--has-footer' : ''}`}
+    >
       <div className="client-manual-batch__overview">
         <div className="client-manual-batch__overview-main">
           <span className="client-manual-batch__overview-title">New manual batch</span>
@@ -297,6 +301,11 @@ export default function ClientManualBatchForm({
             <span className="client-manual-batch__footer-value">
               {invoices.length} invoice{invoices.length !== 1 ? 's' : ''} · {formatCurrency(batchTotal)}
             </span>
+            {draftBatchNumber && (
+              <span className="client-manual-batch__draft-saved">
+                Draft saved · {draftBatchNumber}
+              </span>
+            )}
           </div>
           <div className="client-manual-batch__footer-actions">
             <button type="button" onClick={onClearAll} className="dashboard-btn-secondary">

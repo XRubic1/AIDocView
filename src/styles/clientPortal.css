@@ -1315,6 +1315,51 @@
   border-color: #f59e0b;
 }
 
+.client-portal .client-submit-docs__draft-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.client-portal .client-submit-docs__draft-row-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #dc2626;
+  cursor: pointer;
+}
+
+.client-portal .client-submit-docs__draft-row-delete:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.client-portal .client-batches-list__delete-draft {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #dc2626;
+  cursor: pointer;
+}
+
+.client-portal .client-batches-list__delete-draft:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
 .client-portal .client-submit-docs__options {
   flex: 1;
   display: grid;
@@ -1378,6 +1423,33 @@
   box-shadow: 0 12px 32px rgba(59, 130, 246, 0.12);
 }
 
+.client-portal .client-submit-docs__option--wip {
+  border-color: #fde68a;
+  background: #fffbeb;
+  box-shadow: none;
+}
+
+.client-portal .client-submit-docs__option--wip:hover {
+  border-color: #fcd34d;
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.1);
+  transform: translateY(-1px);
+}
+
+.client-portal .client-submit-docs__option--wip .client-submit-docs__option-cta {
+  color: #b45309;
+  background: #fff7ed;
+  border-top-color: #fde68a;
+}
+
+.client-portal .client-submit-docs__option--wip:hover .client-submit-docs__option-cta {
+  color: #92400e;
+  background: #ffedd5;
+}
+
+.client-portal .client-submit-docs__option--wip .client-submit-docs__step-check {
+  color: #d97706;
+}
+
 .client-portal .client-submit-docs__option-top {
   display: flex;
   align-items: center;
@@ -1434,6 +1506,11 @@
   border-radius: 999px;
   padding: 4px 10px;
   white-space: nowrap;
+}
+
+.client-portal .client-submit-docs__option-badge--wip {
+  color: #b45309;
+  background: #fef3c7;
 }
 
 .client-portal .client-submit-docs__option-desc {
@@ -1739,6 +1816,16 @@
   background: #ffffff;
 }
 
+.client-portal .client-manual-batch--has-footer {
+  padding-bottom: 72px;
+}
+
+@media (min-width: 640px) {
+  .client-portal .client-manual-batch--has-footer {
+    padding-bottom: 64px;
+  }
+}
+
 .client-portal .client-manual-batch__overview {
   flex-shrink: 0;
   display: flex;
@@ -1776,6 +1863,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 }
 
 @media (min-width: 1024px) {
@@ -2026,7 +2114,31 @@
   padding: 12px 16px;
   border-top: 1px solid #e2e8f0;
   background: #ffffff;
-  flex-shrink: 0;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 25;
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
+}
+
+@media (min-width: 1024px) {
+  .client-portal .client-manual-batch__footer {
+    left: var(--sidebar-width, 260px);
+  }
+}
+
+.client-portal .client-manual-batch__footer-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.client-portal .client-manual-batch__draft-saved {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b45309;
 }
 
 @media (min-width: 640px) {
@@ -2034,6 +2146,13 @@
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .client-portal .client-manual-batch__footer-summary {
+    flex-direction: row;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px 12px;
   }
 }
 

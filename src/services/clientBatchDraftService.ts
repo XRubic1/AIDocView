@@ -8,6 +8,7 @@ import {
 import type { BatchIntakeDraft, CredyxInvoiceDraft } from '../types/credyxBatch'
 import type {
   AiDraftSnapshot,
+  AiDraftStep,
   ClientBatchDraftMode,
   ClientBatchDraftRecord,
   ManualDraftSnapshot,
@@ -21,6 +22,41 @@ import {
   loadDraftRecord,
   saveDraftRecord,
 } from './clientBatchDraftStore'
+
+export type ManualDraftInvoiceInput = {
+  invoice_number: string
+  load_number: string
+  broker_name: string
+  broker_address: string
+  amount: string
+  invoice_date: string
+  notes: string
+  documents?: { id: string; name: string; file: File; size: number }[]
+}
+
+/** True when an AI draft has no uploaded files or processed intake content. */
+export function isAiDraftEmpty(
+  uploadFiles: File[],
+  intake: BatchIntakeDraft | null
+): boolean {
+  if (uploadFiles.length > 0) return false
+  if (!intake) return true
+  const hasUnmatched =
+    intake.unmatched.rateCons.length > 0 ||
+    intake.unmatched.bols.length > 0 ||
+    intake.unmatched.other.length > 0
+  return intake.invoices.length === 0 && !hasUnmatched && intake.fileById.size === 0
+}
+
+/** True when a manual draft has no saved invoices. */
+export function isManualDraftEmpty(invoices: ManualDraftInvoiceInput[]): boolean {
+  return invoices.length === 0
+}
+
+async function purgeEmptyDraftRecord(batchId: string): Promise<void> {
+  await deleteDraftRecord(batchId)
+  deleteBatch(batchId)
+}
 
 function fileMeta(key: string, file: File): StoredFileMeta {
   return { key, name: file.name, type: file.type, size: file.size }
@@ -114,7 +150,12 @@ export async function saveAiDraftSnapshot(
   snapshot: AiDraftSnapshot,
   intake: BatchIntakeDraft | null,
   uploadFiles: File[]
-): Promise<void> {
+): Promise<'saved' | 'cleared' | 'skipped'> {
+  if (isAiDraftEmpty(uploadFiles, intake)) {
+    await purgeEmptyDraftRecord(batchId)
+    return 'cleared'
+  }
+
   const files = new Map<string, File>()
 
   uploadFiles.forEach((file, index) => {
@@ -156,6 +197,36 @@ export async function saveAiDraftSnapshot(
     total_amount: totalAmount,
     sort_status: snapshot.step === 'confirm' ? 'ready' : snapshot.step === 'processing' ? 'sorting' : 'pending',
   })
+  return 'saved'
+}
+
+/** Persist AI draft when non-empty; create batch row on first save. */
+export async function persistAiDraftIfNeeded(
+  clientId: string,
+  clientName: string,
+  batchId: string | null,
+  snapshot: Pick<AiDraftSnapshot, 'step'>,
+  intake: BatchIntakeDraft | null,
+  uploadFiles: File[]
+): Promise<{ batchId: string | null; result: 'saved' | 'cleared' | 'skipped' }> {
+  if (isAiDraftEmpty(uploadFiles, intake)) {
+    if (batchId) {
+      await purgeEmptyDraftRecord(batchId)
+      return { batchId: null, result: 'cleared' }
+    }
+    return { batchId: null, result: 'skipped' }
+  }
+
+  const targetBatchId =
+    batchId ?? ensureClientDraftBatch(clientId, clientName, 'ai').id
+  await saveAiDraftSnapshot(
+    targetBatchId,
+    clientId,
+    { step: snapshot.step as AiDraftStep, uploadFiles: [], intake: null },
+    intake,
+    uploadFiles
+  )
+  return { batchId: targetBatchId, result: 'saved' }
 }
 
 export async function loadAiDraftSnapshot(batchId: string): Promise<{
@@ -185,17 +256,13 @@ export async function saveManualDraftWithFiles(
   batchId: string,
   clientId: string,
   invoiceFormData: ManualDraftSnapshot['invoiceFormData'],
-  invoices: Array<{
-    invoice_number: string
-    load_number: string
-    broker_name: string
-    broker_address: string
-    amount: string
-    invoice_date: string
-    notes: string
-    documents?: { id: string; name: string; file: File; size: number }[]
-  }>
-): Promise<void> {
+  invoices: ManualDraftInvoiceInput[]
+): Promise<'saved' | 'cleared'> {
+  if (isManualDraftEmpty(invoices)) {
+    await purgeEmptyDraftRecord(batchId)
+    return 'cleared'
+  }
+
   const files = new Map<string, File>()
   const storedInvoices: ManualDraftSnapshot['invoices'] = []
 
@@ -237,6 +304,29 @@ export async function saveManualDraftWithFiles(
     total_invoices: invoices.length,
     total_amount: totalAmount,
   })
+  return 'saved'
+}
+
+/** Persist manual draft when non-empty; create batch row on first save. */
+export async function persistManualDraftIfNeeded(
+  clientId: string,
+  clientName: string,
+  batchId: string | null,
+  invoiceFormData: ManualDraftSnapshot['invoiceFormData'],
+  invoices: ManualDraftInvoiceInput[]
+): Promise<{ batchId: string | null; result: 'saved' | 'cleared' | 'skipped' }> {
+  if (isManualDraftEmpty(invoices)) {
+    if (batchId) {
+      await purgeEmptyDraftRecord(batchId)
+      return { batchId: null, result: 'cleared' }
+    }
+    return { batchId: null, result: 'skipped' }
+  }
+
+  const targetBatchId =
+    batchId ?? ensureClientDraftBatch(clientId, clientName, 'manual').id
+  await saveManualDraftWithFiles(targetBatchId, clientId, invoiceFormData, invoices)
+  return { batchId: targetBatchId, result: 'saved' }
 }
 
 export async function loadManualDraftSnapshot(batchId: string): Promise<{
@@ -290,8 +380,7 @@ export async function loadManualDraftSnapshot(batchId: string): Promise<{
 }
 
 export async function clearClientDraftBatch(batchId: string): Promise<void> {
-  await deleteDraftRecord(batchId)
-  deleteBatch(batchId)
+  await purgeEmptyDraftRecord(batchId)
 }
 
 export async function clearClientDraftStorage(batchId: string): Promise<void> {

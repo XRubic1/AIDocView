@@ -1,20 +1,21 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams, useLocation } from 'react-router-dom'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
-import { getAllBatches } from '../data/mockBatches'
+import { getAllBatches, getBatchById, getClientDraftBatch } from '../data/mockBatches'
 import { mockBrokers } from '../data/mockBrokers'
-import { getInvoicesByBatchId } from '../data/mockInvoices'
+import { getInvoicesByBatchId, getInvoiceById } from '../data/mockInvoices'
 import BatchAiUploadFlow, { type RestoredAiDraftSession } from '../components/client/BatchAiUploadFlow'
 import { submitManualBatch } from '../services/credyx/submitManualBatch'
 import {
+  clearClientDraftBatch,
   clearClientDraftStorage,
-  ensureClientDraftBatch,
+  isAiDraftEmpty,
+  isManualDraftEmpty,
   loadAiDraftSnapshot,
   loadManualDraftSnapshot,
-  saveAiDraftSnapshot,
-  saveManualDraftWithFiles,
+  persistAiDraftIfNeeded,
+  persistManualDraftIfNeeded,
 } from '../services/clientBatchDraftService'
-import { getBatchById } from '../data/mockBatches'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import { generateInvoice } from '../../pdfTemplate'
@@ -37,7 +38,6 @@ import {
   type ClientMarkPaidOptions,
 } from '../services/clientInvoiceActions'
 import type { BatchIntakeDraft } from '../types/credyxBatch'
-import { getInvoiceById } from '../data/mockInvoices'
 
 type ClientBatchRow = {
   id: string
@@ -200,6 +200,8 @@ export default function ClientBatches() {
   const [currentInvoiceIndex, setCurrentInvoiceIndex] = useState<number | null>(null)
   const [uploadedDocuments, setUploadedDocuments] = useState<InvoiceDocument[]>([])
   const [isEditingExistingInvoice, setIsEditingExistingInvoice] = useState(false)
+  const [documentUploadSaving, setDocumentUploadSaving] = useState(false)
+  const documentUploadInFlightRef = useRef(false)
   const [viewingInvoiceDocuments, setViewingInvoiceDocuments] = useState<InvoiceFormData | null>(null)
   const [batchInvoices, setBatchInvoices] = useState<Record<string, InvoiceFormData[]>>({})
   const [invoiceExtras, setInvoiceExtras] = useState<Record<string, Partial<Invoice>>>({})
@@ -227,6 +229,43 @@ export default function ClientBatches() {
 
   const activeDraftBatch = activeDraftBatchId ? getBatchById(activeDraftBatchId) : undefined
 
+  const resetManualEditorState = useCallback(() => {
+    setCurrentBatchInvoices([])
+    const year = new Date().getFullYear()
+    setInvoiceFormData({
+      invoice_number: `INV-${year}-001`,
+      load_number: '',
+      broker_name: '',
+      broker_address: '',
+      amount: '',
+      invoice_date: new Date().toISOString().split('T')[0],
+      notes: '',
+    })
+    setShowBrokerSuggestions(false)
+  }, [])
+
+  const handleDeleteDraft = useCallback(
+    async (batchId: string) => {
+      const batch = getBatchById(batchId)
+      if (!batch || batch.status !== 'draft') return
+      if (!window.confirm(`Delete draft ${batch.batch_number}? This cannot be undone.`)) return
+
+      await clearClientDraftBatch(batchId)
+
+      if (activeDraftBatchId === batchId) {
+        setActiveDraftBatchId(null)
+        setAiDraftRestored(null)
+        setAiDraftReady(false)
+        setManualDraftReady(false)
+        resetManualEditorState()
+        setCreateSubMode('choose')
+      }
+
+      refreshBatches()
+    },
+    [activeDraftBatchId, refreshBatches, resetManualEditorState]
+  )
+
   const handleOpenCreateBatch = () => {
     setActiveTab('create')
     setSelectedBatch(null)
@@ -253,29 +292,39 @@ export default function ClientBatches() {
       const mode = uploadMode === 'manual' || batch.upload_mode === 'manual' ? 'manual' : 'ai'
       if (mode === 'manual') {
         const restored = await loadManualDraftSnapshot(batchId)
-        if (restored) {
-          setInvoiceFormData(restored.invoiceFormData)
-          setCurrentBatchInvoices(restored.invoices)
+        if (!restored || isManualDraftEmpty(restored.invoices)) {
+          await clearClientDraftBatch(batchId)
+          setActiveDraftBatchId(null)
+          setCreateSubMode('choose')
+          refreshBatches()
+          return
         }
+        setInvoiceFormData(restored.invoiceFormData)
+        setCurrentBatchInvoices(restored.invoices)
         setManualDraftReady(true)
         setCreateSubMode('manual')
         return
       }
 
       const restored = await loadAiDraftSnapshot(batchId)
+      if (!restored || isAiDraftEmpty(restored.uploadFiles, restored.intake)) {
+        await clearClientDraftBatch(batchId)
+        setActiveDraftBatchId(null)
+        setCreateSubMode('choose')
+        refreshBatches()
+        return
+      }
       setAiDraftRestored(
-        restored
-          ? {
-              step: restored.snapshot.step,
-              uploadFiles: restored.uploadFiles,
-              intake: restored.intake,
-            }
-          : null
+        {
+          step: restored.snapshot.step,
+          uploadFiles: restored.uploadFiles,
+          intake: restored.intake,
+        }
       )
       setAiDraftReady(true)
       setCreateSubMode('ai')
     },
-    [searchParams, setSearchParams]
+    [searchParams, setSearchParams, refreshBatches]
   )
 
   const handleSelectBatch = (batchId: string) => {
@@ -288,35 +337,51 @@ export default function ClientBatches() {
   }
 
   const startAiDraft = useCallback(async () => {
-    const batch = ensureClientDraftBatch(data.client_id, data.client_name, 'ai')
-    setActiveDraftBatchId(batch.id)
-    const restored = await loadAiDraftSnapshot(batch.id)
-    setAiDraftRestored(
-      restored
-        ? {
-            step: restored.snapshot.step,
-            uploadFiles: restored.uploadFiles,
-            intake: restored.intake,
-          }
-        : null
-    )
+    const existing = getClientDraftBatch(data.client_id, 'ai')
+    if (existing) {
+      const restored = await loadAiDraftSnapshot(existing.id)
+      if (restored && !isAiDraftEmpty(restored.uploadFiles, restored.intake)) {
+        setActiveDraftBatchId(existing.id)
+        setAiDraftRestored({
+          step: restored.snapshot.step,
+          uploadFiles: restored.uploadFiles,
+          intake: restored.intake,
+        })
+      } else {
+        await clearClientDraftBatch(existing.id)
+        setActiveDraftBatchId(null)
+        setAiDraftRestored(null)
+      }
+    } else {
+      setActiveDraftBatchId(null)
+      setAiDraftRestored(null)
+    }
     setAiDraftReady(true)
     setCreateSubMode('ai')
     refreshBatches()
-  }, [data.client_id, data.client_name, refreshBatches])
+  }, [data.client_id, refreshBatches])
 
   const startManualDraft = useCallback(async () => {
-    const batch = ensureClientDraftBatch(data.client_id, data.client_name, 'manual')
-    setActiveDraftBatchId(batch.id)
-    const restored = await loadManualDraftSnapshot(batch.id)
-    if (restored) {
-      setInvoiceFormData(restored.invoiceFormData)
-      setCurrentBatchInvoices(restored.invoices)
+    const existing = getClientDraftBatch(data.client_id, 'manual')
+    if (existing) {
+      const restored = await loadManualDraftSnapshot(existing.id)
+      if (restored && !isManualDraftEmpty(restored.invoices)) {
+        setActiveDraftBatchId(existing.id)
+        setInvoiceFormData(restored.invoiceFormData)
+        setCurrentBatchInvoices(restored.invoices)
+      } else {
+        await clearClientDraftBatch(existing.id)
+        setActiveDraftBatchId(null)
+        resetManualEditorState()
+      }
+    } else {
+      setActiveDraftBatchId(null)
+      resetManualEditorState()
     }
     setManualDraftReady(true)
     setCreateSubMode('manual')
     refreshBatches()
-  }, [data.client_id, data.client_name, refreshBatches])
+  }, [data.client_id, refreshBatches, resetManualEditorState])
 
   const handlePersistAiDraft = useCallback(
     (payload: {
@@ -324,27 +389,42 @@ export default function ClientBatches() {
       files: File[]
       intake: BatchIntakeDraft | null
     }) => {
-      if (!activeDraftBatchId) return
-      void saveAiDraftSnapshot(
-        activeDraftBatchId,
+      void persistAiDraftIfNeeded(
         data.client_id,
-        { step: payload.step, uploadFiles: [], intake: null },
+        data.client_name,
+        activeDraftBatchId,
+        { step: payload.step },
         payload.intake,
         payload.files
-      ).then(() => refreshBatches())
+      ).then(({ batchId, result }) => {
+        if (batchId !== activeDraftBatchId) {
+          setActiveDraftBatchId(batchId)
+        }
+        if (result !== 'skipped') {
+          refreshBatches()
+        }
+      })
     },
-    [activeDraftBatchId, data.client_id, refreshBatches]
+    [activeDraftBatchId, data.client_id, data.client_name, refreshBatches]
   )
 
   useEffect(() => {
-    if (!activeDraftBatchId || createSubMode !== 'manual' || !manualDraftReady) return
+    if (createSubMode !== 'manual' || !manualDraftReady) return
     const timer = setTimeout(() => {
-      void saveManualDraftWithFiles(
-        activeDraftBatchId,
+      void persistManualDraftIfNeeded(
         data.client_id,
+        data.client_name,
+        activeDraftBatchId,
         invoiceFormData,
         currentBatchInvoices
-      ).then(() => refreshBatches())
+      ).then(({ batchId, result }) => {
+        if (batchId !== activeDraftBatchId) {
+          setActiveDraftBatchId(batchId)
+        }
+        if (result !== 'skipped') {
+          refreshBatches()
+        }
+      })
     }, 900)
     return () => clearTimeout(timer)
   }, [
@@ -354,6 +434,7 @@ export default function ClientBatches() {
     invoiceFormData,
     currentBatchInvoices,
     data.client_id,
+    data.client_name,
     refreshBatches,
   ])
 
@@ -436,6 +517,9 @@ export default function ClientBatches() {
       return
     }
 
+    documentUploadInFlightRef.current = false
+    setDocumentUploadSaving(false)
+
     // Use the invoice number from form (which may have been edited)
     const invoiceNumber = invoiceFormData.invoice_number || generateNextInvoiceNumber()
 
@@ -452,62 +536,9 @@ export default function ClientBatches() {
     setShowDocumentUploadModal(true)
   }
 
-  const handleDocumentUploadComplete = async () => {
-    if (!currentInvoiceForDocuments) return
-
-    // Generate PDF invoice automatically
-    let pdfDocument: InvoiceDocument | null = null
-    try {
-      const pdfFile = await generatePDFInvoice(currentInvoiceForDocuments)
-      pdfDocument = {
-        id: `pdf-${Date.now()}`,
-        name: pdfFile.name,
-        file: pdfFile,
-        size: pdfFile.size,
-      }
-    } catch (error) {
-      console.error('Error generating PDF invoice:', error)
-      // Continue without PDF if generation fails
-    }
-
-    // Combine PDF with uploaded documents
-    const allDocuments = pdfDocument 
-      ? [pdfDocument, ...uploadedDocuments]
-      : uploadedDocuments
-
-    if (isEditingExistingInvoice && currentInvoiceIndex !== null) {
-      // Update existing invoice with documents
-      setCurrentBatchInvoices((prev) => {
-        const updated = [...prev]
-        updated[currentInvoiceIndex] = {
-          ...updated[currentInvoiceIndex],
-          documents: allDocuments,
-        }
-        return updated
-      })
-    } else {
-      // Add new invoice with documents to batch
-      const invoiceWithDocuments: InvoiceFormData = {
-        ...currentInvoiceForDocuments,
-        documents: allDocuments,
-      }
-
-      setCurrentBatchInvoices((prev) => [...prev, invoiceWithDocuments])
-      
-      // Generate next invoice number for the new form based on highest existing number
-      const nextInvoiceNumber = generateNextInvoiceNumber()
-      
-      setInvoiceFormData({
-        invoice_number: nextInvoiceNumber,
-        load_number: '',
-        broker_name: '',
-        broker_address: '',
-        amount: '',
-        invoice_date: new Date().toISOString().split('T')[0],
-        notes: '',
-      })
-    }
-    
+  const closeDocumentUploadModal = () => {
+    documentUploadInFlightRef.current = false
+    setDocumentUploadSaving(false)
     setShowBrokerSuggestions(false)
     setShowDocumentUploadModal(false)
     setCurrentInvoiceForDocuments(null)
@@ -516,45 +547,8 @@ export default function ClientBatches() {
     setIsEditingExistingInvoice(false)
   }
 
-  const handleDocumentUploadSkip = async () => {
-    if (!currentInvoiceForDocuments) return
-
-    if (isEditingExistingInvoice) {
-      // Just close the modal, don't modify the invoice
-      setShowDocumentUploadModal(false)
-      setCurrentInvoiceForDocuments(null)
-      setCurrentInvoiceIndex(null)
-      setUploadedDocuments([])
-      setIsEditingExistingInvoice(false)
-      return
-    }
-
-    // Generate PDF invoice automatically even when skipping document upload
-    let pdfDocument: InvoiceDocument | null = null
-    try {
-      const pdfFile = await generatePDFInvoice(currentInvoiceForDocuments)
-      pdfDocument = {
-        id: `pdf-${Date.now()}`,
-        name: pdfFile.name,
-        file: pdfFile,
-        size: pdfFile.size,
-      }
-    } catch (error) {
-      console.error('Error generating PDF invoice:', error)
-      // Continue without PDF if generation fails
-    }
-
-    // Add invoice with PDF (if generated) to batch
-    const invoiceToAdd: InvoiceFormData = {
-      ...currentInvoiceForDocuments,
-      documents: pdfDocument ? [pdfDocument] : [],
-    }
-    
-    setCurrentBatchInvoices((prev) => [...prev, invoiceToAdd])
-    
-    // Generate next invoice number for the new form based on highest existing number
+  const resetInvoiceFormAfterAdd = () => {
     const nextInvoiceNumber = generateNextInvoiceNumber()
-    
     setInvoiceFormData({
       invoice_number: nextInvoiceNumber,
       load_number: '',
@@ -564,15 +558,98 @@ export default function ClientBatches() {
       invoice_date: new Date().toISOString().split('T')[0],
       notes: '',
     })
-    setShowBrokerSuggestions(false)
-    setShowDocumentUploadModal(false)
-    setCurrentInvoiceForDocuments(null)
-    setCurrentInvoiceIndex(null)
-    setUploadedDocuments([])
-    setIsEditingExistingInvoice(false)
+  }
+
+  const beginDocumentUploadAction = (): boolean => {
+    if (documentUploadInFlightRef.current) return false
+    documentUploadInFlightRef.current = true
+    setDocumentUploadSaving(true)
+    return true
+  }
+
+  const endDocumentUploadAction = () => {
+    documentUploadInFlightRef.current = false
+    setDocumentUploadSaving(false)
+  }
+
+  const generateInvoicePdfDocument = async (
+    invoice: InvoiceFormData
+  ): Promise<InvoiceDocument | null> => {
+    try {
+      const pdfFile = await generatePDFInvoice(invoice)
+      return {
+        id: `pdf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: pdfFile.name,
+        file: pdfFile,
+        size: pdfFile.size,
+      }
+    } catch (error) {
+      console.error('Error generating PDF invoice:', error)
+      return null
+    }
+  }
+
+  const handleDocumentUploadComplete = async () => {
+    if (!currentInvoiceForDocuments || !beginDocumentUploadAction()) return
+
+    try {
+      const pdfDocument = await generateInvoicePdfDocument(currentInvoiceForDocuments)
+      const allDocuments = pdfDocument ? [pdfDocument, ...uploadedDocuments] : uploadedDocuments
+
+      if (isEditingExistingInvoice && currentInvoiceIndex !== null) {
+        setCurrentBatchInvoices((prev) => {
+          const updated = [...prev]
+          updated[currentInvoiceIndex] = {
+            ...updated[currentInvoiceIndex],
+            documents: allDocuments,
+          }
+          return updated
+        })
+      } else {
+        setCurrentBatchInvoices((prev) => [
+          ...prev,
+          { ...currentInvoiceForDocuments, documents: allDocuments },
+        ])
+        resetInvoiceFormAfterAdd()
+      }
+
+      closeDocumentUploadModal()
+    } catch (error) {
+      console.error('Error saving invoice documents:', error)
+      endDocumentUploadAction()
+    }
+  }
+
+  const handleDocumentUploadSkip = async () => {
+    if (!currentInvoiceForDocuments || documentUploadInFlightRef.current) return
+
+    if (isEditingExistingInvoice) {
+      closeDocumentUploadModal()
+      return
+    }
+
+    if (!beginDocumentUploadAction()) return
+
+    try {
+      const pdfDocument = await generateInvoicePdfDocument(currentInvoiceForDocuments)
+      setCurrentBatchInvoices((prev) => [
+        ...prev,
+        {
+          ...currentInvoiceForDocuments,
+          documents: pdfDocument ? [pdfDocument] : [],
+        },
+      ])
+      resetInvoiceFormAfterAdd()
+      closeDocumentUploadModal()
+    } catch (error) {
+      console.error('Error adding invoice:', error)
+      endDocumentUploadAction()
+    }
   }
 
   const handleUploadDocumentsForInvoice = (invoice: InvoiceFormData, index: number) => {
+    documentUploadInFlightRef.current = false
+    setDocumentUploadSaving(false)
     setCurrentInvoiceForDocuments(invoice)
     setCurrentInvoiceIndex(index)
     setUploadedDocuments(invoice.documents || [])
@@ -1201,14 +1278,15 @@ export default function ClientBatches() {
             onSelectManual={() => void startManualDraft()}
             draftBatches={draftBatches}
             onResumeDraft={(batchId) => void resumeDraftBatch(batchId)}
+            onDeleteDraft={(batchId) => void handleDeleteDraft(batchId)}
             activeDraftBatchId={activeDraftBatchId}
           >
-            {createSubMode === 'ai' && activeDraftBatchId && (
+            {createSubMode === 'ai' && aiDraftReady && (
               <BatchAiUploadFlow
                 embedded
                 clientId={data.client_id}
                 clientName={data.client_name}
-                draftBatchId={activeDraftBatchId}
+                draftBatchId={activeDraftBatchId ?? undefined}
                 draftBatchNumber={activeDraftBatch?.batch_number}
                 restoredDraft={aiDraftRestored}
                 draftReady={aiDraftReady}
@@ -1233,15 +1311,10 @@ export default function ClientBatches() {
               />
             )}
 
-            {createSubMode === 'ai' && !activeDraftBatchId && (
-              <div className="client-ai-upload__empty p-8 text-center text-sm text-slate-500">
-                Preparing draft…
-              </div>
-            )}
-
-            {createSubMode === 'manual' && (
+            {createSubMode === 'manual' && manualDraftReady && (
               <ClientManualBatchForm
                 formData={invoiceFormData}
+                draftBatchNumber={activeDraftBatch?.batch_number}
                 onFormChange={handleInvoiceInputChange}
                 brokerSuggestions={brokerSuggestions}
                 showBrokerSuggestions={showBrokerSuggestions}
@@ -1258,18 +1331,7 @@ export default function ClientBatches() {
                 onUploadDocuments={handleUploadDocumentsForInvoice}
                 onRemoveInvoice={handleRemoveInvoice}
                 onClearAll={() => {
-                  setCurrentBatchInvoices([])
-                  const year = new Date().getFullYear()
-                  setInvoiceFormData({
-                    invoice_number: `INV-${year}-001`,
-                    load_number: '',
-                    broker_name: '',
-                    broker_address: '',
-                    amount: '',
-                    invoice_date: new Date().toISOString().split('T')[0],
-                    notes: '',
-                  })
-                  setShowBrokerSuggestions(false)
+                  resetManualEditorState()
                 }}
                 onSubmit={handleCreateBatch}
               />
@@ -1288,6 +1350,7 @@ export default function ClientBatches() {
             highlightedBatchId={highlightedBatchId}
             onSelectBatch={handleSelectBatch}
             onCreateBatch={handleOpenCreateBatch}
+            onDeleteDraft={(batchId) => void handleDeleteDraft(batchId)}
           />
         )}
       </div>
@@ -1301,6 +1364,7 @@ export default function ClientBatches() {
           loadNumber={currentInvoiceForDocuments.load_number}
           documents={uploadedDocuments}
           isEditingExistingInvoice={isEditingExistingInvoice}
+          saving={documentUploadSaving}
           onClose={handleDocumentUploadSkip}
           onComplete={handleDocumentUploadComplete}
           onFileSelect={handleFileSelect}

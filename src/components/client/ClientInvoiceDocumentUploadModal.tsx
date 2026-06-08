@@ -1,4 +1,4 @@
-import { FileText, Trash2, Upload, X } from 'lucide-react'
+import { FileText, Loader2, Trash2, Upload, X } from 'lucide-react'
 import { formatCurrency } from '../../utils/format'
 import { clientTheme as c } from '../../theme/clientTheme'
 
@@ -15,6 +15,7 @@ interface ClientInvoiceDocumentUploadModalProps {
   loadNumber?: string
   documents: UploadModalDocument[]
   isEditingExistingInvoice: boolean
+  saving?: boolean
   onClose: () => void
   onComplete: () => void
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void
@@ -36,6 +37,7 @@ export default function ClientInvoiceDocumentUploadModal({
   loadNumber,
   documents,
   isEditingExistingInvoice,
+  saving = false,
   onClose,
   onComplete,
   onFileSelect,
@@ -77,7 +79,7 @@ export default function ClientInvoiceDocumentUploadModal({
               )}
             </div>
           </div>
-          <button type="button" onClick={onClose} className="client-doc-upload-modal__close" aria-label="Close">
+          <button type="button" onClick={onClose} className="client-doc-upload-modal__close" aria-label="Close" disabled={saving}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -139,11 +141,18 @@ export default function ClientInvoiceDocumentUploadModal({
         </div>
 
         <div className="client-doc-upload-modal__footer">
-          <button type="button" onClick={onClose} className="dashboard-btn-secondary">
+          <button type="button" onClick={onClose} className="dashboard-btn-secondary" disabled={saving}>
             {isEditingExistingInvoice ? 'Cancel' : 'Skip'}
           </button>
-          <button type="button" onClick={onComplete} className="dashboard-btn-primary">
-            {completeLabel}
+          <button type="button" onClick={onComplete} className="dashboard-btn-primary" disabled={saving}>
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving…
+              </>
+            ) : (
+              completeLabel
+            )}
           </button>
         </div>
       </div>
