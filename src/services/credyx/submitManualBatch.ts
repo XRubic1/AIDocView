@@ -1,4 +1,4 @@
-import { addBatch, addInvoicesForBatch, generateBatchNumber } from '../../data/mockBatches'
+import { addBatch, addInvoicesForBatch, generateBatchNumber, updateBatch } from '../../data/mockBatches'
 import { setBatchFiles } from '../../data/batchFileStore'
 import { resolveBrokerId } from '../../integrations/docSortToCredyx'
 import { mockClients } from '../../data/mockClients'
@@ -17,10 +17,11 @@ export interface SubmitManualBatchInput {
   clientId: string
   clientName: string
   invoices: ManualInvoiceInput[]
+  existingBatchId?: string
 }
 
 export function submitManualBatch(input: SubmitManualBatchInput) {
-  const { clientId, clientName, invoices } = input
+  const { clientId, clientName, invoices, existingBatchId } = input
   if (invoices.length === 0) {
     throw new Error('Please add at least one invoice to the batch')
   }
@@ -52,19 +53,31 @@ export function submitManualBatch(input: SubmitManualBatchInput) {
     }
   }
 
-  const batchNumber = generateBatchNumber()
-  const batch = addBatch({
-    batch_number: batchNumber,
-    client_name: clientName,
-    client_id: clientId,
-    total_invoices: invoices.length,
-    total_amount: totalAmount,
-    status: 'ready_to_post',
-    submitted_at: new Date().toISOString(),
-    upload_mode: 'manual',
-    sort_status: 'ready',
-    fee_calculation: feeCalculation,
-  })
+  const existing = existingBatchId ? updateBatch(existingBatchId, {}) : undefined
+  const batchNumber = existing?.batch_number ?? generateBatchNumber()
+
+  const batch = existing
+    ? updateBatch(existingBatchId!, {
+        total_invoices: invoices.length,
+        total_amount: totalAmount,
+        status: 'ready_to_post',
+        submitted_at: new Date().toISOString(),
+        upload_mode: 'manual',
+        sort_status: 'ready',
+        fee_calculation: feeCalculation,
+      })!
+    : addBatch({
+        batch_number: batchNumber,
+        client_name: clientName,
+        client_id: clientId,
+        total_invoices: invoices.length,
+        total_amount: totalAmount,
+        status: 'ready_to_post',
+        submitted_at: new Date().toISOString(),
+        upload_mode: 'manual',
+        sort_status: 'ready',
+        fee_calculation: feeCalculation,
+      })
 
   const fileMap = new Map<string, File>()
   const invoiceFields = invoices.map((inv) => {

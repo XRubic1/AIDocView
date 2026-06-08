@@ -1,47 +1,187 @@
-import { useMemo } from 'react'
-import { Check, AlertTriangle } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, Check, Eye, Loader2, Plus, Trash2 } from 'lucide-react'
+import DocumentViewer from '../DocumentViewer'
+import ClientInvoiceDocumentUploadModal, {
+  type UploadModalDocument,
+} from './ClientInvoiceDocumentUploadModal'
 import { DOCSORT_AI_DISCLAIMER_SHORT } from '../../products/docSort/constants/aiDisclaimer'
+import { isManualCredyxDraft } from '../../integrations/docSortToCredyx'
 import type { BatchIntakeDraft, CredyxInvoiceDraft } from '../../types/credyxBatch'
 import { formatCurrency } from '../../utils/format'
+import { getDraftViewDocuments } from '../../utils/aiDraftDocuments'
+import { isGeneratedInvoicePdfDoc } from '../../utils/aiDraftDocOps'
+import { clientTheme as c } from '../../theme/clientTheme'
 
 interface BatchAiConfirmPanelProps {
   draft: BatchIntakeDraft
   onUpdateDraft: (draftId: string, patch: Partial<CredyxInvoiceDraft>) => void
   onConfirmDraft: (draftId: string) => void
+  onUnconfirmDraft: (draftId: string) => void
+  onAddInvoice: () => void | Promise<void>
+  onRemoveDraft: (draftId: string) => void
+  onMoveDocument: (fromDraftId: string, docId: string, toDraftId: string | null) => void
+  onAssignUnmatchedDoc: (docId: string, toDraftId: string) => void
+  onAssignUnmatchedDocs: (docIds: string[], toDraftId: string) => void
+  onAttachDocuments: (draftId: string, files: File[]) => void
+  addingInvoice: boolean
   onSubmitBatch: () => void
   submitting: boolean
 }
 
-const inputClass =
-  'w-full min-w-0 px-1.5 py-0.5 text-xs border rounded h-7 focus:outline-none focus:border-[#0891b2]'
+type ViewerMode =
+  | { type: 'invoice'; draftId: string }
+  | { type: 'unmatched' }
+  | null
 
-const thClass = 'text-left py-1.5 px-2 text-[11px] font-semibold whitespace-nowrap'
-const tdClass = 'py-1 px-2 align-middle'
+function docsSummary(inv: CredyxInvoiceDraft, docCount: number) {
+  if (isManualCredyxDraft(inv)) {
+    return docCount === 0 ? 'Add docs' : `${docCount} doc${docCount !== 1 ? 's' : ''}`
+  }
+  const parts: string[] = []
+  if (inv.fingerprints.rateCons.length > 0) {
+    parts.push(`${inv.fingerprints.rateCons.length} RC`)
+  }
+  if (inv.fingerprints.bols.length > 0) {
+    parts.push(`${inv.fingerprints.bols.length} BOL`)
+  }
+  if (parts.length === 0) {
+    return docCount > 0 ? `${docCount} doc${docCount !== 1 ? 's' : ''}` : '—'
+  }
+  let text = parts.join(' · ')
+  if (inv.rate_missing) text += ' · rate?'
+  return text
+}
 
-/** Dense table review — fit many loads on one screen without card stacking. */
+function shortFileName(name: string, max = 28) {
+  return name.length > max ? `${name.slice(0, max - 1)}…` : name
+}
+
+/** Review table for AI-drafted invoices before batch submit. */
 export default function BatchAiConfirmPanel({
   draft,
   onUpdateDraft,
   onConfirmDraft,
+  onUnconfirmDraft,
+  onAddInvoice,
+  onRemoveDraft,
+  onMoveDocument,
+  onAssignUnmatchedDoc,
+  onAssignUnmatchedDocs,
+  onAttachDocuments,
+  addingInvoice,
   onSubmitBatch,
   submitting,
 }: BatchAiConfirmPanelProps) {
+  const [viewerMode, setViewerMode] = useState<ViewerMode>(null)
+  const [uploadDraftId, setUploadDraftId] = useState<string | null>(null)
+  const [pendingDocs, setPendingDocs] = useState<UploadModalDocument[]>([])
+  const [pendingFiles, setPendingFiles] = useState<Map<string, File>>(new Map())
+  const [selectedUnmatched, setSelectedUnmatched] = useState<Set<string>>(new Set())
+
+  const invoiceOptions = useMemo(
+    () =>
+      draft.invoices.map((inv, index) => ({
+        draftId: inv.draftId,
+        label: `Invoice #${index + 1}${inv.load_number ? ` · ${inv.load_number}` : ''}`,
+      })),
+    [draft.invoices]
+  )
+
+  const uploadDraft = useMemo(
+    () => draft.invoices.find((inv) => inv.draftId === uploadDraftId) ?? null,
+    [draft.invoices, uploadDraftId]
+  )
+
+  const viewingInvoice = useMemo(
+    () =>
+      viewerMode?.type === 'invoice'
+        ? draft.invoices.find((inv) => inv.draftId === viewerMode.draftId) ?? null
+        : null,
+    [draft.invoices, viewerMode]
+  )
+
+  const viewingInvoiceIndex = useMemo(() => {
+    if (!viewingInvoice) return 0
+    return draft.invoices.findIndex((inv) => inv.draftId === viewingInvoice.draftId) + 1
+  }, [draft.invoices, viewingInvoice])
+
+  const unmatchedDocs = useMemo(
+    () => [
+      ...draft.unmatched.rateCons.map((fp) => ({ ...fp, bucket: 'RC' as const })),
+      ...draft.unmatched.bols.map((fp) => ({ ...fp, bucket: 'BOL' as const })),
+      ...draft.unmatched.other.map((fp) => ({ ...fp, bucket: 'Other' as const })),
+    ],
+    [draft.unmatched]
+  )
+
+  const hasUnmatched = unmatchedDocs.length > 0
+
+  const viewerDocuments = useMemo(() => {
+    if (viewerMode?.type === 'invoice' && viewingInvoice) {
+      return getDraftViewDocuments(viewingInvoice, draft.fileById).map((doc) => ({
+        id: doc.id,
+        name: doc.name,
+        file: doc.file,
+      }))
+    }
+    if (viewerMode?.type === 'unmatched') {
+      return unmatchedDocs
+        .map((fp) => {
+          const file = draft.fileById.get(fp.docId)
+          if (!file) return null
+          return { id: fp.docId, name: fp.fileName || file.name, file }
+        })
+        .filter((doc): doc is { id: string; name: string; file: File } => doc !== null)
+    }
+    return []
+  }, [viewerMode, viewingInvoice, draft.fileById, unmatchedDocs])
+
+  const viewerMoveTargets = useMemo(() => {
+    if (viewerMode?.type === 'invoice' && viewingInvoice) {
+      return [
+        ...invoiceOptions
+          .filter((opt) => opt.draftId !== viewingInvoice.draftId)
+          .map((opt) => ({ draftId: opt.draftId, label: opt.label })),
+        { draftId: null, label: 'Unmatched pool' },
+      ]
+    }
+    if (viewerMode?.type === 'unmatched') {
+      return invoiceOptions.map((opt) => ({ draftId: opt.draftId, label: opt.label }))
+    }
+    return []
+  }, [viewerMode, viewingInvoice, invoiceOptions])
+
+  const viewerLockedIds = useMemo(() => {
+    if (!viewingInvoice) return []
+    return viewerDocuments
+      .filter((doc) => isGeneratedInvoicePdfDoc(viewingInvoice, doc.id))
+      .map((doc) => doc.id)
+  }, [viewingInvoice, viewerDocuments])
+
+  const viewerMoveDisabled = viewingInvoice?.confirmed ?? false
+
+  useEffect(() => {
+    setSelectedUnmatched((prev) => {
+      const next = new Set([...prev].filter((id) => unmatchedDocs.some((fp) => fp.docId === id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [unmatchedDocs])
+
+  useEffect(() => {
+    if (viewerMode?.type === 'invoice' && !draft.invoices.some((i) => i.draftId === viewerMode.draftId)) {
+      setViewerMode(null)
+    }
+    if (viewerMode?.type === 'unmatched' && unmatchedDocs.length === 0) {
+      setViewerMode(null)
+    }
+  }, [draft.invoices, viewerMode, unmatchedDocs.length])
+
   const allConfirmed = draft.invoices.length > 0 && draft.invoices.every((i) => i.confirmed)
   const confirmedCount = draft.invoices.filter((i) => i.confirmed).length
   const batchTotal = useMemo(
     () => draft.invoices.reduce((s, i) => s + (i.amount || 0), 0),
     [draft.invoices]
   )
-
-  const hasUnmatched =
-    draft.unmatched.rateCons.length > 0 ||
-    draft.unmatched.bols.length > 0 ||
-    draft.unmatched.other.length > 0
-
-  const unmatchedTotal =
-    draft.unmatched.rateCons.length +
-    draft.unmatched.bols.length +
-    draft.unmatched.other.length
 
   const handleConfirmAll = () => {
     draft.invoices.forEach((inv) => {
@@ -51,202 +191,412 @@ export default function BatchAiConfirmPanel({
     })
   }
 
+  const toggleConfirm = (inv: CredyxInvoiceDraft) => {
+    if (inv.confirmed) {
+      onUnconfirmDraft(inv.draftId)
+      return
+    }
+    onConfirmDraft(inv.draftId)
+  }
+
+  const openDocUpload = (draftId: string) => {
+    setUploadDraftId(draftId)
+    setPendingDocs([])
+    setPendingFiles(new Map())
+  }
+
+  const closeDocUpload = () => {
+    setUploadDraftId(null)
+    setPendingDocs([])
+    setPendingFiles(new Map())
+  }
+
+  const addPendingFiles = (files: FileList | File[]) => {
+    const list = Array.from(files)
+    if (list.length === 0) return
+
+    const entries = list.map((file) => ({
+      id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      name: file.name,
+      size: file.size,
+      file,
+    }))
+
+    setPendingDocs((prev) => [
+      ...prev,
+      ...entries.map(({ id, name, size }) => ({ id, name, size })),
+    ])
+    setPendingFiles((prev) => {
+      const next = new Map(prev)
+      entries.forEach(({ id, file }) => next.set(id, file))
+      return next
+    })
+  }
+
+  const removePendingDoc = (docId: string) => {
+    setPendingDocs((prev) => prev.filter((d) => d.id !== docId))
+    setPendingFiles((prev) => {
+      const next = new Map(prev)
+      next.delete(docId)
+      return next
+    })
+  }
+
+  const handleDocUploadComplete = () => {
+    if (!uploadDraftId) return
+    onAttachDocuments(uploadDraftId, Array.from(pendingFiles.values()))
+    closeDocUpload()
+  }
+
+  const handleDocsClick = (inv: CredyxInvoiceDraft, docCount: number) => {
+    if (isManualCredyxDraft(inv) && docCount === 0 && !inv.confirmed) {
+      openDocUpload(inv.draftId)
+      return
+    }
+    if (docCount > 0) {
+      setViewerMode({ type: 'invoice', draftId: inv.draftId })
+    }
+  }
+
+  const toggleUnmatchedSelection = (docId: string) => {
+    setSelectedUnmatched((prev) => {
+      const next = new Set(prev)
+      if (next.has(docId)) next.delete(docId)
+      else next.add(docId)
+      return next
+    })
+  }
+
+  const handleBulkAssign = (toDraftId: string) => {
+    if (!toDraftId || selectedUnmatched.size === 0) return
+    onAssignUnmatchedDocs([...selectedUnmatched], toDraftId)
+    setSelectedUnmatched(new Set())
+  }
+
+  const handleViewerMove = (docId: string, toDraftId: string | null) => {
+    if (viewerMode?.type === 'invoice' && viewingInvoice) {
+      onMoveDocument(viewingInvoice.draftId, docId, toDraftId)
+      return
+    }
+    if (viewerMode?.type === 'unmatched' && toDraftId) {
+      onAssignUnmatchedDoc(docId, toDraftId)
+    }
+  }
+
+  const viewerTitle =
+    viewerMode?.type === 'unmatched'
+      ? 'Unmatched documents'
+      : viewingInvoice
+        ? `Invoice #${viewingInvoiceIndex}${viewingInvoice.load_number ? ` · Load ${viewingInvoice.load_number}` : ''}`
+        : 'Documents'
+
   return (
-    <div
-      className="flex flex-col min-h-0"
-      style={{ maxHeight: 'calc(100vh - 11rem)' }}
-    >
-      {/* Compact toolbar */}
-      <div
-        className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2 px-2 border-b text-xs shrink-0"
-        style={{ borderColor: '#e2e8f0', backgroundColor: '#f8f9fa' }}
-      >
-        <span className="flex items-center gap-1" style={{ color: '#0891b2' }} title={DOCSORT_AI_DISCLAIMER_SHORT}>
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          <span style={{ color: '#64748b' }}>{DOCSORT_AI_DISCLAIMER_SHORT}</span>
-        </span>
-        <span className="font-medium" style={{ color: '#113543' }}>
-          {draft.invoices.length} load{draft.invoices.length !== 1 ? 's' : ''}
-        </span>
-        <span style={{ color: '#64748b' }}>
-          {confirmedCount}/{draft.invoices.length} confirmed
-        </span>
-        <span className="font-medium" style={{ color: '#113543' }}>
-          Batch total: {formatCurrency(batchTotal)}
-        </span>
-        {hasUnmatched && (
-          <span style={{ color: '#0891b2' }}>
-            {unmatchedTotal} unmatched doc{unmatchedTotal !== 1 ? 's' : ''} (excluded)
+    <div className="client-ai-confirm">
+      <div className="client-ai-confirm__stats">
+        <div className="client-ai-confirm__stat">
+          <span className="invoice-detail-field-label">Invoices</span>
+          <span className="client-ai-confirm__stat-value tabular-nums">{draft.invoices.length}</span>
+        </div>
+        <div className="client-ai-confirm__stat">
+          <span className="invoice-detail-field-label">Confirmed</span>
+          <span className="client-ai-confirm__stat-value tabular-nums">
+            {confirmedCount}/{draft.invoices.length}
           </span>
+        </div>
+        <div className="client-ai-confirm__stat">
+          <span className="invoice-detail-field-label">Batch total</span>
+          <span className="client-ai-confirm__stat-value tabular-nums">
+            {formatCurrency(batchTotal)}
+          </span>
+        </div>
+        {hasUnmatched && (
+          <div className="client-ai-confirm__stat">
+            <span className="invoice-detail-field-label">Unmatched</span>
+            <span className="client-ai-confirm__stat-value client-ai-confirm__stat-value--warn tabular-nums">
+              {unmatchedDocs.length}
+            </span>
+          </div>
         )}
-        <div className="flex-1" />
-        <button
-          type="button"
-          className="px-2 py-1 text-xs font-medium border rounded"
-          style={{ borderColor: '#e2e8f0', color: '#113543' }}
-          onClick={handleConfirmAll}
-          disabled={allConfirmed}
-        >
-          Confirm all
-        </button>
-        <button
-          type="button"
-          className="px-3 py-1 text-xs font-medium rounded"
-          style={{
-            backgroundColor: allConfirmed ? '#0891b2' : '#64748b',
-            color: '#FFFFFF',
-            opacity: allConfirmed && !submitting ? 1 : 0.55,
-            cursor: allConfirmed && !submitting ? 'pointer' : 'not-allowed',
-          }}
-          disabled={!allConfirmed || submitting}
-          onClick={onSubmitBatch}
-        >
-          {submitting ? 'Uploading…' : 'Upload batch'}
-        </button>
+        <div className="client-ai-confirm__stat client-ai-confirm__stat--action">
+          <button
+            type="button"
+            className="client-ai-confirm__add-btn"
+            onClick={() => void onAddInvoice()}
+            disabled={addingInvoice}
+          >
+            {addingInvoice ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Plus className="w-3.5 h-3.5" />
+            )}
+            Add invoice
+          </button>
+        </div>
+      </div>
+
+      <div className="client-ai-confirm__disclaimer">
+        <AlertTriangle className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
+        <span>{DOCSORT_AI_DISCLAIMER_SHORT}</span>
       </div>
 
       {hasUnmatched && (
-        <details className="shrink-0 text-xs border-b" style={{ borderColor: '#e2e8f0' }}>
-          <summary
-            className="cursor-pointer py-1 px-2 list-none flex items-center gap-1"
-            style={{ color: '#0891b2', backgroundColor: 'rgba(194, 165, 88, 0.06)' }}
-          >
-            <span className="font-medium">Unmatched files ({unmatchedTotal})</span>
-            <span style={{ color: '#64748b' }}>— not on invoices</span>
-          </summary>
-          <ul className="px-3 pb-2 max-h-20 overflow-y-auto" style={{ color: '#113543' }}>
-            {[
-              ...draft.unmatched.rateCons,
-              ...draft.unmatched.bols,
-              ...draft.unmatched.other,
-            ].map((fp) => (
-              <li key={fp.docId} className="truncate">
-                {fp.fileName}
-              </li>
+        <div className="client-ai-confirm__unmatched-compact">
+          <div className="client-ai-confirm__unmatched-head">
+            <span className="client-ai-confirm__unmatched-title">
+              {unmatchedDocs.length} unmatched
+            </span>
+            <button
+              type="button"
+              className="client-ai-confirm__unmatched-view"
+              onClick={() => setViewerMode({ type: 'unmatched' })}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              View
+            </button>
+          </div>
+
+          {selectedUnmatched.size > 0 && (
+            <div className="client-ai-confirm__unmatched-bulk">
+              <span>{selectedUnmatched.size} selected</span>
+              <select
+                className="client-ai-confirm__unmatched-bulk-select"
+                defaultValue=""
+                disabled={draft.invoices.length === 0}
+                onChange={(e) => {
+                  if (!e.target.value) return
+                  handleBulkAssign(e.target.value)
+                  e.target.value = ''
+                }}
+              >
+                <option value="">Assign to…</option>
+                {invoiceOptions.map((opt) => (
+                  <option key={opt.draftId} value={opt.draftId}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="client-ai-confirm__unmatched-clear"
+                onClick={() => setSelectedUnmatched(new Set())}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+          <div className="client-ai-confirm__unmatched-chips">
+            {unmatchedDocs.map((fp) => (
+              <label key={fp.docId} className="client-ai-confirm__unmatched-chip">
+                <input
+                  type="checkbox"
+                  checked={selectedUnmatched.has(fp.docId)}
+                  onChange={() => toggleUnmatchedSelection(fp.docId)}
+                />
+                <span className="client-ai-confirm__unmatched-chip-name" title={fp.fileName}>
+                  {shortFileName(fp.fileName)}
+                </span>
+                <span className="client-ai-confirm__unmatched-chip-kind">{fp.bucket}</span>
+              </label>
             ))}
-          </ul>
-        </details>
+          </div>
+        </div>
       )}
 
-      {/* Dense invoice table — scroll only inside table if many rows */}
-      <div className="flex-1 min-h-0 overflow-auto border-b" style={{ borderColor: '#e2e8f0' }}>
-        <table className="w-full text-xs border-collapse" style={{ color: '#113543' }}>
-          <thead className="sticky top-0 z-10" style={{ backgroundColor: '#f0f2f2' }}>
-            <tr className="border-b" style={{ borderColor: '#e2e8f0' }}>
-              <th className={thClass} style={{ width: '4rem' }}>
-                Load
-              </th>
-              <th className={thClass} style={{ width: '5.5rem' }}>
-                Docs
-              </th>
-              <th className={thClass}>Invoice #</th>
-              <th className={thClass} style={{ width: '5.5rem' }}>
-                Load #
-              </th>
-              <th className={thClass}>Broker</th>
-              <th className={`${thClass} text-right`} style={{ width: '6rem' }}>
-                Amount
-              </th>
-              <th className={`${thClass} text-center`} style={{ width: '4.5rem' }}>
-                OK
-              </th>
+      <div className="client-ai-confirm__table-wrap">
+        <table className="dashboard-table dashboard-table--compact client-ai-confirm__table">
+          <thead>
+            <tr>
+              <th className="client-ai-confirm__index-col">#</th>
+              <th>Docs</th>
+              <th>Invoice #</th>
+              <th>Load #</th>
+              <th>Broker</th>
+              <th className="text-right">Amount</th>
+              <th className="text-center client-ai-confirm__action-col"> </th>
             </tr>
           </thead>
           <tbody>
-            {draft.invoices.map((inv, index) => (
-              <tr
-                key={inv.draftId}
-                className="border-b"
-                style={{
-                  borderColor: '#e8ecec',
-                  backgroundColor: inv.confirmed
-                    ? 'rgba(61, 219, 122, 0.07)'
-                    : index % 2 === 0
-                      ? '#fff'
-                      : '#fafafa',
-                }}
-              >
-                <td className={`${tdClass} font-semibold whitespace-nowrap`}>{inv.load_number}</td>
-                <td className={`${tdClass} whitespace-nowrap`} style={{ color: '#64748b' }}>
-                  {inv.fingerprints.rateCons.length} RC · {inv.fingerprints.bols.length} BOL
-                  {inv.rate_missing && (
-                    <span className="block" style={{ color: '#0891b2' }}>
-                      rate?
-                    </span>
-                  )}
-                </td>
-                <td className={tdClass}>
-                  <input
-                    type="text"
-                    value={inv.invoice_number}
-                    disabled={inv.confirmed}
-                    onChange={(e) =>
-                      onUpdateDraft(inv.draftId, { invoice_number: e.target.value })
-                    }
-                    className={inputClass}
-                    style={{ borderColor: '#e2e8f0' }}
-                  />
-                </td>
-                <td className={tdClass}>
-                  <input
-                    type="text"
-                    value={inv.load_number}
-                    disabled={inv.confirmed}
-                    onChange={(e) => onUpdateDraft(inv.draftId, { load_number: e.target.value })}
-                    className={inputClass}
-                    style={{ borderColor: '#e2e8f0' }}
-                  />
-                </td>
-                <td className={tdClass}>
-                  <input
-                    type="text"
-                    value={inv.broker_name}
-                    disabled={inv.confirmed}
-                    onChange={(e) => onUpdateDraft(inv.draftId, { broker_name: e.target.value })}
-                    className={inputClass}
-                    style={{ borderColor: '#e2e8f0' }}
-                  />
-                </td>
-                <td className={tdClass}>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={inv.amount || ''}
-                    disabled={inv.confirmed}
-                    onChange={(e) =>
-                      onUpdateDraft(inv.draftId, {
-                        amount: Number.parseFloat(e.target.value) || 0,
-                        rate_missing: false,
-                      })
-                    }
-                    className={`${inputClass} text-right`}
-                    style={{ borderColor: '#e2e8f0' }}
-                  />
-                </td>
-                <td className={`${tdClass} text-center`}>
-                  {inv.confirmed ? (
-                    <span title="Confirmed">
-                      <Check className="w-4 h-4 inline" style={{ color: '#3ddb7a' }} />
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      title="Confirm row"
-                      className="px-1.5 py-0.5 text-[10px] font-medium rounded border"
-                      style={{ borderColor: '#113543', color: '#113543' }}
-                      onClick={() => onConfirmDraft(inv.draftId)}
-                      disabled={inv.amount <= 0}
-                    >
-                      Confirm
-                    </button>
-                  )}
+            {draft.invoices.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="client-ai-confirm__empty-row">
+                  No invoices yet. Click <strong>Add invoice</strong> to create one manually.
                 </td>
               </tr>
-            ))}
+            ) : (
+              draft.invoices.map((inv, index) => {
+                const docCount = getDraftViewDocuments(inv, draft.fileById).length
+                const manual = isManualCredyxDraft(inv)
+                const docsDisabled = docCount === 0 && (!manual || inv.confirmed)
+                return (
+                  <tr
+                    key={inv.draftId}
+                    className={inv.confirmed ? 'client-ai-confirm__row--confirmed' : ''}
+                  >
+                    <td className="client-ai-confirm__index-cell tabular-nums">
+                      <span className="client-ai-confirm__index">{index + 1}</span>
+                    </td>
+                    <td className="client-ai-confirm__docs-cell">
+                      <div className="client-ai-confirm__docs-wrap">
+                        <button
+                          type="button"
+                          className={`client-ai-confirm__docs-link${manual && docCount === 0 ? ' client-ai-confirm__docs-link--add' : ''}`}
+                          onClick={() => handleDocsClick(inv, docCount)}
+                          disabled={docsDisabled}
+                          title={
+                            docCount > 0
+                              ? `View ${docCount} document${docCount !== 1 ? 's' : ''}`
+                              : manual
+                                ? 'Attach supporting documents'
+                                : undefined
+                          }
+                        >
+                          {docsSummary(inv, docCount)}
+                        </button>
+                        {manual && docCount > 0 && !inv.confirmed && (
+                          <button
+                            type="button"
+                            className="client-ai-confirm__docs-more"
+                            onClick={() => openDocUpload(inv.draftId)}
+                          >
+                            + Add
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        value={inv.invoice_number}
+                        disabled={inv.confirmed}
+                        onChange={(e) =>
+                          onUpdateDraft(inv.draftId, { invoice_number: e.target.value })
+                        }
+                        className="client-ai-confirm__input"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        value={inv.load_number}
+                        disabled={inv.confirmed}
+                        onChange={(e) => onUpdateDraft(inv.draftId, { load_number: e.target.value })}
+                        className="client-ai-confirm__input"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        value={inv.broker_name}
+                        disabled={inv.confirmed}
+                        onChange={(e) => onUpdateDraft(inv.draftId, { broker_name: e.target.value })}
+                        className="client-ai-confirm__input client-ai-confirm__input--wide"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={inv.amount || ''}
+                        disabled={inv.confirmed}
+                        onChange={(e) =>
+                          onUpdateDraft(inv.draftId, {
+                            amount: Number.parseFloat(e.target.value) || 0,
+                            rate_missing: false,
+                          })
+                        }
+                        className="client-ai-confirm__input client-ai-confirm__input--amount"
+                      />
+                    </td>
+                    <td className="client-ai-confirm__action-cell">
+                      <div className="client-ai-confirm__action-wrap">
+                        <button
+                          type="button"
+                          className={`client-ai-confirm__action-btn${inv.confirmed ? ' client-ai-confirm__action-btn--confirmed' : ''}`}
+                          onClick={() => toggleConfirm(inv)}
+                          disabled={!inv.confirmed && inv.amount <= 0}
+                          title={inv.confirmed ? 'Click to edit' : 'Confirm invoice'}
+                        >
+                          {inv.confirmed ? <Check className="w-3.5 h-3.5" /> : 'Confirm'}
+                        </button>
+                        {!inv.confirmed && (
+                          <button
+                            type="button"
+                            className="client-ai-confirm__remove-btn"
+                            onClick={() => onRemoveDraft(inv.draftId)}
+                            title="Remove invoice"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })
+            )}
           </tbody>
         </table>
       </div>
+
+      <div className="client-ai-confirm__footer">
+        <div className="client-ai-confirm__footer-summary">
+          <span className="client-ai-confirm__footer-label">Ready to submit</span>
+          <span className="client-ai-confirm__footer-value">
+            {confirmedCount}/{draft.invoices.length} confirmed · {formatCurrency(batchTotal)}
+          </span>
+        </div>
+        <div className="client-ai-confirm__footer-actions">
+          <button
+            type="button"
+            className="dashboard-btn-secondary"
+            onClick={handleConfirmAll}
+            disabled={allConfirmed || draft.invoices.length === 0}
+          >
+            Confirm all
+          </button>
+          <button
+            type="button"
+            className="dashboard-btn-primary"
+            disabled={!allConfirmed || submitting}
+            onClick={onSubmitBatch}
+          >
+            {submitting ? 'Submitting…' : 'Submit batch'}
+          </button>
+        </div>
+      </div>
+
+      <DocumentViewer
+        isOpen={viewerMode !== null && viewerDocuments.length > 0}
+        onClose={() => setViewerMode(null)}
+        documents={viewerDocuments}
+        invoiceNumber={viewingInvoice?.invoice_number}
+        title={viewerTitle}
+        moveTargets={viewerMoveTargets}
+        onMoveDocument={handleViewerMove}
+        lockedDocIds={viewerLockedIds}
+        moveDisabled={viewerMoveDisabled}
+      />
+
+      {uploadDraft && (
+        <ClientInvoiceDocumentUploadModal
+          invoiceNumber={uploadDraft.invoice_number}
+          brokerName={uploadDraft.broker_name || '—'}
+          amount={String(uploadDraft.amount || 0)}
+          loadNumber={uploadDraft.load_number || undefined}
+          documents={pendingDocs}
+          isEditingExistingInvoice={false}
+          onClose={closeDocUpload}
+          onComplete={handleDocUploadComplete}
+          onFileSelect={(e) => {
+            if (e.target.files?.length) addPendingFiles(e.target.files)
+            e.target.value = ''
+          }}
+          onFileDrop={(files) => addPendingFiles(files)}
+          onRemoveDocument={removePendingDoc}
+        />
+      )}
     </div>
   )
 }

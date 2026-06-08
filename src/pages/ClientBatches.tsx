@@ -4,16 +4,28 @@ import { mockClientDashboardData } from '../data/mockClientDashboard'
 import { getAllBatches } from '../data/mockBatches'
 import { mockBrokers } from '../data/mockBrokers'
 import { getInvoicesByBatchId } from '../data/mockInvoices'
-import BatchAiUploadFlow from '../components/client/BatchAiUploadFlow'
+import BatchAiUploadFlow, { type RestoredAiDraftSession } from '../components/client/BatchAiUploadFlow'
 import { submitManualBatch } from '../services/credyx/submitManualBatch'
+import {
+  clearClientDraftStorage,
+  ensureClientDraftBatch,
+  loadAiDraftSnapshot,
+  loadManualDraftSnapshot,
+  saveAiDraftSnapshot,
+  saveManualDraftWithFiles,
+} from '../services/clientBatchDraftService'
+import { getBatchById } from '../data/mockBatches'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
-import { FileText, Calendar, DollarSign, Plus, Trash2, Upload, X, Eye } from 'lucide-react'
 import { generateInvoice } from '../../pdfTemplate'
 import jsPDF from 'jspdf'
 import DocumentViewer from '../components/DocumentViewer'
 import ClientLayout from '../components/ClientLayout'
-import DocumentReviewResults from '../components/client/DocumentReviewResults'
+import ClientBatchesListView, { getBatchStatusBadge } from '../components/client/ClientBatchesListView'
+import ClientBatchDetailView from '../components/client/ClientBatchDetailView'
+import ClientSubmitDocsView from '../components/client/ClientSubmitDocsView'
+import ClientManualBatchForm from '../components/client/ClientManualBatchForm'
+import ClientInvoiceDocumentUploadModal from '../components/client/ClientInvoiceDocumentUploadModal'
 import InvoiceDetailWorkspace from '../components/client/InvoiceDetailWorkspace'
 import { Invoice, InvoiceDispute, InvoiceNote } from '../types/invoice'
 import {
@@ -24,10 +36,8 @@ import {
   getDisputeReasonLabel,
   type ClientMarkPaidOptions,
 } from '../services/clientInvoiceActions'
+import type { BatchIntakeDraft } from '../types/credyxBatch'
 import { getInvoiceById } from '../data/mockInvoices'
-import { isAIReviewEnabled, reviewUploadedDocuments } from '../services/documentReviewService'
-import { BatchDocumentReviewResult } from '../types/documentReview'
-import { clientTheme as c } from '../theme/clientTheme'
 
 type ClientBatchRow = {
   id: string
@@ -38,6 +48,8 @@ type ClientBatchRow = {
   status: string
   reviewed_at: string | null
   upload_mode?: string
+  approved_count?: number
+  rejected_count?: number
 }
 
 interface InvoiceDocument {
@@ -101,6 +113,10 @@ export default function ClientBatches() {
   const [batches, setBatches] = useState<ClientBatchRow[]>([])
   const [createSubMode, setCreateSubMode] = useState<'choose' | 'ai' | 'manual'>('choose')
   const [dashboardAiFiles, setDashboardAiFiles] = useState<File[] | undefined>(undefined)
+  const [activeDraftBatchId, setActiveDraftBatchId] = useState<string | null>(null)
+  const [aiDraftRestored, setAiDraftRestored] = useState<RestoredAiDraftSession | null>(null)
+  const [aiDraftReady, setAiDraftReady] = useState(false)
+  const [manualDraftReady, setManualDraftReady] = useState(false)
 
   const refreshBatches = useCallback(() => {
     const rows = getAllBatches()
@@ -114,7 +130,10 @@ export default function ClientBatches() {
         status: b.status,
         reviewed_at: b.reviewed_at ?? null,
         upload_mode: b.upload_mode,
+        approved_count: b.approved_count,
+        rejected_count: b.rejected_count,
       }))
+      .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
     setBatches(rows)
   }, [data.client_id])
 
@@ -153,20 +172,6 @@ export default function ClientBatches() {
     }
   }, [currentBatchInvoices.length])
 
-  useEffect(() => {
-    const mode = searchParams.get('mode')
-    const state = location.state as { initialFiles?: File[] } | null
-    if (mode === 'ai') {
-      setActiveTab('create')
-      setCreateSubMode('ai')
-      if (state?.initialFiles?.length) {
-        setDashboardAiFiles(state.initialFiles)
-      }
-      searchParams.delete('mode')
-      setSearchParams(searchParams, { replace: true })
-    }
-  }, [searchParams, setSearchParams, location.state])
-
   // Check for highlight parameter from notification
   useEffect(() => {
     const highlightBatchId = searchParams.get('highlight_batch')
@@ -194,9 +199,6 @@ export default function ClientBatches() {
   const [currentInvoiceForDocuments, setCurrentInvoiceForDocuments] = useState<InvoiceFormData | null>(null)
   const [currentInvoiceIndex, setCurrentInvoiceIndex] = useState<number | null>(null)
   const [uploadedDocuments, setUploadedDocuments] = useState<InvoiceDocument[]>([])
-  const [documentReviewResult, setDocumentReviewResult] = useState<BatchDocumentReviewResult | null>(null)
-  const [isReviewingDocuments, setIsReviewingDocuments] = useState(false)
-  const [documentReviewError, setDocumentReviewError] = useState<string | null>(null)
   const [isEditingExistingInvoice, setIsEditingExistingInvoice] = useState(false)
   const [viewingInvoiceDocuments, setViewingInvoiceDocuments] = useState<InvoiceFormData | null>(null)
   const [batchInvoices, setBatchInvoices] = useState<Record<string, InvoiceFormData[]>>({})
@@ -216,16 +218,164 @@ export default function ClientBatches() {
     }
   }, [searchParams])
 
-  const getStatusBadge = (status: string) => {
-    const submitted = ['submitted', 'processing']
-    const inReview = ['verification', 'approval']
-    if (submitted.includes(status)) {
-      return <span className="status-pill status-pill--submitted">Submitted</span>
+  const draftBatches = useMemo(
+    () => batches.filter((batch) => batch.status === 'draft'),
+    [batches]
+  )
+
+  const getStatusBadge = getBatchStatusBadge
+
+  const activeDraftBatch = activeDraftBatchId ? getBatchById(activeDraftBatchId) : undefined
+
+  const handleOpenCreateBatch = () => {
+    setActiveTab('create')
+    setSelectedBatch(null)
+    setCreateSubMode('choose')
+    setActiveDraftBatchId(null)
+    setAiDraftRestored(null)
+    setAiDraftReady(false)
+    setManualDraftReady(false)
+    searchParams.set('tab', 'create')
+    setSearchParams(searchParams, { replace: true })
+  }
+
+  const resumeDraftBatch = useCallback(
+    async (batchId: string, uploadMode?: string) => {
+      const batch = getBatchById(batchId)
+      if (!batch || batch.status !== 'draft') return
+
+      setActiveDraftBatchId(batchId)
+      setActiveTab('create')
+      setSelectedBatch(null)
+      searchParams.set('tab', 'create')
+      setSearchParams(searchParams, { replace: true })
+
+      const mode = uploadMode === 'manual' || batch.upload_mode === 'manual' ? 'manual' : 'ai'
+      if (mode === 'manual') {
+        const restored = await loadManualDraftSnapshot(batchId)
+        if (restored) {
+          setInvoiceFormData(restored.invoiceFormData)
+          setCurrentBatchInvoices(restored.invoices)
+        }
+        setManualDraftReady(true)
+        setCreateSubMode('manual')
+        return
+      }
+
+      const restored = await loadAiDraftSnapshot(batchId)
+      setAiDraftRestored(
+        restored
+          ? {
+              step: restored.snapshot.step,
+              uploadFiles: restored.uploadFiles,
+              intake: restored.intake,
+            }
+          : null
+      )
+      setAiDraftReady(true)
+      setCreateSubMode('ai')
+    },
+    [searchParams, setSearchParams]
+  )
+
+  const handleSelectBatch = (batchId: string) => {
+    const batch = batches.find((b) => b.id === batchId)
+    if (batch?.status === 'draft') {
+      void resumeDraftBatch(batchId, batch.upload_mode)
+      return
     }
-    if (inReview.includes(status)) {
-      return <span className="status-pill status-pill--review">In review</span>
+    setSelectedBatch(batchId)
+  }
+
+  const startAiDraft = useCallback(async () => {
+    const batch = ensureClientDraftBatch(data.client_id, data.client_name, 'ai')
+    setActiveDraftBatchId(batch.id)
+    const restored = await loadAiDraftSnapshot(batch.id)
+    setAiDraftRestored(
+      restored
+        ? {
+            step: restored.snapshot.step,
+            uploadFiles: restored.uploadFiles,
+            intake: restored.intake,
+          }
+        : null
+    )
+    setAiDraftReady(true)
+    setCreateSubMode('ai')
+    refreshBatches()
+  }, [data.client_id, data.client_name, refreshBatches])
+
+  const startManualDraft = useCallback(async () => {
+    const batch = ensureClientDraftBatch(data.client_id, data.client_name, 'manual')
+    setActiveDraftBatchId(batch.id)
+    const restored = await loadManualDraftSnapshot(batch.id)
+    if (restored) {
+      setInvoiceFormData(restored.invoiceFormData)
+      setCurrentBatchInvoices(restored.invoices)
     }
-    return <span className="status-pill status-pill--pending-batch">Pending</span>
+    setManualDraftReady(true)
+    setCreateSubMode('manual')
+    refreshBatches()
+  }, [data.client_id, data.client_name, refreshBatches])
+
+  const handlePersistAiDraft = useCallback(
+    (payload: {
+      step: 'upload' | 'processing' | 'confirm'
+      files: File[]
+      intake: BatchIntakeDraft | null
+    }) => {
+      if (!activeDraftBatchId) return
+      void saveAiDraftSnapshot(
+        activeDraftBatchId,
+        data.client_id,
+        { step: payload.step, uploadFiles: [], intake: null },
+        payload.intake,
+        payload.files
+      ).then(() => refreshBatches())
+    },
+    [activeDraftBatchId, data.client_id, refreshBatches]
+  )
+
+  useEffect(() => {
+    if (!activeDraftBatchId || createSubMode !== 'manual' || !manualDraftReady) return
+    const timer = setTimeout(() => {
+      void saveManualDraftWithFiles(
+        activeDraftBatchId,
+        data.client_id,
+        invoiceFormData,
+        currentBatchInvoices
+      ).then(() => refreshBatches())
+    }, 900)
+    return () => clearTimeout(timer)
+  }, [
+    activeDraftBatchId,
+    createSubMode,
+    manualDraftReady,
+    invoiceFormData,
+    currentBatchInvoices,
+    data.client_id,
+    refreshBatches,
+  ])
+
+  useEffect(() => {
+    const mode = searchParams.get('mode')
+    const state = location.state as { initialFiles?: File[] } | null
+    if (mode === 'ai') {
+      setActiveTab('create')
+      if (state?.initialFiles?.length) {
+        setDashboardAiFiles(state.initialFiles)
+      }
+      void startAiDraft()
+      searchParams.delete('mode')
+      setSearchParams(searchParams, { replace: true })
+    }
+  }, [searchParams, setSearchParams, location.state, startAiDraft])
+
+  const handleOpenViewBatches = () => {
+    setActiveTab('view')
+    setSelectedBatch(null)
+    searchParams.delete('tab')
+    setSearchParams(searchParams, { replace: true })
   }
 
   const generateNextInvoiceNumber = () => {
@@ -299,8 +449,6 @@ export default function ClientBatches() {
     // Show document upload modal
     setCurrentInvoiceForDocuments(invoiceToAdd)
     setUploadedDocuments([])
-    setDocumentReviewResult(null)
-    setDocumentReviewError(null)
     setShowDocumentUploadModal(true)
   }
 
@@ -545,53 +693,16 @@ export default function ClientBatches() {
 
     const processedDocuments = await processFiles(files)
     setUploadedDocuments((prev) => [...prev, ...processedDocuments])
-    setDocumentReviewResult(null)
-    setDocumentReviewError(null)
-    // Reset input to allow selecting the same file again
     e.target.value = ''
   }
 
   const handleRemoveDocument = (docId: string) => {
     setUploadedDocuments((prev) => prev.filter((doc) => doc.id !== docId))
-    setDocumentReviewResult(null)
-    setDocumentReviewError(null)
   }
 
-  const handleRunDocumentReview = async () => {
-    if (uploadedDocuments.length === 0) {
-      alert('Upload at least one document to review')
-      return
-    }
-
-    setIsReviewingDocuments(true)
-    setDocumentReviewError(null)
-    setDocumentReviewResult(null)
-
-    try {
-      const result = await reviewUploadedDocuments(
-        uploadedDocuments.map((doc) => ({
-          id: doc.id,
-          name: doc.name,
-          file: doc.file,
-        }))
-      )
-      setDocumentReviewResult(result)
-    } catch (error) {
-      console.error('Document review failed:', error)
-      setDocumentReviewError(
-        error instanceof Error ? error.message : 'AI document review failed. Please try again.'
-      )
-    } finally {
-      setIsReviewingDocuments(false)
-    }
-  }
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+  const handleDocumentFileDrop = async (files: FileList) => {
+    const processedDocuments = await processFiles(files)
+    setUploadedDocuments((prev) => [...prev, ...processedDocuments])
   }
 
   // Generate PDF invoice file
@@ -900,6 +1011,7 @@ export default function ClientBatches() {
       const { batch } = submitManualBatch({
         clientId: data.client_id,
         clientName: data.client_name,
+        existingBatchId: activeDraftBatchId ?? undefined,
         invoices: currentBatchInvoices.map((inv) => ({
           invoice_number: inv.invoice_number,
           load_number: inv.load_number,
@@ -916,6 +1028,11 @@ export default function ClientBatches() {
       }))
       setCurrentBatchInvoices([])
       setCreateSubMode('choose')
+      setActiveDraftBatchId(null)
+      setManualDraftReady(false)
+      if (activeDraftBatchId) {
+        void clearClientDraftStorage(activeDraftBatchId)
+      }
       refreshBatches()
       setActiveTab('view')
       setSelectedBatch(batch.id)
@@ -1069,992 +1186,127 @@ export default function ClientBatches() {
   }
 
   return (
-    <ClientLayout clientName={data.client_name} clientId={data.client_id}>
-      <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          {/* Tab Navigation */}
-          <div className="page-tabs">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('create')
-              setSelectedBatch(null)
-              searchParams.set('tab', 'create')
-              setSearchParams(searchParams, { replace: true })
-            }}
-            className={`page-tab ${activeTab === 'create' ? 'page-tab--active' : ''}`}
-          >
-            Create Batch
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('view')
-              setSelectedBatch(null)
-              searchParams.delete('tab')
-              setSearchParams(searchParams, { replace: true })
-            }}
-            className={`page-tab ${activeTab === 'view' ? 'page-tab--active' : ''}`}
-          >
-            View Batches
-          </button>
-          </div>
-          {activeTab === 'view' && !selectedBatch && (
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('create')
-                setSelectedBatch(null)
-                searchParams.set('tab', 'create')
-                setSearchParams(searchParams, { replace: true })
-              }}
-              className="dashboard-btn-primary shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Create Batch
-            </button>
-          )}
-        </div>
-
+    <ClientLayout
+      clientName={data.client_name}
+      clientId={data.client_id}
+      flushMain={activeTab === 'view' || activeTab === 'create'}
+    >
+      <div className="flex flex-col min-h-0 flex-1">
         {activeTab === 'create' ? (
-          <div className="space-y-4">
-            {createSubMode === 'choose' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <button
-                  type="button"
-                  className="batch-option-card batch-option-card--featured"
-                  onClick={() => setCreateSubMode('ai')}
-                >
-                  <h3 className="text-base font-semibold mb-1.5" style={{ color: c.primary }}>
-                    AI upload
-                  </h3>
-                  <p className="text-sm" style={{ color: c.secondary }}>
-                    Upload rate cons & BOLs. We sort by load, draft invoices, and you confirm each
-                    before submitting.
-                  </p>
-                </button>
-                <button
-                  type="button"
-                  className="batch-option-card"
-                  onClick={() => setCreateSubMode('manual')}
-                >
-                  <h3 className="text-base font-semibold mb-1.5" style={{ color: c.primary }}>
-                    Manual batch
-                  </h3>
-                  <p className="text-sm" style={{ color: c.secondary }}>
-                    Enter invoices one at a time and attach documents yourself.
-                  </p>
-                </button>
-              </div>
+          <ClientSubmitDocsView
+            mode={createSubMode}
+            onBackToBatches={handleOpenViewBatches}
+            onBackToChoose={() => setCreateSubMode('choose')}
+            onSelectAi={() => void startAiDraft()}
+            onSelectManual={() => void startManualDraft()}
+            draftBatches={draftBatches}
+            onResumeDraft={(batchId) => void resumeDraftBatch(batchId)}
+            activeDraftBatchId={activeDraftBatchId}
+          >
+            {createSubMode === 'ai' && activeDraftBatchId && (
+              <BatchAiUploadFlow
+                embedded
+                clientId={data.client_id}
+                clientName={data.client_name}
+                draftBatchId={activeDraftBatchId}
+                draftBatchNumber={activeDraftBatch?.batch_number}
+                restoredDraft={aiDraftRestored}
+                draftReady={aiDraftReady}
+                onPersistDraft={handlePersistAiDraft}
+                initialFiles={dashboardAiFiles}
+                onCancel={() => {
+                  setCreateSubMode('choose')
+                  setDashboardAiFiles(undefined)
+                }}
+                onComplete={(batchId) => {
+                  setDashboardAiFiles(undefined)
+                  setCreateSubMode('choose')
+                  setActiveDraftBatchId(null)
+                  setAiDraftRestored(null)
+                  setAiDraftReady(false)
+                  void clearClientDraftStorage(batchId)
+                  refreshBatches()
+                  setActiveTab('view')
+                  setSelectedBatch(batchId)
+                  alert('Batch uploaded. Credyx will review your paperwork.')
+                }}
+              />
             )}
 
-            {createSubMode === 'ai' && (
-              <div className="dashboard-card p-5">
-                <BatchAiUploadFlow
-                  clientId={data.client_id}
-                  clientName={data.client_name}
-                  initialFiles={dashboardAiFiles}
-                  onCancel={() => {
-                    setCreateSubMode('choose')
-                    setDashboardAiFiles(undefined)
-                  }}
-                  onComplete={(batchId) => {
-                    setDashboardAiFiles(undefined)
-                    setCreateSubMode('choose')
-                    refreshBatches()
-                    setActiveTab('view')
-                    setSelectedBatch(batchId)
-                    alert('Batch uploaded. Credyx will review your paperwork.')
-                  }}
-                />
+            {createSubMode === 'ai' && !activeDraftBatchId && (
+              <div className="client-ai-upload__empty p-8 text-center text-sm text-slate-500">
+                Preparing draft…
               </div>
             )}
 
             {createSubMode === 'manual' && (
-          <div className="space-y-4">
-            <div>
-              <button
-                type="button"
-                className="text-sm font-medium transition-opacity hover:opacity-70"
-                style={{ color: c.info }}
-                onClick={() => setCreateSubMode('choose')}
-              >
-                ← Back to upload options
-              </button>
-            </div>
-            <div className="dashboard-card">
-              <div className="p-5">
-                <div className="mb-5 pb-5 border-b" style={{ borderColor: c.border }}>
-                  <h3 className="text-base font-semibold" style={{ color: c.primary }}>
-                    Manual batch
-                  </h3>
-                  <p className="text-sm mt-0.5" style={{ color: c.secondary }}>
-                    Batch number is auto-generated when you submit
-                  </p>
-                </div>
-
-                {/* Add Invoice Form */}
-                <div className="border-b pb-5 mb-5" style={{ borderColor: c.border }}>
-                  <h4 className="text-sm font-semibold mb-4" style={{ color: c.primary }}>
-                    Add Invoice
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="client-label">
-                        Invoice Number
-                      </label>
-                      <input
-                        type="text"
-                        value={invoiceFormData.invoice_number}
-                        onChange={(e) => handleInvoiceInputChange('invoice_number', e.target.value)}
-                        placeholder="INV-2025-001"
-                        className="client-input"
-                      />
-                      <p className="client-label-hint">
-                        Auto-generated, can be edited
-                      </p>
-                    </div>
-                    <div>
-                      <label className="client-label">
-                        Load Number
-                      </label>
-                      <input
-                        type="text"
-                        value={invoiceFormData.load_number}
-                        onChange={(e) => handleInvoiceInputChange('load_number', e.target.value)}
-                        placeholder="LD12345"
-                        className="client-input"
-                      />
-                    </div>
-                    <div className="relative">
-                      <label className="client-label">
-                        Broker <span style={{ color: c.info }}>*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={invoiceFormData.broker_name}
-                        onChange={(e) => handleInvoiceInputChange('broker_name', e.target.value)}
-                        placeholder="Type broker name..."
-                        className="client-input"
-                        onFocus={(e) => {
-                          e.currentTarget.style.borderColor = c.info
-                          if (brokerSuggestions.length > 0) {
-                            setShowBrokerSuggestions(true)
-                          }
-                        }}
-                        onBlur={(e) => {
-                          e.currentTarget.style.borderColor = c.border
-                          setTimeout(() => setShowBrokerSuggestions(false), 200)
-                        }}
-                      />
-                      {showBrokerSuggestions && brokerSuggestions.length > 0 && (
-                        <div
-                          className="absolute z-10 w-full mt-1 dashboard-card max-h-60 overflow-y-auto py-1"
-                        >
-                          {brokerSuggestions.map((broker) => (
-                            <button
-                              key={broker.id}
-                              type="button"
-                              onClick={() => handleBrokerSelect(broker)}
-                              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors"
-                              style={{ color: c.primary }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = c.surface
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = c.card
-                              }}
-                            >
-                              {broker.name}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <label className="client-label">
-                        Amount <span style={{ color: c.info }}>*</span>
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        step="0.01"
-                        min="0.01"
-                        value={invoiceFormData.amount}
-                        onChange={(e) => handleInvoiceInputChange('amount', e.target.value)}
-                        placeholder="5000.00"
-                        className="client-input"
-                      />
-                    </div>
-                    <div>
-                      <label className="client-label">
-                        Invoice Date
-                      </label>
-                      <input
-                        type="date"
-                        value={invoiceFormData.invoice_date}
-                        onChange={(e) => handleInvoiceInputChange('invoice_date', e.target.value)}
-                        className="client-input"
-                      />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="client-label">
-                        Broker Address <span style={{ color: c.info }}>*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={invoiceFormData.broker_address}
-                        onChange={(e) => handleInvoiceInputChange('broker_address', e.target.value)}
-                        placeholder="Broker address"
-                        className="client-input"
-                      />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="client-label">
-                        Notes
-                      </label>
-                      <textarea
-                        value={invoiceFormData.notes}
-                        onChange={(e) => handleInvoiceInputChange('notes', e.target.value)}
-                        placeholder="Additional notes..."
-                        rows={2}
-                        className="client-input"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <button
-                      type="button"
-                      onClick={handleAddInvoice}
-                      className="dashboard-btn-primary"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add Invoice</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Invoices List */}
-                {currentBatchInvoices.length > 0 && (
-                  <div className="mb-6">
-                    <h4 className="text-md font-semibold mb-4" style={{ color: c.primary }}>
-                      Invoices in Batch ({currentBatchInvoices.length})
-                    </h4>
-                    <div className="overflow-x-auto">
-                      <table className="dashboard-table">
-                        <thead>
-                          <tr className="border-b" style={{ borderColor: c.border }}>
-                            <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                              Invoice#
-                            </th>
-                            <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                              Load#
-                            </th>
-                            <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                              Broker
-                            </th>
-                            <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                              Amount
-                            </th>
-                            <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                              Invoice Date
-                            </th>
-                            <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                              Documents
-                            </th>
-                            <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                              Action
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {currentBatchInvoices.map((invoice, index) => (
-                            <tr
-                              key={index}
-                              className="border-b"
-                              style={{ borderColor: c.border }}
-                            >
-                              <td className="py-3 px-4 text-sm font-medium" style={{ color: c.primary }}>
-                                {invoice.invoice_number}
-                              </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: c.secondary }}>
-                                {invoice.load_number || '-'}
-                              </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: c.secondary }}>
-                                {invoice.broker_name}
-                              </td>
-                              <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: c.primary }}>
-                                {formatCurrency(parseFloat(invoice.amount || '0'))}
-                              </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: c.secondary }}>
-                                {invoice.invoice_date ? formatDate(invoice.invoice_date) : '-'}
-                              </td>
-                              <td className="py-3 px-4 text-center">
-                                {invoice.documents && invoice.documents.length > 0 ? (
-                                  <div className="flex items-center justify-center space-x-2">
-                                    <button
-                                      onClick={() => handleViewDocuments(invoice)}
-                                      className="inline-flex items-center px-2 py-1 text-xs font-medium rounded transition-colors"
-                                      style={{
-                                        backgroundColor: c.secondary,
-                                        color: c.card,
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor = '#6b7a7b'
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.backgroundColor = c.secondary
-                                      }}
-                                      title="View Documents"
-                                    >
-                                      <FileText className="w-3 h-3 mr-1" />
-                                      {invoice.documents.length}
-                                    </button>
-                                    <button
-                                      onClick={() => handleUploadDocumentsForInvoice(invoice, index)}
-                                      className="p-1 hover:bg-gray-100 rounded transition-colors"
-                                      style={{ color: c.primary }}
-                                      title="Add/Edit Documents"
-                                    >
-                                      <Upload className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => handleUploadDocumentsForInvoice(invoice, index)}
-                                    className="inline-flex items-center px-2 py-1 text-xs font-medium rounded transition-colors"
-                                    style={{
-                                      color: c.primary,
-                                      border: '1px solid #e2e8f0',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.backgroundColor = c.surface
-                                      e.currentTarget.style.borderColor = c.info
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.backgroundColor = c.card
-                                      e.currentTarget.style.borderColor = c.border
-                                    }}
-                                  >
-                                    <Upload className="w-3 h-3 mr-1" />
-                                    Upload
-                                  </button>
-                                )}
-                              </td>
-                              <td className="py-3 px-4 text-center">
-                                <button
-                                  onClick={() => handleRemoveInvoice(index)}
-                                  className="transition-colors"
-                                  style={{ color: c.secondary }}
-                                  onMouseEnter={(e) => e.currentTarget.style.color = c.info}
-                                  onMouseLeave={(e) => e.currentTarget.style.color = c.secondary}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr className="border-t-2" style={{ borderColor: c.info }}>
-                            <td colSpan={3} className="py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                              Total
-                            </td>
-                            <td className="py-3 px-4 text-sm text-right font-bold" style={{ color: c.primary }}>
-                              {formatCurrency(
-                                currentBatchInvoices.reduce(
-                                  (sum, inv) => sum + parseFloat(inv.amount || '0'),
-                                  0
-                                )
-                              )}
-                            </td>
-                            <td colSpan={2}></td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                {/* Submit Batch Button */}
-                {currentBatchInvoices.length > 0 && (
-                  <div className="flex items-center justify-end gap-2 pt-4 border-t" style={{ borderColor: c.border }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCurrentBatchInvoices([])
-                        const year = new Date().getFullYear()
-                        setInvoiceFormData({
-                          invoice_number: `INV-${year}-001`,
-                          load_number: '',
-                          broker_name: '',
-                          broker_address: '',
-                          amount: '',
-                          invoice_date: new Date().toISOString().split('T')[0],
-                          notes: '',
-                        })
-                        setShowBrokerSuggestions(false)
-                      }}
-                      className="dashboard-btn-secondary"
-                    >
-                      Clear All
-                    </button>
-                    <button type="button" onClick={handleCreateBatch} className="dashboard-btn-primary">
-                      Create Batch
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+              <ClientManualBatchForm
+                formData={invoiceFormData}
+                onFormChange={handleInvoiceInputChange}
+                brokerSuggestions={brokerSuggestions}
+                showBrokerSuggestions={showBrokerSuggestions}
+                onBrokerFocus={() => {
+                  if (brokerSuggestions.length > 0) setShowBrokerSuggestions(true)
+                }}
+                onBrokerBlur={() => {
+                  setTimeout(() => setShowBrokerSuggestions(false), 200)
+                }}
+                onBrokerSelect={handleBrokerSelect}
+                onAddInvoice={handleAddInvoice}
+                invoices={currentBatchInvoices}
+                onViewDocuments={handleViewDocuments}
+                onUploadDocuments={handleUploadDocumentsForInvoice}
+                onRemoveInvoice={handleRemoveInvoice}
+                onClearAll={() => {
+                  setCurrentBatchInvoices([])
+                  const year = new Date().getFullYear()
+                  setInvoiceFormData({
+                    invoice_number: `INV-${year}-001`,
+                    load_number: '',
+                    broker_name: '',
+                    broker_address: '',
+                    amount: '',
+                    invoice_date: new Date().toISOString().split('T')[0],
+                    notes: '',
+                  })
+                  setShowBrokerSuggestions(false)
+                }}
+                onSubmit={handleCreateBatch}
+              />
             )}
-          </div>
-        ) : selectedBatch ? (
-          // Batch Detail View
-          <div className="space-y-4">
-            <button
-              type="button"
-              onClick={() => setSelectedBatch(null)}
-              className="text-sm font-medium transition-opacity hover:opacity-70"
-              style={{ color: c.info }}
-            >
-              ← Back to Batches
-            </button>
-
-            {selectedBatchData && (
-              <div className="dashboard-card">
-                <div className="p-5">
-                  <div className="flex items-center justify-between mb-5 pb-5 border-b" style={{ borderColor: c.border }}>
-                    <div>
-                      <h3 className="text-lg font-semibold" style={{ color: c.primary }}>
-                        {selectedBatchData.batch_number}
-                      </h3>
-                      <p className="text-sm mt-0.5" style={{ color: c.secondary }}>
-                        Submitted on {formatDate(selectedBatchData.submitted_at)}
-                      </p>
-                    </div>
-                    <div>{getStatusBadge(selectedBatchData.status)}</div>
-                  </div>
-
-                  {/* Batch Summary */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
-                    <div className="dashboard-metric-secondary" style={{ backgroundColor: c.surface }}>
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4" style={{ color: c.info }} />
-                        <span className="text-sm font-medium" style={{ color: c.secondary }}>
-                          Total Invoices
-                        </span>
-                      </div>
-                      <span className="text-xl font-bold tabular-nums" style={{ color: c.primary }}>
-                        {selectedBatchData.total_invoices}
-                      </span>
-                    </div>
-                    <div className="dashboard-metric-secondary" style={{ backgroundColor: c.surface }}>
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="w-4 h-4" style={{ color: c.info }} />
-                        <span className="text-sm font-medium" style={{ color: c.secondary }}>
-                          Total Amount
-                        </span>
-                      </div>
-                      <span className="text-xl font-bold tabular-nums" style={{ color: c.primary }}>
-                        {formatCurrency(selectedBatchData.total_amount)}
-                      </span>
-                    </div>
-                    {selectedBatchData.reviewed_at && (
-                      <div className="dashboard-metric-secondary" style={{ backgroundColor: c.surface }}>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4" style={{ color: c.info }} />
-                          <span className="text-sm font-medium" style={{ color: c.secondary }}>
-                            Reviewed At
-                          </span>
-                        </div>
-                        <span className="text-sm font-semibold" style={{ color: c.primary }}>
-                          {formatDate(selectedBatchData.reviewed_at)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Invoices List */}
-                  <div className="border-t pt-5" style={{ borderColor: c.border }}>
-                    <h4 className="text-base font-semibold mb-4" style={{ color: c.primary }}>
-                      Invoices in this Batch ({selectedBatchData.total_invoices})
-                    </h4>
-                    {selectedBatchStoreInvoices.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="dashboard-table">
-                          <thead>
-                            <tr className="border-b" style={{ borderColor: c.border }}>
-                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Invoice#
-                              </th>
-                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Load#
-                              </th>
-                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Broker
-                              </th>
-                              <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Amount
-                              </th>
-                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Invoice Date
-                              </th>
-                              <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Documents
-                              </th>
-                              <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Actions
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {selectedBatchStoreInvoices.map((invoice) => (
-                              <tr
-                                key={invoice.id}
-                                className="border-b cursor-pointer"
-                                style={{ borderColor: c.border }}
-                                onClick={() => handleViewInvoiceDetail(invoice)}
-                              >
-                                <td className="py-3 px-4 text-sm font-medium" style={{ color: c.primary }}>
-                                  {invoice.invoice_number}
-                                </td>
-                                <td className="py-3 px-4 text-sm" style={{ color: c.secondary }}>
-                                  {invoice.load_number || '-'}
-                                </td>
-                                <td className="py-3 px-4 text-sm" style={{ color: c.secondary }}>
-                                  {invoice.broker_name}
-                                </td>
-                                <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: c.primary }}>
-                                  {formatCurrency(invoice.amount)}
-                                </td>
-                                <td className="py-3 px-4 text-sm" style={{ color: c.secondary }}>
-                                  {invoice.invoice_date ? formatDate(invoice.invoice_date) : '-'}
-                                </td>
-                                <td className="py-3 px-4 text-center text-sm" style={{ color: c.secondary }}>
-                                  {invoice.documents_count ?? 0}
-                                </td>
-                                <td className="py-3 px-4 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleViewInvoiceDetail(invoice)
-                                    }}
-                                    className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-                                    style={{ color: c.info }}
-                                    title="View Details"
-                                  >
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : batchInvoices[selectedBatch!] && batchInvoices[selectedBatch!].length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="dashboard-table">
-                          <thead>
-                            <tr className="border-b" style={{ borderColor: c.border }}>
-                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Invoice#
-                              </th>
-                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Load#
-                              </th>
-                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Broker
-                              </th>
-                              <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Amount
-                              </th>
-                              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Invoice Date
-                              </th>
-                              <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Documents
-                              </th>
-                              <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: c.primary }}>
-                                Actions
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {batchInvoices[selectedBatch!].map((invoice, index) => {
-                              const detailInvoice = batchDetailInvoices[index]
-                              return (
-                              <tr
-                                key={index}
-                                className="border-b cursor-pointer"
-                                style={{ borderColor: c.border }}
-                                onClick={() => detailInvoice && handleViewInvoiceDetail(detailInvoice)}
-                              >
-                                <td className="py-3 px-4 text-sm font-medium" style={{ color: c.primary }}>
-                                  {invoice.invoice_number}
-                                </td>
-                                <td className="py-3 px-4 text-sm" style={{ color: c.secondary }}>
-                                  {invoice.load_number || '-'}
-                                </td>
-                                <td className="py-3 px-4 text-sm" style={{ color: c.secondary }}>
-                                  {invoice.broker_name}
-                                </td>
-                                <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: c.primary }}>
-                                  {formatCurrency(parseFloat(invoice.amount || '0'))}
-                                </td>
-                                <td className="py-3 px-4 text-sm" style={{ color: c.secondary }}>
-                                  {invoice.invoice_date ? formatDate(invoice.invoice_date) : '-'}
-                                </td>
-                                <td className="py-3 px-4 text-center">
-                                  {invoice.documents && invoice.documents.length > 0 ? (
-                                    <button
-                                      onClick={() => handleViewDocuments(invoice)}
-                                      className="inline-flex items-center px-2 py-1 text-xs font-medium rounded transition-colors"
-                                      style={{
-                                        backgroundColor: c.secondary,
-                                        color: c.card,
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor = '#6b7a7b'
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.backgroundColor = c.secondary
-                                      }}
-                                      title="View Documents"
-                                    >
-                                      <FileText className="w-3 h-3 mr-1" />
-                                      {invoice.documents.length}
-                                    </button>
-                                  ) : (
-                                    <span className="text-xs" style={{ color: c.secondary }}>
-                                      No documents
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-3 px-4 text-center">
-                                  <div className="flex items-center justify-center space-x-2">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (detailInvoice) handleViewInvoiceDetail(detailInvoice)
-                                      }}
-                                      className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-                                      style={{ color: c.info }}
-                                      title="View Details"
-                                    >
-                                      <Eye className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            )})}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <FileText className="w-12 h-12 mx-auto mb-3" style={{ color: c.secondary }} />
-                        <p className="text-sm font-medium mb-1" style={{ color: c.primary }}>
-                          No invoices in this batch
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          </ClientSubmitDocsView>
+        ) : selectedBatch && selectedBatchData ? (
+          <ClientBatchDetailView
+            batch={selectedBatchData}
+            invoices={batchDetailInvoices}
+            onBack={() => setSelectedBatch(null)}
+            onViewInvoice={handleViewInvoiceDetail}
+          />
         ) : (
-          // View Batches Tab
-          <div className="dashboard-card overflow-hidden">
-            <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: c.border }}>
-              <div>
-                <h3 className="text-base font-semibold" style={{ color: c.primary }}>
-                  All Batches
-                </h3>
-                <p className="text-xs font-medium mt-0.5" style={{ color: c.secondary }}>
-                  {batches.length} batch{batches.length !== 1 ? 'es' : ''} found
-                </p>
-              </div>
-            </div>
-
-            {batches.length === 0 ? (
-              <div className="text-center py-10 px-5">
-                <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
-                  No batches found
-                </p>
-                <p className="text-sm" style={{ color: c.secondary }}>
-                  Your submitted batches will appear here
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th>Batch#</th>
-                      <th className="text-right">Invoices</th>
-                      <th className="text-right">Amount</th>
-                      <th>Submitted</th>
-                      <th>Status</th>
-                      <th>Reviewed</th>
-                      <th className="text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {batches.map((batch) => {
-                      const isHighlighted = highlightedBatchId === batch.id
-                      return (
-                        <tr
-                          key={batch.id}
-                          className={`cursor-pointer ${isHighlighted ? 'batch-highlight-row' : ''}`}
-                          onClick={() => setSelectedBatch(batch.id)}
-                        >
-                          <td className="font-semibold">{batch.batch_number}</td>
-                          <td className="text-right tabular-nums">{batch.total_invoices}</td>
-                          <td className="text-right font-medium tabular-nums">
-                            {formatCurrency(batch.total_amount)}
-                          </td>
-                          <td style={{ color: c.secondary }}>{formatDate(batch.submitted_at)}</td>
-                          <td>{getStatusBadge(batch.status)}</td>
-                          <td style={{ color: c.secondary }}>
-                            {batch.reviewed_at ? formatDate(batch.reviewed_at) : '-'}
-                          </td>
-                          <td className="text-center">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedBatch(batch.id)
-                              }}
-                              className="dashboard-btn-primary"
-                              style={{ height: 32, padding: '0 12px', fontSize: 12 }}
-                            >
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          <ClientBatchesListView
+            batches={batches}
+            highlightedBatchId={highlightedBatchId}
+            onSelectBatch={handleSelectBatch}
+            onCreateBatch={handleOpenCreateBatch}
+          />
         )}
       </div>
 
       {/* Document Upload Modal */}
       {showDocumentUploadModal && currentInvoiceForDocuments && (
-        <div className="fixed inset-0 client-modal-overlay flex items-center justify-center z-50">
-          <div className="client-modal max-w-[1400px] w-full mx-4 max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="client-modal-header flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold" style={{ color: c.primary }}>
-                  Upload Documents
-                </h3>
-                <p className="text-sm mt-1" style={{ color: c.secondary }}>
-                  Invoice #{currentInvoiceForDocuments.invoice_number}
-                </p>
-              </div>
-              <button
-                onClick={handleDocumentUploadSkip}
-                className="p-2 hover:bg-gray-100 rounded transition-colors"
-                style={{ color: c.primary }}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="client-modal-body">
-              {/* Invoice Info */}
-              <div className="mb-6 p-4 rounded" style={{ backgroundColor: c.surface }}>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="font-medium" style={{ color: c.secondary }}>Broker:</span>
-                    <span className="ml-2" style={{ color: c.primary }}>
-                      {currentInvoiceForDocuments.broker_name}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="font-medium" style={{ color: c.secondary }}>Amount:</span>
-                    <span className="ml-2" style={{ color: c.primary }}>
-                      {formatCurrency(parseFloat(currentInvoiceForDocuments.amount || '0'))}
-                    </span>
-                  </div>
-                  {currentInvoiceForDocuments.load_number && (
-                    <div>
-                      <span className="font-medium" style={{ color: c.secondary }}>Load#:</span>
-                      <span className="ml-2" style={{ color: c.primary }}>
-                        {currentInvoiceForDocuments.load_number}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* File Upload Area */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium mb-2" style={{ color: c.primary }}>
-                  Upload Documents
-                </label>
-                <div
-                  className="border-2 border-dashed rounded-lg p-8 text-center transition-colors"
-                  style={{
-                    borderColor: c.border,
-                    backgroundColor: c.surface,
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault()
-                    e.currentTarget.style.borderColor = c.info
-                    e.currentTarget.style.backgroundColor = c.accentLight
-                  }}
-                  onDragLeave={(e) => {
-                    e.preventDefault()
-                    e.currentTarget.style.borderColor = c.border
-                    e.currentTarget.style.backgroundColor = c.surface
-                  }}
-                  onDrop={async (e) => {
-                    e.preventDefault()
-                    e.currentTarget.style.borderColor = c.border
-                    e.currentTarget.style.backgroundColor = c.surface
-                    const files = e.dataTransfer.files
-                    if (files.length > 0) {
-                      const processedDocuments = await processFiles(files)
-                      setUploadedDocuments((prev) => [...prev, ...processedDocuments])
-                      setDocumentReviewResult(null)
-                      setDocumentReviewError(null)
-                    }
-                  }}
-                >
-                  <Upload className="w-12 h-12 mx-auto mb-4" style={{ color: c.secondary }} />
-                  <p className="text-sm mb-2" style={{ color: c.primary }}>
-                    Drag and drop files here, or
-                  </p>
-                  <label
-                    htmlFor="file-upload"
-                    className="dashboard-btn-primary cursor-pointer"
-                    style={{ color: c.card }}
-                  >
-                    Browse Files
-                  </label>
-                  <input
-                    id="file-upload"
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={handleFileSelect}
-                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                  />
-                  <p className="text-xs mt-2" style={{ color: c.secondary }}>
-                    PDF, JPG, PNG, DOC, DOCX (Max 25MB per file)
-                  </p>
-                </div>
-              </div>
-
-              <DocumentReviewResults
-                result={documentReviewResult}
-                isReviewing={isReviewingDocuments}
-                error={documentReviewError}
-                onRunReview={handleRunDocumentReview}
-                canReview={uploadedDocuments.length > 0}
-                aiEnabled={isAIReviewEnabled()}
-                reviewFiles={uploadedDocuments.map((doc) => doc.file)}
-              />
-
-              {/* Uploaded Files List */}
-              {uploadedDocuments.length > 0 && (
-                <div className="mb-6">
-                  <h4 className="text-sm font-medium mb-3" style={{ color: c.primary }}>
-                    Uploaded Documents ({uploadedDocuments.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {uploadedDocuments.map((doc) => (
-                      <div
-                        key={doc.id}
-                        className="flex items-center justify-between p-3 rounded border"
-                        style={{
-                          borderColor: c.border,
-                          backgroundColor: c.card,
-                        }}
-                      >
-                        <div className="flex items-center space-x-3">
-                          <FileText className="w-5 h-5" style={{ color: c.secondary }} />
-                          <div>
-                            <p className="text-sm font-medium" style={{ color: c.primary }}>
-                              {doc.name}
-                            </p>
-                            <p className="text-xs" style={{ color: c.secondary }}>
-                              {formatFileSize(doc.size)}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleRemoveDocument(doc.id)}
-                          className="p-1 hover:bg-red-50 rounded transition-colors"
-                          style={{ color: c.secondary }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div
-              className="flex items-center justify-end space-x-3 p-6 border-t"
-              style={{ borderColor: c.border }}
-            >
-              <button
-                onClick={handleDocumentUploadSkip}
-                className="px-4 py-2 text-sm font-medium transition-colors"
-                style={{
-                  color: c.primary,
-                  border: '1px solid #e2e8f0',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = c.surface
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = c.card
-                }}
-              >
-                {isEditingExistingInvoice ? 'Cancel' : 'Skip'}
-              </button>
-              <button
-                onClick={handleDocumentUploadComplete}
-                className="px-4 py-2 text-sm font-medium transition-colors"
-                style={{
-                  backgroundColor: c.primary,
-                  color: c.card,
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = c.primaryHover
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = c.primary
-                }}
-              >
-                {uploadedDocuments.length > 0
-                  ? isEditingExistingInvoice
-                    ? 'Save Documents'
-                    : 'Save & Continue'
-                  : isEditingExistingInvoice
-                  ? 'Close'
-                  : 'Continue Without Documents'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ClientInvoiceDocumentUploadModal
+          invoiceNumber={currentInvoiceForDocuments.invoice_number}
+          brokerName={currentInvoiceForDocuments.broker_name}
+          amount={currentInvoiceForDocuments.amount}
+          loadNumber={currentInvoiceForDocuments.load_number}
+          documents={uploadedDocuments}
+          isEditingExistingInvoice={isEditingExistingInvoice}
+          onClose={handleDocumentUploadSkip}
+          onComplete={handleDocumentUploadComplete}
+          onFileSelect={handleFileSelect}
+          onFileDrop={handleDocumentFileDrop}
+          onRemoveDocument={handleRemoveDocument}
+        />
       )}
 
       {/* Document Viewer */}

@@ -2,7 +2,7 @@ import { mockBrokers } from '../data/mockBrokers'
 import type { CredyxInvoiceDraft } from '../types/credyxBatch'
 import type { Invoice } from '../types/invoice'
 import { buildInvoiceDraftFromGroup } from '../products/docSort/services/docSortInvoice'
-import { generateInvoicePDFFile } from '../utils/generateInvoicePDF'
+import { generateInvoicePDFFile, type InvoicePDFInput } from '../utils/generateInvoicePDF'
 import type { DocSortLoadGroup, DocSortFingerprint } from '../products/docSort/types'
 /** Resolve broker id from extracted name (fuzzy contains match). */
 export function resolveBrokerId(brokerName: string): { broker_id: string; broker_name: string } {
@@ -97,6 +97,75 @@ export function draftToInvoiceFields(
     doc_sort_group_id: draft.groupId,
     document_doc_ids: [...draft.document_doc_ids],
   }
+}
+
+/** True when the client added this load manually (not from AI sort). */
+export function isManualCredyxDraft(draft: CredyxInvoiceDraft): boolean {
+  return draft.groupId.startsWith('manual-')
+}
+
+export function generateNextDraftInvoiceNumber(existing: CredyxInvoiceDraft[]): string {
+  const year = new Date().getFullYear()
+  let max = 0
+  existing.forEach((inv) => {
+    const match = inv.invoice_number.match(/INV-\d+-(\d+)/i)
+    if (match) max = Math.max(max, Number.parseInt(match[1], 10))
+  })
+  return `INV-${year}-${String(max + 1).padStart(3, '0')}`
+}
+
+/** Blank invoice row the client can fill in during AI batch confirm. */
+export async function createManualCredyxDraft(
+  existing: CredyxInvoiceDraft[],
+  clientName: string
+): Promise<CredyxInvoiceDraft> {
+  const groupId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  const invoice_date = new Date().toISOString().split('T')[0]
+  const base: CredyxInvoiceDraft = {
+    draftId: `draft-${groupId}`,
+    groupId,
+    invoice_number: generateNextDraftInvoiceNumber(existing),
+    load_number: '',
+    broker_name: '',
+    broker_id: 'broker-unknown',
+    amount: 0,
+    invoice_date,
+    carrier_name: 'Carrier',
+    rate_missing: true,
+    confirmed: false,
+    document_doc_ids: [],
+    fingerprints: { rateCons: [], bols: [] },
+  }
+  const invoice_pdf = await regenerateDraftInvoicePdf(base, clientName)
+  return { ...base, invoice_pdf }
+}
+
+function isoToUsDate(iso: string): string {
+  const [y, m, d] = iso.split('-')
+  if (y && m && d) {
+    return `${Number.parseInt(m, 10)}/${Number.parseInt(d, 10)}/${y}`
+  }
+  return new Date().toLocaleDateString('en-US')
+}
+
+/** Rebuild the generated invoice PDF from the client's edited draft fields. */
+export async function regenerateDraftInvoicePdf(
+  draft: CredyxInvoiceDraft,
+  clientName: string
+): Promise<File> {
+  const input: InvoicePDFInput = {
+    invoiceNumber: draft.invoice_number,
+    invoiceDate: isoToUsDate(draft.invoice_date),
+    invoiceAmount: draft.amount,
+    loadNumber: draft.load_number,
+    brokerName: draft.broker_name,
+    brokerAddress: '',
+    carrierName: draft.carrier_name || 'Carrier',
+    clientName,
+    clientAddress: '',
+    remittanceInfo: '',
+  }
+  return generateInvoicePDFFile(input)
 }
 
 export function fingerprintDocIds(fps: DocSortFingerprint[]): string[] {

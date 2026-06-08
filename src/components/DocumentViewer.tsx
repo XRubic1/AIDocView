@@ -11,12 +11,21 @@ interface Document {
   size?: number
 }
 
+interface DocumentMoveTarget {
+  draftId: string | null
+  label: string
+}
+
 interface DocumentViewerProps {
   isOpen: boolean
   onClose: () => void
   documents: Document[]
   invoiceNumber?: string
   title?: string
+  moveTargets?: DocumentMoveTarget[]
+  onMoveDocument?: (docId: string, toDraftId: string | null) => void
+  lockedDocIds?: string[]
+  moveDisabled?: boolean
 }
 
 export default function DocumentViewer({
@@ -25,6 +34,10 @@ export default function DocumentViewer({
   documents,
   invoiceNumber,
   title = 'View Documents',
+  moveTargets,
+  onMoveDocument,
+  lockedDocIds = [],
+  moveDisabled = false,
 }: DocumentViewerProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [documentUrls, setDocumentUrls] = useState<string[]>([])
@@ -58,6 +71,12 @@ export default function DocumentViewer({
       })
     }
   }, [isOpen, documents])
+
+  useEffect(() => {
+    if (currentIndex >= documents.length) {
+      setCurrentIndex(Math.max(0, documents.length - 1))
+    }
+  }, [documents.length, currentIndex])
 
   const currentDocument = documents[currentIndex]
   const currentUrl = documentUrls[currentIndex]
@@ -221,6 +240,11 @@ export default function DocumentViewer({
     if (['doc', 'docx'].includes(extension || '')) return 'document'
     return 'other'
   }
+
+  const canMoveCurrent =
+    Boolean(onMoveDocument && moveTargets?.length && currentDocument) &&
+    !lockedDocIds.includes(currentDocument.id) &&
+    !moveDisabled
 
   if (!isOpen) return null
 
@@ -441,6 +465,36 @@ export default function DocumentViewer({
             </div>
           </div>
           <div className="flex items-center space-x-3">
+            {canMoveCurrent && (
+              <label className="flex items-center gap-2">
+                <span className="text-xs font-medium" style={{ color: '#64748b' }}>
+                  Move to
+                </span>
+                <select
+                  className="doc-viewer-move-select"
+                  defaultValue=""
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (!value || !currentDocument) return
+                    onMoveDocument?.(
+                      currentDocument.id,
+                      value === '__unmatched__' ? null : value
+                    )
+                    e.target.value = ''
+                  }}
+                >
+                  <option value="">Select…</option>
+                  {moveTargets?.map((target) => (
+                    <option
+                      key={target.draftId ?? '__unmatched__'}
+                      value={target.draftId ?? '__unmatched__'}
+                    >
+                      {target.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button
               onClick={handleDownload}
               disabled={!currentDocument}

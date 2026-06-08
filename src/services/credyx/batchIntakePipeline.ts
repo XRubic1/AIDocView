@@ -1,5 +1,5 @@
 import { isAIReviewEnabled } from '../../config/aiReview'
-import { addBatch, addInvoicesForBatch, generateBatchNumber } from '../../data/mockBatches'
+import { addBatch, addInvoicesForBatch, generateBatchNumber, updateBatch } from '../../data/mockBatches'
 import { setBatchFiles } from '../../data/batchFileStore'
 import {
   buildCredyxDraftFromGroup,
@@ -64,7 +64,7 @@ export async function runBatchIntakePipeline(
 
 /** Persist confirmed AI batch into mockBatches + mockInvoices. */
 export function submitAiBatch(input: SubmitAiBatchInput): SubmitAiBatchResult {
-  const { clientId, clientName, drafts, sortResult, fileById, confirmedBy } = input
+  const { clientId, clientName, drafts, sortResult, fileById, confirmedBy, existingBatchId } = input
 
   const allConfirmed = drafts.every((d) => d.confirmed)
   if (!allConfirmed) {
@@ -74,7 +74,6 @@ export function submitAiBatch(input: SubmitAiBatchInput): SubmitAiBatchResult {
     throw new Error('No invoices to submit. Match at least one load from your paperwork.')
   }
 
-  const batchNumber = generateBatchNumber()
   const totalAmount = drafts.reduce((s, d) => s + d.amount, 0)
   const unmatchedIds = [
     ...fingerprintDocIds(sortResult.unmatchedRateCons),
@@ -82,23 +81,41 @@ export function submitAiBatch(input: SubmitAiBatchInput): SubmitAiBatchResult {
     ...fingerprintDocIds(sortResult.otherDocuments),
   ]
 
-  const batch = addBatch({
-    batch_number: batchNumber,
-    client_name: clientName,
-    client_id: clientId,
-    total_invoices: drafts.length,
-    total_amount: totalAmount,
-    status: 'ready_to_post',
-    submitted_at: new Date().toISOString(),
-    upload_mode: 'ai',
-    sort_status: 'ready',
-    doc_sort_snapshot: JSON.stringify({
-      sortedAt: sortResult.sortedAt,
-      totalDocuments: sortResult.totalDocuments,
-      groupCount: sortResult.groups.length,
-    }),
-    unmatched_doc_ids: unmatchedIds,
-  })
+  const existing = existingBatchId ? updateBatch(existingBatchId, {}) : undefined
+  const batchNumber = existing?.batch_number ?? generateBatchNumber()
+
+  const batch = existing
+    ? updateBatch(existingBatchId!, {
+        total_invoices: drafts.length,
+        total_amount: totalAmount,
+        status: 'ready_to_post',
+        submitted_at: new Date().toISOString(),
+        upload_mode: 'ai',
+        sort_status: 'ready',
+        doc_sort_snapshot: JSON.stringify({
+          sortedAt: sortResult.sortedAt,
+          totalDocuments: sortResult.totalDocuments,
+          groupCount: sortResult.groups.length,
+        }),
+        unmatched_doc_ids: unmatchedIds,
+      })!
+    : addBatch({
+        batch_number: batchNumber,
+        client_name: clientName,
+        client_id: clientId,
+        total_invoices: drafts.length,
+        total_amount: totalAmount,
+        status: 'ready_to_post',
+        submitted_at: new Date().toISOString(),
+        upload_mode: 'ai',
+        sort_status: 'ready',
+        doc_sort_snapshot: JSON.stringify({
+          sortedAt: sortResult.sortedAt,
+          totalDocuments: sortResult.totalDocuments,
+          groupCount: sortResult.groups.length,
+        }),
+        unmatched_doc_ids: unmatchedIds,
+      })
 
   const invoiceFields = drafts.map((draft) => {
     const fields = draftToInvoiceFields(draft, clientId, confirmedBy)

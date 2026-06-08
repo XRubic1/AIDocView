@@ -44,6 +44,8 @@ export interface SubmitAiBatchInput {
   sortResult: DocSortResult
   fileById: Map<string, File>
   confirmedBy: string
+  /** When submitting a saved client draft batch, reuse this batch id. */
+  existingBatchId?: string
 }
 
 export interface SubmitAiBatchResult {

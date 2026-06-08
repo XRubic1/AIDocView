@@ -23,6 +23,7 @@ let batchesData: Batch[] = [
       submitted_at: '2025-11-29T10:00:00Z',
       in_use: true,
       in_use_by: 'John Smith',
+      upload_mode: 'ai',
     },
     {
       id: 'batch-2',
@@ -60,6 +61,7 @@ let batchesData: Batch[] = [
       submitted_at: '2025-11-29T13:00:00Z',
       in_use: true,
       in_use_by: 'Sarah Johnson',
+      upload_mode: 'manual',
     },
     {
       id: 'batch-5',
@@ -121,11 +123,104 @@ let batchesData: Batch[] = [
       approved_count: 15,
       rejected_count: 0,
       in_use: false,
+      upload_mode: 'manual',
       fee_calculation: {
         fee_type: 'percentage',
         fee_percentage: 2.5,
         total_fee: 1875.0,
         net_amount: 73125.0,
+      },
+    },
+    {
+      id: 'batch-client1-006',
+      batch_number: 'BATCH-2025-006',
+      client_name: 'ABC Trucking',
+      client_id: 'client-1',
+      total_invoices: 9,
+      total_amount: 48200.0,
+      minutes_since_submitted: 8640,
+      status: 'submitted',
+      submitted_at: '2025-11-18T09:00:00Z',
+      reviewed_at: '2025-11-19T14:30:00Z',
+      reviewed_by: 'Admin User',
+      approved_count: 9,
+      rejected_count: 0,
+      in_use: false,
+      upload_mode: 'ai',
+      fee_calculation: {
+        fee_type: 'percentage',
+        fee_percentage: 2.5,
+        total_fee: 1205.0,
+        net_amount: 46995.0,
+      },
+    },
+    {
+      id: 'batch-client1-007',
+      batch_number: 'BATCH-2025-007',
+      client_name: 'ABC Trucking',
+      client_id: 'client-1',
+      total_invoices: 6,
+      total_amount: 31500.0,
+      minutes_since_submitted: 14400,
+      status: 'processing',
+      submitted_at: '2025-10-28T10:00:00Z',
+      reviewed_at: '2025-10-30T11:00:00Z',
+      reviewed_by: 'Admin User',
+      approved_count: 6,
+      rejected_count: 0,
+      in_use: false,
+      upload_mode: 'manual',
+      fee_calculation: {
+        fee_type: 'percentage',
+        fee_percentage: 2.5,
+        total_fee: 787.5,
+        net_amount: 30712.5,
+      },
+    },
+    {
+      id: 'batch-client1-008',
+      batch_number: 'BATCH-2025-008',
+      client_name: 'ABC Trucking',
+      client_id: 'client-1',
+      total_invoices: 11,
+      total_amount: 56800.0,
+      minutes_since_submitted: 21600,
+      status: 'submitted',
+      submitted_at: '2025-10-05T08:00:00Z',
+      reviewed_at: '2025-10-07T16:00:00Z',
+      reviewed_by: 'Admin User',
+      approved_count: 10,
+      rejected_count: 1,
+      in_use: false,
+      upload_mode: 'ai',
+      fee_calculation: {
+        fee_type: 'percentage',
+        fee_percentage: 2.5,
+        total_fee: 1420.0,
+        net_amount: 55380.0,
+      },
+    },
+    {
+      id: 'batch-client1-009',
+      batch_number: 'BATCH-2025-009',
+      client_name: 'ABC Trucking',
+      client_id: 'client-1',
+      total_invoices: 4,
+      total_amount: 19600.0,
+      minutes_since_submitted: 28800,
+      status: 'submitted',
+      submitted_at: '2025-09-12T09:30:00Z',
+      reviewed_at: '2025-09-14T10:15:00Z',
+      reviewed_by: 'Admin User',
+      approved_count: 4,
+      rejected_count: 0,
+      in_use: false,
+      upload_mode: 'ai',
+      fee_calculation: {
+        fee_type: 'flat',
+        flat_fee_amount: 350.0,
+        total_fee: 350.0,
+        net_amount: 19250.0,
       },
     },
     {
@@ -203,6 +298,51 @@ export const getAllBatches = (): Batch[] => {
 
 export const getBatchById = (batchId: string): Batch | undefined => {
   return batchesData.find((b) => b.id === batchId)
+}
+
+export const getClientDraftBatch = (
+  clientId: string,
+  uploadMode: 'ai' | 'manual'
+): Batch | undefined => {
+  return batchesData.find(
+    (b) => b.client_id === clientId && b.status === 'draft' && b.upload_mode === uploadMode
+  )
+}
+
+export const createDraftBatch = (
+  clientId: string,
+  clientName: string,
+  uploadMode: 'ai' | 'manual'
+): Batch => {
+  return addBatch({
+    batch_number: generateBatchNumber(),
+    client_name: clientName,
+    client_id: clientId,
+    total_invoices: 0,
+    total_amount: 0,
+    status: 'draft',
+    submitted_at: new Date().toISOString(),
+    upload_mode: uploadMode,
+    sort_status: 'pending',
+  })
+}
+
+export const updateBatch = (batchId: string, patch: Partial<Batch>): Batch | undefined => {
+  const batch = batchesData.find((b) => b.id === batchId)
+  if (!batch) return undefined
+  Object.assign(batch, patch)
+  if (patch.submitted_at) {
+    const submittedDate = new Date(batch.submitted_at)
+    const now = new Date()
+    batch.minutes_since_submitted = Math.floor(
+      (now.getTime() - submittedDate.getTime()) / (1000 * 60)
+    )
+  }
+  return batch
+}
+
+export const deleteBatch = (batchId: string): void => {
+  batchesData = batchesData.filter((b) => b.id !== batchId)
 }
 
 export const updateBatchTotals = (batchId: string): void => {
