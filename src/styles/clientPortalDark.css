@@ -1,0 +1,342 @@
+/* Dark theme overrides for client portal sections using hardcoded light colors */
+
+.client-portal[data-theme='dark'] .alert-inline {
+  color: var(--cp-secondary);
+}
+
+.client-portal[data-theme='dark'] .alert-inline__danger {
+  color: var(--cp-error);
+}
+
+.client-portal[data-theme='dark'] .alert-inline__warning {
+  color: var(--cp-warning);
+}
+
+.client-portal[data-theme='dark'] .alert-inline__info {
+  color: var(--cp-info);
+}
+
+/* Theme toggle */
+.client-portal .theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--cp-border);
+  background: var(--cp-card);
+  color: var(--cp-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.client-portal .theme-toggle:hover {
+  background: var(--cp-table-hover);
+  border-color: var(--cp-border-hover);
+}
+
+.client-portal .theme-toggle--compact {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.client-portal .client-header-icon-btn:hover {
+  background: var(--cp-table-hover);
+}
+
+/* Pages & shells */
+.client-portal[data-theme='dark'] .client-invoices-page,
+.client-portal[data-theme='dark'] .client-batches-page,
+.client-portal[data-theme='dark'] .client-submit-docs,
+.client-portal[data-theme='dark'] .client-manual-batch,
+.client-portal[data-theme='dark'] .client-ai-upload,
+.client-portal[data-theme='dark'] .client-ai-confirm,
+.client-portal[data-theme='dark'] .client-batch-detail {
+  background: var(--cp-surface);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__toolbar,
+.client-portal[data-theme='dark'] .client-submit-docs__intro,
+.client-portal[data-theme='dark'] .client-submit-docs__hint,
+.client-portal[data-theme='dark'] .client-manual-batch__overview,
+.client-portal[data-theme='dark'] .client-manual-batch__form-panel,
+.client-portal[data-theme='dark'] .client-manual-batch__list-header,
+.client-portal[data-theme='dark'] .client-manual-batch__footer,
+.client-portal[data-theme='dark'] .client-ai-upload__overview,
+.client-portal[data-theme='dark'] .client-ai-confirm__stats,
+.client-portal[data-theme='dark'] .client-batch-detail__header {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .client-manual-batch__list-panel {
+  background: var(--cp-surface);
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__options {
+  background: var(--cp-surface);
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__option {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+  box-shadow: var(--cp-shadow-card);
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__option:hover {
+  border-color: var(--cp-border-hover);
+  box-shadow: var(--cp-shadow-hover);
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__option--featured {
+  border-color: #3b82f6;
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__option-title,
+.client-portal[data-theme='dark'] .client-submit-docs__title,
+.client-portal[data-theme='dark'] .client-manual-batch__overview-title,
+.client-portal[data-theme='dark'] .client-manual-batch__form-title,
+.client-portal[data-theme='dark'] .client-manual-batch__list-title,
+.client-portal[data-theme='dark'] .client-manual-batch__footer-value,
+.client-portal[data-theme='dark'] .client-ai-confirm__stat-value {
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__subtitle,
+.client-portal[data-theme='dark'] .client-submit-docs__option-desc,
+.client-portal[data-theme='dark'] .client-manual-batch__overview-meta,
+.client-portal[data-theme='dark'] .client-manual-batch__form-desc,
+.client-portal[data-theme='dark'] .client-manual-batch__list-count,
+.client-portal[data-theme='dark'] .client-manual-batch__footer-label {
+  color: var(--cp-secondary);
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__option-cta {
+  background: var(--cp-surface);
+  border-color: var(--cp-border);
+  color: var(--cp-secondary);
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__option:hover .client-submit-docs__option-cta {
+  background: var(--cp-accent-light);
+  color: var(--cp-accent);
+}
+
+/* Draft notice */
+.client-portal[data-theme='dark'] .client-submit-docs__draft-notice {
+  background: #422006;
+  border-color: #92400e;
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__draft-row {
+  border-color: #78350f;
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__draft-row-btn {
+  background: var(--cp-card);
+  border-color: #d97706;
+  color: #fbbf24;
+}
+
+/* AI confirm */
+.client-portal[data-theme='dark'] .client-ai-confirm__table-wrap,
+.client-portal[data-theme='dark'] .client-ai-confirm__footer,
+.client-portal[data-theme='dark'] .client-ai-upload__dropzone,
+.client-portal[data-theme='dark'] .client-ai-upload__file-list {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .client-ai-confirm__disclaimer {
+  background: #422006;
+  border-color: #92400e;
+  color: #fbbf24;
+}
+
+.client-portal[data-theme='dark'] .client-ai-confirm__unmatched-compact {
+  background: #422006;
+  border-color: #92400e;
+}
+
+.client-portal[data-theme='dark'] .client-ai-confirm__input,
+.client-portal[data-theme='dark'] .client-ai-confirm__unmatched-bulk-select,
+.client-portal[data-theme='dark'] .client-ai-confirm__unmatched-view {
+  background: var(--cp-input-bg);
+  border-color: var(--cp-input-border);
+  color: var(--cp-text);
+}
+
+/* Modals */
+.client-portal[data-theme='dark'] .client-modal-overlay {
+  background: var(--cp-overlay);
+}
+
+.client-portal[data-theme='dark'] .client-doc-upload-modal,
+.client-portal[data-theme='dark'] .invoice-detail-modal {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .client-doc-upload-modal__header,
+.client-portal[data-theme='dark'] .client-doc-upload-modal__footer,
+.client-portal[data-theme='dark'] .invoice-detail-header,
+.client-portal[data-theme='dark'] .invoice-detail-footer {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .client-doc-upload-modal__dropzone {
+  background: var(--cp-surface);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .client-doc-upload-modal__files {
+  background: var(--cp-surface);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .client-doc-upload-modal__title,
+.client-portal[data-theme='dark'] .invoice-detail-header-title {
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .client-doc-upload-modal__meta,
+.client-portal[data-theme='dark'] .client-doc-upload-modal__files-empty {
+  color: var(--cp-secondary);
+}
+
+/* Batch filter pills */
+.client-portal[data-theme='dark'] .batch-filter-pill {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+  color: var(--cp-secondary);
+}
+
+.client-portal[data-theme='dark'] .batch-filter-pill--active {
+  background: var(--cp-accent-light);
+  border-color: var(--cp-accent);
+  color: var(--cp-accent);
+}
+
+/* Status pills — slightly muted backgrounds in dark */
+.client-portal[data-theme='dark'] .status-pill--pending,
+.client-portal[data-theme='dark'] .status-pill--pending-batch {
+  background: var(--cp-accent-light);
+  color: var(--cp-accent);
+}
+
+.client-portal[data-theme='dark'] .status-pill--review {
+  background: #422006;
+  color: #fbbf24;
+}
+
+.client-portal[data-theme='dark'] .status-pill--submitted,
+.client-portal[data-theme='dark'] .status-pill--approved {
+  background: var(--cp-stat-green-bg);
+  color: var(--cp-success);
+}
+
+/* Page tabs */
+.client-portal[data-theme='dark'] .page-tabs {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .page-tab {
+  color: var(--cp-secondary);
+}
+
+.client-portal[data-theme='dark'] .page-tab--active {
+  background: var(--cp-accent-light);
+  color: var(--cp-accent);
+}
+
+/* Invoice workspace */
+.client-portal[data-theme='dark'] .invoice-workspace,
+.client-portal[data-theme='dark'] .invoice-detail-panel,
+.client-portal[data-theme='dark'] .invoice-detail-overview,
+.client-portal[data-theme='dark'] .invoice-detail-column {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .invoice-detail-field-label {
+  color: var(--cp-secondary);
+}
+
+.client-portal[data-theme='dark'] .timeline-item::before {
+  background: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .timeline-dot {
+  background: var(--cp-card);
+  border-color: var(--cp-accent);
+}
+
+/* Tables — row highlight */
+.client-portal[data-theme='dark'] .batch-highlight-row {
+  background: var(--cp-accent-light) !important;
+}
+
+/* Settings page tabs (inline styles overridden where possible) */
+.client-portal[data-theme='dark'] .settings-tab-active {
+  background: var(--cp-accent-light) !important;
+  color: var(--cp-accent) !important;
+}
+
+/* Dashboard */
+.client-portal[data-theme='dark'] .client-main--flush,
+.client-portal[data-theme='dark'] main.p-5 {
+  background: var(--cp-surface);
+}
+
+.client-portal[data-theme='dark'] .dashboard-metric-secondary {
+  border: 1px solid var(--cp-border);
+}
+
+/* Documents vault */
+.client-portal[data-theme='dark'] .client-documents-page,
+.client-portal[data-theme='dark'] .client-documents__panel {
+  background: var(--cp-surface);
+  color: var(--cp-text);
+}
+
+/* Notification dropdown */
+.client-portal[data-theme='dark'] .notification-dropdown {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .notification-item:hover {
+  background: var(--cp-table-hover);
+}
+
+/* Recharts / chart tooltips */
+.client-portal[data-theme='dark'] .recharts-default-tooltip {
+  background: var(--cp-card) !important;
+  border-color: var(--cp-border) !important;
+  color: var(--cp-text) !important;
+}
+
+.client-portal[data-theme='dark'] .recharts-cartesian-grid line {
+  stroke: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .recharts-text {
+  fill: var(--cp-secondary);
+}
+
+/* Select options — native dropdown */
+.client-portal[data-theme='dark'] select.client-input option {
+  background: var(--cp-card);
+  color: var(--cp-text);
+}

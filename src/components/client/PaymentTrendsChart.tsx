@@ -11,7 +11,7 @@ import {
 import { TrendingUp } from 'lucide-react'
 import { formatCurrency } from '../../utils/format'
 import { Payment } from '../../types/payment'
-import { clientTheme as t } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 interface PaymentTrendsChartProps {
   payments: Payment[]
@@ -27,6 +27,7 @@ function ChartTooltip({
   payload?: Array<{ value: number; dataKey: string; color: string }>
   label?: string
 }) {
+  const t = useClientTheme()
   if (!active || !payload?.length) return null
   return (
     <div
@@ -50,6 +51,7 @@ function ChartTooltip({
 }
 
 export default function PaymentTrendsChart({ payments, compact = false }: PaymentTrendsChartProps) {
+  const t = useClientTheme()
   const collectionsGradientId = useId().replace(/:/g, '')
   const fundingGradientId = useId().replace(/:/g, '')
 
@@ -98,8 +100,8 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
   if (compact) {
     return (
       <div className="px-3 py-2.5">
-        <div style={{ height: 72 }}>
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="w-full min-w-0" style={{ height: 72 }}>
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: -4 }}>
               <defs>
                 <linearGradient id={collectionsGradientId} x1="0" y1="0" x2="0" y2="1">
@@ -142,7 +144,7 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
         </div>
         <div
           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
-          style={{ backgroundColor: '#ECFDF5', color: t.success }}
+          style={{ backgroundColor: t.stat.green, color: t.success }}
         >
           <TrendingUp className="w-3.5 h-3.5" />
           {monthChangePct >= 0 ? '+' : ''}
@@ -150,8 +152,8 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
         </div>
       </div>
 
-      <div style={{ height: 160 }}>
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="w-full min-w-0" style={{ height: 160 }}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id={collectionsGradientId} x1="0" y1="0" x2="0" y2="1">

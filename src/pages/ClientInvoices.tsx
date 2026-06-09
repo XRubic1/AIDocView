@@ -13,11 +13,12 @@ import InvoiceDetailWorkspace, {
 } from '../components/client/InvoiceDetailWorkspace'
 import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, isOpenArInvoice, AR_POLICY } from '../utils/invoiceAging'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
-import { clientTheme as c } from '../theme/clientTheme'
+import { useClientTheme } from '../theme/ThemeContext'
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
 
 export default function ClientInvoices() {
+  const c = useClientTheme()
   const [data] = useState(mockClientDashboardData)
   const [searchParams, setSearchParams] = useSearchParams()
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
@@ -149,7 +150,7 @@ export default function ClientInvoices() {
         >
           <div
             className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
-            style={{ backgroundColor: '#EFF6FF', borderColor: c.border }}
+            style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
@@ -163,7 +164,7 @@ export default function ClientInvoices() {
           </div>
           <div
             className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b sm:border-b-0"
-            style={{ backgroundColor: '#ECFDF5', borderColor: c.border }}
+            style={{ backgroundColor: c.stat.green, borderColor: c.border }}
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.success }} />
@@ -180,23 +181,23 @@ export default function ClientInvoices() {
             onClick={() => setStatusFilter(statusFilter === 'overdue' ? 'all' : 'overdue')}
             className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left transition-colors hover:opacity-90"
             style={{
-              backgroundColor: statusFilter === 'overdue' ? '#FEE2E2' : '#FEF2F2',
+              backgroundColor: statusFilter === 'overdue' ? c.stat.redActive : c.stat.red,
               borderColor: c.border,
             }}
           >
             <div className="flex items-center gap-1.5 min-w-0">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ color: '#DC2626' }} />
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ color: c.error }} />
               <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
                 Overdue (15+ days past expected pay)
               </span>
             </div>
-            <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: '#DC2626' }}>
+            <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.error }}>
               {overdueInvoices.length}
             </span>
           </button>
           <div
             className="flex flex-col justify-center gap-0.5 px-4 py-2.5"
-            style={{ backgroundColor: '#FFFBEB' }}
+            style={{ backgroundColor: c.stat.amber }}
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 min-w-0">
@@ -218,8 +219,8 @@ export default function ClientInvoices() {
         </section>
 
         <div
-          className="px-4 py-2 border-b"
-          style={{ borderColor: c.border, backgroundColor: c.surface }}
+          className="client-page-toolbar px-4 py-2 border-b"
+          style={{ borderColor: c.border, backgroundColor: c.card }}
         >
           <div className="flex flex-col md:flex-row md:items-center gap-2">
             <div className="flex-1 relative">
@@ -359,7 +360,7 @@ export default function ClientInvoices() {
                                   e.stopPropagation()
                                   handleViewDocuments(invoice)
                                 }}
-                                className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
+                                className="p-1.5 rounded-lg transition-colors client-icon-btn"
                                 style={{ color: c.info }}
                                 title="View Documents"
                               >
@@ -376,8 +377,8 @@ export default function ClientInvoices() {
             </div>
 
             <div
-              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t"
-              style={{ borderColor: c.border, backgroundColor: c.surface }}
+              className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t"
+              style={{ borderColor: c.border, backgroundColor: c.card }}
             >
               <p className="text-xs font-medium" style={{ color: c.secondary }}>
                 Showing {pageStart}–{pageEnd} of {filteredInvoices.length}

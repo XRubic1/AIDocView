@@ -1,6 +1,6 @@
 import { FileText, PenLine, Plus, Trash2, Upload, Receipt } from 'lucide-react'
 import { formatCurrency, formatDate } from '../../utils/format'
-import { clientTheme as c } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 export interface ManualBatchInvoiceFormData {
   invoice_number: string
@@ -54,6 +54,7 @@ export default function ClientManualBatchForm({
   onSubmit,
   draftBatchNumber,
 }: ClientManualBatchFormProps) {
+  const c = useClientTheme()
   const batchTotal = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0)
   const docCount = invoices.reduce((sum, inv) => sum + (inv.documents?.length ?? 0), 0)
 

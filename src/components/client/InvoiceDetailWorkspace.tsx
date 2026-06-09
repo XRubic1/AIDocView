@@ -16,7 +16,7 @@ import { getInvoiceDocuments } from '../../services/invoiceDocumentStore'
 import InvoiceDocumentUploadModal from './InvoiceDocumentUploadModal'
 import { Eye, Search, Filter, ChevronLeft, X, MessageSquarePlus, AlertTriangle, CircleCheck, Maximize2, Upload } from 'lucide-react'
 import { enrichInvoice, getOverdueSeverityLabel, isOpenArInvoice, AR_POLICY, getDaysOutstandingColor } from '../../utils/invoiceAging'
-import { clientTheme as c } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 const NOTE_TYPE_LABELS: Record<string, string> = {
   note: 'Note',
@@ -27,13 +27,15 @@ const NOTE_TYPE_LABELS: Record<string, string> = {
   dispute: 'Dispute',
 }
 
-const inputCompactStyle = {
-  backgroundColor: c.card,
-  height: 34,
-  paddingTop: 6,
-  paddingBottom: 6,
-  fontSize: 13,
-} as const
+function inputCompactStyle(card: string) {
+  return {
+    backgroundColor: card,
+    height: 34,
+    paddingTop: 6,
+    paddingBottom: 6,
+    fontSize: 13,
+  } as const
+}
 
 function getInvoiceNoteEntries(invoice: Invoice): InvoiceNote[] {
   if (invoice.notes_history?.length) {
@@ -161,6 +163,7 @@ interface InvoiceNotesTimelineProps {
 }
 
 function InvoiceNotesTimeline({ noteEntries, openDisputes }: InvoiceNotesTimelineProps) {
+  const c = useClientTheme()
   return (
     <>
       {openDisputes.length > 0 && (
@@ -296,6 +299,7 @@ function InvoiceDetailPane({
   onMarkAsPaid,
   enableClientActions = true,
 }: InvoiceDetailPaneProps) {
+  const c = useClientTheme()
   const enriched = enrichInvoice(invoice)
   const noteEntries = getInvoiceNoteEntries(invoice)
   const openDisputes = getOpenDisputes(invoice)
@@ -976,6 +980,7 @@ export default function InvoiceDetailWorkspace({
   onStatusFilterChange: externalOnStatusFilterChange,
   showStatusFilter = true,
 }: InvoiceDetailWorkspaceProps) {
+  const c = useClientTheme()
   const [mobileListMode, setMobileListMode] = useState(false)
   const [localSearchTerm, setLocalSearchTerm] = useState('')
   const [localStatusFilter, setLocalStatusFilter] = useState('all')
@@ -1047,7 +1052,7 @@ export default function InvoiceDetailWorkspace({
                   value={searchTerm}
                   onChange={(e) => onSearchChange(e.target.value)}
                   className="client-input pl-8 w-full"
-                  style={inputCompactStyle}
+                  style={inputCompactStyle(c.card)}
                 />
               </div>
               {showStatusFilter && (
@@ -1057,7 +1062,7 @@ export default function InvoiceDetailWorkspace({
                     value={statusFilter}
                     onChange={(e) => onStatusFilterChange(e.target.value)}
                     className="client-input flex-1 min-w-0"
-                    style={inputCompactStyle}
+                    style={inputCompactStyle(c.card)}
                   >
                     <option value="all">All Status</option>
                     <option value="overdue">Overdue</option>

@@ -12,11 +12,13 @@ import {
   Check,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
+import { useTheme, type ThemeMode } from '../theme/ThemeContext'
 
 type SettingsTab = 'profile' | 'notifications' | 'preferences' | 'security' | 'remittance'
 
 export default function ClientSettings() {
   const [data] = useState(mockClientDashboardData)
+  const { mode: themeMode, setMode: setThemeMode } = useTheme()
 
   // Get current client data
   const currentClient = mockClients.find((c) => c.id === data.client_id) || mockClients[0]
@@ -510,6 +512,23 @@ export default function ClientSettings() {
                     </div>
 
                     <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-2 client-label">
+                          Appearance
+                        </label>
+                        <select
+                          value={themeMode}
+                          onChange={(e) => setThemeMode(e.target.value as ThemeMode)}
+                          className="client-input"
+                        >
+                          <option value="light">Light</option>
+                          <option value="dark">Dark</option>
+                          <option value="system">System</option>
+                        </select>
+                        <p className="client-label-hint mt-1">
+                          Choose light, dark, or match your device setting.
+                        </p>
+                      </div>
                       <div>
                         <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
                           Date Format

@@ -20,7 +20,7 @@ import {
 } from '../../utils/aiDraftDocOps'
 import type { AiDraftStep } from '../../types/clientBatchDraft'
 
-import { clientTheme as c } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 const INVOICE_PDF_FIELDS: (keyof CredyxInvoiceDraft)[] = [
   'amount',
@@ -120,6 +120,7 @@ export default function BatchAiUploadFlow({
   draftReady = true,
   onPersistDraft,
 }: BatchAiUploadFlowProps) {
+  const c = useClientTheme()
   const confirmedByName = confirmedBy ?? clientName
   const hasRestored = Boolean(restoredDraft)
   const [step, setStep] = useState<Step>(

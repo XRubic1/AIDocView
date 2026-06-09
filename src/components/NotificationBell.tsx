@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Bell, X, Check, FileText, DollarSign, AlertCircle, Clock } from 'lucide-react'
 import { Notification } from '../types/notification'
 import { formatRelativeTime } from '../utils/format'
-import { clientTheme as t } from '../theme/clientTheme'
+import { useClientTheme } from '../theme/ThemeContext'
 
 interface NotificationBellProps {
   notifications: Notification[]
@@ -17,6 +17,7 @@ export default function NotificationBell({
   onMarkAllAsRead,
   onNotificationClick,
 }: NotificationBellProps) {
+  const t = useClientTheme()
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 

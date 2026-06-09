@@ -23,7 +23,7 @@ import {
 } from '../services/clientDocumentService'
 import { ClientDocument, ClientDocumentCategory } from '../types/clientDocument'
 import { formatDate } from '../utils/format'
-import { clientTheme as c } from '../theme/clientTheme'
+import { useClientTheme } from '../theme/ThemeContext'
 
 type VaultTab = 'library' | 'upload'
 type CategoryFilter = 'all' | ClientDocumentCategory
@@ -45,6 +45,7 @@ function isReminderPast(expiresAt?: string): boolean {
 }
 
 export default function ClientDocuments() {
+  const c = useClientTheme()
   const [data] = useState(mockClientDashboardData)
   const [activeTab, setActiveTab] = useState<VaultTab>('library')
   const [refreshKey, setRefreshKey] = useState(0)

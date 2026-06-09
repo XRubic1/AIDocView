@@ -1,24 +1,25 @@
 import { formatCurrency } from '../../utils/format'
 import { AgingAR } from '../../types/admin'
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
-import { clientTheme as t } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 interface AgingARChartProps {
   aging: AgingAR
   compact?: boolean
 }
 
-const BUCKET_COLORS = [
-  t.chart.blue,
-  t.chart.cyan,
-  t.chart.purple,
-  t.chart.amber,
-  t.chart.orange,
-  t.chart.red,
-]
-
 export default function AgingARChart({ aging, compact = false }: AgingARChartProps) {
+  const t = useClientTheme()
   const total = aging.total || 1
+
+  const bucketColors = [
+    t.chart.blue,
+    t.chart.cyan,
+    t.chart.purple,
+    t.chart.amber,
+    t.chart.orange,
+    t.chart.red,
+  ]
 
   const buckets = [
     { key: '1-15', amount: aging['1_15'], label: '0–15 days' },
@@ -29,7 +30,7 @@ export default function AgingARChart({ aging, compact = false }: AgingARChartPro
     { key: '91+', amount: aging.over_91, label: '91+ days' },
   ].map((row, index) => ({
     ...row,
-    color: BUCKET_COLORS[index],
+    color: bucketColors[index],
     pct: (row.amount / total) * 100,
   }))
 
@@ -50,7 +51,10 @@ export default function AgingARChart({ aging, compact = false }: AgingARChartPro
             outstanding
           </span>
         </div>
-        <div className="flex h-1.5 w-full rounded-full overflow-hidden bg-slate-100">
+        <div
+          className="flex h-1.5 w-full rounded-full overflow-hidden"
+          style={{ backgroundColor: t.chartGrid }}
+        >
           {buckets.map((bucket) =>
             bucket.pct > 0 ? (
               <div
@@ -69,8 +73,8 @@ export default function AgingARChart({ aging, compact = false }: AgingARChartPro
   return (
     <div className="p-5">
       <div className="flex flex-col lg:flex-row items-center gap-5">
-        <div className="relative shrink-0" style={{ width: 160, height: 160 }}>
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="relative shrink-0 w-[160px] h-[160px] min-w-0">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <PieChart>
               <Pie
                 data={pieData}

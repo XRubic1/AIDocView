@@ -1,6 +1,6 @@
 import { useRef, useState, type DragEvent } from 'react'
 import { Upload, X, FileText, Loader } from 'lucide-react'
-import { clientTheme as c } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 interface InvoiceDocumentUploadModalProps {
   isOpen: boolean
@@ -24,6 +24,7 @@ export default function InvoiceDocumentUploadModal({
   onClose,
   onUpload,
 }: InvoiceDocumentUploadModalProps) {
+  const c = useClientTheme()
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)

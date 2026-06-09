@@ -6,18 +6,25 @@ html {
   scroll-behavior: smooth;
 }
 
-:root {
+:root,
+[data-theme='light'] {
   --background: #ffffff;
-  --foreground: #000000;
+  --foreground: #0f172a;
+}
+
+[data-theme='dark'] {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
 }
 
 body {
-  color: #000000;
-  background: #ffffff;
+  color: var(--foreground);
+  background: var(--background);
   font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   margin: 0;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Client portal theme tokens */

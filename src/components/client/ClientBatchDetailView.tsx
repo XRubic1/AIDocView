@@ -1,7 +1,7 @@
 import { ChevronLeft, Eye, FileText } from 'lucide-react'
 import { Invoice } from '../../types/invoice'
 import { formatCurrency, formatDate } from '../../utils/format'
-import { clientTheme as c } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 import { ClientBatchListItem, getBatchStatusBadge } from './ClientBatchesListView'
 
 interface ClientBatchDetailViewProps {
@@ -43,6 +43,7 @@ export default function ClientBatchDetailView({
   onBack,
   onViewInvoice,
 }: ClientBatchDetailViewProps) {
+  const c = useClientTheme()
   return (
     <div className="client-batch-detail">
       <div className="client-batch-detail__toolbar">

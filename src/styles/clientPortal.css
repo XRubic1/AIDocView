@@ -4,12 +4,83 @@
 .client-portal {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+  --cp-primary: #0f172a;
+  --cp-primary-hover: #1e293b;
+  --cp-secondary: #64748b;
+  --cp-muted-light: #94a3b8;
+  --cp-border: #e2e8f0;
+  --cp-border-hover: #cbd5e1;
+  --cp-surface: #f8fafc;
+  --cp-card: #ffffff;
+  --cp-text: #0f172a;
+  --cp-success: #10b981;
+  --cp-warning: #f59e0b;
+  --cp-error: #ef4444;
+  --cp-info: #3b82f6;
+  --cp-accent: #3b82f6;
+  --cp-accent-hover: #2563eb;
+  --cp-accent-light: #eff6ff;
+  --cp-shadow-card: 0 2px 8px rgba(15, 23, 42, 0.04);
+  --cp-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
+  --cp-input-bg: #ffffff;
+  --cp-input-border: #e2e8f0;
+  --cp-table-hover: #f8fafc;
+  --cp-overlay: rgba(15, 23, 42, 0.2);
+  --cp-btn-primary-bg: #0f172a;
+  --cp-btn-primary-hover: #1e293b;
+  --cp-btn-primary-text: #ffffff;
+  --cp-btn-secondary-bg: #ffffff;
+  --cp-btn-secondary-text: #0f172a;
+  --cp-btn-secondary-hover: #f8fafc;
+  --cp-stat-blue-bg: #eff6ff;
+  --cp-stat-amber-bg: #fffbeb;
+  --cp-stat-green-bg: #ecfdf5;
+  --cp-stat-slate-bg: #f8fafc;
   --cp-scrollbar-size: 6px;
   --cp-scrollbar-thumb: #cbd5e1;
   --cp-scrollbar-thumb-hover: #94a3b8;
   --cp-scrollbar-track: transparent;
   scrollbar-width: thin;
   scrollbar-color: var(--cp-scrollbar-thumb) var(--cp-scrollbar-track);
+}
+
+.client-portal[data-theme='dark'] {
+  color-scheme: dark;
+  --cp-primary: #f1f5f9;
+  --cp-primary-hover: #e2e8f0;
+  --cp-secondary: #94a3b8;
+  --cp-muted-light: #64748b;
+  --cp-border: #334155;
+  --cp-border-hover: #475569;
+  --cp-surface: #0f172a;
+  --cp-card: #1e293b;
+  --cp-text: #f1f5f9;
+  --cp-success: #34d399;
+  --cp-warning: #fbbf24;
+  --cp-error: #f87171;
+  --cp-info: #60a5fa;
+  --cp-accent: #60a5fa;
+  --cp-accent-hover: #3b82f6;
+  --cp-accent-light: #1e3a5f;
+  --cp-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --cp-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.45);
+  --cp-input-bg: #1e293b;
+  --cp-input-border: #475569;
+  --cp-table-hover: #334155;
+  --cp-overlay: rgba(0, 0, 0, 0.55);
+  --cp-btn-primary-bg: #f1f5f9;
+  --cp-btn-primary-hover: #e2e8f0;
+  --cp-btn-primary-text: #0f172a;
+  --cp-btn-secondary-bg: #1e293b;
+  --cp-btn-secondary-text: #f1f5f9;
+  --cp-btn-secondary-hover: #334155;
+  --cp-stat-blue-bg: #1e3a5f;
+  --cp-stat-amber-bg: #422006;
+  --cp-stat-green-bg: #064e3b;
+  --cp-stat-slate-bg: #1e293b;
+  --cp-scrollbar-thumb: #475569;
+  --cp-scrollbar-thumb-hover: #64748b;
 }
 
 .client-portal::-webkit-scrollbar,
@@ -47,16 +118,16 @@
 }
 
 .client-portal .dashboard-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--cp-card);
+  border: 1px solid var(--cp-border);
   border-radius: 16px;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--cp-shadow-card);
   transition: all 0.2s ease;
 }
 
 .client-portal .dashboard-card-interactive:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--cp-shadow-hover);
 }
 
 .client-portal .dashboard-btn-primary {
@@ -69,8 +140,8 @@
   border-radius: 10px;
   font-size: 13px;
   font-weight: 500;
-  color: #ffffff;
-  background: #0f172a;
+  color: var(--cp-btn-primary-text);
+  background: var(--cp-btn-primary-bg);
   border: none;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -78,7 +149,7 @@
 }
 
 .client-portal .dashboard-btn-primary:hover {
-  background: #1e293b;
+  background: var(--cp-btn-primary-hover);
 }
 
 .client-portal .dashboard-btn-secondary {
@@ -91,17 +162,17 @@
   border-radius: 10px;
   font-size: 13px;
   font-weight: 500;
-  color: #0f172a;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  color: var(--cp-btn-secondary-text);
+  background: var(--cp-btn-secondary-bg);
+  border: 1px solid var(--cp-border);
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
 }
 
 .client-portal .dashboard-btn-secondary:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
+  background: var(--cp-btn-secondary-hover);
+  border-color: var(--cp-border-hover);
 }
 
 .client-portal .dashboard-btn-compact {
@@ -196,17 +267,17 @@
   padding: 10px 20px;
   font-size: 11px;
   font-weight: 500;
-  color: #64748b;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  color: var(--cp-secondary);
+  border-bottom: 1px solid var(--cp-border);
+  background: var(--cp-surface);
 }
 
 .client-portal .dashboard-table td {
   padding: 10px 20px;
   font-size: 13px;
   font-weight: 500;
-  color: #0f172a;
-  border-bottom: 1px solid #f1f5f9;
+  color: var(--cp-text);
+  border-bottom: 1px solid var(--cp-border);
 }
 
 .client-portal .dashboard-table tbody tr {
@@ -214,7 +285,7 @@
 }
 
 .client-portal .dashboard-table tbody tr:hover {
-  background: #f8fafc;
+  background: var(--cp-table-hover);
 }
 
 .client-portal .dashboard-table--compact th {
@@ -226,6 +297,20 @@
   font-size: 13px;
 }
 
+.client-portal .client-icon-btn {
+  color: var(--cp-info);
+  transition: background-color 0.15s ease;
+}
+
+.client-portal .client-icon-btn:hover {
+  background: var(--cp-table-hover);
+}
+
+.client-portal .client-page-toolbar,
+.client-portal .client-page-footer {
+  background: var(--cp-card);
+}
+
 .client-portal .table-page-btn {
   display: inline-flex;
   align-items: center;
@@ -233,16 +318,16 @@
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  color: #0f172a;
+  border: 1px solid var(--cp-border);
+  background: var(--cp-card);
+  color: var(--cp-text);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .client-portal .table-page-btn:hover:not(:disabled) {
-  background: #f8fafc;
-  border-color: #cbd5e1;
+  background: var(--cp-table-hover);
+  border-color: var(--cp-border-hover);
 }
 
 .client-portal .table-page-btn:disabled {
@@ -3669,30 +3754,30 @@
   padding: 8px 12px;
   font-size: 13px;
   font-weight: 500;
-  color: #0f172a;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  color: var(--cp-text);
+  background: var(--cp-input-bg);
+  border: 1px solid var(--cp-input-border);
   border-radius: 10px;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .client-portal .client-input:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  border-color: var(--cp-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-accent) 20%, transparent);
 }
 
 .client-portal .client-label {
   display: block;
   font-size: 13px;
   font-weight: 500;
-  color: #0f172a;
+  color: var(--cp-text);
   margin-bottom: 4px;
 }
 
 .client-portal .client-label-hint {
   font-size: 11px;
-  color: #64748b;
+  color: var(--cp-secondary);
   margin-top: 4px;
 }
 

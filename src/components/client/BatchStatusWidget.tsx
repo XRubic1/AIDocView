@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { getAllBatches } from '../../data/mockBatches'
 import { mockInvoices } from '../../data/mockInvoices'
 import { Clock, CheckCircle, AlertCircle, Loader } from 'lucide-react'
-import { clientTheme as t } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 interface BatchStatusWidgetProps {
   clientId?: string
@@ -10,6 +10,7 @@ interface BatchStatusWidgetProps {
 }
 
 export default function BatchStatusWidget({ clientId, compact = false }: BatchStatusWidgetProps) {
+  const t = useClientTheme()
   const stats = useMemo(() => {
     const allBatches = getAllBatches()
     const allInvoices = mockInvoices
@@ -88,7 +89,7 @@ export default function BatchStatusWidget({ clientId, compact = false }: BatchSt
   }
 
   return (
-    <div className="bg-white border rounded-lg p-4" style={{ borderColor: t.border }}>
+    <div className="dashboard-card p-4">
       <h3 className="text-sm font-bold mb-4" style={{ color: t.primary }}>
         Status Overview
       </h3>

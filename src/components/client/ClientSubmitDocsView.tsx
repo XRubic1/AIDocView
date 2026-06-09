@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, Sparkles, PenLine, Upload, FileStack, Check, FilePenLine, Trash2 } from 'lucide-react'
 import { ReactNode } from 'react'
 import { formatCurrency } from '../../utils/format'
-import { clientTheme as c } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 export type SubmitDocsMode = 'choose' | 'ai' | 'manual'
 
@@ -121,6 +121,7 @@ function SubmitDocsDraftNotice({
   activeDraftBatchId?: string | null
   editing?: boolean
 }) {
+  const c = useClientTheme()
   if (drafts.length === 0) return null
 
   const visibleDrafts = editing
@@ -182,6 +183,7 @@ export default function ClientSubmitDocsView({
   activeDraftBatchId,
   children,
 }: ClientSubmitDocsViewProps) {
+  const c = useClientTheme()
   return (
     <div className="client-submit-docs">
       <div className="client-submit-docs__toolbar">

@@ -10,7 +10,7 @@ import type { BatchIntakeDraft, CredyxInvoiceDraft } from '../../types/credyxBat
 import { formatCurrency } from '../../utils/format'
 import { getDraftViewDocuments } from '../../utils/aiDraftDocuments'
 import { isGeneratedInvoicePdfDoc } from '../../utils/aiDraftDocOps'
-import { clientTheme as c } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 interface BatchAiConfirmPanelProps {
   draft: BatchIntakeDraft
@@ -72,6 +72,7 @@ export default function BatchAiConfirmPanel({
   onSubmitBatch,
   submitting,
 }: BatchAiConfirmPanelProps) {
+  const c = useClientTheme()
   const [viewerMode, setViewerMode] = useState<ViewerMode>(null)
   const [uploadDraftId, setUploadDraftId] = useState<string | null>(null)
   const [pendingDocs, setPendingDocs] = useState<UploadModalDocument[]>([])

@@ -1,6 +1,6 @@
 import { FileText, Loader2, Trash2, Upload, X } from 'lucide-react'
 import { formatCurrency } from '../../utils/format'
-import { clientTheme as c } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 export interface UploadModalDocument {
   id: string
@@ -44,6 +44,7 @@ export default function ClientInvoiceDocumentUploadModal({
   onFileDrop,
   onRemoveDocument,
 }: ClientInvoiceDocumentUploadModalProps) {
+  const c = useClientTheme()
   const completeLabel =
     documents.length > 0
       ? isEditingExistingInvoice

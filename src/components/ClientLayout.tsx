@@ -12,14 +12,15 @@ import { Notification } from '../types/notification'
 import NotificationBell from './NotificationBell'
 import { mockNotifications } from '../data/mockNotifications'
 import { getAllBatches } from '../data/mockBatches'
-import {
-  clientNavSections,
+import { clientNavSections,
   getInitials,
   getClientUserDisplayName,
 } from '../config/clientNav'
-import { clientTheme as t } from '../theme/clientTheme'
+import { useClientTheme, useTheme } from '../theme/ThemeContext'
+import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
 import '../styles/clientPortal.css'
+import '../styles/clientPortalDark.css'
 import '../styles/credyxWordmark.css'
 
 interface ClientLayoutProps {
@@ -36,6 +37,8 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
+  const t = useClientTheme()
+  const { resolvedTheme } = useTheme()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications)
@@ -355,6 +358,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   return (
     <div
       className="client-portal flex min-h-screen"
+      data-theme={resolvedTheme}
       style={{ backgroundColor: t.surface, ['--sidebar-width' as string]: `${sidebarWidth}px` }}
     >
       {/* Desktop sidebar */}
@@ -390,7 +394,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             <button
               type="button"
               onClick={() => setMobileOpen(false)}
-              className="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-slate-50"
+              className="absolute top-3 right-3 p-1.5 rounded-lg client-header-icon-btn"
               style={{ color: t.muted }}
               aria-label="Close menu"
             >
@@ -410,7 +414,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="lg:hidden p-2 -ml-1 rounded-lg hover:bg-slate-50"
+            className="lg:hidden p-2 -ml-1 rounded-lg client-header-icon-btn"
             style={{ color: t.primary }}
             aria-label="Open menu"
           >
@@ -424,6 +428,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
+            <ThemeToggle compact />
             <NotificationBell
               notifications={notifications}
               onMarkAsRead={handleMarkAsRead}

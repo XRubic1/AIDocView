@@ -23,7 +23,7 @@ import AgingARChart from '../components/client/AgingARChart'
 import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
 import DashboardPanel from '../components/client/dashboard/DashboardPanel'
 import { enrichInvoices } from '../utils/invoiceAging'
-import { clientTheme as c } from '../theme/clientTheme'
+import { useClientTheme } from '../theme/ThemeContext'
 
 type InvoiceStatus = 'pending' | 'approved' | 'hold' | 'overdue'
 
@@ -57,6 +57,7 @@ interface CompactMetricProps {
 }
 
 function CompactMetricCard({ label, value, icon, bg, color }: CompactMetricProps) {
+  const c = useClientTheme()
   return (
     <div
       className="dashboard-card dashboard-metric-secondary"
@@ -88,6 +89,7 @@ function formatRelativeTime(iso: string) {
 }
 
 export default function ClientDashboard() {
+  const c = useClientTheme()
   const [data] = useState(mockClientDashboardData)
   const navigate = useNavigate()
   const [showSimpleUpload, setShowSimpleUpload] = useState(false)
@@ -242,7 +244,7 @@ export default function ClientDashboard() {
               </div>
               <div
                 className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                style={{ backgroundColor: '#ECFDF5', color: c.success }}
+                style={{ backgroundColor: c.stat.green, color: c.success }}
               >
                 <Wallet className="w-4 h-4" />
               </div>
@@ -256,28 +258,28 @@ export default function ClientDashboard() {
             label="Pending"
             value={data.summary.pending_invoices}
             icon={<Clock className="w-4 h-4" />}
-            bg="#EFF6FF"
+            bg={c.stat.blue}
             color={c.info}
           />
           <CompactMetricCard
             label="Approved"
             value={data.summary.approved_invoices}
             icon={<CheckCircle className="w-4 h-4" />}
-            bg="#ECFDF5"
+            bg={c.stat.green}
             color={c.success}
           />
           <CompactMetricCard
             label="On Hold"
             value={data.summary.on_hold_invoices}
             icon={<AlertCircle className="w-4 h-4" />}
-            bg="#FFFBEB"
+            bg={c.stat.amber}
             color={c.warning}
           />
           <CompactMetricCard
             label="Overdue"
             value={data.summary.overdue_invoices}
             icon={<FileText className="w-4 h-4" />}
-            bg="#FEF2F2"
+            bg={c.stat.red}
             color={c.error}
           />
         </section>

@@ -8,7 +8,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '../../utils/format'
-import { clientTheme as c } from '../../theme/clientTheme'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 export interface ClientBatchListItem {
   id: string
@@ -62,6 +62,7 @@ export default function ClientBatchesListView({
   onCreateBatch,
   onDeleteDraft,
 }: ClientBatchesListViewProps) {
+  const c = useClientTheme()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
@@ -108,7 +109,7 @@ export default function ClientBatchesListView({
       >
         <div
           className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
-          style={{ backgroundColor: '#EFF6FF', borderColor: c.border }}
+          style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
         >
           <div className="flex items-center gap-1.5 min-w-0">
             <Boxes className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
@@ -122,7 +123,7 @@ export default function ClientBatchesListView({
         </div>
         <div
           className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b lg:border-b-0"
-          style={{ backgroundColor: '#FFFBEB', borderColor: c.border }}
+          style={{ backgroundColor: c.stat.amber, borderColor: c.border }}
         >
           <div className="flex items-center gap-1.5 min-w-0">
             <Clock className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
@@ -136,7 +137,7 @@ export default function ClientBatchesListView({
         </div>
         <div
           className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
-          style={{ backgroundColor: '#ECFDF5', borderColor: c.border }}
+          style={{ backgroundColor: c.stat.green, borderColor: c.border }}
         >
           <div className="flex items-center gap-1.5 min-w-0">
             <CheckCircle2 className="w-3.5 h-3.5 shrink-0" style={{ color: c.success }} />
@@ -150,7 +151,7 @@ export default function ClientBatchesListView({
         </div>
         <div
           className="flex items-center justify-between gap-2 px-4 py-2.5"
-          style={{ backgroundColor: '#F8FAFC' }}
+          style={{ backgroundColor: c.stat.slate }}
         >
           <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
             Total submitted
@@ -163,7 +164,7 @@ export default function ClientBatchesListView({
 
       <div
         className="px-4 py-2.5 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2"
-        style={{ borderColor: c.border, backgroundColor: c.surface }}
+        style={{ borderColor: c.border, backgroundColor: c.card }}
       >
         <div className="flex flex-wrap gap-1.5">
           {filterButtons.map((btn) => (

@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 import { ArrowRight } from 'lucide-react'
-import { clientTheme as t } from '../../../theme/clientTheme'
+import { useClientTheme } from '../../../theme/ThemeContext'
 
 interface DashboardPanelProps {
   title: string
@@ -24,6 +24,7 @@ export default function DashboardPanel({
   compact = false,
   interactive = true,
 }: DashboardPanelProps) {
+  const t = useClientTheme()
   return (
     <section
       className={`dashboard-card overflow-hidden ${interactive ? 'dashboard-card-interactive' : ''} ${className}`}

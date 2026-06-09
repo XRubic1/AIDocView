@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { ThemeProvider } from './theme/ThemeContext'
 import AdminDashboard from './pages/AdminDashboard'
 import ClientDashboard from './pages/ClientDashboard'
 import ClientBatches from './pages/ClientBatches'
@@ -41,7 +42,8 @@ function App() {
         v7_relativeSplatPath: true,
       }}
     >
-      <Routes>
+      <ThemeProvider>
+        <Routes>
         <Route path="/enroll" element={<Enroll />} />
         <Route path="/how-it-works" element={<HowItWorks />} />
         <Route path="/login" element={<Login />} />
@@ -78,7 +80,8 @@ function App() {
         <Route path="/dev/shipper-rules" element={<ReviewRulesPage />} />
         <Route path="/dev/load-history" element={<LoadHistoryPage />} />
         <Route path="/test" element={<TestTailwind />} />
-      </Routes>
+        </Routes>
+      </ThemeProvider>
     </BrowserRouter>
   )
 }
