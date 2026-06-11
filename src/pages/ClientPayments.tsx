@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
 import { mockPayments } from '../data/mockPayments'
+import { mockInvoices } from '../data/mockInvoices'
+import { mockClientReportInvoices, mockClientReportPayments } from '../data/mockClientReports'
 import { Payment } from '../types/payment'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
@@ -9,14 +11,12 @@ import {
   Filter,
   X,
   Eye,
-  Calendar,
-  CreditCard,
   CheckCircle,
   ChevronLeft,
   ChevronRight,
-  Clock,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
+import PaymentKpiCards from '../components/client/PaymentKpiCards'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import { useClientTheme } from '../theme/ThemeContext'
@@ -25,6 +25,7 @@ import {
   PAGE_SIZE_OPTIONS,
   type SortDir,
 } from '../utils/clientListPage'
+import { getPresetRange } from '../utils/clientReports'
 
 type PaymentSortField =
   | 'invoice_number'
@@ -51,13 +52,39 @@ function getPaymentStatusPill(status: string) {
   return <span className={`inline-flex items-center ${entry.className}`}>{entry.label}</span>
 }
 
+function buildInitialPayments(clientId: string): Payment[] {
+  const baseInvoices = mockInvoices.filter((inv) => inv.client_id === clientId)
+  const supplementalInvoices =
+    clientId === 'client-1'
+      ? mockClientReportInvoices.filter(
+          (inv) => !baseInvoices.some((base) => base.id === inv.id)
+        )
+      : []
+  const clientInvoiceIds = new Set([
+    ...baseInvoices.map((inv) => inv.id),
+    ...supplementalInvoices.map((inv) => inv.id),
+  ])
+
+  const base = mockPayments.filter((p) => clientInvoiceIds.has(p.invoice_id))
+  if (clientId !== 'client-1') return base
+
+  const baseIds = new Set(base.map((p) => p.id))
+  const supplemental = mockClientReportPayments.filter(
+    (p) => clientInvoiceIds.has(p.invoice_id) && !baseIds.has(p.id)
+  )
+  return [...base, ...supplemental]
+}
+
 export default function ClientPayments() {
   const c = useClientTheme()
   const [data] = useState(mockClientDashboardData)
-  const [payments, setPayments] = useState<Payment[]>(mockPayments)
+  const [payments, setPayments] = useState<Payment[]>(() => buildInitialPayments(data.client_id))
   const [searchTerm, setSearchTerm] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [methodFilter, setMethodFilter] = useState<string>('all')
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [showPaymentDetailModal, setShowPaymentDetailModal] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
   const [showConfirmPaymentModal, setShowConfirmPaymentModal] = useState(false)
@@ -73,6 +100,44 @@ export default function ClientPayments() {
     notes: '',
   })
 
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+    if (dateFrom || dateTo) count += 1
+    if (statusFilter !== 'all') count += 1
+    if (methodFilter !== 'all') count += 1
+    return count
+  }, [dateFrom, dateTo, statusFilter, methodFilter])
+
+  const matchesDatePreset = useCallback(
+    (preset: '30d' | '90d' | 'ytd') => {
+      const range = getPresetRange(preset)
+      return dateFrom === range.start_date && dateTo === range.end_date
+    },
+    [dateFrom, dateTo]
+  )
+
+  const applyDatePreset = useCallback((preset: '30d' | '90d' | 'ytd' | 'all') => {
+    if (preset === 'all') {
+      setDateFrom('')
+      setDateTo('')
+      return
+    }
+    const range = getPresetRange(preset)
+    setDateFrom(range.start_date)
+    setDateTo(range.end_date)
+  }, [])
+
+  const clearAllFilters = useCallback(() => {
+    setDateFrom('')
+    setDateTo('')
+    setStatusFilter('all')
+    setMethodFilter('all')
+  }, [])
+
+  const handleKpiStatusFilter = useCallback((status: 'confirmed' | 'pending') => {
+    setStatusFilter((current) => (current === status ? 'all' : status))
+  }, [])
+
   const filteredPayments = useMemo(() => {
     return payments.filter((payment) => {
       const matchesSearch =
@@ -84,10 +149,13 @@ export default function ClientPayments() {
 
       const matchesStatus = statusFilter === 'all' || payment.status === statusFilter
       const matchesMethod = methodFilter === 'all' || payment.payment_method === methodFilter
+      const matchesDate =
+        (!dateFrom || payment.payment_date >= dateFrom) &&
+        (!dateTo || payment.payment_date <= dateTo)
 
-      return matchesSearch && matchesStatus && matchesMethod
+      return matchesSearch && matchesStatus && matchesMethod && matchesDate
     })
-  }, [payments, searchTerm, statusFilter, methodFilter])
+  }, [payments, searchTerm, dateFrom, dateTo, statusFilter, methodFilter])
 
   const sortedPayments = useMemo(() => {
     const sorted = [...filteredPayments]
@@ -147,7 +215,7 @@ export default function ClientPayments() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, statusFilter, methodFilter, pageSize, sortField, sortDir])
+  }, [searchTerm, dateFrom, dateTo, statusFilter, methodFilter, pageSize, sortField, sortDir])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -199,26 +267,6 @@ export default function ClientPayments() {
     })
   }
 
-  const totalPaid = payments
-    .filter((p) => p.status === 'confirmed')
-    .reduce((sum, p) => sum + p.amount, 0)
-
-  const pendingItems = payments.filter((p) => p.status === 'pending')
-  const pendingAmount = pendingItems.reduce((sum, p) => sum + p.amount, 0)
-
-  const thisMonth = new Date().getMonth()
-  const thisYear = new Date().getFullYear()
-  const thisMonthPaid = payments
-    .filter((p) => {
-      const paymentDate = new Date(p.payment_date)
-      return (
-        paymentDate.getMonth() === thisMonth &&
-        paymentDate.getFullYear() === thisYear &&
-        p.status === 'confirmed'
-      )
-    })
-    .reduce((sum, p) => sum + p.amount, 0)
-
   const inputCompactStyle = {
     backgroundColor: c.card,
     height: 34,
@@ -230,126 +278,204 @@ export default function ClientPayments() {
   return (
     <ClientLayout clientName={data.client_name} clientId={data.client_id} flushMain>
       <div className="client-payments-page overflow-hidden flex flex-col min-h-0">
-        <section
-          className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
-          style={{ borderColor: c.border }}
-        >
-          <div
-            className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
-            style={{ backgroundColor: c.stat.green, borderColor: c.border }}
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.success }} />
-              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
-                Total Paid
-              </span>
-            </div>
-            <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-              {formatCurrency(totalPaid)}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setStatusFilter(statusFilter === 'pending' ? 'all' : 'pending')}
-            className={`flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b lg:border-b-0 text-left transition-colors hover:opacity-90 ${
-              statusFilter === 'pending' ? 'ring-2 ring-inset ring-amber-300' : ''
-            }`}
-            style={{
-              backgroundColor: c.stat.amber,
-              borderColor: c.border,
-            }}
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <Clock className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
-              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
-                Pending
-              </span>
-            </div>
-            <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-              {pendingItems.length}
-            </span>
-          </button>
-          <div
-            className="flex flex-col justify-center gap-0.5 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
-            style={{ backgroundColor: c.stat.slate, borderColor: c.border }}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
-                Pending amount
-              </span>
-              <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-                {formatCurrency(pendingAmount)}
-              </span>
-            </div>
-          </div>
-          <div
-            className="flex flex-col justify-center gap-0.5 px-4 py-2.5"
-            style={{ backgroundColor: c.stat.blue }}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <Calendar className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
-                <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
-                  This month
-                </span>
-              </div>
-              <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-                {formatCurrency(thisMonthPaid)}
-              </span>
-            </div>
-            <p className="text-[11px] tabular-nums" style={{ color: c.secondary }}>
-              {payments.length} payments total
-            </p>
-          </div>
-        </section>
+        <PaymentKpiCards
+          payments={payments}
+          statusFilter={statusFilter}
+          onStatusFilter={handleKpiStatusFilter}
+        />
 
         <div
           className="client-page-toolbar px-4 py-2 border-b shrink-0"
           style={{ borderColor: c.border, backgroundColor: c.card }}
         >
-          <div className="flex flex-col lg:flex-row lg:items-center gap-2">
-            <div className="flex-1 relative">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 relative min-w-0">
               <Search
                 className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
                 style={{ color: c.secondary }}
               />
               <input
                 type="text"
-                placeholder="Search by invoice, broker, load, batch, or reference..."
+                placeholder="Search payments..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="client-input pl-8"
+                className="client-input pl-8 w-full"
                 style={inputCompactStyle}
               />
             </div>
-            <div className="flex flex-col sm:flex-row gap-2 shrink-0">
-              <div className="flex items-center gap-2">
-                <Filter className="w-3.5 h-3.5" style={{ color: c.secondary }} />
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((open) => !open)}
+              className={`dashboard-btn-secondary dashboard-btn-compact inline-flex items-center gap-1.5 shrink-0 ${
+                filtersOpen || activeFilterCount > 0 ? 'client-payments-filter-btn--active' : ''
+              }`}
+              aria-expanded={filtersOpen}
+              aria-controls="payments-filters-panel"
+            >
+              <Filter className="w-3.5 h-3.5" aria-hidden />
+              <span className="hidden sm:inline">Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="client-payments-filter-badge">{activeFilterCount}</span>
+              )}
+            </button>
+          </div>
+
+          <div
+            className={`client-payments-filters-wrap ${
+              !filtersOpen && activeFilterCount > 0 ? 'client-payments-filters-wrap--open' : ''
+            }`}
+            inert={filtersOpen || activeFilterCount === 0}
+          >
+            <div
+              className="client-payments-filters client-payments-filters--chips"
+              style={{ borderColor: c.border }}
+            >
+              <div className="flex flex-wrap items-center gap-1">
+                {(dateFrom || dateTo) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDateFrom('')
+                      setDateTo('')
+                    }}
+                    className="batch-filter-pill batch-filter-pill--sm batch-filter-pill--active"
+                  >
+                    {dateFrom && dateTo
+                      ? `${formatDate(dateFrom)} – ${formatDate(dateTo)}`
+                      : dateFrom
+                        ? `From ${formatDate(dateFrom)}`
+                        : `Until ${formatDate(dateTo)}`}
+                    <X className="w-3 h-3 opacity-60" aria-hidden />
+                  </button>
+                )}
+                {statusFilter !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('all')}
+                    className="batch-filter-pill batch-filter-pill--sm batch-filter-pill--active"
+                  >
+                    {statusFilter === 'pending' ? 'Pending' : 'Confirmed'}
+                    <X className="w-3 h-3 opacity-60" aria-hidden />
+                  </button>
+                )}
+                {methodFilter !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setMethodFilter('all')}
+                    className="batch-filter-pill batch-filter-pill--sm batch-filter-pill--active"
+                  >
+                    {METHOD_LABELS[methodFilter] || methodFilter}
+                    <X className="w-3 h-3 opacity-60" aria-hidden />
+                  </button>
+                )}
+                {activeFilterCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="text-[11px] font-medium px-1.5 py-0.5 rounded transition-colors hover:underline"
+                    style={{ color: c.secondary }}
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={`client-payments-filters-wrap ${
+              filtersOpen ? 'client-payments-filters-wrap--open' : ''
+            }`}
+            inert={!filtersOpen}
+          >
+            <div
+              id="payments-filters-panel"
+              className="client-payments-filters"
+              style={{ borderColor: c.border }}
+            >
+              <div className="client-payments-filters__bar">
+                {(
+                  [
+                    { id: '30d' as const, label: '30d' },
+                    { id: '90d' as const, label: '90d' },
+                    { id: 'ytd' as const, label: 'YTD' },
+                    { id: 'all' as const, label: 'All' },
+                  ] as const
+                ).map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyDatePreset(preset.id)}
+                    className={`batch-filter-pill batch-filter-pill--xs ${
+                      preset.id === 'all'
+                        ? !dateFrom && !dateTo
+                          ? 'batch-filter-pill--active'
+                          : ''
+                        : matchesDatePreset(preset.id)
+                          ? 'batch-filter-pill--active'
+                          : ''
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+
+                <span className="client-payments-filters__sep" aria-hidden />
+
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="client-input client-payments-date-input"
+                  aria-label="From"
+                />
+                <span className="client-payments-filters__dash" style={{ color: c.mutedLight }}>
+                  –
+                </span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="client-input client-payments-date-input"
+                  aria-label="To"
+                />
+
+                <span className="client-payments-filters__sep" aria-hidden />
+
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="client-input w-full sm:w-auto min-w-[120px]"
-                  style={inputCompactStyle}
+                  className="client-input client-payments-filters__select"
+                  aria-label="Status"
                 >
-                  <option value="all">All Status</option>
+                  <option value="all">All status</option>
                   <option value="pending">Pending</option>
                   <option value="confirmed">Confirmed</option>
                 </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <CreditCard className="w-3.5 h-3.5" style={{ color: c.secondary }} />
+
                 <select
                   value={methodFilter}
                   onChange={(e) => setMethodFilter(e.target.value)}
-                  className="client-input w-full sm:w-auto min-w-[130px]"
-                  style={inputCompactStyle}
+                  className="client-input client-payments-filters__select"
+                  aria-label="Method"
                 >
-                  <option value="all">All Methods</option>
+                  <option value="all">All methods</option>
                   <option value="check">Check</option>
-                  <option value="wire">Wire Transfer</option>
+                  <option value="wire">Wire</option>
                   <option value="ach">ACH</option>
-                  <option value="credit_card">Credit Card</option>
+                  <option value="credit_card">Card</option>
                 </select>
+
+                {activeFilterCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="client-payments-filters__clear"
+                    style={{ color: c.secondary }}
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -363,7 +489,7 @@ export default function ClientPayments() {
                 No payments found
               </p>
               <p className="text-sm" style={{ color: c.secondary }}>
-                {searchTerm || statusFilter !== 'all' || methodFilter !== 'all'
+                {searchTerm || dateFrom || dateTo || statusFilter !== 'all' || methodFilter !== 'all'
                   ? 'Try adjusting your search or filters'
                   : 'Your payment history will appear here'}
               </p>
