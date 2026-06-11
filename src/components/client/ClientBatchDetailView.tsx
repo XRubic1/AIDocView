@@ -1,8 +1,16 @@
-import { ChevronLeft, Eye, FileText } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ChevronLeft, ChevronRight, Eye, FileText } from 'lucide-react'
 import { Invoice } from '../../types/invoice'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { ClientBatchListItem, getBatchStatusBadge } from './ClientBatchesListView'
+import ClientSortableHeader from './ClientSortableHeader'
+import ClientListTd from './ClientListTd'
+import {
+  getInitialListPageSize,
+  PAGE_SIZE_OPTIONS,
+  type SortDir,
+} from '../../utils/clientListPage'
 
 interface ClientBatchDetailViewProps {
   batch: ClientBatchListItem
@@ -10,6 +18,14 @@ interface ClientBatchDetailViewProps {
   onBack: () => void
   onViewInvoice: (invoice: Invoice) => void
 }
+
+type InvoiceSortField =
+  | 'invoice_number'
+  | 'load_number'
+  | 'broker_name'
+  | 'amount'
+  | 'invoice_date'
+  | 'status'
 
 /** Client-facing status for invoices inside a batch review. */
 function getBatchInvoiceStatusBadge(status: string) {
@@ -30,13 +46,13 @@ function getBatchInvoiceStatusBadge(status: string) {
     hold: 'On Hold',
   }
   return (
-    <span className={classMap[status] || 'status-pill status-pill--pending'}>
+    <span className={`inline-flex items-center ${classMap[status] || 'status-pill status-pill--pending'}`}>
       {labels[status] || 'Pending'}
     </span>
   )
 }
 
-/** Full-width batch detail — overview + invoice table. */
+/** Full-width batch detail — compact stats + scrollable invoice table. */
 export default function ClientBatchDetailView({
   batch,
   invoices,
@@ -44,129 +60,332 @@ export default function ClientBatchDetailView({
   onViewInvoice,
 }: ClientBatchDetailViewProps) {
   const c = useClientTheme()
+  const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [sortField, setSortField] = useState<InvoiceSortField>('invoice_number')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  const sortedInvoices = useMemo(() => {
+    const sorted = [...invoices]
+    sorted.sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'invoice_number':
+          cmp = a.invoice_number.localeCompare(b.invoice_number, undefined, { numeric: true })
+          break
+        case 'load_number':
+          cmp = (a.load_number ?? '').localeCompare(b.load_number ?? '', undefined, { numeric: true })
+          break
+        case 'broker_name':
+          cmp = a.broker_name.localeCompare(b.broker_name)
+          break
+        case 'amount':
+          cmp = a.amount - b.amount
+          break
+        case 'invoice_date':
+          cmp = new Date(a.invoice_date).getTime() - new Date(b.invoice_date).getTime()
+          break
+        case 'status':
+          cmp = a.status.localeCompare(b.status)
+          break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [invoices, sortField, sortDir])
+
+  const totalPages = Math.max(1, Math.ceil(sortedInvoices.length / pageSize))
+
+  const paginatedInvoices = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return sortedInvoices.slice(start, start + pageSize)
+  }, [sortedInvoices, currentPage, pageSize])
+
+  const pageStart = sortedInvoices.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const pageEnd = Math.min(currentPage * pageSize, sortedInvoices.length)
+
+  const handleSort = useCallback(
+    (field: InvoiceSortField) => {
+      if (sortField === field) {
+        setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
+      } else {
+        setSortField(field)
+        setSortDir(field === 'amount' || field === 'invoice_date' ? 'desc' : 'asc')
+      }
+    },
+    [sortField]
+  )
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [pageSize, sortField, sortDir, invoices.length])
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
+
   return (
-    <div className="client-batch-detail">
-      <div className="client-batch-detail__toolbar">
+    <div className="client-batch-detail overflow-hidden flex flex-col min-h-0">
+      <div className="client-batch-detail__toolbar shrink-0">
         <button type="button" onClick={onBack} className="client-batch-detail__back">
           <ChevronLeft className="w-4 h-4" />
           All batches
         </button>
       </div>
 
-      <div className="client-batch-detail__overview">
-        <div className="client-batch-detail__overview-main">
-          <div className="client-batch-detail__hero">
-            <span className="invoice-detail-field-label">Batch</span>
-            <div className="client-batch-detail__hero-title">{batch.batch_number}</div>
-            <div className="client-batch-detail__hero-meta">
-              {getBatchStatusBadge(batch.status)}
-            </div>
-          </div>
-
-          <div className="client-batch-detail__stat-grid">
-            <div className="client-batch-detail__stat">
-              <span className="invoice-detail-field-label">Invoices</span>
-              <span className="client-batch-detail__stat-value tabular-nums">{batch.total_invoices}</span>
-            </div>
-            <div className="client-batch-detail__stat">
-              <span className="invoice-detail-field-label">Amount</span>
-              <span className="client-batch-detail__stat-value tabular-nums">
-                {formatCurrency(batch.total_amount)}
-              </span>
-            </div>
-            <div className="client-batch-detail__stat">
-              <span className="invoice-detail-field-label">Submitted</span>
-              <span className="client-batch-detail__stat-value">{formatDate(batch.submitted_at)}</span>
-            </div>
-            <div className="client-batch-detail__stat">
-              <span className="invoice-detail-field-label">Reviewed</span>
-              <span className="client-batch-detail__stat-value">
-                {batch.reviewed_at ? formatDate(batch.reviewed_at) : '—'}
-              </span>
-            </div>
-            {batch.approved_count != null && (
-              <div className="client-batch-detail__stat client-batch-detail__stat--outcome">
-                <span className="invoice-detail-field-label">Outcome</span>
-                <span className="client-batch-detail__stat-value client-batch-detail__stat-value--success">
-                  {batch.approved_count} approved
-                  {(batch.rejected_count ?? 0) > 0 && (
-                    <span className="client-batch-detail__stat-rejected">
-                      {' '}
-                      · {batch.rejected_count} rejected
-                    </span>
-                  )}
-                </span>
-              </div>
-            )}
-          </div>
+      <section
+        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 border-b shrink-0"
+        style={{ borderColor: c.border }}
+      >
+        <div
+          className="flex flex-col justify-center gap-0.5 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
+          style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
+        >
+          <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+            Batch#
+          </span>
+          <span className="text-sm font-bold truncate" style={{ color: c.primary }}>
+            {batch.batch_number}
+          </span>
         </div>
-      </div>
+        <div
+          className="flex flex-col justify-center gap-0.5 px-4 py-2.5 lg:border-r border-b sm:border-b-0"
+          style={{ backgroundColor: c.stat.slate, borderColor: c.border }}
+        >
+          <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+            Status
+          </span>
+          <div className="mt-0.5">{getBatchStatusBadge(batch.status)}</div>
+        </div>
+        <div
+          className="flex flex-col justify-center gap-0.5 px-4 py-2.5 sm:border-r border-b lg:border-b-0"
+          style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
+        >
+          <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+            Invoices
+          </span>
+          <span className="text-lg font-bold tabular-nums" style={{ color: c.primary }}>
+            {batch.total_invoices}
+          </span>
+        </div>
+        <div
+          className="flex flex-col justify-center gap-0.5 px-4 py-2.5 lg:border-r border-b lg:border-b-0"
+          style={{ backgroundColor: c.stat.green, borderColor: c.border }}
+        >
+          <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+            Amount
+          </span>
+          <span className="text-lg font-bold tabular-nums" style={{ color: c.primary }}>
+            {formatCurrency(batch.total_amount)}
+          </span>
+        </div>
+        <div
+          className="flex flex-col justify-center gap-0.5 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
+          style={{ backgroundColor: c.stat.amber, borderColor: c.border }}
+        >
+          <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+            Submitted
+          </span>
+          <span className="text-sm font-semibold" style={{ color: c.primary }}>
+            {formatDate(batch.submitted_at)}
+          </span>
+        </div>
+        <div
+          className="flex flex-col justify-center gap-0.5 px-4 py-2.5"
+          style={{ backgroundColor: c.stat.slate }}
+        >
+          <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+            Outcome
+          </span>
+          <span className="text-sm font-semibold" style={{ color: c.primary }}>
+            {batch.approved_count != null ? (
+              <>
+                <span style={{ color: c.success }}>{batch.approved_count} approved</span>
+                {(batch.rejected_count ?? 0) > 0 && (
+                  <span style={{ color: c.error }}> · {batch.rejected_count} rejected</span>
+                )}
+              </>
+            ) : (
+              <span style={{ color: c.mutedLight }}>—</span>
+            )}
+          </span>
+        </div>
+      </section>
 
-      <div className="client-batch-detail__section">
-        <div className="client-batch-detail__section-header">
-          <h2 className="client-batch-detail__section-title">Invoices</h2>
+      <div className="client-batch-detail__section flex flex-col min-h-0 flex-1">
+        <div
+          className="client-batch-detail__section-header shrink-0"
+          style={{ borderColor: c.border, backgroundColor: c.card }}
+        >
+          <span className="client-batch-detail__section-title">Invoices</span>
           <span className="client-batch-detail__section-count">{invoices.length} total</span>
         </div>
 
-        {invoices.length === 0 ? (
-          <div className="client-batch-detail__empty">
-            <FileText className="w-10 h-10 mb-3" style={{ color: c.mutedLight }} />
-            <p className="text-sm font-medium" style={{ color: c.primary }}>
-              No invoices in this batch
-            </p>
-            <p className="text-xs mt-1" style={{ color: c.secondary }}>
-              Invoices will appear here once added to the batch
-            </p>
+        {sortedInvoices.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center client-batch-detail__empty">
+            <div className="text-center">
+              <FileText className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
+              <p className="text-sm font-medium" style={{ color: c.primary }}>
+                No invoices in this batch
+              </p>
+              <p className="text-xs mt-1" style={{ color: c.secondary }}>
+                Invoices will appear here once added to the batch
+              </p>
+            </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="dashboard-table dashboard-table--compact">
-              <thead>
-                <tr>
-                  <th>Invoice#</th>
-                  <th>Load#</th>
-                  <th>Broker</th>
-                  <th className="text-right">Amount</th>
-                  <th>Invoice Date</th>
-                  <th>Status</th>
-                  <th className="text-center"> </th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map((invoice) => (
-                  <tr
-                    key={invoice.id}
-                    className="cursor-pointer"
-                    onClick={() => onViewInvoice(invoice)}
-                  >
-                    <td className="font-semibold">{invoice.invoice_number}</td>
-                    <td style={{ color: c.secondary }}>{invoice.load_number || '—'}</td>
-                    <td style={{ color: c.secondary }}>{invoice.broker_name}</td>
-                    <td className="text-right font-medium tabular-nums">
-                      {formatCurrency(invoice.amount)}
-                    </td>
-                    <td style={{ color: c.secondary }}>
-                      {invoice.invoice_date ? formatDate(invoice.invoice_date) : '—'}
-                    </td>
-                    <td>{getBatchInvoiceStatusBadge(invoice.status)}</td>
-                    <td className="text-center">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onViewInvoice(invoice)
-                        }}
-                        className="client-batch-detail__row-action"
-                        title="View invoice"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                    </td>
+          <>
+            <div className="client-table-scroll client-table-scroll--mobile-stack flex-1 min-h-0 overflow-y-auto overflow-x-auto">
+              <table className="dashboard-table dashboard-table--compact">
+                <thead>
+                  <tr>
+                    <ClientSortableHeader
+                      field="invoice_number"
+                      label="Invoice#"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <ClientSortableHeader
+                      field="load_number"
+                      label="Load#"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <ClientSortableHeader
+                      field="broker_name"
+                      label="Broker"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <ClientSortableHeader
+                      field="amount"
+                      label="Amount"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                      className="text-right"
+                      align="right"
+                    />
+                    <ClientSortableHeader
+                      field="invoice_date"
+                      label="Invoice Date"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <ClientSortableHeader
+                      field="status"
+                      label="Status"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <th className="text-center"> </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {paginatedInvoices.map((invoice) => (
+                    <tr
+                      key={invoice.id}
+                      className="cursor-pointer"
+                      onClick={() => onViewInvoice(invoice)}
+                    >
+                      <ClientListTd variant="primary" className="font-semibold">
+                        {invoice.invoice_number}
+                      </ClientListTd>
+                      <ClientListTd variant="desktop" label="Load#" style={{ color: c.secondary }}>
+                        {invoice.load_number || '—'}
+                      </ClientListTd>
+                      <ClientListTd variant="meta" className="truncate" style={{ color: c.secondary }}>
+                        {invoice.broker_name}
+                      </ClientListTd>
+                      <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
+                        {formatCurrency(invoice.amount)}
+                      </ClientListTd>
+                      <ClientListTd variant="desktop" label="Invoice Date" style={{ color: c.secondary }}>
+                        {invoice.invoice_date ? formatDate(invoice.invoice_date) : '—'}
+                      </ClientListTd>
+                      <ClientListTd variant="status">{getBatchInvoiceStatusBadge(invoice.status)}</ClientListTd>
+                      <ClientListTd variant="actions" className="text-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onViewInvoice(invoice)
+                          }}
+                          className="client-batch-detail__row-action"
+                          title="View invoice"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      </ClientListTd>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div
+              className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t shrink-0"
+              style={{ borderColor: c.border, backgroundColor: c.card }}
+            >
+              <p className="text-xs font-medium" style={{ color: c.secondary }}>
+                Showing {pageStart}–{pageEnd} of {sortedInvoices.length}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: c.secondary }}>
+                  Rows
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="client-input"
+                    style={{
+                      backgroundColor: c.card,
+                      height: 30,
+                      paddingTop: 4,
+                      paddingBottom: 4,
+                      fontSize: 12,
+                      width: 64,
+                    }}
+                  >
+                    {PAGE_SIZE_OPTIONS.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    className="table-page-btn"
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs font-medium px-2 tabular-nums" style={{ color: c.primary }}>
+                    {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                    className="table-page-btn"
+                    aria-label="Next page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>

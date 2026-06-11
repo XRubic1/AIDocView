@@ -146,6 +146,40 @@ export function getOverdueSeverityLabel(severity: OverdueSeverity): string {
   }
 }
 
+/** Client-facing aging strip buckets (0–15 includes not-yet-due / current). */
+export type DisplayAgingBucketId =
+  | '0_15'
+  | '16_30'
+  | '31_45'
+  | '46_60'
+  | '61_90'
+  | 'over_91'
+
+export const DISPLAY_AGING_BUCKETS: readonly {
+  id: DisplayAgingBucketId
+  label: string
+}[] = [
+  { id: '0_15', label: '0–15' },
+  { id: '16_30', label: '16–30' },
+  { id: '31_45', label: '31–45' },
+  { id: '46_60', label: '46–60' },
+  { id: '61_90', label: '61–90' },
+  { id: 'over_91', label: '91+' },
+] as const
+
+export function getDisplayAgingBucketId(daysOutstanding: number): DisplayAgingBucketId {
+  if (daysOutstanding <= 15) return '0_15'
+  if (daysOutstanding <= 30) return '16_30'
+  if (daysOutstanding <= 45) return '31_45'
+  if (daysOutstanding <= 60) return '46_60'
+  if (daysOutstanding <= 90) return '61_90'
+  return 'over_91'
+}
+
+export function getDisplayAgingBucketLabel(id: DisplayAgingBucketId): string {
+  return DISPLAY_AGING_BUCKETS.find((b) => b.id === id)?.label ?? id
+}
+
 export function getDaysOutstandingColor(severity: OverdueSeverity): string {
   switch (severity) {
     case 'force_close':

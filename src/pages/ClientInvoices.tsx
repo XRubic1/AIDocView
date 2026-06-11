@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
 import { mockInvoices } from '../data/mockInvoices'
@@ -11,11 +11,31 @@ import InvoiceDetailWorkspace, {
   getInvoiceRowStatusBadge,
   InvoiceDisputeBadges,
 } from '../components/client/InvoiceDetailWorkspace'
+import ClientSortableHeader from '../components/client/ClientSortableHeader'
+import ClientListTd from '../components/client/ClientListTd'
 import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, isOpenArInvoice, AR_POLICY } from '../utils/invoiceAging'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
 import { useClientTheme } from '../theme/ThemeContext'
+import {
+  getInitialListPageSize,
+  PAGE_SIZE_OPTIONS,
+  type SortDir,
+} from '../utils/clientListPage'
 
-const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const
+type InvoiceSortField =
+  | 'invoice_number'
+  | 'load_number'
+  | 'broker_name'
+  | 'batch_number'
+  | 'amount'
+  | 'invoice_date'
+  | 'days_outstanding'
+  | 'status'
+
+function getSortableDaysOutstanding(invoice: EnrichedInvoice): number {
+  if (!isOpenArInvoice(invoice) || invoice.status === 'force_closed') return -1
+  return invoice.daysOutstanding
+}
 
 export default function ClientInvoices() {
   const c = useClientTheme()
@@ -38,8 +58,10 @@ export default function ClientInvoices() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
   const [viewingInvoiceDocuments, setViewingInvoiceDocuments] = useState<Invoice | null>(null)
-  const [pageSize, setPageSize] = useState<number>(10)
+  const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
+  const [sortField, setSortField] = useState<InvoiceSortField>('invoice_date')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const enrichedInvoices = useMemo(() => enrichInvoices(invoices), [invoices])
 
@@ -57,24 +79,73 @@ export default function ClientInvoices() {
     return matchesSearch && matchesStatus
   })
 
-  const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / pageSize))
+  const sortedInvoices = useMemo(() => {
+    const sorted = [...filteredInvoices]
+    sorted.sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'invoice_number':
+          cmp = a.invoice_number.localeCompare(b.invoice_number, undefined, { numeric: true })
+          break
+        case 'load_number':
+          cmp = (a.load_number ?? '').localeCompare(b.load_number ?? '', undefined, { numeric: true })
+          break
+        case 'broker_name':
+          cmp = a.broker_name.localeCompare(b.broker_name)
+          break
+        case 'batch_number':
+          cmp = (a.batch_number ?? '').localeCompare(b.batch_number ?? '', undefined, { numeric: true })
+          break
+        case 'amount':
+          cmp = a.amount - b.amount
+          break
+        case 'invoice_date':
+          cmp = new Date(a.invoice_date).getTime() - new Date(b.invoice_date).getTime()
+          break
+        case 'days_outstanding':
+          cmp = getSortableDaysOutstanding(a) - getSortableDaysOutstanding(b)
+          break
+        case 'status':
+          cmp = a.status.localeCompare(b.status)
+          break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [filteredInvoices, sortField, sortDir])
+
+  const totalPages = Math.max(1, Math.ceil(sortedInvoices.length / pageSize))
 
   const paginatedInvoices = useMemo(() => {
     const start = (currentPage - 1) * pageSize
-    return filteredInvoices.slice(start, start + pageSize)
-  }, [filteredInvoices, currentPage, pageSize])
+    return sortedInvoices.slice(start, start + pageSize)
+  }, [sortedInvoices, currentPage, pageSize])
 
-  const pageStart = filteredInvoices.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
-  const pageEnd = Math.min(currentPage * pageSize, filteredInvoices.length)
+  const pageStart = sortedInvoices.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const pageEnd = Math.min(currentPage * pageSize, sortedInvoices.length)
 
   const selectedInvoice = useMemo(
     () => enrichedInvoices.find((inv) => inv.id === selectedInvoiceId) ?? null,
     [enrichedInvoices, selectedInvoiceId]
   )
 
+  const handleSort = useCallback(
+    (field: InvoiceSortField) => {
+      if (sortField === field) {
+        setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
+      } else {
+        setSortField(field)
+        const defaultDesc =
+          field === 'amount' || field === 'invoice_date' || field === 'days_outstanding'
+        setSortDir(defaultDesc ? 'desc' : 'asc')
+      }
+    },
+    [sortField]
+  )
+
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, statusFilter, pageSize])
+  }, [searchTerm, statusFilter, pageSize, sortField, sortDir])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -118,7 +189,7 @@ export default function ClientInvoices() {
       setHighlightedInvoiceId(highlightInvoiceId)
       setSelectedInvoiceId(highlightInvoiceId)
       setShowInvoiceDetailView(true)
-      const highlightIndex = filteredInvoices.findIndex((inv) => inv.id === highlightInvoiceId)
+      const highlightIndex = sortedInvoices.findIndex((inv) => inv.id === highlightInvoiceId)
       if (highlightIndex >= 0) {
         setCurrentPage(Math.floor(highlightIndex / pageSize) + 1)
       }
@@ -131,7 +202,7 @@ export default function ClientInvoices() {
 
       return () => clearTimeout(timer)
     }
-  }, [searchParams, setSearchParams, filteredInvoices, pageSize])
+  }, [searchParams, setSearchParams, sortedInvoices, pageSize])
 
   const inputCompactStyle = {
     backgroundColor: c.card,
@@ -143,9 +214,9 @@ export default function ClientInvoices() {
 
   return (
     <ClientLayout clientName={data.client_name} clientId={data.client_id} flushMain>
-      <div className="client-invoices-page overflow-hidden">
+      <div className="client-invoices-page overflow-hidden flex flex-col min-h-0">
         <section
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b"
+          className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
           style={{ borderColor: c.border }}
         >
           <div
@@ -154,8 +225,11 @@ export default function ClientInvoices() {
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
-              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+              <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
                 Total Invoices
+              </span>
+              <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
+                Invoices
               </span>
             </div>
             <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
@@ -168,8 +242,11 @@ export default function ClientInvoices() {
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.success }} />
-              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+              <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
                 Total Amount
+              </span>
+              <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
+                Amount
               </span>
             </div>
             <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
@@ -187,8 +264,11 @@ export default function ClientInvoices() {
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ color: c.error }} />
-              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+              <span className="text-xs font-medium truncate client-stat-strip__label-long" style={{ color: c.secondary }}>
                 Overdue (15+ days past expected pay)
+              </span>
+              <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
+                Overdue
               </span>
             </div>
             <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.error }}>
@@ -202,8 +282,11 @@ export default function ClientInvoices() {
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 min-w-0">
                 <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
-                <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+                <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
                   Overdue Amount
+                </span>
+                <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
+                  Ovd Amt
                 </span>
               </div>
               <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
@@ -219,7 +302,7 @@ export default function ClientInvoices() {
         </section>
 
         <div
-          className="client-page-toolbar px-4 py-2 border-b"
+          className="client-page-toolbar px-4 py-2 border-b shrink-0"
           style={{ borderColor: c.border, backgroundColor: c.card }}
         >
           <div className="flex flex-col md:flex-row md:items-center gap-2">
@@ -230,7 +313,7 @@ export default function ClientInvoices() {
               />
               <input
                 type="text"
-                placeholder="Search by invoice, broker, load, or batch..."
+                placeholder="Search invoices..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="client-input pl-8"
@@ -257,32 +340,86 @@ export default function ClientInvoices() {
           </div>
         </div>
 
-        {filteredInvoices.length === 0 ? (
-          <div className="text-center py-6 px-4">
-            <FileText className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
-            <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
-              No invoices found
-            </p>
-            <p className="text-sm" style={{ color: c.secondary }}>
-              {searchTerm || statusFilter !== 'all'
-                ? 'Try adjusting your search or filters'
-                : 'Your invoices will appear here'}
-            </p>
+        {sortedInvoices.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-center py-6 px-4">
+            <div>
+              <FileText className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
+              <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
+                No invoices found
+              </p>
+              <p className="text-sm" style={{ color: c.secondary }}>
+                {searchTerm || statusFilter !== 'all'
+                  ? 'Try adjusting your search or filters'
+                  : 'Your invoices will appear here'}
+              </p>
+            </div>
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            <div className="client-table-scroll client-table-scroll--mobile-stack flex-1 min-h-0 overflow-y-auto overflow-x-auto">
               <table className="dashboard-table dashboard-table--compact">
                 <thead>
                   <tr>
-                    <th>Invoice#</th>
-                    <th>Load#</th>
-                    <th>Broker</th>
-                    <th>Batch#</th>
-                    <th className="text-right">Amount</th>
-                    <th>Invoice Date</th>
-                    <th className="text-right">Days Out</th>
-                    <th>Status</th>
+                    <ClientSortableHeader
+                      field="invoice_number"
+                      label="Invoice#"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <ClientSortableHeader
+                      field="load_number"
+                      label="Load#"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <ClientSortableHeader
+                      field="broker_name"
+                      label="Broker"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <ClientSortableHeader
+                      field="batch_number"
+                      label="Batch#"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <ClientSortableHeader
+                      field="amount"
+                      label="Amount"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                      className="text-right"
+                      align="right"
+                    />
+                    <ClientSortableHeader
+                      field="invoice_date"
+                      label="Invoice Date"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <ClientSortableHeader
+                      field="days_outstanding"
+                      label="Days Out"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                      className="text-right"
+                      align="right"
+                    />
+                    <ClientSortableHeader
+                      field="status"
+                      label="Status"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
                     <th className="text-center">Actions</th>
                   </tr>
                 </thead>
@@ -301,15 +438,25 @@ export default function ClientInvoices() {
                         }`}
                         onClick={() => handleViewInvoiceDetail(invoice)}
                       >
-                        <td className="font-semibold">{invoice.invoice_number}</td>
-                        <td style={{ color: c.secondary }}>{invoice.load_number || '-'}</td>
-                        <td style={{ color: c.secondary }}>{invoice.broker_name}</td>
-                        <td style={{ color: c.secondary }}>{invoice.batch_number || '-'}</td>
-                        <td className="text-right font-medium tabular-nums">
+                        <ClientListTd variant="primary" className="font-semibold">
+                          {invoice.invoice_number}
+                        </ClientListTd>
+                        <ClientListTd variant="desktop" label="Load#" style={{ color: c.secondary }}>
+                          {invoice.load_number || '-'}
+                        </ClientListTd>
+                        <ClientListTd variant="meta" className="truncate">
+                          {invoice.broker_name}
+                        </ClientListTd>
+                        <ClientListTd variant="desktop" label="Batch#" style={{ color: c.secondary }}>
+                          {invoice.batch_number || '-'}
+                        </ClientListTd>
+                        <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
                           {formatCurrency(invoice.amount)}
-                        </td>
-                        <td style={{ color: c.secondary }}>{formatDate(invoice.invoice_date)}</td>
-                        <td className="text-right tabular-nums">
+                        </ClientListTd>
+                        <ClientListTd variant="desktop" label="Invoice Date" style={{ color: c.secondary }}>
+                          {formatDate(invoice.invoice_date)}
+                        </ClientListTd>
+                        <ClientListTd variant="desktop" label="Days Out" className="text-right tabular-nums">
                           {!isOpenArInvoice(invoice) || invoice.status === 'force_closed' ? (
                             <span style={{ color: c.mutedLight }}>—</span>
                           ) : (
@@ -329,18 +476,18 @@ export default function ClientInvoices() {
                               )}
                             </span>
                           )}
-                        </td>
-                        <td>
-                          <div className="flex items-center gap-1 flex-nowrap min-w-0">
+                        </ClientListTd>
+                        <ClientListTd variant="status">
+                          <div className="inline-flex items-center gap-1 flex-nowrap min-w-0">
                             {getInvoiceRowStatusBadge(invoice)}
                             <InvoiceDisputeBadges invoice={invoice} />
                             {invoice.isForceCloseEligible && (
                               <span className="status-pill status-pill--hold text-[10px]">Force Close</span>
                             )}
                           </div>
-                        </td>
-                        <td className="text-center">
-                          <div className="flex items-center justify-center gap-1">
+                        </ClientListTd>
+                        <ClientListTd variant="actions" className="text-center">
+                          <div className="inline-flex items-center justify-center gap-1">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -368,7 +515,7 @@ export default function ClientInvoices() {
                               </button>
                             )}
                           </div>
-                        </td>
+                        </ClientListTd>
                       </tr>
                     )
                   })}
@@ -377,11 +524,11 @@ export default function ClientInvoices() {
             </div>
 
             <div
-              className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t"
+              className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t shrink-0"
               style={{ borderColor: c.border, backgroundColor: c.card }}
             >
               <p className="text-xs font-medium" style={{ color: c.secondary }}>
-                Showing {pageStart}–{pageEnd} of {filteredInvoices.length}
+                Showing {pageStart}–{pageEnd} of {sortedInvoices.length}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: c.secondary }}>

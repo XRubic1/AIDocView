@@ -1268,7 +1268,7 @@ export default function ClientBatches() {
       clientId={data.client_id}
       flushMain={activeTab === 'view' || activeTab === 'create'}
     >
-      <div className="flex flex-col min-h-0 flex-1">
+      <div className="client-flush-shell flex flex-col min-h-0 flex-1 overflow-hidden">
         {activeTab === 'create' ? (
           <ClientSubmitDocsView
             mode={createSubMode}

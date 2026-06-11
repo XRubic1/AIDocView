@@ -1,9 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
 import { mockPayments } from '../data/mockPayments'
 import { mockInvoices } from '../data/mockInvoices'
-import { formatCurrency } from '../utils/format'
-import { formatDate } from '../utils/format'
+import { formatCurrency, formatDate } from '../utils/format'
 import {
   FileText,
   Download,
@@ -11,256 +10,280 @@ import {
   BarChart3,
   TrendingUp,
   DollarSign,
-  X,
+  Building2,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
+import DashboardPanel from '../components/client/dashboard/DashboardPanel'
+import AgingARChart from '../components/client/AgingARChart'
+import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
+import { useClientTheme } from '../theme/ThemeContext'
+
+type ReportType = 'aging' | 'payment' | 'invoice' | 'broker' | 'monthly'
+
+type DatePreset = 'mtd' | '30d' | '90d' | 'ytd'
+
+function getPresetRange(preset: DatePreset): { start_date: string; end_date: string } {
+  const end = new Date()
+  const start = new Date()
+  end.setHours(0, 0, 0, 0)
+  start.setHours(0, 0, 0, 0)
+
+  switch (preset) {
+    case 'mtd':
+      start.setDate(1)
+      break
+    case '30d':
+      start.setDate(start.getDate() - 30)
+      break
+    case '90d':
+      start.setDate(start.getDate() - 90)
+      break
+    case 'ytd':
+      start.setMonth(0, 1)
+      break
+  }
+
+  return {
+    start_date: start.toISOString().split('T')[0],
+    end_date: end.toISOString().split('T')[0],
+  }
+}
+
+function ReportBarRow({
+  label,
+  value,
+  max,
+  color,
+  display,
+}: {
+  label: string
+  value: number
+  max: number
+  color: string
+  display: string
+}) {
+  const c = useClientTheme()
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="font-medium truncate" style={{ color: c.secondary }}>
+          {label}
+        </span>
+        <span className="font-semibold tabular-nums shrink-0" style={{ color: c.primary }}>
+          {display}
+        </span>
+      </div>
+      <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: c.chartGrid }}>
+        <div
+          className="h-full rounded-full transition-all duration-300"
+          style={{ width: `${pct}%`, backgroundColor: color }}
+        />
+      </div>
+    </div>
+  )
+}
 
 export default function ClientReports() {
+  const c = useClientTheme()
   const [data] = useState(mockClientDashboardData)
-
-  const [selectedReportType, setSelectedReportType] = useState<string>('aging')
-  const [dateRange, setDateRange] = useState({
-    start_date: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+  const [selectedReportType, setSelectedReportType] = useState<ReportType>('aging')
+  const [datePreset, setDatePreset] = useState<DatePreset | 'custom'>('custom')
+  const [dateRange, setDateRange] = useState(() => ({
+    start_date: '2025-01-01',
     end_date: new Date().toISOString().split('T')[0],
-  })
-  const [showReportModal, setShowReportModal] = useState(false)
-  const [generatedReport, setGeneratedReport] = useState<any>(null)
+  }))
 
-  // Filter data based on date range
-  const filterByDateRange = (date: string) => {
-    return date >= dateRange.start_date && date <= dateRange.end_date
+  const clientInvoices = useMemo(
+    () =>
+      mockInvoices.filter(
+        (inv) => inv.client_id === data.client_id || inv.client_name === data.client_name
+      ),
+    [data.client_id, data.client_name]
+  )
+
+  const clientInvoiceIds = useMemo(
+    () => new Set(clientInvoices.map((inv) => inv.id)),
+    [clientInvoices]
+  )
+
+  const clientPayments = useMemo(
+    () => mockPayments.filter((p) => clientInvoiceIds.has(p.invoice_id)),
+    [clientInvoiceIds]
+  )
+
+  const filterByDateRange = useCallback(
+    (date: string) => date >= dateRange.start_date && date <= dateRange.end_date,
+    [dateRange]
+  )
+
+  const applyPreset = (preset: DatePreset) => {
+    setDatePreset(preset)
+    setDateRange(getPresetRange(preset))
   }
 
-  // Generate Aging A/R Report
-  const generateAgingReport = () => {
-    const agingData = [
-      { period: '1-15 Days', amount: data.aging_ar['1_15'], invoice_count: 5 },
-      { period: '16-30 Days', amount: data.aging_ar['16_30'], invoice_count: 8 },
-      { period: '31-45 Days', amount: data.aging_ar['31_45'], invoice_count: 6 },
-      { period: '46-60 Days', amount: data.aging_ar['46_60'], invoice_count: 4 },
-      { period: '61-90 Days', amount: data.aging_ar['61_90'], invoice_count: 3 },
-      { period: 'Over 91 Days', amount: data.aging_ar.over_91, invoice_count: 2 },
+  const agingReport = useMemo(() => {
+    const buckets = [
+      { period: '0–15 days', amount: data.aging_ar['1_15'], invoice_count: 5, color: c.chart.blue },
+      { period: '16–30 days', amount: data.aging_ar['16_30'], invoice_count: 8, color: c.chart.cyan },
+      { period: '31–45 days', amount: data.aging_ar['31_45'], invoice_count: 6, color: c.chart.purple },
+      { period: '46–60 days', amount: data.aging_ar['46_60'], invoice_count: 4, color: c.chart.amber },
+      { period: '61–90 days', amount: data.aging_ar['61_90'], invoice_count: 3, color: c.chart.orange },
+      { period: '91+ days', amount: data.aging_ar.over_91, invoice_count: 2, color: c.chart.red },
     ]
-
     return {
-      type: 'aging',
-      title: 'Aging A/R Report',
-      date_range: dateRange,
-      data: agingData,
-      summary: {
-        total_ar: data.aging_ar.total,
-        total_invoices: agingData.reduce((sum, item) => sum + item.invoice_count, 0),
-      },
+      buckets,
+      total_ar: data.aging_ar.total,
+      total_invoices: buckets.reduce((sum, item) => sum + item.invoice_count, 0),
     }
-  }
+  }, [data.aging_ar, c.chart])
 
-  // Generate Payment Report
-  const generatePaymentReport = () => {
-    const filteredPayments = mockPayments.filter((p) => filterByDateRange(p.payment_date))
+  const paymentReport = useMemo(() => {
+    const filtered = clientPayments.filter((p) => filterByDateRange(p.payment_date))
+    const confirmed = filtered.filter((p) => p.status === 'confirmed')
+    const totalPaid = confirmed.reduce((sum, p) => sum + p.amount, 0)
 
-    const totalPaid = filteredPayments
-      .filter((p) => p.status === 'confirmed')
-      .reduce((sum, p) => sum + p.amount, 0)
-
-    const paymentMethods = ['check', 'wire', 'ach', 'credit_card'].map((method) => {
-      const methodPayments = filteredPayments.filter((p) => p.payment_method === method)
+    const methods = ['check', 'wire', 'ach', 'credit_card'].map((method) => {
+      const methodPayments = confirmed.filter((p) => p.payment_method === method)
+      const labels: Record<string, string> = {
+        check: 'Check',
+        wire: 'Wire',
+        ach: 'ACH',
+        credit_card: 'Card',
+      }
       return {
-        method: method.charAt(0).toUpperCase() + method.slice(1),
+        method: labels[method] || method,
         amount: methodPayments.reduce((sum, p) => sum + p.amount, 0),
         count: methodPayments.length,
       }
     })
 
     return {
-      type: 'payment',
-      title: 'Payment Summary Report',
-      date_range: dateRange,
-      data: {
-        total_paid: totalPaid,
-        payment_count: filteredPayments.length,
-        average_payment: filteredPayments.length > 0 ? totalPaid / filteredPayments.length : 0,
-        payment_methods: paymentMethods.filter((m) => m.count > 0),
-      },
+      total_paid: totalPaid,
+      payment_count: filtered.length,
+      pending_count: filtered.filter((p) => p.status === 'pending').length,
+      average_payment: confirmed.length > 0 ? totalPaid / confirmed.length : 0,
+      payment_methods: methods.filter((m) => m.count > 0),
     }
-  }
+  }, [clientPayments, filterByDateRange])
 
-  // Generate Invoice Report
-  const generateInvoiceReport = () => {
-    const clientInvoices = mockInvoices.filter(
-      (inv) => inv.client_id === data.client_id || inv.client_name === data.client_name
-    )
-    const filteredInvoices = clientInvoices.filter((inv) => filterByDateRange(inv.invoice_date))
+  const invoiceReport = useMemo(() => {
+    const filtered = clientInvoices.filter((inv) => filterByDateRange(inv.invoice_date))
+    const statusColors: Record<string, string> = {
+      Pending: c.chart.blue,
+      Approved: c.chart.cyan,
+      Hold: c.chart.amber,
+      Paid: c.success,
+    }
 
     const byStatus = ['pending', 'approved', 'hold', 'paid'].map((status) => {
-      const statusInvoices = filteredInvoices.filter((inv) => inv.status === status)
+      const items = filtered.filter((inv) => inv.status === status)
+      const label = status === 'hold' ? 'On Hold' : status.charAt(0).toUpperCase() + status.slice(1)
       return {
-        status: status.charAt(0).toUpperCase() + status.slice(1),
-        count: statusInvoices.length,
-        amount: statusInvoices.reduce((sum, inv) => sum + inv.amount, 0),
+        status: label,
+        count: items.length,
+        amount: items.reduce((sum, inv) => sum + inv.amount, 0),
+        color: statusColors[label] || c.chart.purple,
       }
     })
 
     return {
-      type: 'invoice',
-      title: 'Invoice Status Report',
-      date_range: dateRange,
-      data: {
-        total_invoices: filteredInvoices.length,
-        total_amount: filteredInvoices.reduce((sum, inv) => sum + inv.amount, 0),
-        by_status: byStatus.filter((s) => s.count > 0),
-      },
+      total_invoices: filtered.length,
+      total_amount: filtered.reduce((sum, inv) => sum + inv.amount, 0),
+      by_status: byStatus.filter((s) => s.count > 0),
     }
-  }
+  }, [clientInvoices, filterByDateRange, c])
 
-  // Generate Broker Performance Report
-  const generateBrokerReport = () => {
-    const clientInvoices = mockInvoices.filter(
-      (inv) => inv.client_id === data.client_id || inv.client_name === data.client_name
-    )
-    const filteredInvoices = clientInvoices.filter((inv) => filterByDateRange(inv.invoice_date))
+  const brokerReport = useMemo(() => {
+    const filtered = clientInvoices.filter((inv) => filterByDateRange(inv.invoice_date))
+    const brokerMap = new Map<
+      string,
+      { broker_name: string; total_invoices: number; total_amount: number; paid_amount: number }
+    >()
 
-    const brokerMap = new Map<string, any>()
-
-    filteredInvoices.forEach((inv) => {
-      if (!brokerMap.has(inv.broker_name)) {
-        brokerMap.set(inv.broker_name, {
-          broker_name: inv.broker_name,
-          total_invoices: 0,
-          total_amount: 0,
-          paid_amount: 0,
-          pending_amount: 0,
-          invoices: [],
-        })
+    filtered.forEach((inv) => {
+      const existing = brokerMap.get(inv.broker_name) ?? {
+        broker_name: inv.broker_name,
+        total_invoices: 0,
+        total_amount: 0,
+        paid_amount: 0,
       }
-
-      const broker = brokerMap.get(inv.broker_name)!
-      broker.total_invoices++
-      broker.total_amount += inv.amount
-      broker.invoices.push(inv)
-
-      if (inv.status === 'paid') {
-        broker.paid_amount += inv.amount
-      } else {
-        broker.pending_amount += inv.amount
-      }
+      existing.total_invoices += 1
+      existing.total_amount += inv.amount
+      if (inv.status === 'paid') existing.paid_amount += inv.amount
+      brokerMap.set(inv.broker_name, existing)
     })
 
-    const brokerData = Array.from(brokerMap.values()).map((broker) => {
-      // Calculate average days to pay (mock calculation)
-      const paidInvoices = broker.invoices.filter((inv: any) => inv.status === 'paid')
-      const averageDays = paidInvoices.length > 0 ? 25 : 0 // Mock average
-
-      return {
+    return Array.from(brokerMap.values())
+      .map((broker) => ({
         ...broker,
-        average_days_to_pay: averageDays,
-      }
-    })
+        pending_amount: broker.total_amount - broker.paid_amount,
+        collection_rate:
+          broker.total_amount > 0 ? (broker.paid_amount / broker.total_amount) * 100 : 0,
+      }))
+      .sort((a, b) => b.total_amount - a.total_amount)
+  }, [clientInvoices, filterByDateRange])
 
-    return {
-      type: 'broker',
-      title: 'Broker Performance Report',
-      date_range: dateRange,
-      data: brokerData,
-    }
-  }
-
-  // Generate Monthly Summary Report
-  const generateMonthlyReport = () => {
-    const clientInvoices = mockInvoices.filter(
-      (inv) => inv.client_id === data.client_id || inv.client_name === data.client_name
-    )
+  const monthlyReport = useMemo(() => {
     const filteredInvoices = clientInvoices.filter((inv) => filterByDateRange(inv.invoice_date))
-    const filteredPayments = mockPayments.filter((p) => filterByDateRange(p.payment_date))
-
-    const totalInvoices = filteredInvoices.length
+    const filteredPayments = clientPayments.filter(
+      (p) => filterByDateRange(p.payment_date) && p.status === 'confirmed'
+    )
     const totalInvoiceAmount = filteredInvoices.reduce((sum, inv) => sum + inv.amount, 0)
-    const totalPaid = filteredPayments
-      .filter((p) => p.status === 'confirmed')
-      .reduce((sum, p) => sum + p.amount, 0)
+    const totalPaid = filteredPayments.reduce((sum, p) => sum + p.amount, 0)
 
     return {
-      type: 'monthly',
-      title: 'Monthly Summary Report',
-      date_range: dateRange,
-      data: {
-        total_invoices: totalInvoices,
-        total_invoice_amount: totalInvoiceAmount,
-        total_paid: totalPaid,
-        outstanding: totalInvoiceAmount - totalPaid,
-        collection_rate: totalInvoiceAmount > 0 ? (totalPaid / totalInvoiceAmount) * 100 : 0,
-      },
+      total_invoices: filteredInvoices.length,
+      total_invoice_amount: totalInvoiceAmount,
+      total_paid: totalPaid,
+      outstanding: totalInvoiceAmount - totalPaid,
+      collection_rate: totalInvoiceAmount > 0 ? (totalPaid / totalInvoiceAmount) * 100 : 0,
     }
-  }
-
-  const handleGenerateReport = () => {
-    let report: any
-
-    switch (selectedReportType) {
-      case 'aging':
-        report = generateAgingReport()
-        break
-      case 'payment':
-        report = generatePaymentReport()
-        break
-      case 'invoice':
-        report = generateInvoiceReport()
-        break
-      case 'broker':
-        report = generateBrokerReport()
-        break
-      case 'monthly':
-        report = generateMonthlyReport()
-        break
-      default:
-        report = generateAgingReport()
-    }
-
-    setGeneratedReport(report)
-    setShowReportModal(true)
-  }
-
-  const handleExportPDF = () => {
-    // TODO: Implement PDF export
-    alert('PDF export functionality will be implemented')
-  }
+  }, [clientInvoices, clientPayments, filterByDateRange])
 
   const handleExportCSV = () => {
-    if (!generatedReport) return
-
     let csvContent = ''
     let filename = ''
 
-    switch (generatedReport.type) {
+    switch (selectedReportType) {
       case 'aging':
         csvContent = 'Period,Amount,Invoice Count\n'
-        generatedReport.data.forEach((item: any) => {
+        agingReport.buckets.forEach((item) => {
           csvContent += `${item.period},${item.amount},${item.invoice_count}\n`
         })
         filename = `aging_report_${dateRange.start_date}_to_${dateRange.end_date}.csv`
         break
       case 'payment':
         csvContent = 'Method,Amount,Count\n'
-        generatedReport.data.payment_methods.forEach((item: any) => {
+        paymentReport.payment_methods.forEach((item) => {
           csvContent += `${item.method},${item.amount},${item.count}\n`
         })
         filename = `payment_report_${dateRange.start_date}_to_${dateRange.end_date}.csv`
         break
       case 'invoice':
         csvContent = 'Status,Count,Amount\n'
-        generatedReport.data.by_status.forEach((item: any) => {
+        invoiceReport.by_status.forEach((item) => {
           csvContent += `${item.status},${item.count},${item.amount}\n`
         })
         filename = `invoice_report_${dateRange.start_date}_to_${dateRange.end_date}.csv`
         break
       case 'broker':
-        csvContent = 'Broker,Total Invoices,Total Amount,Paid Amount,Pending Amount,Avg Days to Pay\n'
-        generatedReport.data.forEach((item: any) => {
-          csvContent += `${item.broker_name},${item.total_invoices},${item.total_amount},${item.paid_amount},${item.pending_amount},${item.average_days_to_pay}\n`
+        csvContent = 'Broker,Total Invoices,Total Amount,Paid Amount,Pending Amount,Collection Rate\n'
+        brokerReport.forEach((item) => {
+          csvContent += `${item.broker_name},${item.total_invoices},${item.total_amount},${item.paid_amount},${item.pending_amount},${item.collection_rate.toFixed(1)}%\n`
         })
         filename = `broker_report_${dateRange.start_date}_to_${dateRange.end_date}.csv`
         break
-      default:
-        return
+      case 'monthly':
+        csvContent = 'Metric,Value\n'
+        csvContent += `Total Invoices,${monthlyReport.total_invoices}\n`
+        csvContent += `Invoice Amount,${monthlyReport.total_invoice_amount}\n`
+        csvContent += `Total Paid,${monthlyReport.total_paid}\n`
+        csvContent += `Outstanding,${monthlyReport.outstanding}\n`
+        csvContent += `Collection Rate,${monthlyReport.collection_rate.toFixed(1)}%\n`
+        filename = `monthly_report_${dateRange.start_date}_to_${dateRange.end_date}.csv`
+        break
     }
 
     const blob = new Blob([csvContent], { type: 'text/csv' })
@@ -274,467 +297,420 @@ export default function ClientReports() {
     URL.revokeObjectURL(url)
   }
 
-  const reportTypes = [
-    { value: 'aging', label: 'Aging A/R Report', icon: Calendar, description: 'View accounts receivable aging breakdown' },
-    { value: 'payment', label: 'Payment Summary', icon: DollarSign, description: 'Payment history and method analysis' },
-    { value: 'invoice', label: 'Invoice Status', icon: FileText, description: 'Invoice status breakdown and statistics' },
-    { value: 'broker', label: 'Broker Performance', icon: BarChart3, description: 'Broker payment performance analysis' },
-    { value: 'monthly', label: 'Monthly Summary', icon: TrendingUp, description: 'Monthly financial summary and metrics' },
+  const handleExportPDF = () => {
+    alert('PDF export will be available in a future update.')
+  }
+
+  const reportTabs: { id: ReportType; label: string; icon: typeof Calendar }[] = [
+    { id: 'aging', label: 'Aging', icon: Calendar },
+    { id: 'payment', label: 'Payments', icon: DollarSign },
+    { id: 'invoice', label: 'Invoices', icon: FileText },
+    { id: 'broker', label: 'Brokers', icon: Building2 },
+    { id: 'monthly', label: 'Monthly', icon: TrendingUp },
   ]
+
+  const inputCompactStyle = {
+    backgroundColor: c.card,
+    height: 34,
+    paddingTop: 6,
+    paddingBottom: 6,
+    fontSize: 13,
+  } as const
+
+  const maxBrokerAmount = brokerReport[0]?.total_amount ?? 1
+  const maxStatusAmount = Math.max(...invoiceReport.by_status.map((s) => s.amount), 1)
+  const maxMethodAmount = Math.max(...paymentReport.payment_methods.map((m) => m.amount), 1)
+  const maxAgingAmount = Math.max(...agingReport.buckets.map((b) => b.amount), 1)
 
   return (
     <ClientLayout clientName={data.client_name} clientId={data.client_id}>
-      <div>
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
-            Reports
-          </h2>
-          <p style={{ color: '#64748b' }}>Generate and export detailed reports</p>
+      <div className="client-reports-page space-y-4">
+        <div className="page-tabs">
+          {reportTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setSelectedReportType(tab.id)}
+              className={`page-tab inline-flex items-center gap-1.5 ${
+                selectedReportType === tab.id ? 'page-tab--active' : ''
+              }`}
+            >
+              <tab.icon className="w-3.5 h-3.5" />
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* Report Type Selection */}
-        <div className="bg-white border rounded mb-6 p-6" style={{ borderColor: '#e2e8f0' }}>
-          <h3 className="text-lg font-semibold mb-4" style={{ color: '#113543' }}>
-            Select Report Type
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {reportTypes.map((report) => {
-              const Icon = report.icon
-              return (
-                <button
-                  key={report.value}
-                  onClick={() => setSelectedReportType(report.value)}
-                  className="p-4 border rounded text-left transition-colors"
+        <section
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border rounded-xl overflow-hidden"
+          style={{ borderColor: c.border }}
+        >
+          {selectedReportType === 'aging' && (
+            <>
+              <StatCell label="Total A/R" value={formatCurrency(agingReport.total_ar)} icon={DollarSign} bg={c.stat.blue} iconColor={c.info} />
+              <StatCell label="Open invoices" value={String(agingReport.total_invoices)} icon={FileText} bg={c.stat.slate} iconColor={c.secondary} />
+              <StatCell label="Largest bucket" value={formatCurrency(maxAgingAmount)} icon={BarChart3} bg={c.stat.amber} iconColor={c.warning} />
+              <StatCell label="Over 91 days" value={formatCurrency(data.aging_ar.over_91)} icon={TrendingUp} bg={c.stat.red} iconColor={c.error} />
+            </>
+          )}
+          {selectedReportType === 'payment' && (
+            <>
+              <StatCell label="Total paid" value={formatCurrency(paymentReport.total_paid)} icon={DollarSign} bg={c.stat.green} iconColor={c.success} />
+              <StatCell label="Payments" value={String(paymentReport.payment_count)} icon={FileText} bg={c.stat.blue} iconColor={c.info} />
+              <StatCell label="Pending" value={String(paymentReport.pending_count)} icon={Calendar} bg={c.stat.amber} iconColor={c.warning} />
+              <StatCell label="Avg payment" value={formatCurrency(paymentReport.average_payment)} icon={TrendingUp} bg={c.stat.slate} iconColor={c.secondary} />
+            </>
+          )}
+          {selectedReportType === 'invoice' && (
+            <>
+              <StatCell label="Invoices" value={String(invoiceReport.total_invoices)} icon={FileText} bg={c.stat.blue} iconColor={c.info} />
+              <StatCell label="Total amount" value={formatCurrency(invoiceReport.total_amount)} icon={DollarSign} bg={c.stat.green} iconColor={c.success} />
+              <StatCell label="Status groups" value={String(invoiceReport.by_status.length)} icon={BarChart3} bg={c.stat.amber} iconColor={c.warning} />
+              <StatCell label="Date range" value={`${formatDate(dateRange.start_date)}`} icon={Calendar} bg={c.stat.slate} iconColor={c.secondary} isText />
+            </>
+          )}
+          {selectedReportType === 'broker' && (
+            <>
+              <StatCell label="Brokers" value={String(brokerReport.length)} icon={Building2} bg={c.stat.blue} iconColor={c.info} />
+              <StatCell label="Top broker volume" value={formatCurrency(maxBrokerAmount)} icon={DollarSign} bg={c.stat.green} iconColor={c.success} />
+              <StatCell
+                label="Avg collection"
+                value={`${brokerReport.length ? (brokerReport.reduce((s, b) => s + b.collection_rate, 0) / brokerReport.length).toFixed(0) : 0}%`}
+                icon={TrendingUp}
+                bg={c.stat.amber}
+                iconColor={c.warning}
+              />
+              <StatCell label="Invoices in range" value={String(clientInvoices.filter((i) => filterByDateRange(i.invoice_date)).length)} icon={FileText} bg={c.stat.slate} iconColor={c.secondary} />
+            </>
+          )}
+          {selectedReportType === 'monthly' && (
+            <>
+              <StatCell label="Invoiced" value={formatCurrency(monthlyReport.total_invoice_amount)} icon={DollarSign} bg={c.stat.blue} iconColor={c.info} />
+              <StatCell label="Collected" value={formatCurrency(monthlyReport.total_paid)} icon={DollarSign} bg={c.stat.green} iconColor={c.success} />
+              <StatCell label="Outstanding" value={formatCurrency(monthlyReport.outstanding)} icon={TrendingUp} bg={c.stat.amber} iconColor={c.warning} />
+              <StatCell label="Collection rate" value={`${monthlyReport.collection_rate.toFixed(1)}%`} icon={BarChart3} bg={c.stat.slate} iconColor={c.secondary} />
+            </>
+          )}
+        </section>
+
+        <div
+          className="dashboard-card px-4 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"
+        >
+          <div className="flex flex-wrap gap-1.5">
+            {(
+              [
+                { id: 'mtd' as const, label: 'MTD' },
+                { id: '30d' as const, label: '30 days' },
+                { id: '90d' as const, label: '90 days' },
+                { id: 'ytd' as const, label: 'YTD' },
+              ] as const
+            ).map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => applyPreset(preset.id)}
+                className={`batch-filter-pill ${datePreset === preset.id ? 'batch-filter-pill--active' : ''}`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2">
+            <input
+              type="date"
+              value={dateRange.start_date}
+              onChange={(e) => {
+                setDatePreset('custom')
+                setDateRange((prev) => ({ ...prev, start_date: e.target.value }))
+              }}
+              className="client-input"
+              style={inputCompactStyle}
+              aria-label="Start date"
+            />
+            <span className="text-xs font-medium hidden sm:inline" style={{ color: c.secondary }}>
+              to
+            </span>
+            <input
+              type="date"
+              value={dateRange.end_date}
+              onChange={(e) => {
+                setDatePreset('custom')
+                setDateRange((prev) => ({ ...prev, end_date: e.target.value }))
+              }}
+              className="client-input"
+              style={inputCompactStyle}
+              aria-label="End date"
+            />
+            <button type="button" onClick={handleExportCSV} className="dashboard-btn-secondary shrink-0">
+              <Download className="w-3.5 h-3.5" />
+              CSV
+            </button>
+            <button type="button" onClick={handleExportPDF} className="dashboard-btn-secondary shrink-0">
+              <Download className="w-3.5 h-3.5" />
+              PDF
+            </button>
+          </div>
+        </div>
+
+        {selectedReportType === 'aging' && (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <DashboardPanel title="A/R distribution" compact interactive={false}>
+              <AgingARChart aging={data.aging_ar} />
+            </DashboardPanel>
+            <DashboardPanel title="Aging breakdown" compact interactive={false}>
+              <div className="p-5 space-y-4">
+                {agingReport.buckets.map((bucket) => (
+                  <ReportBarRow
+                    key={bucket.period}
+                    label={bucket.period}
+                    value={bucket.amount}
+                    max={maxAgingAmount}
+                    color={bucket.color}
+                    display={`${formatCurrency(bucket.amount)} · ${bucket.invoice_count} inv`}
+                  />
+                ))}
+              </div>
+            </DashboardPanel>
+          </div>
+        )}
+
+        {selectedReportType === 'payment' && (
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div className="xl:col-span-2">
+              <DashboardPanel title="Payment trends" compact interactive={false}>
+                <PaymentTrendsChart payments={clientPayments} />
+              </DashboardPanel>
+            </div>
+            <DashboardPanel title="By method" compact interactive={false}>
+              <div className="p-5 space-y-4">
+                {paymentReport.payment_methods.length === 0 ? (
+                  <p className="text-sm text-center py-8" style={{ color: c.secondary }}>
+                    No confirmed payments in this range
+                  </p>
+                ) : (
+                  paymentReport.payment_methods.map((method) => (
+                    <ReportBarRow
+                      key={method.method}
+                      label={method.method}
+                      value={method.amount}
+                      max={maxMethodAmount}
+                      color={c.info}
+                      display={`${formatCurrency(method.amount)} · ${method.count}`}
+                    />
+                  ))
+                )}
+              </div>
+            </DashboardPanel>
+          </div>
+        )}
+
+        {selectedReportType === 'invoice' && (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <DashboardPanel title="Status mix" compact interactive={false}>
+              <div className="p-5 space-y-4">
+                {invoiceReport.by_status.length === 0 ? (
+                  <p className="text-sm text-center py-8" style={{ color: c.secondary }}>
+                    No invoices in this range
+                  </p>
+                ) : (
+                  invoiceReport.by_status.map((row) => (
+                    <ReportBarRow
+                      key={row.status}
+                      label={row.status}
+                      value={row.amount}
+                      max={maxStatusAmount}
+                      color={row.color}
+                      display={`${formatCurrency(row.amount)} · ${row.count}`}
+                    />
+                  ))
+                )}
+              </div>
+            </DashboardPanel>
+            <DashboardPanel title="Status detail" compact interactive={false}>
+              <div className="overflow-x-auto">
+                <table className="dashboard-table dashboard-table--compact">
+                  <thead>
+                    <tr>
+                      <th>Status</th>
+                      <th className="text-right">Count</th>
+                      <th className="text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoiceReport.by_status.map((row) => (
+                      <tr key={row.status}>
+                        <td className="font-medium">{row.status}</td>
+                        <td className="text-right tabular-nums">{row.count}</td>
+                        <td className="text-right font-medium tabular-nums">
+                          {formatCurrency(row.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </DashboardPanel>
+          </div>
+        )}
+
+        {selectedReportType === 'broker' && (
+          <DashboardPanel title="Broker performance" compact interactive={false}>
+            <div className="p-5 space-y-5 border-b" style={{ borderColor: c.border }}>
+              {brokerReport.length === 0 ? (
+                <p className="text-sm text-center py-6" style={{ color: c.secondary }}>
+                  No broker activity in this range
+                </p>
+              ) : (
+                brokerReport.slice(0, 6).map((broker, index) => (
+                  <ReportBarRow
+                    key={broker.broker_name}
+                    label={broker.broker_name}
+                    value={broker.total_amount}
+                    max={maxBrokerAmount}
+                    color={[c.chart.blue, c.chart.cyan, c.chart.purple, c.chart.amber, c.chart.orange, c.chart.red][index % 6]}
+                    display={formatCurrency(broker.total_amount)}
+                  />
+                ))
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="dashboard-table dashboard-table--compact">
+                <thead>
+                  <tr>
+                    <th>Broker</th>
+                    <th className="text-right">Invoices</th>
+                    <th className="text-right">Volume</th>
+                    <th className="text-right">Paid</th>
+                    <th className="text-right">Collection</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {brokerReport.map((broker) => (
+                    <tr key={broker.broker_name}>
+                      <td className="font-semibold truncate max-w-[180px]">{broker.broker_name}</td>
+                      <td className="text-right tabular-nums">{broker.total_invoices}</td>
+                      <td className="text-right font-medium tabular-nums">
+                        {formatCurrency(broker.total_amount)}
+                      </td>
+                      <td className="text-right tabular-nums" style={{ color: c.success }}>
+                        {formatCurrency(broker.paid_amount)}
+                      </td>
+                      <td className="text-right tabular-nums">
+                        {broker.collection_rate.toFixed(0)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </DashboardPanel>
+        )}
+
+        {selectedReportType === 'monthly' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <DashboardPanel title="Collection rate" compact interactive={false} className="lg:col-span-1">
+              <div className="p-6 flex flex-col items-center justify-center">
+                <div
+                  className="relative w-40 h-40 rounded-full flex items-center justify-center"
                   style={{
-                    borderColor: selectedReportType === report.value ? '#0891b2' : '#64748b',
-                    backgroundColor: selectedReportType === report.value ? '#f8f9fa' : '#FFFFFF',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (selectedReportType !== report.value) {
-                      e.currentTarget.style.borderColor = '#0891b2'
-                      e.currentTarget.style.backgroundColor = '#f8f9fa'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (selectedReportType !== report.value) {
-                      e.currentTarget.style.borderColor = '#64748b'
-                      e.currentTarget.style.backgroundColor = '#FFFFFF'
-                    }
+                    background: `conic-gradient(${c.success} ${monthlyReport.collection_rate}%, ${c.chartGrid} 0)`,
                   }}
                 >
-                  <div className="flex items-center space-x-3 mb-2">
-                    <Icon className="w-5 h-5" style={{ color: '#0891b2' }} />
-                    <span className="font-medium" style={{ color: '#113543' }}>
-                      {report.label}
+                  <div
+                    className="absolute inset-3 rounded-full flex flex-col items-center justify-center"
+                    style={{ backgroundColor: c.card }}
+                  >
+                    <span className="text-3xl font-bold tabular-nums" style={{ color: c.primary }}>
+                      {monthlyReport.collection_rate.toFixed(0)}%
+                    </span>
+                    <span className="text-xs font-medium mt-1" style={{ color: c.secondary }}>
+                      collected
                     </span>
                   </div>
-                  <p className="text-xs" style={{ color: '#64748b' }}>
-                    {report.description}
-                  </p>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Date Range Selection */}
-        <div className="bg-white border rounded mb-6 p-6" style={{ borderColor: '#e2e8f0' }}>
-          <h3 className="text-lg font-semibold mb-4" style={{ color: '#113543' }}>
-            Date Range
-          </h3>
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                Start Date
-              </label>
-              <input
-                type="date"
-                value={dateRange.start_date}
-                onChange={(e) => setDateRange({ ...dateRange, start_date: e.target.value })}
-                className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                style={{
-                  borderColor: '#e2e8f0',
-                  color: '#113543',
-                  backgroundColor: '#FFFFFF',
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#0891b2'
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = '#64748b'
-                }}
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                End Date
-              </label>
-              <input
-                type="date"
-                value={dateRange.end_date}
-                onChange={(e) => setDateRange({ ...dateRange, end_date: e.target.value })}
-                className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                style={{
-                  borderColor: '#e2e8f0',
-                  color: '#113543',
-                  backgroundColor: '#FFFFFF',
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#0891b2'
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = '#64748b'
-                }}
-              />
-            </div>
-            <div className="flex items-end">
-              <button
-                onClick={handleGenerateReport}
-                className="px-6 py-2 text-sm font-medium transition-colors"
-                style={{
-                  backgroundColor: '#113543',
-                  color: '#FFFFFF',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#0d2a35'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#113543'
-                }}
-              >
-                Generate Report
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Report Modal */}
-      {showReportModal && generatedReport && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" style={{ backgroundColor: '#FFFFFF' }}>
-            <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: '#e2e8f0' }}>
-              <div>
-                <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
-                  {generatedReport.title}
-                </h3>
-                <p className="text-sm mt-1" style={{ color: '#64748b' }}>
-                  {formatDate(generatedReport.date_range.start_date)} - {formatDate(generatedReport.date_range.end_date)}
+                </div>
+                <p className="text-sm mt-4 text-center" style={{ color: c.secondary }}>
+                  {formatCurrency(monthlyReport.total_paid)} of{' '}
+                  {formatCurrency(monthlyReport.total_invoice_amount)} invoiced
                 </p>
               </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={handleExportCSV}
-                  className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded transition-colors"
-                  style={{
-                    color: '#113543',
-                    border: '1px solid #e2e8f0',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#f8f9fa'
-                    e.currentTarget.style.borderColor = '#0891b2'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#FFFFFF'
-                    e.currentTarget.style.borderColor = '#64748b'
-                  }}
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Export CSV</span>
-                </button>
-                <button
-                  onClick={handleExportPDF}
-                  className="flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded transition-colors"
-                  style={{
-                    color: '#113543',
-                    border: '1px solid #e2e8f0',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#f8f9fa'
-                    e.currentTarget.style.borderColor = '#0891b2'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#FFFFFF'
-                    e.currentTarget.style.borderColor = '#64748b'
-                  }}
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Export PDF</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setShowReportModal(false)
-                    setGeneratedReport(null)
-                  }}
-                  className="p-2 hover:bg-gray-100 rounded transition-colors"
-                  style={{ color: '#113543' }}
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-6">
-              {/* Aging Report */}
-              {generatedReport.type === 'aging' && (
-                <div>
-                  {generatedReport.summary && (
-                    <div className="grid grid-cols-2 gap-4 mb-6">
-                      <div className="bg-gray-50 p-4 rounded">
-                        <p className="text-sm" style={{ color: '#64748b' }}>Total A/R</p>
-                        <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                          {formatCurrency(generatedReport.summary.total_ar)}
-                        </p>
-                      </div>
-                      <div className="bg-gray-50 p-4 rounded">
-                        <p className="text-sm" style={{ color: '#64748b' }}>Total Invoices</p>
-                        <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                          {generatedReport.summary.total_invoices}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead style={{ backgroundColor: '#f8f9fa' }}>
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                            Period
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                            Amount
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                            Invoice Count
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y" style={{ borderColor: '#e2e8f0' }}>
-                        {generatedReport.data.map((item: any, index: number) => (
-                          <tr key={index}>
-                            <td className="px-4 py-3 text-sm" style={{ color: '#113543' }}>
-                              {item.period}
-                            </td>
-                            <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
-                              {formatCurrency(item.amount)}
-                            </td>
-                            <td className="px-4 py-3 text-sm" style={{ color: '#64748b' }}>
-                              {item.invoice_count}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Payment Report */}
-              {generatedReport.type === 'payment' && (
-                <div>
-                  <div className="grid grid-cols-3 gap-4 mb-6">
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#64748b' }}>Total Paid</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                        {formatCurrency(generatedReport.data.total_paid)}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#64748b' }}>Payment Count</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                        {generatedReport.data.payment_count}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#64748b' }}>Average Payment</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                        {formatCurrency(generatedReport.data.average_payment)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead style={{ backgroundColor: '#f8f9fa' }}>
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                            Payment Method
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                            Amount
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                            Count
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y" style={{ borderColor: '#e2e8f0' }}>
-                        {generatedReport.data.payment_methods.map((item: any, index: number) => (
-                          <tr key={index}>
-                            <td className="px-4 py-3 text-sm" style={{ color: '#113543' }}>
-                              {item.method}
-                            </td>
-                            <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
-                              {formatCurrency(item.amount)}
-                            </td>
-                            <td className="px-4 py-3 text-sm" style={{ color: '#64748b' }}>
-                              {item.count}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Invoice Report */}
-              {generatedReport.type === 'invoice' && (
-                <div>
-                  <div className="grid grid-cols-2 gap-4 mb-6">
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#64748b' }}>Total Invoices</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                        {generatedReport.data.total_invoices}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#64748b' }}>Total Amount</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                        {formatCurrency(generatedReport.data.total_amount)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead style={{ backgroundColor: '#f8f9fa' }}>
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                            Status
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                            Count
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                            Amount
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y" style={{ borderColor: '#e2e8f0' }}>
-                        {generatedReport.data.by_status.map((item: any, index: number) => (
-                          <tr key={index}>
-                            <td className="px-4 py-3 text-sm" style={{ color: '#113543' }}>
-                              {item.status}
-                            </td>
-                            <td className="px-4 py-3 text-sm" style={{ color: '#64748b' }}>
-                              {item.count}
-                            </td>
-                            <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
-                              {formatCurrency(item.amount)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Broker Report */}
-              {generatedReport.type === 'broker' && (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead style={{ backgroundColor: '#f8f9fa' }}>
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                          Broker
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                          Total Invoices
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                          Total Amount
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                          Paid Amount
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                          Pending Amount
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: '#113543' }}>
-                          Avg Days to Pay
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y" style={{ borderColor: '#e2e8f0' }}>
-                      {generatedReport.data.map((item: any, index: number) => (
-                        <tr key={index}>
-                          <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
-                            {item.broker_name}
-                          </td>
-                          <td className="px-4 py-3 text-sm" style={{ color: '#64748b' }}>
-                            {item.total_invoices}
-                          </td>
-                          <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
-                            {formatCurrency(item.total_amount)}
-                          </td>
-                          <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
-                            {formatCurrency(item.paid_amount)}
-                          </td>
-                          <td className="px-4 py-3 text-sm font-medium" style={{ color: '#113543' }}>
-                            {formatCurrency(item.pending_amount)}
-                          </td>
-                          <td className="px-4 py-3 text-sm" style={{ color: '#64748b' }}>
-                            {item.average_days_to_pay} days
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Monthly Report */}
-              {generatedReport.type === 'monthly' && (
-                <div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#64748b' }}>Total Invoices</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                        {generatedReport.data.total_invoices}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#64748b' }}>Total Invoice Amount</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                        {formatCurrency(generatedReport.data.total_invoice_amount)}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#64748b' }}>Total Paid</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                        {formatCurrency(generatedReport.data.total_paid)}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#64748b' }}>Outstanding</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                        {formatCurrency(generatedReport.data.outstanding)}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded">
-                      <p className="text-sm" style={{ color: '#64748b' }}>Collection Rate</p>
-                      <p className="text-xl font-bold mt-1" style={{ color: '#113543' }}>
-                        {generatedReport.data.collection_rate.toFixed(1)}%
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
+            </DashboardPanel>
+            <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <MetricCard label="Invoices submitted" value={String(monthlyReport.total_invoices)} sub="in selected range" />
+              <MetricCard label="Invoice volume" value={formatCurrency(monthlyReport.total_invoice_amount)} sub="gross billed" />
+              <MetricCard label="Cash collected" value={formatCurrency(monthlyReport.total_paid)} sub="confirmed payments" accent={c.success} />
+              <MetricCard label="Still outstanding" value={formatCurrency(monthlyReport.outstanding)} sub="open balance" accent={c.warning} />
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </ClientLayout>
   )
 }
 
+function StatCell({
+  label,
+  value,
+  icon: Icon,
+  bg,
+  iconColor,
+  isText,
+}: {
+  label: string
+  value: string
+  icon: typeof DollarSign
+  bg: string
+  iconColor: string
+  isText?: boolean
+}) {
+  const c = useClientTheme()
+  return (
+    <div
+      className="flex items-center justify-between gap-2 px-4 py-2.5 border-b sm:border-b-0 sm:border-r last:border-r-0"
+      style={{ backgroundColor: bg, borderColor: c.border }}
+    >
+      <div className="flex items-center gap-1.5 min-w-0">
+        <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: iconColor }} />
+        <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+          {label}
+        </span>
+      </div>
+      <span
+        className={`${isText ? 'text-sm' : 'text-lg'} font-bold tabular-nums shrink-0`}
+        style={{ color: c.primary }}
+      >
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function MetricCard({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string
+  value: string
+  sub: string
+  accent?: string
+}) {
+  const c = useClientTheme()
+  return (
+    <div className="dashboard-card p-5">
+      <p className="text-xs font-medium" style={{ color: c.secondary }}>
+        {label}
+      </p>
+      <p
+        className="text-2xl font-bold tabular-nums mt-1"
+        style={{ color: accent ?? c.primary }}
+      >
+        {value}
+      </p>
+      <p className="text-xs mt-1" style={{ color: c.mutedLight }}>
+        {sub}
+      </p>
+    </div>
+  )
+}

@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import {
   Boxes,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Plus,
   Search,
@@ -9,6 +11,13 @@ import {
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
+import ClientSortableHeader from './ClientSortableHeader'
+import ClientListTd from './ClientListTd'
+import {
+  getInitialListPageSize,
+  PAGE_SIZE_OPTIONS,
+  type SortDir,
+} from '../../utils/clientListPage'
 
 export interface ClientBatchListItem {
   id: string
@@ -33,6 +42,15 @@ interface ClientBatchesListViewProps {
 
 type StatusFilter = 'all' | 'pending' | 'review' | 'processed'
 
+type BatchSortField =
+  | 'batch_number'
+  | 'submitted_at'
+  | 'total_invoices'
+  | 'total_amount'
+  | 'status'
+  | 'reviewed_at'
+  | 'outcome'
+
 const STATUS_FILTER_MATCH: Record<StatusFilter, (status: string) => boolean> = {
   all: () => true,
   pending: (s) => ['draft', 'ready_to_post', 'documents_uploaded'].includes(s),
@@ -51,7 +69,7 @@ function getBatchStatusBadge(status: string) {
     processing: { label: 'Processing', className: 'status-pill--approved' },
   }
   const config = map[status] ?? { label: status.replace(/_/g, ' '), className: 'status-pill--pending-batch' }
-  return <span className={`status-pill ${config.className}`}>{config.label}</span>
+  return <span className={`inline-flex items-center status-pill ${config.className}`}>{config.label}</span>
 }
 
 /** Polished batch list for the client portal View Batches tab. */
@@ -65,6 +83,10 @@ export default function ClientBatchesListView({
   const c = useClientTheme()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [sortField, setSortField] = useState<BatchSortField>('submitted_at')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const stats = useMemo(() => {
     const pending = batches.filter((b) => STATUS_FILTER_MATCH.pending(b.status)).length
@@ -86,6 +108,86 @@ export default function ClientBatchesListView({
     })
   }, [batches, searchTerm, statusFilter])
 
+  const sortedBatches = useMemo(() => {
+    const sorted = [...filteredBatches]
+    sorted.sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'batch_number':
+          cmp = a.batch_number.localeCompare(b.batch_number, undefined, { numeric: true })
+          break
+        case 'submitted_at':
+          cmp = new Date(a.submitted_at).getTime() - new Date(b.submitted_at).getTime()
+          break
+        case 'total_invoices':
+          cmp = a.total_invoices - b.total_invoices
+          break
+        case 'total_amount':
+          cmp = a.total_amount - b.total_amount
+          break
+        case 'status':
+          cmp = a.status.localeCompare(b.status)
+          break
+        case 'reviewed_at':
+          cmp =
+            (a.reviewed_at ? new Date(a.reviewed_at).getTime() : 0) -
+            (b.reviewed_at ? new Date(b.reviewed_at).getTime() : 0)
+          break
+        case 'outcome':
+          cmp = (a.approved_count ?? -1) - (b.approved_count ?? -1)
+          break
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [filteredBatches, sortField, sortDir])
+
+  const totalPages = Math.max(1, Math.ceil(sortedBatches.length / pageSize))
+
+  const paginatedBatches = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return sortedBatches.slice(start, start + pageSize)
+  }, [sortedBatches, currentPage, pageSize])
+
+  const pageStart = sortedBatches.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const pageEnd = Math.min(currentPage * pageSize, sortedBatches.length)
+
+  const handleSort = useCallback(
+    (field: BatchSortField) => {
+      if (sortField === field) {
+        setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
+      } else {
+        setSortField(field)
+        const defaultDesc =
+          field === 'submitted_at' ||
+          field === 'total_invoices' ||
+          field === 'total_amount' ||
+          field === 'reviewed_at' ||
+          field === 'outcome'
+        setSortDir(defaultDesc ? 'desc' : 'asc')
+      }
+    },
+    [sortField]
+  )
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, statusFilter, pageSize, sortField, sortDir])
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
+
+  useEffect(() => {
+    if (!highlightedBatchId) return
+    const highlightIndex = sortedBatches.findIndex((batch) => batch.id === highlightedBatchId)
+    if (highlightIndex >= 0) {
+      setCurrentPage(Math.floor(highlightIndex / pageSize) + 1)
+    }
+  }, [highlightedBatchId, sortedBatches, pageSize])
+
   const inputStyle = {
     backgroundColor: c.card,
     height: 34,
@@ -102,9 +204,9 @@ export default function ClientBatchesListView({
   ]
 
   return (
-    <div className="client-batches-page overflow-hidden">
+    <div className="client-batches-page overflow-hidden flex flex-col min-h-0">
       <section
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b"
+        className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
         style={{ borderColor: c.border }}
       >
         <div
@@ -163,7 +265,7 @@ export default function ClientBatchesListView({
       </section>
 
       <div
-        className="px-4 py-2.5 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2"
+        className="client-page-toolbar px-4 py-2 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 shrink-0"
         style={{ borderColor: c.border, backgroundColor: c.card }}
       >
         <div className="flex flex-wrap gap-1.5">
@@ -179,119 +281,234 @@ export default function ClientBatchesListView({
             </button>
           ))}
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto lg:min-w-[320px]">
-          <div className="relative flex-1">
-            <Search
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
-              style={{ color: c.secondary }}
-            />
-            <input
-              type="text"
-              placeholder="Search batch number..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="client-input pl-8"
-              style={inputStyle}
-            />
-          </div>
-          <button type="button" onClick={onCreateBatch} className="dashboard-btn-primary shrink-0">
-            <Plus className="w-3.5 h-3.5" />
-            New batch
-          </button>
+        <div className="relative w-full lg:w-auto lg:min-w-[280px] lg:max-w-sm">
+          <Search
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
+            style={{ color: c.secondary }}
+          />
+          <input
+            type="text"
+            placeholder="Search batch number..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="client-input pl-8 w-full"
+            style={inputStyle}
+          />
         </div>
       </div>
 
-      {filteredBatches.length === 0 ? (
-        <div className="text-center py-12 px-4">
-          <Boxes className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
-          <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
-            No batches found
-          </p>
-          <p className="text-sm mb-4" style={{ color: c.secondary }}>
-            {searchTerm || statusFilter !== 'all'
-              ? 'Try adjusting your search or filters'
-              : 'Submit your first batch to get started'}
-          </p>
-          {!searchTerm && statusFilter === 'all' && (
-            <button type="button" onClick={onCreateBatch} className="dashboard-btn-primary">
-              <Plus className="w-3.5 h-3.5" />
-              Create batch
-            </button>
-          )}
+      {sortedBatches.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-center py-12 px-4">
+          <div>
+            <Boxes className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
+            <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
+              No batches found
+            </p>
+            <p className="text-sm mb-4" style={{ color: c.secondary }}>
+              {searchTerm || statusFilter !== 'all'
+                ? 'Try adjusting your search or filters'
+                : 'Submit your first batch to get started'}
+            </p>
+            {!searchTerm && statusFilter === 'all' && (
+              <button type="button" onClick={onCreateBatch} className="dashboard-btn-primary">
+                <Plus className="w-3.5 h-3.5" />
+                Create batch
+              </button>
+            )}
+          </div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="dashboard-table dashboard-table--compact">
-            <thead>
-              <tr>
-                <th>Batch#</th>
-                <th>Submitted</th>
-                <th className="text-right">Invoices</th>
-                <th className="text-right">Amount</th>
-                <th>Status</th>
-                <th>Reviewed</th>
-                <th className="text-center">Outcome</th>
-                {onDeleteDraft && <th className="text-center w-16"> </th>}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredBatches.map((batch) => {
-                const isHighlighted = highlightedBatchId === batch.id
-                const isProcessed = STATUS_FILTER_MATCH.processed(batch.status)
-                const isDraft = batch.status === 'draft'
-                return (
-                  <tr
-                    key={batch.id}
-                    className={`cursor-pointer transition-colors ${isHighlighted ? 'batch-highlight-row' : ''}`}
-                    onClick={() => onSelectBatch(batch.id)}
-                  >
-                    <td className="font-semibold">{batch.batch_number}</td>
-                    <td style={{ color: c.secondary }}>{formatDate(batch.submitted_at)}</td>
-                    <td className="text-right tabular-nums">{batch.total_invoices}</td>
-                    <td className="text-right font-medium tabular-nums">
-                      {formatCurrency(batch.total_amount)}
-                    </td>
-                    <td>{getBatchStatusBadge(batch.status)}</td>
-                    <td style={{ color: c.secondary }}>
-                      {batch.reviewed_at ? formatDate(batch.reviewed_at) : '—'}
-                    </td>
-                    <td className="text-center">
-                      {isProcessed && batch.approved_count != null ? (
-                        <span className="text-xs font-medium" style={{ color: c.success }}>
-                          {batch.approved_count} approved
-                          {(batch.rejected_count ?? 0) > 0 && (
-                            <span style={{ color: c.error }}> · {batch.rejected_count} rejected</span>
-                          )}
-                        </span>
-                      ) : (
-                        <span style={{ color: c.mutedLight }}>—</span>
-                      )}
-                    </td>
-                    {onDeleteDraft && (
-                      <td className="text-center">
-                        {isDraft ? (
-                          <button
-                            type="button"
-                            className="client-batches-list__delete-draft"
-                            title="Delete draft"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onDeleteDraft(batch.id)
-                            }}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+        <>
+          <div className="client-table-scroll client-table-scroll--mobile-stack flex-1 min-h-0 overflow-y-auto overflow-x-auto">
+            <table className="dashboard-table dashboard-table--compact">
+              <thead>
+                <tr>
+                  <ClientSortableHeader
+                    field="batch_number"
+                    label="Batch#"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+                  <ClientSortableHeader
+                    field="submitted_at"
+                    label="Submitted"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+                  <ClientSortableHeader
+                    field="total_invoices"
+                    label="Invoices"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    className="text-right"
+                    align="right"
+                  />
+                  <ClientSortableHeader
+                    field="total_amount"
+                    label="Amount"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    className="text-right"
+                    align="right"
+                  />
+                  <ClientSortableHeader
+                    field="status"
+                    label="Status"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+                  <ClientSortableHeader
+                    field="reviewed_at"
+                    label="Reviewed"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+                  <ClientSortableHeader
+                    field="outcome"
+                    label="Outcome"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    className="text-center"
+                    align="center"
+                  />
+                  {onDeleteDraft && <th className="text-center w-16"> </th>}
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedBatches.map((batch) => {
+                  const isHighlighted = highlightedBatchId === batch.id
+                  const isProcessed = STATUS_FILTER_MATCH.processed(batch.status)
+                  const isDraft = batch.status === 'draft'
+                  return (
+                    <tr
+                      key={batch.id}
+                      className={`cursor-pointer transition-colors ${isHighlighted ? 'batch-highlight-row' : ''}`}
+                      onClick={() => onSelectBatch(batch.id)}
+                    >
+                      <ClientListTd variant="primary" className="font-semibold">
+                        {batch.batch_number}
+                      </ClientListTd>
+                      <ClientListTd variant="desktop" label="Submitted" style={{ color: c.secondary }}>
+                        {formatDate(batch.submitted_at)}
+                      </ClientListTd>
+                      <ClientListTd variant="desktop" label="Invoices" className="text-right tabular-nums">
+                        {batch.total_invoices}
+                      </ClientListTd>
+                      <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
+                        {formatCurrency(batch.total_amount)}
+                      </ClientListTd>
+                      <ClientListTd variant="status">{getBatchStatusBadge(batch.status)}</ClientListTd>
+                      <ClientListTd
+                        variant="meta"
+                        className="truncate client-list-td--mobile-only"
+                        style={{ color: c.secondary }}
+                      >
+                        {batch.total_invoices} inv
+                      </ClientListTd>
+                      <ClientListTd variant="desktop" label="Reviewed" style={{ color: c.secondary }}>
+                        {batch.reviewed_at ? formatDate(batch.reviewed_at) : '—'}
+                      </ClientListTd>
+                      <ClientListTd variant="desktop" label="Outcome" className="text-center">
+                        {isProcessed && batch.approved_count != null ? (
+                          <span className="inline-flex items-center text-xs font-medium" style={{ color: c.success }}>
+                            {batch.approved_count} approved
+                            {(batch.rejected_count ?? 0) > 0 && (
+                              <span style={{ color: c.error }}> · {batch.rejected_count} rejected</span>
+                            )}
+                          </span>
                         ) : (
-                          <span style={{ color: c.mutedLight }}> </span>
+                          <span style={{ color: c.mutedLight }}>—</span>
                         )}
-                      </td>
-                    )}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </ClientListTd>
+                      {onDeleteDraft && (
+                        <ClientListTd variant="actions" className="text-center">
+                          {isDraft ? (
+                            <button
+                              type="button"
+                              className="client-batches-list__delete-draft inline-flex items-center justify-center"
+                              title="Delete draft"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onDeleteDraft(batch.id)
+                              }}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <span style={{ color: c.mutedLight }}> </span>
+                          )}
+                        </ClientListTd>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div
+            className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t shrink-0"
+            style={{ borderColor: c.border, backgroundColor: c.card }}
+          >
+            <p className="text-xs font-medium" style={{ color: c.secondary }}>
+              Showing {pageStart}–{pageEnd} of {sortedBatches.length}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: c.secondary }}>
+                Rows
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="client-input"
+                  style={{
+                    backgroundColor: c.card,
+                    height: 30,
+                    paddingTop: 4,
+                    paddingBottom: 4,
+                    fontSize: 12,
+                    width: 64,
+                  }}
+                >
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="table-page-btn"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs font-medium px-2 tabular-nums" style={{ color: c.primary }}>
+                  {currentPage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="table-page-btn"
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

@@ -95,7 +95,25 @@
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option--featured {
-  border-color: #3b82f6;
+  border-color: var(--cp-accent);
+  box-shadow: 0 0 0 1px rgba(212, 168, 83, 0.12), var(--cp-shadow-card);
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__option--featured:hover {
+  border-color: var(--cp-accent-hover);
+  box-shadow: 0 0 0 1px rgba(232, 192, 104, 0.18), var(--cp-shadow-hover);
+}
+
+.client-portal[data-theme='dark'] .client-submit-docs__option:focus-visible {
+  outline-color: var(--cp-accent);
+}
+
+.client-portal[data-theme='dark'] .client-ai-upload__progress-track {
+  background: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .client-ai-upload__progress-bar {
+  background: linear-gradient(90deg, #b8923f, #d4a853, #e8c068);
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option-title,
@@ -295,11 +313,35 @@
 /* Dashboard */
 .client-portal[data-theme='dark'] .client-main--flush,
 .client-portal[data-theme='dark'] main.p-5 {
-  background: var(--cp-surface);
+  background: transparent;
+}
+
+.client-portal[data-theme='dark'] .dashboard-card {
+  border-color: var(--cp-border);
+  box-shadow: var(--cp-shadow-card), inset 0 1px 0 rgba(212, 168, 83, 0.05);
+}
+
+.client-portal[data-theme='dark'] .dashboard-card-interactive:hover {
+  border-color: rgba(212, 168, 83, 0.3);
+  box-shadow: var(--cp-shadow-hover), 0 0 0 1px rgba(212, 168, 83, 0.12);
+}
+
+.client-portal[data-theme='dark'] .dashboard-metric-primary {
+  background: linear-gradient(155deg, #17171a 0%, #131316 55%, #111113 100%);
 }
 
 .client-portal[data-theme='dark'] .dashboard-metric-secondary {
   border: 1px solid var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .client-manual-batch__doc-badge {
+  background: #27272a;
+  color: #fafaf9;
+}
+
+.client-portal[data-theme='dark'] .client-manual-batch__doc-badge:hover {
+  background: #1c1810;
+  color: #d4a853;
 }
 
 /* Documents vault */

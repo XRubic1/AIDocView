@@ -4,6 +4,7 @@ import {
   ChevronDown,
   LogOut,
   Menu,
+  Upload,
   X,
   PanelLeftClose,
   PanelLeft,
@@ -357,7 +358,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
   return (
     <div
-      className="client-portal flex min-h-screen"
+      className="client-portal flex h-screen overflow-hidden"
       data-theme={resolvedTheme}
       style={{ backgroundColor: t.surface, ['--sidebar-width' as string]: `${sidebarWidth}px` }}
     >
@@ -406,7 +407,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 transition-all duration-200 lg:ml-[var(--sidebar-width)]">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-all duration-200 lg:ml-[var(--sidebar-width)]">
         <header
           className="sticky top-0 z-30 flex items-center justify-between gap-3 px-5 h-12 border-b"
           style={{ borderColor: t.border, backgroundColor: t.card }}
@@ -428,7 +429,18 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            <ThemeToggle compact />
+            <div className="hidden lg:block">
+              <ThemeToggle compact />
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/client/batches?tab=create')}
+              className="lg:hidden inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary"
+              aria-label="Submit documents — create new batch"
+            >
+              <Upload className="w-4 h-4" />
+              Upload
+            </button>
             <NotificationBell
               notifications={notifications}
               onMarkAsRead={handleMarkAsRead}
@@ -440,7 +452,11 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
           </div>
         </header>
 
-        <main className={`flex-1 w-full min-h-0 ${flushMain ? 'client-main--flush' : 'p-5'}`}>
+        <main
+          className={`flex-1 w-full min-h-0 ${
+            flushMain ? 'client-main--flush overflow-hidden' : 'p-5 overflow-y-auto'
+          }`}
+        >
           {children}
         </main>
       </div>
