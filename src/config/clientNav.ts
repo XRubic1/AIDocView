@@ -1,3 +1,4 @@
+import type { ClientCapabilities } from '../utils/clientCapabilities'
 import {
   LayoutDashboard,
   Boxes,
@@ -7,6 +8,7 @@ import {
   BarChart3,
   CreditCard,
   ClipboardList,
+  Building2,
   Settings,
   HelpCircle,
   type LucideIcon,
@@ -17,6 +19,8 @@ export interface ClientNavItem {
   path: string
   icon: LucideIcon
   badgeKey?: 'pendingBatches'
+  /** When set, item is hidden unless this returns true. */
+  showWhen?: (capabilities: ClientCapabilities) => boolean
 }
 
 export interface ClientNavSection {
@@ -32,13 +36,19 @@ export const clientNavSections: ClientNavSection[] = [
       { label: 'Batches', path: '/client/batches', icon: Boxes, badgeKey: 'pendingBatches' },
       { label: 'Invoices', path: '/client/invoices', icon: FileText },
       { label: 'Document Vault', path: '/client/documents', icon: FolderOpen },
-      { label: 'Submit docs', path: '/client/batches?tab=create', icon: Upload },
+      {
+        label: 'Submit docs',
+        path: '/client/batches?tab=create',
+        icon: Upload,
+        showWhen: (c) => c.canSubmitDocHandoff,
+      },
     ],
   },
   {
     title: 'FINANCE',
     items: [
       { label: 'Aging A/R', path: '/client/collections', icon: BarChart3 },
+      { label: 'Brokers', path: '/client/brokers', icon: Building2 },
       { label: 'Payments', path: '/client/payments', icon: CreditCard },
       { label: 'Reports', path: '/client/reports', icon: ClipboardList },
     ],
@@ -51,6 +61,18 @@ export const clientNavSections: ClientNavSection[] = [
     ],
   },
 ]
+
+/** Filter nav sections by client tier capabilities. */
+export function filterClientNavSections(
+  capabilities: ClientCapabilities
+): ClientNavSection[] {
+  return clientNavSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => !item.showWhen || item.showWhen(capabilities)),
+    }))
+    .filter((section) => section.items.length > 0)
+}
 
 /** Derive two-letter initials from a display name or email. */
 export function getInitials(name: string): string {

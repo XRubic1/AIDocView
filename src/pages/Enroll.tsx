@@ -8,9 +8,15 @@ import {
   DollarSign,
   Clock,
 } from 'lucide-react'
+import { SERVICE_PLANS } from '../config/servicePlans'
+import { createClient } from '../services/clientRegistry'
+import { notifyAdminClientEnrolled } from '../services/adminNotificationService'
+import type { ServiceTier } from '../types/client'
 
 export default function Enroll() {
   const navigate = useNavigate()
+  const [enrollStep, setEnrollStep] = useState<1 | 2>(1)
+  const [selectedTier, setSelectedTier] = useState<ServiceTier>('self_service')
   const [formData, setFormData] = useState({
     companyName: '',
     contactPerson: '',
@@ -29,23 +35,27 @@ export default function Enroll() {
     e.preventDefault()
     setIsSubmitting(true)
 
-    // Simulate form submission
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await new Promise((resolve) => setTimeout(resolve, 800))
+
+    const client = createClient({
+      name: formData.companyName,
+      contact_person: formData.contactPerson,
+      email: formData.email,
+      phone: formData.phone,
+      fleet_size: formData.fleetSize,
+      service_tier: selectedTier,
+      status: 'pending',
+    })
+
+    notifyAdminClientEnrolled({
+      clientId: client.id,
+      clientName: client.name,
+      email: client.email ?? formData.email,
+      tier: selectedTier,
+    })
 
     setIsSubmitting(false)
     setSubmitted(true)
-
-    // Reset form after 3 seconds
-    setTimeout(() => {
-      setSubmitted(false)
-      setFormData({
-        companyName: '',
-        contactPerson: '',
-        email: '',
-        phone: '',
-        fleetSize: '',
-      })
-    }, 3000)
   }
 
   return (
@@ -291,11 +301,74 @@ export default function Enroll() {
                 Thank You!
               </h3>
               <p style={{ color: '#047857' }}>
-                We've received your request. Our team will contact you within 24 hours.
+                Your application is under review. We&apos;ll email you when your account is activated.
               </p>
+            </div>
+          ) : enrollStep === 1 ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {SERVICE_PLANS.map((plan) => {
+                  const selected = selectedTier === plan.tier
+                  return (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      onClick={() => setSelectedTier(plan.tier)}
+                      className="text-left p-6 border-2 rounded-xl transition-all"
+                      style={{
+                        borderColor: selected ? '#113543' : '#819291',
+                        backgroundColor: selected ? '#f8fafc' : '#FFFFFF',
+                      }}
+                    >
+                      <h3 className="text-lg font-bold mb-1" style={{ color: '#113543' }}>
+                        {plan.name}
+                      </h3>
+                      <p className="text-sm mb-4" style={{ color: '#819291' }}>
+                        {plan.tagline}
+                      </p>
+                      <p className="text-2xl font-bold mb-1" style={{ color: '#113543' }}>
+                        ${plan.app_fee_monthly}
+                        <span className="text-sm font-normal" style={{ color: '#819291' }}>
+                          /mo app
+                        </span>
+                      </p>
+                      {plan.service_fee_monthly != null && (
+                        <p className="text-sm font-medium" style={{ color: '#C2A558' }}>
+                          + ${plan.service_fee_monthly}/mo managed service
+                        </p>
+                      )}
+                      <ul className="mt-4 space-y-2">
+                        {plan.features.slice(0, 4).map((f) => (
+                          <li key={f} className="flex items-start gap-2 text-xs" style={{ color: '#113543' }}>
+                            <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: '#C2A558' }} />
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+                    </button>
+                  )
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setEnrollStep(2)}
+                className="w-full flex items-center justify-center gap-2 px-6 py-4 text-lg font-medium text-white rounded"
+                style={{ backgroundColor: '#113543' }}
+              >
+                Continue with {selectedTier === 'managed' ? 'Managed' : 'Self-Service'}
+                <ArrowRight className="w-5 h-5" />
+              </button>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="bg-white border rounded-lg p-8" style={{ borderColor: '#819291' }}>
+              <button
+                type="button"
+                onClick={() => setEnrollStep(1)}
+                className="text-sm mb-4 font-medium"
+                style={{ color: '#819291' }}
+              >
+                ← Change plan
+              </button>
               <div className="space-y-6">
                 <div>
                   <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>

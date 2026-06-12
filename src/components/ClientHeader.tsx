@@ -97,6 +97,7 @@ export default function ClientHeader({ clientName, navItems }: ClientHeaderProps
                 localStorage.removeItem('clientAuthenticated')
                 localStorage.removeItem('clientEmail')
                 localStorage.removeItem('clientRole')
+                localStorage.removeItem('clientId')
                 navigate('/client/login')
               }}
               className="flex items-center space-x-2 px-3 py-2 text-sm transition-colors"

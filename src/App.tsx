@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import ClientProtectedLayout from './components/client/ClientProtectedLayout'
 import { ThemeProvider } from './theme/ThemeContext'
 import AdminDashboard from './pages/AdminDashboard'
 import ClientDashboard from './pages/ClientDashboard'
@@ -7,6 +8,7 @@ import ClientInvoices from './pages/ClientInvoices'
 import ClientPayments from './pages/ClientPayments'
 import ClientCollections from './pages/ClientCollections'
 import ClientReports from './pages/ClientReports'
+import ClientBrokers from './pages/ClientBrokers'
 import ClientSettings from './pages/ClientSettings'
 import ClientDocuments from './pages/ClientDocuments'
 import Login from './pages/Login'
@@ -53,14 +55,17 @@ function App() {
         <Route path="/docsort" element={<DocSortLandingPage />} />
         <Route path="/sort" element={<DocSortWorkbench />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
-        <Route path="/client/dashboard" element={<ClientDashboard />} />
-        <Route path="/client/batches" element={<ClientBatches />} />
-        <Route path="/client/invoices" element={<ClientInvoices />} />
-        <Route path="/client/payments" element={<ClientPayments />} />
-        <Route path="/client/collections" element={<ClientCollections />} />
-        <Route path="/client/reports" element={<ClientReports />} />
-        <Route path="/client/documents" element={<ClientDocuments />} />
-        <Route path="/client/settings" element={<ClientSettings />} />
+        <Route element={<ClientProtectedLayout />}>
+          <Route path="/client/dashboard" element={<ClientDashboard />} />
+          <Route path="/client/batches" element={<ClientBatches />} />
+          <Route path="/client/invoices" element={<ClientInvoices />} />
+          <Route path="/client/payments" element={<ClientPayments />} />
+          <Route path="/client/collections" element={<ClientCollections />} />
+          <Route path="/client/brokers" element={<ClientBrokers />} />
+          <Route path="/client/reports" element={<ClientReports />} />
+          <Route path="/client/documents" element={<ClientDocuments />} />
+          <Route path="/client/settings" element={<ClientSettings />} />
+        </Route>
         <Route path="/batches" element={<Batches />} />
         <Route path="/batches/create" element={<CreateBatch />} />
         <Route path="/aging-ar" element={<AgingAR />} />

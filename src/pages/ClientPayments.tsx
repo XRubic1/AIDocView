@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { useClientSession } from '../hooks/useClientSession'
 import { mockPayments } from '../data/mockPayments'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockClientReportInvoices, mockClientReportPayments } from '../data/mockClientReports'
@@ -78,7 +79,13 @@ function buildInitialPayments(clientId: string): Payment[] {
 export default function ClientPayments() {
   const c = useClientTheme()
   const [data] = useState(mockClientDashboardData)
-  const [payments, setPayments] = useState<Payment[]>(() => buildInitialPayments(data.client_id))
+  const { clientId, clientName } = useClientSession()
+  const [payments, setPayments] = useState<Payment[]>(() => buildInitialPayments(clientId))
+
+  useEffect(() => {
+    setPayments(buildInitialPayments(clientId))
+  }, [clientId])
+
   const [searchTerm, setSearchTerm] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -276,7 +283,7 @@ export default function ClientPayments() {
   } as const
 
   return (
-    <ClientLayout clientName={data.client_name} clientId={data.client_id} flushMain>
+    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
       <div className="client-payments-page overflow-hidden flex flex-col min-h-0">
         <PaymentKpiCards
           payments={payments}

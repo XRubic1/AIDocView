@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LogIn, Eye, EyeOff } from 'lucide-react'
+import { getClientByEmail, CLIENT_ID_STORAGE_KEY } from '../services/clientRegistry'
 
 export default function ClientLogin() {
   const navigate = useNavigate()
@@ -41,12 +42,14 @@ export default function ClientLogin() {
       // Mock authentication - accept any credentials for demo
       // In production, replace this with actual authentication
       if (email && password) {
-        // Store client authentication state (in production, use secure token storage)
+        const matched = getClientByEmail(email)
+        const clientId = matched?.id ?? 'client-1'
+
         localStorage.setItem('clientAuthenticated', 'true')
         localStorage.setItem('clientEmail', email)
         localStorage.setItem('clientRole', 'Client')
+        localStorage.setItem(CLIENT_ID_STORAGE_KEY, clientId)
 
-        // Redirect to client dashboard
         navigate('/client/dashboard')
       } else {
         setError('Invalid email or password')
@@ -219,7 +222,8 @@ export default function ClientLogin() {
             {/* Link to Admin Login */}
             <div className="mt-6 pt-6 border-t" style={{ borderColor: '#e2e8f0' }}>
               <p className="text-xs text-center mb-2" style={{ color: '#64748b' }}>
-                Demo Mode: Enter any email and password to continue
+                Demo: use robert.anderson@abctrucking.com (self-service) or
+                jennifer.martinez@xyzlogistics.com (managed)
               </p>
               <button
                 onClick={() => navigate('/login')}

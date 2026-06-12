@@ -13,10 +13,13 @@ import { Notification } from '../types/notification'
 import NotificationBell from './NotificationBell'
 import { mockNotifications } from '../data/mockNotifications'
 import { getAllBatches } from '../data/mockBatches'
-import { clientNavSections,
+import {
+  filterClientNavSections,
   getInitials,
   getClientUserDisplayName,
 } from '../config/clientNav'
+import { useClientPortal } from '../context/ClientPortalContext'
+import { getTierLabel } from '../utils/clientCapabilities'
 import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
@@ -38,7 +41,14 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
+  const { client, tier, capabilities } = useClientPortal()
   const t = useClientTheme()
+  const resolvedClientId = clientId ?? client?.id
+  const resolvedClientName = clientName || client?.name || 'Client'
+  const navSections = useMemo(
+    () => filterClientNavSections(capabilities),
+    [capabilities]
+  )
   const { resolvedTheme } = useTheme()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -71,11 +81,13 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
   const pendingBatchCount = useMemo(() => {
     const batches = getAllBatches()
-    const filtered = clientId ? batches.filter((b) => b.client_id === clientId) : batches
+    const filtered = resolvedClientId
+      ? batches.filter((b) => b.client_id === resolvedClientId)
+      : batches
     return filtered.filter(
       (b) => b.status === 'ready_to_post' || b.status === 'documents_uploaded'
     ).length
-  }, [clientId])
+  }, [resolvedClientId])
 
   const badges: Record<string, number> = {
     pendingBatches: pendingBatchCount,
@@ -121,6 +133,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     localStorage.removeItem('clientAuthenticated')
     localStorage.removeItem('clientEmail')
     localStorage.removeItem('clientRole')
+    localStorage.removeItem('clientId')
     navigate('/client/login')
   }
 
@@ -168,14 +181,14 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
               className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
               style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
             >
-              {getInitials(clientName)}
+              {getInitials(resolvedClientName)}
             </div>
             <div className="min-w-0">
               <div className="text-sm font-semibold truncate" style={{ color: t.sidebar.text }}>
-                {clientName}
+                {resolvedClientName}
               </div>
               <div className="text-xs truncate" style={{ color: t.sidebar.muted }}>
-                Motor carrier
+                {getTierLabel(tier)}
               </div>
             </div>
           </div>
@@ -186,14 +199,14 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold"
             style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
           >
-            {getInitials(clientName)}
+            {getInitials(resolvedClientName)}
           </div>
         </div>
       )}
 
       {/* Navigation */}
       <nav className={`flex-1 overflow-y-auto py-4 space-y-5 ${collapsed && !isMobile ? 'px-2' : 'px-3'}`}>
-        {clientNavSections.map((section) => (
+        {navSections.map((section) => (
           <div key={section.title}>
             {!collapsed || isMobile ? (
               <div
@@ -424,7 +437,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
           <div className="flex-1 min-w-0 hidden lg:block">
             <p className="text-sm font-medium truncate" style={{ color: t.secondary }}>
-              {clientName}
+              {resolvedClientName}
             </p>
           </div>
 
@@ -432,15 +445,17 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             <div className="hidden lg:block">
               <ThemeToggle compact />
             </div>
-            <button
-              type="button"
-              onClick={() => navigate('/client/batches?tab=create')}
-              className="lg:hidden inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary"
-              aria-label="Submit documents — create new batch"
-            >
-              <Upload className="w-4 h-4" />
-              Upload
-            </button>
+            {(capabilities.canCreateBatch || capabilities.canSubmitDocHandoff) && (
+              <button
+                type="button"
+                onClick={() => navigate('/client/batches?tab=create')}
+                className="lg:hidden inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary"
+                aria-label="Submit documents"
+              >
+                <Upload className="w-4 h-4" />
+                {capabilities.canCreateBatch ? 'Upload' : 'Send docs'}
+              </button>
+            )}
             <NotificationBell
               notifications={notifications}
               onMarkAsRead={handleMarkAsRead}

@@ -20,7 +20,8 @@ import ClientLayout from '../components/ClientLayout'
 import DocumentViewer from '../components/DocumentViewer'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
-import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { useClientSession } from '../hooks/useClientSession'
+import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import {
   addClientDocument,
   getClientDocumentFile,
@@ -87,7 +88,8 @@ function getExpiresSortValue(expiresAt?: string): number {
 
 export default function ClientDocuments() {
   const c = useClientTheme()
-  const [data] = useState(mockClientDashboardData)
+  const { clientId, clientName } = useClientSession()
+  const { capabilities } = useClientCapabilities()
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [searchTerm, setSearchTerm] = useState('')
@@ -110,8 +112,8 @@ export default function ClientDocuments() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const documents = useMemo(
-    () => getClientDocuments(data.client_id),
-    [data.client_id, refreshKey]
+    () => getClientDocuments(clientId),
+    [clientId, refreshKey]
   )
 
   const counts = useMemo(
@@ -251,13 +253,13 @@ export default function ClientDocuments() {
           pending.file.name.replace(/\.[^.]+$/, '') ||
           pending.file.name
 
-        addClientDocument(data.client_id, {
+        addClientDocument(clientId, {
           name: pendingFiles.length === 1 ? name : `${name} ${index + 1}`,
           file: pending.file,
           category: uploadCategory,
           document_type: 'general',
           expires_at: uploadReminder || undefined,
-          uploaded_by: data.client_name,
+          uploaded_by: clientName,
         })
       })
 
@@ -320,7 +322,7 @@ export default function ClientDocuments() {
   ] as const
 
   return (
-    <ClientLayout clientName={data.client_name} clientId={data.client_id} flushMain>
+    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
       <div className="client-documents-page overflow-hidden flex flex-col min-h-0">
             <section
               className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
@@ -419,14 +421,16 @@ export default function ClientDocuments() {
                       <span className="batch-filter-pill__count">{counts[key]}</span>
                     </button>
                   ))}
-                  <button
-                    type="button"
-                    onClick={openUploadModal}
-                    className="dashboard-btn-primary ml-auto lg:ml-0"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Upload
-                  </button>
+                  {capabilities.canUploadVault && (
+                    <button
+                      type="button"
+                      onClick={openUploadModal}
+                      className="dashboard-btn-primary ml-auto lg:ml-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Upload
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -443,7 +447,7 @@ export default function ClientDocuments() {
                       ? 'Upload broker packets, compliance files, and other records.'
                       : 'Try adjusting your search or folder filter.'}
                   </p>
-                  {documents.length === 0 && (
+                  {documents.length === 0 && capabilities.canUploadVault && (
                     <button
                       type="button"
                       onClick={openUploadModal}
@@ -624,15 +628,17 @@ export default function ClientDocuments() {
                                 >
                                   <Eye className="w-4 h-4" />
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setDeleteConfirmId(doc.id)}
-                                  className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
-                                  style={{ color: c.error }}
-                                  title="Remove"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                {capabilities.canUploadVault && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteConfirmId(doc.id)}
+                                    className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
+                                    style={{ color: c.error }}
+                                    title="Remove"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
                               </div>
                             </ClientListTd>
                           </tr>

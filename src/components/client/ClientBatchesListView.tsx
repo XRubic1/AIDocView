@@ -36,7 +36,7 @@ interface ClientBatchesListViewProps {
   batches: ClientBatchListItem[]
   highlightedBatchId: string | null
   onSelectBatch: (batchId: string) => void
-  onCreateBatch: () => void
+  onCreateBatch?: () => void
   onDeleteDraft?: (batchId: string) => void
 }
 
@@ -309,7 +309,7 @@ export default function ClientBatchesListView({
                 ? 'Try adjusting your search or filters'
                 : 'Submit your first batch to get started'}
             </p>
-            {!searchTerm && statusFilter === 'all' && (
+            {!searchTerm && statusFilter === 'all' && onCreateBatch && (
               <button type="button" onClick={onCreateBatch} className="dashboard-btn-primary">
                 <Plus className="w-3.5 h-3.5" />
                 Create batch

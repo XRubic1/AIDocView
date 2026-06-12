@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
-import { mockClients } from '../data/mockClients'
 import {
   User,
   Bell,
@@ -10,35 +9,40 @@ import {
   CreditCard,
   Save,
   Check,
+  Wallet,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
+import PlanBillingPanel from '../components/client/PlanBillingPanel'
 import { useTheme, type ThemeMode } from '../theme/ThemeContext'
+import { getClientById } from '../services/clientRegistry'
+import { useClientSession } from '../hooks/useClientSession'
+import { useClientCapabilities } from '../hooks/useClientCapabilities'
 
-type SettingsTab = 'profile' | 'notifications' | 'preferences' | 'security' | 'remittance'
+type SettingsTab = 'profile' | 'notifications' | 'preferences' | 'security' | 'remittance' | 'billing'
 
 export default function ClientSettings() {
-  const [data] = useState(mockClientDashboardData)
+  const { clientId, clientName } = useClientSession()
+  const { capabilities, tier } = useClientCapabilities()
   const { mode: themeMode, setMode: setThemeMode } = useTheme()
 
-  // Get current client data
-  const currentClient = mockClients.find((c) => c.id === data.client_id) || mockClients[0]
+  const currentClient = getClientById(clientId)
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const [saved, setSaved] = useState(false)
 
   // Profile Settings
   const [profileData, setProfileData] = useState({
-    company_name: currentClient.name || data.client_name,
-    contact_person: currentClient.contact_person || '',
-    email: currentClient.email || '',
-    phone: currentClient.phone || '',
-    fax: currentClient.fax || '',
-    address: currentClient.address || '',
-    city: currentClient.city || '',
-    state: currentClient.state || '',
-    zip: currentClient.zip || '',
-    mc_number: currentClient.mc_number || '',
-    dot_number: currentClient.dot_number || '',
+    company_name: currentClient?.name || clientName,
+    contact_person: currentClient?.contact_person || '',
+    email: currentClient?.email || '',
+    phone: currentClient?.phone || '',
+    fax: currentClient?.fax || '',
+    address: currentClient?.address || '',
+    city: currentClient?.city || '',
+    state: currentClient?.state || '',
+    zip: currentClient?.zip || '',
+    mc_number: currentClient?.mc_number || '',
+    dot_number: currentClient?.dot_number || '',
   })
 
   // Notification Settings
@@ -73,14 +77,15 @@ export default function ClientSettings() {
 
   // Remittance Information
   const [remittanceData, setRemittanceData] = useState({
-    remittance_info: currentClient.remittance_info || '',
-    bank_name: currentClient.bank_name || '',
-    account_number: currentClient.account_number || '',
-    routing_number: currentClient.routing_number || '',
+    remittance_info: currentClient?.remittance_info || '',
+    bank_name: currentClient?.bank_name || '',
+    account_number: currentClient?.account_number || '',
+    routing_number: currentClient?.routing_number || '',
   })
 
   const tabs = [
     { id: 'profile' as SettingsTab, label: 'Profile', icon: User },
+    { id: 'billing' as SettingsTab, label: 'Plan & Billing', icon: Wallet },
     { id: 'notifications' as SettingsTab, label: 'Notifications', icon: Bell },
     { id: 'preferences' as SettingsTab, label: 'Preferences', icon: Eye },
     { id: 'security' as SettingsTab, label: 'Security', icon: Lock },
@@ -133,7 +138,7 @@ export default function ClientSettings() {
   }
 
   return (
-    <ClientLayout clientName={data.client_name} clientId={data.client_id}>
+    <ClientLayout clientName={clientName} clientId={clientId}>
       <div>
         <div className="mb-6">
           <h2 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
@@ -185,6 +190,18 @@ export default function ClientSettings() {
             <div className="bg-white border rounded" style={{ borderColor: '#e2e8f0' }}>
               <div className="p-6">
                 {/* Profile Tab */}
+                {activeTab === 'billing' && (
+                  <div>
+                    <div className="flex items-center space-x-2 mb-6">
+                      <Wallet className="w-5 h-5" style={{ color: '#0891b2' }} />
+                      <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
+                        Plan & Billing
+                      </h3>
+                    </div>
+                    <PlanBillingPanel clientId={clientId} tier={tier} />
+                  </div>
+                )}
+
                 {activeTab === 'profile' && (
                   <div>
                     <div className="flex items-center space-x-2 mb-6">
@@ -789,6 +806,12 @@ export default function ClientSettings() {
                       </h3>
                     </div>
 
+                    {!capabilities.canEditRemittance && (
+                      <p className="text-sm mb-4 p-3 rounded-lg" style={{ backgroundColor: '#f8f9fa', color: '#64748b' }}>
+                        Remittance details are managed by Credyx on managed accounts. Contact support to request changes.
+                      </p>
+                    )}
+
                     <div className="space-y-4">
                       <div>
                         <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
@@ -797,6 +820,8 @@ export default function ClientSettings() {
                         <textarea
                           value={remittanceData.remittance_info}
                           onChange={(e) => handleRemittanceChange('remittance_info', e.target.value)}
+                          readOnly={!capabilities.canEditRemittance}
+                          disabled={!capabilities.canEditRemittance}
                           rows={4}
                           className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
                           style={{
@@ -884,7 +909,7 @@ export default function ClientSettings() {
                   </div>
                 )}
 
-                {/* Save Button */}
+                {activeTab !== 'billing' && (
                 <div className="mt-8 pt-6 border-t flex justify-end" style={{ borderColor: '#e2e8f0' }}>
                   <button
                     onClick={handleSave}
@@ -913,6 +938,7 @@ export default function ClientSettings() {
                     )}
                   </button>
                 </div>
+                )}
               </div>
             </div>
           </div>

@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
+import {
+  mockClientReportInvoices,
+  mockClientReportPayments,
+} from '../data/mockClientReports'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
   DollarSign,
@@ -13,7 +17,6 @@ import {
   Upload,
   Plus,
   BarChart3,
-  Wallet,
   ArrowUpRight,
   ExternalLink,
 } from 'lucide-react'
@@ -21,9 +24,12 @@ import ClientLayout from '../components/ClientLayout'
 import SimpleUploadModal from '../components/client/SimpleUploadModal'
 import AgingARChart from '../components/client/AgingARChart'
 import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
+import CollectionForecastKpiCard from '../components/client/CollectionForecastKpiCard'
 import DashboardPanel from '../components/client/dashboard/DashboardPanel'
 import { enrichInvoices } from '../utils/invoiceAging'
 import { useClientTheme } from '../theme/ThemeContext'
+import { useClientSession } from '../hooks/useClientSession'
+import { useClientCapabilities } from '../hooks/useClientCapabilities'
 
 type InvoiceStatus = 'pending' | 'approved' | 'hold' | 'overdue'
 
@@ -91,18 +97,32 @@ function formatRelativeTime(iso: string) {
 export default function ClientDashboard() {
   const c = useClientTheme()
   const [data] = useState(mockClientDashboardData)
+  const { clientId, clientName } = useClientSession()
+  const { capabilities, tier } = useClientCapabilities()
   const navigate = useNavigate()
   const [showSimpleUpload, setShowSimpleUpload] = useState(false)
 
+  const clientInvoices = useMemo(() => {
+    const base = mockInvoices.filter((inv) => inv.client_id === clientId)
+    if (clientId !== 'client-1') return base
+    const baseIds = new Set(base.map((inv) => inv.id))
+    const supplemental = mockClientReportInvoices.filter((inv) => !baseIds.has(inv.id))
+    return [...base, ...supplemental]
+  }, [clientId])
+
   const clientPayments = useMemo(() => {
-    const ids = new Set(
-      mockInvoices.filter((inv) => inv.client_id === data.client_id).map((inv) => inv.id)
+    const ids = new Set(clientInvoices.map((inv) => inv.id))
+    const base = mockPayments.filter((p) => ids.has(p.invoice_id))
+    if (clientId !== 'client-1') return base
+    const baseIds = new Set(base.map((p) => p.id))
+    const supplemental = mockClientReportPayments.filter(
+      (p) => ids.has(p.invoice_id) && !baseIds.has(p.id)
     )
-    return mockPayments.filter((p) => ids.has(p.invoice_id))
-  }, [data.client_id])
+    return [...base, ...supplemental]
+  }, [clientInvoices, clientId])
 
   const attentionInvoices = useMemo(() => {
-    return enrichInvoices(mockInvoices.filter((inv) => inv.client_id === data.client_id))
+    return enrichInvoices(mockInvoices.filter((inv) => inv.client_id === clientId))
       .filter(
         (inv) =>
           inv.isOverdue ||
@@ -124,7 +144,7 @@ export default function ClientDashboard() {
         return b.daysOutstanding - a.daysOutstanding
       })
       .slice(0, 6)
-  }, [data.client_id])
+  }, [clientId])
 
   const recentPayments = useMemo(
     () =>
@@ -138,16 +158,24 @@ export default function ClientDashboard() {
     navigate(`/client/batches?tab=create&mode=ai`, { state: { initialFiles: files } })
   }
 
-  const availableFunding = data.summary.paid_this_month
-
   return (
-    <ClientLayout clientName={data.client_name} clientId={data.client_id}>
+    <ClientLayout clientName={clientName} clientId={clientId}>
       <div className="space-y-4">
+        {tier === 'managed' && (
+          <section
+            className="dashboard-card px-4 py-3 text-sm"
+            style={{ backgroundColor: c.stat.amber, color: c.secondary }}
+          >
+            Your Credyx team handles batch processing and collections. Use{' '}
+            <strong>Send documents</strong> to upload paperwork.
+          </section>
+        )}
+
         {/* Row 1 — Compact welcome */}
         <section className="dashboard-card p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-xl font-bold leading-tight" style={{ color: c.primary }}>
-              Welcome Back, {data.client_name}
+              Welcome Back, {clientName}
             </h1>
             <p className="alert-inline mt-1">
               <span className="alert-inline__danger">
@@ -168,22 +196,36 @@ export default function ClientDashboard() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowSimpleUpload(true)}
-              className="dashboard-btn-primary"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              Upload
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/client/batches?tab=create')}
-              className="dashboard-btn-secondary"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Batch
-            </button>
+            {capabilities.canUseAiUpload && (
+              <button
+                type="button"
+                onClick={() => setShowSimpleUpload(true)}
+                className="dashboard-btn-primary"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                Upload
+              </button>
+            )}
+            {capabilities.canCreateBatch && (
+              <button
+                type="button"
+                onClick={() => navigate('/client/batches?tab=create')}
+                className="dashboard-btn-secondary"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Batch
+              </button>
+            )}
+            {!capabilities.canCreateBatch && capabilities.canSubmitDocHandoff && (
+              <button
+                type="button"
+                onClick={() => navigate('/client/batches?tab=create')}
+                className="dashboard-btn-primary"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                Send documents
+              </button>
+            )}
             <button
               type="button"
               onClick={() => navigate('/client/reports')}
@@ -226,29 +268,12 @@ export default function ClientDashboard() {
             </div>
           </div>
 
-          <div className="dashboard-card dashboard-card-interactive dashboard-metric-primary">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium" style={{ color: c.secondary }}>
-                  Available Funding
-                </p>
-                <p
-                  className="text-[28px] font-bold tabular-nums mt-1 leading-none"
-                  style={{ color: c.primary }}
-                >
-                  {formatCurrency(availableFunding)}
-                </p>
-                <p className="text-xs font-medium mt-2" style={{ color: c.success }}>
-                  Ready to fund
-                </p>
-              </div>
-              <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                style={{ backgroundColor: c.stat.green, color: c.success }}
-              >
-                <Wallet className="w-4 h-4" />
-              </div>
-            </div>
+          <div className="dashboard-card dashboard-card-interactive p-0 overflow-hidden flex min-h-[88px]">
+            <CollectionForecastKpiCard
+              invoices={clientInvoices}
+              payments={clientPayments}
+              onOpenReport={() => navigate('/client/reports')}
+            />
           </div>
         </section>
 
@@ -429,8 +454,8 @@ export default function ClientDashboard() {
         isOpen={showSimpleUpload}
         onClose={() => setShowSimpleUpload(false)}
         onUploadComplete={handleSimpleUploadComplete}
-        clientId={data.client_id}
-        clientName={data.client_name}
+        clientId={clientId}
+        clientName={clientName}
       />
     </ClientLayout>
   )

@@ -1722,7 +1722,8 @@
 .client-portal .client-main--flush .client-collections-page,
 .client-portal .client-main--flush .client-batches-page,
 .client-portal .client-main--flush .client-payments-page,
-.client-portal .client-main--flush .client-documents-page {
+.client-portal .client-main--flush .client-documents-page,
+.client-portal .client-main--flush .client-brokers-page {
   flex: 1 1 0;
   height: 0;
   min-height: 0;
@@ -3909,6 +3910,58 @@
   font-weight: 600;
 }
 
+/* Aging A/R chart — compact single-row legend */
+.client-portal .aging-ar-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 10px;
+}
+
+@media (min-width: 768px) {
+  .client-portal .aging-ar-chart__legend {
+    flex-wrap: nowrap;
+    gap: 0 12px;
+  }
+}
+
+.client-portal .aging-ar-chart__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.client-portal .aging-ar-chart__legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.client-portal .aging-ar-chart__legend-label {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.client-portal .aging-ar-chart__legend-note {
+  font-size: 10px;
+  line-height: 1;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .client-portal .aging-ar-chart__legend-note {
+    flex-basis: 100%;
+    margin-left: 0;
+    text-align: right;
+  }
+}
+
 /* Aging A/R bucket strip — six clickable buckets */
 .client-portal .aging-bucket-strip {
   display: grid;
@@ -5357,6 +5410,26 @@
   }
 }
 
+.client-portal .collection-forecast-kpi-card {
+  flex: 1;
+  border-bottom: none;
+  box-shadow: none;
+  padding: 18px 20px;
+  min-height: 100%;
+}
+
+@media (min-width: 768px) {
+  .client-portal .collection-forecast-kpi-card .payment-kpi-card__value {
+    font-size: 1.75rem;
+  }
+
+  .client-portal .collection-forecast-kpi-card .payment-kpi-card__sparkline {
+    flex-basis: 140px;
+    width: 140px;
+    height: 64px;
+  }
+}
+
 /* Payments — collapsible filter panel */
 .client-portal .client-payments-filter-badge {
   display: inline-flex;
@@ -5727,3 +5800,154 @@
   }
 }
 
+.client-portal .managed-handoff-dropzone {
+  border: 2px dashed var(--cp-border);
+  border-radius: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.client-portal .managed-handoff-dropzone--active {
+  border-color: var(--cp-info);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.client-portal .service-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.client-portal .service-tier-badge--managed {
+  background: var(--cp-stat-amber);
+  color: var(--cp-warning);
+}
+
+.client-portal .service-tier-badge--self {
+  background: var(--cp-stat-blue);
+  color: var(--cp-info);
+}
+
+/* ── Brokers page ── */
+.client-portal .client-brokers-page {
+  flex: 1 1 0;
+  height: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #ffffff;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.client-portal .broker-pay-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.client-portal .broker-pay-rating--sm {
+  padding: 2px 6px;
+  font-size: 10px;
+  gap: 4px;
+}
+
+.client-portal .broker-pay-rating__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.client-portal .broker-pay-rating--sm .broker-pay-rating__dot {
+  width: 6px;
+  height: 6px;
+}
+
+.client-portal .broker-detail-panel {
+  width: 100%;
+  max-width: 380px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--cp-border);
+  background: var(--cp-card);
+  overflow: hidden;
+  animation: broker-panel-in 0.2s ease-out;
+}
+
+@keyframes broker-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.client-portal .broker-detail-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--cp-border);
+  flex-shrink: 0;
+}
+
+.client-portal .broker-detail-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.client-portal .broker-detail-panel__section {
+  margin-bottom: 16px;
+}
+
+.client-portal .broker-detail-stat {
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.client-portal .broker-detail-stat__label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+
+.client-portal .broker-detail-stat__value {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.client-portal .broker-mc-lookup {
+  animation: broker-panel-in 0.2s ease-out;
+}
+
+@media (max-width: 767px) {
+  .client-portal .broker-detail-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    max-width: none;
+    border-left: none;
+  }
+}

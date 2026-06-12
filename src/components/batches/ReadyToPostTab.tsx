@@ -104,6 +104,11 @@ export default function ReadyToPostTab({
                       </td>
                       <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
                         {batch.batch_number}
+                        {batch.upload_mode === 'handoff' && (
+                          <span className="ml-2 text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                            Handoff
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-sm text-right" style={{ color: '#113543' }}>
                         {batch.total_invoices}

@@ -478,6 +478,48 @@ export default function HowItWorks() {
         </div>
       </section>
 
+      {/* Service tiers */}
+      <section className="py-16" style={{ backgroundColor: '#FFFFFF' }}>
+        <div className="max-w-5xl mx-auto px-6">
+          <h2 className="text-3xl font-bold text-center mb-4" style={{ color: '#113543' }}>
+            Choose how you work with Credyx
+          </h2>
+          <p className="text-center text-lg mb-10" style={{ color: '#819291' }}>
+            Same platform — you run operations, or we do it for you
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="border rounded-xl p-6" style={{ borderColor: '#819291' }}>
+              <h3 className="text-xl font-bold mb-2" style={{ color: '#113543' }}>
+                Self-Service
+              </h3>
+              <p className="text-sm mb-4" style={{ color: '#819291' }}>
+                Full portal access — you upload docs, build batches, and manage collections.
+              </p>
+              <p className="text-2xl font-bold mb-1" style={{ color: '#113543' }}>
+                $99<span className="text-sm font-normal">/mo</span>
+              </p>
+              <p className="text-xs" style={{ color: '#819291' }}>
+                + storage · you operate the platform
+              </p>
+            </div>
+            <div className="border-2 rounded-xl p-6" style={{ borderColor: '#113543', backgroundColor: '#f8fafc' }}>
+              <h3 className="text-xl font-bold mb-2" style={{ color: '#113543' }}>
+                Managed
+              </h3>
+              <p className="text-sm mb-4" style={{ color: '#819291' }}>
+                Credyx handles batch processing and collections — you send docs and track results.
+              </p>
+              <p className="text-2xl font-bold mb-1" style={{ color: '#113543' }}>
+                $99<span className="text-sm font-normal">/mo app</span>
+              </p>
+              <p className="text-sm font-medium" style={{ color: '#C2A558' }}>
+                + $299/mo managed service
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="py-16" style={{ backgroundColor: '#F5F5F5' }}>
         <div className="max-w-3xl mx-auto px-6 text-center">

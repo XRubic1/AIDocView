@@ -26,7 +26,7 @@ export interface PendingBatch {
     net_amount?: number // total_amount - total_fee
   }
   /** How the client created this batch */
-  upload_mode?: 'ai' | 'manual'
+  upload_mode?: 'ai' | 'manual' | 'handoff'
   /** DocSort pipeline status for AI uploads */
   sort_status?: 'pending' | 'sorting' | 'ready' | 'failed'
   /** JSON-safe DocSort result snapshot (no File blobs) */

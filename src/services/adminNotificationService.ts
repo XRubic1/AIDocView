@@ -75,3 +75,71 @@ export function notifyAdminClientDocumentUpload(
 
   return notification
 }
+
+export interface ClientEnrolledNotificationInput {
+  clientId: string
+  clientName: string
+  email: string
+  tier: 'self_service' | 'managed'
+}
+
+/** Notify admin when a new carrier enrolls. */
+export function notifyAdminClientEnrolled(input: ClientEnrolledNotificationInput): Notification {
+  const tierLabel = input.tier === 'managed' ? 'Managed' : 'Self-Service'
+  const notification: Notification = {
+    id: `admin-notif-enroll-${Date.now()}`,
+    type: 'batch_submitted',
+    title: 'New enrollment application',
+    message: `${input.clientName} applied for ${tierLabel} (${input.email})`,
+    timestamp: new Date().toISOString(),
+    read: false,
+    link: '/clients',
+    link_label: 'Review clients',
+    metadata: {
+      client_id: input.clientId,
+      client_name: input.clientName,
+      tier: input.tier,
+    },
+  }
+  adminNotifications.unshift(notification)
+  emitUpdated()
+  return notification
+}
+
+export interface DocHandoffNotificationInput {
+  clientId: string
+  clientName: string
+  batchId: string
+  batchNumber: string
+  fileCount: number
+  fileNames: string[]
+  notes?: string
+}
+
+/** Notify admin when a managed client submits a document handoff. */
+export function notifyAdminDocHandoff(input: DocHandoffNotificationInput): Notification {
+  const fileList =
+    input.fileNames.length <= 2
+      ? input.fileNames.join(', ')
+      : `${input.fileNames.slice(0, 2).join(', ')} +${input.fileNames.length - 2} more`
+
+  const notification: Notification = {
+    id: `admin-notif-handoff-${Date.now()}`,
+    type: 'document_uploaded',
+    title: 'Managed doc handoff',
+    message: `${input.clientName} sent ${input.fileCount} file${input.fileCount > 1 ? 's' : ''}: ${fileList}`,
+    timestamp: new Date().toISOString(),
+    read: false,
+    link: '/batches',
+    link_label: 'Review batch',
+    batch_id: input.batchId,
+    metadata: {
+      client_id: input.clientId,
+      client_name: input.clientName,
+      notes: input.notes,
+    },
+  }
+  adminNotifications.unshift(notification)
+  emitUpdated()
+  return notification
+}

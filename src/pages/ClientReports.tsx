@@ -1,6 +1,7 @@
 import { useMemo, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { useClientSession } from '../hooks/useClientSession'
 import { mockPayments } from '../data/mockPayments'
 import { mockInvoices } from '../data/mockInvoices'
 import {
@@ -28,6 +29,7 @@ import DashboardPanel from '../components/client/dashboard/DashboardPanel'
 import AgingARChart from '../components/client/AgingARChart'
 import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
 import CashFlowChart from '../components/client/CashFlowChart'
+import CashCollectionForecast from '../components/client/CashCollectionForecast'
 import { useClientTheme } from '../theme/ThemeContext'
 import { enrichInvoices } from '../utils/invoiceAging'
 import {
@@ -42,6 +44,7 @@ import {
   type DateRange,
   type ReportInsight,
 } from '../utils/clientReports'
+import { computeCashCollectionForecast } from '../utils/cashCollectionForecast'
 
 type ReportType = 'overview' | 'aging' | 'cashflow' | 'brokers' | 'pipeline'
 
@@ -185,18 +188,19 @@ export default function ClientReports() {
   const c = useClientTheme()
   const navigate = useNavigate()
   const [data] = useState(mockClientDashboardData)
+  const { clientId, clientName } = useClientSession()
   const [selectedReportType, setSelectedReportType] = useState<ReportType>('overview')
   const [datePreset, setDatePreset] = useState<DatePreset | 'custom'>('90d')
   const [dateRange, setDateRange] = useState<DateRange>(() => getPresetRange('90d'))
 
   const clientInvoices = useMemo(() => {
-    const base = mockInvoices.filter((inv) => inv.client_id === data.client_id)
-    if (data.client_id !== 'client-1') return base
+    const base = mockInvoices.filter((inv) => inv.client_id === clientId)
+    if (clientId !== 'client-1') return base
     // Merge date-relative demo data so charts and period filters stay populated
     const baseIds = new Set(base.map((inv) => inv.id))
     const supplemental = mockClientReportInvoices.filter((inv) => !baseIds.has(inv.id))
     return [...base, ...supplemental]
-  }, [data.client_id])
+  }, [clientId])
 
   const clientInvoiceIds = useMemo(
     () => new Set(clientInvoices.map((inv) => inv.id)),
@@ -205,13 +209,13 @@ export default function ClientReports() {
 
   const clientPayments = useMemo(() => {
     const base = mockPayments.filter((p) => clientInvoiceIds.has(p.invoice_id))
-    if (data.client_id !== 'client-1') return base
+    if (clientId !== 'client-1') return base
     const baseIds = new Set(base.map((p) => p.id))
     const supplemental = mockClientReportPayments.filter(
       (p) => clientInvoiceIds.has(p.invoice_id) && !baseIds.has(p.id)
     )
     return [...base, ...supplemental]
-  }, [clientInvoiceIds, data.client_id])
+  }, [clientInvoiceIds, clientId])
 
   const applyPreset = (preset: DatePreset) => {
     setDatePreset(preset)
@@ -225,6 +229,10 @@ export default function ClientReports() {
   )
   const cashFlow = useMemo(
     () => computeCashFlowTrend(clientInvoices, clientPayments, 6),
+    [clientInvoices, clientPayments]
+  )
+  const collectionForecast = useMemo(
+    () => computeCashCollectionForecast(clientInvoices, clientPayments),
     [clientInvoices, clientPayments]
   )
   const brokers = useMemo(
@@ -378,7 +386,7 @@ export default function ClientReports() {
   } as const
 
   return (
-    <ClientLayout clientName={data.client_name} clientId={data.client_id}>
+    <ClientLayout clientName={clientName} clientId={clientId}>
       <div className="client-reports-page w-full min-w-0 space-y-3">
         <div
           className="client-reports-chrome client-page-toolbar px-3 py-2 border rounded-xl w-full"
@@ -486,13 +494,19 @@ export default function ClientReports() {
             <>
               <StatStripCell label="Invoiced" value={formatCurrency(summary.invoiced)} icon={FileText} bg={c.stat.blue} iconColor={c.info} />
               <StatStripCell label="Collected" value={formatCurrency(summary.collected)} icon={DollarSign} bg={c.stat.green} iconColor={c.success} />
-              <StatStripCell label="Payments" value={String(summary.payment_count)} icon={Wallet} bg={c.stat.slate} iconColor={c.secondary} />
               <StatStripCell
-                label="Avg pay lag"
-                value={paymentLag.avg_days !== null ? `${paymentLag.avg_days}d` : '—'}
-                icon={Clock}
+                label="Expected 7d"
+                value={formatCurrency(collectionForecast.next_7_days)}
+                icon={TrendingUp}
                 bg={c.stat.amber}
                 iconColor={c.warning}
+              />
+              <StatStripCell
+                label="Expected 30d"
+                value={formatCurrency(collectionForecast.next_30_days)}
+                icon={Wallet}
+                bg={c.stat.slate}
+                iconColor={c.secondary}
               />
             </>
           )}
@@ -832,12 +846,21 @@ export default function ClientReports() {
 
         {selectedReportType === 'cashflow' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-            <div className="lg:col-span-7">
+            <div className="lg:col-span-6">
               <DashboardPanel title="Cash flow" compact interactive={false}>
                 <CashFlowChart data={cashFlow} compact />
               </DashboardPanel>
             </div>
-            <div className="lg:col-span-5">
+            <div className="lg:col-span-6">
+              <DashboardPanel title="Collection forecast" compact interactive={false}>
+                <CashCollectionForecast
+                  invoices={clientInvoices}
+                  payments={clientPayments}
+                  compact
+                />
+              </DashboardPanel>
+            </div>
+            <div className="lg:col-span-12">
               <DashboardPanel title="Payment behavior" compact interactive={false}>
                 <div className="p-3 space-y-2">
                   <div className="grid grid-cols-2 gap-2">

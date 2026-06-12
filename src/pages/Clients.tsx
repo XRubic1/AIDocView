@@ -1,7 +1,14 @@
 import { useState, useMemo } from 'react'
 import { Header } from '../components/admin/Header'
-import { mockClients } from '../data/mockClients'
-import { Client } from '../types/client'
+import { Client, ServiceTier } from '../types/client'
+import {
+  getAllClients,
+  createClient,
+  updateClient,
+  updateClientTier,
+} from '../services/clientRegistry'
+import { getPlanForTier } from '../config/servicePlans'
+import { getTierShortLabel } from '../utils/clientCapabilities'
 import { Phone, Mail, MapPin, Search, Building2, CreditCard, X, ArrowLeft } from 'lucide-react'
 import { mockInvoices } from '../data/mockInvoices'
 import { getAllBatches } from '../data/mockBatches'
@@ -13,10 +20,10 @@ import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
 
-type ClientTab = 'ar' | 'batches' | 'collections' | 'terms'
+type ClientTab = 'ar' | 'batches' | 'collections' | 'terms' | 'plan'
 
 export default function Clients() {
-  const [clients, setClients] = useState<Client[]>(mockClients)
+  const [clients, setClients] = useState<Client[]>(() => getAllClients())
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [activeTab, setActiveTab] = useState<ClientTab>('ar')
@@ -42,7 +49,10 @@ export default function Clients() {
     routing_number: '',
     notes: '',
     status: 'active',
+    service_tier: 'self_service' as ServiceTier,
   })
+
+  const refreshClients = () => setClients(getAllClients())
 
   const filteredClients = clients.filter((client) => {
     if (searchTerm === '') return true
@@ -60,7 +70,7 @@ export default function Clients() {
   })
 
   const handleClientClick = (client: Client) => {
-    setSelectedClient(client)
+    setSelectedClient(getAllClients().find((c) => c.id === client.id) ?? client)
   }
 
   const handleCloseModal = () => {
@@ -274,28 +284,15 @@ export default function Clients() {
       return
     }
 
-    const newClient: Client = {
-      id: `client-${Date.now()}`,
+    createClient({
       name: formData.name,
-      contact_person: formData.contact_person || undefined,
-      email: formData.email || undefined,
-      phone: formData.phone || undefined,
-      fax: formData.fax || undefined,
-      address: formData.address || undefined,
-      city: formData.city || undefined,
-      state: formData.state || undefined,
-      zip: formData.zip || undefined,
-      mc_number: formData.mc_number || undefined,
-      dot_number: formData.dot_number || undefined,
-      remittance_info: formData.remittance_info || undefined,
-      bank_name: formData.bank_name || undefined,
-      account_number: formData.account_number || undefined,
-      routing_number: formData.routing_number || undefined,
-      notes: formData.notes || undefined,
-      status: (formData.status as 'active' | 'inactive' | 'pending') || 'active',
-    }
-
-    setClients((prev) => [...prev, newClient])
+      contact_person: formData.contact_person,
+      email: formData.email,
+      phone: formData.phone,
+      service_tier: (formData.service_tier as ServiceTier) || 'self_service',
+      status: (formData.status as Client['status']) || 'active',
+    })
+    refreshClients()
     handleCloseAddModal()
   }
 
@@ -379,6 +376,9 @@ export default function Clients() {
                         Client Name
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
+                        Plan
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
                         Contact Person
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
@@ -412,6 +412,20 @@ export default function Clients() {
                       >
                         <td className="py-3 px-4 text-sm font-medium text-gray-900">
                           {client.name}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-700">
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                              client.service_tier === 'managed'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-blue-100 text-blue-800'
+                            }`}
+                          >
+                            {getTierShortLabel(client.service_tier ?? 'self_service')}
+                          </span>
+                          {client.status === 'pending' && (
+                            <span className="ml-1 text-xs text-yellow-700">· Pending</span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-sm text-gray-700">
                           {client.contact_person || '-'}
@@ -516,6 +530,7 @@ export default function Clients() {
                   { id: 'batches' as ClientTab, label: 'Batches' },
                   { id: 'collections' as ClientTab, label: 'Collections' },
                   { id: 'terms' as ClientTab, label: 'Terms' },
+                  { id: 'plan' as ClientTab, label: 'Plan' },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -1062,6 +1077,75 @@ export default function Clients() {
                 </div>
               )}
 
+              {activeTab === 'plan' && selectedClient && (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-lg font-semibold mb-4" style={{ color: '#113543' }}>
+                      Service plan
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-xl">
+                      <div>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
+                          Service tier
+                        </label>
+                        <select
+                          value={selectedClient.service_tier ?? 'self_service'}
+                          onChange={(e) => {
+                            const tier = e.target.value as ServiceTier
+                            const updated = updateClientTier(selectedClient.id, tier)
+                            if (updated) {
+                              setSelectedClient(updated)
+                              refreshClients()
+                            }
+                          }}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
+                        >
+                          <option value="self_service">Self-Service</option>
+                          <option value="managed">Managed</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
+                          Account status
+                        </label>
+                        <select
+                          value={selectedClient.status ?? 'active'}
+                          onChange={(e) => {
+                            const updated = updateClient(selectedClient.id, {
+                              status: e.target.value as Client['status'],
+                            })
+                            if (updated) {
+                              setSelectedClient(updated)
+                              refreshClients()
+                            }
+                          }}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
+                        >
+                          <option value="active">Active</option>
+                          <option value="pending">Pending</option>
+                          <option value="inactive">Inactive</option>
+                        </select>
+                      </div>
+                    </div>
+                    {(() => {
+                      const plan = getPlanForTier(selectedClient.service_tier ?? 'self_service')
+                      return (
+                        <div className="mt-6 p-4 border rounded-lg" style={{ borderColor: '#e2e8f0' }}>
+                          <p className="font-semibold" style={{ color: '#113543' }}>
+                            {plan.name}
+                          </p>
+                          <p className="text-sm mt-1" style={{ color: '#819291' }}>
+                            App {formatCurrency(plan.app_fee_monthly)}/mo
+                            {plan.service_fee_monthly != null &&
+                              ` · Service ${formatCurrency(plan.service_fee_monthly)}/mo`}
+                          </p>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'terms' && (
                 <div className="space-y-6">
                   {/* Fee Terms */}
@@ -1337,6 +1421,17 @@ export default function Clients() {
                         <option value="active">Active</option>
                         <option value="inactive">Inactive</option>
                         <option value="pending">Pending</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Service tier</label>
+                      <select
+                        value={formData.service_tier || 'self_service'}
+                        onChange={(e) => handleInputChange('service_tier', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                      >
+                        <option value="self_service">Self-Service</option>
+                        <option value="managed">Managed</option>
                       </select>
                     </div>
                   </div>

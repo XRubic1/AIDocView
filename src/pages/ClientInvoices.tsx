@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { useClientSession } from '../hooks/useClientSession'
 import { mockInvoices } from '../data/mockInvoices'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
@@ -40,6 +41,7 @@ function getSortableDaysOutstanding(invoice: EnrichedInvoice): number {
 export default function ClientInvoices() {
   const c = useClientTheme()
   const [data] = useState(mockClientDashboardData)
+  const { clientId, clientName } = useClientSession()
   const [searchParams, setSearchParams] = useSearchParams()
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
@@ -48,9 +50,9 @@ export default function ClientInvoices() {
   const invoices = useMemo(
     () =>
       mockInvoices.filter(
-        (inv) => inv.client_id === data.client_id || inv.client_name === data.client_name
+        (inv) => inv.client_id === clientId || inv.client_name === clientName
       ),
-    [data.client_id, data.client_name, invoicesRefreshKey]
+    [clientId, clientName, invoicesRefreshKey]
   )
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -213,7 +215,7 @@ export default function ClientInvoices() {
   } as const
 
   return (
-    <ClientLayout clientName={data.client_name} clientId={data.client_id} flushMain>
+    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
       <div className="client-invoices-page overflow-hidden flex flex-col min-h-0">
         <section
           className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"

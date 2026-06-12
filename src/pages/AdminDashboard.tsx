@@ -9,6 +9,7 @@ import { AgingDistributionChart } from '../components/admin/charts/AgingDistribu
 import { CriticalAlerts } from '../components/admin/widgets/CriticalAlerts'
 import { BatchPipeline } from '../components/admin/widgets/BatchPipeline'
 import { TodaysActions } from '../components/admin/widgets/TodaysActions'
+import ManagedIntakeWidget from '../components/admin/ManagedIntakeWidget'
 import BatchStatusWidget from '../components/client/BatchStatusWidget'
 import { getAllBatches } from '../data/mockBatches'
 import { mockInvoices } from '../data/mockInvoices'
@@ -443,6 +444,8 @@ export default function AdminDashboard() {
 
             {/* Right Column - 1/3 width */}
             <div className="space-y-6">
+              <ManagedIntakeWidget />
+
               {/* Status Widget - Sticky */}
               <div className="sticky top-4">
                 <BatchStatusWidget />

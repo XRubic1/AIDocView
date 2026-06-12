@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { useClientSession } from '../hooks/useClientSession'
 import { ClientCollectionItem } from '../types/collections'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
@@ -94,15 +95,16 @@ function getBucketPillClass(bucketId: DisplayAgingBucketId): string {
 export default function ClientCollections() {
   const c = useClientTheme()
   const [data] = useState(mockClientDashboardData)
+  const { clientId, clientName } = useClientSession()
   const [searchParams, setSearchParams] = useSearchParams()
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
   const clientInvoices = useMemo(
     () =>
       mockInvoices.filter(
-        (inv) => inv.client_id === data.client_id || inv.client_name === data.client_name
+        (inv) => inv.client_id === clientId || inv.client_name === clientName
       ),
-    [data.client_id, data.client_name]
+    [clientId, clientName]
   )
 
   const paidInvoiceIds = useMemo(
@@ -542,7 +544,7 @@ export default function ClientCollections() {
   }
 
   return (
-    <ClientLayout clientName={data.client_name} clientId={data.client_id} flushMain>
+    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
       <div className="client-collections-page overflow-hidden flex flex-col min-h-0">
         <section
           className="flex items-center justify-between gap-3 px-4 py-2 border-b shrink-0"

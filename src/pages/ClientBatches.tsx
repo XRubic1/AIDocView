@@ -25,6 +25,9 @@ import ClientLayout from '../components/ClientLayout'
 import ClientBatchesListView, { getBatchStatusBadge } from '../components/client/ClientBatchesListView'
 import ClientBatchDetailView from '../components/client/ClientBatchDetailView'
 import ClientSubmitDocsView from '../components/client/ClientSubmitDocsView'
+import ManagedDocHandoffView from '../components/client/ManagedDocHandoffView'
+import { useClientSession } from '../hooks/useClientSession'
+import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import ClientManualBatchForm from '../components/client/ClientManualBatchForm'
 import ClientInvoiceDocumentUploadModal from '../components/client/ClientInvoiceDocumentUploadModal'
 import InvoiceDetailWorkspace from '../components/client/InvoiceDetailWorkspace'
@@ -110,6 +113,8 @@ function mergeInvoiceExtras(invoice: Invoice, extras?: Partial<Invoice>): Invoic
 
 export default function ClientBatches() {
   const [data] = useState(mockClientDashboardData)
+  const { clientId, clientName } = useClientSession()
+  const { capabilities } = useClientCapabilities()
   const [batches, setBatches] = useState<ClientBatchRow[]>([])
   const [createSubMode, setCreateSubMode] = useState<'choose' | 'ai' | 'manual'>('choose')
   const [dashboardAiFiles, setDashboardAiFiles] = useState<File[] | undefined>(undefined)
@@ -219,6 +224,14 @@ export default function ClientBatches() {
       setActiveTab('create')
     }
   }, [searchParams])
+
+  useEffect(() => {
+    if (!capabilities.canCreateBatch && searchParams.get('mode') === 'ai') {
+      const next = new URLSearchParams(searchParams)
+      next.delete('mode')
+      setSearchParams(next, { replace: true })
+    }
+  }, [capabilities.canCreateBatch, searchParams, setSearchParams])
 
   const draftBatches = useMemo(
     () => batches.filter((batch) => batch.status === 'draft'),
@@ -1264,12 +1277,14 @@ export default function ClientBatches() {
 
   return (
     <ClientLayout
-      clientName={data.client_name}
-      clientId={data.client_id}
+      clientName={clientName}
+      clientId={clientId}
       flushMain={activeTab === 'view' || activeTab === 'create'}
     >
       <div className="client-flush-shell flex flex-col min-h-0 flex-1 overflow-hidden">
-        {activeTab === 'create' ? (
+        {activeTab === 'create' && !capabilities.canCreateBatch ? (
+          <ManagedDocHandoffView clientId={clientId} clientName={clientName} />
+        ) : activeTab === 'create' ? (
           <ClientSubmitDocsView
             mode={createSubMode}
             onBackToBatches={handleOpenViewBatches}
@@ -1284,8 +1299,8 @@ export default function ClientBatches() {
             {createSubMode === 'ai' && aiDraftReady && (
               <BatchAiUploadFlow
                 embedded
-                clientId={data.client_id}
-                clientName={data.client_name}
+                clientId={clientId}
+                clientName={clientName}
                 draftBatchId={activeDraftBatchId ?? undefined}
                 draftBatchNumber={activeDraftBatch?.batch_number}
                 restoredDraft={aiDraftRestored}
@@ -1349,7 +1364,7 @@ export default function ClientBatches() {
             batches={batches}
             highlightedBatchId={highlightedBatchId}
             onSelectBatch={handleSelectBatch}
-            onCreateBatch={handleOpenCreateBatch}
+            onCreateBatch={capabilities.canCreateBatch ? handleOpenCreateBatch : undefined}
             onDeleteDraft={(batchId) => void handleDeleteDraft(batchId)}
           />
         )}
@@ -1398,9 +1413,10 @@ export default function ClientBatches() {
         onOpenDispute={handleBatchOpenDispute}
         onMarkAsPaid={handleBatchMarkAsPaid}
         onInvoiceUpdated={() => setInvoicesRefreshKey((key) => key + 1)}
-        clientName={data.client_name}
+        clientName={clientName}
         title={selectedBatchData ? `Batch ${selectedBatchData.batch_number}` : 'Invoice Details'}
         showStatusFilter={false}
+        enableClientActions={capabilities.canRunInvoiceOps}
       />
     </ClientLayout>
   )
