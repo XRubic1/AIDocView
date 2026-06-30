@@ -32,6 +32,8 @@ export interface Invoice {
   amount: number
   /** Amount the client confirmed receiving when marking paid (may differ from invoice amount). */
   paid_amount?: number
+  /** Client acknowledged excess payment received (overpayment resolved). */
+  overpayment_accepted_at?: string
   invoice_date: string
   due_date: string
   expected_payment_date: string

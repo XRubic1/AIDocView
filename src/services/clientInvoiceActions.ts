@@ -1,6 +1,17 @@
 import { getInvoiceById, updateInvoice } from '../data/mockInvoices'
 import { Invoice, InvoiceDispute, InvoiceNote } from '../types/invoice'
+import type { Payment } from '../types/payment'
 import { formatCurrency } from '../utils/format'
+import {
+  canCloseShortPaymentAsUncollectable,
+  getInvoiceReceivedAmount,
+  getShortfallAmount,
+  isShortPaymentInvoice,
+} from '../utils/shortPayments'
+import {
+  canAcceptOverpayment,
+} from '../utils/overPayments'
+import { getOverageAmount } from '../utils/paymentVariance'
 import { addInvoiceDocuments } from './invoiceDocumentStore'
 import { notifyAdminClientDocumentUpload } from './adminNotificationService'
 import { logAuditEvent } from '../utils/auditLogger'
@@ -192,13 +203,133 @@ export function markClientInvoiceAsPaid(
   }
 
   const notesHistory = [...(invoice.notes_history || []), paidNote]
+  const isShort = amountReceived < invoice.amount - 0.01
+  const isOver = amountReceived > invoice.amount + 0.01
 
   return updateInvoice(invoiceId, {
-    status: 'paid',
+    status: isShort ? 'approved' : 'paid',
     paid_amount: amountReceived,
     notes_history: notesHistory,
-    days_since_expected: 0,
+    days_since_expected: isShort ? invoice.days_since_expected : 0,
+    overpayment_accepted_at: isOver ? undefined : invoice.overpayment_accepted_at,
   })
+}
+
+export interface CloseUncollectableOptions {
+  note: string
+}
+
+/**
+ * Write off the remaining balance on a short-paid invoice (maps to admin force close).
+ * Requires a note explaining why the balance is uncollectable.
+ */
+export function closeClientInvoiceAsUncollectable(
+  invoiceId: string,
+  authorName: string,
+  options: CloseUncollectableOptions,
+  payments: Payment[]
+): Invoice | undefined {
+  const invoice = getInvoiceById(invoiceId)
+  if (!invoice || !options.note.trim()) return undefined
+  if (!canCloseShortPaymentAsUncollectable(invoice)) return undefined
+
+  const received = getInvoiceReceivedAmount(invoice, payments)
+  if (!isShortPaymentInvoice(invoice, payments)) return undefined
+
+  const shortfall = getShortfallAmount(invoice, received)
+  const closeNote: InvoiceNote = {
+    id: `note-close-${Date.now()}`,
+    note: `Closed as uncollectable — received ${formatCurrency(received)}, write-off ${formatCurrency(shortfall)}. ${options.note.trim()}`,
+    created_by: authorName,
+    created_at: new Date().toISOString(),
+    type: 'client_note',
+  }
+
+  const notesHistory = [...(invoice.notes_history || []), closeNote]
+
+  const updated = updateInvoice(invoiceId, {
+    status: 'force_closed',
+    paid_amount: received,
+    notes_history: notesHistory,
+    days_since_expected: 0,
+    updated_at: new Date().toISOString(),
+  })
+
+  if (updated) {
+    logAuditEvent(
+      'invoice_closed',
+      'invoice',
+      updated.id,
+      updated.invoice_number,
+      `${authorName} closed ${updated.invoice_number} as uncollectable (${formatCurrency(shortfall)} write-off)`,
+      'client-portal',
+      authorName,
+      'Client',
+      undefined,
+      { close_type: 'uncollectable', received, shortfall }
+    )
+  }
+
+  return updated
+}
+
+export interface AcceptOverpaymentOptions {
+  note: string
+}
+
+/**
+ * Accept excess payment on an overpaid invoice — records the overage for accounting
+ * and marks the variance resolved (invoice stays paid at received amount).
+ */
+export function acceptClientOverpayment(
+  invoiceId: string,
+  authorName: string,
+  options: AcceptOverpaymentOptions,
+  payments: Payment[]
+): Invoice | undefined {
+  const invoice = getInvoiceById(invoiceId)
+  if (!invoice || !options.note.trim()) return undefined
+  if (!canAcceptOverpayment(invoice, payments)) return undefined
+
+  const received = getInvoiceReceivedAmount(invoice, payments)
+  const overage = getOverageAmount(invoice, received)
+  const now = new Date().toISOString()
+
+  const acceptNote: InvoiceNote = {
+    id: `note-over-accept-${Date.now()}`,
+    note: `Overpayment accepted — received ${formatCurrency(received)} on ${formatCurrency(invoice.amount)} invoice (excess ${formatCurrency(overage)}). ${options.note.trim()}`,
+    created_by: authorName,
+    created_at: now,
+    type: 'client_note',
+  }
+
+  const notesHistory = [...(invoice.notes_history || []), acceptNote]
+
+  const updated = updateInvoice(invoiceId, {
+    status: 'paid',
+    paid_amount: received,
+    overpayment_accepted_at: now,
+    notes_history: notesHistory,
+    days_since_expected: 0,
+    updated_at: now,
+  })
+
+  if (updated) {
+    logAuditEvent(
+      'payment_received',
+      'invoice',
+      updated.id,
+      updated.invoice_number,
+      `${authorName} accepted overpayment on ${updated.invoice_number} (+${formatCurrency(overage)})`,
+      'client-portal',
+      authorName,
+      'Client',
+      undefined,
+      { overage, received, invoice_amount: invoice.amount }
+    )
+  }
+
+  return updated
 }
 
 /** Upload additional documents from the client invoice detail page. */

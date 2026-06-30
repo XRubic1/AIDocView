@@ -1,14 +1,7 @@
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { mockClientDashboardData } from '../data/mockClientDashboard'
-import { useClientSession } from '../hooks/useClientSession'
-import { mockPayments } from '../data/mockPayments'
-import { mockInvoices } from '../data/mockInvoices'
-import {
-  mockClientReportInvoices,
-  mockClientReportPayments,
-} from '../data/mockClientReports'
-import { formatCurrency } from '../utils/format'
+import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
+import { formatCurrency, formatDate } from '../utils/format'
 import {
   FileText,
   Download,
@@ -22,7 +15,6 @@ import {
   AlertTriangle,
   ArrowRight,
   Activity,
-  ExternalLink,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
 import DashboardPanel from '../components/client/dashboard/DashboardPanel'
@@ -31,7 +23,6 @@ import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
 import CashFlowChart from '../components/client/CashFlowChart'
 import CashCollectionForecast from '../components/client/CashCollectionForecast'
 import { useClientTheme } from '../theme/ThemeContext'
-import { enrichInvoices } from '../utils/invoiceAging'
 import {
   computeOpenArAging,
   computeBrokerScores,
@@ -39,12 +30,20 @@ import {
   computePipelineMetrics,
   computePaymentLag,
   computePeriodSummary,
-  generateReportInsights,
+  computeTaxReport,
+  computeCollectionsByMonth,
   getPresetRange,
   type DateRange,
-  type ReportInsight,
 } from '../utils/clientReports'
 import { computeCashCollectionForecast } from '../utils/cashCollectionForecast'
+import {
+  OVERVIEW_REPORT_SECTIONS,
+  buildOverviewCsvRows,
+  computeConcentrationRisk,
+} from '../utils/clientOverviewReports'
+import { getBrokerPayRating } from '../utils/clientBrokers'
+import BrokerPayRatingBadge from '../components/client/BrokerPayRatingBadge'
+import { useClientSession } from '../hooks/useClientSession'
 
 type ReportType = 'overview' | 'aging' | 'cashflow' | 'brokers' | 'pipeline'
 
@@ -96,50 +95,6 @@ function ReportBarRow({
   )
 }
 
-function InsightStrip({ insights }: { insights: ReportInsight[] }) {
-  if (insights.length === 0) return null
-  return (
-    <div className="report-insight-strip">
-      {insights.slice(0, 2).map((insight) => (
-        <div key={insight.id} className={`report-insight-strip__item report-insight-strip__item--${insight.tone}`}>
-          <span className="report-insight-strip__title">{insight.title}</span>
-          <span className="report-insight-strip__sep">·</span>
-          <span className="report-insight-strip__body">{insight.body}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function DsoRing({ dso, compact = false, target = 30 }: { dso: number | null; compact?: boolean; target?: number }) {
-  const c = useClientTheme()
-  const pct = dso !== null ? Math.min(100, (dso / (target * 2)) * 100) : 0
-  const ringColor = dso === null ? c.chartGrid : dso <= target ? c.success : dso <= target * 1.5 ? c.warning : c.error
-
-  return (
-    <div className={`flex flex-col items-center justify-center ${compact ? 'py-2' : 'py-4'}`}>
-      <div
-        className={compact ? 'report-dso-ring report-dso-ring--compact' : 'report-dso-ring'}
-        style={{
-          background: `conic-gradient(${ringColor} ${pct}%, ${c.chartGrid} 0)`,
-        }}
-      >
-        <div className="report-dso-ring__inner">
-          <span
-            className={`font-bold tabular-nums ${compact ? 'text-xl' : 'text-3xl'}`}
-            style={{ color: c.primary }}
-          >
-            {dso ?? '—'}
-          </span>
-          <span className="text-[10px] font-medium mt-0.5" style={{ color: c.secondary }}>
-            days DSO
-          </span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function MiniKpi({ label, value, accent }: { label: string; value: string; accent?: string }) {
   const c = useClientTheme()
   return (
@@ -184,38 +139,34 @@ function StatStripCell({
   )
 }
 
+function ReportPanel({
+  children,
+  span = 12,
+}: {
+  children: ReactNode
+  span?: 3 | 4 | 5 | 6 | 7 | 12
+}) {
+  const spanClass: Record<number, string> = {
+    3: 'lg:col-span-3',
+    4: 'lg:col-span-4',
+    5: 'lg:col-span-5',
+    6: 'lg:col-span-6',
+    7: 'lg:col-span-7',
+    12: 'lg:col-span-12',
+  }
+  return (
+    <div className={`client-reports-panel ${spanClass[span] ?? 'lg:col-span-12'}`}>{children}</div>
+  )
+}
+
 export default function ClientReports() {
   const c = useClientTheme()
   const navigate = useNavigate()
-  const [data] = useState(mockClientDashboardData)
   const { clientId, clientName } = useClientSession()
+  const { invoices: clientInvoices, payments: clientPayments } = useClientDemoSnapshot()
   const [selectedReportType, setSelectedReportType] = useState<ReportType>('overview')
   const [datePreset, setDatePreset] = useState<DatePreset | 'custom'>('90d')
   const [dateRange, setDateRange] = useState<DateRange>(() => getPresetRange('90d'))
-
-  const clientInvoices = useMemo(() => {
-    const base = mockInvoices.filter((inv) => inv.client_id === clientId)
-    if (clientId !== 'client-1') return base
-    // Merge date-relative demo data so charts and period filters stay populated
-    const baseIds = new Set(base.map((inv) => inv.id))
-    const supplemental = mockClientReportInvoices.filter((inv) => !baseIds.has(inv.id))
-    return [...base, ...supplemental]
-  }, [clientId])
-
-  const clientInvoiceIds = useMemo(
-    () => new Set(clientInvoices.map((inv) => inv.id)),
-    [clientInvoices]
-  )
-
-  const clientPayments = useMemo(() => {
-    const base = mockPayments.filter((p) => clientInvoiceIds.has(p.invoice_id))
-    if (clientId !== 'client-1') return base
-    const baseIds = new Set(base.map((p) => p.id))
-    const supplemental = mockClientReportPayments.filter(
-      (p) => clientInvoiceIds.has(p.invoice_id) && !baseIds.has(p.id)
-    )
-    return [...base, ...supplemental]
-  }, [clientInvoiceIds, clientId])
 
   const applyPreset = (preset: DatePreset) => {
     setDatePreset(preset)
@@ -247,38 +198,34 @@ export default function ClientReports() {
     () => computePaymentLag(clientPayments, clientInvoices, dateRange),
     [clientPayments, clientInvoices, dateRange]
   )
-
-  const insights = useMemo(
-    () =>
-      generateReportInsights({
-        summary,
-        aging,
-        brokers,
-        pipeline,
-        paymentLag,
-        cashFlow,
-      }),
-    [summary, aging, brokers, pipeline, paymentLag, cashFlow]
+  const taxReport = useMemo(
+    () => computeTaxReport(clientInvoices, clientPayments, dateRange),
+    [clientInvoices, clientPayments, dateRange]
+  )
+  const collectionsByMonth = useMemo(
+    () => computeCollectionsByMonth(clientInvoices, clientPayments, dateRange),
+    [clientInvoices, clientPayments, dateRange]
   )
 
-  /** Invoices needing attention — overdue, hold, pending — sorted by severity */
-  const attentionInvoices = useMemo(() => {
-    return enrichInvoices(clientInvoices)
-      .filter((inv) => inv.isOverdue || inv.status === 'hold' || inv.status === 'pending')
-      .sort((a, b) => {
-        const order = (inv: typeof a) => {
-          if (inv.isForceCloseEligible) return 0
-          if (inv.overdueSeverity === 'critical') return 1
-          if (inv.overdueSeverity === 'urgent') return 2
-          if (inv.isOverdue) return 3
-          if (inv.status === 'hold') return 4
-          return 5
-        }
-        const diff = order(a) - order(b)
-        return diff !== 0 ? diff : b.daysOutstanding - a.daysOutstanding
-      })
-      .slice(0, 6)
-  }, [clientInvoices])
+  const brokerRiskRows = useMemo(
+    () =>
+      brokers
+        .filter((b) => b.collected_in_range > 0 || b.open_ar > 0)
+        .map((b) => ({ ...b, rating: getBrokerPayRating(b) }))
+        .sort((a, b) => {
+          const order = { red: 0, yellow: 1, green: 2 }
+          if (order[a.rating] !== order[b.rating]) return order[a.rating] - order[b.rating]
+          return b.collected_in_range - a.collected_in_range
+        }),
+    [brokers]
+  )
+
+  const concentration = useMemo(() => computeConcentrationRisk(brokers), [brokers])
+
+  const maxCollectionsMonth = Math.max(
+    ...collectionsByMonth.map((m) => Math.max(m.invoiced, m.collected)),
+    1
+  )
 
   const bucketColors = BUCKET_COLORS(c)
   const maxAgingAmount = Math.max(...aging.buckets.map((b) => b.amount), 1)
@@ -314,13 +261,16 @@ export default function ClientReports() {
 
     switch (selectedReportType) {
       case 'overview':
-        csvContent = 'Metric,Value\n'
-        csvContent += `Open A/R,${summary.open_ar}\n`
-        csvContent += `DSO (days),${summary.dso ?? ''}\n`
-        csvContent += `Invoiced in range,${summary.invoiced}\n`
-        csvContent += `Collected in range,${summary.collected}\n`
-        csvContent += `Collection rate,${summary.collection_rate.toFixed(1)}%\n`
-        filename = `executive_summary_${dateRange.start_date}_to_${dateRange.end_date}.csv`
+        csvContent = buildOverviewCsvRows({
+          summary,
+          aging,
+          taxReport,
+          paymentLag,
+          forecast: collectionForecast,
+          concentration,
+          brokerRiskRows,
+        })
+        filename = `overview_${dateRange.start_date}_to_${dateRange.end_date}.csv`
         break
       case 'aging':
         csvContent = 'Bucket,Amount,Invoices\n'
@@ -367,7 +317,20 @@ export default function ClientReports() {
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
-  }, [selectedReportType, summary, aging, cashFlow, brokers, pipeline, dateRange])
+  }, [
+    selectedReportType,
+    summary,
+    aging,
+    cashFlow,
+    brokers,
+    pipeline,
+    dateRange,
+    taxReport,
+    brokerRiskRows,
+    paymentLag,
+    collectionForecast,
+    concentration,
+  ])
 
   const reportTabs: { id: ReportType; label: string; icon: typeof Calendar }[] = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -386,100 +349,102 @@ export default function ClientReports() {
   } as const
 
   return (
-    <ClientLayout clientName={clientName} clientId={clientId}>
-      <div className="client-reports-page w-full min-w-0 space-y-3">
+    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
+      <div className="client-reports-page overflow-hidden flex flex-col min-h-0">
         <div
-          className="client-reports-chrome client-page-toolbar px-3 py-2 border rounded-xl w-full"
+          className="client-reports-chrome shrink-0 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 px-4 py-2"
           style={{ borderColor: c.border, backgroundColor: c.card }}
         >
-          <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2">
-            <div
-              className="client-segmented-control client-reports-segmented"
-              role="tablist"
-              aria-label="Report type"
-            >
-              {reportTabs.map((tab) => (
+          <div
+            className="client-segmented-control client-reports-segmented min-w-0"
+            role="tablist"
+            aria-label="Report type"
+          >
+            {reportTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={selectedReportType === tab.id}
+                onClick={() => setSelectedReportType(tab.id)}
+                className={`client-segmented-control__btn ${
+                  selectedReportType === tab.id ? 'client-segmented-control__btn--active' : ''
+                }`}
+              >
+                <tab.icon className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="client-reports-filters flex flex-wrap items-center gap-2 shrink-0">
+            <div className="flex flex-wrap gap-1">
+              {(
+                [
+                  { id: 'mtd' as const, label: 'MTD' },
+                  { id: '30d' as const, label: '30d' },
+                  { id: '90d' as const, label: '90d' },
+                  { id: 'ytd' as const, label: 'YTD' },
+                ] as const
+              ).map((preset) => (
                 <button
-                  key={tab.id}
+                  key={preset.id}
                   type="button"
-                  role="tab"
-                  aria-selected={selectedReportType === tab.id}
-                  onClick={() => setSelectedReportType(tab.id)}
-                  className={`client-segmented-control__btn ${
-                    selectedReportType === tab.id ? 'client-segmented-control__btn--active' : ''
+                  onClick={() => applyPreset(preset.id)}
+                  className={`batch-filter-pill batch-filter-pill--sm ${
+                    datePreset === preset.id ? 'batch-filter-pill--active' : ''
                   }`}
                 >
-                  <tab.icon className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                  {tab.label}
+                  {preset.label}
                 </button>
               ))}
             </div>
-
-            <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 shrink-0">
-              <div className="flex flex-wrap gap-1">
-                {(
-                  [
-                    { id: 'mtd' as const, label: 'MTD' },
-                    { id: '30d' as const, label: '30d' },
-                    { id: '90d' as const, label: '90d' },
-                    { id: 'ytd' as const, label: 'YTD' },
-                  ] as const
-                ).map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => applyPreset(preset.id)}
-                    className={`batch-filter-pill batch-filter-pill--sm ${
-                      datePreset === preset.id ? 'batch-filter-pill--active' : ''
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-              <input
-                type="date"
-                value={dateRange.start_date}
-                onChange={(e) => {
-                  setDatePreset('custom')
-                  setDateRange((prev) => ({ ...prev, start_date: e.target.value }))
-                }}
-                className="client-input client-reports-date-input"
-                style={inputCompactStyle}
-                aria-label="Start date"
-              />
-              <span className="text-[11px] font-medium hidden sm:inline" style={{ color: c.secondary }}>
-                –
-              </span>
-              <input
-                type="date"
-                value={dateRange.end_date}
-                onChange={(e) => {
-                  setDatePreset('custom')
-                  setDateRange((prev) => ({ ...prev, end_date: e.target.value }))
-                }}
-                className="client-input client-reports-date-input"
-                style={inputCompactStyle}
-                aria-label="End date"
-              />
-              <button type="button" onClick={handleExportCSV} className="dashboard-btn-secondary dashboard-btn-compact shrink-0">
-                <Download className="w-3.5 h-3.5" />
-                CSV
-              </button>
-            </div>
+            <input
+              type="date"
+              value={dateRange.start_date}
+              onChange={(e) => {
+                setDatePreset('custom')
+                setDateRange((prev) => ({ ...prev, start_date: e.target.value }))
+              }}
+              className="client-input client-reports-date-input"
+              style={inputCompactStyle}
+              aria-label="Start date"
+            />
+            <span className="text-[11px] font-medium hidden sm:inline" style={{ color: c.secondary }}>
+              –
+            </span>
+            <input
+              type="date"
+              value={dateRange.end_date}
+              onChange={(e) => {
+                setDatePreset('custom')
+                setDateRange((prev) => ({ ...prev, end_date: e.target.value }))
+              }}
+              className="client-input client-reports-date-input"
+              style={inputCompactStyle}
+              aria-label="End date"
+            />
+            <button
+              type="button"
+              onClick={handleExportCSV}
+              className="dashboard-btn-secondary dashboard-btn-compact shrink-0"
+            >
+              <Download className="w-3.5 h-3.5" />
+              CSV
+            </button>
           </div>
         </div>
 
         <section
-          className="client-stat-strip client-reports-stat-strip grid grid-cols-2 lg:grid-cols-4 border rounded-xl overflow-hidden w-full"
+          className="client-stat-strip client-reports-stat-strip grid grid-cols-2 lg:grid-cols-4 border-b shrink-0"
           style={{ borderColor: c.border }}
         >
           {selectedReportType === 'overview' && (
             <>
-              <StatStripCell label="Open A/R" value={formatCurrency(summary.open_ar)} icon={DollarSign} bg={c.stat.blue} iconColor={c.info} />
-              <StatStripCell label="DSO" value={summary.dso !== null ? `${summary.dso}d` : '—'} icon={Clock} bg={c.stat.amber} iconColor={c.warning} />
               <StatStripCell label="Collected" value={formatCurrency(summary.collected)} icon={TrendingUp} bg={c.stat.green} iconColor={c.success} />
-              <StatStripCell label="Collection rate" value={`${summary.collection_rate.toFixed(0)}%`} icon={BarChart3} bg={c.stat.slate} iconColor={c.secondary} />
+              <StatStripCell label="DSO" value={summary.dso !== null ? `${summary.dso}d` : '—'} icon={Clock} bg={c.stat.blue} iconColor={c.info} />
+              <StatStripCell label="Overdue" value={formatCurrency(aging.overdue_amount)} icon={AlertTriangle} bg={c.stat.red} iconColor={c.error} />
+              <StatStripCell label="Collection rate" value={`${summary.collection_rate.toFixed(0)}%`} icon={BarChart3} bg={c.stat.amber} iconColor={c.warning} />
             </>
           )}
           {selectedReportType === 'aging' && (
@@ -543,290 +508,260 @@ export default function ClientReports() {
         </section>
 
         {selectedReportType === 'overview' && (
-          <InsightStrip insights={insights} />
+          <div
+            className="client-reports-overview-key shrink-0 px-4 py-1.5 border-b flex flex-wrap items-center gap-x-3 gap-y-1"
+            style={{ borderColor: c.border, backgroundColor: c.card }}
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: c.mutedLight }}>
+              Report pack
+            </span>
+            {OVERVIEW_REPORT_SECTIONS.map((section) => (
+              <span
+                key={section.id}
+                className="text-[10px]"
+                style={{ color: c.secondary }}
+                title={section.description}
+              >
+                {section.industryLabel}
+              </span>
+            ))}
+          </div>
         )}
 
+        <div className="client-reports-body flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
         {selectedReportType === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-            <div className="lg:col-span-5">
-              <DashboardPanel title="Invoiced vs collected" compact interactive={false}>
+          <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
+            <ReportPanel span={7}>
+              <DashboardPanel title="Cash flow trend" compact interactive={false} className="client-reports-panel-card">
                 <CashFlowChart data={cashFlow} compact />
               </DashboardPanel>
-            </div>
-            <div className="lg:col-span-3">
-              <DashboardPanel title="DSO & period" compact interactive={false}>
-                <DsoRing dso={summary.dso} compact />
-                <div className="px-3 pb-3 grid grid-cols-2 gap-2">
-                  <MiniKpi label="Invoiced" value={formatCurrency(summary.invoiced)} />
-                  <MiniKpi label="Collected" value={formatCurrency(summary.collected)} accent={c.success} />
-                  <MiniKpi
-                    label="Outstanding"
-                    value={formatCurrency(Math.max(0, summary.invoiced - summary.collected))}
-                    accent={c.warning}
-                  />
-                  <MiniKpi
-                    label="Overdue"
-                    value={formatCurrency(aging.overdue_amount)}
-                    accent={c.error}
-                  />
-                </div>
-              </DashboardPanel>
-            </div>
-            <div className="lg:col-span-4">
+            </ReportPanel>
+
+            <ReportPanel span={5}>
               <DashboardPanel
-                title="Open A/R"
+                title="Expected collections"
                 compact
                 interactive
-                actionLabel="Aging A/R"
+                actionLabel="Cash flow"
+                onAction={() => setSelectedReportType('cashflow')}
+                className="client-reports-panel-card"
+              >
+                <CashCollectionForecast
+                  invoices={clientInvoices}
+                  payments={clientPayments}
+                  compact
+                />
+              </DashboardPanel>
+            </ReportPanel>
+
+            <ReportPanel span={6}>
+              <DashboardPanel
+                title="Collections effectiveness"
+                compact
+                interactive
+                actionLabel="Collections"
                 onAction={() => navigate('/client/collections')}
+                className="client-reports-panel-card"
+              >
+                <div className="p-3 space-y-3">
+                  <p className="text-[11px]" style={{ color: c.secondary }}>
+                    {formatDate(dateRange.start_date)} – {formatDate(dateRange.end_date)}
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <MiniKpi label="Invoiced" value={formatCurrency(summary.invoiced)} />
+                    <MiniKpi label="Collected" value={formatCurrency(summary.collected)} accent={c.success} />
+                    <MiniKpi
+                      label="Outstanding"
+                      value={formatCurrency(Math.max(0, summary.invoiced - summary.collected))}
+                      accent={c.warning}
+                    />
+                    <MiniKpi label="DSO" value={summary.dso !== null ? `${summary.dso} days` : '—'} />
+                    <MiniKpi
+                      label="On-time pay"
+                      value={paymentLag.sample_size > 0 ? `${paymentLag.on_time_pct.toFixed(0)}%` : '—'}
+                      accent={c.success}
+                    />
+                    <MiniKpi
+                      label="Late pay"
+                      value={paymentLag.sample_size > 0 ? `${paymentLag.late_pct.toFixed(0)}%` : '—'}
+                      accent={paymentLag.late_pct > 30 ? c.error : c.secondary}
+                    />
+                  </div>
+                  {collectionsByMonth.length > 0 ? (
+                    <div className="space-y-2 pt-1 border-t" style={{ borderColor: c.border }}>
+                      {collectionsByMonth.map((row) => (
+                        <ReportBarRow
+                          key={row.monthKey}
+                          label={row.label}
+                          value={row.collected}
+                          max={maxCollectionsMonth}
+                          color={c.success}
+                          display={formatCurrency(row.collected)}
+                          sub={`${formatCurrency(row.invoiced)} invoiced`}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-center py-2" style={{ color: c.secondary }}>
+                      No activity in this period
+                    </p>
+                  )}
+                </div>
+              </DashboardPanel>
+            </ReportPanel>
+
+            <ReportPanel span={6}>
+              <DashboardPanel
+                title="A/R aging snapshot"
+                compact
+                interactive
+                actionLabel="Full aging"
+                onAction={() => setSelectedReportType('aging')}
+                className="client-reports-panel-card"
               >
                 <AgingARChart aging={aging.aging_ar} compact />
-                <div className="px-3 pb-3 space-y-2">
-                  {aging.buckets
-                    .filter((b) => b.amount > 0)
-                    .slice(0, 4)
-                    .map((bucket, i) => (
-                      <ReportBarRow
-                        key={bucket.id}
-                        label={`${bucket.label}d`}
-                        value={bucket.amount}
-                        max={maxAgingAmount}
-                        color={bucketColors[i % bucketColors.length]}
-                        display={formatCurrency(bucket.amount)}
-                      />
-                    ))}
-                </div>
-              </DashboardPanel>
-            </div>
-          </div>
-        )}
-
-        {/* ── Overview Row 2 — Broker spotlight | Pipeline snapshot | Payment behavior ── */}
-        {selectedReportType === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 w-full">
-
-            {/* Broker spotlight */}
-            <DashboardPanel
-              title="Brokers"
-              compact
-              interactive
-              actionLabel="Full scorecard"
-              onAction={() => setSelectedReportType('brokers')}
-            >
-              <div className="p-3 space-y-2.5">
-                {brokers.length === 0 ? (
-                  <p className="text-xs text-center py-4" style={{ color: c.secondary }}>
-                    No broker activity in this range
-                  </p>
-                ) : (
-                  brokers.slice(0, 4).map((broker, i) => (
+                <div className="px-3 pb-3 space-y-1.5 border-t" style={{ borderColor: c.border }}>
+                  {aging.buckets.map((bucket, i) => (
                     <ReportBarRow
-                      key={broker.broker_name}
-                      label={broker.broker_name}
-                      value={broker.open_ar}
-                      max={maxBrokerAr}
+                      key={bucket.id}
+                      label={bucket.label}
+                      value={bucket.amount}
+                      max={maxAgingAmount}
                       color={bucketColors[i % bucketColors.length]}
-                      display={formatCurrency(broker.open_ar)}
-                      sub={
-                        broker.avg_days_to_pay !== null
-                          ? `avg ${broker.avg_days_to_pay}d · ${broker.share_of_ar.toFixed(0)}% of A/R`
-                          : `${broker.share_of_ar.toFixed(0)}% of open A/R`
-                      }
+                      display={formatCurrency(bucket.amount)}
+                      sub={`${bucket.invoice_count} invoice${bucket.invoice_count !== 1 ? 's' : ''}`}
                     />
-                  ))
-                )}
-              </div>
-            </DashboardPanel>
-
-            {/* Pipeline snapshot */}
-            <DashboardPanel
-              title="Pipeline"
-              compact
-              interactive
-              actionLabel="View invoices"
-              onAction={() => navigate('/client/invoices')}
-            >
-              <div className="p-3 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <MiniKpi label="Pending" value={String(pipeline.pending)} />
-                  <MiniKpi label="On hold" value={String(pipeline.on_hold)} accent={pipeline.on_hold > 0 ? c.warning : undefined} />
-                  <MiniKpi label="Approval rate" value={`${pipeline.approval_rate.toFixed(0)}%`} accent={pipeline.approval_rate >= 80 ? c.success : c.warning} />
-                  <MiniKpi
-                    label="Open disputes"
-                    value={String(pipeline.open_dispute_count)}
-                    accent={pipeline.open_dispute_count > 0 ? c.error : undefined}
-                  />
+                  ))}
                 </div>
-                {pipeline.avg_days_to_approve !== null && (
-                  <p className="text-[11px]" style={{ color: c.secondary }}>
-                    Avg approve time: <span className="font-semibold" style={{ color: c.primary }}>{pipeline.avg_days_to_approve}d</span>
-                  </p>
-                )}
-                {pipeline.submitted === 0 && (
-                  <p className="text-xs text-center" style={{ color: c.secondary }}>
-                    No invoices submitted in range
-                  </p>
-                )}
-              </div>
-            </DashboardPanel>
-
-            {/* Payment behavior */}
-            <DashboardPanel
-              title="Payment behavior"
-              compact
-              interactive
-              actionLabel="Cash flow"
-              onAction={() => setSelectedReportType('cashflow')}
-            >
-              <div className="p-3 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <MiniKpi
-                    label="On-time"
-                    value={paymentLag.sample_size > 0 ? `${paymentLag.on_time_pct.toFixed(0)}%` : '—'}
-                    accent={c.success}
-                  />
-                  <MiniKpi
-                    label="Late"
-                    value={paymentLag.sample_size > 0 ? `${paymentLag.late_pct.toFixed(0)}%` : '—'}
-                    accent={paymentLag.late_pct > 0 ? c.error : undefined}
-                  />
-                </div>
-                {paymentLag.avg_days !== null && (
-                  <p className="text-[11px]" style={{ color: c.secondary }}>
-                    Avg lag: <span className="font-semibold" style={{ color: c.primary }}>{paymentLag.avg_days}d</span>
-                    {' past expected pay'}
-                  </p>
-                )}
-                {paymentMethods.length > 0 ? (
-                  <div className="space-y-2">
-                    {paymentMethods.map((method) => (
-                      <ReportBarRow
-                        key={method.method}
-                        label={method.method}
-                        value={method.amount}
-                        max={Math.max(...paymentMethods.map((m) => m.amount), 1)}
-                        color={c.info}
-                        display={formatCurrency(method.amount)}
-                        sub={`${method.count} pmt`}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-center py-1" style={{ color: c.secondary }}>
-                    No confirmed payments in range
-                  </p>
-                )}
-              </div>
-            </DashboardPanel>
-
-          </div>
-        )}
-
-        {/* ── Overview Row 3 — Collections trend | Invoices needing attention ── */}
-        {selectedReportType === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-
-            {/* Collections trend */}
-            <div className="lg:col-span-7">
-              <DashboardPanel title="Collections trend" compact interactive={false}>
-                <PaymentTrendsChart payments={clientPayments} compact />
               </DashboardPanel>
-            </div>
+            </ReportPanel>
 
-            {/* Invoices needing attention */}
-            <div className="lg:col-span-5">
+            <ReportPanel span={6}>
               <DashboardPanel
-                title="Needs attention"
+                title="Broker credit & risk"
                 compact
                 interactive
-                actionLabel="All invoices"
-                onAction={() => navigate('/client/invoices')}
+                actionLabel="Broker directory"
+                onAction={() => navigate('/client/brokers')}
+                className="client-reports-panel-card"
               >
-                {attentionInvoices.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-                    <div
-                      className="w-8 h-8 rounded-xl flex items-center justify-center mb-2"
-                      style={{ backgroundColor: c.stat.green, color: c.success }}
-                    >
-                      <Activity className="w-4 h-4" />
-                    </div>
-                    <p className="text-sm font-medium" style={{ color: c.primary }}>All clear</p>
-                    <p className="text-xs mt-0.5" style={{ color: c.secondary }}>No invoices require attention</p>
+                {concentration.top_broker_name && (
+                  <div
+                    className="mx-3 mt-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center justify-between gap-2"
+                    style={{
+                      backgroundColor: concentration.is_elevated ? c.stat.red : c.stat.slate,
+                      color: concentration.is_elevated ? c.error : c.secondary,
+                    }}
+                  >
+                    <span className="truncate">
+                      Top exposure: <strong>{concentration.top_broker_name}</strong>
+                    </span>
+                    <span className="font-semibold tabular-nums shrink-0">
+                      {concentration.top_broker_pct.toFixed(0)}% of A/R
+                    </span>
                   </div>
+                )}
+                {brokerRiskRows.length === 0 ? (
+                  <p className="text-xs text-center py-6 px-4" style={{ color: c.secondary }}>
+                    No broker payment activity in this period
+                  </p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="dashboard-table dashboard-table--compact">
                       <thead>
                         <tr>
-                          <th>Invoice</th>
                           <th>Broker</th>
-                          <th className="text-right">Amount</th>
-                          <th>Status</th>
-                          <th className="text-center w-8"> </th>
+                          <th className="text-right">Open A/R</th>
+                          <th className="text-right">Avg pay</th>
+                          <th>Risk</th>
+                          <th className="text-right">Overdue</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {attentionInvoices.map((invoice) => {
-                          const statusClass =
-                            invoice.isOverdue ? 'status-pill status-pill--overdue'
-                            : invoice.status === 'hold' ? 'status-pill status-pill--hold'
-                            : 'status-pill status-pill--pending'
-                          const statusLabel =
-                            invoice.isOverdue ? `${invoice.daysOutstanding}d overdue`
-                            : invoice.status === 'hold' ? 'On Hold'
-                            : 'Pending'
-                          return (
-                            <tr key={invoice.id}>
-                              <td className="font-semibold">{invoice.invoice_number}</td>
-                              <td className="truncate max-w-[120px]" style={{ color: c.secondary }}>
-                                {invoice.broker_name}
-                              </td>
-                              <td className="text-right tabular-nums font-medium">
-                                {formatCurrency(invoice.amount)}
-                              </td>
-                              <td>
-                                <span className={`${statusClass} status-pill--compact`}>
-                                  {statusLabel}
-                                </span>
-                              </td>
-                              <td className="text-center">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    navigate(`/client/invoices?highlight_invoice=${invoice.id}`)
-                                  }
-                                  className="p-1 rounded transition-opacity hover:opacity-70"
-                                  style={{ color: c.info }}
-                                  title="View invoice"
-                                >
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </button>
-                              </td>
-                            </tr>
-                          )
-                        })}
+                        {brokerRiskRows.slice(0, 8).map((broker) => (
+                          <tr key={broker.broker_name}>
+                            <td className="font-medium truncate max-w-[120px]">{broker.broker_name}</td>
+                            <td className="text-right tabular-nums" style={{ color: c.primary }}>
+                              {formatCurrency(broker.open_ar)}
+                            </td>
+                            <td className="text-right tabular-nums" style={{ color: c.secondary }}>
+                              {broker.avg_days_to_pay !== null ? `${broker.avg_days_to_pay}d` : '—'}
+                            </td>
+                            <td>
+                              <BrokerPayRatingBadge rating={broker.rating} size="sm" />
+                            </td>
+                            <td className="text-right tabular-nums" style={{ color: broker.overdue_amount > 0 ? c.error : c.mutedLight }}>
+                              {broker.overdue_amount > 0 ? formatCurrency(broker.overdue_amount) : '—'}
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
                 )}
               </DashboardPanel>
-            </div>
+            </ReportPanel>
 
+            <ReportPanel span={6}>
+              <DashboardPanel title="Tax & revenue (1099)" compact interactive={false} className="client-reports-panel-card">
+                <div className="p-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <MiniKpi label="Gross collected" value={formatCurrency(taxReport.gross_collected)} accent={c.success} />
+                    <MiniKpi label="Payments" value={String(taxReport.payment_count)} />
+                    <MiniKpi label="Invoiced" value={formatCurrency(taxReport.invoiced_in_period)} />
+                    <MiniKpi
+                      label="Still outstanding"
+                      value={formatCurrency(taxReport.outstanding_from_period)}
+                      accent={c.warning}
+                    />
+                  </div>
+                  {taxReport.by_broker.length > 0 ? (
+                    <div className="space-y-2 pt-1 border-t" style={{ borderColor: c.border }}>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
+                        By broker (1099 reference)
+                      </p>
+                      {taxReport.by_broker.slice(0, 6).map((row, i) => (
+                        <ReportBarRow
+                          key={row.broker_name}
+                          label={row.broker_name}
+                          value={row.gross_collected}
+                          max={taxReport.by_broker[0]?.gross_collected ?? 1}
+                          color={bucketColors[i % bucketColors.length]}
+                          display={formatCurrency(row.gross_collected)}
+                          sub={`${row.payment_count} payment${row.payment_count !== 1 ? 's' : ''}`}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-center py-2" style={{ color: c.secondary }}>
+                      No collections in this period for tax reporting
+                    </p>
+                  )}
+                  <p className="text-[10px] leading-snug" style={{ color: c.mutedLight }}>
+                    Summary of freight revenue collected in the selected period. Export CSV or share with your accountant for 1099 / tax prep.
+                  </p>
+                </div>
+              </DashboardPanel>
+            </ReportPanel>
           </div>
         )}
 
         {selectedReportType === 'aging' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 w-full">
+          <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
+            <ReportPanel span={6}>
             <DashboardPanel
               title="A/R distribution"
               compact
               interactive
               actionLabel="View invoices"
               onAction={() => navigate('/client/collections')}
+              className="client-reports-panel-card"
             >
               <AgingARChart aging={aging.aging_ar} compact />
             </DashboardPanel>
-            <DashboardPanel title="Bucket detail" compact interactive={false}>
+            </ReportPanel>
+            <ReportPanel span={6}>
+            <DashboardPanel title="Bucket detail" compact interactive={false} className="client-reports-panel-card">
               <div className="p-3 space-y-2.5">
                 {aging.buckets.map((bucket, i) => (
                   <ReportBarRow
@@ -841,27 +776,28 @@ export default function ClientReports() {
                 ))}
               </div>
             </DashboardPanel>
+            </ReportPanel>
           </div>
         )}
 
         {selectedReportType === 'cashflow' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-            <div className="lg:col-span-6">
-              <DashboardPanel title="Cash flow" compact interactive={false}>
+          <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
+            <ReportPanel span={6}>
+              <DashboardPanel title="Cash flow" compact interactive={false} className="client-reports-panel-card">
                 <CashFlowChart data={cashFlow} compact />
               </DashboardPanel>
-            </div>
-            <div className="lg:col-span-6">
-              <DashboardPanel title="Collection forecast" compact interactive={false}>
+            </ReportPanel>
+            <ReportPanel span={6}>
+              <DashboardPanel title="Collection forecast" compact interactive={false} className="client-reports-panel-card">
                 <CashCollectionForecast
                   invoices={clientInvoices}
                   payments={clientPayments}
                   compact
                 />
               </DashboardPanel>
-            </div>
-            <div className="lg:col-span-12">
-              <DashboardPanel title="Payment behavior" compact interactive={false}>
+            </ReportPanel>
+            <ReportPanel span={12}>
+              <DashboardPanel title="Payment behavior" compact interactive={false} className="client-reports-panel-card">
                 <div className="p-3 space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <MiniKpi
@@ -894,12 +830,12 @@ export default function ClientReports() {
                   )}
                 </div>
               </DashboardPanel>
-            </div>
-            <div className="lg:col-span-12">
-              <DashboardPanel title="Collections trend" compact interactive={false}>
+            </ReportPanel>
+            <ReportPanel span={12}>
+              <DashboardPanel title="Collections trend" compact interactive={false} className="client-reports-panel-card">
                 <PaymentTrendsChart payments={clientPayments} compact />
               </DashboardPanel>
-            </div>
+            </ReportPanel>
           </div>
         )}
 
@@ -976,8 +912,9 @@ export default function ClientReports() {
         )}
 
         {selectedReportType === 'pipeline' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 w-full">
-            <DashboardPanel title="Submission funnel" compact interactive={false}>
+          <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
+            <ReportPanel span={6}>
+            <DashboardPanel title="Submission funnel" compact interactive={false} className="client-reports-panel-card">
               <div className="p-3 space-y-2.5">
                 {[
                   { label: 'Submitted', count: pipeline.submitted, amount: 0, color: c.chart.blue },
@@ -1004,8 +941,10 @@ export default function ClientReports() {
                   ))}
               </div>
             </DashboardPanel>
+            </ReportPanel>
 
-            <DashboardPanel title="Processing health" compact interactive={false}>
+            <ReportPanel span={6}>
+            <DashboardPanel title="Processing health" compact interactive={false} className="client-reports-panel-card">
               <div className="p-3 space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <MiniKpi label="Approval rate" value={`${pipeline.approval_rate.toFixed(0)}%`} />
@@ -1030,8 +969,10 @@ export default function ClientReports() {
                 </button>
               </div>
             </DashboardPanel>
+            </ReportPanel>
           </div>
         )}
+        </div>
       </div>
     </ClientLayout>
   )

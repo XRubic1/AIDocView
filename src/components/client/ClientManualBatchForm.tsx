@@ -1,4 +1,4 @@
-import { FileText, PenLine, Plus, Trash2, Upload, Receipt } from 'lucide-react'
+import { FileText, Plus, Trash2, Upload, Receipt } from 'lucide-react'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
 
@@ -75,18 +75,6 @@ export default function ClientManualBatchForm({
 
       <div className="client-manual-batch__body">
         <aside className="client-manual-batch__form-panel">
-          <div className="client-manual-batch__form-header">
-            <div className="client-manual-batch__form-icon">
-              <PenLine className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="client-manual-batch__form-title">Add invoice</h3>
-              <p className="client-manual-batch__form-desc">
-                Required: broker, address, and amount
-              </p>
-            </div>
-          </div>
-
           <div className="client-manual-batch__form-grid">
             <div className="client-manual-batch__field">
               <label className="client-label">Invoice number</label>

@@ -14,9 +14,7 @@ import BrokerPayRatingBadge from '../components/client/BrokerPayRatingBadge'
 import BrokerDetailPanel from '../components/client/BrokerDetailPanel'
 import { useClientSession } from '../hooks/useClientSession'
 import { useClientTheme } from '../theme/ThemeContext'
-import { mockInvoices } from '../data/mockInvoices'
-import { mockPayments } from '../data/mockPayments'
-import { mockClientReportInvoices, mockClientReportPayments } from '../data/mockClientReports'
+import { getClientInvoices, getClientPayments } from '../data/clientDemoData'
 import type { Payment } from '../types/payment'
 import type { Invoice } from '../types/invoice'
 import type { BrokerPayRating } from '../types/clientBroker'
@@ -44,36 +42,11 @@ type BrokerSortField =
 const RATING_ORDER: Record<BrokerPayRating, number> = { red: 0, yellow: 1, green: 2 }
 
 function buildClientInvoices(clientId: string, clientName: string): Invoice[] {
-  const base = mockInvoices.filter(
-    (inv) => inv.client_id === clientId || inv.client_name === clientName
-  )
-  if (clientId !== 'client-1') return base
-  const baseIds = new Set(base.map((i) => i.id))
-  const supplemental = mockClientReportInvoices.filter((inv) => !baseIds.has(inv.id))
-  return [...base, ...supplemental]
+  return getClientInvoices(clientId, clientName)
 }
 
-function buildClientPayments(clientId: string): Payment[] {
-  const baseInvoices = mockInvoices.filter((inv) => inv.client_id === clientId)
-  const supplementalInvoices =
-    clientId === 'client-1'
-      ? mockClientReportInvoices.filter(
-          (inv) => !baseInvoices.some((base) => base.id === inv.id)
-        )
-      : []
-  const clientInvoiceIds = new Set([
-    ...baseInvoices.map((inv) => inv.id),
-    ...supplementalInvoices.map((inv) => inv.id),
-  ])
-
-  const base = mockPayments.filter((p) => clientInvoiceIds.has(p.invoice_id))
-  if (clientId !== 'client-1') return base
-
-  const baseIds = new Set(base.map((p) => p.id))
-  const supplemental = mockClientReportPayments.filter(
-    (p) => clientInvoiceIds.has(p.invoice_id) && !baseIds.has(p.id)
-  )
-  return [...base, ...supplemental]
+function buildClientPayments(clientId: string, clientName: string): Payment[] {
+  return getClientPayments(clientId, clientName)
 }
 
 export default function ClientBrokers() {
@@ -92,7 +65,7 @@ export default function ClientBrokers() {
     () => buildClientInvoices(clientId, clientName),
     [clientId, clientName]
   )
-  const payments = useMemo(() => buildClientPayments(clientId), [clientId])
+  const payments = useMemo(() => buildClientPayments(clientId, clientName), [clientId, clientName])
 
   const directory = useMemo(
     () => buildClientBrokerDirectory(clientId, invoices, payments),

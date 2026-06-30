@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   User,
   Bell,
@@ -10,17 +9,174 @@ import {
   Save,
   Check,
   Wallet,
+  Shield,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
 import PlanBillingPanel from '../components/client/PlanBillingPanel'
-import { useTheme, type ThemeMode } from '../theme/ThemeContext'
+import { useTheme, useClientTheme, type ThemeMode } from '../theme/ThemeContext'
 import { getClientById } from '../services/clientRegistry'
 import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
+import { getTierLabel } from '../utils/clientCapabilities'
+import {
+  getInitialListPageSize,
+  LIST_PAGE_SIZE_KEY,
+  PAGE_SIZE_OPTIONS,
+} from '../utils/clientListPage'
 
 type SettingsTab = 'profile' | 'notifications' | 'preferences' | 'security' | 'remittance' | 'billing'
 
+type NotificationSettings = {
+  emailNotifications: boolean
+  invoiceApproved: boolean
+  invoiceOnHold: boolean
+  paymentReceived: boolean
+  batchSubmitted: boolean
+  overdueAlerts: boolean
+  weeklySummary: boolean
+  dailyDigest: boolean
+}
+
+const defaultNotifications: NotificationSettings = {
+  emailNotifications: true,
+  invoiceApproved: true,
+  invoiceOnHold: true,
+  paymentReceived: true,
+  batchSubmitted: true,
+  overdueAlerts: true,
+  weeklySummary: false,
+  dailyDigest: false,
+}
+
+const NOTIFICATION_OPTIONS: Array<{
+  key: keyof NotificationSettings
+  label: string
+  hint: string
+}> = [
+  { key: 'emailNotifications', label: 'Email notifications', hint: 'Master switch for all email alerts' },
+  { key: 'invoiceApproved', label: 'Invoice approved', hint: 'When an invoice clears approval' },
+  { key: 'invoiceOnHold', label: 'Invoice on hold', hint: 'When an invoice is placed on hold' },
+  { key: 'paymentReceived', label: 'Payment received', hint: 'When a payment is confirmed' },
+  { key: 'batchSubmitted', label: 'Batch submitted', hint: 'When a batch is sent for processing' },
+  { key: 'overdueAlerts', label: 'Overdue alerts', hint: 'Invoices past expected pay date' },
+  { key: 'weeklySummary', label: 'Weekly summary', hint: 'End-of-week collections digest' },
+  { key: 'dailyDigest', label: 'Daily digest', hint: 'Morning activity summary' },
+]
+
+function SettingsTabPanel({
+  children,
+  className = '',
+  footer,
+}: {
+  children: ReactNode
+  className?: string
+  footer?: ReactNode
+}) {
+  return (
+    <div className={`client-settings-tab-panel dashboard-card ${className}`.trim()}>
+      <div className="client-settings-tab-panel__content">{children}</div>
+      {footer}
+    </div>
+  )
+}
+
+function SettingsField({
+  label,
+  hint,
+  children,
+  className = '',
+}: {
+  label: string
+  hint?: string
+  children: ReactNode
+  className?: string
+}) {
+  const c = useClientTheme()
+  return (
+    <div className={`client-settings-field ${className}`.trim()}>
+      <label className="client-label" style={{ color: c.secondary }}>
+        {label}
+      </label>
+      {children}
+      {hint && (
+        <p className="client-label-hint" style={{ color: c.mutedLight }}>
+          {hint}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function SettingsTextInput({
+  label,
+  value,
+  onChange,
+  type = 'text',
+  readOnly = false,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  type?: string
+  readOnly?: boolean
+}) {
+  const c = useClientTheme()
+  return (
+    <SettingsField label={label}>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        readOnly={readOnly}
+        disabled={readOnly}
+        className="client-input w-full"
+        style={{
+          backgroundColor: readOnly ? c.stat.slate : c.card,
+          fontSize: 13,
+          color: c.primary,
+          height: 36,
+          minHeight: 36,
+        }}
+      />
+    </SettingsField>
+  )
+}
+
+function SettingsToggleRow({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string
+  hint: string
+  checked: boolean
+  onChange: (value: boolean) => void
+}) {
+  const c = useClientTheme()
+  return (
+    <div
+      className="client-settings-toggle-row flex items-center justify-between gap-3 py-2 border-b last:border-b-0"
+      style={{ borderColor: c.border }}
+    >
+      <div className="min-w-0">
+        <p className="text-sm font-medium leading-tight" style={{ color: c.primary }}>
+          {label}
+        </p>
+        <p className="text-[11px] mt-0.5 leading-snug line-clamp-1" style={{ color: c.secondary }}>
+          {hint}
+        </p>
+      </div>
+      <label className="client-toggle shrink-0">
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <span className="client-toggle__track" style={{ backgroundColor: checked ? c.info : c.mutedLight }} />
+      </label>
+    </div>
+  )
+}
+
 export default function ClientSettings() {
+  const c = useClientTheme()
   const { clientId, clientName } = useClientSession()
   const { capabilities, tier } = useClientCapabilities()
   const { mode: themeMode, setMode: setThemeMode } = useTheme()
@@ -30,7 +186,6 @@ export default function ClientSettings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const [saved, setSaved] = useState(false)
 
-  // Profile Settings
   const [profileData, setProfileData] = useState({
     company_name: currentClient?.name || clientName,
     contact_person: currentClient?.contact_person || '',
@@ -45,28 +200,16 @@ export default function ClientSettings() {
     dot_number: currentClient?.dot_number || '',
   })
 
-  // Notification Settings
-  const [notificationSettings, setNotificationSettings] = useState({
-    emailNotifications: true,
-    invoiceApproved: true,
-    invoiceOnHold: true,
-    paymentReceived: true,
-    batchSubmitted: true,
-    overdueAlerts: true,
-    weeklySummary: false,
-    dailyDigest: false,
-  })
+  const [notificationSettings, setNotificationSettings] = useState(defaultNotifications)
 
-  // Display Preferences
   const [preferences, setPreferences] = useState({
     dateFormat: 'MM/DD/YYYY',
     timeFormat: '12h',
     currency: 'USD',
-    itemsPerPage: '25',
+    itemsPerPage: String(getInitialListPageSize()),
     defaultView: 'dashboard',
   })
 
-  // Security Settings
   const [securitySettings, setSecuritySettings] = useState({
     currentPassword: '',
     newPassword: '',
@@ -75,7 +218,6 @@ export default function ClientSettings() {
     sessionTimeout: '30',
   })
 
-  // Remittance Information
   const [remittanceData, setRemittanceData] = useState({
     remittance_info: currentClient?.remittance_info || '',
     bank_name: currentClient?.bank_name || '',
@@ -83,39 +225,50 @@ export default function ClientSettings() {
     routing_number: currentClient?.routing_number || '',
   })
 
-  const tabs = [
-    { id: 'profile' as SettingsTab, label: 'Profile', icon: User },
-    { id: 'billing' as SettingsTab, label: 'Plan & Billing', icon: Wallet },
-    { id: 'notifications' as SettingsTab, label: 'Notifications', icon: Bell },
-    { id: 'preferences' as SettingsTab, label: 'Preferences', icon: Eye },
-    { id: 'security' as SettingsTab, label: 'Security', icon: Lock },
-    { id: 'remittance' as SettingsTab, label: 'Remittance', icon: CreditCard },
+  useEffect(() => {
+    if (currentClient) {
+      setProfileData({
+        company_name: currentClient.name || clientName,
+        contact_person: currentClient.contact_person || '',
+        email: currentClient.email || '',
+        phone: currentClient.phone || '',
+        fax: currentClient.fax || '',
+        address: currentClient.address || '',
+        city: currentClient.city || '',
+        state: currentClient.state || '',
+        zip: currentClient.zip || '',
+        mc_number: currentClient.mc_number || '',
+        dot_number: currentClient.dot_number || '',
+      })
+      setRemittanceData({
+        remittance_info: currentClient.remittance_info || '',
+        bank_name: currentClient.bank_name || '',
+        account_number: currentClient.account_number || '',
+        routing_number: currentClient.routing_number || '',
+      })
+    }
+  }, [clientId, currentClient, clientName])
+
+  const tabs: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
+    { id: 'profile', label: 'Profile', icon: User },
+    { id: 'billing', label: 'Billing', icon: Wallet },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'preferences', label: 'Preferences', icon: Eye },
+    { id: 'security', label: 'Security', icon: Lock },
+    { id: 'remittance', label: 'Remittance', icon: CreditCard },
   ]
 
   const handleSave = () => {
-    // TODO: Implement save logic
+    try {
+      const size = Number(preferences.itemsPerPage)
+      if (PAGE_SIZE_OPTIONS.includes(size as (typeof PAGE_SIZE_OPTIONS)[number])) {
+        localStorage.setItem(LIST_PAGE_SIZE_KEY, String(size))
+      }
+    } catch {
+      /* ignore */
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
-  }
-
-  const handleProfileChange = (field: string, value: string) => {
-    setProfileData((prev) => ({ ...prev, [field]: value }))
-  }
-
-  const handleNotificationChange = (field: string, value: boolean) => {
-    setNotificationSettings((prev) => ({ ...prev, [field]: value }))
-  }
-
-  const handlePreferenceChange = (field: string, value: string) => {
-    setPreferences((prev) => ({ ...prev, [field]: value }))
-  }
-
-  const handleSecurityChange = (field: string, value: string | boolean) => {
-    setSecuritySettings((prev) => ({ ...prev, [field]: value }))
-  }
-
-  const handleRemittanceChange = (field: string, value: string) => {
-    setRemittanceData((prev) => ({ ...prev, [field]: value }))
   }
 
   const handlePasswordChange = () => {
@@ -127,7 +280,6 @@ export default function ClientSettings() {
       alert('Password must be at least 8 characters long')
       return
     }
-    // TODO: Implement password change logic
     alert('Password changed successfully')
     setSecuritySettings((prev) => ({
       ...prev,
@@ -137,814 +289,408 @@ export default function ClientSettings() {
     }))
   }
 
+  const inputStyle = {
+    backgroundColor: c.card,
+    fontSize: 13,
+    color: c.primary,
+  } as const
+
+  const showSaveFooter = activeTab !== 'billing'
+
+  const saveFooter = showSaveFooter ? (
+    <div
+      className="client-settings-tab-panel__footer"
+      style={{ borderColor: c.border }}
+    >
+      <button
+        type="button"
+        onClick={handleSave}
+        className="dashboard-btn-primary inline-flex items-center gap-2 text-sm"
+      >
+        {saved ? (
+          <>
+            <Check className="w-4 h-4" />
+            Saved
+          </>
+        ) : (
+          <>
+            <Save className="w-4 h-4" />
+            Save changes
+          </>
+        )}
+      </button>
+    </div>
+  ) : undefined
+
   return (
-    <ClientLayout clientName={clientName} clientId={clientId}>
-      <div>
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
-            Settings
-          </h2>
-          <p style={{ color: '#64748b' }}>Manage your account settings and preferences</p>
+    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
+      <div className="client-settings-page overflow-hidden flex flex-col min-h-0">
+        <div className="client-page-tabs-bar shrink-0 overflow-x-auto">
+          <div className="page-tabs">
+            {tabs.map((tab) => {
+              const Icon = tab.icon
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`page-tab ${activeTab === tab.id ? 'page-tab--active' : ''}`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{tab.label}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-6">
-          {/* Sidebar Tabs */}
-          <div className="lg:w-64 flex-shrink-0">
-            <div className="bg-white border rounded" style={{ borderColor: '#e2e8f0' }}>
-              <div className="p-2">
-                {tabs.map((tab) => {
-                  const Icon = tab.icon
-                  return (
+        <section
+          className="client-stat-strip grid grid-cols-2 lg:grid-cols-4 border-b shrink-0"
+          style={{ borderColor: c.border }}
+        >
+          <div
+            className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
+            style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Building2 className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
+              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+                Company
+              </span>
+            </div>
+            <span className="text-sm font-bold truncate shrink-0 max-w-[50%]" style={{ color: c.primary }}>
+              {profileData.company_name}
+            </span>
+          </div>
+          <div
+            className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b lg:border-b-0"
+            style={{ backgroundColor: c.stat.green, borderColor: c.border }}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Wallet className="w-3.5 h-3.5 shrink-0" style={{ color: c.success }} />
+              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+                Plan
+              </span>
+            </div>
+            <span
+              className={`service-tier-badge ${tier === 'managed' ? 'service-tier-badge--managed' : 'service-tier-badge--self'} shrink-0`}
+            >
+              {getTierLabel(tier)}
+            </span>
+          </div>
+          <div
+            className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0"
+            style={{ backgroundColor: c.stat.slate, borderColor: c.border }}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <CreditCard className="w-3.5 h-3.5 shrink-0" style={{ color: c.secondary }} />
+              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+                MC #
+              </span>
+            </div>
+            <span className="text-sm font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
+              {profileData.mc_number || '—'}
+            </span>
+          </div>
+          <div
+            className="flex items-center justify-between gap-2 px-4 py-2.5"
+            style={{
+              backgroundColor: securitySettings.twoFactorEnabled ? c.stat.green : c.stat.amber,
+              borderColor: c.border,
+            }}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Shield className="w-3.5 h-3.5 shrink-0" style={{ color: securitySettings.twoFactorEnabled ? c.success : c.warning }} />
+              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+                2FA
+              </span>
+            </div>
+            <span className="text-sm font-bold shrink-0" style={{ color: c.primary }}>
+              {securitySettings.twoFactorEnabled ? 'On' : 'Off'}
+            </span>
+          </div>
+        </section>
+
+        <div className="client-settings-body flex-1 min-h-0 overflow-hidden flex flex-col">
+          <div className="client-settings-panel flex-1 min-h-0 overflow-hidden">
+            {activeTab === 'billing' && (
+              <SettingsTabPanel className="client-settings-tab-panel--billing">
+                <PlanBillingPanel clientId={clientId} tier={tier} />
+              </SettingsTabPanel>
+            )}
+
+            {activeTab === 'profile' && (
+              <SettingsTabPanel className="client-settings-tab-panel--profile" footer={saveFooter}>
+                <div className="client-settings-grid client-settings-grid--profile">
+                  <SettingsTextInput
+                    label="Company name"
+                    value={profileData.company_name}
+                    onChange={(v) => setProfileData((p) => ({ ...p, company_name: v }))}
+                  />
+                  <SettingsTextInput
+                    label="Contact person"
+                    value={profileData.contact_person}
+                    onChange={(v) => setProfileData((p) => ({ ...p, contact_person: v }))}
+                  />
+                  <SettingsTextInput
+                    label="Email"
+                    type="email"
+                    value={profileData.email}
+                    onChange={(v) => setProfileData((p) => ({ ...p, email: v }))}
+                  />
+                  <SettingsTextInput
+                    label="Phone"
+                    type="tel"
+                    value={profileData.phone}
+                    onChange={(v) => setProfileData((p) => ({ ...p, phone: v }))}
+                  />
+                  <SettingsTextInput
+                    label="Fax"
+                    type="tel"
+                    value={profileData.fax}
+                    onChange={(v) => setProfileData((p) => ({ ...p, fax: v }))}
+                  />
+                  <SettingsTextInput
+                    label="Address"
+                    value={profileData.address}
+                    onChange={(v) => setProfileData((p) => ({ ...p, address: v }))}
+                  />
+                  <SettingsTextInput
+                    label="City"
+                    value={profileData.city}
+                    onChange={(v) => setProfileData((p) => ({ ...p, city: v }))}
+                  />
+                  <SettingsTextInput
+                    label="State"
+                    value={profileData.state}
+                    onChange={(v) => setProfileData((p) => ({ ...p, state: v }))}
+                  />
+                  <SettingsTextInput
+                    label="ZIP"
+                    value={profileData.zip}
+                    onChange={(v) => setProfileData((p) => ({ ...p, zip: v }))}
+                  />
+                  <SettingsTextInput
+                    label="MC number"
+                    value={profileData.mc_number}
+                    onChange={(v) => setProfileData((p) => ({ ...p, mc_number: v }))}
+                  />
+                  <SettingsTextInput
+                    label="DOT number"
+                    value={profileData.dot_number}
+                    onChange={(v) => setProfileData((p) => ({ ...p, dot_number: v }))}
+                  />
+                </div>
+              </SettingsTabPanel>
+            )}
+
+            {activeTab === 'notifications' && (
+              <SettingsTabPanel className="client-settings-tab-panel--notifications" footer={saveFooter}>
+                <div className="client-settings-grid client-settings-grid--notifications">
+                  {NOTIFICATION_OPTIONS.map((opt) => (
+                    <SettingsToggleRow
+                      key={opt.key}
+                      label={opt.label}
+                      hint={opt.hint}
+                      checked={notificationSettings[opt.key]}
+                      onChange={(value) =>
+                        setNotificationSettings((prev) => ({ ...prev, [opt.key]: value }))
+                      }
+                    />
+                  ))}
+                </div>
+              </SettingsTabPanel>
+            )}
+
+            {activeTab === 'preferences' && (
+              <SettingsTabPanel className="client-settings-tab-panel--preferences" footer={saveFooter}>
+                <div className="client-settings-grid client-settings-grid--preferences">
+                  <SettingsField label="Appearance" hint="Light mode is recommended.">
+                    <select
+                      value={themeMode}
+                      onChange={(e) => setThemeMode(e.target.value as ThemeMode)}
+                      className="client-input w-full"
+                      style={inputStyle}
+                    >
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                      <option value="system">System</option>
+                    </select>
+                  </SettingsField>
+                  <SettingsField label="Date format">
+                    <select
+                      value={preferences.dateFormat}
+                      onChange={(e) => setPreferences((p) => ({ ...p, dateFormat: e.target.value }))}
+                      className="client-input w-full"
+                      style={inputStyle}
+                    >
+                      <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                      <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                      <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                    </select>
+                  </SettingsField>
+                  <SettingsField label="Time format">
+                    <select
+                      value={preferences.timeFormat}
+                      onChange={(e) => setPreferences((p) => ({ ...p, timeFormat: e.target.value }))}
+                      className="client-input w-full"
+                      style={inputStyle}
+                    >
+                      <option value="12h">12-hour</option>
+                      <option value="24h">24-hour</option>
+                    </select>
+                  </SettingsField>
+                  <SettingsField label="Currency">
+                    <select
+                      value={preferences.currency}
+                      onChange={(e) => setPreferences((p) => ({ ...p, currency: e.target.value }))}
+                      className="client-input w-full"
+                      style={inputStyle}
+                    >
+                      <option value="USD">USD ($)</option>
+                      <option value="EUR">EUR (€)</option>
+                      <option value="GBP">GBP (£)</option>
+                      <option value="CAD">CAD (C$)</option>
+                    </select>
+                  </SettingsField>
+                  <SettingsField
+                    label="Default list page size"
+                    hint="Applies to invoices, payments, batches, and other tables."
+                  >
+                    <select
+                      value={preferences.itemsPerPage}
+                      onChange={(e) => setPreferences((p) => ({ ...p, itemsPerPage: e.target.value }))}
+                      className="client-input w-full"
+                      style={inputStyle}
+                    >
+                      {PAGE_SIZE_OPTIONS.map((size) => (
+                        <option key={size} value={size}>
+                          {size} rows
+                        </option>
+                      ))}
+                    </select>
+                  </SettingsField>
+                </div>
+              </SettingsTabPanel>
+            )}
+
+            {activeTab === 'security' && (
+              <SettingsTabPanel className="client-settings-tab-panel--security" footer={saveFooter}>
+                <div className="client-settings-grid client-settings-grid--security">
+                  <div className="client-settings-security-col space-y-3">
+                    <SettingsTextInput
+                      label="Current password"
+                      type="password"
+                      value={securitySettings.currentPassword}
+                      onChange={(v) => setSecuritySettings((p) => ({ ...p, currentPassword: v }))}
+                    />
+                    <SettingsTextInput
+                      label="New password"
+                      type="password"
+                      value={securitySettings.newPassword}
+                      onChange={(v) => setSecuritySettings((p) => ({ ...p, newPassword: v }))}
+                    />
+                    <SettingsTextInput
+                      label="Confirm new password"
+                      type="password"
+                      value={securitySettings.confirmPassword}
+                      onChange={(v) => setSecuritySettings((p) => ({ ...p, confirmPassword: v }))}
+                    />
                     <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className="w-full flex items-center space-x-3 px-4 py-3 text-sm font-medium rounded transition-colors mb-1"
+                      type="button"
+                      onClick={handlePasswordChange}
+                      className="dashboard-btn-secondary text-sm"
+                    >
+                      Change password
+                    </button>
+                  </div>
+                  <div
+                    className="client-settings-security-col flex flex-col gap-3 border-t lg:border-t-0 lg:border-l pt-4 lg:pt-0 lg:pl-6"
+                    style={{ borderColor: c.border }}
+                  >
+                    <SettingsToggleRow
+                      label="Two-factor authentication"
+                      hint="Extra security for your account"
+                      checked={securitySettings.twoFactorEnabled}
+                      onChange={(value) =>
+                        setSecuritySettings((p) => ({ ...p, twoFactorEnabled: value }))
+                      }
+                    />
+                    <SettingsField label="Session timeout (minutes)">
+                      <input
+                        type="number"
+                        value={securitySettings.sessionTimeout}
+                        onChange={(e) =>
+                          setSecuritySettings((p) => ({ ...p, sessionTimeout: e.target.value }))
+                        }
+                        className="client-input w-full"
+                        style={inputStyle}
+                        min={5}
+                        max={120}
+                      />
+                    </SettingsField>
+                  </div>
+                </div>
+              </SettingsTabPanel>
+            )}
+
+            {activeTab === 'remittance' && (
+              <SettingsTabPanel className="client-settings-tab-panel--remittance" footer={saveFooter}>
+                <div className="flex flex-col gap-4">
+                  {!capabilities.canEditRemittance && (
+                    <div
+                      className="text-sm p-2.5 rounded-lg border shrink-0"
                       style={{
-                        backgroundColor: activeTab === tab.id ? '#f8f9fa' : 'transparent',
-                        color: activeTab === tab.id ? '#113543' : '#64748b',
-                      }}
-                      onMouseEnter={(e) => {
-                        if (activeTab !== tab.id) {
-                          e.currentTarget.style.backgroundColor = '#f8f9fa'
-                          e.currentTarget.style.color = '#113543'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (activeTab !== tab.id) {
-                          e.currentTarget.style.backgroundColor = 'transparent'
-                          e.currentTarget.style.color = '#64748b'
-                        }
+                        backgroundColor: c.stat.amber,
+                        borderColor: c.border,
+                        color: c.secondary,
                       }}
                     >
-                      <Icon className="w-4 h-4" />
-                      <span>{tab.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Main Content */}
-          <div className="flex-1">
-            <div className="bg-white border rounded" style={{ borderColor: '#e2e8f0' }}>
-              <div className="p-6">
-                {/* Profile Tab */}
-                {activeTab === 'billing' && (
-                  <div>
-                    <div className="flex items-center space-x-2 mb-6">
-                      <Wallet className="w-5 h-5" style={{ color: '#0891b2' }} />
-                      <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
-                        Plan & Billing
-                      </h3>
+                      Remittance details are managed by Credyx on managed accounts.
                     </div>
-                    <PlanBillingPanel clientId={clientId} tier={tier} />
+                  )}
+                  <SettingsField label="Remittance instructions">
+                    <textarea
+                      value={remittanceData.remittance_info}
+                      onChange={(e) =>
+                        setRemittanceData((p) => ({ ...p, remittance_info: e.target.value }))
+                      }
+                      readOnly={!capabilities.canEditRemittance}
+                      disabled={!capabilities.canEditRemittance}
+                      rows={4}
+                      className="client-input client-settings-textarea w-full resize-none"
+                      style={{
+                        ...inputStyle,
+                        backgroundColor: capabilities.canEditRemittance ? c.card : c.stat.slate,
+                      }}
+                    />
+                  </SettingsField>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 shrink-0">
+                    <SettingsTextInput
+                      label="Bank name"
+                      value={remittanceData.bank_name}
+                      onChange={(v) => setRemittanceData((p) => ({ ...p, bank_name: v }))}
+                      readOnly={!capabilities.canEditRemittance}
+                    />
+                    <SettingsTextInput
+                      label="Account number"
+                      value={remittanceData.account_number}
+                      onChange={(v) => setRemittanceData((p) => ({ ...p, account_number: v }))}
+                      readOnly={!capabilities.canEditRemittance}
+                    />
+                    <SettingsTextInput
+                      label="Routing number"
+                      value={remittanceData.routing_number}
+                      onChange={(v) => setRemittanceData((p) => ({ ...p, routing_number: v }))}
+                      readOnly={!capabilities.canEditRemittance}
+                    />
                   </div>
-                )}
-
-                {activeTab === 'profile' && (
-                  <div>
-                    <div className="flex items-center space-x-2 mb-6">
-                      <Building2 className="w-5 h-5" style={{ color: '#0891b2' }} />
-                      <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
-                        Company Profile
-                      </h3>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            Company Name
-                          </label>
-                          <input
-                            type="text"
-                            value={profileData.company_name}
-                            onChange={(e) => handleProfileChange('company_name', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            Contact Person
-                          </label>
-                          <input
-                            type="text"
-                            value={profileData.contact_person}
-                            onChange={(e) => handleProfileChange('contact_person', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            Email
-                          </label>
-                          <input
-                            type="email"
-                            value={profileData.email}
-                            onChange={(e) => handleProfileChange('email', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            Phone
-                          </label>
-                          <input
-                            type="tel"
-                            value={profileData.phone}
-                            onChange={(e) => handleProfileChange('phone', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            Fax
-                          </label>
-                          <input
-                            type="tel"
-                            value={profileData.fax}
-                            onChange={(e) => handleProfileChange('fax', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            Address
-                          </label>
-                          <input
-                            type="text"
-                            value={profileData.address}
-                            onChange={(e) => handleProfileChange('address', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            City
-                          </label>
-                          <input
-                            type="text"
-                            value={profileData.city}
-                            onChange={(e) => handleProfileChange('city', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            State
-                          </label>
-                          <input
-                            type="text"
-                            value={profileData.state}
-                            onChange={(e) => handleProfileChange('state', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            ZIP Code
-                          </label>
-                          <input
-                            type="text"
-                            value={profileData.zip}
-                            onChange={(e) => handleProfileChange('zip', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            MC Number
-                          </label>
-                          <input
-                            type="text"
-                            value={profileData.mc_number}
-                            onChange={(e) => handleProfileChange('mc_number', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            DOT Number
-                          </label>
-                          <input
-                            type="text"
-                            value={profileData.dot_number}
-                            onChange={(e) => handleProfileChange('dot_number', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Notifications Tab */}
-                {activeTab === 'notifications' && (
-                  <div>
-                    <div className="flex items-center space-x-2 mb-6">
-                      <Bell className="w-5 h-5" style={{ color: '#0891b2' }} />
-                      <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
-                        Notification Preferences
-                      </h3>
-                    </div>
-
-                    <div className="space-y-4">
-                      {Object.entries(notificationSettings).map(([key, value]) => (
-                        <div key={key} className="flex items-center justify-between py-3 border-b" style={{ borderColor: '#e2e8f0' }}>
-                          <div>
-                            <label className="text-sm font-medium" style={{ color: '#113543' }}>
-                              {key
-                                .replace(/([A-Z])/g, ' $1')
-                                .replace(/^./, (str) => str.toUpperCase())
-                                .trim()}
-                            </label>
-                            <p className="text-xs mt-1" style={{ color: '#64748b' }}>
-                              {key === 'emailNotifications'
-                                ? 'Receive all email notifications'
-                                : key === 'invoiceApproved'
-                                ? 'Get notified when invoices are approved'
-                                : key === 'invoiceOnHold'
-                                ? 'Get notified when invoices are placed on hold'
-                                : key === 'paymentReceived'
-                                ? 'Get notified when payments are received'
-                                : key === 'batchSubmitted'
-                                ? 'Get notified when batches are submitted'
-                                : key === 'overdueAlerts'
-                                ? 'Get alerts for overdue invoices'
-                                : key === 'weeklySummary'
-                                ? 'Receive weekly summary reports'
-                                : 'Receive daily digest emails'}
-                            </p>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={value}
-                              onChange={(e) => handleNotificationChange(key, e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div
-                              className="w-11 h-6 rounded-full transition-colors peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"
-                              style={{
-                                backgroundColor: value ? '#0891b2' : '#64748b',
-                              }}
-                            ></div>
-                          </label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Preferences Tab */}
-                {activeTab === 'preferences' && (
-                  <div>
-                    <div className="flex items-center space-x-2 mb-6">
-                      <Eye className="w-5 h-5" style={{ color: '#0891b2' }} />
-                      <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
-                        Display Preferences
-                      </h3>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-2 client-label">
-                          Appearance
-                        </label>
-                        <select
-                          value={themeMode}
-                          onChange={(e) => setThemeMode(e.target.value as ThemeMode)}
-                          className="client-input"
-                        >
-                          <option value="light">Light</option>
-                          <option value="dark">Dark</option>
-                          <option value="system">System</option>
-                        </select>
-                        <p className="client-label-hint mt-1">
-                          Choose light, dark, or match your device setting.
-                        </p>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                          Date Format
-                        </label>
-                        <select
-                          value={preferences.dateFormat}
-                          onChange={(e) => handlePreferenceChange('dateFormat', e.target.value)}
-                          className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                          style={{
-                            borderColor: '#e2e8f0',
-                            color: '#113543',
-                            backgroundColor: '#FFFFFF',
-                          }}
-                          onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#0891b2'
-                          }}
-                          onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#64748b'
-                          }}
-                        >
-                          <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                          <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                          <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                          Time Format
-                        </label>
-                        <select
-                          value={preferences.timeFormat}
-                          onChange={(e) => handlePreferenceChange('timeFormat', e.target.value)}
-                          className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                          style={{
-                            borderColor: '#e2e8f0',
-                            color: '#113543',
-                            backgroundColor: '#FFFFFF',
-                          }}
-                          onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#0891b2'
-                          }}
-                          onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#64748b'
-                          }}
-                        >
-                          <option value="12h">12-hour</option>
-                          <option value="24h">24-hour</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                          Currency
-                        </label>
-                        <select
-                          value={preferences.currency}
-                          onChange={(e) => handlePreferenceChange('currency', e.target.value)}
-                          className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                          style={{
-                            borderColor: '#e2e8f0',
-                            color: '#113543',
-                            backgroundColor: '#FFFFFF',
-                          }}
-                          onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#0891b2'
-                          }}
-                          onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#64748b'
-                          }}
-                        >
-                          <option value="USD">USD ($)</option>
-                          <option value="EUR">EUR (€)</option>
-                          <option value="GBP">GBP (£)</option>
-                          <option value="CAD">CAD (C$)</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                          Items Per Page
-                        </label>
-                        <select
-                          value={preferences.itemsPerPage}
-                          onChange={(e) => handlePreferenceChange('itemsPerPage', e.target.value)}
-                          className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                          style={{
-                            borderColor: '#e2e8f0',
-                            color: '#113543',
-                            backgroundColor: '#FFFFFF',
-                          }}
-                          onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#0891b2'
-                          }}
-                          onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#64748b'
-                          }}
-                        >
-                          <option value="10">10</option>
-                          <option value="25">25</option>
-                          <option value="50">50</option>
-                          <option value="100">100</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Security Tab */}
-                {activeTab === 'security' && (
-                  <div>
-                    <div className="flex items-center space-x-2 mb-6">
-                      <Lock className="w-5 h-5" style={{ color: '#0891b2' }} />
-                      <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
-                        Security Settings
-                      </h3>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                          Current Password
-                        </label>
-                        <input
-                          type="password"
-                          value={securitySettings.currentPassword}
-                          onChange={(e) => handleSecurityChange('currentPassword', e.target.value)}
-                          className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                          style={{
-                            borderColor: '#e2e8f0',
-                            color: '#113543',
-                            backgroundColor: '#FFFFFF',
-                          }}
-                          onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#0891b2'
-                          }}
-                          onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#64748b'
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                          New Password
-                        </label>
-                        <input
-                          type="password"
-                          value={securitySettings.newPassword}
-                          onChange={(e) => handleSecurityChange('newPassword', e.target.value)}
-                          className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                          style={{
-                            borderColor: '#e2e8f0',
-                            color: '#113543',
-                            backgroundColor: '#FFFFFF',
-                          }}
-                          onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#0891b2'
-                          }}
-                          onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#64748b'
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                          Confirm New Password
-                        </label>
-                        <input
-                          type="password"
-                          value={securitySettings.confirmPassword}
-                          onChange={(e) => handleSecurityChange('confirmPassword', e.target.value)}
-                          className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                          style={{
-                            borderColor: '#e2e8f0',
-                            color: '#113543',
-                            backgroundColor: '#FFFFFF',
-                          }}
-                          onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#0891b2'
-                          }}
-                          onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#64748b'
-                          }}
-                        />
-                      </div>
-                      <button
-                        onClick={handlePasswordChange}
-                        className="px-4 py-2 text-sm font-medium transition-colors"
-                        style={{
-                          backgroundColor: '#113543',
-                          color: '#FFFFFF',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#0d2a35'
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = '#113543'
-                        }}
-                      >
-                        Change Password
-                      </button>
-                      <div className="pt-4 border-t" style={{ borderColor: '#e2e8f0' }}>
-                        <div className="flex items-center justify-between py-3">
-                          <div>
-                            <label className="text-sm font-medium" style={{ color: '#113543' }}>
-                              Two-Factor Authentication
-                            </label>
-                            <p className="text-xs mt-1" style={{ color: '#64748b' }}>
-                              Add an extra layer of security to your account
-                            </p>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={securitySettings.twoFactorEnabled}
-                              onChange={(e) => handleSecurityChange('twoFactorEnabled', e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div
-                              className="w-11 h-6 rounded-full transition-colors peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"
-                              style={{
-                                backgroundColor: securitySettings.twoFactorEnabled ? '#0891b2' : '#64748b',
-                              }}
-                            ></div>
-                          </label>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2 mt-4" style={{ color: '#64748b' }}>
-                            Session Timeout (minutes)
-                          </label>
-                          <input
-                            type="number"
-                            value={securitySettings.sessionTimeout}
-                            onChange={(e) => handleSecurityChange('sessionTimeout', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Remittance Tab */}
-                {activeTab === 'remittance' && (
-                  <div>
-                    <div className="flex items-center space-x-2 mb-6">
-                      <CreditCard className="w-5 h-5" style={{ color: '#0891b2' }} />
-                      <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
-                        Remittance Information
-                      </h3>
-                    </div>
-
-                    {!capabilities.canEditRemittance && (
-                      <p className="text-sm mb-4 p-3 rounded-lg" style={{ backgroundColor: '#f8f9fa', color: '#64748b' }}>
-                        Remittance details are managed by Credyx on managed accounts. Contact support to request changes.
-                      </p>
-                    )}
-
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                          Remittance Instructions
-                        </label>
-                        <textarea
-                          value={remittanceData.remittance_info}
-                          onChange={(e) => handleRemittanceChange('remittance_info', e.target.value)}
-                          readOnly={!capabilities.canEditRemittance}
-                          disabled={!capabilities.canEditRemittance}
-                          rows={4}
-                          className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                          style={{
-                            borderColor: '#e2e8f0',
-                            color: '#113543',
-                            backgroundColor: '#FFFFFF',
-                          }}
-                          onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#0891b2'
-                          }}
-                          onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#64748b'
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                          Bank Name
-                        </label>
-                        <input
-                          type="text"
-                          value={remittanceData.bank_name}
-                          onChange={(e) => handleRemittanceChange('bank_name', e.target.value)}
-                          className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                          style={{
-                            borderColor: '#e2e8f0',
-                            color: '#113543',
-                            backgroundColor: '#FFFFFF',
-                          }}
-                          onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#0891b2'
-                          }}
-                          onBlur={(e) => {
-                            e.currentTarget.style.borderColor = '#64748b'
-                          }}
-                        />
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            Account Number
-                          </label>
-                          <input
-                            type="text"
-                            value={remittanceData.account_number}
-                            onChange={(e) => handleRemittanceChange('account_number', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#64748b' }}>
-                            Routing Number
-                          </label>
-                          <input
-                            type="text"
-                            value={remittanceData.routing_number}
-                            onChange={(e) => handleRemittanceChange('routing_number', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border rounded focus:outline-none"
-                            style={{
-                              borderColor: '#e2e8f0',
-                              color: '#113543',
-                              backgroundColor: '#FFFFFF',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#0891b2'
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#64748b'
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab !== 'billing' && (
-                <div className="mt-8 pt-6 border-t flex justify-end" style={{ borderColor: '#e2e8f0' }}>
-                  <button
-                    onClick={handleSave}
-                    className="flex items-center space-x-2 px-6 py-2 text-sm font-medium transition-colors"
-                    style={{
-                      backgroundColor: '#113543',
-                      color: '#FFFFFF',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#0d2a35'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = '#113543'
-                    }}
-                  >
-                    {saved ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        <span>Saved!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Save className="w-4 h-4" />
-                        <span>Save Changes</span>
-                      </>
-                    )}
-                  </button>
                 </div>
-                )}
-              </div>
-            </div>
+              </SettingsTabPanel>
+            )}
           </div>
         </div>
       </div>
     </ClientLayout>
   )
 }
-

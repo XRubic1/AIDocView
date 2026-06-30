@@ -14,7 +14,18 @@ import {
 } from '../../services/clientInvoiceActions'
 import { getInvoiceDocuments } from '../../services/invoiceDocumentStore'
 import InvoiceDocumentUploadModal from './InvoiceDocumentUploadModal'
-import { Eye, Search, Filter, ChevronLeft, X, MessageSquarePlus, AlertTriangle, CircleCheck, Maximize2, Upload } from 'lucide-react'
+import { Eye, Search, Filter, ChevronLeft, X, MessageSquarePlus, AlertTriangle, CircleCheck, Maximize2, Upload, Ban } from 'lucide-react'
+import type { Payment } from '../../types/payment'
+import {
+  buildShortPaymentRecord,
+  canCloseShortPaymentAsUncollectable,
+} from '../../utils/shortPayments'
+import {
+  buildOverpaymentRecord,
+  canAcceptOverpayment,
+} from '../../utils/overPayments'
+import ShortPaymentCloseModal from './ShortPaymentCloseModal'
+import OverpaymentAcceptModal from './OverpaymentAcceptModal'
 import { enrichInvoice, getOverdueSeverityLabel, isOpenArInvoice, AR_POLICY, getDaysOutstandingColor } from '../../utils/invoiceAging'
 import { useClientTheme } from '../../theme/ThemeContext'
 
@@ -285,6 +296,9 @@ interface InvoiceDetailPaneProps {
   onAddNote?: (invoiceId: string, note: string) => void | Promise<void>
   onOpenDispute?: (invoiceId: string, reason: string, description: string) => void | Promise<void>
   onMarkAsPaid?: (invoiceId: string, options: ClientMarkPaidOptions) => void | Promise<void>
+  onCloseAsUncollectable?: (invoiceId: string, note: string) => void | Promise<void>
+  onAcceptOverpayment?: (invoiceId: string, note: string) => void | Promise<void>
+  payments?: Payment[]
   enableClientActions?: boolean
 }
 
@@ -297,10 +311,23 @@ function InvoiceDetailPane({
   onAddNote,
   onOpenDispute,
   onMarkAsPaid,
+  onCloseAsUncollectable,
+  onAcceptOverpayment,
+  payments = [],
   enableClientActions = true,
 }: InvoiceDetailPaneProps) {
   const c = useClientTheme()
   const enriched = enrichInvoice(invoice)
+  const shortPayment = payments.length > 0 ? buildShortPaymentRecord(invoice, payments) : null
+  const overpayment = payments.length > 0 ? buildOverpaymentRecord(invoice, payments) : null
+  const canWriteOff =
+    shortPayment?.resolution === 'open' &&
+    canCloseShortPaymentAsUncollectable(invoice) &&
+    !!onCloseAsUncollectable
+  const canAcceptOver =
+    overpayment?.resolution === 'open' &&
+    canAcceptOverpayment(invoice, payments) &&
+    !!onAcceptOverpayment
   const noteEntries = getInvoiceNoteEntries(invoice)
   const openDisputes = getOpenDisputes(invoice)
   const [newNote, setNewNote] = useState('')
@@ -319,6 +346,10 @@ function InvoiceDetailPane({
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [isUploadingDocs, setIsUploadingDocs] = useState(false)
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
+  const [showCloseModal, setShowCloseModal] = useState(false)
+  const [showAcceptOverModal, setShowAcceptOverModal] = useState(false)
+  const [isClosing, setIsClosing] = useState(false)
+  const [isAcceptingOver, setIsAcceptingOver] = useState(false)
 
   const invoiceDocuments = getInvoiceDocuments(invoice.id)
   const documentCount = Math.max(invoice.documents_count || 0, invoiceDocuments.length)
@@ -443,6 +474,28 @@ function InvoiceDetailPane({
     setShowPaidModal(true)
   }
 
+  const handleCloseUncollectable = async (note: string) => {
+    if (!onCloseAsUncollectable || isClosing) return
+    setIsClosing(true)
+    try {
+      await onCloseAsUncollectable(invoice.id, note)
+      onInvoiceUpdated?.()
+    } finally {
+      setIsClosing(false)
+    }
+  }
+
+  const handleAcceptOverpayment = async (note: string) => {
+    if (!onAcceptOverpayment || isAcceptingOver) return
+    setIsAcceptingOver(true)
+    try {
+      await onAcceptOverpayment(invoice.id, note)
+      onInvoiceUpdated?.()
+    } finally {
+      setIsAcceptingOver(false)
+    }
+  }
+
   return (
     <div className="invoice-detail-pane">
       <div className="invoice-detail-header">
@@ -483,6 +536,30 @@ function InvoiceDetailPane({
               >
                 <CircleCheck className="w-3.5 h-3.5" />
                 Mark Paid
+              </button>
+            )}
+            {canAcceptOver && (
+              <button
+                type="button"
+                onClick={() => setShowAcceptOverModal(true)}
+                className="dashboard-btn-primary"
+                style={{ height: 32, fontSize: 12, paddingLeft: 10, paddingRight: 10 }}
+                title="Accept excess payment"
+              >
+                <CircleCheck className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Accept overpay</span>
+              </button>
+            )}
+            {canWriteOff && (
+              <button
+                type="button"
+                onClick={() => setShowCloseModal(true)}
+                className="dashboard-btn-secondary"
+                style={{ height: 32, fontSize: 12, paddingLeft: 10, paddingRight: 10, color: c.error }}
+                title="Close remaining balance as uncollectable"
+              >
+                <Ban className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Write off</span>
               </button>
             )}
             {enableClientActions && (
@@ -555,12 +632,39 @@ function InvoiceDetailPane({
                       Invoice {formatCurrency(invoice.amount)}
                     </p>
                   )}
+                {shortPayment && (
+                  <p className="invoice-detail-paid-subamount" style={{ color: c.error }}>
+                    Short by {formatCurrency(shortPayment.shortfall_amount)}
+                  </p>
+                )}
+                {overpayment && (
+                  <p className="invoice-detail-paid-subamount" style={{ color: c.info }}>
+                    Over by {formatCurrency(overpayment.overage_amount)}
+                  </p>
+                )}
               </div>
 
               <div className="invoice-detail-stat-grid">
                 {notice && (
                   <div className={`invoice-detail-stat-notice invoice-detail-stat-notice--${notice.type}`}>
                     {notice.message}
+                  </div>
+                )}
+                {shortPayment && shortPayment.resolution === 'open' && (
+                  <div className="invoice-detail-stat-notice invoice-detail-stat-notice--overdue">
+                    Received {formatCurrency(shortPayment.received_amount)} of{' '}
+                    {formatCurrency(shortPayment.invoice_amount)} —{' '}
+                    {formatCurrency(shortPayment.shortfall_amount)} still outstanding.
+                  </div>
+                )}
+                {overpayment && overpayment.resolution === 'open' && (
+                  <div
+                    className="invoice-detail-stat-notice invoice-detail-stat-notice--hold"
+                    style={{ borderColor: c.info, color: c.info }}
+                  >
+                    Received {formatCurrency(overpayment.received_amount)} on{' '}
+                    {formatCurrency(overpayment.invoice_amount)} invoice — excess{' '}
+                    {formatCurrency(overpayment.overage_amount)} to accept.
                   </div>
                 )}
                 <div className="invoice-detail-stat">
@@ -854,6 +958,30 @@ function InvoiceDetailPane({
         </div>
       )}
 
+      {showCloseModal && shortPayment && onCloseAsUncollectable && (
+        <ShortPaymentCloseModal
+          isOpen={showCloseModal}
+          invoiceNumber={invoice.invoice_number}
+          invoiceAmount={shortPayment.invoice_amount}
+          receivedAmount={shortPayment.received_amount}
+          shortfallAmount={shortPayment.shortfall_amount}
+          onClose={() => setShowCloseModal(false)}
+          onConfirm={handleCloseUncollectable}
+        />
+      )}
+
+      {showAcceptOverModal && overpayment && onAcceptOverpayment && (
+        <OverpaymentAcceptModal
+          isOpen={showAcceptOverModal}
+          invoiceNumber={invoice.invoice_number}
+          invoiceAmount={overpayment.invoice_amount}
+          receivedAmount={overpayment.received_amount}
+          overageAmount={overpayment.overage_amount}
+          onClose={() => setShowAcceptOverModal(false)}
+          onConfirm={handleAcceptOverpayment}
+        />
+      )}
+
       {showDisputeModal && (
         <div
           className="invoice-dispute-modal-overlay"
@@ -950,6 +1078,9 @@ export interface InvoiceDetailWorkspaceProps {
   onAddNote?: (invoiceId: string, note: string) => void | Promise<void>
   onOpenDispute?: (invoiceId: string, reason: string, description: string) => void | Promise<void>
   onMarkAsPaid?: (invoiceId: string, options: ClientMarkPaidOptions) => void | Promise<void>
+  onCloseAsUncollectable?: (invoiceId: string, note: string) => void | Promise<void>
+  onAcceptOverpayment?: (invoiceId: string, note: string) => void | Promise<void>
+  payments?: Payment[]
   enableClientActions?: boolean
   /** Sync search/filter with parent (e.g. invoices page). Omit for local-only filtering. */
   searchTerm?: string
@@ -973,6 +1104,9 @@ export default function InvoiceDetailWorkspace({
   onAddNote,
   onOpenDispute,
   onMarkAsPaid,
+  onCloseAsUncollectable,
+  onAcceptOverpayment,
+  payments = [],
   enableClientActions = true,
   searchTerm: externalSearchTerm,
   onSearchChange: externalOnSearchChange,
@@ -1142,6 +1276,9 @@ export default function InvoiceDetailWorkspace({
               onAddNote={onAddNote}
               onOpenDispute={onOpenDispute}
               onMarkAsPaid={onMarkAsPaid}
+              onCloseAsUncollectable={onCloseAsUncollectable}
+              onAcceptOverpayment={onAcceptOverpayment}
+              payments={payments}
               enableClientActions={enableClientActions}
             />
           </section>

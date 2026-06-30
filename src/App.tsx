@@ -6,6 +6,7 @@ import ClientDashboard from './pages/ClientDashboard'
 import ClientBatches from './pages/ClientBatches'
 import ClientInvoices from './pages/ClientInvoices'
 import ClientPayments from './pages/ClientPayments'
+import ClientShortPayments from './pages/ClientShortPayments'
 import ClientCollections from './pages/ClientCollections'
 import ClientReports from './pages/ClientReports'
 import ClientBrokers from './pages/ClientBrokers'
@@ -60,6 +61,7 @@ function App() {
           <Route path="/client/batches" element={<ClientBatches />} />
           <Route path="/client/invoices" element={<ClientInvoices />} />
           <Route path="/client/payments" element={<ClientPayments />} />
+          <Route path="/client/short-payments" element={<ClientShortPayments />} />
           <Route path="/client/collections" element={<ClientCollections />} />
           <Route path="/client/brokers" element={<ClientBrokers />} />
           <Route path="/client/reports" element={<ClientReports />} />

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams, useLocation } from 'react-router-dom'
-import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { useClientSession } from '../hooks/useClientSession'
 import { getAllBatches, getBatchById, getClientDraftBatch } from '../data/mockBatches'
 import { mockBrokers } from '../data/mockBrokers'
 import { getInvoicesByBatchId, getInvoiceById } from '../data/mockInvoices'
@@ -26,7 +26,6 @@ import ClientBatchesListView, { getBatchStatusBadge } from '../components/client
 import ClientBatchDetailView from '../components/client/ClientBatchDetailView'
 import ClientSubmitDocsView from '../components/client/ClientSubmitDocsView'
 import ManagedDocHandoffView from '../components/client/ManagedDocHandoffView'
-import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import ClientManualBatchForm from '../components/client/ClientManualBatchForm'
 import ClientInvoiceDocumentUploadModal from '../components/client/ClientInvoiceDocumentUploadModal'
@@ -112,7 +111,6 @@ function mergeInvoiceExtras(invoice: Invoice, extras?: Partial<Invoice>): Invoic
 }
 
 export default function ClientBatches() {
-  const [data] = useState(mockClientDashboardData)
   const { clientId, clientName } = useClientSession()
   const { capabilities } = useClientCapabilities()
   const [batches, setBatches] = useState<ClientBatchRow[]>([])
@@ -125,7 +123,7 @@ export default function ClientBatches() {
 
   const refreshBatches = useCallback(() => {
     const rows = getAllBatches()
-      .filter((b) => b.client_id === data.client_id)
+      .filter((b) => b.client_id === clientId)
       .map((b) => ({
         id: b.id,
         batch_number: b.batch_number,
@@ -140,7 +138,7 @@ export default function ClientBatches() {
       }))
       .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
     setBatches(rows)
-  }, [data.client_id])
+  }, [clientId])
 
   useEffect(() => {
     refreshBatches()
@@ -350,7 +348,7 @@ export default function ClientBatches() {
   }
 
   const startAiDraft = useCallback(async () => {
-    const existing = getClientDraftBatch(data.client_id, 'ai')
+    const existing = getClientDraftBatch(clientId, 'ai')
     if (existing) {
       const restored = await loadAiDraftSnapshot(existing.id)
       if (restored && !isAiDraftEmpty(restored.uploadFiles, restored.intake)) {
@@ -372,10 +370,10 @@ export default function ClientBatches() {
     setAiDraftReady(true)
     setCreateSubMode('ai')
     refreshBatches()
-  }, [data.client_id, refreshBatches])
+  }, [clientId, refreshBatches])
 
   const startManualDraft = useCallback(async () => {
-    const existing = getClientDraftBatch(data.client_id, 'manual')
+    const existing = getClientDraftBatch(clientId, 'manual')
     if (existing) {
       const restored = await loadManualDraftSnapshot(existing.id)
       if (restored && !isManualDraftEmpty(restored.invoices)) {
@@ -394,7 +392,7 @@ export default function ClientBatches() {
     setManualDraftReady(true)
     setCreateSubMode('manual')
     refreshBatches()
-  }, [data.client_id, refreshBatches, resetManualEditorState])
+  }, [clientId, refreshBatches, resetManualEditorState])
 
   const handlePersistAiDraft = useCallback(
     (payload: {
@@ -403,8 +401,8 @@ export default function ClientBatches() {
       intake: BatchIntakeDraft | null
     }) => {
       void persistAiDraftIfNeeded(
-        data.client_id,
-        data.client_name,
+        clientId,
+        clientName,
         activeDraftBatchId,
         { step: payload.step },
         payload.intake,
@@ -418,15 +416,15 @@ export default function ClientBatches() {
         }
       })
     },
-    [activeDraftBatchId, data.client_id, data.client_name, refreshBatches]
+    [activeDraftBatchId, clientId, clientName, refreshBatches]
   )
 
   useEffect(() => {
     if (createSubMode !== 'manual' || !manualDraftReady) return
     const timer = setTimeout(() => {
       void persistManualDraftIfNeeded(
-        data.client_id,
-        data.client_name,
+        clientId,
+        clientName,
         activeDraftBatchId,
         invoiceFormData,
         currentBatchInvoices
@@ -446,8 +444,8 @@ export default function ClientBatches() {
     manualDraftReady,
     invoiceFormData,
     currentBatchInvoices,
-    data.client_id,
-    data.client_name,
+    clientId,
+    clientName,
     refreshBatches,
   ])
 
@@ -798,8 +796,8 @@ export default function ClientBatches() {
   // Generate PDF invoice file
   const generatePDFInvoice = async (invoice: InvoiceFormData): Promise<File> => {
     // Get client information from dashboard data
-    const clientName = mockClientDashboardData.client_name
-    const clientAddress = `${mockClientDashboardData.client_name}\nAddress information here` // You can enhance this with actual client data
+    const clientNameForPdf = clientName
+    const clientAddress = `${clientName}\nAddress information here`
     
     // Load logo and convert to base64
     let logoBase64: string | undefined = undefined
@@ -1099,8 +1097,8 @@ export default function ClientBatches() {
   const handleCreateBatch = () => {
     try {
       const { batch } = submitManualBatch({
-        clientId: data.client_id,
-        clientName: data.client_name,
+        clientId: clientId,
+        clientName: clientName,
         existingBatchId: activeDraftBatchId ?? undefined,
         invoices: currentBatchInvoices.map((inv) => ({
           invoice_number: inv.invoice_number,
@@ -1150,8 +1148,8 @@ export default function ClientBatches() {
               form,
               selectedBatch,
               index,
-              data.client_id,
-              data.client_name,
+              clientId,
+              clientName,
               selectedBatchData?.batch_number
             )
           )
@@ -1160,8 +1158,8 @@ export default function ClientBatches() {
     selectedBatch,
     selectedBatchStoreInvoices,
     batchInvoices,
-    data.client_id,
-    data.client_name,
+    clientId,
+    clientName,
     selectedBatchData?.batch_number,
     invoiceExtras,
     invoicesRefreshKey,
@@ -1183,7 +1181,7 @@ export default function ClientBatches() {
 
   const handleBatchAddNote = async (invoiceId: string, note: string) => {
     if (getInvoiceById(invoiceId)) {
-      addClientInvoiceNote(invoiceId, note, data.client_name)
+      addClientInvoiceNote(invoiceId, note, clientName)
       setInvoicesRefreshKey((key) => key + 1)
       return
     }
@@ -1191,7 +1189,7 @@ export default function ClientBatches() {
     const newNote: InvoiceNote = {
       id: `note-${Date.now()}`,
       note,
-      created_by: data.client_name,
+      created_by: clientName,
       created_at: new Date().toISOString(),
       type: 'client_note',
     }
@@ -1207,7 +1205,7 @@ export default function ClientBatches() {
 
   const handleBatchOpenDispute = async (invoiceId: string, reason: string, description: string) => {
     if (getInvoiceById(invoiceId)) {
-      openClientInvoiceDispute(invoiceId, reason, description, data.client_name)
+      openClientInvoiceDispute(invoiceId, reason, description, clientName)
       setInvoicesRefreshKey((key) => key + 1)
       return
     }
@@ -1218,13 +1216,13 @@ export default function ClientBatches() {
       reason,
       description,
       status: 'open',
-      created_by: data.client_name,
+      created_by: clientName,
       created_at: new Date().toISOString(),
     }
     const disputeNote: InvoiceNote = {
       id: `note-dispute-${Date.now()}`,
       note: `Dispute opened: ${reasonLabel} — ${description}`,
-      created_by: data.client_name,
+      created_by: clientName,
       created_at: new Date().toISOString(),
       type: 'dispute',
     }
@@ -1241,7 +1239,7 @@ export default function ClientBatches() {
 
   const handleBatchMarkAsPaid = async (invoiceId: string, options: ClientMarkPaidOptions) => {
     if (getInvoiceById(invoiceId)) {
-      markClientInvoiceAsPaid(invoiceId, data.client_name, options)
+      markClientInvoiceAsPaid(invoiceId, clientName, options)
       setInvoicesRefreshKey((key) => key + 1)
       return
     }
@@ -1258,7 +1256,7 @@ export default function ClientBatches() {
     const paidNote: InvoiceNote = {
       id: `note-paid-${Date.now()}`,
       note: noteText,
-      created_by: data.client_name,
+      created_by: clientName,
       created_at: new Date().toISOString(),
       type: 'client_note',
     }

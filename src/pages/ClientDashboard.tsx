@@ -1,12 +1,5 @@
 import { useState, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { mockClientDashboardData } from '../data/mockClientDashboard'
-import { mockInvoices } from '../data/mockInvoices'
-import { mockPayments } from '../data/mockPayments'
-import {
-  mockClientReportInvoices,
-  mockClientReportPayments,
-} from '../data/mockClientReports'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
   DollarSign,
@@ -30,6 +23,7 @@ import { enrichInvoices } from '../utils/invoiceAging'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
+import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 
 type InvoiceStatus = 'pending' | 'approved' | 'hold' | 'overdue'
 
@@ -96,33 +90,15 @@ function formatRelativeTime(iso: string) {
 
 export default function ClientDashboard() {
   const c = useClientTheme()
-  const [data] = useState(mockClientDashboardData)
   const { clientId, clientName } = useClientSession()
+  const { dashboard: data, invoices: clientInvoices, payments: clientPayments } =
+    useClientDemoSnapshot()
   const { capabilities, tier } = useClientCapabilities()
   const navigate = useNavigate()
   const [showSimpleUpload, setShowSimpleUpload] = useState(false)
 
-  const clientInvoices = useMemo(() => {
-    const base = mockInvoices.filter((inv) => inv.client_id === clientId)
-    if (clientId !== 'client-1') return base
-    const baseIds = new Set(base.map((inv) => inv.id))
-    const supplemental = mockClientReportInvoices.filter((inv) => !baseIds.has(inv.id))
-    return [...base, ...supplemental]
-  }, [clientId])
-
-  const clientPayments = useMemo(() => {
-    const ids = new Set(clientInvoices.map((inv) => inv.id))
-    const base = mockPayments.filter((p) => ids.has(p.invoice_id))
-    if (clientId !== 'client-1') return base
-    const baseIds = new Set(base.map((p) => p.id))
-    const supplemental = mockClientReportPayments.filter(
-      (p) => ids.has(p.invoice_id) && !baseIds.has(p.id)
-    )
-    return [...base, ...supplemental]
-  }, [clientInvoices, clientId])
-
   const attentionInvoices = useMemo(() => {
-    return enrichInvoices(mockInvoices.filter((inv) => inv.client_id === clientId))
+    return enrichInvoices(clientInvoices)
       .filter(
         (inv) =>
           inv.isOverdue ||
@@ -144,7 +120,7 @@ export default function ClientDashboard() {
         return b.daysOutstanding - a.daysOutstanding
       })
       .slice(0, 6)
-  }, [clientId])
+  }, [clientInvoices])
 
   const recentPayments = useMemo(
     () =>

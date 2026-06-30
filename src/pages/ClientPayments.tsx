@@ -1,9 +1,5 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useClientSession } from '../hooks/useClientSession'
-import { mockPayments } from '../data/mockPayments'
-import { mockInvoices } from '../data/mockInvoices'
-import { mockClientReportInvoices, mockClientReportPayments } from '../data/mockClientReports'
 import { Payment } from '../types/payment'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
@@ -15,12 +11,20 @@ import {
   CheckCircle,
   ChevronLeft,
   ChevronRight,
+  Plus,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
 import PaymentKpiCards from '../components/client/PaymentKpiCards'
+import PostPaymentForm from '../components/client/PostPaymentForm'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import { useClientTheme } from '../theme/ThemeContext'
+import {
+  confirmClientPayment,
+  type PostPaymentResult,
+} from '../services/clientPaymentService'
+import { getClientPayments as getClientDemoPayments } from '../data/clientDemoData'
+import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
@@ -53,44 +57,39 @@ function getPaymentStatusPill(status: string) {
   return <span className={`inline-flex items-center ${entry.className}`}>{entry.label}</span>
 }
 
-function buildInitialPayments(clientId: string): Payment[] {
-  const baseInvoices = mockInvoices.filter((inv) => inv.client_id === clientId)
-  const supplementalInvoices =
-    clientId === 'client-1'
-      ? mockClientReportInvoices.filter(
-          (inv) => !baseInvoices.some((base) => base.id === inv.id)
-        )
-      : []
-  const clientInvoiceIds = new Set([
-    ...baseInvoices.map((inv) => inv.id),
-    ...supplementalInvoices.map((inv) => inv.id),
-  ])
-
-  const base = mockPayments.filter((p) => clientInvoiceIds.has(p.invoice_id))
-  if (clientId !== 'client-1') return base
-
-  const baseIds = new Set(base.map((p) => p.id))
-  const supplemental = mockClientReportPayments.filter(
-    (p) => clientInvoiceIds.has(p.invoice_id) && !baseIds.has(p.id)
-  )
-  return [...base, ...supplemental]
+function buildInitialPayments(clientId: string, clientName: string): Payment[] {
+  return getClientDemoPayments(clientId, clientName)
 }
+
+type PaymentsViewTab = 'history' | 'post'
 
 export default function ClientPayments() {
   const c = useClientTheme()
-  const [data] = useState(mockClientDashboardData)
   const { clientId, clientName } = useClientSession()
-  const [payments, setPayments] = useState<Payment[]>(() => buildInitialPayments(clientId))
+  const authorName = clientName
+  const [viewTab, setViewTab] = useState<PaymentsViewTab>('history')
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [payments, setPayments] = useState<Payment[]>(() =>
+    buildInitialPayments(clientId, clientName)
+  )
+
+  const { invoices: clientInvoices } = useClientDemoSnapshot(refreshKey)
+
+  const refreshPayments = useCallback(() => {
+    setRefreshKey((k) => k + 1)
+    setPayments(buildInitialPayments(clientId, clientName))
+  }, [clientId, clientName])
 
   useEffect(() => {
-    setPayments(buildInitialPayments(clientId))
-  }, [clientId])
+    refreshPayments()
+  }, [clientId, refreshPayments])
 
   const [searchTerm, setSearchTerm] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('all')
   const [methodFilter, setMethodFilter] = useState<string>('all')
+  const [pendingHighlight, setPendingHighlight] = useState(false)
+  const pendingQueueRef = useRef<HTMLDivElement>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [showPaymentDetailModal, setShowPaymentDetailModal] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
@@ -110,10 +109,19 @@ export default function ClientPayments() {
   const activeFilterCount = useMemo(() => {
     let count = 0
     if (dateFrom || dateTo) count += 1
-    if (statusFilter !== 'all') count += 1
     if (methodFilter !== 'all') count += 1
     return count
-  }, [dateFrom, dateTo, statusFilter, methodFilter])
+  }, [dateFrom, dateTo, methodFilter])
+
+  const confirmedPayments = useMemo(
+    () => payments.filter((payment) => payment.status === 'confirmed'),
+    [payments]
+  )
+
+  const pendingPayments = useMemo(
+    () => payments.filter((payment) => payment.status === 'pending'),
+    [payments]
+  )
 
   const matchesDatePreset = useCallback(
     (preset: '30d' | '90d' | 'ytd') => {
@@ -137,16 +145,20 @@ export default function ClientPayments() {
   const clearAllFilters = useCallback(() => {
     setDateFrom('')
     setDateTo('')
-    setStatusFilter('all')
     setMethodFilter('all')
   }, [])
 
   const handleKpiStatusFilter = useCallback((status: 'confirmed' | 'pending') => {
-    setStatusFilter((current) => (current === status ? 'all' : status))
+    if (status === 'pending') {
+      setPendingHighlight(true)
+      pendingQueueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      return
+    }
+    setPendingHighlight(false)
   }, [])
 
   const filteredPayments = useMemo(() => {
-    return payments.filter((payment) => {
+    return confirmedPayments.filter((payment) => {
       const matchesSearch =
         payment.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
         payment.broker_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -154,15 +166,14 @@ export default function ClientPayments() {
         payment.batch_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         payment.payment_reference?.toLowerCase().includes(searchTerm.toLowerCase())
 
-      const matchesStatus = statusFilter === 'all' || payment.status === statusFilter
       const matchesMethod = methodFilter === 'all' || payment.payment_method === methodFilter
       const matchesDate =
         (!dateFrom || payment.payment_date >= dateFrom) &&
         (!dateTo || payment.payment_date <= dateTo)
 
-      return matchesSearch && matchesStatus && matchesMethod && matchesDate
+      return matchesSearch && matchesMethod && matchesDate
     })
-  }, [payments, searchTerm, dateFrom, dateTo, statusFilter, methodFilter])
+  }, [confirmedPayments, searchTerm, dateFrom, dateTo, methodFilter])
 
   const sortedPayments = useMemo(() => {
     const sorted = [...filteredPayments]
@@ -222,7 +233,7 @@ export default function ClientPayments() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, dateFrom, dateTo, statusFilter, methodFilter, pageSize, sortField, sortDir])
+  }, [searchTerm, dateFrom, dateTo, methodFilter, pageSize, sortField, sortDir])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -249,23 +260,39 @@ export default function ClientPayments() {
   const handleConfirmPaymentSubmit = () => {
     if (!paymentToConfirm) return
 
-    setPayments((prev) =>
-      prev.map((p) =>
-        p.id === paymentToConfirm.id
-          ? {
-              ...p,
-              status: 'confirmed',
-              payment_method: confirmPaymentData.payment_method,
-              payment_reference: confirmPaymentData.payment_reference || p.payment_reference,
-              received_date: confirmPaymentData.received_date,
-              notes: confirmPaymentData.notes || p.notes,
-            }
-          : p
-      )
+    const result = confirmClientPayment(
+      {
+        paymentId: paymentToConfirm.id,
+        paymentMethod: confirmPaymentData.payment_method,
+        paymentReference: confirmPaymentData.payment_reference,
+        receivedDate: confirmPaymentData.received_date,
+        notes: confirmPaymentData.notes,
+      },
+      authorName
     )
+
+    if (!result) {
+      setPayments((prev) =>
+        prev.map((p) =>
+          p.id === paymentToConfirm.id
+            ? {
+                ...p,
+                status: 'confirmed',
+                payment_method: confirmPaymentData.payment_method,
+                payment_reference: confirmPaymentData.payment_reference || p.payment_reference,
+                received_date: confirmPaymentData.received_date,
+                notes: confirmPaymentData.notes || p.notes,
+              }
+            : p
+        )
+      )
+    } else {
+      refreshPayments()
+    }
 
     setShowConfirmPaymentModal(false)
     setPaymentToConfirm(null)
+    setPendingHighlight(false)
     setConfirmPaymentData({
       payment_method: 'check',
       payment_reference: '',
@@ -273,6 +300,14 @@ export default function ClientPayments() {
       notes: '',
     })
   }
+
+  const handlePaymentPosted = useCallback(
+    (_result: PostPaymentResult) => {
+      refreshPayments()
+      setViewTab('history')
+    },
+    [refreshPayments]
+  )
 
   const inputCompactStyle = {
     backgroundColor: c.card,
@@ -285,11 +320,132 @@ export default function ClientPayments() {
   return (
     <ClientLayout clientName={clientName} clientId={clientId} flushMain>
       <div className="client-payments-page overflow-hidden flex flex-col min-h-0">
+        <div
+          className="client-page-toolbar px-4 py-2 border-b shrink-0 flex flex-wrap items-center gap-2"
+          style={{ borderColor: c.border, backgroundColor: c.card }}
+        >
+          <div className="page-tabs">
+            <button
+              type="button"
+              onClick={() => setViewTab('history')}
+              className={`page-tab ${viewTab === 'history' ? 'page-tab--active' : ''}`}
+            >
+              Payment history
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewTab('post')}
+              className={`page-tab ${viewTab === 'post' ? 'page-tab--active' : ''}`}
+            >
+              Post payment
+            </button>
+          </div>
+          {viewTab === 'post' && (
+            <button
+              type="button"
+              onClick={() => setViewTab('history')}
+              className="dashboard-btn-secondary dashboard-btn-compact ml-auto"
+            >
+              View history
+            </button>
+          )}
+          {viewTab === 'history' && (
+            <button
+              type="button"
+              onClick={() => setViewTab('post')}
+              className="dashboard-btn-primary dashboard-btn-compact ml-auto"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Post payment
+            </button>
+          )}
+        </div>
+
+        {viewTab === 'post' ? (
+          <PostPaymentForm
+            clientId={clientId}
+            clientName={clientName}
+            invoices={clientInvoices}
+            authorName={authorName}
+            onPosted={handlePaymentPosted}
+          />
+        ) : (
+          <>
         <PaymentKpiCards
           payments={payments}
-          statusFilter={statusFilter}
+          statusFilter={pendingHighlight ? 'pending' : 'confirmed'}
           onStatusFilter={handleKpiStatusFilter}
         />
+
+        {pendingPayments.length > 0 && (
+          <div
+            ref={pendingQueueRef}
+            id="payments-pending-queue"
+            className={`client-payments-pending-queue shrink-0 ${pendingHighlight ? 'client-payments-pending-queue--highlight' : ''}`}
+            style={{ borderColor: c.border, backgroundColor: c.card }}
+          >
+            <div className="client-payments-pending-queue__head px-4 py-2 border-b" style={{ borderColor: c.border }}>
+              <p className="text-sm font-semibold" style={{ color: c.primary }}>
+                Awaiting confirmation
+              </p>
+              <p className="text-xs" style={{ color: c.secondary }}>
+                {pendingPayments.length} payment{pendingPayments.length === 1 ? '' : 's'} need to be confirmed before they appear in history
+              </p>
+            </div>
+            <div className="client-table-scroll overflow-x-auto">
+              <table className="dashboard-table w-full">
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Broker</th>
+                    <th className="text-right">Amount</th>
+                    <th className="hidden md:table-cell">Payment date</th>
+                    <th className="text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingPayments.map((payment) => (
+                    <tr key={payment.id}>
+                      <ClientListTd variant="primary" className="font-semibold">
+                        {payment.invoice_number}
+                      </ClientListTd>
+                      <ClientListTd variant="meta" className="truncate">
+                        {payment.broker_name}
+                      </ClientListTd>
+                      <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
+                        {formatCurrency(payment.amount)}
+                      </ClientListTd>
+                      <ClientListTd variant="desktop" label="Payment date" style={{ color: c.secondary }}>
+                        {formatDate(payment.payment_date)}
+                      </ClientListTd>
+                      <ClientListTd variant="actions" className="text-center">
+                        <div className="inline-flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleViewPaymentDetail(payment)}
+                            className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
+                            style={{ color: c.info }}
+                            title="View details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleConfirmPayment(payment)}
+                            className="dashboard-btn-primary dashboard-btn-compact inline-flex items-center"
+                          >
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Confirm
+                          </button>
+                        </div>
+                      </ClientListTd>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         <div
           className="client-page-toolbar px-4 py-2 border-b shrink-0"
@@ -352,16 +508,6 @@ export default function ClientPayments() {
                       : dateFrom
                         ? `From ${formatDate(dateFrom)}`
                         : `Until ${formatDate(dateTo)}`}
-                    <X className="w-3 h-3 opacity-60" aria-hidden />
-                  </button>
-                )}
-                {statusFilter !== 'all' && (
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('all')}
-                    className="batch-filter-pill batch-filter-pill--sm batch-filter-pill--active"
-                  >
-                    {statusFilter === 'pending' ? 'Pending' : 'Confirmed'}
                     <X className="w-3 h-3 opacity-60" aria-hidden />
                   </button>
                 )}
@@ -450,17 +596,6 @@ export default function ClientPayments() {
                 <span className="client-payments-filters__sep" aria-hidden />
 
                 <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="client-input client-payments-filters__select"
-                  aria-label="Status"
-                >
-                  <option value="all">All status</option>
-                  <option value="pending">Pending</option>
-                  <option value="confirmed">Confirmed</option>
-                </select>
-
-                <select
                   value={methodFilter}
                   onChange={(e) => setMethodFilter(e.target.value)}
                   className="client-input client-payments-filters__select"
@@ -496,7 +631,7 @@ export default function ClientPayments() {
                 No payments found
               </p>
               <p className="text-sm" style={{ color: c.secondary }}>
-                {searchTerm || dateFrom || dateTo || statusFilter !== 'all' || methodFilter !== 'all'
+                {searchTerm || dateFrom || dateTo || methodFilter !== 'all'
                   ? 'Try adjusting your search or filters'
                   : 'Your payment history will appear here'}
               </p>
@@ -552,13 +687,6 @@ export default function ClientPayments() {
                       sortDir={sortDir}
                       onSort={handleSort}
                     />
-                    <ClientSortableHeader
-                      field="status"
-                      label="Status"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={handleSort}
-                    />
                     <th className="text-center">Actions</th>
                   </tr>
                 </thead>
@@ -588,36 +716,19 @@ export default function ClientPayments() {
                       <ClientListTd variant="desktop" label="Method" style={{ color: c.secondary }}>
                         {METHOD_LABELS[payment.payment_method] || payment.payment_method}
                       </ClientListTd>
-                      <ClientListTd variant="status">{getPaymentStatusPill(payment.status)}</ClientListTd>
                       <ClientListTd variant="actions" className="text-center">
-                        <div className="inline-flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleViewPaymentDetail(payment)
-                            }}
-                            className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-                            style={{ color: c.info }}
-                            title="View Details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          {payment.status === 'pending' && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleConfirmPayment(payment)
-                              }}
-                              className="dashboard-btn-primary dashboard-btn-compact inline-flex items-center"
-                              title="Confirm Payment"
-                            >
-                              <CheckCircle className="w-3 h-3 mr-1" />
-                              Confirm
-                            </button>
-                          )}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleViewPaymentDetail(payment)
+                          }}
+                          className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
+                          style={{ color: c.info }}
+                          title="View Details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
                       </ClientListTd>
                     </tr>
                   ))}
@@ -680,6 +791,8 @@ export default function ClientPayments() {
                 </div>
               </div>
             </div>
+          </>
+        )}
           </>
         )}
       </div>

@@ -502,3 +502,104 @@ export function getPresetRange(preset: 'mtd' | '30d' | '90d' | 'ytd'): DateRange
     end_date: end.toISOString().split('T')[0],
   }
 }
+
+export type TaxBrokerRow = {
+  broker_name: string
+  gross_collected: number
+  payment_count: number
+}
+
+/** Gross collections by broker for tax / 1099 tracking in a date range. */
+export type TaxReportSummary = {
+  gross_collected: number
+  invoiced_in_period: number
+  outstanding_from_period: number
+  payment_count: number
+  by_broker: TaxBrokerRow[]
+}
+
+export function computeTaxReport(
+  invoices: Invoice[],
+  payments: Payment[],
+  range: DateRange
+): TaxReportSummary {
+  const confirmed = payments.filter(
+    (p) => p.status === 'confirmed' && inRange(p.received_date, range)
+  )
+  const inRangeInv = invoices.filter((inv) => inRange(inv.invoice_date, range))
+  const invoiced_in_period = inRangeInv.reduce((s, inv) => s + inv.amount, 0)
+  const gross_collected = confirmed.reduce((s, p) => s + p.amount, 0)
+
+  const byBrokerMap = new Map<string, { amount: number; count: number }>()
+  for (const p of confirmed) {
+    const row = byBrokerMap.get(p.broker_name) ?? { amount: 0, count: 0 }
+    row.amount += p.amount
+    row.count += 1
+    byBrokerMap.set(p.broker_name, row)
+  }
+
+  const by_broker = [...byBrokerMap.entries()]
+    .map(([broker_name, row]) => ({
+      broker_name,
+      gross_collected: row.amount,
+      payment_count: row.count,
+    }))
+    .sort((a, b) => b.gross_collected - a.gross_collected)
+
+  return {
+    gross_collected,
+    invoiced_in_period,
+    outstanding_from_period: Math.max(0, invoiced_in_period - gross_collected),
+    payment_count: confirmed.length,
+    by_broker,
+  }
+}
+
+export type CollectionsPeriodMonth = {
+  monthKey: string
+  label: string
+  invoiced: number
+  collected: number
+}
+
+/** Monthly invoiced vs collected within a selected period. */
+export function computeCollectionsByMonth(
+  invoices: Invoice[],
+  payments: Payment[],
+  range: DateRange
+): CollectionsPeriodMonth[] {
+  const start = new Date(range.start_date)
+  const end = new Date(range.end_date)
+  start.setDate(1)
+  const months: CollectionsPeriodMonth[] = []
+
+  const cursor = new Date(start)
+  while (cursor <= end) {
+    const monthKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
+    months.push({
+      monthKey,
+      label: cursor.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      invoiced: 0,
+      collected: 0,
+    })
+    cursor.setMonth(cursor.getMonth() + 1)
+  }
+
+  const index = new Map(months.map((m, i) => [m.monthKey, i]))
+
+  for (const inv of invoices) {
+    if (!inRange(inv.invoice_date, range)) continue
+    const key = inv.invoice_date.slice(0, 7)
+    const idx = index.get(key)
+    if (idx !== undefined) months[idx].invoiced += inv.amount
+  }
+
+  for (const p of payments) {
+    if (p.status !== 'confirmed' || !inRange(p.received_date, range)) continue
+    const key = p.received_date.slice(0, 7)
+    const idx = index.get(key)
+    if (idx !== undefined) months[idx].collected += p.amount
+  }
+
+  return months
+}

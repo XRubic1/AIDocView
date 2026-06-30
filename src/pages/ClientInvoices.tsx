@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { getClientInvoices } from '../data/clientDemoData'
+import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientSession } from '../hooks/useClientSession'
-import { mockInvoices } from '../data/mockInvoices'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
 import { FileText, Eye, Search, Filter, DollarSign, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react'
@@ -40,18 +40,15 @@ function getSortableDaysOutstanding(invoice: EnrichedInvoice): number {
 
 export default function ClientInvoices() {
   const c = useClientTheme()
-  const [data] = useState(mockClientDashboardData)
   const { clientId, clientName } = useClientSession()
   const [searchParams, setSearchParams] = useSearchParams()
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
   const [invoicesRefreshKey, setInvoicesRefreshKey] = useState(0)
+  const { dashboard: data } = useClientDemoSnapshot(invoicesRefreshKey)
 
   const invoices = useMemo(
-    () =>
-      mockInvoices.filter(
-        (inv) => inv.client_id === clientId || inv.client_name === clientName
-      ),
+    () => getClientInvoices(clientId, clientName),
     [clientId, clientName, invoicesRefreshKey]
   )
   const [searchTerm, setSearchTerm] = useState('')

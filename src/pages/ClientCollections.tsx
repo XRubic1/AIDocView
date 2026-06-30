@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { mockClientDashboardData } from '../data/mockClientDashboard'
+import { getInvoiceById } from '../data/mockInvoices'
+import { getClientInvoices } from '../data/clientDemoData'
+import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientSession } from '../hooks/useClientSession'
 import { ClientCollectionItem } from '../types/collections'
 import { formatCurrency, formatDate } from '../utils/format'
@@ -22,8 +24,6 @@ import {
 } from '../utils/clientListPage'
 import ClientLayout from '../components/ClientLayout'
 import CollectionsInvoiceModal from '../components/collections/CollectionsInvoiceModal'
-import { mockInvoices } from '../data/mockInvoices'
-import { mockPayments } from '../data/mockPayments'
 import {
   AR_POLICY,
   DISPLAY_AGING_BUCKETS,
@@ -94,29 +94,19 @@ function getBucketPillClass(bucketId: DisplayAgingBucketId): string {
 
 export default function ClientCollections() {
   const c = useClientTheme()
-  const [data] = useState(mockClientDashboardData)
   const { clientId, clientName } = useClientSession()
+  const { dashboard: data } = useClientDemoSnapshot()
   const [searchParams, setSearchParams] = useSearchParams()
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
   const clientInvoices = useMemo(
-    () =>
-      mockInvoices.filter(
-        (inv) => inv.client_id === clientId || inv.client_name === clientName
-      ),
+    () => getClientInvoices(clientId, clientName),
     [clientId, clientName]
   )
 
-  const paidInvoiceIds = useMemo(
-    () => new Set(mockPayments.filter((p) => p.status === 'confirmed').map((p) => p.invoice_id)),
-    []
-  )
-
   const openArInvoices = useMemo(() => {
-    return enrichInvoices(clientInvoices).filter(
-      (inv) => isOpenArInvoice(inv) && !paidInvoiceIds.has(inv.id)
-    )
-  }, [clientInvoices, paidInvoiceIds])
+    return enrichInvoices(clientInvoices).filter(isOpenArInvoice)
+  }, [clientInvoices])
 
   const collections = useMemo<ClientCollectionItem[]>(() => {
     return openArInvoices
@@ -398,7 +388,7 @@ export default function ClientCollections() {
   }, [searchTerm, brokerDrillDown])
 
   const handleAddNote = (invoiceId: string, note: string) => {
-    const invoice = mockInvoices.find((inv) => inv.id === invoiceId)
+    const invoice = getInvoiceById(invoiceId)
 
     if (invoice) {
       const newNote = {
@@ -435,7 +425,7 @@ export default function ClientCollections() {
   }
 
   const handleMarkNotReceived = (invoiceId: string, note: string) => {
-    const invoice = mockInvoices.find((inv) => inv.id === invoiceId)
+    const invoice = getInvoiceById(invoiceId)
 
     if (invoice) {
       const newNote = {
@@ -466,7 +456,7 @@ export default function ClientCollections() {
   }
 
   const selectedInvoiceData = selectedInvoice
-    ? mockInvoices.find((inv) => inv.id === selectedInvoice)
+    ? getInvoiceById(selectedInvoice)
     : null
 
   const inputCompactStyle = {
