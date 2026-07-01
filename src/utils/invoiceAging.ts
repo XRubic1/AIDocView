@@ -39,6 +39,15 @@ export function isOpenArInvoice(invoice: Invoice): boolean {
   return invoice.status === 'approved'
 }
 
+/**
+ * Invoices that can receive broker payments — approved (incl. short-paid) and paid in full.
+ * Written-off (force_closed) and not-yet-approved invoices are excluded.
+ */
+export function isPostableForPayment(invoice: Invoice): boolean {
+  if (invoice.status === 'force_closed') return false
+  return invoice.status === 'approved' || invoice.status === 'paid'
+}
+
 /** Days since invoice date (calendar age of the invoice). */
 export function getInvoiceAgeDays(invoice: Invoice, asOf: Date = new Date()): number {
   if (!invoice.invoice_date) return 0

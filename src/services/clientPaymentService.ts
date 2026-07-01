@@ -11,7 +11,7 @@ import type { Invoice, InvoiceNote } from '../types/invoice'
 import type { Payment } from '../types/payment'
 import { buildPaymentConfirmationNote } from './clientInvoiceActions'
 import { logAuditEvent } from '../utils/auditLogger'
-import { isOpenArInvoice } from '../utils/invoiceAging'
+import { isPostableForPayment } from '../utils/invoiceAging'
 import { formatCurrency } from '../utils/format'
 
 export interface PostClientPaymentInput {
@@ -30,10 +30,10 @@ export type PostPaymentResult = {
   variance: 'full' | 'short' | 'over'
 }
 
-/** Approved open A/R invoices eligible for a new payment post. */
+/** Invoices eligible for payment posting (approved, paid, or short — not written off). */
 export function listPostableInvoices(invoices: Invoice[]): Invoice[] {
   return invoices
-    .filter((inv) => isOpenArInvoice(inv))
+    .filter((inv) => isPostableForPayment(inv))
     .sort((a, b) => b.invoice_date.localeCompare(a.invoice_date))
 }
 
@@ -76,15 +76,16 @@ function applyPaymentToInvoice(
 }
 
 /**
- * Post a broker payment against an open invoice — creates payment row and updates invoice.
- * Supports full, short, and over payments (routes to pay variance queues).
+ * Post a broker payment against an invoice — creates payment row and updates invoice.
+ * Supports approved (open/short), paid-in-full (additional remittance e.g. lumper), and variance routing.
+ * Blocked only when invoice is written off (force_closed).
  */
 export function postClientPayment(
   input: PostClientPaymentInput,
   authorName: string
 ): PostPaymentResult | undefined {
   const invoice = getInvoiceById(input.invoiceId)
-  if (!invoice || !isOpenArInvoice(invoice)) return undefined
+  if (!invoice || !isPostableForPayment(invoice)) return undefined
   if (!Number.isFinite(input.amount) || input.amount <= 0) return undefined
   if (!input.paymentDate || !input.receivedDate) return undefined
 
@@ -209,6 +210,41 @@ export interface ConfirmClientPaymentInput {
   notes?: string
 }
 
+/** Options for marking an invoice paid from invoice detail / batch views. */
+export interface MarkClientInvoiceAsPaidOptions {
+  amountReceived: number
+  optionalNote?: string
+  paymentDate?: string
+  receivedDate?: string
+  paymentMethod?: Payment['payment_method']
+  paymentReference?: string
+}
+
+/**
+ * Mark invoice paid — routes through postClientPayment so every path writes
+ * a Payment row and updates the invoice via applyPaymentToInvoice.
+ */
+export function markClientInvoiceAsPaid(
+  invoiceId: string,
+  authorName: string,
+  options: MarkClientInvoiceAsPaidOptions
+): Invoice | undefined {
+  const today = new Date().toISOString().split('T')[0]
+  const result = postClientPayment(
+    {
+      invoiceId,
+      amount: options.amountReceived,
+      paymentDate: options.paymentDate ?? today,
+      receivedDate: options.receivedDate ?? today,
+      paymentMethod: options.paymentMethod ?? 'check',
+      paymentReference: options.paymentReference?.trim() || undefined,
+      notes: options.optionalNote?.trim() || undefined,
+    },
+    authorName
+  )
+  return result?.invoice
+}
+
 /** Confirm a pending payment and apply it to the invoice. */
 export function confirmClientPayment(
   input: ConfirmClientPaymentInput,
@@ -227,12 +263,33 @@ export function confirmClientPayment(
   if (!payment) return undefined
 
   const invoice = getInvoiceById(payment.invoice_id)
-  if (!invoice) return undefined
+  if (!invoice || !isPostableForPayment(invoice)) return undefined
 
   const totalReceived = getConfirmedPaymentTotal(invoice.id)
+  const isShort = totalReceived < invoice.amount - 0.01
+  const isOver = totalReceived > invoice.amount + 0.01
   const noteSuffix = input.notes?.trim() || `Confirmed ${formatCurrency(payment.amount)}`
   const updated = applyPaymentToInvoice(invoice, totalReceived, authorName, noteSuffix)
   if (!updated) return undefined
+
+  logAuditEvent(
+    'payment_received',
+    'invoice',
+    updated.id,
+    updated.invoice_number,
+    `${authorName} confirmed ${formatCurrency(payment.amount)} on ${updated.invoice_number}`,
+    'client-portal',
+    authorName,
+    'Client',
+    undefined,
+    {
+      payment_id: payment.id,
+      action: 'confirmed',
+      variance: isShort ? 'short' : isOver ? 'over' : 'full',
+      total_received: totalReceived,
+      invoice_amount: invoice.amount,
+    }
+  )
 
   return { payment, invoice: updated }
 }

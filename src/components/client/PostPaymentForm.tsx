@@ -1,14 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Search,
-  DollarSign,
-  CircleCheck,
-  AlertTriangle,
-  TrendingUp,
-  Plus,
-  FileText,
-} from 'lucide-react'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { Search, Plus, FileText, CircleCheck } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
+import type { Payment } from '../../types/payment'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { getConfirmedPaymentTotal } from '../../data/mockPayments'
@@ -17,13 +10,17 @@ import {
   postClientPaymentOnNewInvoice,
   type PostPaymentResult,
 } from '../../services/clientPaymentService'
+import { isPostableForPayment } from '../../utils/invoiceAging'
 import {
-  getDefaultPostPaymentSuggestions,
   getInvoicePostStatusClass,
   getInvoicePostStatusLabel,
+  listDefaultPickerInvoices,
   searchInvoicesForPostPayment,
   type PostPaymentSearchHit,
 } from '../../utils/postPaymentInvoiceSearch'
+import { getInvoiceBalanceState } from '../../utils/paymentVariance'
+import InvoiceBalanceSummary from './InvoiceBalanceSummary'
+import PaymentVarianceResolution from './PaymentVarianceResolution'
 
 const METHOD_OPTIONS = [
   { value: 'check' as const, label: 'Check' },
@@ -34,35 +31,31 @@ const METHOD_OPTIONS = [
 
 type SelectionMode = 'none' | 'existing' | 'new'
 
-type SuggestionItem =
-  | { type: 'invoice'; hit: PostPaymentSearchHit }
-  | { type: 'create'; query: string }
-
 interface PostPaymentFormProps {
   clientId: string
   clientName: string
   invoices: Invoice[]
+  payments: Payment[]
   authorName: string
   onPosted: (result: PostPaymentResult) => void
 }
 
-/** Post payment — search invoice combobox with create-if-missing flow. */
+/** Split-panel post payment — invoice picker + tab-friendly payment fields. */
 export default function PostPaymentForm({
   clientId,
   clientName,
   invoices,
+  payments,
   authorName,
   onPosted,
 }: PostPaymentFormProps) {
   const c = useClientTheme()
   const today = new Date().toISOString().split('T')[0]
-  const searchRef = useRef<HTMLInputElement>(null)
+  const filterRef = useRef<HTMLInputElement>(null)
   const amountRef = useRef<HTMLInputElement>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const [searchQuery, setSearchQuery] = useState('')
-  const [dropdownOpen, setDropdownOpen] = useState(false)
-  const [highlightIndex, setHighlightIndex] = useState(0)
+  const [filterQuery, setFilterQuery] = useState('')
+  const [showAllInvoices, setShowAllInvoices] = useState(false)
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('none')
   const [selected, setSelected] = useState<Invoice | null>(null)
 
@@ -78,144 +71,70 @@ export default function PostPaymentForm({
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [lastResult, setLastResult] = useState<PostPaymentResult | null>(null)
 
-  const searchHits = useMemo(() => {
-    const q = searchQuery.trim()
-    if (!q) return getDefaultPostPaymentSuggestions(invoices)
-    return searchInvoicesForPostPayment(invoices, q)
-  }, [invoices, searchQuery])
+  const getReceived = useCallback((invoiceId: string) => getConfirmedPaymentTotal(invoiceId), [])
+
+  const invoiceList = useMemo((): PostPaymentSearchHit[] => {
+    const q = filterQuery.trim()
+    if (q) {
+      return searchInvoicesForPostPayment(invoices, q, 100)
+    }
+    return listDefaultPickerInvoices(invoices, getReceived, showAllInvoices)
+  }, [invoices, filterQuery, showAllInvoices, getReceived])
 
   const exactInvoiceMatch = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
+    const q = filterQuery.trim().toLowerCase()
     if (!q) return false
     return invoices.some((inv) => inv.invoice_number.toLowerCase() === q)
-  }, [invoices, searchQuery])
+  }, [invoices, filterQuery])
 
-  const suggestionItems = useMemo((): SuggestionItem[] => {
-    const items: SuggestionItem[] = searchHits.map((hit) => ({ type: 'invoice', hit }))
-    const q = searchQuery.trim()
-    if (q.length >= 2 && !exactInvoiceMatch) {
-      items.push({ type: 'create', query: q })
-    }
-    return items
-  }, [searchHits, searchQuery, exactInvoiceMatch])
-
-  useEffect(() => {
-    if (!dropdownOpen) return
-    setHighlightIndex(0)
-  }, [searchQuery, dropdownOpen, suggestionItems.length])
-
-  useEffect(() => {
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (
-        dropdownRef.current?.contains(target) ||
-        searchRef.current?.contains(target)
-      ) {
-        return
-      }
-      setDropdownOpen(false)
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
-  }, [])
+  const showCreateNew =
+    filterQuery.trim().length >= 2 && !exactInvoiceMatch && selectionMode !== 'new'
 
   const priorReceived = selected ? getConfirmedPaymentTotal(selected.id) : 0
   const amountNum = parseFloat(amount)
-  const invoiceAmount =
-    selectionMode === 'new'
-      ? amountNum
-      : selected
-        ? selected.amount
-        : 0
 
-  const projectedTotal =
-    selectionMode !== 'none' && Number.isFinite(amountNum)
-      ? selectionMode === 'existing'
-        ? priorReceived + amountNum
-        : amountNum
-      : 0
-
-  const variance =
-    selectionMode !== 'none' && selected && Number.isFinite(amountNum) && invoiceAmount > 0
-      ? projectedTotal < invoiceAmount - 0.01
-        ? 'short'
-        : projectedTotal > invoiceAmount + 0.01
-          ? 'over'
-          : 'full'
-      : selectionMode === 'new' && Number.isFinite(amountNum) && amountNum > 0
-        ? 'full'
-        : null
-
-  const fillFromInvoice = useCallback((invoice: Invoice) => {
-    const already = getConfirmedPaymentTotal(invoice.id)
-    const balance = Math.max(0, invoice.amount - already)
-    setSelected(invoice)
-    setSelectionMode('existing')
-    setSearchQuery(invoice.invoice_number)
-    setAmount(balance > 0 ? balance.toFixed(2) : invoice.amount.toFixed(2))
-    setDropdownOpen(false)
-    setError(null)
-    setSuccessMessage(null)
-    requestAnimationFrame(() => amountRef.current?.focus())
-  }, [])
-
-  const fillCreateNew = useCallback((query: string) => {
-    setSelected(null)
-    setSelectionMode('new')
-    setNewInvoiceNumber(query.trim())
-    setNewBrokerName('')
-    setNewLoadNumber('')
-    setSearchQuery(query.trim())
-    setDropdownOpen(false)
-    setError(null)
-    setSuccessMessage(null)
-    requestAnimationFrame(() => amountRef.current?.focus())
-  }, [])
-
-  const selectSuggestion = useCallback(
-    (item: SuggestionItem) => {
-      if (item.type === 'invoice') {
-        if (!item.hit.isPostable) {
-          setError(
-            `Invoice ${item.hit.invoice.invoice_number} is ${getInvoicePostStatusLabel(item.hit.invoice).toLowerCase()} — choose an open invoice or create a new one.`
-          )
-          return
-        }
-        fillFromInvoice(item.hit.invoice)
-        return
-      }
-      fillCreateNew(item.query)
-    },
-    [fillFromInvoice, fillCreateNew]
-  )
-
-  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!dropdownOpen && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-      setDropdownOpen(true)
+  const selectInvoice = useCallback((invoice: Invoice) => {
+    if (!isPostableForPayment(invoice)) {
+      setError(
+        `Invoice ${invoice.invoice_number} cannot receive payments (written off or not approved).`
+      )
       return
     }
-
-    if (!dropdownOpen || suggestionItems.length === 0) return
-
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      setHighlightIndex((index) => Math.min(index + 1, suggestionItems.length - 1))
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      setHighlightIndex((index) => Math.max(index - 1, 0))
-    } else if (event.key === 'Enter' || event.key === 'Tab') {
-      event.preventDefault()
-      const item = suggestionItems[highlightIndex] ?? suggestionItems[0]
-      if (item) selectSuggestion(item)
-    } else if (event.key === 'Escape') {
-      setDropdownOpen(false)
+    const already = getConfirmedPaymentTotal(invoice.id)
+    const balance = Math.max(0, invoice.amount - already)
+    const paidInFull = already >= invoice.amount - 0.01
+    setSelected(invoice)
+    setSelectionMode('existing')
+    setFilterQuery('')
+    setError(null)
+    setLastResult(null)
+    if (balance > 0) {
+      setAmount(balance.toFixed(2))
+    } else if (paidInFull) {
+      setAmount('')
+    } else {
+      setAmount(invoice.amount.toFixed(2))
     }
-  }
+    requestAnimationFrame(() => amountRef.current?.focus())
+  }, [])
+
+  const startCreateNew = useCallback((query?: string) => {
+    setSelected(null)
+    setSelectionMode('new')
+    setNewInvoiceNumber(query?.trim() ?? filterQuery.trim())
+    setNewBrokerName('')
+    setNewLoadNumber('')
+    setError(null)
+    setLastResult(null)
+    requestAnimationFrame(() => {
+      document.getElementById('new-invoice-number')?.focus()
+    })
+  }, [filterQuery])
 
   const resetForm = () => {
-    setSearchQuery('')
+    setFilterQuery('')
     setSelectionMode('none')
     setSelected(null)
     setNewInvoiceNumber('')
@@ -228,23 +147,27 @@ export default function PostPaymentForm({
     setReceivedDate(today)
     setPaymentMethod('ach')
     setError(null)
-    setDropdownOpen(false)
-    searchRef.current?.focus()
+    setLastResult(null)
+    filterRef.current?.focus()
   }
 
+  const canSubmit =
+    Number.isFinite(amountNum) &&
+    amountNum > 0 &&
+    paymentDate &&
+    receivedDate &&
+    ((selectionMode === 'existing' && selected) ||
+      (selectionMode === 'new' && newInvoiceNumber.trim() && newBrokerName.trim()))
+
   const handleSubmit = async () => {
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      setError('Enter a valid payment amount.')
-      return
-    }
-    if (!paymentDate || !receivedDate) {
-      setError('Payment and received dates are required.')
+    if (!canSubmit) {
+      setError('Select an invoice (or create one) and enter a valid amount.')
       return
     }
 
     setIsSubmitting(true)
     setError(null)
-    setSuccessMessage(null)
+    setLastResult(null)
 
     try {
       let result: PostPaymentResult | undefined
@@ -263,18 +186,12 @@ export default function PostPaymentForm({
           authorName
         )
         if (!result) {
-          setError('Could not post payment. Invoice may no longer be open.')
+          setError(
+            'Could not post payment. Invoice may be written off or not yet approved for payment.'
+          )
           return
         }
       } else if (selectionMode === 'new') {
-        if (!newInvoiceNumber.trim()) {
-          setError('Enter an invoice number for the new invoice.')
-          return
-        }
-        if (!newBrokerName.trim()) {
-          setError('Enter the broker name for the new invoice.')
-          return
-        }
         result = postClientPaymentOnNewInvoice(
           {
             clientId,
@@ -298,23 +215,19 @@ export default function PostPaymentForm({
           setError('Could not create invoice and post payment.')
           return
         }
-      } else {
-        setError('Search for an invoice and select it, or create a new one.')
-        return
       }
 
-      const varianceLabel =
-        result.variance === 'short'
-          ? 'Short payment — review in Pay variances.'
-          : result.variance === 'over'
-            ? 'Overpayment — review in Pay variances.'
-            : 'Paid in full.'
-
-      setSuccessMessage(
-        `Posted ${formatCurrency(amountNum)} to ${result.invoice.invoice_number}. ${varianceLabel}`
-      )
-      onPosted(result)
-      resetForm()
+      if (result) {
+        setLastResult(result)
+        onPosted(result)
+        if (result.variance === 'full') {
+          resetForm()
+        } else {
+          setAmount('')
+          setPaymentReference('')
+          setNotes('')
+        }
+      }
     } catch {
       setError('Something went wrong. Please try again.')
     } finally {
@@ -324,437 +237,400 @@ export default function PostPaymentForm({
 
   const inputStyle = {
     backgroundColor: c.card,
-    height: 34,
-    paddingTop: 6,
-    paddingBottom: 6,
-    fontSize: 13,
+    height: 38,
+    paddingTop: 8,
+    paddingBottom: 8,
+    fontSize: 14,
   } as const
 
-  const showDropdown = dropdownOpen && suggestionItems.length > 0
-
   return (
-    <div className="client-post-payment flex-1 min-h-0 overflow-y-auto">
-      <div className="client-post-payment__workspace max-w-2xl mx-auto p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold mb-1" style={{ color: c.primary }}>
-            Post payment to invoice
-          </h2>
-          <p className="text-xs" style={{ color: c.secondary }}>
-            Search by invoice #, load #, broker, or amount. Use arrow keys and Tab to select a
-            match, or create a new invoice if it is not in the system.
+    <section className="post-payment-workspace" aria-label="Post payment">
+      <form
+        className="post-payment-workspace__form"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void handleSubmit()
+        }}
+      >
+        <header className="post-payment-workspace__header">
+          <h2 className="post-payment-workspace__title">Post payment</h2>
+          <p className="post-payment-workspace__subtitle">
+            Select an invoice on the left, tab through payment fields on the right
           </p>
-        </div>
+        </header>
 
-        <div className="client-post-payment__search relative">
-          <label className="client-label" htmlFor="post-invoice-search">
-            Find invoice
-          </label>
-          <div className="relative">
-            <Search
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
-              style={{ color: c.secondary }}
-            />
-            <input
-              ref={searchRef}
-              id="post-invoice-search"
-              type="text"
-              role="combobox"
-              aria-expanded={showDropdown}
-              aria-autocomplete="list"
-              aria-controls="post-invoice-suggestions"
-              placeholder="Invoice #, load #, broker, or amount…"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value)
-                setDropdownOpen(true)
-                if (selectionMode !== 'none') {
-                  setSelectionMode('none')
-                  setSelected(null)
-                }
-              }}
-              onFocus={() => setDropdownOpen(true)}
-              onKeyDown={handleSearchKeyDown}
-              className="client-input pl-8 w-full"
-              style={inputStyle}
-              autoComplete="off"
-            />
-          </div>
+        <div className="post-payment-workspace__panels">
+          {/* Invoice picker — always visible list, not a dropdown */}
+          <aside className="post-payment-picker" aria-labelledby="post-payment-picker-heading">
+            <div className="post-payment-picker__head">
+              <h3 id="post-payment-picker-heading" className="post-payment-panel__step">
+                <span className="post-payment-panel__step-num">1</span>
+                Select invoice
+              </h3>
+              <p className="post-payment-picker__hint">
+                {filterQuery.trim()
+                  ? `${invoiceList.length} match${invoiceList.length === 1 ? '' : 'es'}`
+                  : showAllInvoices
+                    ? `${invoiceList.length} total`
+                    : `${invoiceList.length} open`}
+              </p>
+            </div>
 
-          {showDropdown && (
+            <div className="post-payment-picker__filter-row">
+              <label className="client-label" htmlFor="post-invoice-filter">
+                Filter invoices
+              </label>
+              <label className="post-payment-picker__show-all">
+                <input
+                  type="checkbox"
+                  checked={showAllInvoices}
+                  onChange={(e) => setShowAllInvoices(e.target.checked)}
+                />
+                <span>Show all invoices</span>
+              </label>
+            </div>
+            <div className="post-payment-picker__filter">
+              <Search
+                className="post-payment-picker__filter-icon"
+                style={{ color: c.secondary }}
+                aria-hidden
+              />
+              <input
+                ref={filterRef}
+                id="post-invoice-filter"
+                type="search"
+                placeholder="Invoice #, load #, broker, amount…"
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+                className="client-input post-payment-picker__filter-input"
+                style={inputStyle}
+                autoComplete="off"
+              />
+            </div>
+
             <div
-              ref={dropdownRef}
-              id="post-invoice-suggestions"
+              className="post-payment-picker__list"
               role="listbox"
-              className="client-post-payment__suggestions absolute z-20 left-0 right-0 mt-1 rounded-lg border shadow-lg overflow-hidden"
-              style={{ borderColor: c.border, backgroundColor: c.card }}
+              aria-label="Invoices available for payment"
             >
-              {!searchQuery.trim() && (
-                <p
-                  className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide border-b"
-                  style={{ color: c.mutedLight, borderColor: c.border }}
-                >
-                  Open invoices
+              {invoiceList.length === 0 && !showCreateNew && (
+                <p className="post-payment-picker__empty" style={{ color: c.secondary }}>
+                  {filterQuery.trim()
+                    ? 'No invoices match your search.'
+                    : showAllInvoices
+                      ? 'No invoices found.'
+                      : 'No open invoices — search by invoice # or check “Show all invoices”.'}
                 </p>
               )}
-              {suggestionItems.map((item, index) => {
-                const isHighlighted = index === highlightIndex
-                if (item.type === 'create') {
-                  return (
-                    <button
-                      key="create-new"
-                      type="button"
-                      role="option"
-                      aria-selected={isHighlighted}
-                      className={`client-post-payment__suggestion w-full text-left px-3 py-2.5 flex items-center gap-2 border-b last:border-b-0 transition-colors ${
-                        isHighlighted ? 'client-post-payment__suggestion--active' : ''
-                      }`}
-                      style={{
-                        borderColor: c.border,
-                        backgroundColor: isHighlighted ? c.stat.blue : 'transparent',
-                      }}
-                      onMouseEnter={() => setHighlightIndex(index)}
-                      onClick={() => selectSuggestion(item)}
-                    >
-                      <Plus className="w-4 h-4 shrink-0" style={{ color: c.info }} />
-                      <span className="text-sm font-medium" style={{ color: c.primary }}>
-                        Create invoice &ldquo;{item.query}&rdquo; and post payment
-                      </span>
-                    </button>
-                  )
-                }
 
-                const { invoice, isPostable } = item.hit
+              {invoiceList.map(({ invoice, isPostable }) => {
                 const received = getConfirmedPaymentTotal(invoice.id)
-                const balance = Math.max(0, invoice.amount - received)
+                const balance = getInvoiceBalanceState(invoice.amount, received)
+                const isSelected = selected?.id === invoice.id && selectionMode === 'existing'
+                const balanceClass = `post-payment-picker__balance post-payment-picker__balance--${balance.tone}`
 
                 return (
                   <button
                     key={invoice.id}
                     type="button"
                     role="option"
-                    aria-selected={isHighlighted}
+                    aria-selected={isSelected}
                     disabled={!isPostable}
-                    className={`client-post-payment__suggestion w-full text-left px-3 py-2.5 border-b last:border-b-0 transition-colors ${
-                      isHighlighted ? 'client-post-payment__suggestion--active' : ''
-                    } ${!isPostable ? 'opacity-60' : ''}`}
-                    style={{
-                      borderColor: c.border,
-                      backgroundColor: isHighlighted ? c.stat.blue : 'transparent',
-                    }}
-                    onMouseEnter={() => setHighlightIndex(index)}
-                    onClick={() => selectSuggestion(item)}
+                    className={`post-payment-picker__row ${isSelected ? 'post-payment-picker__row--selected' : ''} ${!isPostable ? 'post-payment-picker__row--disabled' : ''}`}
+                    onClick={() => selectInvoice(invoice)}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-semibold" style={{ color: c.primary }}>
-                            {invoice.invoice_number}
-                          </span>
-                          <span className={getInvoicePostStatusClass(invoice)}>
-                            {getInvoicePostStatusLabel(invoice)}
-                          </span>
-                        </div>
-                        <p className="text-[11px] truncate mt-0.5" style={{ color: c.secondary }}>
-                          {invoice.broker_name}
-                          {invoice.load_number ? ` · Load ${invoice.load_number}` : ''}
-                        </p>
+                    <div className="post-payment-picker__row-main">
+                      <div className="post-payment-picker__row-top">
+                        <span className="post-payment-picker__inv-num">{invoice.invoice_number}</span>
+                        <span className={getInvoicePostStatusClass(invoice, received)}>
+                          {getInvoicePostStatusLabel(invoice, received)}
+                        </span>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-bold tabular-nums" style={{ color: c.primary }}>
-                          {formatCurrency(invoice.amount)}
-                        </p>
-                        {isPostable && received > 0 && (
-                          <p className="text-[10px] tabular-nums" style={{ color: c.mutedLight }}>
-                            {formatCurrency(balance)} left
-                          </p>
-                        )}
-                      </div>
+                      <p className="post-payment-picker__row-meta">
+                        {invoice.broker_name}
+                        {invoice.load_number ? ` · ${invoice.load_number}` : ''}
+                      </p>
+                    </div>
+                    <div className="post-payment-picker__row-amounts">
+                      <span className="post-payment-picker__total financial-nums">
+                        {formatCurrency(invoice.amount)}
+                      </span>
+                      <span className={balanceClass}>
+                        {balance.tone === 'over'
+                          ? `+${formatCurrency(Math.abs(balance.signedBalance))}`
+                          : balance.tone === 'zero'
+                            ? '$0.00'
+                            : formatCurrency(balance.signedBalance)}
+                      </span>
                     </div>
                   </button>
                 )
               })}
             </div>
-          )}
+
+            {showCreateNew && (
+              <button
+                type="button"
+                className="post-payment-picker__create"
+                onClick={() => startCreateNew(filterQuery.trim())}
+              >
+                <Plus className="w-4 h-4 shrink-0" style={{ color: c.warning }} />
+                <span>
+                  No match — create invoice &ldquo;{filterQuery.trim()}&rdquo; and post payment
+                </span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="post-payment-picker__create post-payment-picker__create--secondary"
+              onClick={() => startCreateNew()}
+            >
+              <Plus className="w-4 h-4 shrink-0" style={{ color: c.info }} />
+              <span>Create new invoice + payment</span>
+            </button>
+          </aside>
+
+          {/* Payment entry */}
+          <div className="post-payment-entry" aria-labelledby="post-payment-entry-heading">
+            <h3 id="post-payment-entry-heading" className="post-payment-panel__step">
+              <span className="post-payment-panel__step-num">2</span>
+              Payment details
+            </h3>
+
+            {selectionMode === 'none' && (
+              <div className="post-payment-entry__placeholder" style={{ color: c.secondary }}>
+                <FileText className="w-8 h-8 mb-2 opacity-40" />
+                <p className="text-sm font-medium" style={{ color: c.primary }}>
+                  Select an invoice from the list
+                </p>
+                <p className="text-xs mt-1">Or create a new invoice if the load isn&apos;t in the system yet.</p>
+              </div>
+            )}
+
+            {selectionMode === 'existing' && selected && (
+              <InvoiceBalanceSummary
+                invoiceNumber={selected.invoice_number}
+                brokerName={selected.broker_name}
+                loadNumber={selected.load_number}
+                invoiceAmount={selected.amount}
+                receivedToDate={priorReceived}
+                amountApplying={Number.isFinite(amountNum) ? amountNum : 0}
+              />
+            )}
+
+            {selectionMode === 'new' && (
+              <div className="post-payment-entry__new-invoice">
+                <p className="text-sm font-semibold mb-3" style={{ color: c.primary }}>
+                  New invoice + payment
+                </p>
+                <div className="post-payment-entry__fields post-payment-entry__fields--3">
+                  <div>
+                    <label className="client-label" htmlFor="new-invoice-number">
+                      Invoice #
+                    </label>
+                    <input
+                      id="new-invoice-number"
+                      type="text"
+                      value={newInvoiceNumber}
+                      onChange={(e) => setNewInvoiceNumber(e.target.value)}
+                      className="client-input w-full"
+                      style={inputStyle}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="client-label" htmlFor="new-broker-name">
+                      Broker
+                    </label>
+                    <input
+                      id="new-broker-name"
+                      type="text"
+                      value={newBrokerName}
+                      onChange={(e) => setNewBrokerName(e.target.value)}
+                      placeholder="Broker name"
+                      className="client-input w-full"
+                      style={inputStyle}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="client-label" htmlFor="new-load-number">
+                      Load # <span className="font-normal opacity-70">(optional)</span>
+                    </label>
+                    <input
+                      id="new-load-number"
+                      type="text"
+                      value={newLoadNumber}
+                      onChange={(e) => setNewLoadNumber(e.target.value)}
+                      className="client-input w-full"
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {selectionMode !== 'none' && (
+              <fieldset className="post-payment-entry__fieldset" disabled={isSubmitting}>
+                <legend className="sr-only">Payment information</legend>
+
+                <div className="post-payment-entry__fields">
+                  <div className="post-payment-entry__field post-payment-entry__field--amount">
+                    <label className="client-label" htmlFor="post-amount">
+                      Amount received
+                    </label>
+                    <input
+                      ref={amountRef}
+                      id="post-amount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      className="client-input w-full financial-nums post-payment-entry__amount-input"
+                      style={{ ...inputStyle, fontSize: 18, fontWeight: 700 }}
+                      placeholder="0.00"
+                      required
+                    />
+                  </div>
+
+                  <div className="post-payment-entry__field">
+                    <label className="client-label" htmlFor="post-method">
+                      Method
+                    </label>
+                    <select
+                      id="post-method"
+                      value={paymentMethod}
+                      onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}
+                      className="client-input w-full"
+                      style={inputStyle}
+                    >
+                      {METHOD_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="post-payment-entry__field">
+                    <label className="client-label" htmlFor="post-reference">
+                      Reference #
+                    </label>
+                    <input
+                      id="post-reference"
+                      type="text"
+                      value={paymentReference}
+                      onChange={(e) => setPaymentReference(e.target.value)}
+                      placeholder="Check #, wire ref…"
+                      className="client-input w-full"
+                      style={inputStyle}
+                    />
+                  </div>
+
+                  <div className="post-payment-entry__field">
+                    <label className="client-label" htmlFor="post-payment-date">
+                      Payment date
+                    </label>
+                    <input
+                      id="post-payment-date"
+                      type="date"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      className="client-input w-full"
+                      style={inputStyle}
+                      required
+                    />
+                  </div>
+
+                  <div className="post-payment-entry__field">
+                    <label className="client-label" htmlFor="post-received-date">
+                      Received date
+                    </label>
+                    <input
+                      id="post-received-date"
+                      type="date"
+                      value={receivedDate}
+                      onChange={(e) => setReceivedDate(e.target.value)}
+                      className="client-input w-full"
+                      style={inputStyle}
+                      required
+                    />
+                  </div>
+
+                  <div className="post-payment-entry__field post-payment-entry__field--wide">
+                    <label className="client-label" htmlFor="post-notes">
+                      Note
+                    </label>
+                    <input
+                      id="post-notes"
+                      type="text"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Detention, lumper, partial pay…"
+                      className="client-input w-full"
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+
+                {selectionMode === 'existing' && selected && (
+                  <p className="post-payment-entry__due text-xs" style={{ color: c.mutedLight }}>
+                    Due {formatDate(selected.expected_payment_date)}
+                  </p>
+                )}
+
+                {error && (
+                  <p className="post-payment-entry__error" role="alert" style={{ color: c.error }}>
+                    {error}
+                  </p>
+                )}
+
+                <div className="post-payment-entry__actions">
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || !canSubmit}
+                    className="dashboard-btn-primary post-payment-entry__submit"
+                  >
+                    <CircleCheck className="w-4 h-4" />
+                    {isSubmitting
+                      ? 'Posting…'
+                      : selectionMode === 'new'
+                        ? 'Create invoice & post payment'
+                        : 'Post payment'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetForm()
+                      setLastResult(null)
+                    }}
+                    className="dashboard-btn-secondary dashboard-btn-compact"
+                    disabled={isSubmitting}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </fieldset>
+            )}
+          </div>
         </div>
 
-        {selectionMode === 'none' && (
-          <div
-            className="rounded-lg px-4 py-8 text-center border border-dashed"
-            style={{ borderColor: c.border, backgroundColor: c.stat.slate }}
-          >
-            <DollarSign className="w-8 h-8 mx-auto mb-2" style={{ color: c.mutedLight }} />
-            <p className="text-sm font-medium" style={{ color: c.primary }}>
-              Search and select an invoice
-            </p>
-            <p className="text-xs mt-1 max-w-sm mx-auto" style={{ color: c.secondary }}>
-              Tab on a suggestion to fill payment details. If the invoice is not listed, choose
-              create new at the bottom of the results.
-            </p>
-          </div>
+        {lastResult && lastResult.variance !== 'full' && (
+          <PaymentVarianceResolution
+            result={lastResult}
+            payments={payments}
+            authorName={authorName}
+            onResolved={() => {
+              setLastResult(null)
+              resetForm()
+            }}
+            onDismiss={() => setLastResult(null)}
+          />
         )}
-
-        {selectionMode === 'existing' && selected && (
-          <div
-            className="rounded-lg px-3 py-2.5 flex flex-wrap items-baseline justify-between gap-2 border"
-            style={{ borderColor: c.border, backgroundColor: c.stat.slate }}
-          >
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-bold" style={{ color: c.primary }}>
-                  {selected.invoice_number}
-                </p>
-                <span className={getInvoicePostStatusClass(selected)}>
-                  {getInvoicePostStatusLabel(selected)}
-                </span>
-              </div>
-              <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
-                {selected.broker_name}
-                {selected.load_number ? ` · Load ${selected.load_number}` : ''}
-                {' · Due '}
-                {formatDate(selected.expected_payment_date)}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wide" style={{ color: c.mutedLight }}>
-                Invoice amount
-              </p>
-              <p className="text-lg font-bold tabular-nums" style={{ color: c.primary }}>
-                {formatCurrency(selected.amount)}
-              </p>
-              {priorReceived > 0 && (
-                <p className="text-[10px] tabular-nums" style={{ color: c.mutedLight }}>
-                  {formatCurrency(priorReceived)} received
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {selectionMode === 'new' && (
-          <div
-            className="rounded-lg px-3 py-3 space-y-3 border"
-            style={{ borderColor: c.border, backgroundColor: c.stat.amber }}
-          >
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 shrink-0" style={{ color: c.warning }} />
-              <p className="text-sm font-semibold" style={{ color: c.primary }}>
-                New invoice will be created
-              </p>
-            </div>
-            <p className="text-xs" style={{ color: c.secondary }}>
-              This payment is not matched to an existing invoice. A new open invoice will be created
-              for the payment amount, then the payment will be posted against it.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="client-label" htmlFor="new-invoice-number">
-                  Invoice #
-                </label>
-                <input
-                  id="new-invoice-number"
-                  type="text"
-                  value={newInvoiceNumber}
-                  onChange={(e) => setNewInvoiceNumber(e.target.value)}
-                  className="client-input w-full"
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label className="client-label" htmlFor="new-broker-name">
-                  Broker
-                </label>
-                <input
-                  id="new-broker-name"
-                  type="text"
-                  value={newBrokerName}
-                  onChange={(e) => setNewBrokerName(e.target.value)}
-                  placeholder="Broker name"
-                  className="client-input w-full"
-                  style={inputStyle}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="client-label" htmlFor="new-load-number">
-                  Load # (optional)
-                </label>
-                <input
-                  id="new-load-number"
-                  type="text"
-                  value={newLoadNumber}
-                  onChange={(e) => setNewLoadNumber(e.target.value)}
-                  placeholder="Load number"
-                  className="client-input w-full"
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {selectionMode !== 'none' && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="client-label" htmlFor="post-amount">
-                  Amount received
-                </label>
-                <input
-                  ref={amountRef}
-                  id="post-amount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="client-input w-full tabular-nums"
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label className="client-label" htmlFor="post-method">
-                  Method
-                </label>
-                <select
-                  id="post-method"
-                  value={paymentMethod}
-                  onChange={(e) =>
-                    setPaymentMethod(e.target.value as typeof paymentMethod)
-                  }
-                  className="client-input w-full"
-                  style={inputStyle}
-                >
-                  {METHOD_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="client-label" htmlFor="post-payment-date">
-                  Payment date
-                </label>
-                <input
-                  id="post-payment-date"
-                  type="date"
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  className="client-input w-full"
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label className="client-label" htmlFor="post-received-date">
-                  Received date
-                </label>
-                <input
-                  id="post-received-date"
-                  type="date"
-                  value={receivedDate}
-                  onChange={(e) => setReceivedDate(e.target.value)}
-                  className="client-input w-full"
-                  style={inputStyle}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="client-label" htmlFor="post-reference">
-                  Reference (optional)
-                </label>
-                <input
-                  id="post-reference"
-                  type="text"
-                  value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
-                  placeholder="Check #, wire ref, ACH trace…"
-                  className="client-input w-full"
-                  style={inputStyle}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="client-label" htmlFor="post-notes">
-                  Note (optional)
-                </label>
-                <textarea
-                  id="post-notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Detention included, partial pay, etc."
-                  rows={2}
-                  className="client-input w-full"
-                />
-              </div>
-            </div>
-
-            {variance && Number.isFinite(amountNum) && selectionMode === 'existing' && selected && (
-              <div
-                className="flex items-start gap-2 rounded-lg px-3 py-2 text-xs"
-                style={{
-                  backgroundColor:
-                    variance === 'full'
-                      ? c.stat.green
-                      : variance === 'short'
-                        ? c.stat.amber
-                        : c.stat.blue,
-                  color: variance === 'short' ? c.warning : variance === 'over' ? c.info : c.success,
-                }}
-              >
-                {variance === 'short' ? (
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                ) : variance === 'over' ? (
-                  <TrendingUp className="w-4 h-4 shrink-0 mt-0.5" />
-                ) : (
-                  <CircleCheck className="w-4 h-4 shrink-0 mt-0.5" />
-                )}
-                <span>
-                  {variance === 'full' &&
-                    `Total received will be ${formatCurrency(projectedTotal)} — pays invoice in full.`}
-                  {variance === 'short' &&
-                    `Total ${formatCurrency(projectedTotal)} — short by ${formatCurrency(selected.amount - projectedTotal)} after this post.`}
-                  {variance === 'over' &&
-                    `Total ${formatCurrency(projectedTotal)} — over by ${formatCurrency(projectedTotal - selected.amount)} after this post.`}
-                </span>
-              </div>
-            )}
-
-            {error && (
-              <p className="text-sm" style={{ color: c.error }}>
-                {error}
-              </p>
-            )}
-            {successMessage && (
-              <p className="text-sm" style={{ color: c.success }}>
-                {successMessage}
-              </p>
-            )}
-
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                className="dashboard-btn-primary"
-                style={{ height: 36, fontSize: 13 }}
-              >
-                <CircleCheck className="w-4 h-4" />
-                {isSubmitting
-                  ? 'Posting…'
-                  : selectionMode === 'new'
-                    ? 'Create invoice & post payment'
-                    : 'Post payment'}
-              </button>
-              <button
-                type="button"
-                onClick={resetForm}
-                className="dashboard-btn-secondary"
-                style={{ height: 36, fontSize: 13 }}
-                disabled={isSubmitting}
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+      </form>
+    </section>
   )
 }

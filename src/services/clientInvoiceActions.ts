@@ -154,7 +154,14 @@ export function getInvoiceDisputeRowBadge(invoice: Invoice): InvoiceDisputeBadge
 export interface ClientMarkPaidOptions {
   amountReceived: number
   optionalNote?: string
+  paymentDate?: string
+  receivedDate?: string
+  paymentMethod?: Payment['payment_method']
+  paymentReference?: string
 }
+
+/** Re-export — all mark-as-paid paths use postClientPayment under the hood. */
+export { markClientInvoiceAsPaid } from './clientPaymentService'
 
 export function buildPaymentConfirmationNote(
   invoiceAmount: number,
@@ -174,45 +181,6 @@ export function buildPaymentConfirmationNote(
 
   const base = `Payment confirmed by client — ${amountPart}`
   return optionalNote?.trim() ? `${base}. ${optionalNote.trim()}` : base
-}
-
-/** Mark an approved open A/R invoice as paid (client confirms payment received). */
-export function markClientInvoiceAsPaid(
-  invoiceId: string,
-  authorName: string,
-  options: ClientMarkPaidOptions
-): Invoice | undefined {
-  const invoice = getInvoiceById(invoiceId)
-  if (!invoice || invoice.status !== 'approved') return undefined
-
-  const amountReceived = options.amountReceived
-  if (!Number.isFinite(amountReceived) || amountReceived <= 0) return undefined
-
-  const noteText = buildPaymentConfirmationNote(
-    invoice.amount,
-    amountReceived,
-    options.optionalNote
-  )
-
-  const paidNote: InvoiceNote = {
-    id: `note-paid-${Date.now()}`,
-    note: noteText,
-    created_by: authorName,
-    created_at: new Date().toISOString(),
-    type: 'client_note',
-  }
-
-  const notesHistory = [...(invoice.notes_history || []), paidNote]
-  const isShort = amountReceived < invoice.amount - 0.01
-  const isOver = amountReceived > invoice.amount + 0.01
-
-  return updateInvoice(invoiceId, {
-    status: isShort ? 'approved' : 'paid',
-    paid_amount: amountReceived,
-    notes_history: notesHistory,
-    days_since_expected: isShort ? invoice.days_since_expected : 0,
-    overpayment_accepted_at: isOver ? undefined : invoice.overpayment_accepted_at,
-  })
 }
 
 export interface CloseUncollectableOptions {

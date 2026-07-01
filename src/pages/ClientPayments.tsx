@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { useClientSession } from '../hooks/useClientSession'
 import { Payment } from '../types/payment'
 import { formatCurrency, formatDate } from '../utils/format'
@@ -88,13 +88,12 @@ export default function ClientPayments() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [methodFilter, setMethodFilter] = useState<string>('all')
-  const [pendingHighlight, setPendingHighlight] = useState(false)
-  const pendingQueueRef = useRef<HTMLDivElement>(null)
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'confirmed'>('all')
+  const historyTableRef = useRef<HTMLDivElement>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [showPaymentDetailModal, setShowPaymentDetailModal] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
-  const [showConfirmPaymentModal, setShowConfirmPaymentModal] = useState(false)
-  const [paymentToConfirm, setPaymentToConfirm] = useState<Payment | null>(null)
+  const [inlineConfirmId, setInlineConfirmId] = useState<string | null>(null)
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<PaymentSortField>('payment_date')
@@ -110,18 +109,9 @@ export default function ClientPayments() {
     let count = 0
     if (dateFrom || dateTo) count += 1
     if (methodFilter !== 'all') count += 1
+    if (statusFilter !== 'all') count += 1
     return count
-  }, [dateFrom, dateTo, methodFilter])
-
-  const confirmedPayments = useMemo(
-    () => payments.filter((payment) => payment.status === 'confirmed'),
-    [payments]
-  )
-
-  const pendingPayments = useMemo(
-    () => payments.filter((payment) => payment.status === 'pending'),
-    [payments]
-  )
+  }, [dateFrom, dateTo, methodFilter, statusFilter])
 
   const matchesDatePreset = useCallback(
     (preset: '30d' | '90d' | 'ytd') => {
@@ -146,19 +136,16 @@ export default function ClientPayments() {
     setDateFrom('')
     setDateTo('')
     setMethodFilter('all')
+    setStatusFilter('all')
   }, [])
 
   const handleKpiStatusFilter = useCallback((status: 'confirmed' | 'pending') => {
-    if (status === 'pending') {
-      setPendingHighlight(true)
-      pendingQueueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      return
-    }
-    setPendingHighlight(false)
+    setStatusFilter(status)
+    historyTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
   const filteredPayments = useMemo(() => {
-    return confirmedPayments.filter((payment) => {
+    return payments.filter((payment) => {
       const matchesSearch =
         payment.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
         payment.broker_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -167,17 +154,23 @@ export default function ClientPayments() {
         payment.payment_reference?.toLowerCase().includes(searchTerm.toLowerCase())
 
       const matchesMethod = methodFilter === 'all' || payment.payment_method === methodFilter
+      const matchesStatus = statusFilter === 'all' || payment.status === statusFilter
       const matchesDate =
         (!dateFrom || payment.payment_date >= dateFrom) &&
         (!dateTo || payment.payment_date <= dateTo)
 
-      return matchesSearch && matchesMethod && matchesDate
+      return matchesSearch && matchesMethod && matchesStatus && matchesDate
     })
-  }, [confirmedPayments, searchTerm, dateFrom, dateTo, methodFilter])
+  }, [payments, searchTerm, dateFrom, dateTo, methodFilter, statusFilter])
 
   const sortedPayments = useMemo(() => {
     const sorted = [...filteredPayments]
     sorted.sort((a, b) => {
+      if (a.status !== b.status) {
+        if (a.status === 'pending') return -1
+        if (b.status === 'pending') return 1
+      }
+
       let cmp = 0
       switch (sortField) {
         case 'invoice_number':
@@ -233,7 +226,7 @@ export default function ClientPayments() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, dateFrom, dateTo, methodFilter, pageSize, sortField, sortDir])
+  }, [searchTerm, dateFrom, dateTo, methodFilter, statusFilter, pageSize, sortField, sortDir])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -246,23 +239,20 @@ export default function ClientPayments() {
     setShowPaymentDetailModal(true)
   }
 
-  const handleConfirmPayment = (payment: Payment) => {
-    setPaymentToConfirm(payment)
+  const openInlineConfirm = (payment: Payment) => {
+    setInlineConfirmId(payment.id)
     setConfirmPaymentData({
       payment_method: payment.payment_method || 'check',
       payment_reference: payment.payment_reference || '',
       received_date: payment.received_date || new Date().toISOString().split('T')[0],
       notes: payment.notes || '',
     })
-    setShowConfirmPaymentModal(true)
   }
 
-  const handleConfirmPaymentSubmit = () => {
-    if (!paymentToConfirm) return
-
+  const handleConfirmPaymentSubmit = (paymentId: string) => {
     const result = confirmClientPayment(
       {
-        paymentId: paymentToConfirm.id,
+        paymentId,
         paymentMethod: confirmPaymentData.payment_method,
         paymentReference: confirmPaymentData.payment_reference,
         receivedDate: confirmPaymentData.received_date,
@@ -274,7 +264,7 @@ export default function ClientPayments() {
     if (!result) {
       setPayments((prev) =>
         prev.map((p) =>
-          p.id === paymentToConfirm.id
+          p.id === paymentId
             ? {
                 ...p,
                 status: 'confirmed',
@@ -290,9 +280,7 @@ export default function ClientPayments() {
       refreshPayments()
     }
 
-    setShowConfirmPaymentModal(false)
-    setPaymentToConfirm(null)
-    setPendingHighlight(false)
+    setInlineConfirmId(null)
     setConfirmPaymentData({
       payment_method: 'check',
       payment_reference: '',
@@ -305,6 +293,9 @@ export default function ClientPayments() {
     (_result: PostPaymentResult) => {
       refreshPayments()
       setViewTab('history')
+      requestAnimationFrame(() => {
+        historyTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
     },
     [refreshPayments]
   )
@@ -362,95 +353,37 @@ export default function ClientPayments() {
         </div>
 
         {viewTab === 'post' ? (
-          <PostPaymentForm
-            clientId={clientId}
-            clientName={clientName}
-            invoices={clientInvoices}
-            authorName={authorName}
-            onPosted={handlePaymentPosted}
-          />
+          <div className="client-payments-page--post overflow-y-auto flex flex-col min-h-0 flex-1">
+            <PostPaymentForm
+              clientId={clientId}
+              clientName={clientName}
+              invoices={clientInvoices}
+              payments={payments}
+              authorName={authorName}
+              onPosted={handlePaymentPosted}
+            />
+          </div>
         ) : (
-          <>
+          <div className="client-payments-page--history overflow-hidden flex flex-col min-h-0 flex-1">
         <PaymentKpiCards
           payments={payments}
-          statusFilter={pendingHighlight ? 'pending' : 'confirmed'}
+          statusFilter={statusFilter === 'all' ? 'confirmed' : statusFilter}
           onStatusFilter={handleKpiStatusFilter}
         />
 
-        {pendingPayments.length > 0 && (
-          <div
-            ref={pendingQueueRef}
-            id="payments-pending-queue"
-            className={`client-payments-pending-queue shrink-0 ${pendingHighlight ? 'client-payments-pending-queue--highlight' : ''}`}
-            style={{ borderColor: c.border, backgroundColor: c.card }}
-          >
-            <div className="client-payments-pending-queue__head px-4 py-2 border-b" style={{ borderColor: c.border }}>
-              <p className="text-sm font-semibold" style={{ color: c.primary }}>
-                Awaiting confirmation
-              </p>
-              <p className="text-xs" style={{ color: c.secondary }}>
-                {pendingPayments.length} payment{pendingPayments.length === 1 ? '' : 's'} need to be confirmed before they appear in history
-              </p>
-            </div>
-            <div className="client-table-scroll overflow-x-auto">
-              <table className="dashboard-table w-full">
-                <thead>
-                  <tr>
-                    <th>Invoice</th>
-                    <th>Broker</th>
-                    <th className="text-right">Amount</th>
-                    <th className="hidden md:table-cell">Payment date</th>
-                    <th className="text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pendingPayments.map((payment) => (
-                    <tr key={payment.id}>
-                      <ClientListTd variant="primary" className="font-semibold">
-                        {payment.invoice_number}
-                      </ClientListTd>
-                      <ClientListTd variant="meta" className="truncate">
-                        {payment.broker_name}
-                      </ClientListTd>
-                      <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
-                        {formatCurrency(payment.amount)}
-                      </ClientListTd>
-                      <ClientListTd variant="desktop" label="Payment date" style={{ color: c.secondary }}>
-                        {formatDate(payment.payment_date)}
-                      </ClientListTd>
-                      <ClientListTd variant="actions" className="text-center">
-                        <div className="inline-flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleViewPaymentDetail(payment)}
-                            className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-                            style={{ color: c.info }}
-                            title="View details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleConfirmPayment(payment)}
-                            className="dashboard-btn-primary dashboard-btn-compact inline-flex items-center"
-                          >
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            Confirm
-                          </button>
-                        </div>
-                      </ClientListTd>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
         <div
+          ref={historyTableRef}
           className="client-page-toolbar px-4 py-2 border-b shrink-0"
           style={{ borderColor: c.border, backgroundColor: c.card }}
         >
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-sm font-semibold" style={{ color: c.primary }}>
+              Payment history
+            </h2>
+            <span className="text-xs" style={{ color: c.mutedLight }}>
+              Pending and confirmed in one list
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <div className="flex-1 relative min-w-0">
               <Search
@@ -459,7 +392,7 @@ export default function ClientPayments() {
               />
               <input
                 type="text"
-                placeholder="Search payments..."
+                placeholder="Search payments…"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="client-input pl-8 w-full"
@@ -494,6 +427,16 @@ export default function ClientPayments() {
               style={{ borderColor: c.border }}
             >
               <div className="flex flex-wrap items-center gap-1">
+                {statusFilter !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('all')}
+                    className="batch-filter-pill batch-filter-pill--sm batch-filter-pill--active"
+                  >
+                    {statusFilter === 'pending' ? 'Pending only' : 'Confirmed only'}
+                    <X className="w-3 h-3 opacity-60" aria-hidden />
+                  </button>
+                )}
                 {(dateFrom || dateTo) && (
                   <button
                     type="button"
@@ -547,6 +490,21 @@ export default function ClientPayments() {
               style={{ borderColor: c.border }}
             >
               <div className="client-payments-filters__bar">
+                <select
+                  value={statusFilter}
+                  onChange={(e) =>
+                    setStatusFilter(e.target.value as 'all' | 'pending' | 'confirmed')
+                  }
+                  className="client-input client-payments-filters__select"
+                  aria-label="Status"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="confirmed">Confirmed</option>
+                </select>
+
+                <span className="client-payments-filters__sep" aria-hidden />
+
                 {(
                   [
                     { id: '30d' as const, label: '30d' },
@@ -624,22 +582,22 @@ export default function ClientPayments() {
         </div>
 
         {sortedPayments.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-center py-6 px-4">
+          <div className="flex items-center justify-center text-center py-8 px-4">
             <div>
               <DollarSign className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
               <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
                 No payments found
               </p>
               <p className="text-sm" style={{ color: c.secondary }}>
-                {searchTerm || dateFrom || dateTo || methodFilter !== 'all'
+                {searchTerm || dateFrom || dateTo || methodFilter !== 'all' || statusFilter !== 'all'
                   ? 'Try adjusting your search or filters'
-                  : 'Your payment history will appear here'}
+                  : 'Posted and pending payments appear here'}
               </p>
             </div>
           </div>
         ) : (
           <>
-            <div className="client-table-scroll client-table-scroll--mobile-stack flex-1 min-h-0 overflow-y-auto overflow-x-auto">
+            <div className="client-table-scroll client-table-scroll--mobile-stack overflow-x-auto">
               <table className="dashboard-table dashboard-table--compact">
                 <thead>
                   <tr>
@@ -675,7 +633,7 @@ export default function ClientPayments() {
                     />
                     <ClientSortableHeader
                       field="received_date"
-                      label="Received Date"
+                      label="Received"
                       sortField={sortField}
                       sortDir={sortDir}
                       onSort={handleSort}
@@ -687,50 +645,193 @@ export default function ClientPayments() {
                       sortDir={sortDir}
                       onSort={handleSort}
                     />
+                    <ClientSortableHeader
+                      field="status"
+                      label="Status"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                      className="text-center"
+                      align="center"
+                    />
                     <th className="text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedPayments.map((payment) => (
-                    <tr
-                      key={payment.id}
-                      className="cursor-pointer"
-                      onClick={() => handleViewPaymentDetail(payment)}
-                    >
-                      <ClientListTd variant="primary" className="font-semibold">
-                        {payment.invoice_number}
-                      </ClientListTd>
-                      <ClientListTd variant="meta" className="truncate">
-                        <span className="client-list-meta-short">{payment.broker_name}</span>
-                        <span className="client-list-meta-full">{payment.broker_name}</span>
-                      </ClientListTd>
-                      <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
-                        {formatCurrency(payment.amount)}
-                      </ClientListTd>
-                      <ClientListTd variant="desktop" label="Payment Date" style={{ color: c.secondary }}>
-                        {formatDate(payment.payment_date)}
-                      </ClientListTd>
-                      <ClientListTd variant="desktop" label="Received Date" style={{ color: c.secondary }}>
-                        {formatDate(payment.received_date)}
-                      </ClientListTd>
-                      <ClientListTd variant="desktop" label="Method" style={{ color: c.secondary }}>
-                        {METHOD_LABELS[payment.payment_method] || payment.payment_method}
-                      </ClientListTd>
-                      <ClientListTd variant="actions" className="text-center">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleViewPaymentDetail(payment)
-                          }}
-                          className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-                          style={{ color: c.info }}
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </ClientListTd>
-                    </tr>
+                    <Fragment key={payment.id}>
+                      <tr
+                        className={`${payment.status === 'pending' ? 'payment-row--pending' : ''} ${
+                          inlineConfirmId !== payment.id ? 'cursor-pointer' : ''
+                        }`}
+                        onClick={() => {
+                          if (inlineConfirmId !== payment.id) handleViewPaymentDetail(payment)
+                        }}
+                      >
+                        <ClientListTd variant="primary" className="font-semibold">
+                          {payment.invoice_number}
+                        </ClientListTd>
+                        <ClientListTd variant="meta" className="truncate">
+                          <span className="client-list-meta-short">{payment.broker_name}</span>
+                          <span className="client-list-meta-full">{payment.broker_name}</span>
+                        </ClientListTd>
+                        <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
+                          {formatCurrency(payment.amount)}
+                        </ClientListTd>
+                        <ClientListTd variant="desktop" label="Payment Date" style={{ color: c.secondary }}>
+                          {formatDate(payment.payment_date)}
+                        </ClientListTd>
+                        <ClientListTd variant="desktop" label="Received" style={{ color: c.secondary }}>
+                          {formatDate(payment.received_date)}
+                        </ClientListTd>
+                        <ClientListTd variant="desktop" label="Method" style={{ color: c.secondary }}>
+                          {METHOD_LABELS[payment.payment_method] || payment.payment_method}
+                        </ClientListTd>
+                        <ClientListTd variant="desktop" label="Status" className="text-center">
+                          {getPaymentStatusPill(payment.status)}
+                        </ClientListTd>
+                        <ClientListTd variant="actions" className="text-center">
+                          <div className="inline-flex items-center justify-center gap-1">
+                            {payment.status === 'pending' && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openInlineConfirm(payment)
+                                }}
+                                className="dashboard-btn-primary dashboard-btn-compact inline-flex items-center"
+                              >
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                                Confirm
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleViewPaymentDetail(payment)
+                              }}
+                              className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
+                              style={{ color: c.info }}
+                              title="View details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </ClientListTd>
+                      </tr>
+                      {inlineConfirmId === payment.id && (
+                        <tr className="payment-row-confirm">
+                          <td colSpan={8}>
+                            <div
+                              className="payment-inline-confirm p-3 rounded-lg border"
+                              style={{ borderColor: c.border, backgroundColor: c.surface }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <p className="text-sm font-semibold mb-2" style={{ color: c.primary }}>
+                                Confirm {formatCurrency(payment.amount)} on {payment.invoice_number}
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-2">
+                                <div>
+                                  <label className="client-label" htmlFor={`confirm-method-${payment.id}`}>
+                                    Method
+                                  </label>
+                                  <select
+                                    id={`confirm-method-${payment.id}`}
+                                    value={confirmPaymentData.payment_method}
+                                    onChange={(e) =>
+                                      setConfirmPaymentData({
+                                        ...confirmPaymentData,
+                                        payment_method: e.target.value as typeof confirmPaymentData.payment_method,
+                                      })
+                                    }
+                                    className="client-input w-full"
+                                    style={inputCompactStyle}
+                                  >
+                                    <option value="check">Check</option>
+                                    <option value="wire">Wire</option>
+                                    <option value="ach">ACH</option>
+                                    <option value="credit_card">Card</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="client-label" htmlFor={`confirm-ref-${payment.id}`}>
+                                    Reference
+                                  </label>
+                                  <input
+                                    id={`confirm-ref-${payment.id}`}
+                                    type="text"
+                                    value={confirmPaymentData.payment_reference}
+                                    onChange={(e) =>
+                                      setConfirmPaymentData({
+                                        ...confirmPaymentData,
+                                        payment_reference: e.target.value,
+                                      })
+                                    }
+                                    className="client-input w-full"
+                                    style={inputCompactStyle}
+                                    placeholder="Check #, wire ref…"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="client-label" htmlFor={`confirm-received-${payment.id}`}>
+                                    Received date
+                                  </label>
+                                  <input
+                                    id={`confirm-received-${payment.id}`}
+                                    type="date"
+                                    value={confirmPaymentData.received_date}
+                                    onChange={(e) =>
+                                      setConfirmPaymentData({
+                                        ...confirmPaymentData,
+                                        received_date: e.target.value,
+                                      })
+                                    }
+                                    className="client-input w-full"
+                                    style={inputCompactStyle}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="client-label" htmlFor={`confirm-notes-${payment.id}`}>
+                                    Note
+                                  </label>
+                                  <input
+                                    id={`confirm-notes-${payment.id}`}
+                                    type="text"
+                                    value={confirmPaymentData.notes}
+                                    onChange={(e) =>
+                                      setConfirmPaymentData({
+                                        ...confirmPaymentData,
+                                        notes: e.target.value,
+                                      })
+                                    }
+                                    className="client-input w-full"
+                                    style={inputCompactStyle}
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmPaymentSubmit(payment.id)}
+                                  className="dashboard-btn-primary dashboard-btn-compact"
+                                >
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  Confirm payment
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setInlineConfirmId(null)}
+                                  className="dashboard-btn-secondary dashboard-btn-compact"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -793,142 +894,9 @@ export default function ClientPayments() {
             </div>
           </>
         )}
-          </>
+          </div>
         )}
       </div>
-
-      {showConfirmPaymentModal && paymentToConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div
-            className="rounded-lg shadow-xl max-w-lg w-full"
-            style={{ backgroundColor: c.card, boxShadow: c.shadow.cardHover }}
-          >
-            <div
-              className="flex items-center justify-between p-6 border-b"
-              style={{ borderColor: c.border }}
-            >
-              <h3 className="text-lg font-semibold" style={{ color: c.primary }}>
-                Confirm Payment Received
-              </h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowConfirmPaymentModal(false)
-                  setPaymentToConfirm(null)
-                }}
-                className="p-2 rounded-lg transition-colors hover:bg-slate-100"
-                style={{ color: c.primary }}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div className="p-4 rounded-lg" style={{ backgroundColor: c.surface }}>
-                <p className="text-sm" style={{ color: c.secondary }}>
-                  Invoice Number
-                </p>
-                <p className="text-sm font-semibold mt-1" style={{ color: c.primary }}>
-                  {paymentToConfirm.invoice_number}
-                </p>
-                <p className="text-sm mt-2" style={{ color: c.secondary }}>
-                  Amount
-                </p>
-                <p className="text-sm font-semibold mt-1" style={{ color: c.primary }}>
-                  {formatCurrency(paymentToConfirm.amount)}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: c.primary }}>
-                  Payment Method *
-                </label>
-                <select
-                  value={confirmPaymentData.payment_method}
-                  onChange={(e) =>
-                    setConfirmPaymentData({
-                      ...confirmPaymentData,
-                      payment_method: e.target.value as 'check' | 'wire' | 'ach' | 'credit_card',
-                    })
-                  }
-                  className="client-input w-full"
-                  style={inputCompactStyle}
-                >
-                  <option value="check">Check</option>
-                  <option value="wire">Wire Transfer</option>
-                  <option value="ach">ACH</option>
-                  <option value="credit_card">Credit Card</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: c.primary }}>
-                  Payment Reference
-                </label>
-                <input
-                  type="text"
-                  value={confirmPaymentData.payment_reference}
-                  onChange={(e) =>
-                    setConfirmPaymentData({ ...confirmPaymentData, payment_reference: e.target.value })
-                  }
-                  className="client-input w-full"
-                  style={inputCompactStyle}
-                  placeholder="Check #, transaction ID, etc."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: c.primary }}>
-                  Received Date *
-                </label>
-                <input
-                  type="date"
-                  value={confirmPaymentData.received_date}
-                  onChange={(e) =>
-                    setConfirmPaymentData({ ...confirmPaymentData, received_date: e.target.value })
-                  }
-                  className="client-input w-full"
-                  style={inputCompactStyle}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: c.primary }}>
-                  Notes (optional)
-                </label>
-                <textarea
-                  value={confirmPaymentData.notes}
-                  onChange={(e) => setConfirmPaymentData({ ...confirmPaymentData, notes: e.target.value })}
-                  rows={3}
-                  className="client-input w-full"
-                  style={{ ...inputCompactStyle, height: 'auto' }}
-                  placeholder="Additional notes about this payment"
-                />
-              </div>
-
-              <div
-                className="flex justify-end gap-2 pt-4 border-t"
-                style={{ borderColor: c.border }}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowConfirmPaymentModal(false)
-                    setPaymentToConfirm(null)
-                  }}
-                  className="dashboard-btn-secondary"
-                >
-                  Cancel
-                </button>
-                <button type="button" onClick={handleConfirmPaymentSubmit} className="dashboard-btn-primary">
-                  <CheckCircle className="w-4 h-4 inline mr-1" />
-                  Confirm Payment
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showPaymentDetailModal && selectedPayment && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1058,14 +1026,26 @@ export default function ClientPayments() {
                 </div>
               )}
 
-              <div className="flex justify-end pt-4 border-t" style={{ borderColor: c.border }}>
+              <div className="flex justify-end gap-2 pt-4 border-t" style={{ borderColor: c.border }}>
+                {selectedPayment.status === 'pending' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPaymentDetailModal(false)
+                      openInlineConfirm(selectedPayment)
+                    }}
+                    className="dashboard-btn-primary"
+                  >
+                    Confirm payment
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
                     setShowPaymentDetailModal(false)
                     setSelectedPayment(null)
                   }}
-                  className="dashboard-btn-primary"
+                  className="dashboard-btn-secondary"
                 >
                   Close
                 </button>

@@ -1,10 +1,55 @@
 import type { Invoice } from '../types/invoice'
-import { isOpenArInvoice } from './invoiceAging'
+import { isOpenArInvoice, isPostableForPayment } from './invoiceAging'
+import { AMOUNT_EPSILON } from './paymentVariance'
 
 export type PostPaymentSearchHit = {
   invoice: Invoice
   score: number
   isPostable: boolean
+}
+
+export type InvoicePickerCategory = 'open' | 'short' | 'over' | 'closed' | 'other'
+
+/** Classify invoice for the post-payment picker default list. */
+export function getInvoicePickerCategory(
+  invoice: Invoice,
+  receivedAmount: number
+): InvoicePickerCategory {
+  if (invoice.status === 'force_closed') return 'closed'
+  if (receivedAmount > invoice.amount + AMOUNT_EPSILON) return 'over'
+  if (receivedAmount > 0 && receivedAmount < invoice.amount - AMOUNT_EPSILON) return 'short'
+  if (!isPostableForPayment(invoice)) return 'other'
+  return 'open'
+}
+
+/** Default picker list — approved open A/R only (hides paid, short, over, closed). */
+export function isDefaultPickerVisible(
+  invoice: Invoice,
+  receivedAmount: number
+): boolean {
+  if (invoice.status === 'paid') return false
+  return getInvoicePickerCategory(invoice, receivedAmount) === 'open'
+}
+
+/** Build the default invoice list (no search query). */
+export function listDefaultPickerInvoices(
+  invoices: Invoice[],
+  getReceived: (invoiceId: string) => number,
+  showAll: boolean,
+  limit = 200
+): PostPaymentSearchHit[] {
+  return invoices
+    .filter((invoice) => {
+      if (showAll) return true
+      return isDefaultPickerVisible(invoice, getReceived(invoice.id))
+    })
+    .sort((a, b) => b.invoice_date.localeCompare(a.invoice_date))
+    .slice(0, limit)
+    .map((invoice) => ({
+      invoice,
+      score: 0,
+      isPostable: isPostableForPayment(invoice),
+    }))
 }
 
 /** Parse numeric amount from search text (e.g. "5200", "$5,200.00"). */
@@ -53,7 +98,7 @@ export function searchInvoicesForPostPayment(
       return {
         invoice,
         score,
-        isPostable: isOpenArInvoice(invoice),
+        isPostable: isPostableForPayment(invoice),
       }
     })
     .filter((hit) => hit.score > 0)
@@ -66,13 +111,13 @@ export function searchInvoicesForPostPayment(
   return scored.slice(0, limit)
 }
 
-/** Recent open invoices when the search field is focused but empty. */
+/** Recent postable invoices when the search field is focused but empty. */
 export function getDefaultPostPaymentSuggestions(
   invoices: Invoice[],
   limit = 6
 ): PostPaymentSearchHit[] {
   return invoices
-    .filter((inv) => isOpenArInvoice(inv))
+    .filter((inv) => isPostableForPayment(inv))
     .sort((a, b) => b.invoice_date.localeCompare(a.invoice_date))
     .slice(0, limit)
     .map((invoice) => ({
@@ -82,7 +127,12 @@ export function getDefaultPostPaymentSuggestions(
     }))
 }
 
-export function getInvoicePostStatusLabel(invoice: Invoice): string {
+export function getInvoicePostStatusLabel(invoice: Invoice, receivedAmount?: number): string {
+  if (invoice.status === 'force_closed') return 'Written off'
+  if (receivedAmount !== undefined && receivedAmount > 0) {
+    if (receivedAmount < invoice.amount - 0.01) return 'Short'
+    if (receivedAmount > invoice.amount + 0.01) return 'Over'
+  }
   if (isOpenArInvoice(invoice)) return 'Open'
   switch (invoice.status) {
     case 'paid':
@@ -100,7 +150,12 @@ export function getInvoicePostStatusLabel(invoice: Invoice): string {
   }
 }
 
-export function getInvoicePostStatusClass(invoice: Invoice): string {
+export function getInvoicePostStatusClass(invoice: Invoice, receivedAmount?: number): string {
+  if (invoice.status === 'force_closed') return 'status-pill status-pill--hold'
+  if (receivedAmount !== undefined && receivedAmount > 0) {
+    if (receivedAmount < invoice.amount - 0.01) return 'status-pill status-pill--pending'
+    if (receivedAmount > invoice.amount + 0.01) return 'status-pill status-pill--overdue'
+  }
   if (isOpenArInvoice(invoice)) return 'status-pill status-pill--approved'
   switch (invoice.status) {
     case 'paid':
