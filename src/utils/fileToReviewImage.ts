@@ -1,11 +1,27 @@
-import * as pdfjsLib from 'pdfjs-dist'
 import { AI_REVIEW_CONFIG, resolvePdfPagesToReview } from '../config/aiReview'
+import { getDomSurface } from '../platform/domSurface'
+import {
+  ReviewImageRasterizer,
+  getReviewImageRasterizer,
+  hasReviewImageRasterizer,
+  setReviewImageRasterizer,
+} from '../platform/reviewImageRasterizer'
 import { ReviewImageInfo } from '../types/documentReview'
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).toString()
+type PdfJsModule = typeof import('pdfjs-dist')
+
+let pdfjsLib: PdfJsModule | undefined
+
+async function getPdfJs(): Promise<PdfJsModule> {
+  if (!pdfjsLib) {
+    pdfjsLib = await import('pdfjs-dist')
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.min.mjs',
+      import.meta.url
+    ).toString()
+  }
+  return pdfjsLib
+}
 
 /** PDF render scale so page raster is sharp up to MAX_IMAGE_WIDTH (letter ~612pt wide). */
 function pdfRenderScale(maxWidth: number): number {
@@ -14,33 +30,36 @@ function pdfRenderScale(maxWidth: number): number {
 }
 
 /** Resize a canvas so the longest side does not exceed maxWidth. */
-function resizeCanvas(source: HTMLCanvasElement, maxWidth: number): HTMLCanvasElement {
+function resizeCanvas(source: CanvasSurface, maxWidth: number): CanvasSurface {
   const scale = Math.min(1, maxWidth / Math.max(source.width, source.height))
   if (scale >= 1) {
     return source
   }
 
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.round(source.width * scale)
-  canvas.height = Math.round(source.height * scale)
+  const canvas = getDomSurface().createCanvas(
+    Math.round(source.width * scale),
+    Math.round(source.height * scale)
+  )
   const ctx = canvas.getContext('2d')
   if (!ctx) {
     return source
   }
 
-  ctx.drawImage(source, 0, 0, canvas.width, canvas.height)
+  ctx.drawImage(source as CanvasImageSource, 0, 0, canvas.width, canvas.height)
   return canvas
 }
 
+type CanvasSurface = ReturnType<ReturnType<typeof getDomSurface>['createCanvas']>
+
 /** Convert canvas to JPEG base64 data URL for vision API input. */
-function canvasToDataUrl(canvas: HTMLCanvasElement): string {
+function canvasToDataUrl(canvas: CanvasSurface): string {
   return canvas.toDataURL('image/jpeg', 0.78)
 }
 
 function buildImageInfo(
   file: File,
   previewDataUrl: string,
-  canvas: HTMLCanvasElement,
+  canvas: CanvasSurface,
   sourceType: ReviewImageInfo['sourceType'],
   pageNumber: number,
   totalPages: number
@@ -59,27 +78,30 @@ function buildImageInfo(
 }
 
 async function loadPdfDocument(file: File) {
+  const pdfjs = await getPdfJs()
   const buffer = await file.arrayBuffer()
-  return pdfjsLib.getDocument({ data: buffer }).promise
+  return pdfjs.getDocument({ data: buffer }).promise
 }
 
 /** Render a specific PDF page into a vision-ready image. */
 async function pdfPageToReviewImage(
   file: File,
-  pdf: pdfjsLib.PDFDocumentProxy,
+  pdf: Awaited<ReturnType<typeof loadPdfDocument>>,
   pageNumber: number
 ): Promise<ReviewImageInfo> {
   const page = await pdf.getPage(pageNumber)
   const viewport = page.getViewport({ scale: pdfRenderScale(AI_REVIEW_CONFIG.MAX_IMAGE_WIDTH) })
-  const canvas = document.createElement('canvas')
-  canvas.width = viewport.width
-  canvas.height = viewport.height
+  const canvas = getDomSurface().createCanvas(viewport.width, viewport.height)
   const context = canvas.getContext('2d')
   if (!context) {
     throw new Error('Could not create canvas context for PDF rendering')
   }
 
-  await page.render({ canvasContext: context, viewport, canvas }).promise
+  await page.render({
+    canvasContext: context as unknown as CanvasRenderingContext2D,
+    viewport,
+    canvas: canvas as unknown as HTMLCanvasElement,
+  }).promise
   const resized = resizeCanvas(canvas, AI_REVIEW_CONFIG.MAX_IMAGE_WIDTH)
   const previewDataUrl = canvasToDataUrl(resized)
 
@@ -97,48 +119,46 @@ function isTiffFile(file: File): boolean {
   return file.type === 'image/tiff' || lower.endsWith('.tif') || lower.endsWith('.tiff')
 }
 
-/** Page count that will be sent for AI review (all PDF pages unless env cap is set). */
-export async function getReviewPageCount(file: File): Promise<number> {
-  if (isImageFile(file)) {
-    return 1
-  }
-
-  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-    const pdf = await loadPdfDocument(file)
-    return resolvePdfPagesToReview(pdf.numPages)
-  }
-
-  return 1
-}
-
-/**
- * Render PDF pages for multi-page review.
- * @param maxPages Pass 1 for first-page-only; omit to review all pages (or env cap).
- */
-export async function fileToReviewImages(
-  file: File,
-  maxPages?: number
-): Promise<ReviewImageInfo[]> {
-  if (isImageFile(file)) {
-    return [await imageFileToReviewImage(file)]
-  }
-
-  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-    const pdf = await loadPdfDocument(file)
-    const pagesToRender =
-      maxPages !== undefined
-        ? Math.min(pdf.numPages, maxPages)
-        : resolvePdfPagesToReview(pdf.numPages)
-    const images: ReviewImageInfo[] = []
-
-    for (let pageNumber = 1; pageNumber <= pagesToRender; pageNumber += 1) {
-      images.push(await pdfPageToReviewImage(file, pdf, pageNumber))
+const browserRasterizer: ReviewImageRasterizer = {
+  async getReviewPageCount(file: File): Promise<number> {
+    if (isImageFile(file)) {
+      return 1
     }
 
-    return images
-  }
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      const pdf = await loadPdfDocument(file)
+      return resolvePdfPagesToReview(pdf.numPages)
+    }
 
-  throw new Error(`Unsupported file type for AI review: ${file.type || file.name}`)
+    return 1
+  },
+
+  async fileToReviewImages(file: File, maxPages?: number): Promise<ReviewImageInfo[]> {
+    if (isImageFile(file)) {
+      return [await imageFileToReviewImage(file)]
+    }
+
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      const pdf = await loadPdfDocument(file)
+      const pagesToRender =
+        maxPages !== undefined
+          ? Math.min(pdf.numPages, maxPages)
+          : resolvePdfPagesToReview(pdf.numPages)
+      const images: ReviewImageInfo[] = []
+
+      for (let pageNumber = 1; pageNumber <= pagesToRender; pageNumber += 1) {
+        images.push(await pdfPageToReviewImage(file, pdf, pageNumber))
+      }
+
+      return images
+    }
+
+    throw new Error(`Unsupported file type for AI review: ${file.type || file.name}`)
+  },
+}
+
+if (!hasReviewImageRasterizer()) {
+  setReviewImageRasterizer(browserRasterizer)
 }
 
 /** Convert an image file into a vision-ready image plus metadata. */
@@ -154,9 +174,7 @@ async function imageFileToReviewImage(file: File): Promise<ReviewImageInfo> {
     }
     throw new Error(`Could not read image file: ${file.name}`)
   }
-  const canvas = document.createElement('canvas')
-  canvas.width = bitmap.width
-  canvas.height = bitmap.height
+  const canvas = getDomSurface().createCanvas(bitmap.width, bitmap.height)
   const ctx = canvas.getContext('2d')
   if (!ctx) {
     throw new Error('Could not create canvas context for image')
@@ -168,6 +186,22 @@ async function imageFileToReviewImage(file: File): Promise<ReviewImageInfo> {
   const previewDataUrl = canvasToDataUrl(resized)
 
   return buildImageInfo(file, previewDataUrl, resized, 'image', 1, 1)
+}
+
+/** Page count that will be sent for AI review (all PDF pages unless env cap is set). */
+export async function getReviewPageCount(file: File): Promise<number> {
+  return getReviewImageRasterizer().getReviewPageCount(file)
+}
+
+/**
+ * Render PDF pages for multi-page review.
+ * @param maxPages Pass 1 for first-page-only; omit to review all pages (or env cap).
+ */
+export async function fileToReviewImages(
+  file: File,
+  maxPages?: number
+): Promise<ReviewImageInfo[]> {
+  return getReviewImageRasterizer().fileToReviewImages(file, maxPages)
 }
 
 /** Convert an uploaded file into vision input — first page only for quick classify. */

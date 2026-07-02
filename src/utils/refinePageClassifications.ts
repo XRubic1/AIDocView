@@ -1,5 +1,6 @@
 import { PageClassification, PageDocumentType } from '../types/documentReview'
 import { getSavedTrainingForFile } from './aiTrainingStore'
+import { isDeliveryProofPageType } from './deliveryProofPages'
 
 const RATE_CON_NOTE_HINTS =
   /rate\s*con|load\s*confirm|tender|note\s+to\s+carrier|carrier\s+agreement|terms\s+and\s+conditions|pickup|delivery|commodity|broker|motor\s+carrier|mc[#\s]|dot[#\s]|accessorial|penalt|temperature|reefer|tql|instructions\s+for\s+submission|load\s+details|carrier\s+requirements|shipper|consignee/i
@@ -53,11 +54,7 @@ function looksLikeLumper(page: PageClassification): boolean {
 }
 
 function isDeliveryDocument(page: PageClassification): boolean {
-  return (
-    page.pageType === 'bill_of_lading' ||
-    page.pageType === 'proof_of_delivery' ||
-    page.pageType === 'lumper'
-  )
+  return isDeliveryProofPageType(page.pageType) || page.pageType === 'lumper'
 }
 
 /**

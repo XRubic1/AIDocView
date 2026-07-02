@@ -108,12 +108,23 @@ Rules:
 - page_count: use BOL printed pagination only ("Page 1 of 1" = PASS). INCOMPLETE only if BOL footer shows missing pages (e.g. "2 of 3" without page 1/3).
 - destination: PASS if consignee street/city/state match rate con; ZIP-only diff = note only.
 - signatures: receiver required for delivery; shipper/carrier optional (informational). Look for ink/stamp/initials in consignee box — not printed text. Single delivery: receiver on any page = PRESENT.
+- localization: for EVERY signature status PRESENT, return a normalized bounding box (page, x, y, w, h — 0–1, top-left origin) and a short description of what is inside the box (ink signature / stamp / initials / printed text). Example receiver_localization: {"page":1,"x":0.62,"y":0.81,"w":0.18,"h":0.04,"description":"ink signature in consignee signature line","mark_kind":"ink_signature"}. If you cannot draw a tight box, do NOT mark PRESENT.
 - authenticity: flag NOTED if signature looks traced, stamped, or digitally overlaid.
 - delivery_exceptions: NOTED for damage/shortage/protest notes; else NONE.
 - reference_numbers: all visible load/BOL/PO numbers.
 
 JSON only:
-{"bol_audit":{"destination_match":"PASS","destination_notes":"","legibility":"PASS","legibility_notes":"","page_count":"PASS","page_count_notes":"","signatures":{"carrier":"PRESENT","shipper":"PRESENT","receiver":"PRESENT","receiver_date":"PRESENT","receiver_authenticity":"NONE","shipper_authenticity":"NONE","carrier_authenticity":"NONE","rule_applied":null},"ship_from":"","ship_to":"","load_number":"","reference_numbers":[],"delivery_exceptions":{"damages":"NONE","shortage":"NONE","protest":"NONE","notes":""},"overall":"APPROVED","flags":[]}}`
+{"bol_audit":{"destination_match":"PASS","destination_notes":"","legibility":"PASS","legibility_notes":"","page_count":"PASS","page_count_notes":"","signatures":{"carrier":"PRESENT","shipper":"PRESENT","receiver":"PRESENT","receiver_date":"PRESENT","receiver_authenticity":"NONE","shipper_authenticity":"NONE","carrier_authenticity":"NONE","rule_applied":null,"receiver_localization":{"page":1,"x":0.62,"y":0.81,"w":0.18,"h":0.04,"description":"ink signature in consignee box","mark_kind":"ink_signature"},"shipper_localization":null,"carrier_localization":null},"ship_from":"","ship_to":"","load_number":"","reference_numbers":[],"delivery_exceptions":{"damages":"NONE","shortage":"NONE","protest":"NONE","notes":""},"overall":"APPROVED","flags":[]}}`
+}
+
+/** Cheap follow-up: verify a cropped receiver-signature region. */
+export function buildSignatureCropVerifyPrompt(): string {
+  return `You are verifying a cropped region from a freight bill of lading (receiver/consignee signature area).
+
+Does this crop contain a handwritten signature, a stamp, initials, or only printed text/empty space?
+
+Return JSON only:
+{"content":"handwritten_signature|stamp|initials|printed_text|empty|unclear","confidence":0.0-1.0,"notes":"brief reason"}`
 }
 
 /** Prompt 4 — Cross-Validator (text-only; no images). */

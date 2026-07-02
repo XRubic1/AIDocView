@@ -18,6 +18,8 @@ import {
 } from './reviewConfidence'
 import { getPerPacketCrossValidation } from './perPacketVerification'
 import { evaluateRequiredDocuments, mergeOverallStatus } from './requiredDocuments'
+import { countDeliveryProofPages } from './deliveryProofPages'
+import { applyFailClosedApprovalGate } from './failClosedApprovalGate'
 import { reconcileCarrierNameAcrossDocuments } from './carrierOcrCorrection'
 import { shouldUseCarrierOcrExcelCorrection } from './reviewRulesEngine'
 import {
@@ -184,7 +186,7 @@ export function recomputeBatchReview(
   const allPageClassifications = reviewResults.flatMap(
     (doc) => doc.extraction.pageClassifications ?? []
   )
-  const bolPageCount = allPageClassifications.filter((p) => p.pageType === 'bill_of_lading').length
+  const bolPageCount = countDeliveryProofPages(allPageClassifications)
 
   const requiredDocs = evaluateRequiredDocuments({
     rateConParse: effectiveRateConParse,
@@ -206,6 +208,25 @@ export function recomputeBatchReview(
   })
 
   crossValidation.overall = mergeOverallStatus(crossValidation.overall, requiredDocs.documentGate)
+
+  const failClosedGate = applyFailClosedApprovalGate({
+    reviewDocuments: reviewResults,
+    proposedOverall: crossValidation.overall,
+  })
+  if (failClosedGate.overall !== crossValidation.overall) {
+    crossValidation.overall = failClosedGate.overall
+  }
+  crossValidation.failClosedInvariantFailures = failClosedGate.invariantFailures
+  crossValidation.appliedRelaxationRules = failClosedGate.appliedRelaxationRules
+  failClosedGate.flags.forEach((flag) => {
+    if (!crossValidation.flags.some((f) => f.field === flag.field && f.message === flag.message)) {
+      crossValidation.flags.push({
+        level: 'WARNING',
+        field: flag.field,
+        message: flag.message,
+      })
+    }
+  })
 
   const issues: string[] = []
   const warnings: string[] = []

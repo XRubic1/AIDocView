@@ -1,9 +1,10 @@
 import { Link, useLocation } from 'react-router-dom'
-import { FileText, History, Home } from 'lucide-react'
+import { FileText, History, Home, Settings } from 'lucide-react'
 
 const NAV = [
   { to: '/engine', label: 'Review', icon: FileText },
   { to: '/dev/load-history', label: 'History', icon: History },
+  { to: '/engine/settings', label: 'Settings', icon: Settings },
 ] as const
 
 const DOC_TAGS = ['BOL', 'Invoice', 'POD', 'Rate Con', 'Lumper'] as const
@@ -29,7 +30,9 @@ export default function FactorFoxSidebar({ embedded = false, reviewQueueCount }:
         {NAV.map(({ to, label, icon: Icon }) => {
           const active =
             location.pathname === to ||
-            (to === '/engine' && (location.pathname === '/engine' || location.pathname.startsWith('/dev/load-review')))
+            (to === '/engine' &&
+              (location.pathname === '/engine' || location.pathname.startsWith('/dev/load-review'))) ||
+            (to === '/engine/settings' && location.pathname.startsWith('/engine/settings'))
 
           return (
             <Link key={to} to={to} className={`engine-snav-item ${active ? 'active' : ''}`}>

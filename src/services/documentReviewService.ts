@@ -7,13 +7,17 @@ import {
   buildLumperExtractorPrompt,
   buildMultiInvoiceExtractorPrompt,
   buildMultiLumperExtractorPrompt,
-  buildCrossValidatorPrompt,
   buildDispatcherRulePrompt,
 } from '../config/documentAiPrompts'
 import { pipelineDocTypeToPageType } from '../utils/classifierMapping'
 import { getShipperRulesForPrompt } from '../utils/shipperRulesStore'
 import { getBolAiRulesForPrompt } from '../utils/reviewRulesStore'
 import { buildBolRateConJson, buildCompactRateConContext } from '../utils/promptContext'
+import {
+  parseSignatureLocalization,
+  reconcileReceiverSignatureConsensus,
+  verifyReceiverSignatureCrop,
+} from '../utils/bolSignatureVerification'
 import { shouldUseCarrierOcrExcelCorrection } from '../utils/reviewRulesEngine'
 import {
   coerceLocationString,
@@ -47,7 +51,6 @@ import { refinePageClassifications, mergeTrainingPageClassifications } from '../
 import {
   BolAuditContext,
   finalizeBolAudit,
-  mergeBolPageAudits,
   sanitizeBolPageCountAudit,
 } from '../utils/bolAuditSanitizer'
 import {
@@ -75,7 +78,6 @@ import { destinationsMatch, formatRateConStop } from '../utils/locationMatch'
 import {
   BolAudit,
   CrossValidationFlag,
-  CrossValidationResult,
   DispatcherShipperRule,
   InvoiceParse,
   RateConParse,
@@ -104,6 +106,12 @@ import {
   computeBatchOverallConfidence,
   computeDocumentReviewConfidence,
 } from '../utils/reviewConfidence'
+import {
+  countDeliveryProofPages,
+  filterDeliveryProofPages,
+  isDeliveryProofPageType,
+} from '../utils/deliveryProofPages'
+import { applyFailClosedApprovalGate } from '../utils/failClosedApprovalGate'
 import { getBolFailureReasons } from '../utils/bolAuditSanitizer'
 import { getPerPacketCrossValidation } from '../utils/perPacketVerification'
 import { buildRegionReviewImage } from '../utils/cropImageRegion'
@@ -118,7 +126,6 @@ import {
 export { destinationsMatch } from '../utils/locationMatch'
 
 import {
-  FIELD_UNCERTAINTY_THRESHOLD,
   getDefaultAddressPrompt,
   getDefaultLoadNumberPrompt,
   RateConFieldKey,
@@ -396,6 +403,18 @@ function parseBolAudit(raw: Record<string, unknown>): BolAudit | undefined {
     receiver_authenticity: normalizeAuth(sigRaw.receiver_authenticity),
     shipper_authenticity: normalizeAuth(sigRaw.shipper_authenticity),
     carrier_authenticity: normalizeAuth(sigRaw.carrier_authenticity),
+    receiver_localization:
+      parseSignatureLocalization(sigRaw.receiver_localization) ??
+      audit.signatures.receiver_localization ??
+      null,
+    shipper_localization:
+      parseSignatureLocalization(sigRaw.shipper_localization) ??
+      audit.signatures.shipper_localization ??
+      null,
+    carrier_localization:
+      parseSignatureLocalization(sigRaw.carrier_localization) ??
+      audit.signatures.carrier_localization ??
+      null,
   }
 
   return {
@@ -410,7 +429,7 @@ function parsePageClassification(raw: OpenAIExtractionResponse & Record<string, 
   const docType = (raw.doc_type as string) ?? (raw.pageType as string)
   const pageType = docType
     ? pipelineDocTypeToPageType(docType)
-    : ['invoice', 'blank', 'rate_confirmation', 'bill_of_lading', 'proof_of_delivery', 'lumper', 'other'].includes(
+    : ['invoice', 'blank', 'rate_confirmation', 'bill_of_lading', 'proof_of_delivery', 'delivery_confirmation', 'lumper', 'other'].includes(
           raw.pageType as string
         )
       ? (raw.pageType as PageDocumentType)
@@ -465,6 +484,7 @@ function parseExtraction(raw: OpenAIExtractionResponse): ExtractedDocumentData {
     'rate_confirmation',
     'bill_of_lading',
     'proof_of_delivery',
+    'delivery_confirmation',
     'lumper',
     'other',
   ]
@@ -537,7 +557,8 @@ async function callOpenAIJson(
 
   const response = await postOpenAIChatCompletions({
     model: options.model ?? AI_REVIEW_CONFIG.PRIMARY_MODEL,
-    temperature: 0.1,
+    temperature: AI_REVIEW_CONFIG.OPENAI_TEMPERATURE,
+    seed: AI_REVIEW_CONFIG.OPENAI_SEED,
     response_format: { type: 'json_object' },
     messages,
   })
@@ -602,7 +623,7 @@ async function auditBolPages(
   rateConParse?: RateConParse,
   bolContext?: BolAuditContext,
   budget?: ReviewCostBudget
-): Promise<{ audit?: BolAudit; attempt: DocumentReviewAttempt }> {
+): Promise<{ audit?: BolAudit; attempts: DocumentReviewAttempt[] }> {
   const context =
     bolContext ??
     buildBolAuditContext(
@@ -620,29 +641,118 @@ async function auditBolPages(
     context
   )
 
-  const { data: raw, usage } = await callOpenAIJson(prompt, {
-    images: pages,
-    model: AI_REVIEW_CONFIG.PRIMARY_MODEL,
-    detail: AI_REVIEW_CONFIG.DEEP_REVIEW_DETAIL,
-    visionLabelMode: 'bol_audit',
-    budget,
+  const consensusRuns = AI_REVIEW_CONFIG.SIGNATURE_CONSENSUS_RUNS
+  const attempts: DocumentReviewAttempt[] = []
+  const receiverPasses: Array<{ receiver: BolAudit['signatures']['receiver']; cropVerified: boolean }> =
+    []
+  let primaryAudit: BolAudit | undefined
+  let primaryRaw: Record<string, unknown> | undefined
+
+  for (let passIndex = 0; passIndex < consensusRuns; passIndex += 1) {
+    if (budget?.isAtOrOverLimit()) break
+
+    const model =
+      passIndex > 0 && AI_REVIEW_CONFIG.SIGNATURE_CONSENSUS_MIXED_MODELS
+        ? AI_REVIEW_CONFIG.FALLBACK_MODEL
+        : AI_REVIEW_CONFIG.PRIMARY_MODEL
+
+    const { data: raw, usage } = await callOpenAIJson(prompt, {
+      images: pages,
+      model,
+      detail: AI_REVIEW_CONFIG.DEEP_REVIEW_DETAIL,
+      visionLabelMode: 'bol_audit',
+      budget,
+    })
+
+    const parsed = parseBolAudit(raw)
+    if (!parsed) continue
+
+    const { audit: cropChecked, attempt: cropAttempt } = await verifyReceiverSignatureCrop({
+      audit: parsed,
+      pages,
+      model,
+      budget,
+      callJson: callOpenAIJson,
+      usageForAttempt: (usage) => usageForAttempt(usage as ApiUsageRecord | undefined),
+    })
+
+    const cropVerified =
+      cropChecked.signatures.receiver !== 'PRESENT' ||
+      !cropAttempt?.rawResponse?.crop_disagreed
+
+    receiverPasses.push({
+      receiver: cropChecked.signatures.receiver,
+      cropVerified,
+    })
+
+    attempts.push({
+      model,
+      confidence: cropChecked.overall === 'APPROVED' ? 0.9 : 0.5,
+      rawResponse: {
+        ...raw,
+        consensus_pass: passIndex + 1,
+        consensus_runs: consensusRuns,
+        receiver_after_crop: cropChecked.signatures.receiver,
+        crop_verified: cropVerified,
+      },
+      usage: usageForAttempt(usage),
+      usedForResult: false,
+      reviewedAt: new Date().toISOString(),
+      promptKind: consensusRuns > 1 ? 'bol_validator_consensus' : 'bol_validator',
+    })
+
+    if (cropAttempt) {
+      attempts.push(cropAttempt)
+    }
+
+    if (!primaryAudit) {
+      primaryAudit = cropChecked
+      primaryRaw = raw
+    }
+  }
+
+  if (!primaryAudit) {
+    return { audit: undefined, attempts }
+  }
+
+  if (receiverPasses.length > 1) {
+    const reconciledReceiver = reconcileReceiverSignatureConsensus(receiverPasses)
+    primaryAudit = {
+      ...primaryAudit,
+      signatures: {
+        ...primaryAudit.signatures,
+        receiver: reconciledReceiver,
+      },
+      flags:
+        reconciledReceiver === 'UNCLEAR' &&
+        !primaryAudit.flags.some((flag) => /consensus/i.test(flag))
+          ? [
+              ...(primaryAudit.flags ?? []),
+              `Receiver signature consensus: ${receiverPasses.length} validator passes disagreed — manual review required.`,
+            ]
+          : primaryAudit.flags,
+    }
+  }
+
+  const sanitized = sanitizeBolPageCountAudit(primaryAudit, context)
+  const audit = finalizeBolAudit(sanitized, rateConParse)
+
+  if (primaryRaw && attempts[0]) {
+    attempts[0].rawResponse = {
+      ...attempts[0].rawResponse,
+      bol_audit: audit,
+      consensus_receiver: audit.signatures.receiver,
+    }
+    attempts[0].confidence = audit.overall === 'APPROVED' ? 0.9 : 0.5
+    attempts[0].usedForResult = true
+  }
+
+  attempts.forEach((attempt, index) => {
+    if (index === 0) return
+    attempt.usedForResult = false
   })
 
-  const parsed = parseBolAudit(raw)
-  const sanitized = parsed ? sanitizeBolPageCountAudit(parsed, context) : undefined
-  const audit = sanitized ? finalizeBolAudit(sanitized, rateConParse) : undefined
-  return {
-    audit,
-    attempt: {
-      model: AI_REVIEW_CONFIG.PRIMARY_MODEL,
-      confidence: audit?.overall === 'APPROVED' ? 0.9 : 0.5,
-      rawResponse: raw,
-      usage: usageForAttempt(usage),
-      usedForResult: true,
-      reviewedAt: new Date().toISOString(),
-      promptKind: 'bol_validator',
-    },
-  }
+  return { audit, attempts }
 }
 
 function buildVisionContent(
@@ -688,7 +798,8 @@ async function extractWithModel(
 
   const response = await postOpenAIChatCompletions({
     model,
-    temperature: 0.1,
+    temperature: AI_REVIEW_CONFIG.OPENAI_TEMPERATURE,
+    seed: AI_REVIEW_CONFIG.OPENAI_SEED,
     response_format: { type: 'json_object' },
     messages: [{ role: 'user', content: buildVisionContent(prompt, images, detail) }],
   })
@@ -883,7 +994,7 @@ async function reviewBolDocument(
 
     for (const page of pages) {
       if (budget?.isAtOrOverLimit()) break
-      const { audit, attempt } = await auditBolPages(
+      const { audit, attempts: pageAttempts } = await auditBolPages(
         [page],
         rateConParse,
         buildBolAuditContext([page], allBolPacketPageNumbers),
@@ -896,7 +1007,7 @@ async function reviewBolDocument(
           audit,
         })
       }
-      attempts.push(attempt)
+      attempts.push(...pageAttempts)
     }
 
     const primaryAudit = bolPageAudits[0]?.audit
@@ -923,7 +1034,7 @@ async function reviewBolDocument(
     }
   }
 
-  const { audit, attempt } = await auditBolPages(
+  const { audit, attempts: bolAttempts } = await auditBolPages(
     pages,
     rateConParse,
     buildBolAuditContext(pages, allBolPacketPageNumbers),
@@ -948,7 +1059,7 @@ async function reviewBolDocument(
     rateConFields: undefined,
     modelUsed: AI_REVIEW_CONFIG.PRIMARY_MODEL,
     upgradedFromMini: false,
-    attempts: [attempt],
+    attempts: bolAttempts,
   }
 }
 
@@ -1012,6 +1123,7 @@ function resolvePrimaryDocumentType(classifications: PageClassification[]): Docu
     'rate_confirmation',
     'bill_of_lading',
     'proof_of_delivery',
+    'delivery_confirmation',
     'lumper',
     'other',
   ]
@@ -1257,6 +1369,93 @@ export async function reExtractRateConFieldWithHint(
 export interface ReviewDocumentFileOptions {
   /** Rate con from an earlier file in the same batch (multi-stop BOL per-page audit). */
   batchRateConParse?: RateConParse
+  /** Skip BOL audit until batch rate con is merged (phase-1 batch review). */
+  deferBolAudit?: boolean
+}
+
+/** Pick the richest rate con parse from a batch (prefer multi-stop destinations). */
+function mergeBatchRateConParse(documents: DocumentReviewResult[]): RateConParse | undefined {
+  const parses = documents
+    .map((doc) => doc.extraction.rateConParse)
+    .filter((parse): parse is RateConParse =>
+      Boolean(parse?.load_number || parse?.carrier_name || (parse?.destinations?.length ?? 0) > 0)
+    )
+
+  if (parses.length === 0) return undefined
+
+  return parses.reduce((best, current) => {
+    const bestStops = best.destinations?.length ?? 0
+    const currentStops = current.destinations?.length ?? 0
+    return currentStops > bestStops ? current : best
+  })
+}
+
+/** Phase 2: run BOL signature audit after batch rate con is available. */
+async function completeDeferredBolAuditForDocument(
+  file: File,
+  partialResult: DocumentReviewResult,
+  batchRateConParse?: RateConParse
+): Promise<DocumentReviewResult> {
+  const pageClassifications = partialResult.extraction.pageClassifications ?? []
+  const allPages = await fileToReviewImages(file)
+  const pagesToAudit = filterDeliveryProofPages(allPages, pageClassifications)
+
+  if (
+    pagesToAudit.length === 0 ||
+    partialResult.costCapExceeded ||
+    partialResult.extraction.bolAudit ||
+    (partialResult.extraction.bolPageAudits?.length ?? 0) > 0
+  ) {
+    return partialResult
+  }
+
+  const budget = createDocumentReviewCostBudget()
+  const rateConParse = partialResult.extraction.rateConParse ?? batchRateConParse
+  const rateConPages = filterPagesByType(allPages, pageClassifications, 'rate_confirmation')
+
+  try {
+    const bolResult = await reviewBolDocument(pagesToAudit, rateConParse, budget)
+    let extraction: ExtractedDocumentData = { ...partialResult.extraction, pageClassifications }
+
+    if (rateConPages.length === 0) {
+      extraction = { ...bolResult.extraction, pageClassifications }
+    } else if (bolResult.extraction.bolAudit || bolResult.extraction.bolPageAudits?.length) {
+      extraction = {
+        ...extraction,
+        pageClassifications,
+        bolPageAudits: bolResult.extraction.bolPageAudits,
+      }
+      if (bolResult.extraction.bolAudit) {
+        extraction = applyBolAuditToExtraction(extraction, bolResult.extraction.bolAudit)
+      }
+    } else {
+      extraction = {
+        ...extraction,
+        shipFrom: bolResult.extraction.shipFrom,
+        shipTo: bolResult.extraction.shipTo,
+        hasReceiverSignature: bolResult.extraction.hasReceiverSignature,
+        receivingDate: bolResult.extraction.receivingDate,
+      }
+    }
+
+    return {
+      ...partialResult,
+      extraction,
+      debugLog: {
+        ...partialResult.debugLog,
+        attempts: [...partialResult.debugLog.attempts, ...bolResult.attempts],
+      },
+    }
+  } catch (error) {
+    if (error instanceof ReviewCostBudgetExceededError) {
+      return {
+        ...partialResult,
+        costCapExceeded: true,
+        costCapMessage: error.message,
+      }
+    }
+    throw error
+  }
 }
 
 /** Review one document — classify all pages; extract invoice (billed info), rate con, and BOL. */
@@ -1311,7 +1510,7 @@ export async function reviewDocumentFile(
 
     const rateConPages = filterPagesByType(allPages, pageClassifications, 'rate_confirmation')
     const invoicePages = filterInvoicePages(allPages, pageClassifications)
-    const bolPages = filterPagesByType(allPages, pageClassifications, 'bill_of_lading')
+    const deliveryProofPages = filterDeliveryProofPages(allPages, pageClassifications)
     const lumperPages = filterPagesByType(allPages, pageClassifications, 'lumper')
 
     let rateConParse: RateConParse | undefined = options?.batchRateConParse
@@ -1354,13 +1553,13 @@ export async function reviewDocumentFile(
       attempts.push(...invoiceResult.attempts)
     }
 
-    if (bolPages.length > 0 && !budget?.isAtOrOverLimit()) {
-      const bolResult = await reviewBolDocument(bolPages, rateConParse, budget)
+    if (deliveryProofPages.length > 0 && !budget?.isAtOrOverLimit() && !options?.deferBolAudit) {
+      const bolResult = await reviewBolDocument(deliveryProofPages, rateConParse, budget)
       if (rateConPages.length === 0) {
         extraction = { ...bolResult.extraction, pageClassifications }
         modelUsed = bolResult.modelUsed
         upgradedFromMini = bolResult.upgradedFromMini
-        reviewedImages = bolPages
+        reviewedImages = deliveryProofPages
       } else if (bolResult.extraction.bolAudit || bolResult.extraction.bolPageAudits?.length) {
         extraction = {
           ...extraction,
@@ -1392,7 +1591,7 @@ export async function reviewDocumentFile(
       attempts.push(...lumperResult.attempts)
     }
 
-    if (rateConPages.length === 0 && bolPages.length === 0 && pageClassifications.length > 0) {
+    if (rateConPages.length === 0 && deliveryProofPages.length === 0 && pageClassifications.length > 0) {
       extraction.confidence =
         pageClassifications.reduce((sum, page) => sum + page.confidence, 0) / pageClassifications.length
     }
@@ -1412,8 +1611,8 @@ export async function reviewDocumentFile(
   const invoicePageNums = pageClassifications
     .filter((p) => p.pageType === 'invoice')
     .map((p) => p.pageNumber)
-  const bolPageNums = pageClassifications
-    .filter((p) => p.pageType === 'bill_of_lading')
+  const deliveryProofPageNums = pageClassifications
+    .filter((p) => isDeliveryProofPageType(p.pageType))
     .map((p) => p.pageNumber)
 
   let promptNote =
@@ -1421,7 +1620,7 @@ export async function reviewDocumentFile(
       ? `Scanned ${allPages.length} pages. ` +
         (invoicePageNums.length > 0 ? `Invoice (billed info) on page(s): ${invoicePageNums.join(', ')}. ` : '') +
         (rateConPageNums.length > 0 ? `Rate con on page(s): ${rateConPageNums.join(', ')}. ` : '') +
-        (bolPageNums.length > 0 ? `BOL on page(s): ${bolPageNums.join(', ')}. ` : '') +
+        (deliveryProofPageNums.length > 0 ? `Delivery proof on page(s): ${deliveryProofPageNums.join(', ')}. ` : '') +
         (skippedPages.length > 0 ? `Skipped blank/unreadable page(s): ${skippedPages.join(', ')}.` : '')
       : 'Single page review.'
 
@@ -1551,22 +1750,24 @@ export async function reviewUploadedDocuments(
   }
   const completedResults: DocumentReviewResult[] = []
 
-  const reviewOneDocument = async (document: {
-    id: string
-    name: string
-    file: File
-  }): Promise<DocumentReviewResult> => {
+  const reviewOneDocument = async (
+    document: { id: string; name: string; file: File },
+    reviewOptions?: ReviewDocumentFileOptions
+  ): Promise<DocumentReviewResult> => {
     options?.onDocumentProgress?.({
       docId: document.id,
       fileName: document.name,
       status: 'reviewing',
       progress: 12,
-      stepLabel: 'Classifying pages · extracting rate con, invoice & BOL…',
+      stepLabel: reviewOptions?.deferBolAudit
+        ? 'Classifying pages · extracting rate con & invoice…'
+        : 'Classifying pages · extracting rate con, invoice & BOL…',
     })
     try {
       const sharedRateCon = batchRateConParse
       const result = await reviewDocumentFile(document.file, document.id, {
         batchRateConParse: sharedRateCon,
+        ...reviewOptions,
       })
       if (result.extraction.rateConParse) {
         batchRateConParse = result.extraction.rateConParse
@@ -1576,8 +1777,8 @@ export async function reviewUploadedDocuments(
         docId: document.id,
         fileName: document.name,
         status: 'complete',
-        progress: 100,
-        stepLabel: 'Extraction complete',
+        progress: reviewOptions?.deferBolAudit ? 70 : 100,
+        stepLabel: reviewOptions?.deferBolAudit ? 'Extraction complete · BOL audit pending' : 'Extraction complete',
         partialDocuments: [...completedResults],
       })
       return result
@@ -1595,19 +1796,84 @@ export async function reviewUploadedDocuments(
     }
   }
 
-  const reviewResults =
-    parallelDocs <= 1
-      ? await (async () => {
-          const sequential: DocumentReviewResult[] = []
-          for (const document of sortedDocuments) {
-            sequential.push(await reviewOneDocument(document))
-          }
-          return sequential
-        })()
-      : await runWithConcurrency(sortedDocuments, parallelDocs, reviewOneDocument, {
-          staggerStartMs:
-            parallelDocs > 1 ? AI_REVIEW_CONFIG.PARALLEL_STAGGER_MS : undefined,
+  let reviewResults: DocumentReviewResult[]
+
+  if (parallelDocs <= 1) {
+    reviewResults = []
+    for (const document of sortedDocuments) {
+      reviewResults.push(await reviewOneDocument(document))
+    }
+  } else {
+    const phase1Results = await runWithConcurrency(
+      sortedDocuments,
+      parallelDocs,
+      (document) => reviewOneDocument(document, { deferBolAudit: true }),
+      {
+        staggerStartMs: AI_REVIEW_CONFIG.PARALLEL_STAGGER_MS,
+      }
+    )
+
+    const mergedBatchRateCon = mergeBatchRateConParse(phase1Results)
+    completedResults.length = 0
+
+    reviewResults = await runWithConcurrency(
+      sortedDocuments,
+      parallelDocs,
+      async (document) => {
+        const partial = phase1Results.find((result) => result.documentId === document.id)
+        if (!partial) {
+          throw new Error(`Missing phase-1 review for ${document.name}`)
+        }
+
+        options?.onDocumentProgress?.({
+          docId: document.id,
+          fileName: document.name,
+          status: 'reviewing',
+          progress: 80,
+          stepLabel: 'Auditing delivery proof signatures…',
         })
+
+        try {
+          const completed = await completeDeferredBolAuditForDocument(
+            document.file,
+            partial,
+            mergedBatchRateCon
+          )
+          const existingIndex = completedResults.findIndex(
+            (result) => result.documentId === completed.documentId
+          )
+          if (existingIndex >= 0) {
+            completedResults[existingIndex] = completed
+          } else {
+            completedResults.push(completed)
+          }
+          options?.onDocumentProgress?.({
+            docId: document.id,
+            fileName: document.name,
+            status: 'complete',
+            progress: 100,
+            stepLabel: 'Extraction complete',
+            partialDocuments: [...completedResults],
+          })
+          return completed
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'BOL audit failed'
+          options?.onDocumentProgress?.({
+            docId: document.id,
+            fileName: document.name,
+            status: 'error',
+            progress: 0,
+            stepLabel: 'Failed',
+            error: message,
+          })
+          throw error
+        }
+      },
+      {
+        staggerStartMs: AI_REVIEW_CONFIG.PARALLEL_STAGGER_MS,
+      }
+    )
+  }
 
   const { rateConDoc, bolData, rateConParse } = extractBatchContext(reviewResults)
   const rateConPresent = Boolean(rateConDoc)
@@ -1754,7 +2020,7 @@ export async function reviewUploadedDocuments(
   const allPageClassifications = reviewResults.flatMap(
     (doc) => doc.extraction.pageClassifications ?? []
   )
-  const bolPageCount = allPageClassifications.filter((page) => page.pageType === 'bill_of_lading').length
+  const bolPageCount = countDeliveryProofPages(allPageClassifications)
 
   const issues: string[] = []
   const warnings: string[] = []
@@ -1868,6 +2134,29 @@ export async function reviewUploadedDocuments(
 
   crossValidation.overall = mergeOverallStatus(crossValidation.overall, requiredDocs.documentGate)
 
+  const failClosedGate = applyFailClosedApprovalGate({
+    reviewDocuments: reviewResults,
+    proposedOverall: crossValidation.overall,
+  })
+  if (failClosedGate.overall !== crossValidation.overall) {
+    crossValidation.overall = failClosedGate.overall
+  }
+  crossValidation.failClosedInvariantFailures = failClosedGate.invariantFailures
+  crossValidation.appliedRelaxationRules = failClosedGate.appliedRelaxationRules
+  failClosedGate.flags.forEach((flag) => {
+    const exists = crossValidation.flags.some(
+      (existing) => existing.field === flag.field && existing.message === flag.message
+    )
+    if (!exists) {
+      crossValidation.flags.push({
+        level: 'WARNING',
+        field: flag.field,
+        message: flag.message,
+      })
+    }
+    warnings.push(flag.message)
+  })
+
   const reviewCost = aggregateReviewCost(
     reviewResults.flatMap((doc) => doc.debugLog.attempts.map((attempt) =>
       attempt.usage
@@ -1923,10 +2212,15 @@ export async function reviewUploadedDocuments(
   }
 
   reviewResults.forEach((result) => {
-    const hasBolPages = result.extraction.pageClassifications?.some(
-      (page) => page.pageType === 'bill_of_lading'
+    const hasDeliveryProofPages = result.extraction.pageClassifications?.some(
+      (page) => isDeliveryProofPageType(page.pageType)
     )
-    if (result.extraction.documentType === 'bill_of_lading' || hasBolPages) {
+    if (
+      result.extraction.documentType === 'bill_of_lading' ||
+      result.extraction.documentType === 'proof_of_delivery' ||
+      result.extraction.documentType === 'delivery_confirmation' ||
+      hasDeliveryProofPages
+    ) {
       collectBolIssues(result, rateConPresent, issues, warnings)
     }
 
@@ -2003,7 +2297,7 @@ export async function generateDispatcherRule(
     buildDispatcherRulePrompt(JSON.stringify(originalFinding, null, 2), dispatcherCorrection),
     { model: AI_REVIEW_CONFIG.FALLBACK_MODEL }
   )
-  return raw as DispatcherShipperRule
+  return raw as unknown as DispatcherShipperRule
 }
 
 export { isAIReviewEnabled }

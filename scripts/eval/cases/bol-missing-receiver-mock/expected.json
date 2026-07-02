@@ -1,0 +1,26 @@
+{
+  "id": "bol-missing-receiver-mock",
+  "description": "Single-page BOL with missing receiver signature — mock fixtures, zero API cost.",
+  "documents": [
+    {
+      "id": "bol-doc",
+      "name": "bol-only.pdf",
+      "pagesDir": "pages",
+      "pageFiles": ["page-01.jpg"]
+    }
+  ],
+  "env": {
+    "VITE_AI_SIGNATURE_CONSENSUS": "1"
+  },
+  "expected": {
+    "pageClassifications": [
+      { "fileName": "bol-only.pdf", "pageNumber": 1, "pageType": "bill_of_lading" }
+    ],
+    "receiverSignature": "MISSING",
+    "verdict": "REJECTED",
+    "flagsMustInclude": ["receiver"]
+  },
+  "consistency": {
+    "maxVerdictFlipRate": 0
+  }
+}

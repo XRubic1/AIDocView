@@ -12,6 +12,7 @@ export type PageDocumentType =
   | 'rate_confirmation'
   | 'bill_of_lading'
   | 'proof_of_delivery'
+  | 'delivery_confirmation'
   | 'lumper'
   | 'other'
 
@@ -19,6 +20,7 @@ export type DocumentType =
   | 'rate_confirmation'
   | 'bill_of_lading'
   | 'proof_of_delivery'
+  | 'delivery_confirmation'
   | 'lumper'
   | 'other'
 
@@ -166,6 +168,8 @@ export interface DocumentReviewAttempt {
     | 'page_classify'
     | 'bol_deep_review'
     | 'bol_validator'
+    | 'bol_validator_consensus'
+    | 'bol_signature_crop_verify'
     | 'rate_con_deep_review'
     | 'invoice_extractor'
     | 'lumper_extractor'

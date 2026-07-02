@@ -2,10 +2,16 @@
 
 interface ImportMetaEnv {
   readonly VITE_OPENAI_API_KEY?: string
-  /** Primary vision model for document review (default: gpt-4.1) */
+  /** Primary vision model — use a dated snapshot for reproducibility (default: gpt-4.1-2025-04-14) */
   readonly VITE_AI_PRIMARY_MODEL?: string
-  /** Fallback when confidence is low (default: gpt-4o) */
+  /** Fallback when confidence is low (default: gpt-4o-2024-08-06) */
   readonly VITE_AI_FALLBACK_MODEL?: string
+  /** OpenAI seed for deterministic extraction/audit (default: 42001337) */
+  readonly VITE_AI_OPENAI_SEED?: string
+  /** BOL receiver-signature validator passes: 1 or 2 (default 2 = consensus) */
+  readonly VITE_AI_SIGNATURE_CONSENSUS?: string
+  /** true = second consensus pass uses fallback model instead of primary */
+  readonly VITE_AI_SIGNATURE_CONSENSUS_MIXED?: string
   /** Optional max PDF pages per file; omit or 0 = review all pages */
   readonly VITE_AI_MAX_PDF_PAGES?: string
   /** Page classification model (default: same as VITE_AI_PRIMARY_MODEL, gpt-4.1) */

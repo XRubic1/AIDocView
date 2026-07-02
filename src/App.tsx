@@ -33,6 +33,7 @@ import DocumentReviewTest from './pages/DocumentReviewTest'
 import LoadReviewWorkbench from './pages/LoadReviewWorkbench'
 import ReviewRulesPage from './pages/ReviewRulesPage'
 import LoadHistoryPage from './pages/LoadHistoryPage'
+import EngineSettingsPage from './pages/EngineSettingsPage'
 import TestTailwind from './components/TestTailwind'
 import DocSortLandingPage from './products/docSort/pages/DocSortLandingPage'
 import DocSortWorkbench from './products/docSort/pages/DocSortWorkbench'
@@ -80,6 +81,7 @@ function App() {
         <Route path="/users" element={<Users />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/engine" element={<LoadReviewWorkbench />} />
+        <Route path="/engine/settings" element={<EngineSettingsPage />} />
         <Route path="/dev/load-review" element={<LoadReviewWorkbench />} />
         <Route path="/dev/document-review" element={<LoadReviewWorkbench />} />
         <Route path="/dev/document-review/test" element={<DocumentReviewTest />} />

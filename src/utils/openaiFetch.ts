@@ -1,4 +1,6 @@
 import { AI_REVIEW_CONFIG } from '../config/aiReview'
+import { getRuntimeEnvString } from '../platform/runtimeEnv'
+import { getOpenAIChatCompletionsHandler } from '../platform/openaiTransport'
 
 const MAX_429_RETRIES = 5
 
@@ -7,7 +9,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function getKey(): string {
-  const key = import.meta.env.VITE_OPENAI_API_KEY?.trim()
+  const key = getRuntimeEnvString('VITE_OPENAI_API_KEY')
   if (!key) {
     throw new Error('OpenAI API key is not configured. Add VITE_OPENAI_API_KEY to your .env file.')
   }
@@ -28,6 +30,11 @@ export function parseOpenAIRetrySeconds(errorBody: string): number | undefined {
 export async function postOpenAIChatCompletions(
   body: Record<string, unknown>
 ): Promise<Response> {
+  const override = getOpenAIChatCompletionsHandler()
+  if (override) {
+    return override(body)
+  }
+
   let lastErrorBody = ''
 
   for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt += 1) {

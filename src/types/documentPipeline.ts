@@ -74,6 +74,25 @@ export type SignatureStatus = 'PRESENT' | 'MISSING' | 'UNCLEAR' | 'PASS_BY_RULE'
 /** Whether a signature appears authentic vs possibly forged or stamped digitally. */
 export type SignatureAuthenticityStatus = 'NONE' | 'NOTED' | 'UNCLEAR'
 
+/** Record of a relaxation rule that waived a secondary requirement (not primary evidence). */
+export interface AppliedRelaxationRule {
+  field: 'receiver' | 'receiver_date' | 'shipper' | 'carrier' | string
+  result: SignatureStatus | string
+  rule: string
+  evidence: string
+}
+
+/** Bounding box + description for a signature the model claims is PRESENT. */
+export interface SignatureLocalization {
+  page: number
+  x: number
+  y: number
+  w: number
+  h: number
+  description: string
+  mark_kind?: 'ink_signature' | 'stamp' | 'initials' | 'printed_text' | 'empty' | 'unclear'
+}
+
 /** Prompt 3 — BOL audit report. */
 export interface BolAudit {
   destination_match: AuditPassFail
@@ -91,6 +110,12 @@ export interface BolAudit {
     shipper_authenticity?: SignatureAuthenticityStatus
     carrier_authenticity?: SignatureAuthenticityStatus
     rule_applied?: string | null
+    /** Every PASS_BY_RULE / waived field with the evidence the rule relied on. */
+    applied_rules?: AppliedRelaxationRule[]
+    /** Required when status is PRESENT — normalized box on the PDF page. */
+    receiver_localization?: SignatureLocalization | null
+    shipper_localization?: SignatureLocalization | null
+    carrier_localization?: SignatureLocalization | null
   }
   ship_from?: string
   ship_to?: string
@@ -135,6 +160,10 @@ export interface CrossValidationResult {
   }
   overall: 'APPROVED' | 'NEEDS_REVIEW' | 'REJECTED'
   flags: CrossValidationFlag[]
+  /** Fail-closed gate: which invariants blocked auto-approval. */
+  failClosedInvariantFailures?: string[]
+  /** Relaxation rules applied on BOL audits in this batch. */
+  appliedRelaxationRules?: AppliedRelaxationRule[]
 }
 
 /** Prompt 5 — dispatcher-created shipper rule. */

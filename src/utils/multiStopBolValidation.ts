@@ -1,6 +1,7 @@
 import { BolAudit, CrossValidationFlag, RateConDestination, RateConParse } from '../types/documentPipeline'
 import { DocumentReviewResult } from '../types/documentReview'
 import { bolAuditMeetsDeliveryRequirements } from './bolAuditSanitizer'
+import { isDeliveryProofPageType } from './deliveryProofPages'
 import { destinationsMatch, formatRateConStop } from './locationMatch'
 
 export interface BolUnit {
@@ -74,11 +75,13 @@ export function extractBolUnitsFromBatch(documents: DocumentReviewResult[]): Bol
 
     const bolPageNumbers =
       doc.extraction.pageClassifications
-        ?.filter((page) => page.pageType === 'bill_of_lading' && !page.skipped)
+        ?.filter((page) => isDeliveryProofPageType(page.pageType) && !page.skipped)
         .map((page) => page.pageNumber) ?? []
 
     const hasBol =
       doc.extraction.documentType === 'bill_of_lading' ||
+      doc.extraction.documentType === 'proof_of_delivery' ||
+      doc.extraction.documentType === 'delivery_confirmation' ||
       bolPageNumbers.length > 0 ||
       Boolean(doc.extraction.bolAudit)
 

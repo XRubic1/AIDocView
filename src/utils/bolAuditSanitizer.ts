@@ -12,6 +12,12 @@ import {
   shouldUseBolCarrierSigRelaxation,
   shouldUseBolZipOnlyRelaxation,
 } from './reviewRulesEngine'
+import {
+  hasReceiverSignatureEvidence,
+  hasSubstituteReceiverEvidence,
+} from './failClosedApprovalGate'
+import { hasValidReceiverLocalization } from './bolSignatureVerification'
+import type { AppliedRelaxationRule } from '../types/documentPipeline'
 
 export interface BolAuditContext {
   /** PDF page number(s) sent to the BOL validator in this call. */
@@ -181,21 +187,62 @@ const RECEIVER_SIG_MISSING_FLAG =
 const PICKUP_SIGNATURE_FLAG =
   /\b(shipper|carrier|driver|pickup)(\s*\/\s*driver)?(\s+signature|\s+signatures)?\b/i
 
-const RECEIVER_SIGNATURE_EVIDENCE =
-  /\b(receiver|consignee)\b.{0,30}\b(signature|signed|stamp|initial|mark|x\b|proof)\b|\bsigned\s+by\b|\bsignature\s+(found|present|visible)\b/i
+function appendAppliedRule(
+  rules: AppliedRelaxationRule[],
+  rule: AppliedRelaxationRule
+): AppliedRelaxationRule[] {
+  const exists = rules.some(
+    (entry) =>
+      entry.field === rule.field && entry.rule === rule.rule && entry.evidence === rule.evidence
+  )
+  return exists ? rules : [...rules, rule]
+}
 
-function hasReceiverSignatureEvidence(audit: BolAudit): boolean {
-  const text = [
-    audit.destination_notes ?? '',
-    audit.legibility_notes ?? '',
-    audit.signatures.rule_applied ?? '',
-    ...(audit.flags ?? []),
-  ]
-    .join(' ')
-    .trim()
+/** Rules may waive secondary fields only; receiver PASS_BY_RULE requires substitute evidence. */
+function enforceRelaxationRulesFence(audit: BolAudit): BolAudit {
+  let signatures = { ...audit.signatures }
+  let flags = [...(audit.flags ?? [])]
+  let appliedRules = [...(signatures.applied_rules ?? [])]
 
-  if (!text) return false
-  return RECEIVER_SIGNATURE_EVIDENCE.test(text)
+  if (signatures.receiver === 'PASS_BY_RULE' && !hasSubstituteReceiverEvidence(audit)) {
+    signatures = {
+      ...signatures,
+      receiver: 'MISSING',
+      rule_applied: null,
+      applied_rules: appliedRules.filter((rule) => rule.field !== 'receiver'),
+    }
+    flags.push(
+      'Receiver PASS_BY_RULE rejected: rule requires substitute evidence (e.g. Walmart stamp/TCR) but none was detected.'
+    )
+  } else if (signatures.receiver === 'PASS_BY_RULE' && hasSubstituteReceiverEvidence(audit)) {
+    const evidence =
+      audit.destination_notes?.trim() ||
+      audit.flags?.find((flag) => hasSubstituteReceiverEvidence({ ...audit, flags: [flag] })) ||
+      signatures.rule_applied ||
+      'Substitute delivery evidence detected on document.'
+    appliedRules = appendAppliedRule(appliedRules, {
+      field: 'receiver',
+      result: 'PASS_BY_RULE',
+      rule: signatures.rule_applied ?? 'Shipper rule',
+      evidence,
+    })
+  }
+
+  if (
+    signatures.receiver === 'PRESENT' &&
+    !hasReceiverSignatureEvidence(audit)
+  ) {
+    signatures = { ...signatures, receiver: 'UNCLEAR' }
+    flags.push(
+      'Receiver signature marked PRESENT but evidence is weak or unclear; verify consignee signature area.'
+    )
+  }
+
+  return {
+    ...audit,
+    signatures: { ...signatures, applied_rules: appliedRules.length ? appliedRules : undefined },
+    flags,
+  }
 }
 
 function isPickupSignatureFlag(flag: string): boolean {
@@ -622,9 +669,19 @@ export function mergeBolPageAudits(
         a.signatures.receiver_date === 'PASS_BY_RULE'
     )
     if (!dateOnAnyPage) {
-      merged.signatures.receiver_date = 'PASS_BY_RULE'
-      merged.signatures.rule_applied =
+      const mergeRule =
         'Single delivery: receiver signature found on at least one BOL page (date not required on every page).'
+      merged.signatures.receiver_date = 'PASS_BY_RULE'
+      merged.signatures.rule_applied = mergeRule
+      merged.signatures.applied_rules = appendAppliedRule(
+        merged.signatures.applied_rules ?? [],
+        {
+          field: 'receiver_date',
+          result: 'PASS_BY_RULE',
+          rule: mergeRule,
+          evidence: 'Receiver signature present on at least one BOL page in upload.',
+        }
+      )
     } else {
       merged.signatures.receiver_date = bestSignatureStatus(
         ...audits.map((a) => a.signatures.receiver_date)
@@ -651,31 +708,46 @@ export function mergeBolPageAudits(
 
 /** Downgrade ZIP-only and carrier-sig noise; align destination when core address matches. */
 export function finalizeBolAudit(audit: BolAudit, rateConParse?: RateConParse): BolAudit {
+  const fenced = enforceRelaxationRulesFence(audit)
+
   const rateDest = formatRateConStop(rateConParse?.destinations?.[0])
-  let destination_match = audit.destination_match
-  let destination_notes = audit.destination_notes
+  let destination_match = fenced.destination_match
+  let destination_notes = fenced.destination_notes
 
   if (
     shouldPassBolCoreAddressMatch() &&
-    audit.ship_to &&
+    fenced.ship_to &&
     rateDest &&
-    coreAddressMatches(audit.ship_to, rateDest)
+    coreAddressMatches(fenced.ship_to, rateDest)
   ) {
     destination_match = 'PASS'
-    if (ZIP_ONLY_FLAG.test(destination_notes ?? '') || ZIP_ONLY_FLAG.test((audit.flags ?? []).join(' '))) {
+    if (ZIP_ONLY_FLAG.test(destination_notes ?? '') || ZIP_ONLY_FLAG.test((fenced.flags ?? []).join(' '))) {
       destination_notes =
         'Delivery address matches rate con (city/state/street). ZIP may differ (e.g. ZIP+4) — informational only.'
     }
   }
 
   let blockingFlags: string[] = []
-  blockingFlags = filterBlockingBolFlags(audit.flags ?? [])
+  blockingFlags = filterBlockingBolFlags(fenced.flags ?? [])
 
-  let signatures = audit.signatures
+  let signatures = fenced.signatures
+
+  if (signatures.receiver === 'PRESENT' && !hasValidReceiverLocalization(fenced)) {
+    signatures = {
+      ...signatures,
+      receiver: 'UNCLEAR',
+    }
+    blockingFlags = [
+      ...blockingFlags,
+      'Receiver signature marked PRESENT but no bounding box localization was provided.',
+    ]
+  }
+
   const weakReceiverEvidence =
     signatures.receiver === 'PRESENT' &&
     signatures.receiver_date !== 'PRESENT' &&
-    !hasReceiverSignatureEvidence(audit)
+    !hasReceiverSignatureEvidence(fenced) &&
+    !hasValidReceiverLocalization(fenced)
   if (weakReceiverEvidence) {
     signatures = {
       ...signatures,
@@ -701,12 +773,19 @@ export function finalizeBolAudit(audit: BolAudit, rateConParse?: RateConParse): 
       signatures.receiver_date !== 'PRESENT' &&
       signatures.receiver_date !== 'PASS_BY_RULE'
     ) {
+      const dateRule =
+        signatures.rule_applied ??
+        'Single delivery: receiver signature present (date not required on every page).'
       signatures = {
         ...signatures,
         receiver_date: 'PASS_BY_RULE',
-        rule_applied:
-          signatures.rule_applied ??
-          'Single delivery: receiver signature present (date not required on every page).',
+        rule_applied: dateRule,
+        applied_rules: appendAppliedRule(signatures.applied_rules ?? [], {
+          field: 'receiver_date',
+          result: 'PASS_BY_RULE',
+          rule: dateRule,
+          evidence: 'Receiver signature present on audited delivery page.',
+        }),
       }
     }
   }
@@ -719,18 +798,38 @@ export function finalizeBolAudit(audit: BolAudit, rateConParse?: RateConParse): 
       'Shipper and carrier signatures are not required for approval (receiver proof is sufficient).'
     const relaxedPickup = (status: BolAudit['signatures']['shipper']) =>
       status === 'MISSING' || status === 'UNCLEAR' ? 'PASS_BY_RULE' : status
+    const nextShipper = relaxedPickup(signatures.shipper)
+    const nextCarrier = relaxedPickup(signatures.carrier)
+    let appliedRules = signatures.applied_rules ?? []
+    if (nextShipper === 'PASS_BY_RULE' && signatures.shipper !== 'PASS_BY_RULE') {
+      appliedRules = appendAppliedRule(appliedRules, {
+        field: 'shipper',
+        result: 'PASS_BY_RULE',
+        rule: pickupNote,
+        evidence: 'Receiver delivery proof sufficient; shipper signature not required.',
+      })
+    }
+    if (nextCarrier === 'PASS_BY_RULE' && signatures.carrier !== 'PASS_BY_RULE') {
+      appliedRules = appendAppliedRule(appliedRules, {
+        field: 'carrier',
+        result: 'PASS_BY_RULE',
+        rule: pickupNote,
+        evidence: 'Receiver delivery proof sufficient; carrier signature not required.',
+      })
+    }
     signatures = {
       ...signatures,
-      shipper: relaxedPickup(signatures.shipper),
-      carrier: relaxedPickup(signatures.carrier),
+      shipper: nextShipper,
+      carrier: nextCarrier,
       rule_applied: signatures.rule_applied ?? pickupNote,
+      applied_rules: appliedRules.length ? appliedRules : undefined,
     }
-    const withoutPickupNoise = (audit.flags ?? []).filter((f) => !isPickupSignatureMessage(f))
+    const withoutPickupNoise = (fenced.flags ?? []).filter((f) => !isPickupSignatureMessage(f))
     blockingFlags = filterBlockingBolFlags(withoutPickupNoise)
   }
 
   const updated: BolAudit = {
-    ...audit,
+    ...fenced,
     destination_match,
     destination_notes,
     flags: blockingFlags,

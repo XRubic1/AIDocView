@@ -20,6 +20,7 @@ export const PAGE_TYPE_LABELS: Record<PageDocumentType, string> = {
   rate_confirmation: 'Rate Con',
   bill_of_lading: 'BOL',
   proof_of_delivery: 'POD',
+  delivery_confirmation: 'Delivery confirmation',
   lumper: 'Lumper',
   invoice: 'Invoice',
   blank: 'Blank',

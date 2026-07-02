@@ -135,9 +135,19 @@ export function estimateTokensForPageCount(pageCount: number): PageTokenEstimate
 
   const bolPages = Math.min(4, Math.max(1, Math.ceil(pages * 0.35)))
   const bolCalls = pages > 6 ? bolPages : 1
+  const consensusRuns = Math.max(1, AI_REVIEW_CONFIG.SIGNATURE_CONSENSUS_RUNS)
   for (let b = 0; b < bolCalls; b += 1) {
-    totalTokens += tokensPerVisionCall(bolCalls === 1 ? bolPages : 1, extractDetail, PROMPT_TOKENS_EXTRACT)
-    apiCalls += 1
+    for (let pass = 0; pass < consensusRuns; pass += 1) {
+      totalTokens += tokensPerVisionCall(
+        bolCalls === 1 ? bolPages : 1,
+        extractDetail,
+        PROMPT_TOKENS_EXTRACT
+      )
+      apiCalls += 1
+      // Signature crop follow-up (low detail, single small region — ~80% of BOL passes).
+      totalTokens += tokensPerVisionCall(1, 'low', 350)
+      apiCalls += 1
+    }
   }
 
   if (pages > 12) {
@@ -145,7 +155,6 @@ export function estimateTokensForPageCount(pageCount: number): PageTokenEstimate
     apiCalls += 1
   }
 
-  const firstClassifyBatch = Math.min(batchSize, pages)
   const classifyBatchesInBurst = pages <= batchSize ? 1 : Math.min(2, Math.ceil(pages / batchSize))
 
   let peakTokensPerMinute = 0
@@ -166,6 +175,12 @@ export function estimateTokensForPageCount(pageCount: number): PageTokenEstimate
   }
 
   peakTokensPerMinute += tokensPerVisionCall(bolPages, extractDetail, PROMPT_TOKENS_EXTRACT)
+  peakTokensPerMinute += tokensPerVisionCall(
+    bolPages,
+    extractDetail,
+    PROMPT_TOKENS_EXTRACT
+  ) * Math.max(0, consensusRuns - 1)
+  peakTokensPerMinute += tokensPerVisionCall(1, 'low', 350) * bolCalls * consensusRuns
 
   peakTokensPerMinute = Math.round(
     peakTokensPerMinute * AI_REVIEW_CONFIG.TPM_ESTIMATE_BUFFER
@@ -209,13 +224,21 @@ export function estimateCostUsdForPageCount(pageCount: number): number {
 
   const bolPages = Math.min(4, Math.max(1, Math.ceil(pages * 0.35)))
   const bolCalls = pages > 6 ? bolPages : 1
+  const consensusRuns = Math.max(1, AI_REVIEW_CONFIG.SIGNATURE_CONSENSUS_RUNS)
   for (let b = 0; b < bolCalls; b += 1) {
-    totalUsd += visionCallCost(
-      bolCalls === 1 ? bolPages : 1,
-      extractDetail,
-      PROMPT_TOKENS_EXTRACT,
-      extractModel
-    )
+    for (let pass = 0; pass < consensusRuns; pass += 1) {
+      const mixedModel =
+        pass > 0 && AI_REVIEW_CONFIG.SIGNATURE_CONSENSUS_MIXED_MODELS
+          ? AI_REVIEW_CONFIG.FALLBACK_MODEL
+          : extractModel
+      totalUsd += visionCallCost(
+        bolCalls === 1 ? bolPages : 1,
+        extractDetail,
+        PROMPT_TOKENS_EXTRACT,
+        mixedModel
+      )
+      totalUsd += visionCallCost(1, 'low', 350, mixedModel)
+    }
   }
 
   if (pages > 12) {
@@ -456,8 +479,8 @@ export function estimateReviewTokensForPageCounts(
     waves,
     runSummary,
     perFile,
-    exceedsLimit,
     ...risk,
+    exceedsLimit: exceedsLimit || risk.exceedsLimit,
   }
 }
 

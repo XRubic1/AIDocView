@@ -1,5 +1,9 @@
 import { BolAudit, CrossValidationFlag, RateConParse } from '../types/documentPipeline'
 import { DocumentReviewResult, ExtractedDocumentData, PageClassification } from '../types/documentReview'
+import {
+  countDeliveryProofPages,
+  isDeliveryProofPageType,
+} from './deliveryProofPages'
 
 export interface RequiredDocumentInput {
   rateConParse?: RateConParse
@@ -53,7 +57,7 @@ export function documentHasBolEvidence(extraction: ExtractedDocumentData): boole
   if (extraction.documentType === 'bill_of_lading') return true
   const pages = extraction.pageClassifications ?? []
   return pages.some(
-    (p) => p.pageType === 'bill_of_lading' || p.pageType === 'proof_of_delivery'
+    (p) => isDeliveryProofPageType(p.pageType)
   )
 }
 
@@ -79,7 +83,7 @@ export function evaluateRequiredDocuments(input: RequiredDocumentInput): Require
   const pages = input.pageClassifications ?? []
   const reviewDocs = input.reviewDocuments ?? []
   const bolPageCount =
-    input.bolPageCount ?? countPageType(pages, 'bill_of_lading')
+    input.bolPageCount ?? countDeliveryProofPages(pages)
   const hasRateCon = Boolean(
     input.rateConParse?.load_number ||
       input.rateConParse?.carrier_name ||

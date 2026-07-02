@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "recordedAt": "2026-01-01T00:00:00.000Z",
+  "calls": [
+    {
+      "label": "page_classify",
+      "response": {
+        "choices": [
+          {
+            "message": {
+              "content": "{\"doc_type\":\"BOL\",\"is_blank\":false,\"is_legible\":true,\"confidence\":0.95,\"notes\":\"Bill of lading delivery page\"}"
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 420,
+          "completion_tokens": 48,
+          "total_tokens": 468
+        }
+      }
+    },
+    {
+      "label": "bol_validator",
+      "response": {
+        "choices": [
+          {
+            "message": {
+              "content": "{\"bol_audit\":{\"destination_match\":\"PASS\",\"destination_notes\":\"Consignee matches rate con\",\"legibility\":\"PASS\",\"legibility_notes\":\"\",\"page_count\":\"PASS\",\"page_count_notes\":\"\",\"signatures\":{\"carrier\":\"MISSING\",\"shipper\":\"MISSING\",\"receiver\":\"MISSING\",\"receiver_date\":\"MISSING\",\"receiver_authenticity\":\"NONE\",\"shipper_authenticity\":\"NONE\",\"carrier_authenticity\":\"NONE\",\"rule_applied\":null,\"receiver_localization\":null,\"shipper_localization\":null,\"carrier_localization\":null},\"ship_from\":\"123 Shipper St\",\"ship_to\":\"456 Consignee Ave\",\"load_number\":\"LOAD-EVAL-001\",\"reference_numbers\":[],\"delivery_exceptions\":{\"damages\":\"NONE\",\"shortage\":\"NONE\",\"protest\":\"NONE\",\"notes\":\"\"},\"overall\":\"NEEDS_REVIEW\",\"flags\":[\"Receiver signature missing on bill of lading\"]}}"
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 2800,
+          "completion_tokens": 220,
+          "total_tokens": 3020
+        }
+      }
+    }
+  ]
+}
