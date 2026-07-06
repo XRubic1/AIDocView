@@ -285,6 +285,7 @@ function isNonBlockingBolFlag(flag: string): boolean {
   if (shouldUseBolZipOnlyRelaxation() && ZIP_ONLY_FLAG.test(flag)) return true
   if (shouldUseBolCarrierSigRelaxation() && isPickupSignatureFlag(flag)) return true
   if (SIGNATURE_AUTHENTICITY_FLAG.test(flag)) return true
+  if (/trusting primary bol audit localization/i.test(flag)) return true
   return false
 }
 

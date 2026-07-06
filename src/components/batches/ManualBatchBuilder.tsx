@@ -2,6 +2,10 @@ import { useMemo, useState } from 'react'
 import { mockBrokers } from '../../data/mockBrokers'
 import { submitManualBatch } from '../../services/credyx/submitManualBatch'
 import { formatCurrency } from '../../utils/format'
+import {
+  ensureUniqueClientInvoiceNumber,
+  getNextClientInvoiceNumber,
+} from '../../utils/clientInvoiceNumbers'
 import { Trash2 } from 'lucide-react'
 
 interface InvoiceDocument {
@@ -33,14 +37,11 @@ const emptyForm = (): ManualInvoiceRow => ({
   documents: [],
 })
 
-function generateNextInvoiceNumber(existing: ManualInvoiceRow[]): string {
-  const year = new Date().getFullYear()
-  let max = 0
-  existing.forEach((inv) => {
-    const m = inv.invoice_number.match(/INV-\d+-(\d+)/i)
-    if (m) max = Math.max(max, parseInt(m[1], 10))
-  })
-  return `INV-${year}-${String(max + 1).padStart(3, '0')}`
+function nextFormInvoiceNumber(clientId: string, existing: ManualInvoiceRow[]): string {
+  return getNextClientInvoiceNumber(
+    clientId,
+    existing.map((inv) => inv.invoice_number)
+  )
 }
 
 interface ManualBatchBuilderProps {
@@ -60,7 +61,7 @@ export default function ManualBatchBuilder({
   const [invoices, setInvoices] = useState<ManualInvoiceRow[]>([])
   const [form, setForm] = useState<ManualInvoiceRow>(() => ({
     ...emptyForm(),
-    invoice_number: generateNextInvoiceNumber([]),
+    invoice_number: nextFormInvoiceNumber(clientId, []),
   }))
   const [brokerSuggestions, setBrokerSuggestions] = useState<typeof mockBrokers>([])
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false)
@@ -115,23 +116,29 @@ export default function ManualBatchBuilder({
       alert('Broker name, broker address, and amount are required.')
       return
     }
-    const invoiceNumber = form.invoice_number || generateNextInvoiceNumber(invoices)
-    setInvoices((prev) => [...prev, { ...form, invoice_number: invoiceNumber }])
+    const reserved = invoices.map((inv) => inv.invoice_number)
+    const invoiceNumber = ensureUniqueClientInvoiceNumber(
+      clientId,
+      form.invoice_number || nextFormInvoiceNumber(clientId, invoices),
+      reserved
+    )
+    const added = { ...form, invoice_number: invoiceNumber }
+    setInvoices((prev) => [...prev, added])
     setForm({
       ...emptyForm(),
-      invoice_number: generateNextInvoiceNumber([...invoices, { ...form, invoice_number: invoiceNumber }]),
+      invoice_number: nextFormInvoiceNumber(clientId, [...invoices, added]),
     })
     setShowBrokerSuggestions(false)
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (invoices.length === 0) {
       alert('Add at least one invoice before creating the batch.')
       return
     }
     setSubmitting(true)
     try {
-      const { batch } = submitManualBatch({
+      const { batch } = await submitManualBatch({
         clientId,
         clientName,
         invoices: invoices.map((inv) => ({

@@ -33,7 +33,7 @@ export default function ManagedDocHandoffView({
     if (files.length === 0 || isSubmitting) return
     setIsSubmitting(true)
     try {
-      const batchNumber = generateBatchNumber()
+      const batchNumber = generateBatchNumber(clientId)
       const submittedAt = new Date().toISOString()
       const batch = addBatch({
         batch_number: batchNumber,

@@ -108,7 +108,7 @@ Rules:
 - page_count: use BOL printed pagination only ("Page 1 of 1" = PASS). INCOMPLETE only if BOL footer shows missing pages (e.g. "2 of 3" without page 1/3).
 - destination: PASS if consignee street/city/state match rate con; ZIP-only diff = note only.
 - signatures: receiver required for delivery; shipper/carrier optional (informational). Look for ink/stamp/initials in consignee box — not printed text. Single delivery: receiver on any page = PRESENT.
-- localization: for EVERY signature status PRESENT, return a normalized bounding box (page, x, y, w, h — 0–1, top-left origin) and a short description of what is inside the box (ink signature / stamp / initials / printed text). Example receiver_localization: {"page":1,"x":0.62,"y":0.81,"w":0.18,"h":0.04,"description":"ink signature in consignee signature line","mark_kind":"ink_signature"}. If you cannot draw a tight box, do NOT mark PRESENT.
+- localization: for EVERY signature status PRESENT, return a normalized bounding box (page, x, y, w, h — 0–1, top-left origin) and a short description of what is inside the box (ink signature / stamp / initials / printed text). The box must fully contain all ink marks — signatures often extend below the printed signature line, so include the full handwritten stroke. Example receiver_localization: {"page":1,"x":0.62,"y":0.81,"w":0.18,"h":0.04,"description":"ink signature in consignee signature line","mark_kind":"ink_signature"}. If you cannot draw a box that includes the ink, do NOT mark PRESENT.
 - authenticity: flag NOTED if signature looks traced, stamped, or digitally overlaid.
 - delivery_exceptions: NOTED for damage/shortage/protest notes; else NONE.
 - reference_numbers: all visible load/BOL/PO numbers.

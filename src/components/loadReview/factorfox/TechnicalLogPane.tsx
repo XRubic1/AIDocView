@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { BatchDocumentReviewResult, DocumentReviewResult } from '../../../types/documentReview'
 import { buildExtractionLog, LogLine } from '../../../utils/buildExtractionLog'
+import AiReasoningDropdown from './AiReasoningDropdown'
 
 interface TechnicalLogPaneProps {
   doc: DocumentReviewResult
@@ -112,6 +113,8 @@ export default function TechnicalLogPane({
           {doc.debugLog.attempts.length > 0 && ` · ${doc.debugLog.attempts.length} AI calls`}
         </div>
       )}
+
+      <AiReasoningDropdown doc={doc} />
     </div>
   )
 }

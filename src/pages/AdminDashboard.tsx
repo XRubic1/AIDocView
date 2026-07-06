@@ -13,7 +13,6 @@ import ManagedIntakeWidget from '../components/admin/ManagedIntakeWidget'
 import BatchStatusWidget from '../components/client/BatchStatusWidget'
 import { getAllBatches } from '../data/mockBatches'
 import { mockInvoices } from '../data/mockInvoices'
-import { mockClientCollections } from '../data/mockCollections'
 import { getAllAuditLogs } from '../utils/auditLogger'
 import { PendingBatch, CollectionsAlert, AgingAR } from '../types/admin'
 import { formatCurrency } from '../utils/format'
@@ -24,7 +23,6 @@ export default function AdminDashboard() {
   // Get all real data
   const allBatches = getAllBatches()
   const allInvoices = mockInvoices
-  const allCollections = mockClientCollections
   const allAuditLogs = getAllAuditLogs()
   
   // Calculate pending batches from real data
@@ -65,9 +63,7 @@ export default function AdminDashboard() {
         const daysSinceExpected = inv.days_since_expected || 0
         return daysSinceExpected >= 15 && inv.status !== 'paid' && inv.status !== 'force_closed'
       })
-      .map(inv => {
-        const collection = allCollections.find(c => c.invoice_id === inv.id)
-        return {
+      .map(inv => ({
           invoice_id: inv.id,
           inv_number: inv.invoice_number,
           client_name: inv.client_name,
@@ -75,15 +71,13 @@ export default function AdminDashboard() {
           amount: inv.amount,
           expected_payment_date: inv.expected_payment_date,
           days_since_expected: inv.days_since_expected || 0,
-          client_response: collection?.payment_status === 'paid' ? 'received' : 
-                          collection?.payment_status === 'not_received' ? 'not_received' : 'no_response',
+          client_response: (inv.broker_contacted ? 'not_received' : 'no_response') as CollectionsAlert['client_response'],
           broker_contacted: inv.broker_contacted || false,
           last_broker_contact: inv.last_broker_contact || null,
-        }
-      })
+        }))
       .sort((a, b) => b.days_since_expected - a.days_since_expected)
       .slice(0, 10)
-  }, [allInvoices, allCollections])
+  }, [allInvoices])
   
   // Calculate force close rate
   const forceCloseRate = useMemo(() => {

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { formatCurrency } from '../../utils/format'
 import { ArrowLeft, Check, AlertCircle, CheckCircle } from 'lucide-react'
 import { getAllBatches } from '../../data/mockBatches'
+import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
 import { mockInvoices } from '../../data/mockInvoices'
 import { Invoice } from '../../types/invoice'
 import AdminInvoiceDetailView from './AdminInvoiceDetailView'
@@ -171,29 +172,17 @@ export default function VerificationTab({
   }
 
   const handleApproveInvoice = (invoiceId: string) => {
-    const invoice = mockInvoices.find((inv) => inv.id === invoiceId)
-    if (invoice) {
-      invoice.status = 'approved'
-      invoice.approved_by = 'Admin User'
-      invoice.approved_at = new Date().toISOString()
-      // Update selected invoice if it's the same one
-      if (selectedInvoice?.id === invoiceId) {
-        setSelectedInvoice({ ...invoice })
-      }
+    const updated = approveAdminInvoice(invoiceId)
+    if (updated && selectedInvoice?.id === invoiceId) {
+      setSelectedInvoice({ ...updated })
     }
-    // Don't close the view - just update the status
   }
 
   const handleHoldInvoice = (invoiceId: string) => {
-    const invoice = mockInvoices.find((inv) => inv.id === invoiceId)
-    if (invoice) {
-      invoice.status = 'hold'
-      // Update selected invoice if it's the same one
-      if (selectedInvoice?.id === invoiceId) {
-        setSelectedInvoice({ ...invoice })
-      }
+    const updated = holdAdminInvoice(invoiceId)
+    if (updated && selectedInvoice?.id === invoiceId) {
+      setSelectedInvoice({ ...updated })
     }
-    // Don't close the view - just update the status
   }
 
 

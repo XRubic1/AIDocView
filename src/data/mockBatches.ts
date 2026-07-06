@@ -1,7 +1,9 @@
 import { PendingBatch } from '../types/admin'
 import type { Invoice } from '../types/invoice'
 import { addInvoice, getInvoicesByBatchId } from './mockInvoices'
-import { DEMO_WORLD } from './unifiedDemo'
+import { deleteBatchFromDb, persistBatch } from '../services/supabase/tenantPersist'
+import { ensureClientBatchCode } from '../services/clientRegistry'
+import { buildBatchNumber, getMaxBatchSequence } from '../utils/clientBatchNumbers'
 
 export interface Batch extends PendingBatch {
   reviewed_at?: string
@@ -10,10 +12,13 @@ export interface Batch extends PendingBatch {
   rejected_count?: number
 }
 
-// In-memory storage for batches (in a real app, this would be a database)
-let batchesData: Batch[] = [...DEMO_WORLD.batches]
+let batchesData: Batch[] = []
 
-// Shared batches data source for all batch tabs
+/** Replace batch cache contents (used during hydration). */
+export function hydrateBatches(items: Batch[]): void {
+  batchesData = items
+}
+
 export const getAllBatches = (): Batch[] => {
   return batchesData
 }
@@ -37,7 +42,7 @@ export const createDraftBatch = (
   uploadMode: 'ai' | 'manual'
 ): Batch => {
   return addBatch({
-    batch_number: generateBatchNumber(),
+    batch_number: generateBatchNumber(clientId),
     client_name: clientName,
     client_id: clientId,
     total_invoices: 0,
@@ -60,11 +65,14 @@ export const updateBatch = (batchId: string, patch: Partial<Batch>): Batch | und
       (now.getTime() - submittedDate.getTime()) / (1000 * 60)
     )
   }
+  void persistBatch(batch).catch(console.error)
   return batch
 }
 
 export const deleteBatch = (batchId: string): void => {
+  const batch = batchesData.find((b) => b.id === batchId)
   batchesData = batchesData.filter((b) => b.id !== batchId)
+  void deleteBatchFromDb(batchId, batch?.client_id).catch(console.error)
 }
 
 export const updateBatchTotals = (batchId: string): void => {
@@ -80,6 +88,7 @@ export const updateBatchStatus = (batchId: string, newStatus: Batch['status']): 
   const batch = batchesData.find((b) => b.id === batchId)
   if (batch) {
     batch.status = newStatus
+    void persistBatch(batch).catch(console.error)
   }
 }
 
@@ -96,7 +105,8 @@ export const addBatch = (batchData: Omit<Batch, 'id' | 'minutes_since_submitted'
     in_use: false,
   }
 
-  batchesData.unshift(newBatch) // Add to the beginning for easier viewing
+  batchesData.unshift(newBatch)
+  void persistBatch(newBatch).catch(console.error)
   return newBatch
 }
 
@@ -117,12 +127,9 @@ export const addInvoicesForBatch = (
   return created
 }
 
-export const generateBatchNumber = (): string => {
+export const generateBatchNumber = (clientId: string): string => {
   const year = new Date().getFullYear()
-  const month = String(new Date().getMonth() + 1).padStart(2, '0')
-  const day = String(new Date().getDate()).padStart(2, '0')
-  const random = Math.floor(Math.random() * 1000)
-    .toString()
-    .padStart(3, '0')
-  return `BATCH-${year}-${month}${day}-${random}`
+  const clientCode = ensureClientBatchCode(clientId)
+  const sequence = getMaxBatchSequence(getAllBatches(), clientId, clientCode) + 1
+  return buildBatchNumber(year, sequence, clientCode)
 }

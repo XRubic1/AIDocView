@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
-import { mockClients } from '../../data/mockClients'
+import { getAllClients, getClientById } from '../../services/clientRegistry'
 import BatchAiUploadFlow from '../client/BatchAiUploadFlow'
 import ManualBatchBuilder from './ManualBatchBuilder'
 
@@ -23,7 +23,7 @@ export default function AdminCreateBatchPanel({
 }: AdminCreateBatchPanelProps) {
   const [step, setStep] = useState<CreateStep>('client')
   const [clientId, setClientId] = useState('')
-  const selectedClient = mockClients.find((c) => c.id === clientId)
+  const selectedClient = getClientById(clientId)
 
   const resetToClient = () => {
     setStep('client')
@@ -68,7 +68,7 @@ export default function AdminCreateBatchPanel({
             style={{ borderColor: '#819291', color: '#113543' }}
           >
             <option value="">Choose a client…</option>
-            {mockClients.map((c) => (
+            {getAllClients().map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>

@@ -6,10 +6,12 @@ import { mockPayments } from './mockPayments'
 import { getAllBatches, type Batch } from './mockBatches'
 import { enrichInvoices, isOpenArInvoice } from '../utils/invoiceAging'
 import { computeOpenArAging } from '../utils/clientReports'
-import { getConfirmedPaymentTotal } from './mockPayments'
+import { isSupabaseConfigured } from '../lib/supabase'
+import { fetchClientTenantData, type ClientTenantData } from '../services/supabase/tenantDataRepository'
 
-/** Invoices for a client — single source, no supplemental merge. */
-export function getClientInvoices(clientId: string, clientName?: string): Invoice[] {
+const tenantCache = new Map<string, ClientTenantData>()
+
+function mockInvoicesForClient(clientId: string, clientName?: string): Invoice[] {
   return mockInvoices.filter(
     (inv) =>
       inv.client_id === clientId ||
@@ -17,26 +19,95 @@ export function getClientInvoices(clientId: string, clientName?: string): Invoic
   )
 }
 
-/** Payments linked to a client's invoices. */
-export function getClientPayments(clientId: string, clientName?: string): Payment[] {
-  const ids = new Set(getClientInvoices(clientId, clientName).map((inv) => inv.id))
+function mockPaymentsForClient(clientId: string, clientName?: string): Payment[] {
+  const ids = new Set(mockInvoicesForClient(clientId, clientName).map((inv) => inv.id))
   return mockPayments
     .filter((p) => ids.has(p.invoice_id))
     .sort((a, b) => b.received_date.localeCompare(a.received_date))
 }
 
-/** Batches for a client. */
-export function getClientBatches(clientId: string): Batch[] {
+function mockBatchesForClient(clientId: string): Batch[] {
   return getAllBatches().filter((b) => b.client_id === clientId)
 }
 
-/** Dashboard snapshot derived from live invoice/payment data. */
+/** Load and cache tenant data for one client from Supabase (or mock fallback). */
+export async function loadClientTenantData(
+  clientId: string,
+  _clientName?: string
+): Promise<ClientTenantData> {
+  if (!clientId) {
+    return { clientId: '', invoices: [], payments: [], batches: [] }
+  }
+
+  if (isSupabaseConfigured()) {
+    const data = await fetchClientTenantData(clientId)
+    tenantCache.set(clientId, data)
+    return data
+  }
+
+  const data: ClientTenantData = {
+    clientId,
+    invoices: mockInvoicesForClient(clientId, _clientName),
+    payments: mockPaymentsForClient(clientId, _clientName),
+    batches: mockBatchesForClient(clientId),
+  }
+  tenantCache.set(clientId, data)
+  return data
+}
+
+function getCachedOrMock(clientId: string, clientName?: string): ClientTenantData {
+  const cached = tenantCache.get(clientId)
+  if (cached) return cached
+
+  return {
+    clientId,
+    invoices: mockInvoicesForClient(clientId, clientName),
+    payments: mockPaymentsForClient(clientId, clientName),
+    batches: mockBatchesForClient(clientId),
+  }
+}
+
+/** Invoices for a client — always scoped by client_id. */
+export function getClientInvoices(clientId: string, clientName?: string): Invoice[] {
+  if (!clientId) return []
+  return getCachedOrMock(clientId, clientName).invoices
+}
+
+/** Payments for a client — always scoped by client_id. */
+export function getClientPayments(clientId: string, clientName?: string): Payment[] {
+  if (!clientId) return []
+  return getCachedOrMock(clientId, clientName).payments
+}
+
+/** Batches for a client — always scoped by client_id. */
+export function getClientBatches(clientId: string): Batch[] {
+  if (!clientId) return []
+  return getCachedOrMock(clientId).batches
+}
+
+/** Clear cached tenant data (e.g. on logout). */
+export function clearClientTenantCache(clientId?: string): void {
+  if (clientId) tenantCache.delete(clientId)
+  else tenantCache.clear()
+}
+
+/** Confirmed payment total for an invoice within cached tenant data. */
+export function getConfirmedPaymentTotalForClient(
+  clientId: string,
+  invoiceId: string
+): number {
+  return getClientPayments(clientId)
+    .filter((p) => p.invoice_id === invoiceId && p.status === 'confirmed')
+    .reduce((sum, p) => sum + p.amount, 0)
+}
+
+/** Dashboard snapshot derived from client-scoped invoice/payment data. */
 export function buildClientDashboardData(
   clientId: string,
-  clientName: string
+  clientName: string,
+  invoices = getClientInvoices(clientId, clientName),
+  payments = getClientPayments(clientId, clientName)
 ): ClientDashboardData {
-  const invoices = getClientInvoices(clientId, clientName)
-  const payments = getClientPayments(clientId, clientName)
   const enriched = enrichInvoices(invoices)
   const openAr = enriched.filter(isOpenArInvoice)
   const aging = computeOpenArAging(invoices)
@@ -103,7 +174,7 @@ export function buildClientDashboardData(
 export function getPostableInvoices(clientId: string, clientName?: string): Invoice[] {
   return getClientInvoices(clientId, clientName).filter((inv) => {
     if (!isOpenArInvoice(inv)) return false
-    const received = getConfirmedPaymentTotal(inv.id)
+    const received = getConfirmedPaymentTotalForClient(clientId, inv.id)
     return received < inv.amount - 0.01
   })
 }

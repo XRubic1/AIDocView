@@ -1,6 +1,15 @@
 import { type ReactNode } from 'react'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, type LucideIcon } from 'lucide-react'
 import { useClientTheme } from '../../../theme/ThemeContext'
+
+export type DashboardPanelIconTone =
+  | 'blue'
+  | 'green'
+  | 'amber'
+  | 'red'
+  | 'purple'
+  | 'slate'
+  | 'cyan'
 
 interface DashboardPanelProps {
   title: string
@@ -11,6 +20,8 @@ interface DashboardPanelProps {
   className?: string
   compact?: boolean
   interactive?: boolean
+  icon?: LucideIcon
+  iconTone?: DashboardPanelIconTone
 }
 
 /** Premium card wrapper for dashboard sections. */
@@ -23,6 +34,8 @@ export default function DashboardPanel({
   className = '',
   compact = false,
   interactive = true,
+  icon: Icon,
+  iconTone = 'blue',
 }: DashboardPanelProps) {
   const t = useClientTheme()
   return (
@@ -35,18 +48,28 @@ export default function DashboardPanel({
         }`}
         style={{ borderColor: t.border }}
       >
-        <div className="min-w-0">
-          <h2
-            className={`truncate ${compact ? 'text-base font-semibold' : 'text-lg font-semibold'}`}
-            style={{ color: t.primary }}
-          >
-            {title}
-          </h2>
-          {description && !compact && (
-            <p className="text-sm font-medium mt-1" style={{ color: t.secondary }}>
-              {description}
-            </p>
+        <div className="min-w-0 flex items-center gap-2">
+          {Icon && (
+            <span
+              className={`dashboard-panel-icon dashboard-panel-icon--${iconTone} shrink-0`}
+              aria-hidden
+            >
+              <Icon className="w-3.5 h-3.5" />
+            </span>
           )}
+          <div className="min-w-0">
+            <h2
+              className={`truncate ${compact ? 'text-base font-semibold' : 'text-lg font-semibold'}`}
+              style={{ color: t.primary }}
+            >
+              {title}
+            </h2>
+            {description && !compact && (
+              <p className="text-sm font-medium mt-1" style={{ color: t.secondary }}>
+                {description}
+              </p>
+            )}
+          </div>
         </div>
         {actionLabel && onAction && (
           <button

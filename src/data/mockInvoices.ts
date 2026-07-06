@@ -1,8 +1,8 @@
 import { Invoice } from '../types/invoice'
-import { DEMO_WORLD } from './unifiedDemo'
+import { persistInvoice } from '../services/supabase/tenantPersist'
 
-/** Mutable in-memory invoice store — seeded from unified demo world. */
-export const mockInvoices: Invoice[] = DEMO_WORLD.invoices
+/** Mutable in-memory invoice store (hydrated from Supabase when configured). */
+export const mockInvoices: Invoice[] = []
 
 export const getInvoicesByBatchId = (batchId: string): Invoice[] => {
   return mockInvoices.filter((inv) => inv.batch_id === batchId)
@@ -12,7 +12,13 @@ export const getInvoiceById = (invoiceId: string): Invoice | undefined => {
   return mockInvoices.find((inv) => inv.id === invoiceId)
 }
 
-/** Add invoice to in-memory store. */
+/** Replace invoice cache contents (used during hydration). */
+export function hydrateInvoices(items: Invoice[]): void {
+  mockInvoices.length = 0
+  mockInvoices.push(...items)
+}
+
+/** Add invoice to store and persist to Supabase when configured. */
 export function addInvoice(
   data: Omit<Invoice, 'id' | 'created_at'> & { id?: string; created_at?: string }
 ): Invoice {
@@ -29,6 +35,7 @@ export function addInvoice(
     documents_count: data.documents_count ?? 0,
   }
   mockInvoices.unshift(invoice)
+  void persistInvoice(invoice).catch(console.error)
   return invoice
 }
 
@@ -36,5 +43,6 @@ export function updateInvoice(invoiceId: string, patch: Partial<Invoice>): Invoi
   const inv = mockInvoices.find((i) => i.id === invoiceId)
   if (!inv) return undefined
   Object.assign(inv, patch, { updated_at: new Date().toISOString() })
+  void persistInvoice(inv).catch(console.error)
   return inv
 }

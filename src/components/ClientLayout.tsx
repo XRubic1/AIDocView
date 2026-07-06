@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, useEffect, type ReactNode } from 'react'
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import {
   ChevronDown,
@@ -11,8 +11,10 @@ import {
 } from 'lucide-react'
 import { Notification } from '../types/notification'
 import NotificationBell from './NotificationBell'
-import { mockNotifications } from '../data/mockNotifications'
+import { getNotificationsForClient, markNotificationRead } from '../data/mockNotifications'
 import { getAllBatches } from '../data/mockBatches'
+import { clearClientTenantCache } from '../data/clientDemoData'
+import { clearClientSession } from '../utils/clearClientSession'
 import {
   filterClientNavSections,
   getInitials,
@@ -52,7 +54,13 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   const { resolvedTheme } = useTheme()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications)
+  const [notifications, setNotifications] = useState<Notification[]>([])
+
+  useEffect(() => {
+    if (resolvedClientId) {
+      setNotifications(getNotificationsForClient(resolvedClientId))
+    }
+  }, [resolvedClientId])
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true'
@@ -130,14 +138,13 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('clientAuthenticated')
-    localStorage.removeItem('clientEmail')
-    localStorage.removeItem('clientRole')
-    localStorage.removeItem('clientId')
+    clearClientSession()
+    if (resolvedClientId) clearClientTenantCache(resolvedClientId)
     navigate('/client/login')
   }
 
   const handleMarkAsRead = (id: string) => {
+    markNotificationRead(id)
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
   }
 

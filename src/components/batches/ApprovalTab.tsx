@@ -3,6 +3,7 @@ import { formatCurrency } from '../../utils/format'
 import { formatDate } from '../../utils/format'
 import { ArrowLeft, CheckCircle, Download } from 'lucide-react'
 import { getAllBatches, updateBatchStatus } from '../../data/mockBatches'
+import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
 import { mockInvoices } from '../../data/mockInvoices'
 import { Invoice } from '../../types/invoice'
 import AdminInvoiceDetailView from './AdminInvoiceDetailView'
@@ -471,6 +472,18 @@ export default function ApprovalTab({
           onInvoiceSelect={(inv) => setSelectedInvoice(inv)}
           onClose={() => setSelectedInvoice(null)}
           stage="approval"
+          onApprove={(invoiceId) => {
+            const updated = approveAdminInvoice(invoiceId)
+            if (updated && selectedInvoice?.id === invoiceId) {
+              setSelectedInvoice(updated)
+            }
+          }}
+          onHold={(invoiceId) => {
+            const updated = holdAdminInvoice(invoiceId)
+            if (updated && selectedInvoice?.id === invoiceId) {
+              setSelectedInvoice(updated)
+            }
+          }}
         />
       )}
 

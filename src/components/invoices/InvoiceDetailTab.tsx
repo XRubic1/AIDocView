@@ -4,7 +4,7 @@ import { formatDate } from '../../utils/format'
 import { ArrowLeft, Check, X, FileText, Phone, Download, Paperclip, Mail, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react'
 import { mockInvoices } from '../../data/mockInvoices'
 import { mockBrokers } from '../../data/mockBrokers'
-import { mockClients } from '../../data/mockClients'
+import { getClientById } from '../../services/clientRegistry'
 
 interface InvoiceDetailTabProps {
   invoiceId: string | null
@@ -17,7 +17,7 @@ export default function InvoiceDetailTab({ invoiceId, onBack }: InvoiceDetailTab
 
   const invoice = mockInvoices.find((inv) => inv.id === invoiceId)
   const broker = invoice ? mockBrokers.find((b) => b.id === invoice.broker_id) : null
-  const client = invoice ? mockClients.find((c) => c.id === invoice.client_id) : null
+  const client = invoice ? getClientById(invoice.client_id) : null
 
   if (!invoice) {
     return (

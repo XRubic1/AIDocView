@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Plus, RotateCcw } from 'lucide-react'
 import { formatCurrency } from '../../utils/format'
 import { formatDate } from '../../utils/format'
 import { PendingBatch } from '../../types/admin'
-import { getAllBatches } from '../../data/mockBatches'
+import { getAllBatches, updateBatchStatus } from '../../data/mockBatches'
 
 interface AllBatchesTabProps {
   onBatchSelect: (batchId: string, tab?: 'ready_to_post' | 'verification' | 'approval') => void
@@ -21,8 +21,8 @@ interface Batch extends PendingBatch {
 
 export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
   const navigate = useNavigate()
-  // Use shared batches data source
-  const [batches] = useState<Batch[]>(getAllBatches())
+  const [listVersion, setListVersion] = useState(0)
+  const batches = useMemo(() => getAllBatches(), [listVersion])
 
   const [filter, setFilter] = useState<'all' | 'ready_to_post' | 'verification' | 'approval' | 'submitted' | 'processing' | 'approved' | 'documents_uploaded'>('all')
   const [searchTerm, setSearchTerm] = useState('')
@@ -71,6 +71,22 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
       onBatchSelect(batch.id)
     }
   }
+
+  const handleReturnToApproval = (batch: Batch, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (batch.status === 'approval' || batch.status === 'draft') return
+
+    const confirmed = window.confirm(
+      `Return batch ${batch.batch_number} to Approval? It will reappear in the Approval workflow.`
+    )
+    if (!confirmed) return
+
+    updateBatchStatus(batch.id, 'approval')
+    setListVersion((v) => v + 1)
+  }
+
+  const canReturnToApproval = (status: Batch['status']) =>
+    status !== 'approval' && status !== 'draft'
 
   const handleNavigateToTab = (tab: 'ready_to_post' | 'verification' | 'approval') => {
     if (selectedBatchForNavigation) {
@@ -237,20 +253,47 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
                       <span className="text-sm" style={{ color: '#819291' }}>Not reviewed</span>
                     )}
                   </td>
-                  <td className="py-3 px-4 text-center">
-                    <button
-                      onClick={(e) => handleViewClick(batch, e)}
-                      className="px-3 py-1 text-sm font-medium text-white transition-colors"
-                      style={{ backgroundColor: '#C2A558' }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#b89547'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#C2A558'
-                      }}
-                    >
-                      View
-                    </button>
+                  <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-center gap-2">
+                      {canReturnToApproval(batch.status) && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleReturnToApproval(batch, e)}
+                          className="flex items-center gap-1 px-3 py-1 text-sm font-medium transition-colors border rounded"
+                          style={{
+                            color: '#113543',
+                            borderColor: '#819291',
+                            backgroundColor: '#FFFFFF',
+                          }}
+                          title="Return batch to Approval stage"
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#f8f9fa'
+                            e.currentTarget.style.borderColor = '#113543'
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = '#FFFFFF'
+                            e.currentTarget.style.borderColor = '#819291'
+                          }}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Approval</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => handleViewClick(batch, e)}
+                        className="px-3 py-1 text-sm font-medium text-white transition-colors"
+                        style={{ backgroundColor: '#C2A558' }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#b89547'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#C2A558'
+                        }}
+                      >
+                        View
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))

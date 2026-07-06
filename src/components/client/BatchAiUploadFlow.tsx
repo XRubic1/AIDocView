@@ -185,7 +185,7 @@ export default function BatchAiUploadFlow({
     setError(null)
     setProgress('Starting…')
     try {
-      const result = await runBatchIntakePipeline(fileList, (p: DocSortProgress) => {
+      const result = await runBatchIntakePipeline(fileList, clientId, (p: DocSortProgress) => {
         setProgress(p.message ?? `${p.phase} ${p.completed}/${p.total}`)
       })
       setDraft({
@@ -199,7 +199,7 @@ export default function BatchAiUploadFlow({
     } finally {
       setProgress(null)
     }
-  }, [draftBatchNumber])
+  }, [draftBatchNumber, clientId])
 
   useEffect(() => {
     if (initialFiles?.length && !hasRestored) {
@@ -295,7 +295,7 @@ export default function BatchAiUploadFlow({
     setAddingInvoice(true)
     setError(null)
     try {
-      const newDraft = await createManualCredyxDraft(draftRef.current.invoices, clientName)
+      const newDraft = await createManualCredyxDraft(draftRef.current.invoices, clientId, clientName)
       setDraft((prev) => {
         if (!prev) return prev
         return { ...prev, invoices: [...prev.invoices, newDraft] }

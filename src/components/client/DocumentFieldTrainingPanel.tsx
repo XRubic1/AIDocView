@@ -94,7 +94,13 @@ export default function DocumentFieldTrainingPanel({
   const [expandedHelp, setExpandedHelp] = useState<Record<string, boolean>>({})
 
   const pageImages = result.debugLog.images ?? [result.debugLog.image]
-  const fieldKeys = annotatableFields.map((field) => field.key)
+  const fieldKeys = useMemo(() => {
+    const keys = annotatableFields.map((field) => field.key)
+    Object.keys(aiRegions).forEach((key) => {
+      if (!keys.includes(key)) keys.push(key)
+    })
+    return keys
+  }, [annotatableFields, aiRegions])
 
   const getSourcePageImage = (fieldKey: string) => {
     const meta = annotatableFields.find((field) => field.key === fieldKey)

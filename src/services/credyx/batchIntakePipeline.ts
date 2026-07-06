@@ -28,6 +28,7 @@ function filesToUploads(files: File[]): DocSortUpload[] {
  */
 export async function runBatchIntakePipeline(
   files: File[],
+  clientId: string,
   onProgress?: (p: DocSortProgress) => void
 ): Promise<BatchIntakeDraft> {
   if (!isAIReviewEnabled()) {
@@ -50,7 +51,7 @@ export async function runBatchIntakePipeline(
   }
 
   return {
-    batchNumber: generateBatchNumber(),
+    batchNumber: generateBatchNumber(clientId),
     sortResult,
     invoices,
     unmatched: {
@@ -82,7 +83,7 @@ export function submitAiBatch(input: SubmitAiBatchInput): SubmitAiBatchResult {
   ]
 
   const existing = existingBatchId ? updateBatch(existingBatchId, {}) : undefined
-  const batchNumber = existing?.batch_number ?? generateBatchNumber()
+  const batchNumber = existing?.batch_number ?? generateBatchNumber(clientId)
 
   const batch = existing
     ? updateBatch(existingBatchId!, {

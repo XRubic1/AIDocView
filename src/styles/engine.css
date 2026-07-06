@@ -1555,6 +1555,147 @@
   text-align: right;
 }
 
+/* AI reasoning dropdown under Technical */
+.engine-tech-reasoning {
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #131312;
+}
+
+.engine-tech-reasoning-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: #8a8880;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.engine-tech-reasoning-toggle:hover {
+  color: #eceae2;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.engine-tech-reasoning-chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.engine-tech-reasoning-toggle.open .engine-tech-reasoning-chevron {
+  transform: rotate(180deg);
+}
+
+.engine-tech-reasoning-title {
+  color: #c9c7bf;
+}
+
+.engine-tech-reasoning-count {
+  margin-left: auto;
+  font-weight: 600;
+  color: #6b6960;
+}
+
+.engine-tech-reasoning-body {
+  max-height: 180px;
+  overflow-y: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.engine-tech-reasoning-entry {
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #1a1a18;
+  border-radius: 2px;
+}
+
+.engine-tech-reasoning-entry.pass {
+  border-color: rgba(61, 219, 122, 0.2);
+}
+
+.engine-tech-reasoning-entry.fail {
+  border-color: rgba(255, 69, 69, 0.25);
+}
+
+.engine-tech-reasoning-entry.warn {
+  border-color: rgba(245, 166, 35, 0.25);
+}
+
+.engine-tech-reasoning-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.engine-tech-reasoning-step {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7eb3ff;
+}
+
+.engine-tech-reasoning-entry.pass .engine-tech-reasoning-step {
+  color: #3ddb7a;
+}
+
+.engine-tech-reasoning-entry.fail .engine-tech-reasoning-step {
+  color: #ff4545;
+}
+
+.engine-tech-reasoning-entry.warn .engine-tech-reasoning-step {
+  color: #f5a623;
+}
+
+.engine-tech-reasoning-conf {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 8px;
+  color: #6b6960;
+}
+
+.engine-tech-reasoning-looked {
+  margin: 0 0 4px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  line-height: 1.4;
+  color: #8a8880;
+}
+
+.engine-tech-reasoning-looked-label {
+  display: inline-block;
+  margin-right: 6px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b6960;
+}
+
+.engine-tech-reasoning-thought {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #c9c7bf;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ── Full-height summary — one-glance 6 checks ── */
 .engine-summary-panel {
   flex: 1;

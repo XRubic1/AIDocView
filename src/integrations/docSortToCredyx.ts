@@ -1,4 +1,5 @@
-import { mockBrokers } from '../data/mockBrokers'
+import { addBroker, mockBrokers } from '../data/mockBrokers'
+import { getNextClientInvoiceNumber } from '../utils/clientInvoiceNumbers'
 import type { CredyxInvoiceDraft } from '../types/credyxBatch'
 import type { Invoice } from '../types/invoice'
 import { buildInvoiceDraftFromGroup } from '../products/docSort/services/docSortInvoice'
@@ -8,7 +9,7 @@ import type { DocSortLoadGroup, DocSortFingerprint } from '../products/docSort/t
 export function resolveBrokerId(brokerName: string): { broker_id: string; broker_name: string } {
   const trimmed = brokerName.trim()
   if (!trimmed) {
-    return { broker_id: 'broker-unknown', broker_name: 'Unknown Broker' }
+    return { broker_id: '', broker_name: 'Unknown Broker' }
   }
   const lower = trimmed.toLowerCase()
   const match = mockBrokers.find(
@@ -20,7 +21,11 @@ export function resolveBrokerId(brokerName: string): { broker_id: string; broker
   if (match) {
     return { broker_id: match.id, broker_name: match.name }
   }
-  return { broker_id: `broker-custom-${Date.now()}`, broker_name: trimmed }
+  const broker = addBroker({
+    id: `broker-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: trimmed,
+  })
+  return { broker_id: broker.id, broker_name: broker.name }
 }
 
 function isoDateFromUs(usDate: string): string {
@@ -104,19 +109,20 @@ export function isManualCredyxDraft(draft: CredyxInvoiceDraft): boolean {
   return draft.groupId.startsWith('manual-')
 }
 
-export function generateNextDraftInvoiceNumber(existing: CredyxInvoiceDraft[]): string {
-  const year = new Date().getFullYear()
-  let max = 0
-  existing.forEach((inv) => {
-    const match = inv.invoice_number.match(/INV-\d+-(\d+)/i)
-    if (match) max = Math.max(max, Number.parseInt(match[1], 10))
-  })
-  return `INV-${year}-${String(max + 1).padStart(3, '0')}`
+export function generateNextDraftInvoiceNumber(
+  clientId: string,
+  existing: CredyxInvoiceDraft[]
+): string {
+  return getNextClientInvoiceNumber(
+    clientId,
+    existing.map((inv) => inv.invoice_number)
+  )
 }
 
 /** Blank invoice row the client can fill in during AI batch confirm. */
 export async function createManualCredyxDraft(
   existing: CredyxInvoiceDraft[],
+  clientId: string,
   clientName: string
 ): Promise<CredyxInvoiceDraft> {
   const groupId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -124,7 +130,7 @@ export async function createManualCredyxDraft(
   const base: CredyxInvoiceDraft = {
     draftId: `draft-${groupId}`,
     groupId,
-    invoice_number: generateNextDraftInvoiceNumber(existing),
+    invoice_number: generateNextDraftInvoiceNumber(clientId, existing),
     load_number: '',
     broker_name: '',
     broker_id: 'broker-unknown',

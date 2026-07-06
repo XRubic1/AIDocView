@@ -36,6 +36,8 @@ export interface Client {
   service_tier?: ServiceTier
   billing?: ClientBilling
   fleet_size?: string
+  /** 4-letter code used in batch numbers, e.g. ABCL for ABC LOGISTICS INC */
+  batch_code?: string
   fee_terms?: {
     fee_percentage?: number // Percentage fee (e.g., 2.5 for 2.5%)
     fee_type?: 'percentage' | 'flat' // Type of fee calculation

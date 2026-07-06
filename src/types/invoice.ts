@@ -72,6 +72,8 @@ export interface Invoice {
   /** DocSort group id + source document ids for admin AI review */
   doc_sort_group_id?: string
   document_doc_ids?: string[]
+  /** Supabase storage paths keyed by document_doc_ids entry. */
+  document_storage_paths?: Record<string, string>
 }
 
 export interface DocumentSendRecord {

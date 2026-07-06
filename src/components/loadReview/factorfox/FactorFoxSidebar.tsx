@@ -1,11 +1,25 @@
 import { Link, useLocation } from 'react-router-dom'
-import { FileText, History, Home, Settings } from 'lucide-react'
+import { FileText, History, Home, Settings, Shield } from 'lucide-react'
 
 const NAV = [
   { to: '/engine', label: 'Review', icon: FileText },
   { to: '/dev/load-history', label: 'History', icon: History },
+  { to: '/engine/rules', label: 'Rules', icon: Shield },
   { to: '/engine/settings', label: 'Settings', icon: Settings },
 ] as const
+
+function isNavItemActive(pathname: string, to: string): boolean {
+  if (to === '/engine') {
+    return pathname === '/engine' || pathname.startsWith('/dev/load-review')
+  }
+  if (to === '/engine/rules') {
+    return pathname.startsWith('/engine/rules') || pathname.startsWith('/dev/rules')
+  }
+  if (to.startsWith('/engine/')) {
+    return pathname === to || pathname.startsWith(`${to}/`)
+  }
+  return pathname === to || pathname.startsWith(`${to}/`)
+}
 
 const DOC_TAGS = ['BOL', 'Invoice', 'POD', 'Rate Con', 'Lumper'] as const
 
@@ -28,11 +42,7 @@ export default function FactorFoxSidebar({ embedded = false, reviewQueueCount }:
 
       <nav className="engine-sidebar-nav">
         {NAV.map(({ to, label, icon: Icon }) => {
-          const active =
-            location.pathname === to ||
-            (to === '/engine' &&
-              (location.pathname === '/engine' || location.pathname.startsWith('/dev/load-review'))) ||
-            (to === '/engine/settings' && location.pathname.startsWith('/engine/settings'))
+          const active = isNavItemActive(location.pathname, to)
 
           return (
             <Link key={to} to={to} className={`engine-snav-item ${active ? 'active' : ''}`}>

@@ -97,6 +97,20 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
     }
   }, [payments])
 
+  const hasMonthComparison = useMemo(() => {
+    const today = new Date()
+    const prevDate = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    const prevMonthKey = prevDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    return payments.some((payment) => {
+      if (payment.status !== 'confirmed') return false
+      const monthKey = new Date(payment.received_date).toLocaleDateString('en-US', {
+        month: 'short',
+        year: 'numeric',
+      })
+      return monthKey === prevMonthKey
+    })
+  }, [payments])
+
   if (compact) {
     return (
       <div className="px-3 py-2.5">
@@ -136,20 +150,25 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
           <p className="text-2xl font-bold tabular-nums" style={{ color: t.primary }}>
-            {formatCurrency(thisMonthTotal || 14300)}
+            {formatCurrency(thisMonthTotal)}
           </p>
           <p className="text-xs font-medium mt-0.5" style={{ color: t.secondary }}>
             collected this month
           </p>
         </div>
-        <div
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
-          style={{ backgroundColor: t.stat.green, color: t.success }}
-        >
-          <TrendingUp className="w-3.5 h-3.5" />
-          {monthChangePct >= 0 ? '+' : ''}
-          {monthChangePct || 18}% from previous month
-        </div>
+        {hasMonthComparison && (
+          <div
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+            style={{
+              backgroundColor: monthChangePct >= 0 ? t.stat.green : t.stat.amber,
+              color: monthChangePct >= 0 ? t.success : t.warning,
+            }}
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+            {monthChangePct >= 0 ? '+' : ''}
+            {monthChangePct}% from previous month
+          </div>
+        )}
       </div>
 
       <div className="w-full min-w-0" style={{ height: 160 }}>

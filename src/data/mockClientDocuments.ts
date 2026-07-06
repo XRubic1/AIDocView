@@ -1,41 +1,8 @@
 import { ClientDocument } from '../types/clientDocument'
 
-export const mockClientDocuments: ClientDocument[] = [
-  {
-    id: 'cdoc-1',
-    client_id: 'client-1',
-    name: 'NOA',
-    file_name: 'ABC-Trucking-NOA-2025.pdf',
-    category: 'broker',
-    document_type: 'general',
-    size: 245760,
-    mime_type: 'application/pdf',
-    uploaded_at: '2025-10-15T14:30:00Z',
-    uploaded_by: 'ABC Trucking',
-  },
-  {
-    id: 'cdoc-2',
-    client_id: 'client-1',
-    name: 'W-9',
-    file_name: 'ABC-Trucking-W9.pdf',
-    category: 'compliance',
-    document_type: 'general',
-    size: 189440,
-    mime_type: 'application/pdf',
-    uploaded_at: '2025-09-01T09:00:00Z',
-    uploaded_by: 'ABC Trucking',
-  },
-  {
-    id: 'cdoc-3',
-    client_id: 'client-1',
-    name: 'COI',
-    file_name: 'ABC-Trucking-COI-2025.pdf',
-    category: 'compliance',
-    document_type: 'general',
-    size: 512000,
-    mime_type: 'application/pdf',
-    uploaded_at: '2025-11-01T11:20:00Z',
-    uploaded_by: 'ABC Trucking',
-    expires_at: '2026-11-01',
-  },
-]
+export const mockClientDocuments: ClientDocument[] = []
+
+export function hydrateClientDocuments(items: ClientDocument[]): void {
+  mockClientDocuments.length = 0
+  mockClientDocuments.push(...items)
+}

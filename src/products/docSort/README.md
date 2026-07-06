@@ -30,4 +30,4 @@ Uses the same `VITE_OPENAI_API_KEY` as the monorepo. Optional:
 
 ## Credyx A/R consumer
 
-Credyx client **AI upload** imports DocSort via `src/integrations/docSortToCredyx.ts` and `src/services/credyx/batchIntakePipeline.ts` (sort → invoice PDFs → client confirm → `mockBatches`). Admin **AI Review** uses AIDocView `reviewUploadedDocuments` in `src/services/credyx/batchAiReviewService.ts`. The `/sort` route is optional for ops; production client/admin flows use `/client/batches` and `/batches`.
+Credyx client **AI upload** imports DocSort via `src/integrations/docSortToCredyx.ts` and `src/services/credyx/batchIntakePipeline.ts` (sort → invoice PDFs → client confirm → in-memory batch store). Admin **AI Review** uses AIDocView `reviewUploadedDocuments` in `src/services/credyx/batchAiReviewService.ts`. The `/sort` route is optional for ops; production client/admin flows use `/client/batches` and `/batches`.

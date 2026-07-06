@@ -1,14 +1,21 @@
 import { useState } from 'react'
 import { formatCurrency } from '../../utils/format'
 import { PendingBatch } from '../../types/admin'
-import { mockAdminDashboardData } from '../../data/mockAdminDashboard'
+import { getAllBatches } from '../../data/mockBatches'
 
 interface PendingBatchesTabProps {
   onBatchSelect: (batchId: string) => void
 }
 
 export default function PendingBatchesTab({ onBatchSelect }: PendingBatchesTabProps) {
-  const [batches] = useState<PendingBatch[]>(mockAdminDashboardData.pending_batches)
+  const [batches] = useState<PendingBatch[]>(() =>
+    getAllBatches().filter(
+      (batch) =>
+        batch.status === 'ready_to_post' ||
+        batch.status === 'verification' ||
+        batch.status === 'approval'
+    )
+  )
   const [filter, setFilter] = useState<'all' | 'submitted' | 'pending' | 'processing'>('all')
 
   const getTimeColor = (minutes: number) => {

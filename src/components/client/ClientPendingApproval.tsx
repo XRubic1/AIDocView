@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom'
 import { Clock, Mail } from 'lucide-react'
 import { getTierLabel } from '../../utils/clientCapabilities'
+import { clearClientSession } from '../../utils/clearClientSession'
+import { clearClientTenantCache } from '../../data/clientDemoData'
 import type { Client } from '../../types/client'
 
 interface ClientPendingApprovalProps {
@@ -12,9 +14,8 @@ export default function ClientPendingApproval({ client }: ClientPendingApprovalP
   const tier = client.service_tier ?? 'self_service'
 
   const handleLogout = () => {
-    localStorage.removeItem('clientAuthenticated')
-    localStorage.removeItem('clientEmail')
-    localStorage.removeItem('clientRole')
+    clearClientSession()
+    clearClientTenantCache()
     localStorage.removeItem('clientId')
     navigate('/client/login')
   }

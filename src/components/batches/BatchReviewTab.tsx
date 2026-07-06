@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { formatCurrency } from '../../utils/format'
 import { formatDate } from '../../utils/format'
 import { ArrowLeft, Check, X, FileText, Download } from 'lucide-react'
-import { mockAdminDashboardData } from '../../data/mockAdminDashboard'
+import { getBatchById } from '../../data/mockBatches'
 import AdminInvoiceDetailView from './AdminInvoiceDetailView'
 import { Invoice } from '../../types/invoice'
 import { mockInvoices } from '../../data/mockInvoices'
@@ -19,7 +19,7 @@ export default function BatchReviewTab({ batchId, onBack }: BatchReviewTabProps)
   const [lastViewedInvoiceId, setLastViewedInvoiceId] = useState<string | null>(null)
 
   // Find the batch
-  const batch = mockAdminDashboardData.pending_batches.find((b) => b.id === batchId)
+  const batch = batchId ? getBatchById(batchId) : undefined
 
   // Get invoices for this batch from mock data
   const [invoices] = useState<Invoice[]>(() => {

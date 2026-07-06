@@ -4,8 +4,8 @@ import { useClientPortal } from '../context/ClientPortalContext'
 export function useClientSession() {
   const { client } = useClientPortal()
   return {
-    clientId: client?.id ?? 'client-1',
-    clientName: client?.name ?? 'Client',
+    clientId: client?.id ?? '',
+    clientName: client?.name ?? '',
     client,
   }
 }

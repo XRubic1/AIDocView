@@ -1,6 +1,8 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useClientPortal } from '../../context/ClientPortalContext'
 import ClientPendingApproval from './ClientPendingApproval'
+import { clearClientSession } from '../../utils/clearClientSession'
+import { clearClientTenantCache } from '../../data/clientDemoData'
 
 interface ClientRouteGuardProps {
   children: React.ReactNode
@@ -22,7 +24,23 @@ export default function ClientRouteGuard({ children }: ClientRouteGuardProps) {
   }
 
   if (!isAuthenticated || !client) {
-    return <Navigate to="/client/login" state={{ from: location.pathname }} replace />
+    if (isAuthenticated && !client) {
+      clearClientSession()
+      clearClientTenantCache()
+    }
+    return (
+      <Navigate
+        to="/client/login"
+        state={{
+          from: location.pathname,
+          message:
+            isAuthenticated && !client
+              ? 'Your session is no longer valid. Please sign in again.'
+              : undefined,
+        }}
+        replace
+      />
+    )
   }
 
   if (client.status === 'pending' || client.status === 'inactive') {

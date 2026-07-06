@@ -6,6 +6,8 @@ export const BOL_FIELD_LABELS: Record<string, string> = {
   bol_shipFrom: 'BOL Ship From',
   bol_shipTo: 'BOL Ship To',
   bol_receiverSignature: 'BOL Receiver signature',
+  bol_shipper_signature: 'BOL Shipper signature',
+  bol_carrier_signature: 'BOL Carrier signature',
   bol_receivingDate: 'BOL Receiving date',
   bol_loadNumber: 'BOL Load number',
 }
@@ -116,22 +118,7 @@ export function getFieldLabel(fieldKey: string): string {
   return ANNOTATABLE_FIELD_LABELS[fieldKey] ?? fieldKey
 }
 
-/** AI-suggested source boxes from extraction (normalized 0–1 per page). */
-export function getAiFieldRegions(result: DocumentReviewResult): Record<string, FieldRegionBox> {
-  const regions: Record<string, FieldRegionBox> = {}
-  const { extraction } = result
-
-  if (extraction.rateConFields) {
-    ;(Object.keys(RATE_CON_FIELD_LABELS) as RateConFieldKey[]).forEach((key) => {
-      const field = extraction.rateConFields?.[key]
-      if (field?.sourceRegion) {
-        regions[key] = field.sourceRegion
-      }
-    })
-  }
-
-  return regions
-}
+export { getAiFieldRegions } from './aiReviewRegions'
 
 /** Map UI field key to rate con key when updating structured extraction. */
 export function isRateConFieldKey(key: string): key is RateConFieldKey {

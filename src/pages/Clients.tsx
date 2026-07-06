@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Header } from '../components/admin/Header'
 import { Client, ServiceTier } from '../types/client'
 import {
@@ -6,13 +6,13 @@ import {
   createClient,
   updateClient,
   updateClientTier,
+  hydrateClientRegistry,
 } from '../services/clientRegistry'
 import { getPlanForTier } from '../config/servicePlans'
 import { getTierShortLabel } from '../utils/clientCapabilities'
+import { isSupabaseConfigured } from '../lib/supabase'
+import { loadClientTenantData, getClientInvoices, getClientBatches } from '../data/clientDemoData'
 import { Phone, Mail, MapPin, Search, Building2, CreditCard, X, ArrowLeft } from 'lucide-react'
-import { mockInvoices } from '../data/mockInvoices'
-import { getAllBatches } from '../data/mockBatches'
-import { mockClientCollections } from '../data/mockCollections'
 import { mockBrokers } from '../data/mockBrokers'
 import { Broker } from '../types/broker'
 import { Invoice } from '../types/invoice'
@@ -52,7 +52,20 @@ export default function Clients() {
     service_tier: 'self_service' as ServiceTier,
   })
 
+  const [tenantVersion, setTenantVersion] = useState(0)
+
   const refreshClients = () => setClients(getAllClients())
+
+  useEffect(() => {
+    void hydrateClientRegistry().then(() => refreshClients())
+  }, [])
+
+  useEffect(() => {
+    if (!selectedClient || !isSupabaseConfigured()) return
+    void loadClientTenantData(selectedClient.id, selectedClient.name).then(() =>
+      setTenantVersion((v) => v + 1)
+    )
+  }, [selectedClient?.id])
 
   const filteredClients = clients.filter((client) => {
     if (searchTerm === '') return true
@@ -86,10 +99,8 @@ export default function Clients() {
     if (!selectedClient) return []
     
     // Get all invoices for this client
-    const clientInvoices = mockInvoices.filter(
-      (inv) => inv.client_id === selectedClient.id && 
-               inv.status !== 'hold' && 
-               inv.status !== 'pending'
+    const clientInvoices = getClientInvoices(selectedClient.id, selectedClient.name).filter(
+      (inv) => inv.status !== 'hold' && inv.status !== 'pending'
     )
     
     // Group invoices by broker
@@ -126,37 +137,29 @@ export default function Clients() {
         openInvoices,
       }
     })
-  }, [selectedClient])
+  }, [selectedClient, tenantVersion])
 
   // Get invoices for selected broker
   const brokerInvoices = useMemo(() => {
     if (!selectedBroker || !selectedClient) return []
-    return mockInvoices.filter(
-      (inv) => inv.broker_id === selectedBroker.id && 
-               inv.client_id === selectedClient.id &&
-               inv.status !== 'hold' && 
-               inv.status !== 'pending'
+    return getClientInvoices(selectedClient.id, selectedClient.name).filter(
+      (inv) =>
+        inv.broker_id === selectedBroker.id &&
+        inv.status !== 'hold' &&
+        inv.status !== 'pending'
     )
-  }, [selectedBroker, selectedClient])
+  }, [selectedBroker, selectedClient, tenantVersion])
 
   // Get data for selected client
   const clientInvoices = useMemo(() => {
     if (!selectedClient) return []
-    return mockInvoices.filter((inv) => inv.client_id === selectedClient.id)
-  }, [selectedClient])
+    return getClientInvoices(selectedClient.id, selectedClient.name)
+  }, [selectedClient, tenantVersion])
 
   const clientBatches = useMemo(() => {
     if (!selectedClient) return []
-    return getAllBatches().filter((batch) => batch.client_id === selectedClient.id)
-  }, [selectedClient])
-
-  const clientCollections = useMemo(() => {
-    if (!selectedClient) return []
-    return mockClientCollections.filter((col) => {
-      const invoice = mockInvoices.find((inv) => inv.id === col.invoice_id)
-      return invoice?.client_id === selectedClient.id
-    })
-  }, [selectedClient])
+    return getClientBatches(selectedClient.id)
+  }, [selectedClient, tenantVersion])
 
   // Calculate A/R totals based on filter
   const arTotals = useMemo(() => {
@@ -276,7 +279,7 @@ export default function Clients() {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     if (!formData.name) {
@@ -284,7 +287,7 @@ export default function Clients() {
       return
     }
 
-    createClient({
+    await createClient({
       name: formData.name,
       contact_person: formData.contact_person,
       email: formData.email,
@@ -1091,12 +1094,14 @@ export default function Clients() {
                         <select
                           value={selectedClient.service_tier ?? 'self_service'}
                           onChange={(e) => {
-                            const tier = e.target.value as ServiceTier
-                            const updated = updateClientTier(selectedClient.id, tier)
-                            if (updated) {
-                              setSelectedClient(updated)
-                              refreshClients()
-                            }
+                            void (async () => {
+                              const tier = e.target.value as ServiceTier
+                              const updated = await updateClientTier(selectedClient.id, tier)
+                              if (updated) {
+                                setSelectedClient(updated)
+                                refreshClients()
+                              }
+                            })()
                           }}
                           className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
                         >
@@ -1111,13 +1116,15 @@ export default function Clients() {
                         <select
                           value={selectedClient.status ?? 'active'}
                           onChange={(e) => {
-                            const updated = updateClient(selectedClient.id, {
-                              status: e.target.value as Client['status'],
-                            })
-                            if (updated) {
-                              setSelectedClient(updated)
-                              refreshClients()
-                            }
+                            void (async () => {
+                              const updated = await updateClient(selectedClient.id, {
+                                status: e.target.value as Client['status'],
+                              })
+                              if (updated) {
+                                setSelectedClient(updated)
+                                refreshClients()
+                              }
+                            })()
                           }}
                           className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
                         >

@@ -143,6 +143,17 @@ export default function ClientInvoices() {
   )
 
   useEffect(() => {
+    const status = searchParams.get('status')
+    const validStatuses = ['overdue', 'pending', 'approved', 'hold', 'paid', 'force_closed']
+    if (status && validStatuses.includes(status)) {
+      setStatusFilter(status)
+      const next = new URLSearchParams(searchParams)
+      next.delete('status')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
+
+  useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm, statusFilter, pageSize, sortField, sortDir])
 

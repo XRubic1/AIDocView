@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { X, Edit2, Save, XCircle } from 'lucide-react'
 import { formatCurrency } from '../../utils/format'
 import { PendingBatch } from '../../types/admin'
-import { mockClients } from '../../data/mockClients'
+import { getClientById, updateClient } from '../../services/clientRegistry'
 import { Client } from '../../types/client'
 
 interface AccountingModalProps {
@@ -12,7 +12,7 @@ interface AccountingModalProps {
 
 export default function AccountingModal({ batch, onClose }: AccountingModalProps) {
   const [client, setClient] = useState<Client | undefined>(
-    mockClients.find((c) => c.id === batch.client_id)
+    getClientById(batch.client_id)
   )
   const [isEditingTerms, setIsEditingTerms] = useState(false)
   const [editedFeeType, setEditedFeeType] = useState<'percentage' | 'flat'>('percentage')
@@ -37,25 +37,17 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
     }
   }, [isEditingTerms, client])
 
-  const handleSaveTerms = () => {
+  const handleSaveTerms = async () => {
     if (!client) return
 
-    // Update client fee terms
     const updatedFeeTerms = {
       fee_type: editedFeeType,
       fee_percentage: editedFeeType === 'percentage' ? editedFeePercentage : undefined,
       flat_fee_amount: editedFeeType === 'flat' ? editedFlatFeeAmount : undefined,
     }
 
-    const updatedClient: Client = {
-      ...client,
-      fee_terms: updatedFeeTerms,
-    }
-
-    // Update in mockClients array
-    const clientIndex = mockClients.findIndex((c) => c.id === client.id)
-    if (clientIndex !== -1) {
-      mockClients[clientIndex] = updatedClient
+    const updatedClient = await updateClient(client.id, { fee_terms: updatedFeeTerms })
+    if (updatedClient) {
       setClient(updatedClient)
     }
 

@@ -9,8 +9,10 @@ import {
   Clock,
 } from 'lucide-react'
 import { SERVICE_PLANS } from '../config/servicePlans'
-import { createClient } from '../services/clientRegistry'
+import { createClient, CLIENT_ID_STORAGE_KEY } from '../services/clientRegistry'
 import { notifyAdminClientEnrolled } from '../services/adminNotificationService'
+import { enrollClientAuth, signOutClientAuth } from '../services/clientAuthService'
+import { isSupabaseConfigured } from '../lib/supabase'
 import type { ServiceTier } from '../types/client'
 
 export default function Enroll() {
@@ -23,9 +25,12 @@ export default function Enroll() {
     email: '',
     phone: '',
     fleetSize: '',
+    password: '',
+    confirmPassword: '',
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -33,29 +38,67 @@ export default function Enroll() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitError('')
     setIsSubmitting(true)
 
-    await new Promise((resolve) => setTimeout(resolve, 800))
+    if (isSupabaseConfigured()) {
+      if (formData.password.length < 8) {
+        setSubmitError('Password must be at least 8 characters.')
+        setIsSubmitting(false)
+        return
+      }
+      if (formData.password !== formData.confirmPassword) {
+        setSubmitError('Passwords do not match.')
+        setIsSubmitting(false)
+        return
+      }
+    }
 
-    const client = createClient({
-      name: formData.companyName,
-      contact_person: formData.contactPerson,
-      email: formData.email,
-      phone: formData.phone,
-      fleet_size: formData.fleetSize,
-      service_tier: selectedTier,
-      status: 'pending',
-    })
+    try {
+      if (isSupabaseConfigured()) {
+        await signOutClientAuth()
+      }
 
-    notifyAdminClientEnrolled({
-      clientId: client.id,
-      clientName: client.name,
-      email: client.email ?? formData.email,
-      tier: selectedTier,
-    })
+      const client = await createClient({
+        name: formData.companyName,
+        contact_person: formData.contactPerson,
+        email: formData.email,
+        phone: formData.phone,
+        fleet_size: formData.fleetSize,
+        service_tier: selectedTier,
+      })
 
-    setIsSubmitting(false)
-    setSubmitted(true)
+      if (isSupabaseConfigured() && selectedTier === 'self_service') {
+        const auth = await enrollClientAuth(formData.email, formData.password, client.id)
+        if (!auth.ok) {
+          setSubmitError(auth.error ?? 'Could not create login account.')
+          setIsSubmitting(false)
+          return
+        }
+      }
+
+      notifyAdminClientEnrolled({
+        clientId: client.id,
+        clientName: client.name,
+        email: client.email ?? formData.email,
+        tier: selectedTier,
+      })
+
+      if (selectedTier === 'self_service') {
+        localStorage.setItem('clientAuthenticated', 'true')
+        localStorage.setItem('clientEmail', formData.email)
+        localStorage.setItem('clientRole', 'Client')
+        localStorage.setItem(CLIENT_ID_STORAGE_KEY, client.id)
+        navigate('/client/dashboard')
+        return
+      }
+
+      setSubmitted(true)
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Enrollment failed. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -300,9 +343,18 @@ export default function Enroll() {
               <h3 className="text-2xl font-bold mb-2" style={{ color: '#059669' }}>
                 Thank You!
               </h3>
-              <p style={{ color: '#047857' }}>
-                Your application is under review. We&apos;ll email you when your account is activated.
+              <p className="mb-6" style={{ color: '#047857' }}>
+                Your managed-service application is under review. We&apos;ll email you when your
+                account is activated.
               </p>
+              <button
+                type="button"
+                onClick={() => navigate('/client/login')}
+                className="text-sm font-medium underline"
+                style={{ color: '#113543' }}
+              >
+                Return to sign in
+              </button>
             </div>
           ) : enrollStep === 1 ? (
             <div className="space-y-6">
@@ -504,6 +556,45 @@ export default function Enroll() {
                     </select>
                   </div>
                 </div>
+
+                {isSupabaseConfigured() && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
+                        Password <span style={{ color: '#C2A558' }}>*</span>
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        minLength={8}
+                        value={formData.password}
+                        onChange={(e) => handleInputChange('password', e.target.value)}
+                        className="w-full px-4 py-3 text-sm border rounded focus:outline-none focus:ring-2"
+                        style={{ borderColor: '#819291', color: '#113543' }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
+                        Confirm Password <span style={{ color: '#C2A558' }}>*</span>
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        minLength={8}
+                        value={formData.confirmPassword}
+                        onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                        className="w-full px-4 py-3 text-sm border rounded focus:outline-none focus:ring-2"
+                        style={{ borderColor: '#819291', color: '#113543' }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {submitError && (
+                  <p className="text-sm text-red-600" role="alert">
+                    {submitError}
+                  </p>
+                )}
 
                 <button
                   type="submit"

@@ -11,6 +11,7 @@
     "eval:mock": "tsx scripts/eval/run.ts --mode mock",
     "eval:live": "tsx scripts/eval/run.ts --mode live",
     "eval:record": "tsx scripts/eval/run.ts --record",
+    "test:supabase": "tsx scripts/testSupabaseConnection.ts",
     "preview": "vite preview",
     "lint": "echo 'Linting skipped'"
   },
@@ -19,6 +20,7 @@
   "license": "ISC",
   "description": "Credyx A/R Solutions - Accounts Receivable Management System",
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.4",
     "jszip": "^3.10.1",

@@ -1,4 +1,4 @@
-import { useState, useMemo, type ReactNode } from 'react'
+import { useState, useMemo, type ReactNode, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
@@ -12,6 +12,8 @@ import {
   BarChart3,
   ArrowUpRight,
   ExternalLink,
+  Inbox,
+  Activity,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
 import SimpleUploadModal from '../components/client/SimpleUploadModal'
@@ -24,8 +26,10 @@ import { useClientTheme } from '../theme/ThemeContext'
 import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
+import { useCountUp } from '../hooks/useCountUp'
 
 type InvoiceStatus = 'pending' | 'approved' | 'hold' | 'overdue'
+type StatusFilterKey = 'pending' | 'approved' | 'hold' | 'overdue'
 
 function StatusPill({ status }: { status: InvoiceStatus | string }) {
   const normalized = status === 'hold' ? 'hold' : status
@@ -48,31 +52,78 @@ function StatusPill({ status }: { status: InvoiceStatus | string }) {
   )
 }
 
-interface CompactMetricProps {
-  label: string
-  value: number
-  icon: ReactNode
-  bg: string
-  color: string
+function InlineSparkline({ values, stroke }: { values: number[]; stroke: string }) {
+  if (values.length < 2) return null
+
+  const max = Math.max(...values, 1)
+  const min = Math.min(...values, 0)
+  const range = max - min || 1
+  const width = 72
+  const height = 22
+
+  const points = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * width
+      const y = height - ((value - min) / range) * (height - 4) - 2
+      return `${x},${y}`
+    })
+    .join(' ')
+
+  return (
+    <svg className="dashboard-inline-sparkline" viewBox={`0 0 ${width} ${height}`} aria-hidden>
+      <polyline
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+      />
+    </svg>
+  )
 }
 
-function CompactMetricCard({ label, value, icon, bg, color }: CompactMetricProps) {
-  const c = useClientTheme()
+function getAttentionRowSeverity(invoice: ReturnType<typeof enrichInvoices>[number]) {
+  if (invoice.isOverdue) return 'overdue'
+  if (invoice.status === 'hold') return 'hold'
+  return 'pending'
+}
+
+function getTimelineDotClass(type: string) {
+  if (type.includes('payment')) return 'timeline-dot timeline-dot--payment'
+  if (type.includes('hold')) return 'timeline-dot timeline-dot--hold'
+  if (type.includes('upload') || type.includes('document')) return 'timeline-dot timeline-dot--upload'
+  return 'timeline-dot timeline-dot--default'
+}
+
+interface StatusMetricCardProps {
+  label: string
+  value: number
+  context: string
+  status: StatusFilterKey
+  icon: ReactNode
+  onNavigate: (status: StatusFilterKey) => void
+}
+
+function StatusMetricCard({ label, value, context, status, icon, onNavigate }: StatusMetricCardProps) {
+  const animatedCount = useCountUp(value)
+
   return (
-    <div
-      className="dashboard-card dashboard-metric-secondary"
-      style={{ backgroundColor: bg }}
+    <button
+      type="button"
+      className={`dashboard-status-card dashboard-card-lift dashboard-status-card--${status}`}
+      onClick={() => onNavigate(status)}
+      aria-label={`${label}: ${value}. ${context}`}
     >
-      <div className="flex items-center gap-2 min-w-0">
-        <span style={{ color }}>{icon}</span>
-        <span className="text-sm font-medium truncate" style={{ color: c.secondary }}>
-          {label}
+      <div className="dashboard-status-card__head">
+        <span className={`dashboard-status-card__icon dashboard-status-card__icon--${status}`}>
+          {icon}
         </span>
+        <span className="dashboard-status-card__label">{label}</span>
       </div>
-      <span className="text-xl font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-        {value}
-      </span>
-    </div>
+      <span className="dashboard-status-card__count tabular-nums">{animatedCount}</span>
+      <span className="dashboard-status-card__context">{context}</span>
+    </button>
   )
 }
 
@@ -88,6 +139,13 @@ function formatRelativeTime(iso: string) {
   return formatDate(iso)
 }
 
+function handleRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, onActivate: () => void) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    onActivate()
+  }
+}
+
 export default function ClientDashboard() {
   const c = useClientTheme()
   const { clientId, clientName } = useClientSession()
@@ -96,6 +154,50 @@ export default function ClientDashboard() {
   const { capabilities, tier } = useClientCapabilities()
   const navigate = useNavigate()
   const [showSimpleUpload, setShowSimpleUpload] = useState(false)
+
+  const totalArAnimated = useCountUp(data.summary.total_ar, { decimals: 2 })
+
+  const invoicedSparkline = useMemo(() => {
+    const now = new Date()
+    const months: number[] = []
+
+    for (let offset = 5; offset >= 0; offset -= 1) {
+      const monthDate = new Date(now.getFullYear(), now.getMonth() - offset, 1)
+      const year = monthDate.getFullYear()
+      const month = monthDate.getMonth()
+      const total = clientInvoices
+        .filter((invoice) => {
+          const invoiceDate = new Date(invoice.invoice_date)
+          return invoiceDate.getFullYear() === year && invoiceDate.getMonth() === month
+        })
+        .reduce((sum, invoice) => sum + invoice.amount, 0)
+      months.push(total)
+    }
+
+    return months
+  }, [clientInvoices])
+
+  const statusContexts = useMemo(
+    () => ({
+      pending:
+        data.summary.pending_invoices > 0
+          ? `${data.summary.pending_invoices} need action`
+          : 'All reviewed',
+      approved:
+        data.summary.approved_invoices > 0
+          ? `${data.summary.approved_invoices} open for collection`
+          : 'None open',
+      hold:
+        data.summary.on_hold_invoices > 0
+          ? `${data.summary.on_hold_invoices} need action`
+          : 'None on hold',
+      overdue:
+        data.summary.overdue_invoices > 0
+          ? `${data.summary.overdue_invoices} past due`
+          : 'None overdue',
+    }),
+    [data.summary]
+  )
 
   const attentionInvoices = useMemo(() => {
     return enrichInvoices(clientInvoices)
@@ -134,9 +236,17 @@ export default function ClientDashboard() {
     navigate(`/client/batches?tab=create&mode=ai`, { state: { initialFiles: files } })
   }
 
+  const navigateToInvoiceStatus = (status: StatusFilterKey) => {
+    navigate(`/client/invoices?status=${status}`)
+  }
+
+  const openInvoice = (invoiceId: string) => {
+    navigate(`/client/invoices?highlight_invoice=${invoiceId}`)
+  }
+
   return (
     <ClientLayout clientName={clientName} clientId={clientId}>
-      <div className="space-y-4">
+      <div className="space-y-3">
         {tier === 'managed' && (
           <section
             className="dashboard-card px-4 py-3 text-sm"
@@ -213,38 +323,38 @@ export default function ClientDashboard() {
           </div>
         </section>
 
-        {/* Row 2 — Primary metrics */}
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="dashboard-card dashboard-card-interactive dashboard-metric-primary">
+        {/* Row 2 — Hero KPI */}
+        <section className="dashboard-section-enter dashboard-section-enter--1 grid grid-cols-1 md:grid-cols-[1.2fr_0.8fr] gap-3">
+          <div className="dashboard-card dashboard-kpi-hero">
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium" style={{ color: c.secondary }}>
                   Total A/R
                 </p>
                 <p
-                  className="text-[28px] font-bold tabular-nums mt-1 leading-none"
+                  className="dashboard-kpi-hero__value tabular-nums"
                   style={{ color: c.primary }}
                 >
-                  {formatCurrency(data.summary.total_ar)}
+                  {formatCurrency(totalArAnimated)}
                 </p>
-                <div
-                  className="inline-flex items-center gap-1 mt-2 text-xs font-medium"
-                  style={{ color: c.success }}
-                >
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                  +12% vs last month
+                <div className="dashboard-kpi-hero__footer">
+                  <span className="dashboard-kpi-hero__trend" style={{ color: c.success }}>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                    +12% vs last month
+                  </span>
+                  <InlineSparkline values={invoicedSparkline} stroke={c.accent} />
                 </div>
               </div>
               <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                style={{ backgroundColor: c.accentLight, color: c.info }}
+                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                style={{ backgroundColor: c.card, color: c.accent, border: `1px solid ${c.border}` }}
               >
                 <DollarSign className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="dashboard-card dashboard-card-interactive p-0 overflow-hidden flex min-h-[88px]">
+          <div className="dashboard-card dashboard-kpi-companion p-0 overflow-hidden flex min-h-[124px]">
             <CollectionForecastKpiCard
               invoices={clientInvoices}
               payments={clientPayments}
@@ -253,98 +363,137 @@ export default function ClientDashboard() {
           </div>
         </section>
 
-        {/* Row 3 — Compact secondary metrics */}
-        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <CompactMetricCard
+        {/* Row 3 — Status metrics */}
+        <section className="dashboard-section-enter dashboard-section-enter--2 grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatusMetricCard
             label="Pending"
             value={data.summary.pending_invoices}
-            icon={<Clock className="w-4 h-4" />}
-            bg={c.stat.blue}
-            color={c.info}
+            context={statusContexts.pending}
+            status="pending"
+            icon={<Clock className="w-3.5 h-3.5" />}
+            onNavigate={navigateToInvoiceStatus}
           />
-          <CompactMetricCard
+          <StatusMetricCard
             label="Approved"
             value={data.summary.approved_invoices}
-            icon={<CheckCircle className="w-4 h-4" />}
-            bg={c.stat.green}
-            color={c.success}
+            context={statusContexts.approved}
+            status="approved"
+            icon={<CheckCircle className="w-3.5 h-3.5" />}
+            onNavigate={navigateToInvoiceStatus}
           />
-          <CompactMetricCard
+          <StatusMetricCard
             label="On Hold"
             value={data.summary.on_hold_invoices}
-            icon={<AlertCircle className="w-4 h-4" />}
-            bg={c.stat.amber}
-            color={c.warning}
+            context={statusContexts.hold}
+            status="hold"
+            icon={<AlertCircle className="w-3.5 h-3.5" />}
+            onNavigate={navigateToInvoiceStatus}
           />
-          <CompactMetricCard
+          <StatusMetricCard
             label="Overdue"
             value={data.summary.overdue_invoices}
-            icon={<FileText className="w-4 h-4" />}
-            bg={c.stat.red}
-            color={c.error}
+            context={statusContexts.overdue}
+            status="overdue"
+            icon={<FileText className="w-3.5 h-3.5" />}
+            onNavigate={navigateToInvoiceStatus}
           />
         </section>
 
-        {/* Row 4 — Invoices (above charts — actionable first) */}
-        <DashboardPanel
-          title="Invoices Requiring Attention"
-          compact
-          actionLabel="View all"
-          onAction={() => navigate('/client/invoices')}
-          interactive={false}
-        >
-          <div className="overflow-x-auto">
-            <table className="dashboard-table">
-              <thead>
-                <tr>
-                  <th>Invoice</th>
-                  <th>Customer</th>
-                  <th>Amount</th>
-                  <th>Days Outstanding</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attentionInvoices.length === 0 ? (
+        {/* Row 4 — Invoices requiring attention */}
+        <div className="dashboard-section-enter dashboard-section-enter--3">
+          <DashboardPanel
+            title="Invoices Requiring Attention"
+            compact
+            actionLabel="View all"
+            onAction={() => navigate('/client/invoices')}
+            interactive={false}
+            className="dashboard-attention-panel"
+            icon={AlertCircle}
+            iconTone="red"
+          >
+            <div className="overflow-x-auto">
+              <table className="dashboard-table">
+                <thead>
                   <tr>
-                    <td colSpan={6} className="text-center py-6" style={{ color: c.secondary }}>
-                      No invoices require attention
-                    </td>
+                    <th>Invoice</th>
+                    <th>Customer</th>
+                    <th>Amount</th>
+                    <th>Days Outstanding</th>
+                    <th>Status</th>
+                    <th>Action</th>
                   </tr>
-                ) : (
-                  attentionInvoices.map((invoice) => (
-                    <tr key={invoice.id}>
-                      <td className="font-semibold">{invoice.invoice_number}</td>
-                      <td style={{ color: c.secondary }}>{invoice.broker_name}</td>
-                      <td className="tabular-nums">{formatCurrency(invoice.amount)}</td>
-                      <td className="tabular-nums">{invoice.daysOutstanding}</td>
-                      <td>
-                        <StatusPill status={invoice.displayStatus} />
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            navigate(`/client/invoices?highlight_invoice=${invoice.id}`)
-                          }
-                          className="inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-70"
-                          style={{ color: c.info }}
-                        >
-                          View
-                          <ExternalLink className="w-3 h-3" />
-                        </button>
+                </thead>
+                <tbody>
+                  {attentionInvoices.length === 0 ? (
+                    <tr>
+                      <td colSpan={6}>
+                        <div className="dashboard-empty-state">
+                          <Inbox className="dashboard-empty-state__icon" aria-hidden />
+                          <p className="dashboard-empty-state__title">All caught up</p>
+                          <p className="dashboard-empty-state__help">
+                            No invoices need your attention right now
+                          </p>
+                        </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </DashboardPanel>
+                  ) : (
+                    attentionInvoices.map((invoice) => {
+                      const severity = getAttentionRowSeverity(invoice)
+                      return (
+                        <tr
+                          key={invoice.id}
+                          className={`dashboard-table-row--clickable dashboard-table-row--severity-${severity}`}
+                          onClick={() => openInvoice(invoice.id)}
+                          onKeyDown={(event) =>
+                            handleRowKeyDown(event, () => openInvoice(invoice.id))
+                          }
+                          tabIndex={0}
+                          role="link"
+                          aria-label={`View invoice ${invoice.invoice_number}`}
+                        >
+                          <td>
+                            <span className="dashboard-table__invoice-cell">
+                              <span
+                                className={`dashboard-table__severity-dot dashboard-table__severity-dot--${severity}`}
+                                aria-hidden
+                              />
+                              {invoice.invoice_number}
+                            </span>
+                          </td>
+                          <td style={{ color: c.secondary }}>{invoice.broker_name}</td>
+                          <td className="tabular-nums dashboard-table__amount">
+                            {formatCurrency(invoice.amount)}
+                          </td>
+                          <td className="tabular-nums">{invoice.daysOutstanding}</td>
+                          <td>
+                            <StatusPill status={invoice.displayStatus} />
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openInvoice(invoice.id)
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-70"
+                              style={{ color: c.info }}
+                            >
+                              View
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </DashboardPanel>
+        </div>
 
         {/* Row 5 — Analytics */}
-        <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <section className="dashboard-section-enter dashboard-section-enter--4 grid grid-cols-1 xl:grid-cols-2 gap-3">
           <DashboardPanel title="Aging A/R" compact interactive={false}>
             <AgingARChart aging={data.aging_ar} />
           </DashboardPanel>
@@ -354,7 +503,7 @@ export default function ClientDashboard() {
         </section>
 
         {/* Row 6 — Recent activity */}
-        <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <section className="dashboard-section-enter dashboard-section-enter--5 grid grid-cols-1 xl:grid-cols-2 gap-3">
           <DashboardPanel
             title="Recent Payments"
             compact
@@ -376,8 +525,14 @@ export default function ClientDashboard() {
                 <tbody>
                   {recentPayments.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="text-center py-6" style={{ color: c.secondary }}>
-                        No recent payments
+                      <td colSpan={5}>
+                        <div className="dashboard-empty-state">
+                          <DollarSign className="dashboard-empty-state__icon" aria-hidden />
+                          <p className="dashboard-empty-state__title">No recent payments</p>
+                          <p className="dashboard-empty-state__help">
+                            Posted and confirmed payments will appear here
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -403,14 +558,18 @@ export default function ClientDashboard() {
           <DashboardPanel title="Recent Actions" compact interactive={false}>
             <div className="p-5">
               {data.recent_activity.length === 0 ? (
-                <p className="text-sm text-center py-3" style={{ color: c.secondary }}>
-                  No recent activity
-                </p>
+                <div className="dashboard-empty-state py-4">
+                  <Activity className="dashboard-empty-state__icon" aria-hidden />
+                  <p className="dashboard-empty-state__title">No recent activity</p>
+                  <p className="dashboard-empty-state__help">
+                    Payments, approvals, and uploads will show up here
+                  </p>
+                </div>
               ) : (
                 <ul>
                   {data.recent_activity.map((activity) => (
                     <li key={activity.id} className="timeline-item">
-                      <span className="timeline-dot" />
+                      <span className={getTimelineDotClass(activity.type)} />
                       <p className="text-sm font-medium" style={{ color: c.primary }}>
                         {activity.description}
                       </p>

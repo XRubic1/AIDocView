@@ -5,7 +5,7 @@ import { X, Check, FileText, Phone, Download, Paperclip, Eye, Mail, ChevronDown,
 import { Invoice } from '../../types/invoice'
 import ContactBrokerModal from '../brokers/ContactBrokerModal'
 import { mockBrokers } from '../../data/mockBrokers'
-import { mockClients } from '../../data/mockClients'
+import { getClientById } from '../../services/clientRegistry'
 
 interface InvoiceDetailModalProps {
   invoice: Invoice | null
@@ -33,7 +33,7 @@ export default function InvoiceDetailModal({
   if (!invoice) return null
 
   const broker = mockBrokers.find((b) => b.id === invoice.broker_id)
-  const client = mockClients.find((c) => c.id === invoice.client_id)
+  const client = getClientById(invoice.client_id)
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {

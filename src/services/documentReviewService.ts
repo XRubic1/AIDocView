@@ -16,8 +16,10 @@ import { buildBolRateConJson, buildCompactRateConContext } from '../utils/prompt
 import {
   parseSignatureLocalization,
   reconcileReceiverSignatureConsensus,
+  remapBolAuditSignatureLocalizations,
   verifyReceiverSignatureCrop,
 } from '../utils/bolSignatureVerification'
+import { remapRegionToPacketPage, packetPageNumbersFromImages } from '../utils/fieldRegionMapping'
 import { shouldUseCarrierOcrExcelCorrection } from '../utils/reviewRulesEngine'
 import {
   coerceLocationString,
@@ -227,25 +229,6 @@ function hasBolDeliveryProof(extraction: ExtractedDocumentData): boolean {
   return Boolean(extraction.hasReceiverSignature)
 }
 
-function remapRegionToPacketPage(
-  region: FieldRegionBox | undefined,
-  packetPages: ReviewImageInfo[],
-  defaultPage: number
-): FieldRegionBox | undefined {
-  if (!region) return undefined
-  const packetPageNumbers = packetPages.map((page) => page.pageNumber)
-  if (packetPageNumbers.length === 0) return { ...region, pageNumber: defaultPage }
-  if (packetPageNumbers.includes(region.pageNumber)) return region
-
-  // Some model responses return page_number relative to provided image order (1..N).
-  const relativeIndex = Math.trunc(region.pageNumber) - 1
-  if (relativeIndex >= 0 && relativeIndex < packetPageNumbers.length) {
-    return { ...region, pageNumber: packetPageNumbers[relativeIndex] }
-  }
-
-  return { ...region, pageNumber: defaultPage }
-}
-
 function normalizeRateConFieldRegions(
   fields: RateConFields,
   packetPages: ReviewImageInfo[],
@@ -257,7 +240,11 @@ function normalizeRateConFieldRegions(
     const field = normalized[key]
     if (!field) return
 
-    const sourceRegion = remapRegionToPacketPage(field.sourceRegion, packetPages, defaultPage)
+    const sourceRegion = remapRegionToPacketPage(
+      field.sourceRegion,
+      packetPageNumbersFromImages(packetPages),
+      defaultPage
+    )
     field.sourceRegion = sourceRegion
     field.sourcePage = sourceRegion?.pageNumber ?? field.sourcePage ?? defaultPage
   })
@@ -667,8 +654,10 @@ async function auditBolPages(
     const parsed = parseBolAudit(raw)
     if (!parsed) continue
 
+    const pageMapped = remapBolAuditSignatureLocalizations(parsed, pages)
+
     const { audit: cropChecked, attempt: cropAttempt } = await verifyReceiverSignatureCrop({
-      audit: parsed,
+      audit: pageMapped,
       pages,
       model,
       budget,
@@ -676,13 +665,15 @@ async function auditBolPages(
       usageForAttempt: (usage) => usageForAttempt(usage as ApiUsageRecord | undefined),
     })
 
+    const localizationTrusted = Boolean(cropAttempt?.rawResponse?.localization_trusted)
     const cropVerified =
-      cropChecked.signatures.receiver !== 'PRESENT' ||
-      !cropAttempt?.rawResponse?.crop_disagreed
+      cropChecked.signatures.receiver === 'PRESENT' &&
+      (!cropAttempt?.rawResponse?.crop_disagreed || localizationTrusted)
 
     receiverPasses.push({
       receiver: cropChecked.signatures.receiver,
       cropVerified,
+      localizationTrusted,
     })
 
     attempts.push({

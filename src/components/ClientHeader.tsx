@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 import { Notification } from '../types/notification'
 import NotificationBell from './NotificationBell'
 import CredyxWordmark from './CredyxWordmark'
-import { mockNotifications } from '../data/mockNotifications'
+import { getNotificationsForClient } from '../data/mockNotifications'
+import { useClientSession } from '../hooks/useClientSession'
 import '../styles/credyxWordmark.css'
 
 interface ClientHeaderProps {
@@ -15,7 +16,12 @@ interface ClientHeaderProps {
 export default function ClientHeader({ clientName, navItems }: ClientHeaderProps) {
   const navigate = useNavigate()
   const location = useLocation()
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications)
+  const { clientId } = useClientSession()
+  const [notifications, setNotifications] = useState<Notification[]>([])
+
+  useEffect(() => {
+    if (clientId) setNotifications(getNotificationsForClient(clientId))
+  }, [clientId])
 
   const isActive = (path: string) => {
     return location.pathname === path || location.pathname.startsWith(path + '/')

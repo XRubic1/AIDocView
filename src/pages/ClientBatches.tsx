@@ -39,7 +39,13 @@ import {
   getDisputeReasonLabel,
   type ClientMarkPaidOptions,
 } from '../services/clientInvoiceActions'
+import { clearClientTenantCache } from '../data/clientDemoData'
+import { resolveInvoiceDocumentsAsync } from '../utils/resolveInvoiceDocuments'
 import type { BatchIntakeDraft } from '../types/credyxBatch'
+import {
+  getNextClientInvoiceNumber,
+  ensureUniqueClientInvoiceNumber,
+} from '../utils/clientInvoiceNumbers'
 
 type ClientBatchRow = {
   id: string
@@ -164,16 +170,16 @@ export default function ClientBatches() {
     notes: '',
   })
 
-  // Auto-generate invoice number when form is ready or when invoices change
+  // Suggest next invoice number for this client (001, 002, …)
   useEffect(() => {
+    if (!clientId) return
     if (!invoiceFormData.invoice_number && currentBatchInvoices.length === 0) {
-      const year = new Date().getFullYear()
       setInvoiceFormData((prev) => ({
         ...prev,
-        invoice_number: `INV-${year}-001`,
+        invoice_number: getNextClientInvoiceNumber(clientId),
       }))
     }
-  }, [currentBatchInvoices.length])
+  }, [clientId, currentBatchInvoices.length, invoiceFormData.invoice_number])
 
   // Check for highlight parameter from notification
   useEffect(() => {
@@ -197,6 +203,10 @@ export default function ClientBatches() {
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false)
   const [showDocumentUploadModal, setShowDocumentUploadModal] = useState(false)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
+  const [viewerDocumentsFromStore, setViewerDocumentsFromStore] = useState<
+    Array<{ id: string; name: string; file?: File; type: string; size: number }>
+  >([])
+  const [viewerInvoiceNumber, setViewerInvoiceNumber] = useState('')
   const [showInvoiceDetailView, setShowInvoiceDetailView] = useState(false)
   const [selectedBatchInvoiceId, setSelectedBatchInvoiceId] = useState<string | null>(null)
   const [currentInvoiceForDocuments, setCurrentInvoiceForDocuments] = useState<InvoiceFormData | null>(null)
@@ -470,26 +480,15 @@ export default function ClientBatches() {
     setSearchParams(searchParams, { replace: true })
   }
 
-  const generateNextInvoiceNumber = () => {
-    const year = new Date().getFullYear()
-    // If there are existing invoices, find the highest number and increment
-    if (currentBatchInvoices.length > 0) {
-      const invoiceNumbers = currentBatchInvoices
-        .map((inv) => inv.invoice_number)
-        .filter((num) => num && num.match(/^INV-\d{4}-(\d+)$/))
-        .map((num) => {
-          const match = num.match(/^INV-\d{4}-(\d+)$/)
-          return match ? parseInt(match[1], 10) : 0
-        })
-      
-      if (invoiceNumbers.length > 0) {
-        const maxNumber = Math.max(...invoiceNumbers)
-        return `INV-${year}-${String(maxNumber + 1).padStart(3, '0')}`
-      }
-    }
-    // Otherwise start from 1
-    return `INV-${year}-001`
-  }
+  const pendingInvoiceNumbers = useCallback(
+    () => currentBatchInvoices.map((inv) => inv.invoice_number),
+    [currentBatchInvoices]
+  )
+
+  const generateNextInvoiceNumber = useCallback(() => {
+    if (!clientId) return '001'
+    return getNextClientInvoiceNumber(clientId, pendingInvoiceNumbers())
+  }, [clientId, pendingInvoiceNumbers])
 
   const handleInvoiceInputChange = (field: keyof InvoiceFormData, value: string) => {
     setInvoiceFormData((prev) => ({ ...prev, [field]: value }))
@@ -531,8 +530,12 @@ export default function ClientBatches() {
     documentUploadInFlightRef.current = false
     setDocumentUploadSaving(false)
 
-    // Use the invoice number from form (which may have been edited)
-    const invoiceNumber = invoiceFormData.invoice_number || generateNextInvoiceNumber()
+    const reserved = pendingInvoiceNumbers()
+    const invoiceNumber = ensureUniqueClientInvoiceNumber(
+      clientId,
+      invoiceFormData.invoice_number || generateNextInvoiceNumber(),
+      reserved
+    )
 
     // Store the invoice data temporarily to show in upload modal
     const invoiceToAdd: InvoiceFormData = {
@@ -1094,9 +1097,9 @@ export default function ClientBatches() {
     setCurrentBatchInvoices((prev) => prev.filter((_, i) => i !== index))
   }
 
-  const handleCreateBatch = () => {
+  const handleCreateBatch = async () => {
     try {
-      const { batch } = submitManualBatch({
+      const { batch } = await submitManualBatch({
         clientId: clientId,
         clientName: clientName,
         existingBatchId: activeDraftBatchId ?? undefined,
@@ -1122,6 +1125,8 @@ export default function ClientBatches() {
         void clearClientDraftStorage(activeDraftBatchId)
       }
       refreshBatches()
+      setInvoicesRefreshKey((key) => key + 1)
+      clearClientTenantCache(clientId)
       setActiveTab('view')
       setSelectedBatch(batch.id)
       alert(`Batch ${batch.batch_number} submitted. Credyx will review your paperwork.`)
@@ -1170,13 +1175,32 @@ export default function ClientBatches() {
     [batchDetailInvoices, selectedBatchInvoiceId]
   )
 
-  const handleBatchInvoiceDocuments = (invoice: Invoice) => {
+  const handleBatchInvoiceDocuments = async (invoice: Invoice) => {
     const formMatch = selectedBatch
       ? batchInvoices[selectedBatch]?.find((f) => f.invoice_number === invoice.invoice_number)
       : null
     if (formMatch?.documents?.length) {
       handleViewDocuments(formMatch)
+      return
     }
+
+    const resolved = await resolveInvoiceDocumentsAsync(invoice)
+    if (resolved.length === 0) {
+      alert('No documents found for this invoice.')
+      return
+    }
+
+    setViewerDocumentsFromStore(
+      resolved.map((doc) => ({
+        id: doc.id,
+        name: doc.name,
+        file: doc.file,
+        type: doc.type,
+        size: doc.size,
+      }))
+    )
+    setViewerInvoiceNumber(invoice.invoice_number)
+    setShowDocumentViewer(true)
   }
 
   const handleBatchAddNote = async (invoiceId: string, note: string) => {
@@ -1387,15 +1411,21 @@ export default function ClientBatches() {
       )}
 
       {/* Document Viewer */}
-      {showDocumentViewer && viewingInvoiceDocuments && (
+      {showDocumentViewer && (viewingInvoiceDocuments || viewerDocumentsFromStore.length > 0) && (
         <DocumentViewer
           isOpen={showDocumentViewer}
           onClose={() => {
             setShowDocumentViewer(false)
             setViewingInvoiceDocuments(null)
+            setViewerDocumentsFromStore([])
+            setViewerInvoiceNumber('')
           }}
-          documents={getDocumentsForInvoice(viewingInvoiceDocuments)}
-          invoiceNumber={viewingInvoiceDocuments.invoice_number}
+          documents={
+            viewingInvoiceDocuments
+              ? getDocumentsForInvoice(viewingInvoiceDocuments)
+              : viewerDocumentsFromStore
+          }
+          invoiceNumber={viewingInvoiceDocuments?.invoice_number ?? viewerInvoiceNumber}
           title="View Documents"
         />
       )}

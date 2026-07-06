@@ -7,7 +7,12 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { getClientById, CLIENT_ID_STORAGE_KEY } from '../services/clientRegistry'
+import {
+  fetchClientById,
+  hydrateClientRegistry,
+  CLIENT_ID_STORAGE_KEY,
+} from '../services/clientRegistry'
+import { loadClientTenantData, clearClientTenantCache } from '../data/clientDemoData'
 import { getPlanForTier } from '../config/servicePlans'
 import { getClientCapabilities } from '../utils/clientCapabilities'
 import type { Client, ServiceTier } from '../types/client'
@@ -30,14 +35,19 @@ export function ClientPortalProvider({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<Client | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  const loadClient = useCallback(() => {
+  const loadClient = useCallback(async () => {
     try {
       const id = localStorage.getItem(CLIENT_ID_STORAGE_KEY)
       if (!id) {
         setClient(null)
         return
       }
-      setClient(getClientById(id) ?? null)
+      await hydrateClientRegistry()
+      const loaded = (await fetchClientById(id)) ?? null
+      setClient(loaded)
+      if (loaded) {
+        await loadClientTenantData(loaded.id, loaded.name)
+      }
     } catch {
       setClient(null)
     } finally {

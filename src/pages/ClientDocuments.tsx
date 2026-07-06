@@ -95,9 +95,24 @@ export default function ClientDocuments() {
   const [searchTerm, setSearchTerm] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   const [viewingDoc, setViewingDoc] = useState<ClientDocument | null>(null)
+  const [viewingFile, setViewingFile] = useState<File | undefined>(undefined)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [reminderEditId, setReminderEditId] = useState<string | null>(null)
   const [reminderEditValue, setReminderEditValue] = useState('')
+
+  useEffect(() => {
+    if (!viewingDoc) {
+      setViewingFile(undefined)
+      return
+    }
+    let cancelled = false
+    void getClientDocumentFile(viewingDoc.id).then((file) => {
+      if (!cancelled) setViewingFile(file)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [viewingDoc])
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<DocumentSortField>('uploaded_at')
@@ -247,13 +262,14 @@ export default function ClientDocuments() {
     setUploadError(null)
 
     try {
-      pendingFiles.forEach((pending, index) => {
+      for (let index = 0; index < pendingFiles.length; index++) {
+        const pending = pendingFiles[index]
         const name =
           uploadName.trim() ||
           pending.file.name.replace(/\.[^.]+$/, '') ||
           pending.file.name
 
-        addClientDocument(clientId, {
+        await addClientDocument(clientId, {
           name: pendingFiles.length === 1 ? name : `${name} ${index + 1}`,
           file: pending.file,
           category: uploadCategory,
@@ -261,7 +277,7 @@ export default function ClientDocuments() {
           expires_at: uploadReminder || undefined,
           uploaded_by: clientName,
         })
-      })
+      }
 
       setRefreshKey((k) => k + 1)
       closeUploadModal()
@@ -273,8 +289,8 @@ export default function ClientDocuments() {
     }
   }
 
-  const handleDelete = (documentId: string) => {
-    removeClientDocument(documentId)
+  const handleDelete = async (documentId: string) => {
+    await removeClientDocument(documentId)
     setDeleteConfirmId(null)
     setRefreshKey((k) => k + 1)
   }
@@ -284,9 +300,9 @@ export default function ClientDocuments() {
     setReminderEditValue(doc.expires_at ? doc.expires_at.split('T')[0] : '')
   }
 
-  const saveReminderEdit = () => {
+  const saveReminderEdit = async () => {
     if (!reminderEditId) return
-    updateClientDocument(reminderEditId, {
+    await updateClientDocument(reminderEditId, {
       expires_at: reminderEditValue || undefined,
     })
     setReminderEditId(null)
@@ -299,7 +315,7 @@ export default function ClientDocuments() {
         {
           id: viewingDoc.id,
           name: viewingDoc.file_name,
-          file: getClientDocumentFile(viewingDoc.id),
+          file: viewingFile,
           type: viewingDoc.mime_type,
           size: viewingDoc.size,
         },

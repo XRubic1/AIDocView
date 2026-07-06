@@ -44,6 +44,9 @@ interface ImportMetaEnv {
   readonly VITE_AI_PARALLEL_STAGGER_MS?: string
   /** Model for review explainability chat (default gpt-4o) */
   readonly VITE_AI_CHAT_MODEL?: string
+  readonly VITE_SUPABASE_URL?: string
+  readonly VITE_SUPABASE_PUBLISHABLE_KEY?: string
+  readonly VITE_SUPABASE_ANON_KEY?: string
 }
 
 interface ImportMeta {

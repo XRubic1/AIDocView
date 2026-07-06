@@ -82,6 +82,7 @@ function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/engine" element={<LoadReviewWorkbench />} />
         <Route path="/engine/settings" element={<EngineSettingsPage />} />
+        <Route path="/engine/rules" element={<ReviewRulesPage />} />
         <Route path="/dev/load-review" element={<LoadReviewWorkbench />} />
         <Route path="/dev/document-review" element={<LoadReviewWorkbench />} />
         <Route path="/dev/document-review/test" element={<DocumentReviewTest />} />

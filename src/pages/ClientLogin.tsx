@@ -1,17 +1,25 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { LogIn, Eye, EyeOff } from 'lucide-react'
-import { getClientByEmail, CLIENT_ID_STORAGE_KEY } from '../services/clientRegistry'
+import { fetchClientByEmail, CLIENT_ID_STORAGE_KEY } from '../services/clientRegistry'
+import { signInClientAuth } from '../services/clientAuthService'
+import { isSupabaseConfigured } from '../lib/supabase'
 
 export default function ClientLogin() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const sessionMessage = (location.state as { message?: string } | null)?.message
   
-  // Redirect if already authenticated
   useEffect(() => {
-    const isAuthenticated = localStorage.getItem('clientAuthenticated') === 'true'
-    if (isAuthenticated) {
-      navigate('/client/dashboard', { replace: true })
-    }
+    void (async () => {
+      const isAuthenticated = localStorage.getItem('clientAuthenticated') === 'true'
+      const clientId = localStorage.getItem(CLIENT_ID_STORAGE_KEY)
+      if (!isAuthenticated || !clientId) return
+      const client = await fetchClientByEmail(localStorage.getItem('clientEmail') ?? '')
+      if (client?.status === 'active') {
+        navigate('/client/dashboard', { replace: true })
+      }
+    })()
   }, [navigate])
 
   const [email, setEmail] = useState('')
@@ -36,19 +44,35 @@ export default function ClientLogin() {
     // For demo purposes, accept any email/password combination
     // In production, this would validate against a backend
     try {
-      // Simulate API call delay
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      if (isSupabaseConfigured()) {
+        const auth = await signInClientAuth(email, password)
+        if (!auth.ok) {
+          setError(auth.error ?? 'Invalid email or password')
+          setIsLoading(false)
+          return
+        }
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
 
-      // Mock authentication - accept any credentials for demo
-      // In production, replace this with actual authentication
       if (email && password) {
-        const matched = getClientByEmail(email)
-        const clientId = matched?.id ?? 'client-1'
+        const matched = await fetchClientByEmail(email)
+        if (!matched) {
+          setError('No account found for that email. Enroll your company first, then sign in.')
+          setIsLoading(false)
+          return
+        }
+
+        if (matched.status === 'pending' || matched.status === 'inactive') {
+          setError('Your account is not active yet. We will email you when it is ready.')
+          setIsLoading(false)
+          return
+        }
 
         localStorage.setItem('clientAuthenticated', 'true')
         localStorage.setItem('clientEmail', email)
         localStorage.setItem('clientRole', 'Client')
-        localStorage.setItem(CLIENT_ID_STORAGE_KEY, clientId)
+        localStorage.setItem(CLIENT_ID_STORAGE_KEY, matched.id)
 
         navigate('/client/dashboard')
       } else {
@@ -174,17 +198,16 @@ export default function ClientLogin() {
                 </div>
               </div>
 
-              {/* Error Message */}
-              {error && (
-                <div 
+              {(sessionMessage || error) && (
+                <div
                   className="p-3 rounded text-sm"
-                  style={{ 
-                    backgroundColor: '#FEE2E2', 
-                    color: '#DC2626',
-                    border: '1px solid #FECACA'
+                  style={{
+                    backgroundColor: error ? '#FEE2E2' : '#FEF3C7',
+                    color: error ? '#DC2626' : '#92400E',
+                    border: `1px solid ${error ? '#FECACA' : '#FDE68A'}`,
                   }}
                 >
-                  {error}
+                  {error || sessionMessage}
                 </div>
               )}
 
@@ -222,8 +245,15 @@ export default function ClientLogin() {
             {/* Link to Admin Login */}
             <div className="mt-6 pt-6 border-t" style={{ borderColor: '#e2e8f0' }}>
               <p className="text-xs text-center mb-2" style={{ color: '#64748b' }}>
-                Demo: use robert.anderson@abctrucking.com (self-service) or
-                jennifer.martinez@xyzlogistics.com (managed)
+                New client?{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/enroll')}
+                  className="underline"
+                  style={{ color: '#113543' }}
+                >
+                  Enroll your company
+                </button>
               </p>
               <button
                 onClick={() => navigate('/login')}

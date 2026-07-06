@@ -5,15 +5,37 @@ import { X, Check, AlertCircle, Phone, Mail, FileText, User, ChevronLeft, Chevro
 import { Invoice } from '../../types/invoice'
 import ContactBrokerModal from '../brokers/ContactBrokerModal'
 import { mockBrokers } from '../../data/mockBrokers'
-import { mockClients } from '../../data/mockClients'
+import { getAllClients, getClientById } from '../../services/clientRegistry'
 import jsPDF from 'jspdf'
 import { generateInvoicePDFFile } from '../../utils/generateInvoicePDF'
 import { addBatchFile, getBatchFile } from '../../data/batchFileStore'
-import { updateInvoice } from '../../data/mockInvoices'
+import { updateInvoice, getInvoiceById } from '../../data/mockInvoices'
+import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
+import {
+  saveInvoiceDocuments,
+  updateInvoiceDocumentMetadata,
+} from '../../services/supabase/tenantPersist'
 import {
   invoiceDocumentsMissingFromStore,
-  resolveInvoiceDocuments,
+  resolveInvoiceDocumentsAsync,
 } from '../../utils/resolveInvoiceDocuments'
+
+function docIdsFromDocuments(docs: Document[]): string[] {
+  return docs.map((d) => d.id).filter((id) => !id.startsWith('invoice-pdf-'))
+}
+
+function invoiceDocumentCount(invoice: Invoice, docIds: string[]): number {
+  const invPdfKey = invoice.doc_sort_group_id
+    ? `invoice-pdf-${invoice.doc_sort_group_id}`
+    : null
+  const hasInvPdf =
+    !!invPdfKey &&
+    !!(
+      (invoice.batch_id && getBatchFile(invoice.batch_id, invPdfKey)) ||
+      invoice.document_storage_paths?.[invPdfKey]
+    )
+  return docIds.length + (hasInvPdf ? 1 : 0)
+}
 
 interface Document {
   id: string
@@ -98,6 +120,7 @@ export default function AdminInvoiceDetailView({
   const [closeNote, setCloseNote] = useState('')
   const [closeAmount, setCloseAmount] = useState<number>(invoice?.amount || 0)
   const [closeType, setCloseType] = useState<'Force Close' | 'Paid' | 'Short Paid' | ''>('')
+  const [isUploadingDocs, setIsUploadingDocs] = useState(false)
   const [isCreatingInvoice, setIsCreatingInvoice] = useState(false)
 
   // Update collection fields when invoice changes
@@ -129,14 +152,14 @@ export default function AdminInvoiceDetailView({
     
     // Update invoice with collection information
     if (currentInvoice) {
-      currentInvoice.collection_date = collectionDate
-      currentInvoice.collection_status = collectionStatus as 'C/B' | 'W/P'
-      if (invoice) {
-        invoice.collection_date = collectionDate
-        invoice.collection_status = collectionStatus as 'C/B' | 'W/P'
+      const updated = updateInvoice(currentInvoice.id, {
+        collection_date: collectionDate,
+        collection_status: collectionStatus as 'C/B' | 'W/P',
+      })
+      if (updated) {
+        setCurrentInvoice(updated)
+        setRefreshKey((prev) => prev + 1)
       }
-      setCurrentInvoice({ ...currentInvoice })
-      setRefreshKey(prev => prev + 1)
     }
     
     // In a real implementation, this would make an API call to save the collection info
@@ -167,7 +190,6 @@ export default function AdminInvoiceDetailView({
       return
     }
     
-    // Add close note to invoice notes history
     if (!invoice.notes_history) {
       invoice.notes_history = []
     }
@@ -192,22 +214,24 @@ export default function AdminInvoiceDetailView({
       statusNote = 'Invoice force closed'
     }
     
-    invoice.notes_history.push({
+    const nextStatus = closeType === 'Paid' ? 'paid' : 'force_closed'
+    const notes_history = [...(invoice.notes_history ?? [])]
+    notes_history.push({
       id: `note-${Date.now()}`,
       note: `${statusNote}: ${amountNote}. ${closeNote}`,
-      created_by: 'Admin User', // In real implementation, get from auth context
+      created_by: 'Admin User',
       created_at: new Date().toISOString(),
       type: 'note',
     })
-    
-    // Update invoice status based on close type
-    if (closeType === 'Paid') {
-      invoice.status = 'paid'
-    } else {
-      // Force Close or Short Paid
-      invoice.status = 'force_closed'
+
+    const updated = updateInvoice(invoice.id, {
+      status: nextStatus,
+      notes_history,
+      paid_amount: closeType === 'Paid' ? closeAmount : invoice.paid_amount,
+    })
+    if (updated) {
+      setCurrentInvoice(updated)
     }
-    invoice.updated_at = new Date().toISOString()
     
     // Clear the close fields
     setCloseNote('')
@@ -232,7 +256,7 @@ export default function AdminInvoiceDetailView({
   if (!currentInvoice) return null
 
   const broker = mockBrokers.find((b) => b.id === currentInvoice.broker_id)
-  const client = mockClients.find((c) => c.id === currentInvoice.client_id)
+  const client = getClientById(currentInvoice.client_id)
   
   const filteredBrokers = brokerSearchTerm
     ? mockBrokers.filter((b) =>
@@ -241,10 +265,10 @@ export default function AdminInvoiceDetailView({
     : mockBrokers
 
   const filteredClients = clientSearchTerm
-    ? mockClients.filter((c) =>
+    ? getAllClients().filter((c) =>
         c.name.toLowerCase().includes(clientSearchTerm.toLowerCase())
       )
-    : mockClients
+    : getAllClients()
 
   const getStatusBadge = (status: string) => {
     if (status === 'approved') {
@@ -279,16 +303,31 @@ export default function AdminInvoiceDetailView({
     }
   }
 
-  // Initialize documents from batch file store (admin/client AI & manual uploads)
+  // Load documents from memory or Supabase storage
   useEffect(() => {
     if (!currentInvoice) {
       setDocuments([])
       return
     }
-    const storeDocs = resolveInvoiceDocuments(currentInvoice)
-    setDocuments(storeDocs)
-    setCurrentDocumentIndex(0)
-  }, [currentInvoice?.id, currentInvoice?.batch_id, refreshKey])
+
+    let cancelled = false
+    void resolveInvoiceDocumentsAsync(currentInvoice).then((storeDocs) => {
+      if (!cancelled) {
+        setDocuments(storeDocs)
+        setCurrentDocumentIndex(0)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    currentInvoice?.id,
+    currentInvoice?.batch_id,
+    currentInvoice?.document_doc_ids,
+    currentInvoice?.document_storage_paths,
+    refreshKey,
+  ])
 
   // Update invoice documents_count when documents change
   useEffect(() => {
@@ -587,21 +626,23 @@ export default function AdminInvoiceDetailView({
         notes_history: updatedNotesHistory,
         notes: updatedNotes,
       }
-      
-      // Update local state to trigger re-render
-      setCurrentInvoice(finalInvoice)
-      
-      // Also update the original invoice object for parent components
-      if (invoice) {
-        Object.assign(invoice, finalInvoice)
+
+      const saved = updateInvoice(currentInvoice.id, {
+        verification_status: finalInvoice.verification_status,
+        selected_contact_person: finalInvoice.selected_contact_person,
+        contact_persons: finalInvoice.contact_persons,
+        notes_history: finalInvoice.notes_history,
+        notes: finalInvoice.notes,
+      })
+
+      setCurrentInvoice(saved ?? finalInvoice)
+      if (invoice && saved) {
+        Object.assign(invoice, saved)
       }
-      
-      // Force re-render
-      setRefreshKey(prev => prev + 1)
-      
-      // Clear fields
+
+      setRefreshKey((prev) => prev + 1)
       setNewNote('')
-      
+
       console.log('Verification note added to invoice:', currentInvoice.id)
     } else {
       // Regular note for non-verification stages
@@ -632,21 +673,20 @@ export default function AdminInvoiceDetailView({
         notes_history: updatedNotesHistory,
         notes: updatedNotes,
       }
-      
-      // Update local state to trigger re-render
-      setCurrentInvoice(finalInvoice)
-      
-      // Also update the original invoice object for parent components
-      if (invoice) {
-        Object.assign(invoice, finalInvoice)
+
+      const saved = updateInvoice(currentInvoice.id, {
+        notes_history: finalInvoice.notes_history,
+        notes: finalInvoice.notes,
+      })
+
+      setCurrentInvoice(saved ?? finalInvoice)
+      if (invoice && saved) {
+        Object.assign(invoice, saved)
       }
-      
-      // Force re-render
-      setRefreshKey(prev => prev + 1)
-      
-      // Clear fields
-    setNewNote('')
-      
+
+      setRefreshKey((prev) => prev + 1)
+      setNewNote('')
+
       console.log('Note added to invoice:', currentInvoice.id)
     }
   }
@@ -665,9 +705,14 @@ export default function AdminInvoiceDetailView({
       notes: updatedNotes,
     }
 
-    setCurrentInvoice(finalInvoice)
-    if (invoice) {
-      Object.assign(invoice, finalInvoice)
+    const saved = updateInvoice(currentInvoice.id, {
+      notes_history: updatedNotesHistory.length > 0 ? updatedNotesHistory : undefined,
+      notes: updatedNotes,
+    })
+
+    setCurrentInvoice(saved ?? finalInvoice)
+    if (invoice && saved) {
+      Object.assign(invoice, saved)
     }
     setRefreshKey((prev) => prev + 1)
   }
@@ -686,29 +731,26 @@ export default function AdminInvoiceDetailView({
     
     const selectedInvoices = invoiceList!.filter(inv => selectedInvoiceIds.has(inv.id))
     
-    selectedInvoices.forEach(inv => {
-      if (!inv.notes_history) {
-        inv.notes_history = []
-      }
-      
-      inv.notes_history.push({
+    selectedInvoices.forEach((inv) => {
+      const updatedNotesHistory = [...(inv.notes_history ?? [])]
+      updatedNotesHistory.push({
         id: `note-${Date.now()}-${inv.id}`,
         note: bulkNote,
         created_by: 'Admin User',
         created_at: new Date().toISOString(),
         type: 'note',
       })
-      
-      if (inv.notes) {
-        inv.notes = `${inv.notes}\n${bulkNote}`
-      } else {
-        inv.notes = bulkNote
-      }
+
+      const updatedNotes = inv.notes ? `${inv.notes}\n${bulkNote}` : bulkNote
+      updateInvoice(inv.id, {
+        notes_history: updatedNotesHistory,
+        notes: updatedNotes,
+      })
     })
-    
+
     setBulkNote('')
+    setRefreshKey((prev) => prev + 1)
     console.log(`Note added to ${selectedInvoices.length} invoice(s)`)
-    // In real implementation, this would save to the backend
   }
 
   const handleBulkApprove = () => {
@@ -719,10 +761,8 @@ export default function AdminInvoiceDetailView({
     
     const selectedInvoices = invoiceList!.filter(inv => selectedInvoiceIds.has(inv.id))
     
-    selectedInvoices.forEach(inv => {
-      inv.status = 'approved'
-      inv.approved_by = 'Admin User'
-      inv.approved_at = new Date().toISOString()
+    selectedInvoices.forEach((inv) => {
+      approveAdminInvoice(inv.id)
       onApprove?.(inv.id)
     })
     
@@ -739,8 +779,8 @@ export default function AdminInvoiceDetailView({
     
     const selectedInvoices = invoiceList!.filter(inv => selectedInvoiceIds.has(inv.id))
     
-    selectedInvoices.forEach(inv => {
-      inv.status = 'hold'
+    selectedInvoices.forEach((inv) => {
+      holdAdminInvoice(inv.id)
       onHold?.(inv.id)
     })
     
@@ -873,45 +913,55 @@ export default function AdminInvoiceDetailView({
       }
     }
 
-    setDocuments((prev) => {
-      const updated = [...prev, ...processedDocuments]
-      if (updated.length > 0) {
-        setCurrentDocumentIndex(updated.length - processedDocuments.length)
-      }
-      return updated
-    })
+    if (!currentInvoice?.batch_id) {
+      alert('This invoice has no batch — documents cannot be saved.')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
 
-    if (currentInvoice?.batch_id) {
+    setIsUploadingDocs(true)
+    try {
+      const filesByDocId = new Map<string, File>()
       const newDocIds = [...(currentInvoice.document_doc_ids ?? [])]
+
       processedDocuments.forEach((doc) => {
         if (doc.file) {
           addBatchFile(currentInvoice.batch_id!, doc.id, doc.file)
+          filesByDocId.set(doc.id, doc.file)
           if (!newDocIds.includes(doc.id)) {
             newDocIds.push(doc.id)
           }
         }
       })
-      const invPdfKey = currentInvoice.doc_sort_group_id
-        ? `invoice-pdf-${currentInvoice.doc_sort_group_id}`
-        : null
-      const hasInvPdf =
-        !!invPdfKey && !!getBatchFile(currentInvoice.batch_id, invPdfKey)
-      const nextCount = newDocIds.length + (hasInvPdf ? 1 : 0)
-      updateInvoice(currentInvoice.id, {
-        document_doc_ids: newDocIds,
-        documents_count: nextCount,
-      })
-      setCurrentInvoice({
-        ...currentInvoice,
-        document_doc_ids: newDocIds,
-        documents_count: nextCount,
-      })
-      setRefreshKey((k) => k + 1)
-    }
 
-    // Reset file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
+      const nextCount = invoiceDocumentCount(currentInvoice, newDocIds)
+      const saved = await saveInvoiceDocuments(
+        currentInvoice,
+        filesByDocId,
+        newDocIds,
+        nextCount
+      )
+
+      setDocuments((prev) => {
+        const updated = [...prev, ...processedDocuments]
+        if (updated.length > 0) {
+          setCurrentDocumentIndex(updated.length - processedDocuments.length)
+        }
+        return updated
+      })
+      setCurrentInvoice(saved)
+      if (invoice) {
+        Object.assign(invoice, saved)
+      }
+      setRefreshKey((k) => k + 1)
+    } catch (error) {
+      console.error('Failed to save documents:', error)
+      alert(error instanceof Error ? error.message : 'Failed to save documents')
+    } finally {
+      setIsUploadingDocs(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
     }
   }
 
@@ -945,7 +995,7 @@ export default function AdminInvoiceDetailView({
 
     try {
       const brokerData = mockBrokers.find((b) => b.id === currentInvoice.broker_id)
-      const clientData = mockClients.find((c) => c.id === currentInvoice.client_id)
+      const clientData = getClientById(currentInvoice.client_id)
 
       const clientName = currentInvoice.client_name || clientData?.name || 'Client'
 
@@ -973,11 +1023,33 @@ export default function AdminInvoiceDetailView({
         file: pdfFile,
       }
 
+      if (!currentInvoice.batch_id) {
+        alert('This invoice has no batch — document cannot be saved.')
+        return
+      }
+
+      addBatchFile(currentInvoice.batch_id, newDocument.id, pdfFile)
+      const newDocIds = [...(currentInvoice.document_doc_ids ?? []), newDocument.id]
+      const nextCount = invoiceDocumentCount(currentInvoice, newDocIds)
+      const filesByDocId = new Map([[newDocument.id, pdfFile]])
+
+      const saved = await saveInvoiceDocuments(
+        currentInvoice,
+        filesByDocId,
+        newDocIds,
+        nextCount
+      )
+
       setDocuments((prev) => {
         const updated = [...prev, newDocument]
         setCurrentDocumentIndex(updated.length - 1)
         return updated
       })
+      setCurrentInvoice(saved)
+      if (invoice) {
+        Object.assign(invoice, saved)
+      }
+      setRefreshKey((k) => k + 1)
     } catch (error) {
       console.error('Failed to create invoice PDF:', error)
       alert('Failed to create invoice PDF. Please try again.')
@@ -986,18 +1058,37 @@ export default function AdminInvoiceDetailView({
     }
   }
 
-  const handleDeleteDocument = (docId: string) => {
-    if (window.confirm('Are you sure you want to delete this document?')) {
-      setDocuments((prev) => {
-        const newDocs = prev.filter((doc) => doc.id !== docId)
-        // Adjust current index if needed
-        if (currentDocumentIndex >= newDocs.length && newDocs.length > 0) {
-          setCurrentDocumentIndex(newDocs.length - 1)
-        } else if (newDocs.length === 0) {
-          setCurrentDocumentIndex(0)
-        }
-        return newDocs
-      })
+  const handleDeleteDocument = async (docId: string) => {
+    if (!currentInvoice?.batch_id) return
+    if (!window.confirm('Are you sure you want to delete this document?')) return
+
+    const newDocs = documents.filter((doc) => doc.id !== docId)
+    const newDocIds = docIdsFromDocuments(newDocs)
+    const nextCount = invoiceDocumentCount(currentInvoice, newDocIds)
+
+    try {
+      const saved = await updateInvoiceDocumentMetadata(
+        currentInvoice,
+        newDocIds,
+        nextCount,
+        [docId]
+      )
+
+      if (currentDocumentIndex >= newDocs.length && newDocs.length > 0) {
+        setCurrentDocumentIndex(newDocs.length - 1)
+      } else if (newDocs.length === 0) {
+        setCurrentDocumentIndex(0)
+      }
+
+      setDocuments(newDocs)
+      setCurrentInvoice(saved)
+      if (invoice) {
+        Object.assign(invoice, saved)
+      }
+      setRefreshKey((k) => k + 1)
+    } catch (error) {
+      console.error('Failed to delete document:', error)
+      alert(error instanceof Error ? error.message : 'Failed to delete document')
     }
   }
 
@@ -1016,7 +1107,7 @@ export default function AdminInvoiceDetailView({
 
   const handleDrop = (e: React.DragEvent, dropIndex: number) => {
     e.preventDefault()
-    if (draggedIndex === null || draggedIndex === dropIndex) {
+    if (draggedIndex === null || draggedIndex === dropIndex || !currentInvoice?.batch_id) {
       setDraggedIndex(null)
       setDragOverIndex(null)
       return
@@ -1031,6 +1122,19 @@ export default function AdminInvoiceDetailView({
     setCurrentDocumentIndex(dropIndex)
     setDraggedIndex(null)
     setDragOverIndex(null)
+
+    const newDocIds = docIdsFromDocuments(newDocuments)
+    const nextCount = invoiceDocumentCount(currentInvoice, newDocIds)
+    void updateInvoiceDocumentMetadata(currentInvoice, newDocIds, nextCount)
+      .then((saved) => {
+        setCurrentInvoice(saved)
+        if (invoice) {
+          Object.assign(invoice, saved)
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to save document order:', error)
+      })
   }
 
   const handleDragEnd = () => {
@@ -1049,35 +1153,46 @@ export default function AdminInvoiceDetailView({
     }
     
     // Cycle through statuses: pending -> approved -> hold -> approved
-    let newStatus: 'pending' | 'approved' | 'hold'
-    
     if (inv.status === 'pending' || !inv.status) {
-      newStatus = 'approved'
-      inv.status = 'approved'
-      inv.approved_by = 'Admin User'
-      inv.approved_at = new Date().toISOString()
+      approveAdminInvoice(inv.id)
       onApprove?.(inv.id)
-    } else if (inv.status === 'approved') {
-      newStatus = 'hold'
-      inv.status = 'hold'
+      setRefreshKey((k) => k + 1)
+      if (currentInvoice?.id === inv.id) {
+        const updated = getInvoiceById(inv.id)
+        if (updated) {
+          setCurrentInvoice({ ...updated })
+          onInvoiceSelect?.({ ...updated })
+        }
+      }
+      return
+    }
+    if (inv.status === 'approved') {
+      holdAdminInvoice(inv.id)
       onHold?.(inv.id)
-    } else if (inv.status === 'hold') {
-      newStatus = 'approved'
-      inv.status = 'approved'
-      inv.approved_by = 'Admin User'
-      inv.approved_at = new Date().toISOString()
+      setRefreshKey((k) => k + 1)
+      if (currentInvoice?.id === inv.id) {
+        const updated = getInvoiceById(inv.id)
+        if (updated) {
+          setCurrentInvoice({ ...updated })
+          onInvoiceSelect?.({ ...updated })
+        }
+      }
+      return
+    }
+    if (inv.status === 'hold') {
+      approveAdminInvoice(inv.id)
       onApprove?.(inv.id)
-    } else {
-      return // Unknown status
+      setRefreshKey((k) => k + 1)
+      if (currentInvoice?.id === inv.id) {
+        const updated = getInvoiceById(inv.id)
+        if (updated) {
+          setCurrentInvoice({ ...updated })
+          onInvoiceSelect?.({ ...updated })
+        }
+      }
+      return
     }
-    
-    // If this is the currently selected invoice, update it to reflect the new status
-    if (currentInvoice?.id === inv.id) {
-      // Create a new object reference to force React re-render
-      const updatedInvoice = { ...inv, status: newStatus }
-      setCurrentInvoice(updatedInvoice)
-      onInvoiceSelect?.(updatedInvoice)
-    }
+    return
   }
   
   // Check if broker is required but not set (for ready_to_post stage)
@@ -1538,17 +1653,11 @@ export default function AdminInvoiceDetailView({
                 {stage !== 'ready_to_post' && onApprove && (
                   <button
                     onClick={() => {
-                      onApprove(invoice.id)
-                      const updated = {
-                        ...currentInvoice,
-                        status: 'approved' as const,
-                        approved_by: 'Admin User',
-                        approved_at: new Date().toISOString(),
+                      const updated = approveAdminInvoice(invoice.id)
+                      onApprove?.(invoice.id)
+                      if (updated) {
+                        setCurrentInvoice(updated)
                       }
-                      invoice.status = 'approved'
-                      invoice.approved_by = 'Admin User'
-                      invoice.approved_at = updated.approved_at
-                      setCurrentInvoice(updated)
                     }}
                     className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white transition-colors"
                     style={{
@@ -1574,10 +1683,11 @@ export default function AdminInvoiceDetailView({
                 {stage !== 'ready_to_post' && onHold && (
                   <button
                     onClick={() => {
-                      onHold(invoice.id)
-                      const updated = { ...currentInvoice, status: 'hold' as const }
-                      invoice.status = 'hold'
-                      setCurrentInvoice(updated)
+                      const updated = holdAdminInvoice(invoice.id)
+                      onHold?.(invoice.id)
+                      if (updated) {
+                        setCurrentInvoice(updated)
+                      }
                     }}
                     className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white transition-colors"
                     style={{
@@ -2637,18 +2747,22 @@ export default function AdminInvoiceDetailView({
                   <span>{isCreatingInvoice ? 'Creating...' : 'Create Invoice'}</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium text-white transition-colors"
+                  disabled={isUploadingDocs || isCreatingInvoice}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   style={{ backgroundColor: '#C2A558' }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#b89547'
+                    if (!isUploadingDocs && !isCreatingInvoice) {
+                      e.currentTarget.style.backgroundColor = '#b89547'
+                    }
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = '#C2A558'
                   }}
                 >
                   <Upload className="w-3.5 h-3.5" />
-                  <span>Upload</span>
+                  <span>{isUploadingDocs ? 'Saving…' : 'Upload'}</span>
                 </button>
               </div>
               <input

@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useState } from 'react'
 import { Gauge, RotateCcw, Settings } from 'lucide-react'
 import EngineLayout from '../components/engine/EngineLayout'
+import BolVerificationFiltersSection from '../components/loadReview/factorfox/BolVerificationFiltersSection'
 import { ff } from '../components/loadReview/factorfox/factorFoxTheme'
 import { AI_REVIEW_CONFIG, getEffectiveTpmBudget } from '../config/aiReview'
 import {
@@ -76,12 +77,12 @@ export default function EngineSettingsPage() {
             Settings
           </h1>
           <p className="text-xs mt-1 max-w-xl" style={{ color: ff.textMuted, fontFamily: ff.fontMono }}>
-            Configure review engine limits. Changes apply on the next TPM estimate or Run review.
+            TPM limits, BOL verification filters, and review planning. Changes apply on the next Run review.
           </p>
         </div>
       }
     >
-      <div className="p-4 sm:p-6 max-w-2xl mx-auto w-full space-y-6">
+      <div className="p-4 sm:p-6 max-w-3xl mx-auto w-full space-y-6">
         <section
           className="border p-5 sm:p-6 space-y-5 transition-shadow hover:shadow-lg"
           style={{
@@ -210,6 +211,8 @@ export default function EngineSettingsPage() {
             </div>
           </form>
         </section>
+
+        <BolVerificationFiltersSection />
 
         <p className="text-[11px] leading-relaxed" style={{ color: ff.textSubtle, fontFamily: ff.fontMono }}>
           Active limit: {formatTpm(getEffectiveTpmLimit())} TPM · effective budget{' '}

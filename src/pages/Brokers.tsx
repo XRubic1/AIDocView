@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Header } from '../components/admin/Header'
-import { mockBrokers } from '../data/mockBrokers'
+import { mockBrokers, addBroker } from '../data/mockBrokers'
 import { Broker, BrokerEmail, BrokerPhone, EmailCategory, PhoneCategory } from '../types/broker'
 import { Phone, Mail, MapPin, Search, X, Plus, Trash2 } from 'lucide-react'
 
@@ -161,7 +161,8 @@ export default function Brokers() {
       notes: formData.notes || undefined,
     }
 
-    setBrokers((prev) => [...prev, newBroker])
+    addBroker(newBroker)
+    setBrokers([...mockBrokers])
     handleCloseAddModal()
   }
 

@@ -5,16 +5,17 @@ import { formatCurrency, formatDate } from '../utils/format'
 import {
   FileText,
   Download,
-  Calendar,
   BarChart3,
   TrendingUp,
+  TrendingDown,
   DollarSign,
-  Building2,
   Wallet,
   Clock,
   AlertTriangle,
   ArrowRight,
   Activity,
+  Receipt,
+  type LucideIcon,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
 import DashboardPanel from '../components/client/dashboard/DashboardPanel'
@@ -22,10 +23,12 @@ import AgingARChart from '../components/client/AgingARChart'
 import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
 import CashFlowChart from '../components/client/CashFlowChart'
 import CashCollectionForecast from '../components/client/CashCollectionForecast'
+import CollectionsColumnChart from '../components/client/reports/CollectionsColumnChart'
+import CollectionsPeriodRing from '../components/client/reports/CollectionsPeriodRing'
+import SubmissionFunnelBar from '../components/client/reports/SubmissionFunnelBar'
 import { useClientTheme } from '../theme/ThemeContext'
 import {
   computeOpenArAging,
-  computeBrokerScores,
   computeCashFlowTrend,
   computePipelineMetrics,
   computePaymentLag,
@@ -37,20 +40,34 @@ import {
 } from '../utils/clientReports'
 import { computeCashCollectionForecast } from '../utils/cashCollectionForecast'
 import {
-  OVERVIEW_REPORT_SECTIONS,
   buildOverviewCsvRows,
-  computeConcentrationRisk,
 } from '../utils/clientOverviewReports'
-import { getBrokerPayRating } from '../utils/clientBrokers'
-import BrokerPayRatingBadge from '../components/client/BrokerPayRatingBadge'
 import { useClientSession } from '../hooks/useClientSession'
 
-type ReportType = 'overview' | 'aging' | 'cashflow' | 'brokers' | 'pipeline'
+type ReportType = 'overview' | 'aging' | 'cashflow'
 
 type DatePreset = 'mtd' | '30d' | '90d' | 'ytd'
 
 const BUCKET_COLORS = (c: ReturnType<typeof useClientTheme>) =>
   [c.chart.blue, c.chart.cyan, c.chart.purple, c.chart.amber, c.chart.orange, c.chart.red] as const
+
+/** Previous period of equal length ending the day before the current range starts. */
+function getPreviousEqualRange(range: DateRange): DateRange {
+  const start = new Date(`${range.start_date}T00:00:00`)
+  const end = new Date(`${range.end_date}T00:00:00`)
+  const durationMs = end.getTime() - start.getTime()
+  const prevEnd = new Date(start.getTime() - 86_400_000)
+  const prevStart = new Date(prevEnd.getTime() - durationMs)
+  return {
+    start_date: prevStart.toISOString().split('T')[0],
+    end_date: prevEnd.toISOString().split('T')[0],
+  }
+}
+
+function pctChange(current: number, previous: number): number | null {
+  if (previous === 0) return current === 0 ? null : 100
+  return ((current - previous) / previous) * 100
+}
 
 function ReportBarRow({
   label,
@@ -111,30 +128,59 @@ function StatStripCell({
   label,
   value,
   icon: Icon,
-  bg,
-  iconColor,
+  accentColor,
+  trend,
 }: {
   label: string
   value: string
-  icon: typeof DollarSign
-  bg: string
-  iconColor: string
+  icon: LucideIcon
+  accentColor: string
+  trend?: { pct: number; invert?: boolean } | null
 }) {
   const c = useClientTheme()
+  const showTrend = trend != null && Number.isFinite(trend.pct) && Math.abs(trend.pct) >= 0.5
+  const favorable = trend
+    ? trend.invert
+      ? trend.pct < 0
+      : trend.pct > 0
+    : false
+  const unfavorable = trend
+    ? trend.invert
+      ? trend.pct > 0
+      : trend.pct < 0
+    : false
+
   return (
     <div
-      className="report-stat-cell flex items-center justify-between gap-2 px-3 py-2 sm:border-r border-b sm:border-b-0 last:border-r-0"
-      style={{ backgroundColor: bg, borderColor: c.border }}
+      className="report-stat-cell report-stat-cell--accent flex flex-col justify-center gap-0.5 px-3 py-2 sm:border-r border-b sm:border-b-0 last:border-r-0"
+      style={{ borderColor: c.border, ['--report-stat-accent' as string]: accentColor }}
     >
-      <div className="flex items-center gap-1.5 min-w-0">
-        <Icon className="w-3 h-3 shrink-0" style={{ color: iconColor }} />
-        <span className="text-[11px] font-medium truncate" style={{ color: c.secondary }}>
-          {label}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Icon className="w-3 h-3 shrink-0" style={{ color: accentColor }} />
+          <span className="text-[11px] font-medium truncate" style={{ color: c.secondary }}>
+            {label}
+          </span>
+        </div>
+        <span className="report-stat-cell__value shrink-0 text-right" style={{ color: c.primary }}>
+          {value}
         </span>
       </div>
-      <span className="text-sm font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-        {value}
-      </span>
+      {showTrend && trend && (
+        <span
+          className={`report-stat-trend ${
+            favorable ? 'report-stat-trend--up' : unfavorable ? 'report-stat-trend--down' : ''
+          }`}
+          style={!favorable && !unfavorable ? { color: c.mutedLight } : undefined}
+        >
+          {trend.pct > 0 ? (
+            <TrendingUp className="w-2.5 h-2.5" aria-hidden />
+          ) : trend.pct < 0 ? (
+            <TrendingDown className="w-2.5 h-2.5" aria-hidden />
+          ) : null}
+          {Math.abs(trend.pct).toFixed(0)}% vs prior
+        </span>
+      )}
     </div>
   )
 }
@@ -142,9 +188,11 @@ function StatStripCell({
 function ReportPanel({
   children,
   span = 12,
+  enterIndex = 0,
 }: {
   children: ReactNode
   span?: 3 | 4 | 5 | 6 | 7 | 12
+  enterIndex?: number
 }) {
   const spanClass: Record<number, string> = {
     3: 'lg:col-span-3',
@@ -154,8 +202,11 @@ function ReportPanel({
     7: 'lg:col-span-7',
     12: 'lg:col-span-12',
   }
+  const enterClass = `dashboard-section-enter dashboard-section-enter--${Math.min(enterIndex, 5)}`
   return (
-    <div className={`client-reports-panel ${spanClass[span] ?? 'lg:col-span-12'}`}>{children}</div>
+    <div className={`client-reports-panel ${spanClass[span] ?? 'lg:col-span-12'} ${enterClass}`}>
+      {children}
+    </div>
   )
 }
 
@@ -173,10 +224,24 @@ export default function ClientReports() {
     setDateRange(getPresetRange(preset))
   }
 
+  const previousRange = useMemo(() => getPreviousEqualRange(dateRange), [dateRange])
+  const prevEndDate = useMemo(
+    () => new Date(`${previousRange.end_date}T00:00:00`),
+    [previousRange.end_date]
+  )
+
   const aging = useMemo(() => computeOpenArAging(clientInvoices), [clientInvoices])
+  const prevAging = useMemo(
+    () => computeOpenArAging(clientInvoices, prevEndDate),
+    [clientInvoices, prevEndDate]
+  )
   const summary = useMemo(
     () => computePeriodSummary(clientInvoices, clientPayments, dateRange),
     [clientInvoices, clientPayments, dateRange]
+  )
+  const prevSummary = useMemo(
+    () => computePeriodSummary(clientInvoices, clientPayments, previousRange),
+    [clientInvoices, clientPayments, previousRange]
   )
   const cashFlow = useMemo(
     () => computeCashFlowTrend(clientInvoices, clientPayments, 6),
@@ -185,10 +250,6 @@ export default function ClientReports() {
   const collectionForecast = useMemo(
     () => computeCashCollectionForecast(clientInvoices, clientPayments),
     [clientInvoices, clientPayments]
-  )
-  const brokers = useMemo(
-    () => computeBrokerScores(clientInvoices, clientPayments, dateRange),
-    [clientInvoices, clientPayments, dateRange]
   )
   const pipeline = useMemo(
     () => computePipelineMetrics(clientInvoices, dateRange),
@@ -207,29 +268,9 @@ export default function ClientReports() {
     [clientInvoices, clientPayments, dateRange]
   )
 
-  const brokerRiskRows = useMemo(
-    () =>
-      brokers
-        .filter((b) => b.collected_in_range > 0 || b.open_ar > 0)
-        .map((b) => ({ ...b, rating: getBrokerPayRating(b) }))
-        .sort((a, b) => {
-          const order = { red: 0, yellow: 1, green: 2 }
-          if (order[a.rating] !== order[b.rating]) return order[a.rating] - order[b.rating]
-          return b.collected_in_range - a.collected_in_range
-        }),
-    [brokers]
-  )
-
-  const concentration = useMemo(() => computeConcentrationRisk(brokers), [brokers])
-
-  const maxCollectionsMonth = Math.max(
-    ...collectionsByMonth.map((m) => Math.max(m.invoiced, m.collected)),
-    1
-  )
-
   const bucketColors = BUCKET_COLORS(c)
   const maxAgingAmount = Math.max(...aging.buckets.map((b) => b.amount), 1)
-  const maxBrokerAr = brokers[0]?.open_ar ?? 1
+  const periodOutstanding = Math.max(0, summary.invoiced - summary.collected)
 
   const paymentMethods = useMemo(() => {
     const confirmed = clientPayments.filter(
@@ -267,8 +308,14 @@ export default function ClientReports() {
           taxReport,
           paymentLag,
           forecast: collectionForecast,
-          concentration,
-          brokerRiskRows,
+          concentration: {
+            top_broker_name: null,
+            top_broker_ar: 0,
+            top_broker_pct: 0,
+            top3_pct: 0,
+            is_elevated: false,
+          },
+          brokerRiskRows: [],
         })
         filename = `overview_${dateRange.start_date}_to_${dateRange.end_date}.csv`
         break
@@ -286,26 +333,6 @@ export default function ClientReports() {
         })
         filename = `cash_flow_${dateRange.start_date}_to_${dateRange.end_date}.csv`
         break
-      case 'brokers':
-        csvContent =
-          'Broker,Open A/R,Open Invoices,Invoiced in Range,Collected,Collection Rate,Avg Days to Pay,Overdue Amount\n'
-        brokers.forEach((b) => {
-          csvContent += `${b.broker_name},${b.open_ar},${b.open_invoices},${b.invoiced_in_range},${b.collected_in_range},${b.collection_rate.toFixed(1)}%,${b.avg_days_to_pay ?? ''},${b.overdue_amount}\n`
-        })
-        filename = `broker_scorecard_${dateRange.start_date}_to_${dateRange.end_date}.csv`
-        break
-      case 'pipeline':
-        csvContent = 'Metric,Value\n'
-        csvContent += `Submitted,${pipeline.submitted}\n`
-        csvContent += `Approved,${pipeline.approved}\n`
-        csvContent += `Pending,${pipeline.pending}\n`
-        csvContent += `On Hold,${pipeline.on_hold}\n`
-        csvContent += `Paid,${pipeline.paid}\n`
-        csvContent += `Approval Rate,${pipeline.approval_rate.toFixed(1)}%\n`
-        csvContent += `Avg Days to Approve,${pipeline.avg_days_to_approve ?? ''}\n`
-        csvContent += `Open Disputes,${pipeline.open_dispute_count}\n`
-        filename = `pipeline_${dateRange.start_date}_to_${dateRange.end_date}.csv`
-        break
     }
 
     const blob = new Blob([csvContent], { type: 'text/csv' })
@@ -322,31 +349,35 @@ export default function ClientReports() {
     summary,
     aging,
     cashFlow,
-    brokers,
-    pipeline,
     dateRange,
     taxReport,
-    brokerRiskRows,
     paymentLag,
     collectionForecast,
-    concentration,
   ])
 
-  const reportTabs: { id: ReportType; label: string; icon: typeof Calendar }[] = [
+  const reportTabs: { id: ReportType; label: string; icon: LucideIcon }[] = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
     { id: 'aging', label: 'A/R Aging', icon: Clock },
     { id: 'cashflow', label: 'Cash Flow', icon: Wallet },
-    { id: 'brokers', label: 'Brokers', icon: Building2 },
-    { id: 'pipeline', label: 'Pipeline', icon: Activity },
   ]
 
   const inputCompactStyle = {
     backgroundColor: c.card,
-    height: 34,
-    paddingTop: 6,
-    paddingBottom: 6,
-    fontSize: 13,
+    height: 28,
+    paddingTop: 4,
+    paddingBottom: 4,
+    fontSize: 12,
   } as const
+
+  const collectedTrend = pctChange(summary.collected, prevSummary.collected)
+  const dsoTrend =
+    summary.dso !== null && prevSummary.dso !== null
+      ? pctChange(summary.dso, prevSummary.dso)
+      : null
+  const overdueTrend = pctChange(aging.overdue_amount, prevAging.overdue_amount)
+  const collectionRateTrend = pctChange(summary.collection_rate, prevSummary.collection_rate)
+  const invoicedTrend = pctChange(summary.invoiced, prevSummary.invoiced)
+  const openArTrend = pctChange(aging.total_ar, prevAging.total_ar)
 
   return (
     <ClientLayout clientName={clientName} clientId={clientId} flushMain>
@@ -378,52 +409,65 @@ export default function ClientReports() {
           </div>
 
           <div className="client-reports-filters flex flex-wrap items-center gap-2 shrink-0">
-            <div className="flex flex-wrap gap-1">
-              {(
-                [
-                  { id: 'mtd' as const, label: 'MTD' },
-                  { id: '30d' as const, label: '30d' },
-                  { id: '90d' as const, label: '90d' },
-                  { id: 'ytd' as const, label: 'YTD' },
-                ] as const
-              ).map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => applyPreset(preset.id)}
-                  className={`batch-filter-pill batch-filter-pill--sm ${
-                    datePreset === preset.id ? 'batch-filter-pill--active' : ''
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
+            <div className="client-reports-date-group">
+              <div
+                className="client-segmented-control client-reports-date-presets"
+                role="group"
+                aria-label="Date presets"
+              >
+                {(
+                  [
+                    { id: 'mtd' as const, label: 'MTD' },
+                    { id: '30d' as const, label: '30d' },
+                    { id: '90d' as const, label: '90d' },
+                    { id: 'ytd' as const, label: 'YTD' },
+                  ] as const
+                ).map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyPreset(preset.id)}
+                    className={`client-segmented-control__btn ${
+                      datePreset === preset.id ? 'client-segmented-control__btn--active' : ''
+                    }`}
+                    style={
+                      datePreset === preset.id
+                        ? { color: c.accent, backgroundColor: `${c.accent}14` }
+                        : undefined
+                    }
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <div className="client-reports-date-inputs">
+                <input
+                  type="date"
+                  value={dateRange.start_date}
+                  onChange={(e) => {
+                    setDatePreset('custom')
+                    setDateRange((prev) => ({ ...prev, start_date: e.target.value }))
+                  }}
+                  className="client-input client-reports-date-input"
+                  style={inputCompactStyle}
+                  aria-label="Start date"
+                />
+                <span className="text-[11px] font-medium" style={{ color: c.mutedLight }}>
+                  –
+                </span>
+                <input
+                  type="date"
+                  value={dateRange.end_date}
+                  onChange={(e) => {
+                    setDatePreset('custom')
+                    setDateRange((prev) => ({ ...prev, end_date: e.target.value }))
+                  }}
+                  className="client-input client-reports-date-input"
+                  style={inputCompactStyle}
+                  aria-label="End date"
+                />
+              </div>
             </div>
-            <input
-              type="date"
-              value={dateRange.start_date}
-              onChange={(e) => {
-                setDatePreset('custom')
-                setDateRange((prev) => ({ ...prev, start_date: e.target.value }))
-              }}
-              className="client-input client-reports-date-input"
-              style={inputCompactStyle}
-              aria-label="Start date"
-            />
-            <span className="text-[11px] font-medium hidden sm:inline" style={{ color: c.secondary }}>
-              –
-            </span>
-            <input
-              type="date"
-              value={dateRange.end_date}
-              onChange={(e) => {
-                setDatePreset('custom')
-                setDateRange((prev) => ({ ...prev, end_date: e.target.value }))
-              }}
-              className="client-input client-reports-date-input"
-              style={inputCompactStyle}
-              aria-label="End date"
-            />
             <button
               type="button"
               onClick={handleExportCSV}
@@ -436,542 +480,423 @@ export default function ClientReports() {
         </div>
 
         <section
+          key={selectedReportType}
           className="client-stat-strip client-reports-stat-strip grid grid-cols-2 lg:grid-cols-4 border-b shrink-0"
           style={{ borderColor: c.border }}
         >
           {selectedReportType === 'overview' && (
             <>
-              <StatStripCell label="Collected" value={formatCurrency(summary.collected)} icon={TrendingUp} bg={c.stat.green} iconColor={c.success} />
-              <StatStripCell label="DSO" value={summary.dso !== null ? `${summary.dso}d` : '—'} icon={Clock} bg={c.stat.blue} iconColor={c.info} />
-              <StatStripCell label="Overdue" value={formatCurrency(aging.overdue_amount)} icon={AlertTriangle} bg={c.stat.red} iconColor={c.error} />
-              <StatStripCell label="Collection rate" value={`${summary.collection_rate.toFixed(0)}%`} icon={BarChart3} bg={c.stat.amber} iconColor={c.warning} />
+              <StatStripCell
+                label="Collected"
+                value={formatCurrency(summary.collected)}
+                icon={TrendingUp}
+                accentColor={c.success}
+                trend={collectedTrend != null ? { pct: collectedTrend } : null}
+              />
+              <StatStripCell
+                label="DSO"
+                value={summary.dso !== null ? `${summary.dso}d` : '—'}
+                icon={Clock}
+                accentColor={c.info}
+                trend={dsoTrend != null ? { pct: dsoTrend, invert: true } : null}
+              />
+              <StatStripCell
+                label="Overdue"
+                value={formatCurrency(aging.overdue_amount)}
+                icon={AlertTriangle}
+                accentColor={c.error}
+                trend={overdueTrend != null ? { pct: overdueTrend, invert: true } : null}
+              />
+              <StatStripCell
+                label="Collection rate"
+                value={`${summary.collection_rate.toFixed(0)}%`}
+                icon={BarChart3}
+                accentColor={c.warning}
+                trend={collectionRateTrend != null ? { pct: collectionRateTrend } : null}
+              />
             </>
           )}
           {selectedReportType === 'aging' && (
             <>
-              <StatStripCell label="Open A/R" value={formatCurrency(aging.total_ar)} icon={DollarSign} bg={c.stat.blue} iconColor={c.info} />
-              <StatStripCell label="Open invoices" value={String(aging.total_invoices)} icon={FileText} bg={c.stat.slate} iconColor={c.secondary} />
-              <StatStripCell label="Overdue" value={formatCurrency(aging.overdue_amount)} icon={AlertTriangle} bg={c.stat.red} iconColor={c.error} />
-              <StatStripCell label="91+ days" value={formatCurrency(aging.aging_ar.over_91)} icon={Clock} bg={c.stat.amber} iconColor={c.warning} />
+              <StatStripCell
+                label="Open A/R"
+                value={formatCurrency(aging.total_ar)}
+                icon={DollarSign}
+                accentColor={c.info}
+                trend={openArTrend != null ? { pct: openArTrend, invert: true } : null}
+              />
+              <StatStripCell
+                label="Open invoices"
+                value={String(aging.total_invoices)}
+                icon={FileText}
+                accentColor={c.secondary}
+              />
+              <StatStripCell
+                label="Overdue"
+                value={formatCurrency(aging.overdue_amount)}
+                icon={AlertTriangle}
+                accentColor={c.error}
+                trend={overdueTrend != null ? { pct: overdueTrend, invert: true } : null}
+              />
+              <StatStripCell
+                label="91+ days"
+                value={formatCurrency(aging.aging_ar.over_91)}
+                icon={Clock}
+                accentColor={c.warning}
+              />
             </>
           )}
           {selectedReportType === 'cashflow' && (
             <>
-              <StatStripCell label="Invoiced" value={formatCurrency(summary.invoiced)} icon={FileText} bg={c.stat.blue} iconColor={c.info} />
-              <StatStripCell label="Collected" value={formatCurrency(summary.collected)} icon={DollarSign} bg={c.stat.green} iconColor={c.success} />
+              <StatStripCell
+                label="Invoiced"
+                value={formatCurrency(summary.invoiced)}
+                icon={FileText}
+                accentColor={c.info}
+                trend={invoicedTrend != null ? { pct: invoicedTrend } : null}
+              />
+              <StatStripCell
+                label="Collected"
+                value={formatCurrency(summary.collected)}
+                icon={DollarSign}
+                accentColor={c.success}
+                trend={collectedTrend != null ? { pct: collectedTrend } : null}
+              />
               <StatStripCell
                 label="Expected 7d"
                 value={formatCurrency(collectionForecast.next_7_days)}
                 icon={TrendingUp}
-                bg={c.stat.amber}
-                iconColor={c.warning}
+                accentColor={c.warning}
               />
               <StatStripCell
                 label="Expected 30d"
                 value={formatCurrency(collectionForecast.next_30_days)}
                 icon={Wallet}
-                bg={c.stat.slate}
-                iconColor={c.secondary}
+                accentColor={c.secondary}
               />
-            </>
-          )}
-          {selectedReportType === 'brokers' && (
-            <>
-              <StatStripCell label="Active brokers" value={String(brokers.length)} icon={Building2} bg={c.stat.blue} iconColor={c.info} />
-              <StatStripCell label="Top broker A/R" value={formatCurrency(maxBrokerAr)} icon={DollarSign} bg={c.stat.green} iconColor={c.success} />
-              <StatStripCell
-                label="Slowest payer"
-                value={
-                  brokers.find((b) => b.avg_days_to_pay !== null)?.broker_name?.split(' ')[0] ?? '—'
-                }
-                icon={Clock}
-                bg={c.stat.amber}
-                iconColor={c.warning}
-              />
-              <StatStripCell
-                label="Overdue brokers"
-                value={String(brokers.filter((b) => b.overdue_count > 0).length)}
-                icon={AlertTriangle}
-                bg={c.stat.red}
-                iconColor={c.error}
-              />
-            </>
-          )}
-          {selectedReportType === 'pipeline' && (
-            <>
-              <StatStripCell label="Submitted" value={String(pipeline.submitted)} icon={FileText} bg={c.stat.blue} iconColor={c.info} />
-              <StatStripCell label="Approval rate" value={`${pipeline.approval_rate.toFixed(0)}%`} icon={TrendingUp} bg={c.stat.green} iconColor={c.success} />
-              <StatStripCell label="On hold" value={String(pipeline.on_hold)} icon={AlertTriangle} bg={c.stat.amber} iconColor={c.warning} />
-              <StatStripCell label="Open disputes" value={String(pipeline.open_dispute_count)} icon={Activity} bg={c.stat.red} iconColor={c.error} />
             </>
           )}
         </section>
 
-        {selectedReportType === 'overview' && (
-          <div
-            className="client-reports-overview-key shrink-0 px-4 py-1.5 border-b flex flex-wrap items-center gap-x-3 gap-y-1"
-            style={{ borderColor: c.border, backgroundColor: c.card }}
-          >
-            <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: c.mutedLight }}>
-              Report pack
-            </span>
-            {OVERVIEW_REPORT_SECTIONS.map((section) => (
-              <span
-                key={section.id}
-                className="text-[10px]"
-                style={{ color: c.secondary }}
-                title={section.description}
-              >
-                {section.industryLabel}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div className="client-reports-body flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
-        {selectedReportType === 'overview' && (
-          <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-            <ReportPanel span={7}>
-              <DashboardPanel title="Cash flow trend" compact interactive={false} className="client-reports-panel-card">
-                <CashFlowChart data={cashFlow} compact />
-              </DashboardPanel>
-            </ReportPanel>
-
-            <ReportPanel span={5}>
-              <DashboardPanel
-                title="Expected collections"
-                compact
-                interactive
-                actionLabel="Cash flow"
-                onAction={() => setSelectedReportType('cashflow')}
-                className="client-reports-panel-card"
-              >
-                <CashCollectionForecast
-                  invoices={clientInvoices}
-                  payments={clientPayments}
+        <div key={`body-${selectedReportType}`} className="client-reports-body flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+          {selectedReportType === 'overview' && (
+            <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
+              <ReportPanel span={7} enterIndex={0}>
+                <DashboardPanel
+                  title="Cash flow trend"
+                  icon={TrendingUp}
+                  iconTone="blue"
                   compact
-                />
-              </DashboardPanel>
-            </ReportPanel>
-
-            <ReportPanel span={6}>
-              <DashboardPanel
-                title="Collections effectiveness"
-                compact
-                interactive
-                actionLabel="Collections"
-                onAction={() => navigate('/client/collections')}
-                className="client-reports-panel-card"
-              >
-                <div className="p-3 space-y-3">
-                  <p className="text-[11px]" style={{ color: c.secondary }}>
-                    {formatDate(dateRange.start_date)} – {formatDate(dateRange.end_date)}
-                  </p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    <MiniKpi label="Invoiced" value={formatCurrency(summary.invoiced)} />
-                    <MiniKpi label="Collected" value={formatCurrency(summary.collected)} accent={c.success} />
-                    <MiniKpi
-                      label="Outstanding"
-                      value={formatCurrency(Math.max(0, summary.invoiced - summary.collected))}
-                      accent={c.warning}
-                    />
-                    <MiniKpi label="DSO" value={summary.dso !== null ? `${summary.dso} days` : '—'} />
-                    <MiniKpi
-                      label="On-time pay"
-                      value={paymentLag.sample_size > 0 ? `${paymentLag.on_time_pct.toFixed(0)}%` : '—'}
-                      accent={c.success}
-                    />
-                    <MiniKpi
-                      label="Late pay"
-                      value={paymentLag.sample_size > 0 ? `${paymentLag.late_pct.toFixed(0)}%` : '—'}
-                      accent={paymentLag.late_pct > 30 ? c.error : c.secondary}
-                    />
-                  </div>
-                  {collectionsByMonth.length > 0 ? (
-                    <div className="space-y-2 pt-1 border-t" style={{ borderColor: c.border }}>
-                      {collectionsByMonth.map((row) => (
-                        <ReportBarRow
-                          key={row.monthKey}
-                          label={row.label}
-                          value={row.collected}
-                          max={maxCollectionsMonth}
-                          color={c.success}
-                          display={formatCurrency(row.collected)}
-                          sub={`${formatCurrency(row.invoiced)} invoiced`}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-center py-2" style={{ color: c.secondary }}>
-                      No activity in this period
-                    </p>
-                  )}
-                </div>
-              </DashboardPanel>
-            </ReportPanel>
-
-            <ReportPanel span={6}>
-              <DashboardPanel
-                title="A/R aging snapshot"
-                compact
-                interactive
-                actionLabel="Full aging"
-                onAction={() => setSelectedReportType('aging')}
-                className="client-reports-panel-card"
-              >
-                <AgingARChart aging={aging.aging_ar} compact />
-                <div className="px-3 pb-3 space-y-1.5 border-t" style={{ borderColor: c.border }}>
-                  {aging.buckets.map((bucket, i) => (
-                    <ReportBarRow
-                      key={bucket.id}
-                      label={bucket.label}
-                      value={bucket.amount}
-                      max={maxAgingAmount}
-                      color={bucketColors[i % bucketColors.length]}
-                      display={formatCurrency(bucket.amount)}
-                      sub={`${bucket.invoice_count} invoice${bucket.invoice_count !== 1 ? 's' : ''}`}
-                    />
-                  ))}
-                </div>
-              </DashboardPanel>
-            </ReportPanel>
-
-            <ReportPanel span={6}>
-              <DashboardPanel
-                title="Broker credit & risk"
-                compact
-                interactive
-                actionLabel="Broker directory"
-                onAction={() => navigate('/client/brokers')}
-                className="client-reports-panel-card"
-              >
-                {concentration.top_broker_name && (
-                  <div
-                    className="mx-3 mt-2 px-2.5 py-1.5 rounded-lg text-[11px] flex items-center justify-between gap-2"
-                    style={{
-                      backgroundColor: concentration.is_elevated ? c.stat.red : c.stat.slate,
-                      color: concentration.is_elevated ? c.error : c.secondary,
-                    }}
-                  >
-                    <span className="truncate">
-                      Top exposure: <strong>{concentration.top_broker_name}</strong>
-                    </span>
-                    <span className="font-semibold tabular-nums shrink-0">
-                      {concentration.top_broker_pct.toFixed(0)}% of A/R
-                    </span>
-                  </div>
-                )}
-                {brokerRiskRows.length === 0 ? (
-                  <p className="text-xs text-center py-6 px-4" style={{ color: c.secondary }}>
-                    No broker payment activity in this period
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="dashboard-table dashboard-table--compact">
-                      <thead>
-                        <tr>
-                          <th>Broker</th>
-                          <th className="text-right">Open A/R</th>
-                          <th className="text-right">Avg pay</th>
-                          <th>Risk</th>
-                          <th className="text-right">Overdue</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {brokerRiskRows.slice(0, 8).map((broker) => (
-                          <tr key={broker.broker_name}>
-                            <td className="font-medium truncate max-w-[120px]">{broker.broker_name}</td>
-                            <td className="text-right tabular-nums" style={{ color: c.primary }}>
-                              {formatCurrency(broker.open_ar)}
-                            </td>
-                            <td className="text-right tabular-nums" style={{ color: c.secondary }}>
-                              {broker.avg_days_to_pay !== null ? `${broker.avg_days_to_pay}d` : '—'}
-                            </td>
-                            <td>
-                              <BrokerPayRatingBadge rating={broker.rating} size="sm" />
-                            </td>
-                            <td className="text-right tabular-nums" style={{ color: broker.overdue_amount > 0 ? c.error : c.mutedLight }}>
-                              {broker.overdue_amount > 0 ? formatCurrency(broker.overdue_amount) : '—'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </DashboardPanel>
-            </ReportPanel>
-
-            <ReportPanel span={6}>
-              <DashboardPanel title="Tax & revenue (1099)" compact interactive={false} className="client-reports-panel-card">
-                <div className="p-3 space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <MiniKpi label="Gross collected" value={formatCurrency(taxReport.gross_collected)} accent={c.success} />
-                    <MiniKpi label="Payments" value={String(taxReport.payment_count)} />
-                    <MiniKpi label="Invoiced" value={formatCurrency(taxReport.invoiced_in_period)} />
-                    <MiniKpi
-                      label="Still outstanding"
-                      value={formatCurrency(taxReport.outstanding_from_period)}
-                      accent={c.warning}
-                    />
-                  </div>
-                  {taxReport.by_broker.length > 0 ? (
-                    <div className="space-y-2 pt-1 border-t" style={{ borderColor: c.border }}>
-                      <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
-                        By broker (1099 reference)
-                      </p>
-                      {taxReport.by_broker.slice(0, 6).map((row, i) => (
-                        <ReportBarRow
-                          key={row.broker_name}
-                          label={row.broker_name}
-                          value={row.gross_collected}
-                          max={taxReport.by_broker[0]?.gross_collected ?? 1}
-                          color={bucketColors[i % bucketColors.length]}
-                          display={formatCurrency(row.gross_collected)}
-                          sub={`${row.payment_count} payment${row.payment_count !== 1 ? 's' : ''}`}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-center py-2" style={{ color: c.secondary }}>
-                      No collections in this period for tax reporting
-                    </p>
-                  )}
-                  <p className="text-[10px] leading-snug" style={{ color: c.mutedLight }}>
-                    Summary of freight revenue collected in the selected period. Export CSV or share with your accountant for 1099 / tax prep.
-                  </p>
-                </div>
-              </DashboardPanel>
-            </ReportPanel>
-          </div>
-        )}
-
-        {selectedReportType === 'aging' && (
-          <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-            <ReportPanel span={6}>
-            <DashboardPanel
-              title="A/R distribution"
-              compact
-              interactive
-              actionLabel="View invoices"
-              onAction={() => navigate('/client/collections')}
-              className="client-reports-panel-card"
-            >
-              <AgingARChart aging={aging.aging_ar} compact />
-            </DashboardPanel>
-            </ReportPanel>
-            <ReportPanel span={6}>
-            <DashboardPanel title="Bucket detail" compact interactive={false} className="client-reports-panel-card">
-              <div className="p-3 space-y-2.5">
-                {aging.buckets.map((bucket, i) => (
-                  <ReportBarRow
-                    key={bucket.id}
-                    label={`${bucket.label} days`}
-                    value={bucket.amount}
-                    max={maxAgingAmount}
-                    color={bucketColors[i % bucketColors.length]}
-                    display={formatCurrency(bucket.amount)}
-                    sub={`${bucket.invoice_count} invoice${bucket.invoice_count !== 1 ? 's' : ''} · ${aging.total_ar > 0 ? ((bucket.amount / aging.total_ar) * 100).toFixed(0) : 0}% of open A/R`}
-                  />
-                ))}
-              </div>
-            </DashboardPanel>
-            </ReportPanel>
-          </div>
-        )}
-
-        {selectedReportType === 'cashflow' && (
-          <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-            <ReportPanel span={6}>
-              <DashboardPanel title="Cash flow" compact interactive={false} className="client-reports-panel-card">
-                <CashFlowChart data={cashFlow} compact />
-              </DashboardPanel>
-            </ReportPanel>
-            <ReportPanel span={6}>
-              <DashboardPanel title="Collection forecast" compact interactive={false} className="client-reports-panel-card">
-                <CashCollectionForecast
-                  invoices={clientInvoices}
-                  payments={clientPayments}
-                  compact
-                />
-              </DashboardPanel>
-            </ReportPanel>
-            <ReportPanel span={12}>
-              <DashboardPanel title="Payment behavior" compact interactive={false} className="client-reports-panel-card">
-                <div className="p-3 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <MiniKpi
-                      label="On-time"
-                      value={paymentLag.sample_size > 0 ? `${paymentLag.on_time_pct.toFixed(0)}%` : '—'}
-                      accent={c.success}
-                    />
-                    <MiniKpi
-                      label="Late"
-                      value={paymentLag.sample_size > 0 ? `${paymentLag.late_pct.toFixed(0)}%` : '—'}
-                      accent={c.error}
-                    />
-                  </div>
-                  {paymentMethods.length === 0 ? (
-                    <p className="text-xs text-center py-3" style={{ color: c.secondary }}>
-                      No payments in range
-                    </p>
-                  ) : (
-                    paymentMethods.map((method) => (
-                      <ReportBarRow
-                        key={method.method}
-                        label={method.method}
-                        value={method.amount}
-                        max={maxMethodAmount}
-                        color={c.info}
-                        display={formatCurrency(method.amount)}
-                        sub={`${method.count} pmt`}
-                      />
-                    ))
-                  )}
-                </div>
-              </DashboardPanel>
-            </ReportPanel>
-            <ReportPanel span={12}>
-              <DashboardPanel title="Collections trend" compact interactive={false} className="client-reports-panel-card">
-                <PaymentTrendsChart payments={clientPayments} compact />
-              </DashboardPanel>
-            </ReportPanel>
-          </div>
-        )}
-
-        {selectedReportType === 'brokers' && (
-          <DashboardPanel
-            title="Broker scorecard"
-            compact
-            interactive
-            actionLabel="Aging by broker"
-            onAction={() => navigate('/client/collections')}
-            className="w-full"
-          >
-            <div className="p-3 space-y-2.5 border-b" style={{ borderColor: c.border }}>
-              {brokers.length === 0 ? (
-                <p className="text-sm text-center py-6" style={{ color: c.secondary }}>
-                  No broker activity in this range
-                </p>
-              ) : (
-                brokers.slice(0, 5).map((broker, index) => (
-                  <ReportBarRow
-                    key={broker.broker_name}
-                    label={broker.broker_name}
-                    value={broker.open_ar}
-                    max={maxBrokerAr}
-                    color={bucketColors[index % bucketColors.length]}
-                    display={formatCurrency(broker.open_ar)}
-                    sub={`${broker.share_of_ar.toFixed(0)}% of A/R · ${broker.open_invoices} open · avg pay ${broker.avg_days_to_pay ?? '—'}d`}
-                  />
-                ))
-              )}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="dashboard-table dashboard-table--compact">
-                <thead>
-                  <tr>
-                    <th>Broker</th>
-                    <th className="text-right">Open A/R</th>
-                    <th className="text-right">Share</th>
-                    <th className="text-right">Collected</th>
-                    <th className="text-right">Avg pay</th>
-                    <th className="text-right">Overdue</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {brokers.map((broker) => (
-                    <tr key={broker.broker_name}>
-                      <td className="font-semibold">
-                        <span className="inline-flex items-center gap-2">
-                          <span className="truncate max-w-[160px]">{broker.broker_name}</span>
-                          {broker.overdue_count > 0 && (
-                            <span className="report-broker-flag">{broker.overdue_count} overdue</span>
-                          )}
-                        </span>
-                      </td>
-                      <td className="text-right font-medium tabular-nums">
-                        {formatCurrency(broker.open_ar)}
-                      </td>
-                      <td className="text-right tabular-nums">{broker.share_of_ar.toFixed(0)}%</td>
-                      <td className="text-right tabular-nums" style={{ color: c.success }}>
-                        {formatCurrency(broker.collected_in_range)}
-                      </td>
-                      <td className="text-right tabular-nums">
-                        {broker.avg_days_to_pay !== null ? `${broker.avg_days_to_pay}d` : '—'}
-                      </td>
-                      <td className="text-right tabular-nums" style={{ color: broker.overdue_amount > 0 ? c.error : c.mutedLight }}>
-                        {broker.overdue_amount > 0 ? formatCurrency(broker.overdue_amount) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </DashboardPanel>
-        )}
-
-        {selectedReportType === 'pipeline' && (
-          <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-            <ReportPanel span={6}>
-            <DashboardPanel title="Submission funnel" compact interactive={false} className="client-reports-panel-card">
-              <div className="p-3 space-y-2.5">
-                {[
-                  { label: 'Submitted', count: pipeline.submitted, amount: 0, color: c.chart.blue },
-                  { label: 'Approved / Paid', count: pipeline.approved + pipeline.paid, amount: 0, color: c.success },
-                  { label: 'Pending review', count: pipeline.pending, amount: 0, color: c.chart.cyan },
-                  { label: 'On hold', count: pipeline.on_hold, amount: 0, color: c.warning },
-                  { label: 'Rejected', count: pipeline.rejected, amount: 0, color: c.error },
-                ]
-                  .filter((row) => row.count > 0)
-                  .map((row) => (
-                    <ReportBarRow
-                      key={row.label}
-                      label={row.label}
-                      value={row.count}
-                      max={pipeline.submitted || 1}
-                      color={row.color}
-                      display={String(row.count)}
-                      sub={
-                        pipeline.submitted > 0
-                          ? `${((row.count / pipeline.submitted) * 100).toFixed(0)}% of submissions`
-                          : undefined
-                      }
-                    />
-                  ))}
-              </div>
-            </DashboardPanel>
-            </ReportPanel>
-
-            <ReportPanel span={6}>
-            <DashboardPanel title="Processing health" compact interactive={false} className="client-reports-panel-card">
-              <div className="p-3 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <MiniKpi label="Approval rate" value={`${pipeline.approval_rate.toFixed(0)}%`} />
-                  <MiniKpi
-                    label="Avg approve"
-                    value={pipeline.avg_days_to_approve !== null ? `${pipeline.avg_days_to_approve}d` : '—'}
-                  />
-                  <MiniKpi label="Disputes" value={String(pipeline.dispute_count)} />
-                  <MiniKpi
-                    label="Open disputes"
-                    value={String(pipeline.open_dispute_count)}
-                    accent={pipeline.open_dispute_count > 0 ? c.error : undefined}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate('/client/invoices')}
-                  className="dashboard-btn-secondary dashboard-btn-compact w-full justify-center"
+                  interactive={false}
+                  className="client-reports-panel-card"
                 >
-                  Invoice queue
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </DashboardPanel>
-            </ReportPanel>
-          </div>
-        )}
+                  <CashFlowChart data={cashFlow} compact />
+                </DashboardPanel>
+              </ReportPanel>
+
+              <ReportPanel span={5} enterIndex={1}>
+                <DashboardPanel
+                  title="Expected collections"
+                  icon={Wallet}
+                  iconTone="green"
+                  compact
+                  interactive
+                  actionLabel="Cash flow"
+                  onAction={() => setSelectedReportType('cashflow')}
+                  className="client-reports-panel-card"
+                >
+                  <CollectionsPeriodRing
+                    collected={summary.collected}
+                    outstanding={periodOutstanding}
+                    compact
+                  />
+                </DashboardPanel>
+              </ReportPanel>
+
+              <ReportPanel span={6} enterIndex={2}>
+                <DashboardPanel
+                  title="Collections effectiveness"
+                  icon={BarChart3}
+                  iconTone="blue"
+                  compact
+                  interactive
+                  actionLabel="Collections"
+                  onAction={() => navigate('/client/collections')}
+                  className="client-reports-panel-card"
+                >
+                  <div className="p-3 space-y-3">
+                    <p className="text-[11px]" style={{ color: c.secondary }}>
+                      {formatDate(dateRange.start_date)} – {formatDate(dateRange.end_date)}
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <MiniKpi label="Invoiced" value={formatCurrency(summary.invoiced)} />
+                      <MiniKpi label="Collected" value={formatCurrency(summary.collected)} accent={c.success} />
+                      <MiniKpi
+                        label="Outstanding"
+                        value={formatCurrency(periodOutstanding)}
+                        accent={c.warning}
+                      />
+                      <MiniKpi label="DSO" value={summary.dso !== null ? `${summary.dso} days` : '—'} />
+                      <MiniKpi
+                        label="On-time pay"
+                        value={paymentLag.sample_size > 0 ? `${paymentLag.on_time_pct.toFixed(0)}%` : '—'}
+                        accent={c.success}
+                      />
+                      <MiniKpi
+                        label="Late pay"
+                        value={paymentLag.sample_size > 0 ? `${paymentLag.late_pct.toFixed(0)}%` : '—'}
+                        accent={paymentLag.late_pct > 30 ? c.error : c.secondary}
+                      />
+                    </div>
+                    <CollectionsColumnChart data={collectionsByMonth} />
+                  </div>
+                </DashboardPanel>
+              </ReportPanel>
+
+              <ReportPanel span={6} enterIndex={3}>
+                <DashboardPanel
+                  title="A/R aging snapshot"
+                  icon={Clock}
+                  iconTone="amber"
+                  compact
+                  interactive
+                  actionLabel="Full aging"
+                  onAction={() => setSelectedReportType('aging')}
+                  className="client-reports-panel-card"
+                >
+                  <AgingARChart aging={aging.aging_ar} compact />
+                  <div className="px-3 pb-3 space-y-1.5 border-t" style={{ borderColor: c.border }}>
+                    {aging.buckets.map((bucket, i) => (
+                      <ReportBarRow
+                        key={bucket.id}
+                        label={bucket.label}
+                        value={bucket.amount}
+                        max={maxAgingAmount}
+                        color={bucketColors[i % bucketColors.length]}
+                        display={formatCurrency(bucket.amount)}
+                        sub={`${bucket.invoice_count} invoice${bucket.invoice_count !== 1 ? 's' : ''}`}
+                      />
+                    ))}
+                  </div>
+                </DashboardPanel>
+              </ReportPanel>
+
+              <ReportPanel span={6} enterIndex={4}>
+                <DashboardPanel
+                  title="Processing health"
+                  icon={Activity}
+                  iconTone="cyan"
+                  compact
+                  interactive={false}
+                  className="client-reports-panel-card"
+                >
+                  <div className="p-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <MiniKpi label="Approval rate" value={`${pipeline.approval_rate.toFixed(0)}%`} />
+                      <MiniKpi
+                        label="Avg approve"
+                        value={pipeline.avg_days_to_approve !== null ? `${pipeline.avg_days_to_approve}d` : '—'}
+                      />
+                      <MiniKpi label="On hold" value={String(pipeline.on_hold)} accent={pipeline.on_hold > 0 ? c.warning : undefined} />
+                      <MiniKpi
+                        label="Open disputes"
+                        value={String(pipeline.open_dispute_count)}
+                        accent={pipeline.open_dispute_count > 0 ? c.error : undefined}
+                      />
+                    </div>
+                    <SubmissionFunnelBar pipeline={pipeline} />
+                    <button
+                      type="button"
+                      onClick={() => navigate('/client/invoices')}
+                      className="dashboard-btn-secondary dashboard-btn-compact w-full justify-center"
+                    >
+                      Invoice queue
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </DashboardPanel>
+              </ReportPanel>
+
+              <ReportPanel span={6} enterIndex={5}>
+                <DashboardPanel
+                  title="Tax & revenue (1099)"
+                  icon={Receipt}
+                  iconTone="slate"
+                  compact
+                  interactive={false}
+                  className="client-reports-panel-card"
+                >
+                  <div className="p-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <MiniKpi label="Gross collected" value={formatCurrency(taxReport.gross_collected)} accent={c.success} />
+                      <MiniKpi label="Payments" value={String(taxReport.payment_count)} />
+                      <MiniKpi label="Invoiced" value={formatCurrency(taxReport.invoiced_in_period)} />
+                      <MiniKpi
+                        label="Still outstanding"
+                        value={formatCurrency(taxReport.outstanding_from_period)}
+                        accent={c.warning}
+                      />
+                    </div>
+                    {taxReport.by_broker.length > 0 ? (
+                      <div className="space-y-2 pt-1 border-t" style={{ borderColor: c.border }}>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
+                          By broker (1099 reference)
+                        </p>
+                        {taxReport.by_broker.slice(0, 6).map((row, i) => (
+                          <ReportBarRow
+                            key={row.broker_name}
+                            label={row.broker_name}
+                            value={row.gross_collected}
+                            max={taxReport.by_broker[0]?.gross_collected ?? 1}
+                            color={bucketColors[i % bucketColors.length]}
+                            display={formatCurrency(row.gross_collected)}
+                            sub={`${row.payment_count} payment${row.payment_count !== 1 ? 's' : ''}`}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-center py-2" style={{ color: c.secondary }}>
+                        No collections in this period for tax reporting
+                      </p>
+                    )}
+                    <p className="text-[10px] leading-snug" style={{ color: c.mutedLight }}>
+                      Summary of freight revenue collected in the selected period. Export CSV or share with your accountant for 1099 / tax prep.
+                    </p>
+                  </div>
+                </DashboardPanel>
+              </ReportPanel>
+            </div>
+          )}
+
+          {selectedReportType === 'aging' && (
+            <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
+              <ReportPanel span={6} enterIndex={0}>
+                <DashboardPanel
+                  title="A/R distribution"
+                  icon={BarChart3}
+                  iconTone="amber"
+                  compact
+                  interactive
+                  actionLabel="View invoices"
+                  onAction={() => navigate('/client/collections')}
+                  className="client-reports-panel-card"
+                >
+                  <AgingARChart aging={aging.aging_ar} compact />
+                </DashboardPanel>
+              </ReportPanel>
+              <ReportPanel span={6} enterIndex={1}>
+                <DashboardPanel
+                  title="Bucket detail"
+                  icon={Clock}
+                  iconTone="blue"
+                  compact
+                  interactive={false}
+                  className="client-reports-panel-card"
+                >
+                  <div className="p-3 space-y-2.5">
+                    {aging.buckets.map((bucket, i) => (
+                      <ReportBarRow
+                        key={bucket.id}
+                        label={`${bucket.label} days`}
+                        value={bucket.amount}
+                        max={maxAgingAmount}
+                        color={bucketColors[i % bucketColors.length]}
+                        display={formatCurrency(bucket.amount)}
+                        sub={`${bucket.invoice_count} invoice${bucket.invoice_count !== 1 ? 's' : ''} · ${aging.total_ar > 0 ? ((bucket.amount / aging.total_ar) * 100).toFixed(0) : 0}% of open A/R`}
+                      />
+                    ))}
+                  </div>
+                </DashboardPanel>
+              </ReportPanel>
+            </div>
+          )}
+
+          {selectedReportType === 'cashflow' && (
+            <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
+              <ReportPanel span={6} enterIndex={0}>
+                <DashboardPanel
+                  title="Cash flow"
+                  icon={TrendingUp}
+                  iconTone="blue"
+                  compact
+                  interactive={false}
+                  className="client-reports-panel-card"
+                >
+                  <CashFlowChart data={cashFlow} compact />
+                </DashboardPanel>
+              </ReportPanel>
+              <ReportPanel span={6} enterIndex={1}>
+                <DashboardPanel
+                  title="Collection forecast"
+                  icon={Wallet}
+                  iconTone="green"
+                  compact
+                  interactive={false}
+                  className="client-reports-panel-card"
+                >
+                  <CashCollectionForecast
+                    invoices={clientInvoices}
+                    payments={clientPayments}
+                    compact
+                  />
+                </DashboardPanel>
+              </ReportPanel>
+              <ReportPanel span={12} enterIndex={2}>
+                <DashboardPanel
+                  title="Payment behavior"
+                  icon={DollarSign}
+                  iconTone="purple"
+                  compact
+                  interactive={false}
+                  className="client-reports-panel-card"
+                >
+                  <div className="p-3 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <MiniKpi
+                        label="On-time"
+                        value={paymentLag.sample_size > 0 ? `${paymentLag.on_time_pct.toFixed(0)}%` : '—'}
+                        accent={c.success}
+                      />
+                      <MiniKpi
+                        label="Late"
+                        value={paymentLag.sample_size > 0 ? `${paymentLag.late_pct.toFixed(0)}%` : '—'}
+                        accent={c.error}
+                      />
+                    </div>
+                    {paymentMethods.length === 0 ? (
+                      <p className="text-xs text-center py-3" style={{ color: c.secondary }}>
+                        No payments in range
+                      </p>
+                    ) : (
+                      paymentMethods.map((method) => (
+                        <ReportBarRow
+                          key={method.method}
+                          label={method.method}
+                          value={method.amount}
+                          max={maxMethodAmount}
+                          color={c.info}
+                          display={formatCurrency(method.amount)}
+                          sub={`${method.count} pmt`}
+                        />
+                      ))
+                    )}
+                  </div>
+                </DashboardPanel>
+              </ReportPanel>
+              <ReportPanel span={12} enterIndex={3}>
+                <DashboardPanel
+                  title="Collections trend"
+                  icon={Activity}
+                  iconTone="cyan"
+                  compact
+                  interactive={false}
+                  className="client-reports-panel-card"
+                >
+                  <PaymentTrendsChart payments={clientPayments} compact />
+                </DashboardPanel>
+              </ReportPanel>
+            </div>
+          )}
         </div>
       </div>
     </ClientLayout>

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Header } from '../components/admin/Header'
 import { getAllBatches } from '../data/mockBatches'
-import { mockClients } from '../data/mockClients'
+import { getAllClients } from '../services/clientRegistry'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import { DollarSign, TrendingUp, Users, FileText, Calendar, Download } from 'lucide-react'
@@ -216,7 +216,7 @@ export default function Accounting() {
                 }}
               >
                 <option value="">All Clients</option>
-                {mockClients.map((client) => (
+                {getAllClients().map((client) => (
                   <option key={client.id} value={client.id}>
                     {client.name}
                   </option>

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Header } from '../components/admin/Header'
-import { mockClients } from '../data/mockClients'
+import { getAllClients } from '../services/clientRegistry'
 import { mockBrokers } from '../data/mockBrokers'
 import { formatCurrency } from '../utils/format'
 import { Plus, Trash2, X } from 'lucide-react'
-import { addBatch } from '../data/mockBatches'
+import { addBatch, generateBatchNumber } from '../data/mockBatches'
 import { Client } from '../types/client'
 import { Broker } from '../types/broker'
 
@@ -68,15 +68,9 @@ export default function CreateBatch() {
     }
   }, [currentBatchInvoices.length])
 
-  const generateBatchNumber = () => {
-    const year = new Date().getFullYear()
-    const month = String(new Date().getMonth() + 1).padStart(2, '0')
-    const day = String(new Date().getDate()).padStart(2, '0')
-    const random = Math.floor(Math.random() * 1000)
-      .toString()
-      .padStart(3, '0')
-    return `BATCH-${year}-${month}${day}-${random}`
-  }
+  const previewBatchNumber = selectedClient
+    ? generateBatchNumber(selectedClient.id)
+    : 'BATCH-2026-001-XXXX'
 
   const handleClientSelect = (client: Client) => {
     setSelectedClient(client)
@@ -160,7 +154,6 @@ export default function CreateBatch() {
       0
     )
 
-    // Get client fee terms
     let feeCalculation: {
       fee_type?: 'percentage' | 'flat'
       fee_percentage?: number
@@ -188,7 +181,7 @@ export default function CreateBatch() {
       }
     }
 
-    const batchNumber = generateBatchNumber()
+    const batchNumber = generateBatchNumber(selectedClient.id)
 
     // Add batch to mock data
     addBatch({
@@ -247,7 +240,7 @@ export default function CreateBatch() {
                 Select Client
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {mockClients.map((client) => (
+                {getAllClients().map((client) => (
                   <button
                     key={client.id}
                     onClick={() => handleClientSelect(client)}
@@ -313,7 +306,7 @@ export default function CreateBatch() {
               <div className="p-6">
                 <div className="mb-6">
                   <h3 className="text-lg font-bold mb-2" style={{ color: '#113543' }}>
-                    New Batch: {generateBatchNumber()}
+                    New Batch: {previewBatchNumber}
                   </h3>
                   <p className="text-sm" style={{ color: '#819291' }}>
                     Batch number will be auto-generated when you submit
