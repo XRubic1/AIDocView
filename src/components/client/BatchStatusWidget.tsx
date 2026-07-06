@@ -38,7 +38,7 @@ export default function BatchStatusWidget({ clientId, compact = false }: BatchSt
     const invoicesOnHold = clientInvoices.filter((inv) => inv.status === 'hold').length
 
     const processedInvoices = clientInvoices.filter(
-      (inv) => inv.status === 'paid' || inv.status === 'force_closed'
+      (inv) => inv.status === 'paid' || inv.status === 'force_closed' || inv.status === 'written_off'
     ).length
 
     return {

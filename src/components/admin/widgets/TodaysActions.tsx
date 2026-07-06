@@ -1,4 +1,6 @@
-import { CheckCircle, Clock, Phone, FileText } from 'lucide-react'
+import { CheckCircle, Clock, Phone, FileText, ListTodo } from 'lucide-react'
+import DashboardPanel from '../../client/dashboard/DashboardPanel'
+import { useClientTheme } from '../../../theme/ThemeContext'
 
 interface ActionItem {
   id: string
@@ -15,6 +17,8 @@ interface TodaysActionsProps {
 }
 
 export function TodaysActions({ actions, onActionClick }: TodaysActionsProps) {
+  const c = useClientTheme()
+
   const getIcon = (type: ActionItem['type']) => {
     switch (type) {
       case 'batch_review':
@@ -30,77 +34,61 @@ export function TodaysActions({ actions, onActionClick }: TodaysActionsProps) {
     }
   }
 
-  const getPriorityColor = (priority: ActionItem['priority']) => {
+  const getPriorityStyle = (priority: ActionItem['priority']) => {
     switch (priority) {
       case 'high':
-        return { color: '#C2A558', backgroundColor: '#FFF9E6' }
+        return { color: c.warning, backgroundColor: c.stat.amber }
       case 'medium':
-        return { color: '#819291', backgroundColor: '#F5F5F5' }
-      case 'low':
-        return { color: '#819291', backgroundColor: '#FFFFFF' }
+        return { color: c.info, backgroundColor: c.stat.blue }
       default:
-        return { color: '#819291', backgroundColor: '#FFFFFF' }
+        return { color: c.secondary, backgroundColor: c.stat.slate }
     }
   }
 
   if (actions.length === 0) {
     return (
-      <div className="border" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
-        <div className="p-6">
-          <h2 className="text-lg font-bold mb-4" style={{ color: '#113543' }}>Today's Actions</h2>
-          <div className="text-center py-8" style={{ color: '#819291' }}>
-            <div className="text-4xl mb-2">✓</div>
-            <div className="font-medium">All caught up!</div>
-          </div>
+      <DashboardPanel title="Today's Actions" icon={ListTodo} iconTone="blue" interactive={false}>
+        <div className="p-8 text-center" style={{ color: c.secondary }}>
+          <div className="text-3xl mb-2">✓</div>
+          <div className="font-medium text-sm">All caught up!</div>
         </div>
-      </div>
+      </DashboardPanel>
     )
   }
 
   return (
-    <div className="border" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold" style={{ color: '#113543' }}>Today's Actions</h2>
-          <span
-            className="px-2 py-1 text-xs font-bold text-white rounded"
-            style={{ backgroundColor: '#819291' }}
-          >
-            {actions.length}
-          </span>
-        </div>
-        <div className="space-y-2 max-h-96 overflow-y-auto">
-          {actions.map((action) => {
-            const priorityStyle = getPriorityColor(action.priority)
-            return (
-              <div
-                key={action.id}
-                className={`p-3 rounded transition-colors ${
-                  onActionClick ? 'cursor-pointer hover:shadow-md' : ''
-                }`}
-                style={{ backgroundColor: priorityStyle.backgroundColor }}
-                onClick={() => onActionClick?.(action)}
-              >
-                <div className="flex items-start space-x-3">
-                  <div style={{ color: priorityStyle.color }} className="mt-0.5">
-                    {getIcon(action.type)}
+    <DashboardPanel title="Today's Actions" icon={ListTodo} iconTone="blue" interactive={false}>
+      <div className="p-4 space-y-2 max-h-96 overflow-y-auto">
+        {actions.map((action) => {
+          const priorityStyle = getPriorityStyle(action.priority)
+          return (
+            <button
+              key={action.id}
+              type="button"
+              disabled={!onActionClick}
+              onClick={() => onActionClick?.(action)}
+              className={`w-full p-3 rounded-lg text-left transition-shadow ${
+                onActionClick ? 'dashboard-card-interactive cursor-pointer' : 'cursor-default'
+              }`}
+              style={{ backgroundColor: priorityStyle.backgroundColor }}
+            >
+              <div className="flex items-start gap-3">
+                <div style={{ color: priorityStyle.color }} className="mt-0.5 shrink-0">
+                  {getIcon(action.type)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm mb-0.5" style={{ color: c.primary }}>
+                    {action.title}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm mb-1" style={{ color: '#113543' }}>
-                      {action.title}
-                    </div>
-                    <div className="text-xs" style={{ color: '#819291' }}>
-                      {action.description}
-                    </div>
+                  <div className="text-xs" style={{ color: c.secondary }}>
+                    {action.description}
                   </div>
                 </div>
               </div>
-            )
-          })}
-        </div>
+            </button>
+          )
+        })}
       </div>
-    </div>
+    </DashboardPanel>
   )
 }
-
-

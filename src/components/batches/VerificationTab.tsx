@@ -7,6 +7,7 @@ import { mockInvoices } from '../../data/mockInvoices'
 import { Invoice } from '../../types/invoice'
 import AdminInvoiceDetailView from './AdminInvoiceDetailView'
 import AccountingModal from './AccountingModal'
+import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 
 interface VerificationTabProps {
   batchId: string | null
@@ -36,111 +37,29 @@ export default function VerificationTab({
 
   // If no batch selected, show batch list
   if (!batchId || !batch) {
+    const listItems: AdminBatchListItem[] = batches.map((b) => ({
+      id: b.id,
+      batch_number: b.batch_number,
+      client_name: b.client_name,
+      total_invoices: b.total_invoices,
+      total_amount: b.total_amount,
+      submitted_at: b.submitted_at,
+      status: b.status,
+    }))
+
     return (
-      <div className="p-6">
-        <div className="mb-4">
-          <h2 className="text-lg font-bold" style={{ color: '#113543' }}>Verification</h2>
-          <p className="text-sm mt-1" style={{ color: '#819291' }}>
-            Verify each invoice, approve or place on hold
-          </p>
-        </div>
-
-        {batches.length === 0 ? (
-          <div className="text-center py-12" style={{ color: '#819291' }}>
-            <div className="text-4xl mb-2">✓</div>
-            <div className="font-medium">No batches in verification</div>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b" style={{ borderColor: '#819291' }}>
-                  <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Client
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Batch#
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Total Invoices
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Total Amount
-                  </th>
-                  <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Verified
-                  </th>
-                  <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {batches.map((batch, index) => {
-                  const batchInvoices = mockInvoices.filter((inv) => inv.batch_id === batch.id)
-                  const verifiedCount = batchInvoices.filter(
-                    (inv) => inv.status === 'approved' || inv.status === 'hold'
-                  ).length
-
-                  return (
-                    <tr
-                      key={batch.id}
-                      className="border-b cursor-pointer transition-colors"
-                      style={{
-                        borderColor: '#819291',
-                        backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
-                      }}
-                      onClick={() => onBatchSelect(batch.id)}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#f0f0f0'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#f8f9fa' : '#FFFFFF'
-                      }}
-                    >
-                      <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
-                        {batch.client_name}
-                      </td>
-                      <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                        {batch.batch_number}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-right" style={{ color: '#113543' }}>
-                        {batch.total_invoices}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
-                        {formatCurrency(batch.total_amount)}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className="text-sm" style={{ color: '#819291' }}>
-                          {verifiedCount} / {batchInvoices.length}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onBatchSelect(batch.id)
-                          }}
-                          className="px-3 py-1 text-sm font-medium text-white transition-colors"
-                          style={{ backgroundColor: '#C2A558' }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#b89547'
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = '#C2A558'
-                          }}
-                        >
-                          Verify
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <AdminBatchesListView
+        batches={listItems}
+        variant="verification"
+        onSelectBatch={onBatchSelect}
+        actionLabel="Verify"
+        onAction={(item, e) => {
+          e.stopPropagation()
+          onBatchSelect(item.id)
+        }}
+        emptyTitle="No batches in verification"
+        emptyHint="Batches move here after ready-to-post is complete"
+      />
     )
   }
 

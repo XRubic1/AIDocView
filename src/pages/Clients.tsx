@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Header } from '../components/admin/Header'
+import AdminLayout from '../components/AdminLayout'
 import { Client, ServiceTier } from '../types/client'
 import {
   getAllClients,
@@ -320,10 +320,8 @@ export default function Clients() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header userName="Admin User" userRole="Administrator" />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
+    <AdminLayout userName="Admin User" userRole="Administrator">
+      <div className="max-w-[1400px] mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-black mb-2">Clients</h1>
           <p className="text-gray-600">Manage client (carrier) information and payment details</p>
@@ -494,7 +492,7 @@ export default function Clients() {
             )}
           </div>
         </div>
-      </main>
+      </div>
 
       {/* Client Detail Modal with Tabs */}
       {selectedClient && (
@@ -1656,7 +1654,7 @@ export default function Clients() {
           </div>
         </div>
       )}
-    </div>
+    </AdminLayout>
   )
 }
 

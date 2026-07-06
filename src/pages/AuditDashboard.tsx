@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Header } from '../components/admin/Header'
+import AdminLayout from '../components/AdminLayout'
 import { getAllAuditLogs, getFilteredAuditLogs } from '../utils/auditLogger'
 import { AuditLog, AuditActionType } from '../types/audit'
 import { formatDate } from '../utils/format'
@@ -127,10 +127,8 @@ export default function AuditDashboard() {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#F5F5F5' }}>
-      <Header userName="Admin User" />
-      
-      <main className="max-w-[1600px] mx-auto px-6 py-8">
+    <AdminLayout userName="Admin User">
+      <div className="max-w-[1600px] mx-auto">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div>
@@ -656,8 +654,8 @@ export default function AuditDashboard() {
             </table>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </AdminLayout>
   )
 }
 

@@ -41,10 +41,10 @@ export function isOpenArInvoice(invoice: Invoice): boolean {
 
 /**
  * Invoices that can receive broker payments — approved (incl. short-paid) and paid in full.
- * Written-off (force_closed) and not-yet-approved invoices are excluded.
+ * Written-off and force-closed invoices are excluded from open payment posting.
  */
 export function isPostableForPayment(invoice: Invoice): boolean {
-  if (invoice.status === 'force_closed') return false
+  if (invoice.status === 'force_closed' || invoice.status === 'written_off') return false
   return invoice.status === 'approved' || invoice.status === 'paid'
 }
 
@@ -61,7 +61,12 @@ export function getInvoiceAgeDays(invoice: Invoice, asOf: Date = new Date()): nu
 
 /** Days past expected payment (0 if closed or not yet due). */
 export function getDaysOutstanding(invoice: Invoice, asOf: Date = new Date()): number {
-  if (invoice.status === 'paid' || invoice.status === 'rejected' || invoice.status === 'force_closed') {
+  if (
+    invoice.status === 'paid' ||
+    invoice.status === 'rejected' ||
+    invoice.status === 'force_closed' ||
+    invoice.status === 'written_off'
+  ) {
     return 0
   }
 
@@ -102,7 +107,13 @@ export function getOverdueSeverity(daysOutstanding: number, isOverdue: boolean):
 }
 
 export function getAgingBucket(invoice: Invoice, daysOutstanding: number): AgingBucket {
-  if (invoice.status === 'paid' || invoice.status === 'force_closed') return 'closed'
+  if (
+    invoice.status === 'paid' ||
+    invoice.status === 'force_closed' ||
+    invoice.status === 'written_off'
+  ) {
+    return 'closed'
+  }
   if (daysOutstanding <= 0) return 'current'
   if (daysOutstanding <= 15) return '1_15'
   if (daysOutstanding <= 30) return '16_30'

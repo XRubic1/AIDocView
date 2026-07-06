@@ -25,12 +25,12 @@ export function isShortPaymentInvoice(invoice: Invoice, payments: Payment[]): bo
 }
 
 export function getShortPaymentResolution(invoice: Invoice): ShortPaymentResolution {
-  return invoice.status === 'force_closed' ? 'written_off' : 'open'
+  return invoice.status === 'written_off' ? 'written_off' : 'open'
 }
 
 /** Whether the client can still write off the remaining balance. */
 export function canCloseShortPaymentAsUncollectable(invoice: Invoice): boolean {
-  if (invoice.status === 'force_closed') return false
+  if (invoice.status === 'written_off' || invoice.status === 'force_closed') return false
   return invoice.status === 'approved' || invoice.status === 'paid'
 }
 

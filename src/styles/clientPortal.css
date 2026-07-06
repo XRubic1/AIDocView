@@ -2029,6 +2029,8 @@
 .client-portal .client-main--flush .client-invoices-page,
 .client-portal .client-main--flush .client-collections-page,
 .client-portal .client-main--flush .client-batches-page,
+.client-portal .client-main--flush .admin-batches-page,
+.client-portal .client-main--flush .admin-accounting-page,
 .client-portal .client-main--flush .client-payments-page,
 .client-portal .client-main--flush .client-short-payments-page,
 .client-portal .client-main--flush .client-documents-page,
@@ -2858,6 +2860,71 @@
 
 .client-portal .client-batches-page .dashboard-table th:last-child,
 .client-portal .client-batches-page .dashboard-table td:last-child {
+  padding-right: var(--cp-table-compact-px);
+}
+
+.client-portal .admin-batches-page {
+  flex: 1 1 0;
+  height: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--cp-card);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.client-portal .admin-batches-list {
+  flex: 1 1 0;
+  height: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.client-portal .admin-batches-page .dashboard-table th:first-child,
+.client-portal .admin-batches-page .dashboard-table td:first-child,
+.client-portal .admin-batches-list .dashboard-table th:first-child,
+.client-portal .admin-batches-list .dashboard-table td:first-child {
+  padding-left: var(--cp-table-compact-px);
+}
+
+.client-portal .admin-batches-page .dashboard-table th:last-child,
+.client-portal .admin-batches-page .dashboard-table td:last-child,
+.client-portal .admin-batches-list .dashboard-table th:last-child,
+.client-portal .admin-batches-list .dashboard-table td:last-child {
+  padding-right: var(--cp-table-compact-px);
+}
+
+.client-portal .admin-accounting-page {
+  flex: 1 1 0;
+  height: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--cp-card);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.client-portal .admin-accounting-list,
+.client-portal .admin-accounting-detail {
+  flex: 1 1 0;
+  height: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.client-portal .admin-accounting-page .dashboard-table th:first-child,
+.client-portal .admin-accounting-page .dashboard-table td:first-child {
+  padding-left: var(--cp-table-compact-px);
+}
+
+.client-portal .admin-accounting-page .dashboard-table th:last-child,
+.client-portal .admin-accounting-page .dashboard-table td:last-child {
   padding-right: var(--cp-table-compact-px);
 }
 

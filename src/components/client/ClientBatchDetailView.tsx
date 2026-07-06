@@ -35,6 +35,7 @@ function getBatchInvoiceStatusBadge(status: string) {
     paid: 'status-pill status-pill--approved',
     rejected: 'status-pill status-pill--overdue',
     force_closed: 'status-pill status-pill--overdue',
+    written_off: 'status-pill status-pill--hold',
     hold: 'status-pill status-pill--hold',
   }
   const labels: Record<string, string> = {
@@ -42,7 +43,8 @@ function getBatchInvoiceStatusBadge(status: string) {
     approved: 'Approved',
     paid: 'Approved',
     rejected: 'Denied',
-    force_closed: 'Denied',
+    force_closed: 'Force Closed',
+    written_off: 'Written Off',
     hold: 'On Hold',
   }
   return (

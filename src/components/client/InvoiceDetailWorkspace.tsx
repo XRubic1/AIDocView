@@ -85,7 +85,8 @@ export function getInvoiceStatusBadge(status: string) {
     paid: 'status-pill status-pill--approved',
     rejected: 'status-pill status-pill--overdue',
     overdue: 'status-pill status-pill--overdue',
-    force_closed: 'status-pill status-pill--hold',
+    force_closed: 'status-pill status-pill--overdue',
+    written_off: 'status-pill status-pill--hold',
   }
   const labels: Record<string, string> = {
     pending: 'Pending',
@@ -95,6 +96,7 @@ export function getInvoiceStatusBadge(status: string) {
     rejected: 'Rejected',
     overdue: 'Overdue',
     force_closed: 'Force Closed',
+    written_off: 'Written Off',
   }
   return (
     <span className={classMap[status] || 'status-pill status-pill--pending'}>
@@ -698,7 +700,9 @@ function InvoiceDetailPane({
                           : undefined,
                     }}
                   >
-                    {!isOpenArInvoice(invoice) || invoice.status === 'force_closed'
+                    {!isOpenArInvoice(invoice) ||
+                    invoice.status === 'force_closed' ||
+                    invoice.status === 'written_off'
                       ? '—'
                       : `${enriched.daysOutstanding} days`}
                   </span>

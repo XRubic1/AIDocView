@@ -1,4 +1,7 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { BarChart3 } from 'lucide-react'
+import DashboardPanel from '../../client/dashboard/DashboardPanel'
+import { useClientTheme } from '../../../theme/ThemeContext'
 import { formatCurrency } from '../../../utils/format'
 
 interface ARTrendChartProps {
@@ -10,55 +13,53 @@ interface ARTrendChartProps {
 }
 
 export function ARTrendChart({ data }: ARTrendChartProps) {
+  const c = useClientTheme()
+
   return (
-    <div className="border" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
-      <div className="p-6">
-        <h2 className="text-lg font-bold mb-4" style={{ color: '#113543' }}>A/R Trend (Last 30 Days)</h2>
-        <div style={{ height: '384px' }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#819291" opacity={0.3} />
-              <XAxis 
-                dataKey="date" 
-                stroke="#819291"
-                style={{ fontSize: '12px' }}
-              />
-              <YAxis 
-                stroke="#819291"
-                style={{ fontSize: '12px' }}
-                tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
-              />
-              <Tooltip 
-                formatter={(value: number) => formatCurrency(value)}
-                contentStyle={{ 
-                  backgroundColor: '#FFFFFF', 
-                  border: '1px solid #819291',
-                  borderRadius: '4px'
-                }}
-              />
-              <Legend />
-              <Line 
-                type="monotone" 
-                dataKey="totalAR" 
-                stroke="#113543" 
-                strokeWidth={2}
-                name="Total A/R"
-                dot={{ fill: '#113543', r: 4 }}
-              />
-              <Line 
-                type="monotone" 
-                dataKey="collected" 
-                stroke="#2E7D32" 
-                strokeWidth={2}
-                name="Collected"
-                dot={{ fill: '#2E7D32', r: 4 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+    <DashboardPanel
+      title="A/R Trend (Last 30 Days)"
+      icon={BarChart3}
+      iconTone="blue"
+      interactive={false}
+    >
+      <div className="p-4" style={{ height: 320 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke={c.chartGrid} opacity={0.6} />
+            <XAxis dataKey="date" stroke={c.mutedLight} style={{ fontSize: '12px' }} />
+            <YAxis
+              stroke={c.mutedLight}
+              style={{ fontSize: '12px' }}
+              tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+            />
+            <Tooltip
+              formatter={(value: number) => formatCurrency(value)}
+              contentStyle={{
+                backgroundColor: c.card,
+                border: `1px solid ${c.border}`,
+                borderRadius: '8px',
+              }}
+            />
+            <Legend />
+            <Line
+              type="monotone"
+              dataKey="totalAR"
+              stroke={c.chart.blue}
+              strokeWidth={2}
+              name="Total A/R"
+              dot={{ fill: c.chart.blue, r: 3 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="collected"
+              stroke={c.success}
+              strokeWidth={2}
+              name="Collected"
+              dot={{ fill: c.success, r: 3 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
       </div>
-    </div>
+    </DashboardPanel>
   )
 }
-
-

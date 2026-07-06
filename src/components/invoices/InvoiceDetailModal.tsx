@@ -42,7 +42,8 @@ export default function InvoiceDetailModal({
       rejected: { color: 'bg-red-100 text-red-800', label: 'Rejected' },
       hold: { color: 'bg-yellow-100 text-yellow-800', label: 'On Hold' },
       paid: { color: 'bg-blue-100 text-blue-800', label: 'Paid' },
-      force_closed: { color: 'bg-purple-100 text-purple-800', label: 'Force Closed' },
+      force_closed: { color: 'bg-orange-100 text-orange-800', label: 'Force Closed' },
+      written_off: { color: 'bg-purple-100 text-purple-800', label: 'Written Off' },
     }
     const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending
 

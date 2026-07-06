@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, Edit2, Save, XCircle } from 'lucide-react'
-import { formatCurrency } from '../../utils/format'
+import { getInvoicesByBatchId } from '../../data/mockInvoices'
+import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
 import { PendingBatch } from '../../types/admin'
 import { getClientById, updateClient } from '../../services/clientRegistry'
 import { Client } from '../../types/client'
@@ -20,6 +21,15 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
   const [editedFlatFeeAmount, setEditedFlatFeeAmount] = useState<number>(0)
   const [currentBatch, setCurrentBatch] = useState<PendingBatch>(batch)
   const [feeCalculation, setFeeCalculation] = useState(batch.fee_calculation)
+
+  // Reflect write-offs and force-closes in live fee totals
+  useEffect(() => {
+    const invoices = getInvoicesByBatchId(currentBatch.id)
+    const calc = calculateBatchFeeCalculation(invoices, client?.fee_terms)
+    if (calc) {
+      setFeeCalculation(calc)
+    }
+  }, [currentBatch.id, client?.fee_terms])
 
   // Initialize edit form when entering edit mode
   useEffect(() => {
@@ -51,30 +61,18 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
       setClient(updatedClient)
     }
 
-    // Recalculate batch fee calculation
-    let totalFee = 0
-    if (editedFeeType === 'percentage' && editedFeePercentage) {
-      totalFee = (currentBatch.total_amount * editedFeePercentage) / 100
-    } else if (editedFeeType === 'flat' && editedFlatFeeAmount) {
-      totalFee = editedFlatFeeAmount
-    }
+    const invoices = getInvoicesByBatchId(currentBatch.id)
+    const newFeeCalculation = calculateBatchFeeCalculation(invoices, updatedFeeTerms)
 
-    const newFeeCalculation = {
-      fee_type: editedFeeType,
-      fee_percentage: editedFeeType === 'percentage' ? editedFeePercentage : undefined,
-      flat_fee_amount: editedFeeType === 'flat' ? editedFlatFeeAmount : undefined,
-      total_fee: totalFee,
-      net_amount: currentBatch.total_amount - totalFee,
-    }
+    if (newFeeCalculation) {
+      const updatedBatch: PendingBatch = {
+        ...currentBatch,
+        fee_calculation: newFeeCalculation,
+      }
 
-    // Update batch with new fee calculation
-    const updatedBatch: PendingBatch = {
-      ...currentBatch,
-      fee_calculation: newFeeCalculation,
+      setCurrentBatch(updatedBatch)
+      setFeeCalculation(newFeeCalculation)
     }
-
-    setCurrentBatch(updatedBatch)
-    setFeeCalculation(newFeeCalculation)
 
     // Note: In a real app, you would update the batch in the backend/store
     // For now, the local state update will show the recalculated fees immediately

@@ -119,7 +119,7 @@ export default function AdminInvoiceDetailView({
   const [showAddContact, setShowAddContact] = useState(false)
   const [closeNote, setCloseNote] = useState('')
   const [closeAmount, setCloseAmount] = useState<number>(invoice?.amount || 0)
-  const [closeType, setCloseType] = useState<'Force Close' | 'Paid' | 'Short Paid' | ''>('')
+  const [closeType, setCloseType] = useState<'Force Close' | 'Write Off' | 'Paid' | ''>('')
   const [isUploadingDocs, setIsUploadingDocs] = useState(false)
   const [isCreatingInvoice, setIsCreatingInvoice] = useState(false)
 
@@ -203,18 +203,18 @@ export default function AdminInvoiceDetailView({
         ? `Paid in full: $${closeAmount.toFixed(2)}`
         : `Paid: $${closeAmount.toFixed(2)}${amountDifference !== 0 ? ` (${amountDifference > 0 ? 'short paid' : 'overpaid'} by $${Math.abs(amountDifference).toFixed(2)})` : ''}`
       statusNote = 'Invoice marked as paid'
-    } else if (closeType === 'Short Paid') {
-      amountNote = `Short paid: $${closeAmount.toFixed(2)} (short by $${Math.abs(amountDifference).toFixed(2)})`
-      statusNote = 'Invoice closed as short paid'
+    } else if (closeType === 'Write Off') {
+      amountNote = `Written off after short pay: received $${closeAmount.toFixed(2)} (balance $${Math.abs(amountDifference).toFixed(2)} not billed)`
+      statusNote = 'Invoice written off — no collection fee'
     } else {
-      // Force Close
-      amountNote = amountDifference !== 0 
-        ? `Force closed for $${closeAmount.toFixed(2)} (${amountDifference > 0 ? 'short paid' : 'overpaid'} by $${Math.abs(amountDifference).toFixed(2)})`
-        : `Force closed for $${closeAmount.toFixed(2)} (full amount)`
-      statusNote = 'Invoice force closed'
+      amountNote = amountDifference > 0
+        ? `Force closed — uncollectable balance $${Math.abs(amountDifference).toFixed(2)} (collected $${closeAmount.toFixed(2)})`
+        : `Force closed — uncollectable for full amount $${closeAmount.toFixed(2)}`
+      statusNote = 'Invoice force closed — collection fee applies'
     }
-    
-    const nextStatus = closeType === 'Paid' ? 'paid' : 'force_closed'
+
+    const nextStatus =
+      closeType === 'Paid' ? 'paid' : closeType === 'Write Off' ? 'written_off' : 'force_closed'
     const notes_history = [...(invoice.notes_history ?? [])]
     notes_history.push({
       id: `note-${Date.now()}`,
@@ -227,7 +227,7 @@ export default function AdminInvoiceDetailView({
     const updated = updateInvoice(invoice.id, {
       status: nextStatus,
       notes_history,
-      paid_amount: closeType === 'Paid' ? closeAmount : invoice.paid_amount,
+      paid_amount: closeType === 'Paid' || closeType === 'Write Off' ? closeAmount : invoice.paid_amount,
     })
     if (updated) {
       setCurrentInvoice(updated)
@@ -2400,7 +2400,9 @@ export default function AdminInvoiceDetailView({
                 </div>
 
                 {/* Close Invoice Section (Collections View Only) */}
-                {invoice.status !== 'force_closed' && invoice.status !== 'paid' && (
+                {invoice.status !== 'force_closed' &&
+                  invoice.status !== 'written_off' &&
+                  invoice.status !== 'paid' && (
                   <div className="space-y-4 border-t pt-4" style={{ borderColor: '#819291' }}>
                     <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                       Close Invoice
@@ -2412,14 +2414,13 @@ export default function AdminInvoiceDetailView({
                       <select
                         value={closeType}
                         onChange={(e) => {
-                          const value = e.target.value as 'Force Close' | 'Paid' | 'Short Paid' | ''
+                          const value = e.target.value as 'Force Close' | 'Write Off' | 'Paid' | ''
                           setCloseType(value)
-                          // Auto-adjust amount based on type
-                          if (value === 'Short Paid' && closeAmount >= invoice.amount) {
-                            // If Short Paid is selected and amount is full, reduce it slightly
+                          if (value === 'Write Off' && closeAmount >= invoice.amount) {
                             setCloseAmount(invoice.amount * 0.9)
+                          } else if (value === 'Force Close') {
+                            setCloseAmount(0)
                           } else if (value === 'Paid' && closeAmount < invoice.amount) {
-                            // If Paid is selected, set to full amount
                             setCloseAmount(invoice.amount)
                           }
                         }}
@@ -2439,9 +2440,9 @@ export default function AdminInvoiceDetailView({
                         }}
                       >
                         <option value="">Select close type</option>
-                        <option value="Force Close">Force Close</option>
+                        <option value="Force Close">Force Close (uncollectable — fee applies)</option>
+                        <option value="Write Off">Write Off (short paid — no fee)</option>
                         <option value="Paid">Paid</option>
-                        <option value="Short Paid">Short Paid</option>
                       </select>
                       {!closeType && (
                         <p className="text-xs mt-1" style={{ color: '#C2A558' }}>
@@ -2558,16 +2559,35 @@ export default function AdminInvoiceDetailView({
                 )}
 
                 {/* Show closed status if invoice is already closed */}
-                {(currentInvoice.status === 'force_closed' || currentInvoice.status === 'paid') && (
+                {(currentInvoice.status === 'force_closed' ||
+                  currentInvoice.status === 'written_off' ||
+                  currentInvoice.status === 'paid') && (
                   <div className="space-y-4 border-t pt-4" style={{ borderColor: '#819291' }}>
                     <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                       Invoice Status
                     </h3>
-                    <div className="px-3 py-2 rounded text-sm font-medium" style={{ 
-                      backgroundColor: currentInvoice.status === 'paid' ? '#E8F5E9' : '#FFF3E0',
-                      color: currentInvoice.status === 'paid' ? '#2E7D32' : '#E65100',
-                    }}>
-                      {currentInvoice.status === 'paid' ? 'Invoice is Paid' : 'Invoice is Closed'}
+                    <div
+                      className="px-3 py-2 rounded text-sm font-medium"
+                      style={{
+                        backgroundColor:
+                          currentInvoice.status === 'paid'
+                            ? '#E8F5E9'
+                            : currentInvoice.status === 'written_off'
+                              ? '#F3F4F6'
+                              : '#FFF3E0',
+                        color:
+                          currentInvoice.status === 'paid'
+                            ? '#2E7D32'
+                            : currentInvoice.status === 'written_off'
+                              ? '#4B5563'
+                              : '#E65100',
+                      }}
+                    >
+                      {currentInvoice.status === 'paid'
+                        ? 'Invoice is Paid'
+                        : currentInvoice.status === 'written_off'
+                          ? 'Invoice Written Off — no collection fee'
+                          : 'Invoice Force Closed — collection fee applies'}
                     </div>
                   </div>
                 )}

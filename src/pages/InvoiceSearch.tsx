@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Header } from '../components/admin/Header'
+import AdminLayout from '../components/AdminLayout'
 import AllInvoicesTab from '../components/invoices/AllInvoicesTab'
 import OnHoldInvoicesTab from '../components/invoices/OnHoldInvoicesTab'
 import PendingInvoicesTab from '../components/invoices/PendingInvoicesTab'
@@ -23,10 +23,8 @@ export default function InvoiceSearch() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header userName="Admin User" userRole="Administrator" />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
+    <AdminLayout userName="Admin User" userRole="Administrator">
+      <div className="max-w-[1400px] mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-black mb-2">Invoice Search</h1>
           <p className="text-gray-600">Search and manage invoices across all clients</p>
@@ -88,8 +86,8 @@ export default function InvoiceSearch() {
             />
           )}
         </div>
-      </main>
-    </div>
+      </div>
+    </AdminLayout>
   )
 }
 

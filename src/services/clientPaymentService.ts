@@ -78,7 +78,7 @@ function applyPaymentToInvoice(
 /**
  * Post a broker payment against an invoice — creates payment row and updates invoice.
  * Supports approved (open/short), paid-in-full (additional remittance e.g. lumper), and variance routing.
- * Blocked only when invoice is written off (force_closed).
+ * Blocked when invoice is written off or force closed.
  */
 export function postClientPayment(
   input: PostClientPaymentInput,

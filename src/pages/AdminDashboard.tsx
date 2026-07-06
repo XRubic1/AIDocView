@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Header } from '../components/admin/Header'
+import AdminLayout from '../components/AdminLayout'
 import { SummaryCards } from '../components/admin/SummaryCards'
 import { CollectionsQueue } from '../components/admin/CollectionsQueue'
 import { QuickActions } from '../components/admin/QuickActions'
@@ -44,7 +44,7 @@ export default function AdminDashboard() {
   // Calculate total A/R
   const totalAR = useMemo(() => {
     return allInvoices
-      .filter(inv => inv.status !== 'hold' && inv.status !== 'pending' && inv.status !== 'paid' && inv.status !== 'force_closed')
+      .filter(inv => inv.status !== 'hold' && inv.status !== 'pending' && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off')
       .reduce((sum, inv) => sum + inv.amount, 0)
   }, [allInvoices])
   
@@ -52,7 +52,7 @@ export default function AdminDashboard() {
   const collectionsAlerts = useMemo(() => {
     return allInvoices.filter(inv => {
       const daysSinceExpected = inv.days_since_expected || 0
-      return daysSinceExpected >= 15 && inv.status !== 'paid' && inv.status !== 'force_closed'
+      return daysSinceExpected >= 15 && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off'
     }).length
   }, [allInvoices])
   
@@ -61,7 +61,7 @@ export default function AdminDashboard() {
     return allInvoices
       .filter(inv => {
         const daysSinceExpected = inv.days_since_expected || 0
-        return daysSinceExpected >= 15 && inv.status !== 'paid' && inv.status !== 'force_closed'
+        return daysSinceExpected >= 15 && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off'
       })
       .map(inv => ({
           invoice_id: inv.id,
@@ -129,7 +129,7 @@ export default function AdminDashboard() {
     }
     
     allInvoices
-      .filter(inv => inv.status !== 'hold' && inv.status !== 'pending' && inv.status !== 'paid' && inv.status !== 'force_closed')
+      .filter(inv => inv.status !== 'hold' && inv.status !== 'pending' && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off')
       .forEach(inv => {
         const days = inv.days_since_expected || 0
         if (days >= 1 && days <= 15) {
@@ -163,7 +163,7 @@ export default function AdminDashboard() {
       
       const totalAR = allInvoices
         .filter(inv => {
-          if (inv.status === 'hold' || inv.status === 'pending' || inv.status === 'paid' || inv.status === 'force_closed') {
+          if (inv.status === 'hold' || inv.status === 'pending' || inv.status === 'paid' || inv.status === 'force_closed' || inv.status === 'written_off') {
             return false
           }
           const approvedDate = inv.approved_at ? new Date(inv.approved_at) : new Date(inv.created_at)
@@ -222,7 +222,7 @@ export default function AdminDashboard() {
     allInvoices
       .filter(inv => {
         const daysSinceExpected = inv.days_since_expected || 0
-        return daysSinceExpected > 60 && inv.status !== 'paid' && inv.status !== 'force_closed'
+        return daysSinceExpected > 60 && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off'
       })
       .forEach(inv => {
         alerts.push({
@@ -300,7 +300,7 @@ export default function AdminDashboard() {
     allInvoices
       .filter(inv => {
         const daysSinceExpected = inv.days_since_expected || 0
-        return daysSinceExpected >= 15 && !inv.broker_contacted && inv.status !== 'paid' && inv.status !== 'force_closed'
+        return daysSinceExpected >= 15 && !inv.broker_contacted && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off'
       })
       .slice(0, 5)
       .forEach(inv => {
@@ -382,11 +382,8 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#F5F5F5' }}>
-      <Header userName="Admin User" userRole="Administrator" />
-
-      <main className="w-full px-4 py-6">
-        <div className="space-y-6">
+    <AdminLayout userName="Admin User" userRole="Administrator">
+      <div className="space-y-4">
           {/* Summary Cards */}
           <SummaryCards
             totalBatchesPending={pendingBatches.length}
@@ -418,11 +415,11 @@ export default function AdminDashboard() {
           />
 
           {/* Main Content Grid - 2 Column Layout */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {/* Left Column - 2/3 width */}
-            <div className="xl:col-span-2 space-y-6">
+            <div className="xl:col-span-2 space-y-4">
               {/* A/R Charts Row */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <ARTrendChart data={arTrendData} />
                 <AgingDistributionChart aging={agingAR} />
               </div>
@@ -437,13 +434,10 @@ export default function AdminDashboard() {
             </div>
 
             {/* Right Column - 1/3 width */}
-            <div className="space-y-6">
+            <div className="space-y-4">
               <ManagedIntakeWidget />
 
-              {/* Status Widget - Sticky */}
-              <div className="sticky top-4">
-                <BatchStatusWidget />
-              </div>
+              <BatchStatusWidget />
 
               {/* Batch Pipeline */}
               <BatchPipeline stages={batchPipeline} onStageClick={handleStageClick} />
@@ -455,8 +449,7 @@ export default function AdminDashboard() {
               <TodaysActions actions={todaysActions} onActionClick={handleActionClick} />
             </div>
           </div>
-        </div>
-      </main>
-    </div>
+      </div>
+    </AdminLayout>
   )
 }

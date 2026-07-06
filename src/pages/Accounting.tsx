@@ -1,558 +1,543 @@
-import { useState, useMemo } from 'react'
-import { Header } from '../components/admin/Header'
+import { useState, useMemo, useCallback, useEffect } from 'react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  DollarSign,
+  Download,
+  FileText,
+  Search,
+  XCircle,
+  CheckCircle2,
+} from 'lucide-react'
+import AdminLayout from '../components/AdminLayout'
+import ClientSortableHeader from '../components/client/ClientSortableHeader'
+import ClientListTd from '../components/client/ClientListTd'
+import { AccountingReportCharts } from '../components/admin/accounting/AccountingReportCharts'
+import { getAdminBatchStatusBadge } from '../components/batches/adminBatchStatus'
 import { getAllBatches } from '../data/mockBatches'
 import { getAllClients } from '../services/clientRegistry'
-import { formatCurrency } from '../utils/format'
-import { formatDate } from '../utils/format'
-import { DollarSign, TrendingUp, Users, FileText, Calendar, Download } from 'lucide-react'
+import { formatCurrency, formatDate } from '../utils/format'
+import { useClientTheme } from '../theme/ThemeContext'
+import {
+  buildBatchAccountingRows,
+  buildMonthlyReportSeries,
+  summarizeBatchAccounting,
+  type DateRange,
+  type BatchAccountingRow,
+} from '../utils/accountingBatchMetrics'
+import {
+  getInitialListPageSize,
+  PAGE_SIZE_OPTIONS,
+  type SortDir,
+} from '../utils/clientListPage'
+
+type PageTab = 'batches' | 'reports'
+
+type BatchSortField =
+  | 'batch_number'
+  | 'client_name'
+  | 'submitted_at'
+  | 'status'
+  | 'total_invoices'
+  | 'collectedCount'
+  | 'forceClosedCount'
+  | 'total_amount'
+  | 'feeAmount'
+  | 'netAmount'
 
 export default function Accounting() {
-  const [dateRange, setDateRange] = useState<'all' | 'month' | 'quarter' | 'year'>('all')
-  const [selectedClient, setSelectedClient] = useState<string | null>(null)
-
+  const c = useClientTheme()
   const batches = getAllBatches()
+  const clients = getAllClients()
 
-  // Calculate earnings from batches
-  const earningsData = useMemo(() => {
-    const now = new Date()
-    let startDate: Date | null = null
+  const [pageTab, setPageTab] = useState<PageTab>('batches')
+  const [dateRange, setDateRange] = useState<DateRange>('all')
+  const [clientFilter, setClientFilter] = useState<string>('')
+  const [searchTerm, setSearchTerm] = useState('')
 
-    switch (dateRange) {
-      case 'month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-        break
-      case 'quarter':
-        const quarter = Math.floor(now.getMonth() / 3)
-        startDate = new Date(now.getFullYear(), quarter * 3, 1)
-        break
-      case 'year':
-        startDate = new Date(now.getFullYear(), 0, 1)
-        break
-      default:
-        startDate = null
-    }
+  const [sortField, setSortField] = useState<BatchSortField>('submitted_at')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [pageSize, setPageSize] = useState(getInitialListPageSize)
+  const [page, setPage] = useState(1)
 
-    // Filter batches by date range
-    const filteredBatches = batches.filter((batch) => {
-      if (!startDate) return true
-      const batchDate = new Date(batch.submitted_at)
-      return batchDate >= startDate
-    })
+  const batchRows = useMemo(
+    () => buildBatchAccountingRows(batches, dateRange, clientFilter || undefined, searchTerm),
+    [batches, dateRange, clientFilter, searchTerm]
+  )
 
-    // Calculate total earnings
-    let totalEarnings = 0
-    let totalBatchAmount = 0
-    let totalNetAmount = 0
-    const clientEarnings: Record<string, {
-      clientId: string
-      clientName: string
-      totalFees: number
-      totalBatchAmount: number
-      totalNetAmount: number
-      batchCount: number
-    }> = {}
+  const summary = useMemo(() => summarizeBatchAccounting(batchRows), [batchRows])
+  const monthlySeries = useMemo(() => buildMonthlyReportSeries(batchRows), [batchRows])
 
-    filteredBatches.forEach((batch) => {
-      if (batch.fee_calculation?.total_fee) {
-        totalEarnings += batch.fee_calculation.total_fee
-        totalBatchAmount += batch.total_amount
-        totalNetAmount += batch.fee_calculation.net_amount || 0
-
-        // Group by client
-        if (!clientEarnings[batch.client_id]) {
-          clientEarnings[batch.client_id] = {
-            clientId: batch.client_id,
-            clientName: batch.client_name,
-            totalFees: 0,
-            totalBatchAmount: 0,
-            totalNetAmount: 0,
-            batchCount: 0,
-          }
-        }
-
-        clientEarnings[batch.client_id].totalFees += batch.fee_calculation.total_fee
-        clientEarnings[batch.client_id].totalBatchAmount += batch.total_amount
-        clientEarnings[batch.client_id].totalNetAmount += batch.fee_calculation.net_amount || 0
-        clientEarnings[batch.client_id].batchCount += 1
+  const sortedRows = useMemo(() => {
+    const sorted = [...batchRows]
+    sorted.sort((a, b) => {
+      let cmp = 0
+      switch (sortField) {
+        case 'batch_number':
+          cmp = a.batch_number.localeCompare(b.batch_number, undefined, { numeric: true })
+          break
+        case 'client_name':
+          cmp = a.client_name.localeCompare(b.client_name)
+          break
+        case 'submitted_at':
+          cmp = new Date(a.submitted_at).getTime() - new Date(b.submitted_at).getTime()
+          break
+        case 'status':
+          cmp = a.status.localeCompare(b.status)
+          break
+        case 'total_invoices':
+          cmp = a.totalInvoices - b.totalInvoices
+          break
+        case 'collectedCount':
+          cmp = a.collectedCount - b.collectedCount
+          break
+        case 'forceClosedCount':
+          cmp = a.forceClosedCount - b.forceClosedCount
+          break
+        case 'total_amount':
+          cmp = a.total_amount - b.total_amount
+          break
+        case 'feeAmount':
+          cmp = a.feeAmount - b.feeAmount
+          break
+        case 'netAmount':
+          cmp = a.netAmount - b.netAmount
+          break
       }
+      return sortDir === 'asc' ? cmp : -cmp
     })
+    return sorted
+  }, [batchRows, sortField, sortDir])
 
-    // Convert to array and sort by total fees
-    const clientEarningsArray = Object.values(clientEarnings)
-      .filter((client) => !selectedClient || client.clientId === selectedClient)
-      .sort((a, b) => b.totalFees - a.totalFees)
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize))
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * pageSize
+    return sortedRows.slice(start, start + pageSize)
+  }, [sortedRows, page, pageSize])
 
-    return {
-      totalEarnings,
-      totalBatchAmount,
-      totalNetAmount,
-      clientEarnings: clientEarningsArray,
-      totalBatches: filteredBatches.filter((b) => b.fee_calculation?.total_fee).length,
-    }
-  }, [batches, dateRange, selectedClient])
+  const pageStart = sortedRows.length === 0 ? 0 : (page - 1) * pageSize + 1
+  const pageEnd = Math.min(page * pageSize, sortedRows.length)
 
-  // Get detailed batch list for selected client
-  const clientBatchDetails = useMemo(() => {
-    if (!selectedClient) return []
-    
-    const now = new Date()
-    let startDate: Date | null = null
+  const handleSort = useCallback(
+    (field: BatchSortField) => {
+      if (sortField === field) {
+        setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
+      } else {
+        setSortField(field)
+        setSortDir(
+          field === 'submitted_at' ||
+            field === 'total_amount' ||
+            field === 'feeAmount' ||
+            field === 'netAmount' ||
+            field === 'collectedCount' ||
+            field === 'forceClosedCount' ||
+            field === 'total_invoices'
+            ? 'desc'
+            : 'asc'
+        )
+      }
+    },
+    [sortField]
+  )
 
-    switch (dateRange) {
-      case 'month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-        break
-      case 'quarter':
-        const quarter = Math.floor(now.getMonth() / 3)
-        startDate = new Date(now.getFullYear(), quarter * 3, 1)
-        break
-      case 'year':
-        startDate = new Date(now.getFullYear(), 0, 1)
-        break
-      default:
-        startDate = null
-    }
+  useEffect(() => {
+    setPage(1)
+  }, [searchTerm, clientFilter, dateRange, sortField, sortDir, pageSize])
 
-    return batches
-      .filter((batch) => {
-        if (batch.client_id !== selectedClient) return false
-        if (!batch.fee_calculation?.total_fee) return false
-        if (!startDate) return true
-        const batchDate = new Date(batch.submitted_at)
-        return batchDate >= startDate
-      })
-      .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
-  }, [batches, selectedClient, dateRange])
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
 
   const handleExportReport = () => {
-    // In a real implementation, this would generate and download a report
     alert('Export functionality will be implemented')
   }
 
+  const inputStyle = {
+    backgroundColor: c.card,
+    height: 34,
+    paddingTop: 6,
+    paddingBottom: 6,
+    fontSize: 13,
+  } as const
+
+  const dateFilters: { id: DateRange; label: string }[] = [
+    { id: 'all', label: 'All time' },
+    { id: 'month', label: 'This month' },
+    { id: 'quarter', label: 'This quarter' },
+    { id: 'year', label: 'This year' },
+  ]
+
+  const statStrip = [
+    { label: 'Fees earned', value: formatCurrency(summary.totalFees), tone: c.stat.green, icon: DollarSign },
+    {
+      label: 'Collected',
+      value: `${summary.collectedCount} · ${formatCurrency(summary.collectedAmount)}`,
+      tone: c.stat.blue,
+      icon: CheckCircle2,
+    },
+    {
+      label: 'Force closed',
+      value: `${summary.forceClosedCount} · ${formatCurrency(summary.forceClosedAmount)}`,
+      tone: c.stat.amber,
+      icon: XCircle,
+    },
+    { label: 'Batches', value: summary.batchCount, tone: c.stat.slate, icon: FileText },
+  ]
+
+  const renderToolbar = () => (
+    <div
+      className="client-page-toolbar px-4 py-2 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 shrink-0"
+      style={{ borderColor: c.border, backgroundColor: c.card }}
+    >
+      <div className="flex flex-wrap gap-1.5">
+        {dateFilters.map((btn) => (
+          <button
+            key={btn.id}
+            type="button"
+            onClick={() => setDateRange(btn.id)}
+            className={`batch-filter-pill ${dateRange === btn.id ? 'batch-filter-pill--active' : ''}`}
+          >
+            {btn.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto lg:min-w-[420px]">
+        <div className="relative flex-1">
+          <Search
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
+            style={{ color: c.secondary }}
+          />
+          <input
+            type="text"
+            placeholder="Search batch or client..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="client-input pl-8 w-full"
+            style={inputStyle}
+          />
+        </div>
+        <select
+          value={clientFilter}
+          onChange={(e) => setClientFilter(e.target.value)}
+          className="client-input w-full sm:w-44"
+          style={inputStyle}
+        >
+          <option value="">All clients</option>
+          {clients.map((client) => (
+            <option key={client.id} value={client.id}>
+              {client.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  )
+
+  const renderPagination = () => (
+    <div
+      className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t shrink-0"
+      style={{ borderColor: c.border, backgroundColor: c.card }}
+    >
+      <p className="text-xs font-medium" style={{ color: c.secondary }}>
+        Showing {pageStart}–{pageEnd} of {sortedRows.length}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: c.secondary }}>
+          Rows
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="client-input"
+            style={{ ...inputStyle, width: 64, height: 30, fontSize: 12 }}
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="table-page-btn"
+            aria-label="Previous page"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="text-xs font-medium px-2 tabular-nums" style={{ color: c.primary }}>
+            {page} / {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="table-page-btn"
+            aria-label="Next page"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderBatchTable = (rows: BatchAccountingRow[]) => (
+  <table className="dashboard-table dashboard-table--compact">
+    <thead>
+      <tr>
+        <ClientSortableHeader
+          field="batch_number"
+          label="Batch#"
+          sortField={sortField}
+          sortDir={sortDir}
+          onSort={handleSort}
+        />
+        <ClientSortableHeader
+          field="client_name"
+          label="Client"
+          sortField={sortField}
+          sortDir={sortDir}
+          onSort={handleSort}
+        />
+        <ClientSortableHeader
+          field="submitted_at"
+          label="Submitted"
+          sortField={sortField}
+          sortDir={sortDir}
+          onSort={handleSort}
+        />
+        <ClientSortableHeader
+          field="status"
+          label="Status"
+          sortField={sortField}
+          sortDir={sortDir}
+          onSort={handleSort}
+        />
+        <ClientSortableHeader
+          field="total_invoices"
+          label="Invoices"
+          sortField={sortField}
+          sortDir={sortDir}
+          onSort={handleSort}
+          className="text-right"
+          align="right"
+        />
+        <ClientSortableHeader
+          field="collectedCount"
+          label="Collected"
+          sortField={sortField}
+          sortDir={sortDir}
+          onSort={handleSort}
+          className="text-right"
+          align="right"
+        />
+        <ClientSortableHeader
+          field="forceClosedCount"
+          label="Force closed"
+          sortField={sortField}
+          sortDir={sortDir}
+          onSort={handleSort}
+          className="text-right"
+          align="right"
+        />
+        <ClientSortableHeader
+          field="total_amount"
+          label="Batch amount"
+          sortField={sortField}
+          sortDir={sortDir}
+          onSort={handleSort}
+          className="text-right"
+          align="right"
+        />
+        <ClientSortableHeader
+          field="feeAmount"
+          label="Fee"
+          sortField={sortField}
+          sortDir={sortDir}
+          onSort={handleSort}
+          className="text-right"
+          align="right"
+        />
+        <ClientSortableHeader
+          field="netAmount"
+          label="Net"
+          sortField={sortField}
+          sortDir={sortDir}
+          onSort={handleSort}
+          className="text-right"
+          align="right"
+        />
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map((batch) => (
+        <tr key={batch.id}>
+          <ClientListTd variant="primary" className="font-semibold">
+            {batch.batch_number}
+          </ClientListTd>
+          <ClientListTd variant="desktop" label="Client">
+            {batch.client_name}
+          </ClientListTd>
+          <ClientListTd variant="desktop" label="Submitted" style={{ color: c.secondary }}>
+            {formatDate(batch.submitted_at)}
+          </ClientListTd>
+          <ClientListTd variant="status">{getAdminBatchStatusBadge(batch.status)}</ClientListTd>
+          <ClientListTd variant="desktop" label="Invoices" className="text-right tabular-nums">
+            {batch.totalInvoices || batch.total_invoices}
+          </ClientListTd>
+          <ClientListTd
+            variant="amount"
+            className="text-right tabular-nums"
+            style={{ color: batch.collectedCount > 0 ? c.success : c.secondary }}
+          >
+            <span className="block font-medium">{batch.collectedCount}</span>
+            <span className="block text-xs" style={{ color: c.secondary }}>
+              {formatCurrency(batch.collectedAmount)}
+            </span>
+          </ClientListTd>
+          <ClientListTd
+            variant="amount"
+            className="text-right tabular-nums"
+            style={{ color: batch.forceClosedCount > 0 ? c.chart.orange : c.secondary }}
+          >
+            <span className="block font-medium">{batch.forceClosedCount}</span>
+            <span className="block text-xs" style={{ color: c.secondary }}>
+              {formatCurrency(batch.forceClosedAmount)}
+            </span>
+          </ClientListTd>
+          <ClientListTd variant="amount" className="text-right tabular-nums">
+            {formatCurrency(batch.total_amount)}
+          </ClientListTd>
+          <ClientListTd
+            variant="amount"
+            className="text-right font-medium tabular-nums"
+            style={{ color: batch.feeAmount > 0 ? c.success : c.secondary }}
+          >
+            {batch.feeAmount > 0 ? formatCurrency(batch.feeAmount) : '—'}
+          </ClientListTd>
+          <ClientListTd variant="amount" className="text-right tabular-nums">
+            {batch.netAmount > 0 ? formatCurrency(batch.netAmount) : '—'}
+          </ClientListTd>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+  )
+
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#F5F5F5' }}>
-      <Header userName="Admin User" />
-      
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2" style={{ color: '#113543' }}>
-              Accounting Dashboard
-            </h1>
-            <p className="text-sm" style={{ color: '#819291' }}>
-              Financial overview, earnings, and reports
-            </p>
+    <AdminLayout userName="Admin User" flushMain>
+      <div className="admin-accounting-page overflow-hidden flex flex-col min-h-0 h-full">
+        <div
+          className="client-page-tabs-bar shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-b"
+          style={{ borderColor: c.border, backgroundColor: c.card }}
+        >
+          <div className="page-tabs flex flex-wrap gap-1">
+            <button
+              type="button"
+              onClick={() => setPageTab('batches')}
+              className={`page-tab ${pageTab === 'batches' ? 'page-tab--active' : ''}`}
+            >
+              Batches
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageTab('reports')}
+              className={`page-tab ${pageTab === 'reports' ? 'page-tab--active' : ''}`}
+            >
+              Reports
+            </button>
           </div>
           <button
+            type="button"
             onClick={handleExportReport}
-            className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white transition-colors"
-            style={{ backgroundColor: '#819291' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#6b7a7a'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#819291'
-            }}
+            className="dashboard-btn-secondary shrink-0 self-start sm:self-auto inline-flex items-center gap-1.5"
           >
-            <Download className="w-4 h-4" />
-            <span>Export Report</span>
+            <Download className="w-3.5 h-3.5" />
+            Export
           </button>
         </div>
 
-        {/* Filters */}
-        <div className="bg-white rounded-lg border p-4 mb-6" style={{ borderColor: '#819291' }}>
-          <div className="flex items-center space-x-6">
-            <div className="flex items-center space-x-2">
-              <Calendar className="w-4 h-4" style={{ color: '#819291' }} />
-              <label className="text-sm font-medium" style={{ color: '#113543' }}>
-                Date Range:
-              </label>
-              <select
-                value={dateRange}
-                onChange={(e) => setDateRange(e.target.value as typeof dateRange)}
-                className="px-3 py-1.5 border rounded text-sm focus:outline-none focus:ring-2"
-                style={{
-                  borderColor: '#819291',
-                  color: '#113543',
-                  backgroundColor: '#FFFFFF',
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#C2A558'
-                  e.currentTarget.style.boxShadow = '0 0 0 2px rgba(194, 165, 88, 0.2)'
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = '#819291'
-                  e.currentTarget.style.boxShadow = 'none'
-                }}
+        <section
+          className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
+          style={{ borderColor: c.border }}
+        >
+          {statStrip.map((stat) => {
+            const Icon = stat.icon
+            return (
+              <div
+                key={stat.label}
+                className="flex items-center justify-between gap-2 px-4 py-2.5 border-b sm:border-b-0 sm:border-r last:border-r-0"
+                style={{ backgroundColor: stat.tone, borderColor: c.border }}
               >
-                <option value="all">All Time</option>
-                <option value="month">This Month</option>
-                <option value="quarter">This Quarter</option>
-                <option value="year">This Year</option>
-              </select>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Users className="w-4 h-4" style={{ color: '#819291' }} />
-              <label className="text-sm font-medium" style={{ color: '#113543' }}>
-                Client:
-              </label>
-              <select
-                value={selectedClient || ''}
-                onChange={(e) => setSelectedClient(e.target.value || null)}
-                className="px-3 py-1.5 border rounded text-sm focus:outline-none focus:ring-2"
-                style={{
-                  borderColor: '#819291',
-                  color: '#113543',
-                  backgroundColor: '#FFFFFF',
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = '#C2A558'
-                  e.currentTarget.style.boxShadow = '0 0 0 2px rgba(194, 165, 88, 0.2)'
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = '#819291'
-                  e.currentTarget.style.boxShadow = 'none'
-                }}
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: c.secondary }} strokeWidth={1.75} />
+                  <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
+                    {stat.label}
+                  </span>
+                </div>
+                <span className="text-sm font-bold tabular-nums shrink-0 text-right" style={{ color: c.primary }}>
+                  {stat.value}
+                </span>
+              </div>
+            )
+          })}
+        </section>
+
+        {renderToolbar()}
+
+        {pageTab === 'reports' ? (
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+            <AccountingReportCharts
+              monthlySeries={monthlySeries}
+              totals={{
+                collectedCount: summary.collectedCount,
+                collectedAmount: summary.collectedAmount,
+                forceClosedCount: summary.forceClosedCount,
+                forceClosedAmount: summary.forceClosedAmount,
+              }}
+            />
+            <div className="dashboard-card overflow-hidden">
+              <div
+                className="px-4 py-2.5 border-b text-sm font-semibold"
+                style={{ borderColor: c.border, color: c.primary }}
               >
-                <option value="">All Clients</option>
-                {getAllClients().map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-          {/* Total Earnings */}
-          <div className="bg-white rounded-lg border p-6" style={{ borderColor: '#819291' }}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 rounded-lg" style={{ backgroundColor: '#E8F5E9' }}>
-                <DollarSign className="w-6 h-6" style={{ color: '#2E7D32' }} />
+                Batch detail
               </div>
-              <TrendingUp className="w-5 h-5" style={{ color: '#2E7D32' }} />
-            </div>
-            <h3 className="text-sm font-medium mb-1" style={{ color: '#819291' }}>
-              Total Earnings
-            </h3>
-            <p className="text-2xl font-bold" style={{ color: '#113543' }}>
-              {formatCurrency(earningsData.totalEarnings)}
-            </p>
-          </div>
-
-          {/* Total Batch Amount */}
-          <div className="bg-white rounded-lg border p-6" style={{ borderColor: '#819291' }}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 rounded-lg" style={{ backgroundColor: '#E3F2FD' }}>
-                <FileText className="w-6 h-6" style={{ color: '#1976D2' }} />
-              </div>
-            </div>
-            <h3 className="text-sm font-medium mb-1" style={{ color: '#819291' }}>
-              Total Batch Amount
-            </h3>
-            <p className="text-2xl font-bold" style={{ color: '#113543' }}>
-              {formatCurrency(earningsData.totalBatchAmount)}
-            </p>
-          </div>
-
-          {/* Net Amount */}
-          <div className="bg-white rounded-lg border p-6" style={{ borderColor: '#819291' }}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 rounded-lg" style={{ backgroundColor: '#FFF3E0' }}>
-                <DollarSign className="w-6 h-6" style={{ color: '#E65100' }} />
-              </div>
-            </div>
-            <h3 className="text-sm font-medium mb-1" style={{ color: '#819291' }}>
-              Net Amount (After Fees)
-            </h3>
-            <p className="text-2xl font-bold" style={{ color: '#113543' }}>
-              {formatCurrency(earningsData.totalNetAmount)}
-            </p>
-          </div>
-
-          {/* Total Batches */}
-          <div className="bg-white rounded-lg border p-6" style={{ borderColor: '#819291' }}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 rounded-lg" style={{ backgroundColor: '#F3E5F5' }}>
-                <FileText className="w-6 h-6" style={{ color: '#7B1FA2' }} />
-              </div>
-            </div>
-            <h3 className="text-sm font-medium mb-1" style={{ color: '#819291' }}>
-              Total Batches
-            </h3>
-            <p className="text-2xl font-bold" style={{ color: '#113543' }}>
-              {earningsData.totalBatches}
-            </p>
-          </div>
-        </div>
-
-        {/* Earnings by Client */}
-        <div className="bg-white rounded-lg border mb-6" style={{ borderColor: '#819291' }}>
-          <div className="p-6 border-b" style={{ borderColor: '#819291' }}>
-            <h2 className="text-xl font-bold" style={{ color: '#113543' }}>
-              Earnings by Client
-            </h2>
-            <p className="text-sm mt-1" style={{ color: '#819291' }}>
-              Breakdown of fees earned from each client
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr style={{ backgroundColor: '#F5F5F5' }}>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                    Client Name
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                    Batches
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                    Total Batch Amount
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                    Total Fees
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                    Net Amount
-                  </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y" style={{ borderColor: '#819291' }}>
-                {earningsData.clientEarnings.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-sm" style={{ color: '#819291' }}>
-                      No earnings data available for the selected filters
-                    </td>
-                  </tr>
+              <div className="client-table-scroll overflow-x-auto">
+                {sortedRows.length === 0 ? (
+                  <p className="text-sm text-center py-10" style={{ color: c.secondary }}>
+                    No batches in the selected period
+                  </p>
                 ) : (
-                  earningsData.clientEarnings.map((client) => (
-                    <tr
-                      key={client.clientId}
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={() => setSelectedClient(selectedClient === client.clientId ? null : client.clientId)}
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium" style={{ color: '#113543' }}>
-                          {client.clientName}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm" style={{ color: '#113543' }}>
-                          {client.batchCount}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm font-medium" style={{ color: '#113543' }}>
-                          {formatCurrency(client.totalBatchAmount)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm font-semibold" style={{ color: '#2E7D32' }}>
-                          {formatCurrency(client.totalFees)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm" style={{ color: '#113543' }}>
-                          {formatCurrency(client.totalNetAmount)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedClient(selectedClient === client.clientId ? null : client.clientId)
-                          }}
-                          className="text-sm font-medium transition-colors"
-                          style={{ color: '#819291' }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = '#113543'
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = '#819291'
-                          }}
-                        >
-                          {selectedClient === client.clientId ? 'Hide Details' : 'View Details'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  renderBatchTable(sortedRows.slice(0, 15))
                 )}
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
-        </div>
-
-        {/* Client Batch Details */}
-        {selectedClient && clientBatchDetails.length > 0 && (
-          <div className="bg-white rounded-lg border mb-6" style={{ borderColor: '#819291' }}>
-            <div className="p-6 border-b" style={{ borderColor: '#819291' }}>
-              <h2 className="text-xl font-bold" style={{ color: '#113543' }}>
-                Batch Details - {earningsData.clientEarnings.find((c) => c.clientId === selectedClient)?.clientName}
-              </h2>
-              <p className="text-sm mt-1" style={{ color: '#819291' }}>
-                Individual batch breakdown for selected client
+        ) : sortedRows.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-center py-12 px-4">
+            <div>
+              <DollarSign className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
+              <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
+                No batch accounting data
+              </p>
+              <p className="text-sm" style={{ color: c.secondary }}>
+                Try a different date range or filter
               </p>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr style={{ backgroundColor: '#F5F5F5' }}>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                      Batch Number
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                      Submitted Date
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                      Batch Amount
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                      Fee Type
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                      Fee Amount
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider" style={{ color: '#819291' }}>
-                      Net Amount
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y" style={{ borderColor: '#819291' }}>
-                  {clientBatchDetails.map((batch) => (
-                    <tr key={batch.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium" style={{ color: '#113543' }}>
-                          {batch.batch_number}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm" style={{ color: '#113543' }}>
-                          {formatDate(batch.submitted_at)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
-                          style={{
-                            backgroundColor:
-                              batch.status === 'submitted' || batch.status === 'processing'
-                                ? '#E8F5E9'
-                                : batch.status === 'approval'
-                                ? '#E3F2FD'
-                                : batch.status === 'verification'
-                                ? '#FFF3E0'
-                                : '#F5F5F5',
-                            color:
-                              batch.status === 'submitted' || batch.status === 'processing'
-                                ? '#2E7D32'
-                                : batch.status === 'approval'
-                                ? '#1976D2'
-                                : batch.status === 'verification'
-                                ? '#E65100'
-                                : '#819291',
-                          }}
-                        >
-                          {batch.status.replace('_', ' ').toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm font-medium" style={{ color: '#113543' }}>
-                          {formatCurrency(batch.total_amount)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm" style={{ color: '#113543' }}>
-                          {batch.fee_calculation?.fee_type === 'percentage'
-                            ? `${batch.fee_calculation.fee_percentage}%`
-                            : batch.fee_calculation?.fee_type === 'flat'
-                            ? 'Flat'
-                            : '-'}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm font-semibold" style={{ color: '#2E7D32' }}>
-                          {formatCurrency(batch.fee_calculation?.total_fee || 0)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm" style={{ color: '#113543' }}>
-                          {formatCurrency(batch.fee_calculation?.net_amount || 0)}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </div>
+        ) : (
+          <>
+            <div className="client-table-scroll client-table-scroll--mobile-stack flex-1 min-h-0 overflow-y-auto overflow-x-auto">
+              {renderBatchTable(paginatedRows)}
+            </div>
+            {renderPagination()}
+          </>
         )}
-
-        {/* Reports Section */}
-        <div className="bg-white rounded-lg border" style={{ borderColor: '#819291' }}>
-          <div className="p-6 border-b" style={{ borderColor: '#819291' }}>
-            <h2 className="text-xl font-bold" style={{ color: '#113543' }}>
-              Financial Reports
-            </h2>
-            <p className="text-sm mt-1" style={{ color: '#819291' }}>
-              Generate and download accounting reports
-            </p>
-          </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <button
-                onClick={handleExportReport}
-                className="p-4 border rounded-lg text-left transition-colors hover:bg-gray-50"
-                style={{ borderColor: '#819291' }}
-              >
-                <FileText className="w-6 h-6 mb-2" style={{ color: '#819291' }} />
-                <h3 className="text-sm font-semibold mb-1" style={{ color: '#113543' }}>
-                  Earnings Report
-                </h3>
-                <p className="text-xs" style={{ color: '#819291' }}>
-                  Detailed breakdown of all earnings by client and batch
-                </p>
-              </button>
-              <button
-                onClick={handleExportReport}
-                className="p-4 border rounded-lg text-left transition-colors hover:bg-gray-50"
-                style={{ borderColor: '#819291' }}
-              >
-                <DollarSign className="w-6 h-6 mb-2" style={{ color: '#819291' }} />
-                <h3 className="text-sm font-semibold mb-1" style={{ color: '#113543' }}>
-                  Revenue Summary
-                </h3>
-                <p className="text-xs" style={{ color: '#819291' }}>
-                  Total revenue and fee calculations summary
-                </p>
-              </button>
-              <button
-                onClick={handleExportReport}
-                className="p-4 border rounded-lg text-left transition-colors hover:bg-gray-50"
-                style={{ borderColor: '#819291' }}
-              >
-                <Users className="w-6 h-6 mb-2" style={{ color: '#819291' }} />
-                <h3 className="text-sm font-semibold mb-1" style={{ color: '#113543' }}>
-                  Client Statement
-                </h3>
-                <p className="text-xs" style={{ color: '#819291' }}>
-                  Individual client earnings and batch history
-                </p>
-              </button>
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
+      </div>
+    </AdminLayout>
   )
 }
-

@@ -34,7 +34,7 @@ type InvoiceSortField =
   | 'status'
 
 function getSortableDaysOutstanding(invoice: EnrichedInvoice): number {
-  if (!isOpenArInvoice(invoice) || invoice.status === 'force_closed') return -1
+  if (!isOpenArInvoice(invoice) || invoice.status === 'force_closed' || invoice.status === 'written_off') return -1
   return invoice.daysOutstanding
 }
 
@@ -144,7 +144,7 @@ export default function ClientInvoices() {
 
   useEffect(() => {
     const status = searchParams.get('status')
-    const validStatuses = ['overdue', 'pending', 'approved', 'hold', 'paid', 'force_closed']
+    const validStatuses = ['overdue', 'pending', 'approved', 'hold', 'paid', 'force_closed', 'written_off']
     if (status && validStatuses.includes(status)) {
       setStatusFilter(status)
       const next = new URLSearchParams(searchParams)
@@ -345,6 +345,7 @@ export default function ClientInvoices() {
                 <option value="hold">On Hold</option>
                 <option value="paid">Paid</option>
                 <option value="force_closed">Force Closed</option>
+                <option value="written_off">Written Off</option>
               </select>
             </div>
           </div>
@@ -467,7 +468,9 @@ export default function ClientInvoices() {
                           {formatDate(invoice.invoice_date)}
                         </ClientListTd>
                         <ClientListTd variant="desktop" label="Days Out" className="text-right tabular-nums">
-                          {!isOpenArInvoice(invoice) || invoice.status === 'force_closed' ? (
+                          {!isOpenArInvoice(invoice) ||
+                          invoice.status === 'force_closed' ||
+                          invoice.status === 'written_off' ? (
                             <span style={{ color: c.mutedLight }}>—</span>
                           ) : (
                             <span

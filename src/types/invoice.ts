@@ -37,7 +37,7 @@ export interface Invoice {
   invoice_date: string
   due_date: string
   expected_payment_date: string
-  status: 'pending' | 'approved' | 'rejected' | 'hold' | 'paid' | 'force_closed'
+  status: 'pending' | 'approved' | 'rejected' | 'hold' | 'paid' | 'force_closed' | 'written_off'
   load_number?: string
   batch_id?: string
   batch_number?: string

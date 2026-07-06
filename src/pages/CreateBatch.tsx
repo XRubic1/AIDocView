@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Header } from '../components/admin/Header'
+import AdminLayout from '../components/AdminLayout'
 import { getAllClients } from '../services/clientRegistry'
 import { mockBrokers } from '../data/mockBrokers'
 import { formatCurrency } from '../utils/format'
@@ -205,10 +205,8 @@ export default function CreateBatch() {
   )
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
-      <Header userName="Admin User" userRole="Administrator" />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
+    <AdminLayout userName="Admin User" userRole="Administrator">
+      <div className="max-w-[1400px] mx-auto">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
@@ -650,8 +648,8 @@ export default function CreateBatch() {
             </div>
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </AdminLayout>
   )
 }
 

@@ -7,6 +7,8 @@ import { Invoice } from '../../types/invoice'
 import AdminInvoiceDetailView from './AdminInvoiceDetailView'
 import AccountingModal from './AccountingModal'
 import BatchAiReviewPanel, { InvoiceAiReviewBadge } from './BatchAiReviewPanel'
+import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 interface ReadyToPostTabProps {
   batchId: string | null
@@ -21,6 +23,7 @@ export default function ReadyToPostTab({
   onMoveToVerification,
   onBack,
 }: ReadyToPostTabProps) {
+  const c = useClientTheme()
   const batches = getAllBatches().filter((b) => b.status === 'ready_to_post')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [showAccountingModal, setShowAccountingModal] = useState(false)
@@ -32,132 +35,30 @@ export default function ReadyToPostTab({
 
   // If no batch selected, show batch list
   if (!batchId || !batch) {
+    const listItems: AdminBatchListItem[] = batches.map((b) => ({
+      id: b.id,
+      batch_number: b.batch_number,
+      client_name: b.client_name,
+      total_invoices: b.total_invoices,
+      total_amount: b.total_amount,
+      submitted_at: b.submitted_at,
+      status: b.status,
+      upload_mode: b.upload_mode,
+    }))
+
     return (
-      <div className="p-6">
-        <div className="mb-4">
-          <h2 className="text-lg font-bold" style={{ color: '#113543' }}>Ready to Post</h2>
-          <p className="text-sm mt-1" style={{ color: '#819291' }}>
-            Assign paperwork and brokers to invoices before verification
-          </p>
-        </div>
-
-        {batches.length === 0 ? (
-          <div className="text-center py-12" style={{ color: '#819291' }}>
-            <div className="text-4xl mb-2">✓</div>
-            <div className="font-medium">No batches ready to post</div>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b" style={{ borderColor: '#819291' }}>
-                  <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Client
-                  </th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Batch#
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Total Invoices
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Total Amount
-                  </th>
-                  <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Progress
-                  </th>
-                  <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {batches.map((batch, index) => {
-                  const batchInvoices = mockInvoices.filter((inv) => inv.batch_id === batch.id)
-                  const paperworkComplete = batchInvoices.filter(
-                    (inv) => inv.documents_count && inv.documents_count > 0
-                  ).length
-                  const brokersAssigned = batchInvoices.filter((inv) => !!inv.broker_id).length
-                  const totalInvoices = batchInvoices.length
-                  const progress = totalInvoices > 0
-                    ? Math.round(((paperworkComplete + brokersAssigned) / (totalInvoices * 2)) * 100)
-                    : 0
-
-                  return (
-                    <tr
-                      key={batch.id}
-                      className="border-b cursor-pointer transition-colors"
-                      style={{
-                        borderColor: '#819291',
-                        backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
-                      }}
-                      onClick={() => onBatchSelect(batch.id)}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#f0f0f0'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#f8f9fa' : '#FFFFFF'
-                      }}
-                    >
-                      <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
-                        {batch.client_name}
-                      </td>
-                      <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                        {batch.batch_number}
-                        {batch.upload_mode === 'handoff' && (
-                          <span className="ml-2 text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                            Handoff
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-right" style={{ color: '#113543' }}>
-                        {batch.total_invoices}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
-                        {formatCurrency(batch.total_amount)}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <div className="flex items-center justify-center space-x-2">
-                          <div className="w-24 bg-gray-200 rounded-full h-2">
-                            <div
-                              className="h-2 rounded-full transition-all"
-                              style={{
-                                width: `${progress}%`,
-                                backgroundColor: progress === 100 ? '#819291' : '#C2A558',
-                              }}
-                            />
-                          </div>
-                          <span className="text-xs" style={{ color: '#819291' }}>
-                            {progress}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onBatchSelect(batch.id)
-                          }}
-                          className="px-3 py-1 text-sm font-medium text-white transition-colors"
-                          style={{ backgroundColor: '#C2A558' }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#b89547'
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = '#C2A558'
-                          }}
-                        >
-                          Review
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <AdminBatchesListView
+        batches={listItems}
+        variant="ready_to_post"
+        onSelectBatch={onBatchSelect}
+        actionLabel="Review"
+        onAction={(item, e) => {
+          e.stopPropagation()
+          onBatchSelect(item.id)
+        }}
+        emptyTitle="No batches ready to post"
+        emptyHint="Batches appear here after documents are submitted"
+      />
     )
   }
 
@@ -194,227 +95,161 @@ export default function ReadyToPostTab({
     : 0
 
   return (
-    <div className="p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center space-x-4">
+    <div className="flex-1 min-h-0 overflow-y-auto p-5">
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <div className="flex items-center gap-3 min-w-0">
           <button
+            type="button"
             onClick={onBack}
-            className="flex items-center space-x-2 transition-colors"
-            style={{ color: '#819291' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = '#113543'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = '#819291'
-            }}
+            className="dashboard-btn-secondary !h-8 !px-2.5 inline-flex items-center gap-1.5"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>Back</span>
+            Back
           </button>
-          <div>
-            <h2 className="text-xl font-bold" style={{ color: '#113543' }}>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold truncate" style={{ color: c.primary }}>
               {batch.batch_number}
             </h2>
-            <p className="text-sm" style={{ color: '#819291' }}>{batch.client_name}</p>
+            <p className="text-sm truncate" style={{ color: c.secondary }}>
+              {batch.client_name}
+            </p>
           </div>
         </div>
-        <div className="flex items-center space-x-2 flex-wrap gap-2">
-          <BatchAiReviewPanel
-            batchId={batchId}
-            onComplete={() => setReviewRefresh((k) => k + 1)}
-          />
+        <div className="flex items-center gap-2 flex-wrap">
+          <BatchAiReviewPanel batchId={batchId} onComplete={() => setReviewRefresh((k) => k + 1)} />
           <button
+            type="button"
             onClick={() => setShowAccountingModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white transition-colors"
-            style={{ backgroundColor: '#113543' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#0d2a35'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#113543'
-            }}
+            className="dashboard-btn-secondary"
           >
-            <span>Accounting</span>
+            Accounting
           </button>
           <div className="flex flex-col items-end">
             <button
+              type="button"
               onClick={() => {
                 if (!allComplete || progress !== 100) {
-                  alert(`Cannot move batch to verification. Progress must be 100%.\nCurrent progress: ${progress}%`)
+                  alert(
+                    `Cannot move batch to verification. Progress must be 100%.\nCurrent progress: ${progress}%`
+                  )
                   return
                 }
                 onMoveToVerification(batchId)
               }}
               disabled={!allComplete || progress !== 100}
-              className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white transition-colors"
-              style={{
-                backgroundColor: allComplete && progress === 100 ? '#819291' : '#cccccc',
-                cursor: allComplete && progress === 100 ? 'pointer' : 'not-allowed',
-                opacity: allComplete && progress === 100 ? 1 : 0.6,
-              }}
-              onMouseEnter={(e) => {
-                if (allComplete && progress === 100) {
-                  e.currentTarget.style.backgroundColor = '#6b7a7a'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (allComplete && progress === 100) {
-                  e.currentTarget.style.backgroundColor = '#819291'
-                }
-            }}
-          >
-            <CheckCircle className="w-4 h-4" />
-            <span>Move to Verification</span>
-          </button>
+              className="dashboard-btn-primary disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+            >
+              <CheckCircle className="w-4 h-4" />
+              Move to Verification
+            </button>
             {(!allComplete || progress !== 100) && (
-              <div className="text-xs mt-1 text-right" style={{ color: '#C2A558' }}>
-                Progress: {progress}% - Complete all paperwork and broker assignments
-              </div>
-        )}
+              <p className="text-xs mt-1 text-right" style={{ color: c.warning }}>
+                Progress: {progress}% — complete paperwork and broker assignments
+              </p>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-          <div className="text-sm mb-1" style={{ color: '#819291' }}>Total Invoices</div>
-          <div className="text-2xl font-bold" style={{ color: '#113543' }}>
-            {batchInvoices.length}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        {[
+          { label: 'Total Invoices', value: batchInvoices.length, tone: c.stat.blue },
+          {
+            label: 'Paperwork Complete',
+            value: batchInvoices.filter((inv) => inv.paperwork_complete).length,
+            tone: c.stat.slate,
+          },
+          {
+            label: 'Brokers Assigned',
+            value: batchInvoices.filter((inv) => inv.broker_assigned).length,
+            tone: c.stat.amber,
+          },
+          {
+            label: 'Ready',
+            value: allComplete ? 'Yes' : 'No',
+            tone: allComplete ? c.stat.green : c.stat.red,
+          },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            className="dashboard-card px-4 py-3"
+            style={{ backgroundColor: stat.tone }}
+          >
+            <div className="text-xs font-medium mb-1" style={{ color: c.secondary }}>
+              {stat.label}
+            </div>
+            <div className="text-xl font-bold tabular-nums" style={{ color: c.primary }}>
+              {stat.value}
+            </div>
           </div>
-        </div>
-        <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-          <div className="text-sm mb-1" style={{ color: '#819291' }}>Paperwork Complete</div>
-          <div className="text-2xl font-bold" style={{ color: '#113543' }}>
-            {batchInvoices.filter((inv) => inv.paperwork_complete).length}
-          </div>
-        </div>
-        <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-          <div className="text-sm mb-1" style={{ color: '#819291' }}>Brokers Assigned</div>
-          <div className="text-2xl font-bold" style={{ color: '#113543' }}>
-            {batchInvoices.filter((inv) => inv.broker_assigned).length}
-          </div>
-        </div>
-        <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-          <div className="text-sm mb-1" style={{ color: '#819291' }}>Ready</div>
-          <div className="text-2xl font-bold" style={{ color: allComplete ? '#819291' : '#C2A558' }}>
-            {allComplete ? 'Yes' : 'No'}
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* Invoices Table */}
       {batchInvoices.length === 0 ? (
-        <div className="text-center py-12" style={{ color: '#819291' }}>
-          <div className="text-4xl mb-2">📄</div>
-          <div className="font-medium">No invoices found in this batch</div>
+        <div className="text-center py-12" style={{ color: c.secondary }}>
+          <div className="text-3xl mb-2">📄</div>
+          <div className="font-medium text-sm">No invoices found in this batch</div>
         </div>
       ) : (
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b" style={{ borderColor: '#819291' }}>
-              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                Invoice#
-              </th>
-              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                Load#
-              </th>
-              <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                Amount
-              </th>
-              <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                Paperwork
-              </th>
-              <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                Broker
-              </th>
-              <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                AI review
-              </th>
-              <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {batchInvoices.map((invoice, index) => (
-              <tr
-                key={`${invoice.id}-${reviewRefresh}`}
-                className="border-b transition-colors cursor-pointer"
-                style={{
-                  borderColor: '#819291',
-                  backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
-                }}
-                onClick={() => setSelectedInvoice(invoice)}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#f0f0f0'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#f8f9fa' : '#FFFFFF'
-                }}
-              >
-                <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
-                  {invoice.invoice_number}
-                </td>
-                <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                  {invoice.load_number || '-'}
-                </td>
-                <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
-                  {formatCurrency(invoice.amount)}
-                </td>
-                <td className="py-3 px-4 text-center">
-                  {invoice.paperwork_complete ? (
-                    <span
-                      className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
-                      style={{ backgroundColor: '#819291', color: '#FFFFFF' }}
-                    >
-                      <CheckCircle className="w-3 h-3 mr-1" />
-                      Complete
-                    </span>
-                  ) : (
-                    <span
-                      className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
-                      style={{ backgroundColor: '#C2A558', color: '#FFFFFF' }}
-                    >
-                      Pending
-                    </span>
-                  )}
-                </td>
-                <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                  {invoice.broker_assigned ? (
-                    invoice.broker_name
-                  ) : (
-                    <span style={{ color: '#C2A558' }}>Not Assigned</span>
-                  )}
-                </td>
-                <td className="py-3 px-4 text-center">
-                  <InvoiceAiReviewBadge invoice={invoice} status={invoice.ai_review_status} />
-                </td>
-                <td className="py-3 px-4 text-center">
-                      <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                          setSelectedInvoice(invoice)
-                        }}
-                    className="text-sm transition-colors"
-                        style={{ color: '#819291' }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.color = '#113543'
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.color = '#819291'
-                        }}
-                  >
-                    View
-                    </button>
-                </td>
+        <div className="dashboard-card overflow-hidden">
+          <table className="dashboard-table dashboard-table--compact w-full">
+            <thead>
+              <tr>
+                <th>Invoice#</th>
+                <th>Load#</th>
+                <th className="text-right">Amount</th>
+                <th className="text-center">Paperwork</th>
+                <th>Broker</th>
+                <th className="text-center">AI review</th>
+                <th className="text-center">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {batchInvoices.map((invoice) => (
+                <tr
+                  key={`${invoice.id}-${reviewRefresh}`}
+                  className="cursor-pointer"
+                  onClick={() => setSelectedInvoice(invoice)}
+                >
+                  <td className="font-medium">{invoice.invoice_number}</td>
+                  <td style={{ color: c.secondary }}>{invoice.load_number || '—'}</td>
+                  <td className="text-right font-medium tabular-nums">{formatCurrency(invoice.amount)}</td>
+                  <td className="text-center">
+                    {invoice.paperwork_complete ? (
+                      <span className="status-pill status-pill--approved inline-flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" />
+                        Complete
+                      </span>
+                    ) : (
+                      <span className="status-pill status-pill--pending">Pending</span>
+                    )}
+                  </td>
+                  <td style={{ color: c.secondary }}>
+                    {invoice.broker_assigned ? invoice.broker_name : (
+                      <span style={{ color: c.warning }}>Not assigned</span>
+                    )}
+                  </td>
+                  <td className="text-center">
+                    <InvoiceAiReviewBadge invoice={invoice} status={invoice.ai_review_status} />
+                  </td>
+                  <td className="text-center">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setSelectedInvoice(invoice)
+                      }}
+                      className="dashboard-btn-secondary !h-7 !px-2 !text-xs"
+                    >
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {/* Invoice Detail View with Three-Panel Layout */}

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Header } from '../components/admin/Header'
+import AdminLayout from '../components/AdminLayout'
 import { mockBrokers, addBroker } from '../data/mockBrokers'
 import { Broker, BrokerEmail, BrokerPhone, EmailCategory, PhoneCategory } from '../types/broker'
 import { Phone, Mail, MapPin, Search, X, Plus, Trash2 } from 'lucide-react'
@@ -172,10 +172,8 @@ export default function Brokers() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header userName="Admin User" userRole="Administrator" />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
+    <AdminLayout userName="Admin User" userRole="Administrator">
+      <div className="max-w-[1400px] mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-black mb-2">Brokers</h1>
           <p className="text-gray-600">Manage broker information and contact details</p>
@@ -376,7 +374,7 @@ export default function Brokers() {
             )}
           </div>
         </div>
-      </main>
+      </div>
 
       {/* Broker Detail Modal */}
       {selectedBroker && (
@@ -822,7 +820,7 @@ export default function Brokers() {
           </div>
         </div>
       )}
-    </div>
+    </AdminLayout>
   )
 }
 

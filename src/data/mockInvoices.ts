@@ -1,5 +1,6 @@
 import { Invoice } from '../types/invoice'
 import { persistInvoice } from '../services/supabase/tenantPersist'
+import { syncBatchFees } from '../services/batchFeeSync'
 
 /** Mutable in-memory invoice store (hydrated from Supabase when configured). */
 export const mockInvoices: Invoice[] = []
@@ -42,7 +43,11 @@ export function addInvoice(
 export function updateInvoice(invoiceId: string, patch: Partial<Invoice>): Invoice | undefined {
   const inv = mockInvoices.find((i) => i.id === invoiceId)
   if (!inv) return undefined
+  const batchId = inv.batch_id
   Object.assign(inv, patch, { updated_at: new Date().toISOString() })
   void persistInvoice(inv).catch(console.error)
+  if (batchId && patch.status !== undefined) {
+    syncBatchFees(batchId)
+  }
   return inv
 }

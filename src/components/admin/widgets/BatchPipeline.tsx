@@ -1,4 +1,6 @@
-import { FileText, CheckCircle, Clock, AlertCircle } from 'lucide-react'
+import { FileText, CheckCircle, Clock, Boxes } from 'lucide-react'
+import DashboardPanel from '../../client/dashboard/DashboardPanel'
+import { useClientTheme } from '../../../theme/ThemeContext'
 import { formatCurrency } from '../../../utils/format'
 
 interface PipelineStage {
@@ -16,6 +18,8 @@ interface BatchPipelineProps {
 }
 
 export function BatchPipeline({ stages, onStageClick }: BatchPipelineProps) {
+  const c = useClientTheme()
+
   const getIcon = (stage: string) => {
     switch (stage) {
       case 'ready_to_post':
@@ -34,62 +38,61 @@ export function BatchPipeline({ stages, onStageClick }: BatchPipelineProps) {
   const totalBatches = stages.reduce((sum, stage) => sum + stage.count, 0)
 
   return (
-    <div className="border" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
-      <div className="p-6">
-        <h2 className="text-lg font-bold mb-4" style={{ color: '#113543' }}>Batch Pipeline</h2>
-        <div className="space-y-4 max-h-96 overflow-y-auto">
-          {stages.map((stage, index) => {
-            const percentage = totalBatches > 0 ? (stage.count / totalBatches) * 100 : 0
-            return (
-              <div
-                key={stage.stage}
-                className={`p-4 rounded transition-colors ${
-                  onStageClick ? 'cursor-pointer hover:shadow-md' : ''
-                }`}
-                style={{ backgroundColor: '#F5F5F5' }}
-                onClick={() => onStageClick?.(stage.stage)}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2">
-                    <div style={{ color: stage.color }}>{getIcon(stage.stage)}</div>
-                    <span className="font-medium text-sm" style={{ color: '#113543' }}>
-                      {stage.label}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <span className="font-bold text-sm" style={{ color: '#113543' }}>
-                      {stage.count}
-                    </span>
-                    <div className="w-24 h-2 rounded-full" style={{ backgroundColor: '#E0E0E0' }}>
-                      <div
-                        className="h-2 rounded-full"
-                        style={{
-                          width: `${percentage}%`,
-                          backgroundColor: stage.color,
-                        }}
-                      />
-                    </div>
-                  </div>
+    <DashboardPanel title="Batch Pipeline" icon={Boxes} iconTone="slate" interactive={false}>
+      <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
+        {stages.map((stage) => {
+          const percentage = totalBatches > 0 ? (stage.count / totalBatches) * 100 : 0
+          return (
+            <button
+              key={stage.stage}
+              type="button"
+              disabled={!onStageClick}
+              onClick={() => onStageClick?.(stage.stage)}
+              className={`w-full p-3 rounded-lg text-left transition-shadow ${
+                onStageClick ? 'dashboard-card-interactive cursor-pointer' : 'cursor-default'
+              }`}
+              style={{ backgroundColor: c.stat.slate }}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span style={{ color: stage.color }}>{getIcon(stage.stage)}</span>
+                  <span className="font-medium text-sm truncate" style={{ color: c.primary }}>
+                    {stage.label}
+                  </span>
                 </div>
-                <div className="flex items-center justify-between text-xs mt-2" style={{ color: '#819291' }}>
-                  <span>{formatCurrency(stage.totalAmount)}</span>
-                  {stage.avgTimeHours > 0 && (
-                    <span>Avg {stage.avgTimeHours.toFixed(1)} hrs</span>
-                  )}
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="font-bold text-sm tabular-nums" style={{ color: c.primary }}>
+                    {stage.count}
+                  </span>
+                  <div className="w-20 h-1.5 rounded-full" style={{ backgroundColor: c.border }}>
+                    <div
+                      className="h-1.5 rounded-full"
+                      style={{
+                        width: `${percentage}%`,
+                        backgroundColor: stage.color,
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
-            )
-          })}
-        </div>
-        <div className="mt-4 pt-4 border-t" style={{ borderColor: '#819291' }}>
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium" style={{ color: '#113543' }}>Total Batches</span>
-            <span className="text-lg font-bold" style={{ color: '#113543' }}>{totalBatches}</span>
-          </div>
-        </div>
+              <div className="flex items-center justify-between text-xs" style={{ color: c.secondary }}>
+                <span className="tabular-nums">{formatCurrency(stage.totalAmount)}</span>
+                {stage.avgTimeHours > 0 && (
+                  <span className="tabular-nums">Avg {stage.avgTimeHours.toFixed(1)} hrs</span>
+                )}
+              </div>
+            </button>
+          )
+        })}
       </div>
-    </div>
+      <div className="px-4 pb-4 pt-2 border-t flex items-center justify-between" style={{ borderColor: c.border }}>
+        <span className="text-sm font-medium" style={{ color: c.secondary }}>
+          Total Batches
+        </span>
+        <span className="text-lg font-bold tabular-nums" style={{ color: c.primary }}>
+          {totalBatches}
+        </span>
+      </div>
+    </DashboardPanel>
   )
 }
-
-

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Header } from '../components/admin/Header'
+import AdminLayout from '../components/AdminLayout'
 import { mockUsers } from '../data/mockUsers'
 import { User, UserRole, UserStatus } from '../types/user'
 import { Mail, Phone, Search, X, User as UserIcon, Shield, Calendar } from 'lucide-react'
@@ -137,10 +137,8 @@ export default function Users() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header userName="Admin User" userRole="Administrator" />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
+    <AdminLayout userName="Admin User" userRole="Administrator">
+      <div className="max-w-[1400px] mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-black mb-2">Users</h1>
           <p className="text-gray-600">Manage backoffice users and their access permissions</p>
@@ -267,7 +265,7 @@ export default function Users() {
             )}
           </div>
         </div>
-      </main>
+      </div>
 
       {/* User Detail Modal */}
       {selectedUser && (
@@ -543,7 +541,7 @@ export default function Users() {
           </div>
         </div>
       )}
-    </div>
+    </AdminLayout>
   )
 }
 

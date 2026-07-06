@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Header } from '../components/admin/Header'
+import AdminLayout from '../components/AdminLayout'
 import { mockBrokers } from '../data/mockBrokers'
 import { mockInvoices } from '../data/mockInvoices'
 import { Broker } from '../types/broker'
@@ -67,10 +67,8 @@ export default function Collections() {
   }, [selectedBroker])
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
-      <Header userName="Admin User" userRole="Administrator" />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
+    <AdminLayout userName="Admin User" userRole="Administrator">
+      <div className="max-w-[1400px] mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>Collections</h1>
           <p style={{ color: '#819291' }}>Manage broker invoices and collections</p>
@@ -361,8 +359,8 @@ export default function Collections() {
             )}
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </AdminLayout>
   )
 }
 

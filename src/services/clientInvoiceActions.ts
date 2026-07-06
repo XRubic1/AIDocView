@@ -188,8 +188,8 @@ export interface CloseUncollectableOptions {
 }
 
 /**
- * Write off the remaining balance on a short-paid invoice (maps to admin force close).
- * Requires a note explaining why the balance is uncollectable.
+ * Write off the remaining balance on a short-paid invoice.
+ * Written-off invoices are fee-exempt (unlike admin force-close for collections).
  */
 export function closeClientInvoiceAsUncollectable(
   invoiceId: string,
@@ -216,7 +216,7 @@ export function closeClientInvoiceAsUncollectable(
   const notesHistory = [...(invoice.notes_history || []), closeNote]
 
   const updated = updateInvoice(invoiceId, {
-    status: 'force_closed',
+    status: 'written_off',
     paid_amount: received,
     notes_history: notesHistory,
     days_since_expected: 0,
@@ -229,12 +229,12 @@ export function closeClientInvoiceAsUncollectable(
       'invoice',
       updated.id,
       updated.invoice_number,
-      `${authorName} closed ${updated.invoice_number} as uncollectable (${formatCurrency(shortfall)} write-off)`,
+      `${authorName} wrote off ${updated.invoice_number} (${formatCurrency(shortfall)} balance, no fee)`,
       'client-portal',
       authorName,
       'Client',
       undefined,
-      { close_type: 'uncollectable', received, shortfall }
+      { close_type: 'written_off', received, shortfall }
     )
   }
 

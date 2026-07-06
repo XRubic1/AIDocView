@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Header } from '../components/admin/Header'
+import AdminLayout from '../components/AdminLayout'
 import AgingInvoicesTab from '../components/invoices/AgingInvoicesTab'
 import InvoiceDetailModal from '../components/invoices/InvoiceDetailModal'
 import { Invoice } from '../types/invoice'
@@ -52,10 +52,8 @@ export default function AgingAR() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header userName="Admin User" userRole="Administrator" />
-
-      <main className="max-w-[1400px] mx-auto px-6 py-8">
+    <AdminLayout userName="Admin User" userRole="Administrator">
+      <div className="max-w-[1400px] mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-black mb-2">Aging A/R</h1>
           <p className="text-gray-600">View invoices grouped by days since expected payment date</p>
@@ -67,7 +65,7 @@ export default function AgingAR() {
             lastViewedInvoiceId={lastViewedInvoiceId}
           />
         </div>
-      </main>
+      </div>
 
       {/* Invoice Detail Modal */}
       {selectedInvoice && (
@@ -81,7 +79,7 @@ export default function AgingAR() {
           onContactBroker={handleContactBroker}
         />
       )}
-    </div>
+    </AdminLayout>
   )
 }
 

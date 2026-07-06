@@ -4,6 +4,7 @@ import { addInvoice, getInvoicesByBatchId } from './mockInvoices'
 import { deleteBatchFromDb, persistBatch } from '../services/supabase/tenantPersist'
 import { ensureClientBatchCode } from '../services/clientRegistry'
 import { buildBatchNumber, getMaxBatchSequence } from '../utils/clientBatchNumbers'
+import { syncBatchFees } from '../services/batchFeeSync'
 
 export interface Batch extends PendingBatch {
   reviewed_at?: string
@@ -81,6 +82,7 @@ export const updateBatchTotals = (batchId: string): void => {
   const invoices = getInvoicesByBatchId(batchId)
   batch.total_invoices = invoices.length
   batch.total_amount = invoices.reduce((sum, inv) => sum + inv.amount, 0)
+  syncBatchFees(batchId)
 }
 
 // Function to update batch status

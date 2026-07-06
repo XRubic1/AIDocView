@@ -1,4 +1,7 @@
 
+import { Phone } from 'lucide-react'
+import DashboardPanel from '../client/dashboard/DashboardPanel'
+import { useClientTheme } from '../../theme/ThemeContext'
 import { formatCurrency } from '../../utils/format'
 import { CollectionsAlert } from '../../types/admin'
 
@@ -15,193 +18,125 @@ export function CollectionsQueue({
   onCallBroker,
   onMarkContacted,
 }: CollectionsQueueProps) {
-  const getResponseBadge = (response: string) => {
-    const config = {
-      received: { bg: '#819291', text: '#FFFFFF', label: 'Received' },
-      not_received: { bg: '#C2A558', text: '#FFFFFF', label: 'Not Received' },
-      no_response: { bg: '#819291', text: '#FFFFFF', label: 'No Response' },
-    }
-    const item = config[response as keyof typeof config] || config.no_response
+  const c = useClientTheme()
 
+  const getResponseBadge = (response: string) => {
+    const classMap: Record<string, string> = {
+      received: 'status-pill status-pill--approved',
+      not_received: 'status-pill status-pill--overdue',
+      no_response: 'status-pill status-pill--pending',
+    }
+    const labels: Record<string, string> = {
+      received: 'Received',
+      not_received: 'Not Received',
+      no_response: 'No Response',
+    }
     return (
-      <span
-        className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
-        style={{ backgroundColor: item.bg, color: item.text }}
-      >
-        {item.label}
+      <span className={classMap[response] || classMap.no_response}>
+        {labels[response] || labels.no_response}
       </span>
     )
   }
 
   if (alerts.length === 0) {
     return (
-      <div className="border p-6" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold" style={{ color: '#113543' }}>Collections Queue</h2>
-          <button className="text-sm transition-colors" style={{ color: '#819291' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#113543' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = '#819291' }}>
-            View All Collections
-          </button>
+      <DashboardPanel title="Collections Queue" icon={Phone} iconTone="red" interactive={false}>
+        <div className="p-8 text-center" style={{ color: c.secondary }}>
+          <div className="text-3xl mb-2">✓</div>
+          <div className="font-medium text-sm">No invoices in collections queue</div>
         </div>
-        <div className="flex items-center justify-center py-8" style={{ color: '#819291' }}>
-          <div className="text-center">
-            <div className="text-4xl mb-2">✓</div>
-            <div className="font-medium">No invoices in collections queue</div>
-          </div>
-        </div>
-      </div>
+      </DashboardPanel>
     )
   }
 
   return (
-    <div className="border" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-lg font-bold" style={{ color: '#113543' }}>Collections Queue</h2>
-            <p className="text-sm mt-1" style={{ color: '#819291' }}>
-              Invoices requiring broker contact (Day +15)
-            </p>
-          </div>
-          <button className="text-sm font-medium transition-colors" style={{ color: '#819291' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#113543' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = '#819291' }}>
-            View All Collections
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b" style={{ borderColor: '#819291' }}>
-                <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                  Inv#
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                  Client
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                  Broker
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                  Amount
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                  Expected Date
-                </th>
-                <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                  Days Since
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                  Response
-                </th>
-                <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                  Contacted
-                </th>
-                <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {alerts.map((alert, index) => (
-                <tr
-                  key={alert.invoice_id}
-                  className={`border-b transition-colors ${
-                    onInvoiceClick ? 'cursor-pointer' : ''
-                  }`}
-                  style={{
-                    borderColor: '#819291',
-                    backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
-                    borderLeft: alert.days_since_expected >= 20 ? '4px solid #C2A558' : 'none',
-                  }}
-                  onClick={() => onInvoiceClick?.(alert.invoice_id)}
-                  onMouseEnter={(e) => {
-                    if (onInvoiceClick) {
-                      e.currentTarget.style.backgroundColor = '#f0f0f0'
+    <DashboardPanel
+      title="Collections Queue"
+      icon={Phone}
+      iconTone="red"
+      actionLabel="View all"
+      onAction={() => onInvoiceClick?.('')}
+      interactive={false}
+    >
+      <div className="overflow-x-auto">
+        <table className="dashboard-table dashboard-table--compact w-full">
+          <thead>
+            <tr>
+              <th>Inv#</th>
+              <th>Client</th>
+              <th>Broker</th>
+              <th className="text-right">Amount</th>
+              <th>Expected Date</th>
+              <th className="text-center">Days Since</th>
+              <th>Response</th>
+              <th className="text-center">Contacted</th>
+              <th className="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {alerts.map((alert) => (
+              <tr
+                key={alert.invoice_id}
+                className={onInvoiceClick ? 'cursor-pointer' : ''}
+                style={{
+                  borderLeft:
+                    alert.days_since_expected >= 20 ? `3px solid ${c.warning}` : undefined,
+                }}
+                onClick={() => onInvoiceClick?.(alert.invoice_id)}
+              >
+                <td className="font-medium">{alert.inv_number}</td>
+                <td>{alert.client_name}</td>
+                <td>{alert.broker_name}</td>
+                <td className="text-right font-medium tabular-nums">
+                  {formatCurrency(alert.amount)}
+                </td>
+                <td>{new Date(alert.expected_payment_date).toLocaleDateString()}</td>
+                <td className="text-center">
+                  <span
+                    className={
+                      alert.days_since_expected >= 20
+                        ? 'status-pill status-pill--overdue'
+                        : 'status-pill status-pill--pending'
                     }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (onInvoiceClick) {
-                      e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#f8f9fa' : '#FFFFFF'
-                    }
-                  }}
-                >
-                  <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
-                    {alert.inv_number}
-                  </td>
-                  <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>{alert.client_name}</td>
-                  <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>{alert.broker_name}</td>
-                  <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
-                    {formatCurrency(alert.amount)}
-                  </td>
-                  <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                    {new Date(alert.expected_payment_date).toLocaleDateString()}
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span
-                      className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
-                      style={{
-                        backgroundColor: alert.days_since_expected >= 20 ? '#C2A558' : '#FFF9E6',
-                        color: alert.days_since_expected >= 20 ? '#FFFFFF' : '#113543',
+                  >
+                    {alert.days_since_expected} days
+                  </span>
+                </td>
+                <td>{getResponseBadge(alert.client_response)}</td>
+                <td className="text-center" style={{ color: c.secondary }}>
+                  {alert.broker_contacted ? '✓ Yes' : 'No'}
+                </td>
+                <td className="text-center">
+                  <div className="inline-flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onCallBroker?.(alert.invoice_id)
                       }}
+                      className="dashboard-btn-secondary !h-7 !px-2 !text-xs"
                     >
-                      {alert.days_since_expected} days
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-sm">{getResponseBadge(alert.client_response)}</td>
-                  <td className="py-3 px-4 text-center">
-                    {alert.broker_contacted ? (
-                      <span className="text-sm" style={{ color: '#819291' }}>✓ Yes</span>
-                    ) : (
-                      <span className="text-sm" style={{ color: '#819291' }}>No</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <div className="flex items-center justify-center gap-2">
+                      Call
+                    </button>
+                    {!alert.broker_contacted && (
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          onCallBroker?.(alert.invoice_id)
+                          onMarkContacted?.(alert.invoice_id)
                         }}
-                        className="px-2 py-1 text-xs font-medium text-white transition-colors"
-                        style={{ backgroundColor: '#819291' }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#6b7a7a'
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = '#819291'
-                        }}
+                        className="dashboard-btn-primary !h-7 !px-2 !text-xs"
                       >
-                        Call
+                        Mark
                       </button>
-                      {!alert.broker_contacted && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onMarkContacted?.(alert.invoice_id)
-                          }}
-                          className="px-2 py-1 text-xs font-medium text-white transition-colors"
-                          style={{ backgroundColor: '#C2A558' }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#b89547'
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = '#C2A558'
-                          }}
-                        >
-                          Mark
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-    </div>
+    </DashboardPanel>
   )
 }
-

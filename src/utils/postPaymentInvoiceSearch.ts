@@ -15,7 +15,7 @@ export function getInvoicePickerCategory(
   invoice: Invoice,
   receivedAmount: number
 ): InvoicePickerCategory {
-  if (invoice.status === 'force_closed') return 'closed'
+  if (invoice.status === 'force_closed' || invoice.status === 'written_off') return 'closed'
   if (receivedAmount > invoice.amount + AMOUNT_EPSILON) return 'over'
   if (receivedAmount > 0 && receivedAmount < invoice.amount - AMOUNT_EPSILON) return 'short'
   if (!isPostableForPayment(invoice)) return 'other'
@@ -128,7 +128,8 @@ export function getDefaultPostPaymentSuggestions(
 }
 
 export function getInvoicePostStatusLabel(invoice: Invoice, receivedAmount?: number): string {
-  if (invoice.status === 'force_closed') return 'Written off'
+  if (invoice.status === 'written_off') return 'Written off'
+  if (invoice.status === 'force_closed') return 'Force closed'
   if (receivedAmount !== undefined && receivedAmount > 0) {
     if (receivedAmount < invoice.amount - 0.01) return 'Short'
     if (receivedAmount > invoice.amount + 0.01) return 'Over'
@@ -142,7 +143,9 @@ export function getInvoicePostStatusLabel(invoice: Invoice, receivedAmount?: num
     case 'hold':
       return 'On hold'
     case 'force_closed':
-      return 'Closed'
+      return 'Force closed'
+    case 'written_off':
+      return 'Written off'
     case 'rejected':
       return 'Rejected'
     default:
@@ -151,7 +154,8 @@ export function getInvoicePostStatusLabel(invoice: Invoice, receivedAmount?: num
 }
 
 export function getInvoicePostStatusClass(invoice: Invoice, receivedAmount?: number): string {
-  if (invoice.status === 'force_closed') return 'status-pill status-pill--hold'
+  if (invoice.status === 'written_off') return 'status-pill status-pill--hold'
+  if (invoice.status === 'force_closed') return 'status-pill status-pill--overdue'
   if (receivedAmount !== undefined && receivedAmount > 0) {
     if (receivedAmount < invoice.amount - 0.01) return 'status-pill status-pill--pending'
     if (receivedAmount > invoice.amount + 0.01) return 'status-pill status-pill--overdue'
@@ -165,6 +169,7 @@ export function getInvoicePostStatusClass(invoice: Invoice, receivedAmount?: num
     case 'hold':
       return 'status-pill status-pill--hold'
     case 'force_closed':
+    case 'written_off':
     case 'rejected':
       return 'status-pill status-pill--overdue'
     default:
