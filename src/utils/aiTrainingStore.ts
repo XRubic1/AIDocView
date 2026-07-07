@@ -1,4 +1,3 @@
-import { RateConFieldKey } from '../config/rateConRules'
 import { DocumentType, FieldRegionBox, PageClassification, UserFieldCorrection } from '../types/documentReview'
 
 const STORAGE_KEY = 'credyx-ai-document-training-v2'

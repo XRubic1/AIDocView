@@ -8,6 +8,7 @@ import { formatExtractedRate, primaryRateCon } from '../utils/formatRate'
 import DocSortAiDisclaimer from './DocSortAiDisclaimer'
 import DocSortInvoiceModal from './DocSortInvoiceModal'
 import type { InvoicePDFInput } from '../../../utils/generateInvoicePDF'
+import { useToast } from '../../../components/ui/ToastProvider'
 
 interface DocSortResultsProps {
   result: DocSortResult
@@ -143,6 +144,7 @@ export default function DocSortResults({
   selectedDocId,
   onViewDoc,
 }: DocSortResultsProps) {
+  const { showToast } = useToast()
   const [busy, setBusy] = useState(false)
   const [invoiceGroup, setInvoiceGroup] = useState<DocSortLoadGroup | null>(null)
   const [invoiceDraft, setInvoiceDraft] = useState<InvoicePDFInput | null>(null)
@@ -161,7 +163,7 @@ export default function DocSortResults({
       const invoice = lastInvoiceByGroup.get(group.groupId)
       await downloadLoadBinderPdf(group, fileById, invoice)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Binder download failed.')
+      showToast(err instanceof Error ? err.message : 'Binder download failed.', 'error')
     } finally {
       setBusy(false)
     }
@@ -172,7 +174,7 @@ export default function DocSortResults({
     try {
       await downloadFullBinderZip(result, fileById, lastInvoiceByGroup)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Binder download failed.')
+      showToast(err instanceof Error ? err.message : 'Binder download failed.', 'error')
     } finally {
       setBusy(false)
     }

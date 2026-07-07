@@ -1,11 +1,16 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import AdminLayout from '../components/AdminLayout'
 import { getAllAuditLogs, getFilteredAuditLogs } from '../utils/auditLogger'
 import { AuditLog, AuditActionType } from '../types/audit'
 import { formatDate } from '../utils/format'
-import { Search, Filter, Download, AlertCircle, CheckCircle, Info, AlertTriangle, XCircle, Calendar, User, Activity } from 'lucide-react'
+import { Search, Filter, Download, AlertCircle, CheckCircle, Info, AlertTriangle, XCircle, Activity } from 'lucide-react'
+import { hydrateAuditLogsFromSupabase } from '../services/supabase/hydrateStores'
+import PageLoader from '../components/ui/PageLoader'
+import { useToast } from '../components/ui/ToastProvider'
 
 export default function AuditDashboard() {
+  const { showToast } = useToast()
+  const [auditReady, setAuditReady] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -15,6 +20,14 @@ export default function AuditDashboard() {
   const [selectedSeverity, setSelectedSeverity] = useState<AuditLog['severity'] | ''>('')
   const [successFilter, setSuccessFilter] = useState<boolean | null>(null)
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null)
+
+  useEffect(() => {
+    void hydrateAuditLogsFromSupabase()
+      .catch((err) => {
+        showToast(err instanceof Error ? err.message : 'Failed to load audit logs', 'error')
+      })
+      .finally(() => setAuditReady(true))
+  }, [showToast])
 
   const allLogs = getAllAuditLogs()
 
@@ -76,19 +89,7 @@ export default function AuditDashboard() {
     }
   }
 
-  const getSeverityColor = (severity: AuditLog['severity']) => {
-    switch (severity) {
-      case 'critical':
-        return { bg: '#fee2e2', text: '#dc2626', border: '#fecaca' }
-      case 'error':
-        return { bg: '#fef2f2', text: '#ef4444', border: '#fecaca' }
-      case 'warning':
-        return { bg: '#fffbeb', text: '#f59e0b', border: '#fde68a' }
-      default:
-        return { bg: '#eff6ff', text: '#3b82f6', border: '#bfdbfe' }
-    }
-  }
-
+  
   const handleExport = () => {
     // In a real implementation, this would export the filtered logs
     const csvContent = [
@@ -124,6 +125,14 @@ export default function AuditDashboard() {
     setSelectedEntityType('')
     setSelectedSeverity('')
     setSuccessFilter(null)
+  }
+
+  if (!auditReady) {
+    return (
+      <AdminLayout userName="Admin User">
+        <PageLoader message="Loading audit logs…" fullScreen={false} />
+      </AdminLayout>
+    )
   }
 
   return (
@@ -520,7 +529,7 @@ export default function AuditDashboard() {
                   </tr>
                 ) : (
                   filteredLogs.map((log) => {
-                    const severityColors = getSeverityColor(log.severity)
+                    
                     return (
                       <>
                         <tr

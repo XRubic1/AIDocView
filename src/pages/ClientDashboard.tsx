@@ -22,11 +22,15 @@ import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
 import CollectionForecastKpiCard from '../components/client/CollectionForecastKpiCard'
 import DashboardPanel from '../components/client/dashboard/DashboardPanel'
 import { enrichInvoices } from '../utils/invoiceAging'
+import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useCountUp } from '../hooks/useCountUp'
+import RefreshIndicator from '../components/ui/RefreshIndicator'
+import DataStaleBanner from '../components/ui/DataStaleBanner'
+import { SkeletonRows } from '../components/ui/Skeleton'
 
 type InvoiceStatus = 'pending' | 'approved' | 'hold' | 'overdue'
 type StatusFilterKey = 'pending' | 'approved' | 'hold' | 'overdue'
@@ -149,8 +153,16 @@ function handleRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, onActivate:
 export default function ClientDashboard() {
   const c = useClientTheme()
   const { clientId, clientName } = useClientSession()
-  const { dashboard: data, invoices: clientInvoices, payments: clientPayments } =
-    useClientDemoSnapshot()
+  const {
+    dashboard: data,
+    invoices: rawInvoices,
+    payments: clientPayments,
+    isInitialLoad,
+    isRefreshing,
+    staleError,
+    dismissStaleError,
+  } = useClientDemoSnapshot()
+  const clientInvoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
   const { capabilities, tier } = useClientCapabilities()
   const navigate = useNavigate()
   const [showSimpleUpload, setShowSimpleUpload] = useState(false)
@@ -246,6 +258,13 @@ export default function ClientDashboard() {
 
   return (
     <ClientLayout clientName={clientName} clientId={clientId}>
+      {staleError && <DataStaleBanner message={staleError} onDismiss={dismissStaleError} />}
+      <RefreshIndicator visible={isRefreshing} />
+      {isInitialLoad ? (
+        <div className="space-y-3 p-1">
+          <SkeletonRows rows={4} rowClassName="h-24" />
+        </div>
+      ) : (
       <div className="space-y-3">
         {tier === 'managed' && (
           <section
@@ -310,6 +329,16 @@ export default function ClientDashboard() {
               >
                 <Upload className="w-3.5 h-3.5" />
                 Send documents
+              </button>
+            )}
+            {capabilities.canPostPayment && (
+              <button
+                type="button"
+                onClick={() => navigate('/client/payments')}
+                className="dashboard-btn-secondary"
+              >
+                <DollarSign className="w-3.5 h-3.5" />
+                Post payment
               </button>
             )}
             <button
@@ -584,6 +613,7 @@ export default function ClientDashboard() {
           </DashboardPanel>
         </section>
       </div>
+      )}
 
       <SimpleUploadModal
         isOpen={showSimpleUpload}

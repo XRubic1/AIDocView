@@ -1,6 +1,6 @@
 import { AI_REVIEW_CONFIG } from '../config/aiReview'
-import { getRuntimeEnvString } from '../platform/runtimeEnv'
 import { getOpenAIChatCompletionsHandler } from '../platform/openaiTransport'
+import { requireSupabase } from '../lib/supabase'
 
 const MAX_429_RETRIES = 5
 
@@ -8,15 +8,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function getKey(): string {
-  const key = getRuntimeEnvString('VITE_OPENAI_API_KEY')
-  if (!key) {
-    throw new Error('OpenAI API key is not configured. Add VITE_OPENAI_API_KEY to your .env file.')
-  }
-  return key
-}
-
-/** Parse "Please try again in 2.586s" from OpenAI 429 bodies. */
 export function parseOpenAIRetrySeconds(errorBody: string): number | undefined {
   const match = errorBody.match(/try again in ([\d.]+)s/i)
   if (!match) return undefined
@@ -25,7 +16,7 @@ export function parseOpenAIRetrySeconds(errorBody: string): number | undefined {
 }
 
 /**
- * POST to OpenAI chat/completions with automatic backoff on 429 rate limits.
+ * POST to OpenAI chat/completions via Supabase Edge Function proxy.
  */
 export async function postOpenAIChatCompletions(
   body: Record<string, unknown>
@@ -35,27 +26,40 @@ export async function postOpenAIChatCompletions(
     return override(body)
   }
 
+  const supabase = requireSupabase()
   let lastErrorBody = ''
 
   for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt += 1) {
-    const response = await fetch(AI_REVIEW_CONFIG.OPENAI_API_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${getKey()}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
+    const { data, error } = await supabase.functions.invoke('openai-proxy', { body })
 
-    if (response.status !== 429 || attempt >= MAX_429_RETRIES) {
-      return response
+    if (error) {
+      if (attempt >= MAX_429_RETRIES) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 502,
+          statusText: 'Bad Gateway',
+        })
+      }
+      await sleep(1000 * (attempt + 1))
+      continue
     }
 
-    lastErrorBody = await response.text()
-    const retrySeconds = parseOpenAIRetrySeconds(lastErrorBody) ?? 3
-    const waitMs = Math.ceil(retrySeconds * 1000) + 250 * attempt
-    await sleep(waitMs)
+    const payload = typeof data === 'string' ? data : JSON.stringify(data)
+    const status = (data as { error?: unknown })?.error ? 429 : 200
+
+    if (status === 429 && attempt < MAX_429_RETRIES) {
+      lastErrorBody = payload
+      const retrySeconds = parseOpenAIRetrySeconds(lastErrorBody) ?? 3
+      await sleep(Math.ceil(retrySeconds * 1000) + 250 * attempt)
+      continue
+    }
+
+    return new Response(payload, {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   return new Response(lastErrorBody, { status: 429, statusText: 'Too Many Requests' })
 }
+
+export { AI_REVIEW_CONFIG }

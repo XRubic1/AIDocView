@@ -7,10 +7,13 @@ import {
   updateClient,
   updateClientTier,
   hydrateClientRegistry,
+  fetchClientById,
 } from '../services/clientRegistry'
+import { provisionClientAuthAccount } from '../services/clientAuthService'
 import { getPlanForTier } from '../config/servicePlans'
 import { getTierShortLabel } from '../utils/clientCapabilities'
 import { isSupabaseConfigured } from '../lib/supabase'
+import { SkeletonRows } from '../components/ui/Skeleton'
 import { loadClientTenantData, getClientInvoices, getClientBatches } from '../data/clientDemoData'
 import { Phone, Mail, MapPin, Search, Building2, CreditCard, X, ArrowLeft } from 'lucide-react'
 import { mockBrokers } from '../data/mockBrokers'
@@ -19,10 +22,12 @@ import { Invoice } from '../types/invoice'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
+import { useToast } from '../components/ui/ToastProvider'
 
 type ClientTab = 'ar' | 'batches' | 'collections' | 'terms' | 'plan'
 
 export default function Clients() {
+  const { showToast } = useToast()
   const [clients, setClients] = useState<Client[]>(() => getAllClients())
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
@@ -53,6 +58,7 @@ export default function Clients() {
   })
 
   const [tenantVersion, setTenantVersion] = useState(0)
+  const [tenantLoading, setTenantLoading] = useState(false)
 
   const refreshClients = () => setClients(getAllClients())
 
@@ -62,9 +68,10 @@ export default function Clients() {
 
   useEffect(() => {
     if (!selectedClient || !isSupabaseConfigured()) return
-    void loadClientTenantData(selectedClient.id, selectedClient.name).then(() =>
-      setTenantVersion((v) => v + 1)
-    )
+    setTenantLoading(true)
+    void loadClientTenantData(selectedClient.id, selectedClient.name)
+      .then(() => setTenantVersion((v) => v + 1))
+      .finally(() => setTenantLoading(false))
   }, [selectedClient?.id])
 
   const filteredClients = clients.filter((client) => {
@@ -187,7 +194,7 @@ export default function Clients() {
         return inv.status === 'paid'
       } else {
         // 'all' - include both paid and open (approved) invoices
-        return inv.status === 'paid' || inv.status === 'approved' || (inv.status !== 'hold' && inv.status !== 'pending')
+        return inv.status === 'paid' || inv.status === 'approved'
       }
     })
     
@@ -224,7 +231,7 @@ export default function Clients() {
         return inv.status === 'paid'
       } else {
         // 'all' - include both paid and open (approved) invoices
-        return inv.status === 'paid' || inv.status === 'approved' || (inv.status !== 'hold' && inv.status !== 'pending')
+        return inv.status === 'paid' || inv.status === 'approved'
       }
     })
   }, [clientInvoices, arFilter])
@@ -283,7 +290,7 @@ export default function Clients() {
     e.preventDefault()
     
     if (!formData.name) {
-      alert('Client name is required')
+      showToast('Client name is required', 'error')
       return
     }
 
@@ -566,7 +573,12 @@ export default function Clients() {
             </div>
 
             {/* Tab Content */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-6 relative">
+              {tenantLoading && (
+                <div className="absolute inset-0 z-10 bg-white/90 p-4">
+                  <SkeletonRows rows={6} rowClassName="h-14" />
+                </div>
+              )}
               {activeTab === 'ar' && (
               <div className="space-y-6">
                   {/* Filter Buttons */}
@@ -1115,11 +1127,24 @@ export default function Clients() {
                           value={selectedClient.status ?? 'active'}
                           onChange={(e) => {
                             void (async () => {
+                              const newStatus = e.target.value as Client['status']
                               const updated = await updateClient(selectedClient.id, {
-                                status: e.target.value as Client['status'],
+                                status: newStatus,
                               })
+                              if (updated && newStatus === 'active' && selectedClient.email) {
+                                const prev = selectedClient.status
+                                if (prev !== 'active') {
+                                  const auth = await provisionClientAuthAccount(
+                                    updated.id,
+                                    updated.email!
+                                  )
+                                  if (!auth.ok) {
+                                    console.error('[Clients] Auth provision failed:', auth.error)
+                                  }
+                                }
+                              }
                               if (updated) {
-                                setSelectedClient(updated)
+                                setSelectedClient(await fetchClientById(updated.id) ?? updated)
                                 refreshClients()
                               }
                             })()
@@ -1129,7 +1154,52 @@ export default function Clients() {
                           <option value="active">Active</option>
                           <option value="pending">Pending</option>
                           <option value="inactive">Inactive</option>
+                          <option value="suspended">Suspended</option>
                         </select>
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="flex items-center gap-2 text-sm font-medium" style={{ color: '#113543' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedClient.factoring ?? false}
+                            onChange={(e) => {
+                              void (async () => {
+                                const updated = await updateClient(selectedClient.id, {
+                                  factoring: e.target.checked,
+                                })
+                                if (updated) {
+                                  setSelectedClient(updated)
+                                  refreshClients()
+                                }
+                              })()
+                            }}
+                          />
+                          Factoring client (discounted A/R rate tier)
+                        </label>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
+                          A/R rate override (%)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Negotiated rate"
+                          value={selectedClient.ar_rate_override ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            void (async () => {
+                              const updated = await updateClient(selectedClient.id, {
+                                ar_rate_override: val ? Number.parseFloat(val) : undefined,
+                              })
+                              if (updated) {
+                                setSelectedClient(updated)
+                                refreshClients()
+                              }
+                            })()
+                          }}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
+                        />
                       </div>
                     </div>
                     {(() => {
@@ -1140,9 +1210,7 @@ export default function Clients() {
                             {plan.name}
                           </p>
                           <p className="text-sm mt-1" style={{ color: '#819291' }}>
-                            App {formatCurrency(plan.app_fee_monthly)}/mo
-                            {plan.service_fee_monthly != null &&
-                              ` · Service ${formatCurrency(plan.service_fee_monthly)}/mo`}
+                            App {formatCurrency(plan.app_fee_monthly)}/mo + A/R fee on collected volume
                           </p>
                         </div>
                       )

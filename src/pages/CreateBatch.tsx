@@ -8,6 +8,7 @@ import { Plus, Trash2, X } from 'lucide-react'
 import { addBatch, generateBatchNumber } from '../data/mockBatches'
 import { Client } from '../types/client'
 import { Broker } from '../types/broker'
+import { useToast } from '../components/ui/ToastProvider'
 
 interface InvoiceDocument {
   id: string
@@ -28,6 +29,7 @@ interface InvoiceFormData {
 }
 
 export default function CreateBatch() {
+  const { showToast } = useToast()
   const navigate = useNavigate()
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [currentBatchInvoices, setCurrentBatchInvoices] = useState<InvoiceFormData[]>([])
@@ -105,7 +107,7 @@ export default function CreateBatch() {
 
   const handleAddInvoice = () => {
     if (!invoiceFormData.broker_name || !invoiceFormData.amount || !invoiceFormData.broker_address) {
-      alert('Please fill in all required fields (Broker, Amount, Broker Address)')
+      showToast('Please fill in all required fields (Broker, Amount, Broker Address)', 'error')
       return
     }
 
@@ -140,12 +142,12 @@ export default function CreateBatch() {
 
   const handleCreateBatch = () => {
     if (!selectedClient) {
-      alert('Please select a client first')
+      showToast('Please select a client first', 'error')
       return
     }
 
     if (currentBatchInvoices.length === 0) {
-      alert('Please add at least one invoice to the batch')
+      showToast('Please add at least one invoice to the batch', 'error')
       return
     }
 

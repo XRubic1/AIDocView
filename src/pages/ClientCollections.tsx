@@ -4,6 +4,7 @@ import { getInvoiceById } from '../data/mockInvoices'
 import { getClientInvoices } from '../data/clientDemoData'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientSession } from '../hooks/useClientSession'
+import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { ClientCollectionItem } from '../types/collections'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
@@ -36,6 +37,7 @@ import {
   getOverdueSeverity,
   isOpenArInvoice,
 } from '../utils/invoiceAging'
+import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import { useClientTheme } from '../theme/ThemeContext'
 
 type ViewMode = 'invoices' | 'brokers'
@@ -95,12 +97,13 @@ function getBucketPillClass(bucketId: DisplayAgingBucketId): string {
 export default function ClientCollections() {
   const c = useClientTheme()
   const { clientId, clientName } = useClientSession()
+  const { capabilities } = useClientCapabilities()
   const { dashboard: data } = useClientDemoSnapshot()
   const [searchParams, setSearchParams] = useSearchParams()
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
   const clientInvoices = useMemo(
-    () => getClientInvoices(clientId, clientName),
+    () => mapClientVisibleInvoices(getClientInvoices(clientId, clientName)),
     [clientId, clientName]
   )
 
@@ -475,14 +478,15 @@ export default function ClientCollections() {
     const isHighlighted = highlightedInvoiceId === invoice.id
     const bucketId = getDisplayAgingBucketId(invoice.daysOutstanding)
     const isOverdue = invoice.daysOutstanding >= AR_POLICY.collectionsOverdueDays
-    const isUrgent = invoice.daysOutstanding >= AR_POLICY.clientUrgentDays
+    const isForceCloseRow =
+      capabilities.hasForceClose && invoice.isForceCloseEligible
     const severity = getOverdueSeverity(invoice.daysOutstanding, isOverdue)
 
     return (
       <tr
         key={invoice.id}
         className={`cursor-pointer ${isHighlighted ? 'batch-highlight-row' : ''} ${
-          isUrgent ? 'invoice-row--force-close' : isOverdue ? 'invoice-row--overdue' : ''
+          isForceCloseRow ? 'invoice-row--force-close' : isOverdue ? 'invoice-row--overdue' : ''
         }`}
         onClick={() => handleViewInvoiceDetail(invoice.id)}
       >
@@ -536,6 +540,15 @@ export default function ClientCollections() {
   return (
     <ClientLayout clientName={clientName} clientId={clientId} flushMain>
       <div className="client-collections-page overflow-hidden flex flex-col min-h-0">
+        {!capabilities.canRunInvoiceOps && (
+          <section
+            className="shrink-0 px-4 py-2.5 border-b text-sm"
+            style={{ borderColor: c.border, backgroundColor: c.stat.amber, color: c.secondary }}
+          >
+            Collections follow-up is managed by Credyx on your plan. View aging and invoice details
+            here; contact Credyx for broker outreach and force-close actions.
+          </section>
+        )}
         <section
           className="flex items-center justify-between gap-3 px-4 py-2 border-b shrink-0"
           style={{ borderColor: c.border, backgroundColor: c.stat.slate }}

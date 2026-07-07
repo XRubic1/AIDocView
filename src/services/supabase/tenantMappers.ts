@@ -45,6 +45,7 @@ export interface InvoiceRow {
   doc_sort_group_id: string | null
   document_doc_ids: string[] | null
   document_storage_paths: Record<string, string> | null
+  write_off_request: Invoice['write_off_request'] | null
   created_at: string
   updated_at: string | null
 }
@@ -62,6 +63,17 @@ export interface PaymentRow {
   payment_reference: string | null
   status: Payment['status']
   notes: string | null
+  posted_source: string | null
+  posted_by: string | null
+  confirmed_by: string | null
+  confirmed_at: string | null
+  rejection_reason: string | null
+  reversed_at: string | null
+  reversed_by: string | null
+  reversal_reason: string | null
+  reversal_type: string | null
+  moved_to_payment_id: string | null
+  moved_from_payment_id: string | null
   batch_id: string | null
   batch_number: string | null
   load_number: string | null
@@ -144,6 +156,7 @@ export function invoiceRowToInvoice(row: InvoiceRow): Invoice {
     doc_sort_group_id: row.doc_sort_group_id ?? undefined,
     document_doc_ids: row.document_doc_ids ?? undefined,
     document_storage_paths: row.document_storage_paths ?? undefined,
+    write_off_request: row.write_off_request ?? undefined,
   }
 }
 
@@ -160,6 +173,17 @@ export function paymentRowToPayment(row: PaymentRow): Payment {
     payment_reference: row.payment_reference ?? undefined,
     status: row.status,
     notes: row.notes ?? undefined,
+    posted_source: (row.posted_source as Payment['posted_source']) ?? undefined,
+    posted_by: row.posted_by ?? undefined,
+    confirmed_by: row.confirmed_by ?? undefined,
+    confirmed_at: row.confirmed_at ?? undefined,
+    rejection_reason: row.rejection_reason ?? undefined,
+    reversed_at: row.reversed_at ?? undefined,
+    reversed_by: row.reversed_by ?? undefined,
+    reversal_reason: row.reversal_reason ?? undefined,
+    reversal_type: (row.reversal_type as Payment['reversal_type']) ?? undefined,
+    moved_to_payment_id: row.moved_to_payment_id ?? undefined,
+    moved_from_payment_id: row.moved_from_payment_id ?? undefined,
     batch_id: row.batch_id ?? undefined,
     batch_number: row.batch_number ?? undefined,
     load_number: row.load_number ?? undefined,
@@ -236,6 +260,7 @@ export function invoiceToRow(invoice: Invoice): InvoiceRow {
     doc_sort_group_id: invoice.doc_sort_group_id ?? null,
     document_doc_ids: invoice.document_doc_ids ?? null,
     document_storage_paths: invoice.document_storage_paths ?? null,
+    write_off_request: invoice.write_off_request ?? null,
     created_at: invoice.created_at,
     updated_at: invoice.updated_at ?? null,
   }
@@ -253,7 +278,7 @@ export function batchToRow(batch: Batch): BatchRow {
     minutes_since_submitted: batch.minutes_since_submitted,
     status: batch.status,
     submitted_at: batch.submitted_at,
-    in_use: batch.in_use,
+    in_use: batch.in_use ?? false,
     in_use_by: batch.in_use_by ?? null,
     fee_calculation: batch.fee_calculation ?? null,
     upload_mode: batch.upload_mode ?? null,
@@ -282,6 +307,17 @@ export function paymentToRow(payment: Payment, clientId: string): PaymentRow {
     payment_reference: payment.payment_reference ?? null,
     status: payment.status,
     notes: payment.notes ?? null,
+    posted_source: payment.posted_source ?? null,
+    posted_by: payment.posted_by ?? null,
+    confirmed_by: payment.confirmed_by ?? null,
+    confirmed_at: payment.confirmed_at ?? null,
+    rejection_reason: payment.rejection_reason ?? null,
+    reversed_at: payment.reversed_at ?? null,
+    reversed_by: payment.reversed_by ?? null,
+    reversal_reason: payment.reversal_reason ?? null,
+    reversal_type: payment.reversal_type ?? null,
+    moved_to_payment_id: payment.moved_to_payment_id ?? null,
+    moved_from_payment_id: payment.moved_from_payment_id ?? null,
     batch_id: payment.batch_id ?? null,
     batch_number: payment.batch_number ?? null,
     load_number: payment.load_number ?? null,

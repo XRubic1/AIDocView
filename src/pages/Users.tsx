@@ -4,8 +4,15 @@ import { mockUsers } from '../data/mockUsers'
 import { User, UserRole, UserStatus } from '../types/user'
 import { Mail, Phone, Search, X, User as UserIcon, Shield, Calendar } from 'lucide-react'
 import { formatDate } from '../utils/format'
+import { useAuth } from '../context/AuthContext'
+import { getAdminUserDisplayName } from '../config/adminNav'
+import { useToast } from '../components/ui/ToastProvider'
 
 export default function Users() {
+  const { showToast } = useToast()
+  const { resolved, session } = useAuth()
+  const authUser = resolved.user ?? session?.user ?? null
+  const actorName = getAdminUserDisplayName(authUser?.email ?? null) ?? authUser?.email ?? 'Admin'
   const [users, setUsers] = useState<User[]>(mockUsers)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
@@ -74,7 +81,7 @@ export default function Users() {
     e.preventDefault()
 
     if (!formData.name || !formData.email) {
-      alert('Name and Email are required')
+      showToast('Name and Email are required', 'error')
       return
     }
 
@@ -87,7 +94,7 @@ export default function Users() {
       phone: formData.phone || undefined,
       department: formData.department || undefined,
       created_at: new Date().toISOString(),
-      created_by: 'Admin User', // TODO: Get from current user context
+      created_by: actorName,
       notes: formData.notes || undefined,
     }
 

@@ -1,0 +1,57 @@
+import { lazy, type ComponentType, type ReactNode, Suspense } from 'react'
+import PageLoader from '../components/ui/PageLoader'
+
+/** Wrap lazy route elements with a branded Suspense fallback. */
+export function withRouteSuspense(
+  Component: ComponentType,
+  message = 'Loading page…'
+): ReactNode {
+  return (
+    <Suspense fallback={<PageLoader message={message} fullScreen={false} />}>
+      <Component />
+    </Suspense>
+  )
+}
+
+// ——— Client portal ———
+export const ClientDashboard = lazy(() => import('../pages/ClientDashboard'))
+export const ClientBatches = lazy(() => import('../pages/ClientBatches'))
+export const ClientInvoices = lazy(() => import('../pages/ClientInvoices'))
+export const ClientPayments = lazy(() => import('../pages/ClientPayments'))
+export const ClientShortPayments = lazy(() => import('../pages/ClientShortPayments'))
+export const ClientCollections = lazy(() => import('../pages/ClientCollections'))
+export const ClientReports = lazy(() => import('../pages/ClientReports'))
+export const ClientBrokers = lazy(() => import('../pages/ClientBrokers'))
+export const ClientSettings = lazy(() => import('../pages/ClientSettings'))
+export const ClientDocuments = lazy(() => import('../pages/ClientDocuments'))
+
+// ——— Admin portal ———
+export const AdminDashboard = lazy(() => import('../pages/AdminDashboard'))
+export const Batches = lazy(() => import('../pages/Batches'))
+export const CreateBatch = lazy(() => import('../pages/CreateBatch'))
+export const AgingAR = lazy(() => import('../pages/AgingAR'))
+export const InvoiceSearch = lazy(() => import('../pages/InvoiceSearch'))
+export const Brokers = lazy(() => import('../pages/Brokers'))
+export const Clients = lazy(() => import('../pages/Clients'))
+export const Collections = lazy(() => import('../pages/Collections'))
+export const Accounting = lazy(() => import('../pages/Accounting'))
+export const AuditDashboard = lazy(() => import('../pages/AuditDashboard'))
+export const Users = lazy(() => import('../pages/Users'))
+export const Settings = lazy(() => import('../pages/Settings'))
+export const PaymentPosting = lazy(() => import('../pages/PaymentPosting'))
+export const Billing = lazy(() => import('../pages/Billing'))
+export const LoadReviewWorkbench = lazy(() => import('../pages/LoadReviewWorkbench'))
+export const EngineSettingsPage = lazy(() => import('../pages/EngineSettingsPage'))
+export const ReviewRulesPage = lazy(() => import('../pages/ReviewRulesPage'))
+
+// ——— Marketing / secondary public ———
+export const Tour = lazy(() => import('../pages/Tour'))
+export const HowItWorks = lazy(() => import('../pages/HowItWorks'))
+export const PlatformLandingPage = lazy(() => import('../pages/PlatformLandingPage'))
+export const DocSortLandingPage = lazy(
+  () => import('../products/docSort/pages/DocSortLandingPage')
+)
+
+// ——— Dev-only ———
+export const DocumentReviewTest = lazy(() => import('../pages/DocumentReviewTest'))
+export const LoadHistoryPage = lazy(() => import('../pages/LoadHistoryPage'))

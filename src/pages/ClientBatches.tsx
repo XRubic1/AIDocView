@@ -16,18 +16,17 @@ import {
   persistAiDraftIfNeeded,
   persistManualDraftIfNeeded,
 } from '../services/clientBatchDraftService'
-import { formatCurrency } from '../utils/format'
-import { formatDate } from '../utils/format'
 import { generateInvoice } from '../../pdfTemplate'
 import jsPDF from 'jspdf'
 import DocumentViewer from '../components/DocumentViewer'
 import ClientLayout from '../components/ClientLayout'
-import ClientBatchesListView, { getBatchStatusBadge } from '../components/client/ClientBatchesListView'
+import ClientBatchesListView from '../components/client/ClientBatchesListView'
 import ClientBatchDetailView from '../components/client/ClientBatchDetailView'
 import ClientSubmitDocsView from '../components/client/ClientSubmitDocsView'
 import ManagedDocHandoffView from '../components/client/ManagedDocHandoffView'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
-import ClientManualBatchForm from '../components/client/ClientManualBatchForm'
+import { useToast } from '../components/ui/ToastProvider'
+import ClientManualBatchForm, { type ManualBatchInvoiceFormData } from '../components/client/ClientManualBatchForm'
 import ClientInvoiceDocumentUploadModal from '../components/client/ClientInvoiceDocumentUploadModal'
 import InvoiceDetailWorkspace from '../components/client/InvoiceDetailWorkspace'
 import { Invoice, InvoiceDispute, InvoiceNote } from '../types/invoice'
@@ -46,6 +45,7 @@ import {
   getNextClientInvoiceNumber,
   ensureUniqueClientInvoiceNumber,
 } from '../utils/clientInvoiceNumbers'
+import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 
 type ClientBatchRow = {
   id: string
@@ -67,14 +67,7 @@ interface InvoiceDocument {
   size: number
 }
 
-interface InvoiceFormData {
-  invoice_number: string
-  load_number: string
-  broker_name: string
-  broker_address: string
-  amount: string
-  invoice_date: string
-  notes: string
+interface InvoiceFormData extends Omit<ManualBatchInvoiceFormData, 'documents'> {
   documents?: InvoiceDocument[]
 }
 
@@ -117,6 +110,7 @@ function mergeInvoiceExtras(invoice: Invoice, extras?: Partial<Invoice>): Invoic
 }
 
 export default function ClientBatches() {
+  const { showToast } = useToast()
   const { clientId, clientName } = useClientSession()
   const { capabilities } = useClientCapabilities()
   const [batches, setBatches] = useState<ClientBatchRow[]>([])
@@ -246,7 +240,6 @@ export default function ClientBatches() {
     [batches]
   )
 
-  const getStatusBadge = getBatchStatusBadge
 
   const activeDraftBatch = activeDraftBatchId ? getBatchById(activeDraftBatchId) : undefined
 
@@ -523,7 +516,7 @@ export default function ClientBatches() {
 
   const handleAddInvoice = () => {
     if (!invoiceFormData.broker_name || !invoiceFormData.broker_address || !invoiceFormData.amount) {
-      alert('Broker name, broker address, and amount are required')
+      showToast('Broker name, broker address, and amount are required', 'error')
       return
     }
 
@@ -661,18 +654,18 @@ export default function ClientBatches() {
     }
   }
 
-  const handleUploadDocumentsForInvoice = (invoice: InvoiceFormData, index: number) => {
+  const handleUploadDocumentsForInvoice = (invoice: ManualBatchInvoiceFormData, index: number) => {
     documentUploadInFlightRef.current = false
     setDocumentUploadSaving(false)
-    setCurrentInvoiceForDocuments(invoice)
+    setCurrentInvoiceForDocuments(invoice as InvoiceFormData)
     setCurrentInvoiceIndex(index)
-    setUploadedDocuments(invoice.documents || [])
+    setUploadedDocuments((invoice.documents || []) as InvoiceDocument[])
     setIsEditingExistingInvoice(true)
     setShowDocumentUploadModal(true)
   }
 
-  const handleViewDocuments = (invoice: InvoiceFormData) => {
-    setViewingInvoiceDocuments(invoice)
+  const handleViewDocuments = (invoice: ManualBatchInvoiceFormData) => {
+    setViewingInvoiceDocuments(invoice as InvoiceFormData)
     setShowDocumentViewer(true)
   }
 
@@ -799,7 +792,7 @@ export default function ClientBatches() {
   // Generate PDF invoice file
   const generatePDFInvoice = async (invoice: InvoiceFormData): Promise<File> => {
     // Get client information from dashboard data
-    const clientNameForPdf = clientName
+  
     const clientAddress = `${clientName}\nAddress information here`
     
     // Load logo and convert to base64
@@ -1129,9 +1122,9 @@ export default function ClientBatches() {
       clearClientTenantCache(clientId)
       setActiveTab('view')
       setSelectedBatch(batch.id)
-      alert(`Batch ${batch.batch_number} submitted. Credyx will review your paperwork.`)
+      showToast(`Batch ${batch.batch_number} submitted. Credyx will review your paperwork.`, 'success')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not create batch')
+      showToast(err instanceof Error ? err.message : 'Could not create batch', 'error')
     }
   }
 
@@ -1158,7 +1151,9 @@ export default function ClientBatches() {
               selectedBatchData?.batch_number
             )
           )
-    return base.map((invoice) => mergeInvoiceExtras(invoice, invoiceExtras[invoice.id]))
+    return mapClientVisibleInvoices(
+      base.map((invoice) => mergeInvoiceExtras(invoice, invoiceExtras[invoice.id]))
+    )
   }, [
     selectedBatch,
     selectedBatchStoreInvoices,
@@ -1186,7 +1181,7 @@ export default function ClientBatches() {
 
     const resolved = await resolveInvoiceDocumentsAsync(invoice)
     if (resolved.length === 0) {
-      alert('No documents found for this invoice.')
+      showToast('No documents found for this invoice.', 'error')
       return
     }
 
@@ -1343,7 +1338,7 @@ export default function ClientBatches() {
                   refreshBatches()
                   setActiveTab('view')
                   setSelectedBatch(batchId)
-                  alert('Batch uploaded. Credyx will review your paperwork.')
+                  showToast('Batch uploaded. Credyx will review your paperwork.', 'success')
                 }}
               />
             )}
@@ -1444,7 +1439,7 @@ export default function ClientBatches() {
         clientName={clientName}
         title={selectedBatchData ? `Batch ${selectedBatchData.batch_number}` : 'Invoice Details'}
         showStatusFilter={false}
-        enableClientActions={capabilities.canRunInvoiceOps}
+        enableClientActions={capabilities.canOpenDispute}
       />
     </ClientLayout>
   )

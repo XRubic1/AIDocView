@@ -4,7 +4,9 @@ import { getInvoicesByBatchId } from '../../data/mockInvoices'
 import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
 import { PendingBatch } from '../../types/admin'
 import { getClientById, updateClient } from '../../services/clientRegistry'
-import { Client } from '../../types/client'
+import { formatCurrency } from '../../utils/format'
+import { updateBatch } from '../../data/mockBatches'
+import type { Client } from '../../types/client'
 
 interface AccountingModalProps {
   batch: PendingBatch
@@ -72,10 +74,8 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
 
       setCurrentBatch(updatedBatch)
       setFeeCalculation(newFeeCalculation)
+      updateBatch(currentBatch.id, { fee_calculation: newFeeCalculation })
     }
-
-    // Note: In a real app, you would update the batch in the backend/store
-    // For now, the local state update will show the recalculated fees immediately
 
     setIsEditingTerms(false)
   }

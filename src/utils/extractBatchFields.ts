@@ -126,13 +126,13 @@ export function extractFieldsForInvoiceUnit(
   const inv = unit.invoice
   const stemLoad = loadNumberFromFileName(unit.fileName)
   return {
-    loadNumber: inv.load_number ?? stemLoad ?? rateCon?.load_number,
-    invoiceLoadNumber: inv.load_number ?? stemLoad,
-    broker: inv.broker_name ?? rateCon?.broker_name,
-    carrier: inv.carrier_name ?? rateCon?.carrier_name,
-    amount: inv.amount_total ?? rateCon?.rate_total,
-    invoiceNumber: inv.invoice_number ?? invoiceNumberFromFileName(unit.fileName),
-    invoiceDate: inv.invoice_date,
+    loadNumber: (inv.load_number ?? stemLoad ?? rateCon?.load_number) ?? undefined,
+    invoiceLoadNumber: (inv.load_number ?? stemLoad) ?? undefined,
+    broker: (inv.broker_name ?? rateCon?.broker_name) ?? undefined,
+    carrier: (inv.carrier_name ?? rateCon?.carrier_name) ?? undefined,
+    amount: (inv.amount_total ?? rateCon?.rate_total) ?? undefined,
+    invoiceNumber: (inv.invoice_number ?? invoiceNumberFromFileName(unit.fileName)) ?? undefined,
+    invoiceDate: (inv.invoice_date) ?? undefined,
   }
 }
 

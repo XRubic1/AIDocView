@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
+import { AlertTriangle, Info } from 'lucide-react'
 import { formatCurrency } from '../../utils/format'
 import { formatStorage } from '../../config/servicePlans'
 import { getClientBillingSummary } from '../../services/billingService'
+import { getArTierLabel } from '../../services/arBillingService'
 import { getTierLabel } from '../../utils/clientCapabilities'
 import { useClientTheme } from '../../theme/ThemeContext'
 import type { ServiceTier } from '../../types/client'
@@ -12,7 +14,7 @@ interface PlanBillingPanelProps {
   fillHeight?: boolean
 }
 
-/** Read-only plan, usage, and mock invoice history for Settings. */
+/** Plan, A/R rate, period volume, and bill history for Settings. */
 export default function PlanBillingPanel({ clientId, tier, fillHeight = false }: PlanBillingPanelProps) {
   const c = useClientTheme()
   const summary = useMemo(() => getClientBillingSummary(clientId), [clientId])
@@ -32,13 +34,40 @@ export default function PlanBillingPanel({ clientId, tier, fillHeight = false }:
     cancelled: c.muted,
   }
 
+  const standing = summary.billing_standing ?? 'ok'
+  const tierLabel = getArTierLabel(summary.collected_volume ?? 0, summary.factoring ?? false)
+
   const rootClass = fillHeight
     ? 'client-settings-billing flex flex-col flex-1 min-h-0 h-full gap-3 overflow-hidden'
     : 'space-y-6'
 
   return (
     <div className={rootClass}>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 shrink-0">
+      {standing === 'overdue' && (
+        <div
+          className="flex items-start gap-2 p-3 rounded-xl border shrink-0 animate-in fade-in duration-300"
+          style={{ borderColor: c.warning, backgroundColor: `${c.warning}15` }}
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: c.warning }} />
+          <p className="text-xs" style={{ color: c.primary }}>
+            You have an overdue bill. Please settle payment to avoid account restrictions.
+          </p>
+        </div>
+      )}
+
+      {standing === 'warning' && (
+        <div
+          className="flex items-start gap-2 p-3 rounded-xl border shrink-0 animate-in fade-in duration-300"
+          style={{ borderColor: c.error, backgroundColor: `${c.error}12` }}
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" style={{ color: c.error }} />
+          <p className="text-xs" style={{ color: c.primary }}>
+            Your account will be locked if payment is not received within 30 days.
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
         <div className="p-3 rounded-xl border" style={{ borderColor: c.border, backgroundColor: c.stat.slate }}>
           <p className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: c.mutedLight }}>
             Plan
@@ -50,30 +79,52 @@ export default function PlanBillingPanel({ clientId, tier, fillHeight = false }:
             {getTierLabel(tier)}
           </p>
         </div>
+
         <div className="p-3 rounded-xl border" style={{ borderColor: c.border, backgroundColor: c.stat.blue }}>
           <p className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: c.mutedLight }}>
-            Monthly total
+            A/R rate
+          </p>
+          <p className="text-base font-bold tabular-nums" style={{ color: c.primary }}>
+            {summary.rate_pct != null ? `${summary.rate_pct}%` : '—'}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
+            Tier: {tierLabel}
+            {summary.factoring ? ' · Factoring' : ''}
+          </p>
+        </div>
+
+        <div className="p-3 rounded-xl border" style={{ borderColor: c.border, backgroundColor: c.stat.green }}>
+          <p className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: c.mutedLight }}>
+            Collected this month
+          </p>
+          <p className="text-base font-bold tabular-nums" style={{ color: c.primary }}>
+            {formatCurrency(summary.collected_volume ?? 0)}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
+            Confirmed payments only
+          </p>
+        </div>
+
+        <div className="p-3 rounded-xl border" style={{ borderColor: c.border, backgroundColor: c.stat.slate }}>
+          <p className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: c.mutedLight }}>
+            Est. monthly bill
           </p>
           <p className="text-base font-bold tabular-nums" style={{ color: c.primary }}>
             {formatCurrency(summary.total_monthly)}
           </p>
           <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
             App {formatCurrency(summary.app_fee_monthly)}
-            {summary.service_fee_monthly > 0 &&
-              ` + Service ${formatCurrency(summary.service_fee_monthly)}`}
+            {summary.service_fee_monthly > 0 && ` + A/R ${formatCurrency(summary.service_fee_monthly)}`}
           </p>
         </div>
-        <div className="p-3 rounded-xl border" style={{ borderColor: c.border, backgroundColor: c.stat.green }}>
-          <p className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: c.mutedLight }}>
-            Status
-          </p>
-          <p
-            className="text-base font-bold capitalize"
-            style={{ color: statusColors[summary.subscription_status] ?? c.primary }}
-          >
-            {summary.subscription_status.replace('_', ' ')}
-          </p>
-        </div>
+      </div>
+
+      <div className="p-3 rounded-xl border shrink-0 flex items-start gap-2" style={{ borderColor: c.border }}>
+        <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: c.info }} />
+        <p className="text-xs leading-relaxed" style={{ color: c.secondary }}>
+          Monthly bill = {formatCurrency(summary.app_fee_monthly)} platform fee + your A/R rate ×
+          confirmed collections for the period. Pending and reversed payments are excluded.
+        </p>
       </div>
 
       <div className="p-3 rounded-xl border shrink-0" style={{ borderColor: c.border }}>
@@ -96,61 +147,69 @@ export default function PlanBillingPanel({ clientId, tier, fillHeight = false }:
           />
         </div>
         <p className="text-[11px] mt-1" style={{ color: c.mutedLight }}>
-          ~{summary.usage.document_count} documents stored
+          ~{summary.usage.document_count} documents stored · Status:{' '}
+          <span style={{ color: statusColors[summary.subscription_status] ?? c.primary }}>
+            {summary.subscription_status.replace('_', ' ')}
+          </span>
         </p>
       </div>
 
       <div className={fillHeight ? 'flex-1 min-h-0 flex flex-col overflow-hidden' : ''}>
         <h3 className="text-sm font-semibold mb-2 shrink-0" style={{ color: c.primary }}>
-          Recent invoices
+          Bill history
         </h3>
         <div
           className={`border rounded-xl overflow-hidden ${fillHeight ? 'flex-1 min-h-0 flex flex-col' : ''}`}
           style={{ borderColor: c.border }}
         >
-          <table className="dashboard-table dashboard-table--compact w-full">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Description</th>
-                <th className="text-right">Amount</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summary.line_items.map((item) => (
-                <tr key={item.id}>
-                  <td style={{ color: c.secondary }}>{item.date}</td>
-                  <td className="truncate max-w-[200px]">{item.description}</td>
-                  <td className="tabular-nums text-right">{formatCurrency(item.amount)}</td>
-                  <td>
-                    <span
-                      className="text-xs font-medium capitalize"
-                      style={{
-                        color:
-                          item.status === 'paid'
-                            ? c.success
-                            : item.status === 'overdue'
-                              ? c.error
-                              : c.warning,
-                      }}
-                    >
-                      {item.status}
-                    </span>
-                  </td>
+          {summary.line_items.length === 0 ? (
+            <p className="text-sm text-center py-8" style={{ color: c.secondary }}>
+              No bills issued yet
+            </p>
+          ) : (
+            <table className="dashboard-table dashboard-table--compact w-full">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Description</th>
+                  <th className="text-right">Amount</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {summary.line_items.map((item) => (
+                  <tr key={item.id}>
+                    <td style={{ color: c.secondary }}>{item.date}</td>
+                    <td className="truncate max-w-[200px]">{item.description}</td>
+                    <td className="tabular-nums text-right">{formatCurrency(item.amount)}</td>
+                    <td>
+                      <span
+                        className="text-xs font-medium capitalize"
+                        style={{
+                          color:
+                            item.status === 'paid'
+                              ? c.success
+                              : item.status === 'overdue'
+                                ? c.error
+                                : c.warning,
+                        }}
+                      >
+                        {item.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
       <p className="text-[11px] shrink-0" style={{ color: c.mutedLight }}>
-        To change your plan or update payment details, contact{' '}
-        <a href="mailto:support@credyx.com" className="underline" style={{ color: c.info }}>
-          support@credyx.com
+        Payoneer payment requests are sent to your billing email. Questions?{' '}
+        <a href="mailto:billing@credyx.com" className="underline" style={{ color: c.info }}>
+          billing@credyx.com
         </a>
-        .
       </p>
     </div>
   )

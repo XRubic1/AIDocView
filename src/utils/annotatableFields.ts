@@ -1,5 +1,5 @@
 import { RATE_CON_FIELD_LABELS, RateConFieldKey } from '../config/rateConRules'
-import { DocumentReviewResult, FieldRegionBox } from '../types/documentReview'
+import { DocumentReviewResult } from '../types/documentReview'
 
 /** All fields the user can mark with a bounding box. */
 export const BOL_FIELD_LABELS: Record<string, string> = {

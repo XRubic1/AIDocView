@@ -26,12 +26,12 @@ function invalidateTenant(clientId?: string): void {
 
 async function upsert(
   table: string,
-  row: Record<string, unknown>,
+  row: object,
   onConflict = 'id'
 ): Promise<void> {
   const supabase = getSupabase()
   if (!supabase) return
-  const { error } = await supabase.from(table).upsert(row, { onConflict })
+  const { error } = await supabase.from(table).upsert(row as Record<string, unknown>, { onConflict })
   if (error) {
     console.error(`[tenantPersist] ${table} upsert failed:`, error.message)
     throw new Error(error.message)

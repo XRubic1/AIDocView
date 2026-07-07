@@ -18,6 +18,7 @@ import { getAllBatches } from '../data/mockBatches'
 import { getAllClients } from '../services/clientRegistry'
 import { formatCurrency, formatDate } from '../utils/format'
 import { useClientTheme } from '../theme/ThemeContext'
+import { useToast } from '../components/ui/ToastProvider'
 import {
   buildBatchAccountingRows,
   buildMonthlyReportSeries,
@@ -46,6 +47,7 @@ type BatchSortField =
   | 'netAmount'
 
 export default function Accounting() {
+  const { showToast } = useToast()
   const c = useClientTheme()
   const batches = getAllBatches()
   const clients = getAllClients()
@@ -149,7 +151,7 @@ export default function Accounting() {
   }, [page, totalPages])
 
   const handleExportReport = () => {
-    alert('Export functionality will be implemented')
+    showToast('Export functionality will be implemented', 'info')
   }
 
   const inputStyle = {

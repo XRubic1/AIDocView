@@ -71,15 +71,6 @@ function isReminderPast(expiresAt?: string): boolean {
   return new Date(expiresAt).getTime() < Date.now()
 }
 
-function getCategoryPill(category: ClientDocumentCategory) {
-  const config: Record<ClientDocumentCategory, { className: string; label: string }> = {
-    broker: { className: 'status-pill status-pill--pending', label: 'Broker' },
-    compliance: { className: 'status-pill status-pill--approved', label: 'Compliance' },
-    other: { className: 'status-pill', label: 'Other' },
-  }
-  const entry = config[category]
-  return <span className={`inline-flex items-center ${entry.className}`}>{entry.label}</span>
-}
 
 function getExpiresSortValue(expiresAt?: string): number {
   if (!expiresAt) return Number.MAX_SAFE_INTEGER

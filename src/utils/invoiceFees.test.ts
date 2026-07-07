@@ -5,6 +5,7 @@ describe('invoiceFees', () => {
   it('excludes written_off from fee billable set', () => {
     expect(isFeeBillableInvoice({ status: 'approved' })).toBe(true)
     expect(isFeeBillableInvoice({ status: 'force_closed' })).toBe(true)
+    expect(isFeeBillableInvoice({ status: 'write_off_pending' })).toBe(true)
     expect(isFeeBillableInvoice({ status: 'written_off' })).toBe(false)
   })
 

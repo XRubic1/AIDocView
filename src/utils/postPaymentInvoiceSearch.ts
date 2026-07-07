@@ -142,9 +142,7 @@ export function getInvoicePostStatusLabel(invoice: Invoice, receivedAmount?: num
       return 'Pending'
     case 'hold':
       return 'On hold'
-    case 'force_closed':
-      return 'Force closed'
-    case 'written_off':
+    case 'write_off_pending':
       return 'Written off'
     case 'rejected':
       return 'Rejected'
@@ -168,8 +166,8 @@ export function getInvoicePostStatusClass(invoice: Invoice, receivedAmount?: num
       return 'status-pill status-pill--pending'
     case 'hold':
       return 'status-pill status-pill--hold'
-    case 'force_closed':
-    case 'written_off':
+    case 'write_off_pending':
+      return 'status-pill status-pill--hold'
     case 'rejected':
       return 'status-pill status-pill--overdue'
     default:

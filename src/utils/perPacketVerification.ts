@@ -113,7 +113,7 @@ export function buildPerInvoiceVerificationChecks(
     {
       label: CHECK_LABELS.multiStop,
       ok: checkOk(cross.multi_stop_coverage.status),
-      detail: humanizeReviewMessage(cross.multi_stop_coverage.details),
+      detail: humanizeReviewMessage(cross.multi_stop_coverage.details ?? ''),
     },
     {
       label: CHECK_LABELS.carrier,

@@ -24,14 +24,22 @@ export function isShortPaymentInvoice(invoice: Invoice, payments: Payment[]): bo
   return getShortfallAmount(invoice, received) >= AMOUNT_EPSILON
 }
 
-export function getShortPaymentResolution(invoice: Invoice): ShortPaymentResolution {
-  return invoice.status === 'written_off' ? 'written_off' : 'open'
+export function canCloseShortPaymentAsUncollectable(invoice: Invoice): boolean {
+  if (
+    invoice.status === 'written_off' ||
+    invoice.status === 'write_off_pending' ||
+    invoice.status === 'force_closed'
+  ) {
+    return false
+  }
+  return invoice.status === 'approved' || invoice.status === 'paid'
 }
 
-/** Whether the client can still write off the remaining balance. */
-export function canCloseShortPaymentAsUncollectable(invoice: Invoice): boolean {
-  if (invoice.status === 'written_off' || invoice.status === 'force_closed') return false
-  return invoice.status === 'approved' || invoice.status === 'paid'
+export function getShortPaymentResolution(invoice: Invoice): ShortPaymentResolution {
+  if (invoice.status === 'written_off' || invoice.status === 'write_off_pending') {
+    return 'written_off'
+  }
+  return 'open'
 }
 
 export function buildShortPaymentRecord(

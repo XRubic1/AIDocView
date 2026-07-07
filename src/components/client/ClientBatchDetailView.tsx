@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Eye, FileText } from 'lucide-react'
 import { Invoice } from '../../types/invoice'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { toClientVisibleStatus } from '../../utils/clientInvoiceView'
 import { ClientBatchListItem, getBatchStatusBadge } from './ClientBatchesListView'
 import ClientSortableHeader from './ClientSortableHeader'
 import ClientListTd from './ClientListTd'
@@ -29,6 +30,7 @@ type InvoiceSortField =
 
 /** Client-facing status for invoices inside a batch review. */
 function getBatchInvoiceStatusBadge(status: string) {
+  const visibleStatus = toClientVisibleStatus(status as Invoice['status'])
   const classMap: Record<string, string> = {
     pending: 'status-pill status-pill--pending',
     approved: 'status-pill status-pill--approved',
@@ -48,8 +50,8 @@ function getBatchInvoiceStatusBadge(status: string) {
     hold: 'On Hold',
   }
   return (
-    <span className={`inline-flex items-center ${classMap[status] || 'status-pill status-pill--pending'}`}>
-      {labels[status] || 'Pending'}
+    <span className={`inline-flex items-center ${classMap[visibleStatus] || 'status-pill status-pill--pending'}`}>
+      {labels[visibleStatus] || 'Pending'}
     </span>
   )
 }

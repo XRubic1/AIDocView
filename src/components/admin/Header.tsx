@@ -11,6 +11,8 @@ import {
 } from '../../services/adminNotificationService'
 import { Notification } from '../../types/notification'
 import CredyxWordmark from '../CredyxWordmark'
+import { signOutAdmin } from '../../services/adminAuthService'
+import { useAuth } from '../../context/AuthContext'
 import '../../styles/credyxWordmark.css'
 
 interface HeaderProps {
@@ -21,6 +23,8 @@ interface HeaderProps {
 export function Header({ userName, userRole = 'Admin' }: HeaderProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { resolved } = useAuth()
+  const displayName = userName || resolved.user?.email || 'Admin'
   const [notifications, setNotifications] = useState<Notification[]>(() => getAdminNotifications())
 
   useEffect(() => {
@@ -100,15 +104,12 @@ export function Header({ userName, userRole = 'Admin' }: HeaderProps) {
               }}
             />
             <div className="text-right hidden sm:block">
-              <div className="text-sm font-medium" style={{ color: '#113543' }}>{userName}</div>
+              <div className="text-sm font-medium" style={{ color: '#113543' }}>{displayName}</div>
               <div className="text-xs" style={{ color: '#819291' }}>{userRole}</div>
             </div>
             <button
               onClick={() => {
-                localStorage.removeItem('isAuthenticated')
-                localStorage.removeItem('userEmail')
-                localStorage.removeItem('userRole')
-                navigate('/login')
+                void signOutAdmin().then(() => navigate('/login'))
               }}
               className="flex items-center space-x-2 px-3 py-2 text-sm transition-colors"
               style={{ color: '#819291' }}

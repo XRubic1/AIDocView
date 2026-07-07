@@ -1,4 +1,5 @@
-import { AI_REVIEW_CONFIG, getOpenAIApiKey, isAIReviewEnabled } from '../config/aiReview'
+import { AI_REVIEW_CONFIG, isAIReviewEnabled } from '../config/aiReview'
+import { postOpenAIChatCompletions } from '../utils/openaiFetch'
 import { usageFromOpenAIResponse } from '../utils/reviewCost'
 
 export interface ExplainChatMessage {
@@ -9,6 +10,16 @@ export interface ExplainChatMessage {
 }
 
 const CHAT_MODEL = AI_REVIEW_CONFIG.CHAT_MODEL
+
+/** Build a chat row for the explain panel. */
+export function createChatMessage(role: 'user' | 'assistant', content: string): ExplainChatMessage {
+  return {
+    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+    role,
+    content,
+    createdAt: new Date().toISOString(),
+  }
+}
 
 const SYSTEM_PROMPT = `You are a trucking document review assistant for dispatchers using AIDocView.
 
@@ -29,12 +40,9 @@ export async function sendReviewExplainMessage(
   userMessage: string
 ): Promise<{ reply: string; estimatedCostUsd: number }> {
   if (!isAIReviewEnabled()) {
-    throw new Error('Add VITE_OPENAI_API_KEY to your .env file to use the review assistant.')
-  }
-
-  const apiKey = getOpenAIApiKey()
-  if (!apiKey) {
-    throw new Error('OpenAI API key is not configured.')
+    throw new Error(
+      'AI review requires Supabase configuration. Deploy the openai-proxy Edge Function with OPENAI_API_KEY.'
+    )
   }
 
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -50,45 +58,26 @@ export async function sendReviewExplainMessage(
 
   messages.push({ role: 'user', content: userMessage })
 
-  const response = await fetch(AI_REVIEW_CONFIG.OPENAI_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: CHAT_MODEL,
-      temperature: 0.3,
-      messages,
-    }),
+  const response = await postOpenAIChatCompletions({
+    model: CHAT_MODEL,
+    temperature: 0.3,
+    messages,
   })
 
   if (!response.ok) {
-    const errorBody = await response.text()
-    throw new Error(`Assistant request failed (${response.status}): ${errorBody}`)
+    const errText = await response.text()
+    throw new Error(`Chat request failed: ${errText}`)
   }
 
-  const payload = (await response.json()) as Record<string, unknown>
-  const reply = (payload?.choices as Array<{ message?: { content?: string } }>)?.[0]?.message
-    ?.content
-
-  if (!reply?.trim()) {
-    throw new Error('Assistant returned an empty response.')
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>
+  }
+  const reply = data.choices?.[0]?.message?.content?.trim()
+  if (!reply) {
+    throw new Error('Empty response from review assistant.')
   }
 
-  const usage = usageFromOpenAIResponse(payload, CHAT_MODEL)
+  const estimatedCostUsd = usageFromOpenAIResponse(data as Record<string, unknown>, CHAT_MODEL).estimatedCostUsd
 
-  return {
-    reply: reply.trim(),
-    estimatedCostUsd: usage.estimatedCostUsd,
-  }
-}
-
-export function createChatMessage(role: ExplainChatMessage['role'], content: string): ExplainChatMessage {
-  return {
-    id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    role,
-    content,
-    createdAt: new Date().toISOString(),
-  }
+  return { reply, estimatedCostUsd }
 }

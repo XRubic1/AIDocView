@@ -1,5 +1,8 @@
 /** In-memory PDF storage keyed by batch and document id (lost on page refresh). */
 
+/** Synthetic invoice id for managed handoff uploads before invoices exist. */
+export const HANDOFF_PLACEHOLDER_INVOICE_ID = 'handoff-documents'
+
 const filesByBatch = new Map<string, Map<string, File>>()
 
 export function setBatchFiles(batchId: string, fileById: Map<string, File>): void {

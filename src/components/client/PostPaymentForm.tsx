@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { Search, Plus, FileText, CircleCheck } from 'lucide-react'
+import { Search, Plus, FileText, CircleCheck, Info } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
 import { formatCurrency, formatDate } from '../../utils/format'
@@ -21,6 +21,7 @@ import {
 import { getInvoiceBalanceState } from '../../utils/paymentVariance'
 import InvoiceBalanceSummary from './InvoiceBalanceSummary'
 import PaymentVarianceResolution from './PaymentVarianceResolution'
+import { useClientCapabilities } from '../../hooks/useClientCapabilities'
 
 const METHOD_OPTIONS = [
   { value: 'check' as const, label: 'Check' },
@@ -50,6 +51,7 @@ export default function PostPaymentForm({
   onPosted,
 }: PostPaymentFormProps) {
   const c = useClientTheme()
+  const { capabilities } = useClientCapabilities()
   const today = new Date().toISOString().split('T')[0]
   const filterRef = useRef<HTMLInputElement>(null)
   const amountRef = useRef<HTMLInputElement>(null)
@@ -90,7 +92,10 @@ export default function PostPaymentForm({
   }, [invoices, filterQuery])
 
   const showCreateNew =
-    filterQuery.trim().length >= 2 && !exactInvoiceMatch && selectionMode !== 'new'
+    capabilities.canCreateAdHocInvoice &&
+    filterQuery.trim().length >= 2 &&
+    !exactInvoiceMatch &&
+    selectionMode !== 'new'
 
   const priorReceived = selected ? getConfirmedPaymentTotal(selected.id) : 0
   const amountNum = parseFloat(amount)
@@ -183,7 +188,8 @@ export default function PostPaymentForm({
             paymentReference: paymentReference.trim() || undefined,
             notes: notes.trim() || undefined,
           },
-          authorName
+          authorName,
+          capabilities
         )
         if (!result) {
           setError(
@@ -242,6 +248,29 @@ export default function PostPaymentForm({
     paddingBottom: 8,
     fontSize: 14,
   } as const
+
+  if (!capabilities.canPostPayment) {
+    return (
+      <section className="post-payment-workspace" aria-label="Post payment">
+        <div
+          className="rounded-xl border p-6 flex gap-4 items-start"
+          style={{ borderColor: c.border, backgroundColor: c.stat.slate }}
+        >
+          <Info className="w-5 h-5 shrink-0 mt-0.5" style={{ color: c.info }} />
+          <div>
+            <h2 className="text-sm font-semibold mb-1" style={{ color: c.primary }}>
+              Payments posted by Credyx
+            </h2>
+            <p className="text-sm" style={{ color: c.secondary }}>
+              Your account is on the Managed plan. Remittances sent to Credyx are posted on your
+              behalf — you can view payment history but cannot report payments here. Contact Credyx
+              if you believe a remittance was missed.
+            </p>
+          </div>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className="post-payment-workspace" aria-label="Post payment">
@@ -381,14 +410,16 @@ export default function PostPaymentForm({
               </button>
             )}
 
-            <button
-              type="button"
-              className="post-payment-picker__create post-payment-picker__create--secondary"
-              onClick={() => startCreateNew()}
-            >
-              <Plus className="w-4 h-4 shrink-0" style={{ color: c.info }} />
-              <span>Create new invoice + payment</span>
-            </button>
+            {capabilities.canCreateAdHocInvoice && (
+              <button
+                type="button"
+                className="post-payment-picker__create post-payment-picker__create--secondary"
+                onClick={() => startCreateNew()}
+              >
+                <Plus className="w-4 h-4 shrink-0" style={{ color: c.info }} />
+                <span>Create new invoice + payment</span>
+              </button>
+            )}
           </aside>
 
           {/* Payment entry */}

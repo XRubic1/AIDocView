@@ -1,0 +1,162 @@
+---
+description: Simple, elegant client portal UI — match Dashboard & Invoices (light mode) when theming or redesigning
+globs: src/pages/Client*.tsx,src/components/client/**,src/components/ClientLayout.tsx,src/styles/clientPortal.css,src/theme/**
+alwaysApply: false
+---
+
+# Client portal UI — simple & elegant (light mode)
+
+When theming, restyling, or building client portal pages, **match the look and structure of `ClientDashboard` and `ClientInvoices` in light mode** — calm, finance-grade, scannable. Do not invent a new visual language per page.
+
+**Dark mode is WIP.** Design and polish for **light / white mode only** unless the user explicitly asks for dark mode work. Do not spend effort on `clientPortalDark.css` or dark tokens during routine UI tasks.
+
+## Reference pages (copy these patterns)
+
+- `src/pages/ClientDashboard.tsx` — welcome card, KPI rows, compact metrics, `DashboardPanel` sections, tables before charts
+- `src/pages/ClientInvoices.tsx` — flush stat strip, compact toolbar, dense `dashboard-table`, pagination, detail workspace
+
+## Layout recipe
+
+1. Wrap in `ClientLayout` (`flushMain` for full-bleed list pages like invoices)
+2. `space-y-4` between sections — avoid nested boxes and redundant banners
+3. **Top**: stat strip and/or toolbar — jump straight into content (like invoices)
+4. **Middle**: `client-page-toolbar` (search + filters, single row) when needed
+5. **Body**: `dashboard-table` or `dashboard-card` panels — no third container wrapper
+6. **Actions first, analytics second** on dashboard-style pages
+
+## No page title blocks
+
+**Do not add a page-level hero** (large `h1` + subtitle/description paragraph). The sidebar and layout already provide context — repeating it wastes space.
+
+When adding a **new tab** or page section:
+
+- Use `page-tabs` / `page-tab` with **short labels only** (e.g. `Library`, `Upload`, `All batches`)
+- Then stats, toolbar, or table — **not** a title card above the tabs
+- Section labels: compact `DashboardPanel` `title` only (no `description` prop)
+- OK: one-line contextual welcome on dashboard only (`ClientDashboard` style)
+- **Not OK**: intro blocks with icon + `h1` + explanatory paragraph (avoid `__intro` / `__subtitle` patterns)
+
+```tsx
+// ❌ BAD — page hero on a new tab
+<h1>Payments</h1>
+<p>View and manage all payment activity for your account.</p>
+<div className="page-tabs">...</div>
+
+// ✅ GOOD — like ClientInvoices
+<div className="page-tabs">...</div>
+<section className="grid ...">{/* stat strip */}</section>
+<div className="client-page-toolbar">...</div>
+<table className="dashboard-table">...</table>
+```
+
+## Use existing building blocks (prefer classes over one-off CSS)
+
+| Need | Use |
+|------|-----|
+| Card / section | `dashboard-card`, `DashboardPanel` |
+| Primary CTA | `dashboard-btn-primary` |
+| Secondary CTA | `dashboard-btn-secondary` |
+| Data table | `dashboard-table` / `dashboard-table--compact` |
+| Toolbar | `client-page-toolbar` |
+| Inputs | `client-input` |
+| Status | `status-pill status-pill--*` |
+| Tabs | `page-tabs` / `page-tab` / `page-tab--active` |
+| List scroll area | `client-table-scroll` (only this region scrolls) |
+| Pagination bar | `client-page-footer` (pinned to viewport bottom) |
+| Nested list tab shell | `client-flush-shell` (batches view tab) |
+| List page size helper | `getInitialListPageSize()` from `src/utils/clientListPage.ts` |
+| Sortable column header | `ClientSortableHeader` from `src/components/client/ClientSortableHeader.tsx` |
+
+## Lists & tables
+
+Every client portal list (batches, invoices, payments, etc.) must follow these rules.
+
+### Row alignment
+
+- Cell content **vertically centered** — `vertical-align: middle` on `th`/`td`
+- Status pills and buttons in a row: `inline-flex items-center` so they sit on the midline
+- Do not leave content top-aligned with extra padding below (see batches list)
+
+### Sortable columns
+
+- **Every column header** is clickable and sorts that field
+- Click toggles asc → desc → (optional reset) or asc ↔ desc
+- Show a sort indicator on the active column (chevron or arrow)
+- Numeric/date columns sort numerically/chronologically; text columns sort locale-aware
+- Actions column is not sortable
+
+### Pagination
+
+- **Default: 25 rows per page** — options **25, 50, 100** only (not 10/20)
+- Read initial page size from user settings (`credyx-list-page-size` in localStorage); fallback `25`
+- User can change the **default** in Client Settings (applies to all lists)
+- Per-page override via footer `Rows` select (like `ClientInvoices`)
+- Footer shows `Showing X–Y of Z` + prev/next — use `client-page-footer`
+
+### Scroll behavior — pinned chrome, table-only scroll
+
+List pages must feel like a fixed app shell: **header at top, pagination footer at bottom, only the table scrolls**. The document/page must **never** scroll for long lists.
+
+**Pinned regions (do not scroll):**
+- `ClientLayout` top bar (company name, theme, notifications)
+- Stat strip
+- `client-page-toolbar`
+- `client-page-footer` — **stuck to the bottom of the viewport**, like the header is stuck to the top
+
+**Scrolls:**
+- `client-table-scroll` only — vertical + horizontal overflow as needed
+
+**Layout chain (required):**
+
+1. `ClientLayout` with `flushMain` on list pages
+2. Root shell: `h-screen overflow-hidden` (not `min-h-screen`)
+3. Content column: `flex flex-col min-h-0 overflow-hidden`
+4. `main.client-main--flush`: `flex-1 min-h-0 overflow-hidden` + flex column (see `clientPortal.css`)
+5. List page shell: `client-*-page overflow-hidden flex flex-col min-h-0` — CSS uses `flex: 1 1 0; height: 0` so it fills remaining height without pushing the footer off-screen
+6. Stat strip + toolbar: `shrink-0`
+7. Table wrapper: `client-table-scroll flex-1 min-h-0 overflow-y-auto overflow-x-auto` — CSS uses `flex: 1 1 0; height: 0`
+8. Footer: `client-page-footer shrink-0`
+
+If a list is nested inside another flex child (e.g. batches tab), wrap it in `client-flush-shell` so the height chain is unbroken.
+
+Non-flush pages (dashboard, settings) scroll via `main` with `overflow-y-auto` — do not apply the table-only scroll pattern there.
+
+```tsx
+// List page structure
+<div className="client-invoices-page overflow-hidden flex flex-col min-h-0">
+  <section className="shrink-0">{/* stat strip */}</section>
+  <div className="client-page-toolbar shrink-0">...</div>
+  <div className="client-table-scroll flex-1 min-h-0 overflow-y-auto overflow-x-auto">
+    <table className="dashboard-table dashboard-table--compact">...</table>
+  </div>
+  <div className="client-page-footer shrink-0">...</div>
+</div>
+```
+
+## Theme & color (light mode)
+
+- `const c = useClientTheme()` inside each component that needs tokens — **never at module scope**
+- Prefer `var(--cp-*)` from `.client-portal` in `clientPortal.css`; keep `lightClientTheme` in `themes.ts` in sync
+- **Semantic color** only when it means something (success / warning / error, A/R aging via `t.aging.*`)
+- Stat strips: soft tinted backgrounds (`c.stat.*`) like invoices — not heavy or rainbow
+- Verify changes in **light mode** before considering the task done
+
+## Elegant = less
+
+- Generous whitespace, clear type hierarchy (title → label → value)
+- `tabular-nums` for money and counts; `truncate` on long labels
+- Lucide icons at 14–18px, one icon per row/action — no icon walls
+- Subtle hover (`dashboard-card-interactive`, table row hover) — no heavy animation or glow
+- Empty states: one icon, one title, one line of help text
+
+## Avoid
+
+- Lists without pagination, sortable headers, or centered row content
+- Letting the whole tab/page scroll when the list is long — scroll `client-table-scroll` only; footer must stay pinned to the bottom
+- `min-h-screen` on the portal shell or missing `min-h-0` / `overflow-hidden` in the flex chain (breaks pinned footer)
+- Page-level `h1` + description/subtitle on list or tab pages
+- `DashboardPanel` `description` prop unless the user explicitly asks for it
+- New color hex per component or gradients on every card
+- Replacing shared classes with large inline-style blocks
+- Admin/landing page patterns on client portal pages
+- Dark-mode polish, `clientPortalDark.css`, or dual light/dark styling unless explicitly requested

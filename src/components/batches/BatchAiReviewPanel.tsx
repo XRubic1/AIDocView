@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Sparkles } from 'lucide-react'
+import Spinner from '../ui/Spinner'
 import { isAIReviewEnabled } from '../../config/aiReview'
 import {
   runBatchAiReview,
@@ -61,15 +62,18 @@ export default function BatchAiReviewPanel({ batchId, onComplete }: BatchAiRevie
           cursor: running || invoices.length === 0 ? 'not-allowed' : 'pointer',
         }}
       >
-        <Sparkles className="w-4 h-4" />
+        {running ? <Spinner size="sm" className="text-white" /> : <Sparkles className="w-4 h-4" />}
         <span>{running ? 'AI Review running…' : 'AI Review batch'}</span>
       </button>
       {progress && running && (
-        <p className="text-xs" style={{ color: '#819291' }}>
-          {progress.currentInvoiceNumber
-            ? `Reviewing ${progress.currentInvoiceNumber} (${progress.completed + 1}/${progress.total})`
-            : `Progress ${progress.completed}/${progress.total}`}
-        </p>
+        <div className="flex items-center gap-2 text-xs" style={{ color: '#819291' }}>
+          <Spinner size="sm" />
+          <span>
+            {progress.currentInvoiceNumber
+              ? `Reviewing ${progress.currentInvoiceNumber} (${progress.completed + 1}/${progress.total})`
+              : `Progress ${progress.completed}/${progress.total}`}
+          </span>
+        </div>
       )}
       {error && (
         <p className="text-xs" style={{ color: '#b91c1c' }}>

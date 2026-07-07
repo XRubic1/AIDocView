@@ -32,8 +32,12 @@ export interface Client {
   account_number?: string
   routing_number?: string
   notes?: string
-  status?: 'active' | 'inactive' | 'pending'
+  status?: 'active' | 'inactive' | 'pending' | 'suspended'
   service_tier?: ServiceTier
+  /** Admin-set; applies discounted A/R rate tier. */
+  factoring?: boolean
+  /** Negotiated rate % for high-volume clients (e.g. >$500k/mo). */
+  ar_rate_override?: number
   billing?: ClientBilling
   fleet_size?: string
   /** 4-letter code used in batch numbers, e.g. ABCL for ABC LOGISTICS INC */

@@ -1,7 +1,13 @@
 import { useState } from 'react'
 import { createClient } from '../services/clientRegistry'
 import { notifyAdminClientEnrolled } from '../services/adminNotificationService'
+import { sendTransactionalEmail } from '../services/emailService'
+import { getRuntimeEnvString } from '../platform/runtimeEnv'
 import type { ServiceTier } from '../types/client'
+
+function getAdminAlertEmail(): string {
+  return getRuntimeEnvString('VITE_ADMIN_ALERT_EMAIL') ?? 'admin@credyx.com'
+}
 
 export interface EnrollFormData {
   companyName: string
@@ -45,7 +51,7 @@ export function useEnrollForm() {
       // Brief delay so the submitting state is perceivable
       await new Promise((resolve) => setTimeout(resolve, 800))
 
-      const client = createClient({
+      const client = await createClient({
         name: formData.companyName,
         contact_person: formData.contactPerson,
         email: formData.email,
@@ -60,6 +66,11 @@ export function useEnrollForm() {
         clientName: client.name,
         email: client.email ?? formData.email,
         tier: selectedTier,
+      })
+
+      await sendTransactionalEmail('admin_enrollment_alert', getAdminAlertEmail(), {
+        clientName: client.name,
+        email: client.email ?? formData.email,
       })
 
       setSubmitted(true)

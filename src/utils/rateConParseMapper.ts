@@ -58,38 +58,53 @@ export function rateConParseToFields(
   const fromRaw = (key: RateConFieldKey) =>
     rawFields?.[key] ? parseRawField<string | number>(rawFields[key]) : undefined
 
+  const fromRawString = (key: RateConFieldKey) => {
+    const field = fromRaw(key)
+    if (!field) return undefined
+    const value = field.value
+    return { ...field, value: value == null ? undefined : String(value) }
+  }
+
+  const fromRawNumber = (key: RateConFieldKey) => {
+    const field = fromRaw(key)
+    if (!field) return undefined
+    const raw = field.value
+    const num = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN
+    return { ...field, value: Number.isFinite(num) ? num : undefined }
+  }
+
   const fields: RateConFields = {
-    carrier: fromRaw('carrier') ?? {
+    carrier: fromRawString('carrier') ?? {
       value: parse.carrier_name ?? undefined,
       confidence: parse.confidence ?? 0.85,
       reasoning: 'From rate con carrier_name',
       sourcePage,
     },
-    broker: fromRaw('broker') ?? {
+    broker: fromRawString('broker') ?? {
       value: parse.broker_name ?? undefined,
       confidence: parse.confidence ?? 0.85,
       reasoning: 'From rate con broker_name',
       sourcePage,
     },
-    rate: fromRaw('rate') ?? {
+    rate: fromRawNumber('rate') ?? {
       value: parse.rate_total ?? undefined,
       confidence: parse.confidence ?? 0.85,
       reasoning: 'From rate con rate_total',
       sourcePage,
     },
-    emailDomain: fromRaw('emailDomain'),
-    loadNumber: fromRaw('loadNumber') ?? {
+    emailDomain: fromRawString('emailDomain'),
+    loadNumber: fromRawString('loadNumber') ?? {
       value: parse.load_number ?? undefined,
       confidence: parse.confidence ?? 0.85,
       sourcePage,
     },
-    pickup: fromRaw('pickup') ?? {
+    pickup: fromRawString('pickup') ?? {
       value: pickupFromOrigin || undefined,
       confidence: parse.confidence ?? 0.85,
       reasoning: 'From rate con origin block',
       sourcePage,
     },
-    drop: fromRaw('drop') ?? {
+    drop: fromRawString('drop') ?? {
       value: dropFromDest || undefined,
       confidence: parse.confidence ?? 0.85,
       reasoning: 'From rate con first destination',

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { getClientInvoices } from '../data/clientDemoData'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientSession } from '../hooks/useClientSession'
+import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
 import { FileText, Eye, Search, Filter, DollarSign, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react'
@@ -22,6 +23,7 @@ import {
   PAGE_SIZE_OPTIONS,
   type SortDir,
 } from '../utils/clientListPage'
+import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 
 type InvoiceSortField =
   | 'invoice_number'
@@ -41,6 +43,7 @@ function getSortableDaysOutstanding(invoice: EnrichedInvoice): number {
 export default function ClientInvoices() {
   const c = useClientTheme()
   const { clientId, clientName } = useClientSession()
+  const { capabilities } = useClientCapabilities()
   const [searchParams, setSearchParams] = useSearchParams()
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
@@ -48,7 +51,7 @@ export default function ClientInvoices() {
   const { dashboard: data } = useClientDemoSnapshot(invoicesRefreshKey)
 
   const invoices = useMemo(
-    () => getClientInvoices(clientId, clientName),
+    () => mapClientVisibleInvoices(getClientInvoices(clientId, clientName)),
     [clientId, clientName, invoicesRefreshKey]
   )
   const [searchTerm, setSearchTerm] = useState('')
@@ -225,6 +228,15 @@ export default function ClientInvoices() {
   return (
     <ClientLayout clientName={clientName} clientId={clientId} flushMain>
       <div className="client-invoices-page overflow-hidden flex flex-col min-h-0">
+        {!capabilities.canRunInvoiceOps && (
+          <section
+            className="shrink-0 px-4 py-2.5 border-b text-sm"
+            style={{ borderColor: c.border, backgroundColor: c.stat.amber, color: c.secondary }}
+          >
+            Invoice actions are managed by Credyx on your plan. You can view invoices and open
+            disputes; payment and write-off actions are handled by your Credyx team.
+          </section>
+        )}
         <section
           className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
           style={{ borderColor: c.border }}
@@ -303,7 +315,7 @@ export default function ClientInvoices() {
                 {formatCurrency(overdueAmount)}
               </span>
             </div>
-            {forceCloseEligible.length > 0 && (
+            {forceCloseEligible.length > 0 && capabilities.hasForceClose && (
               <p className="text-[11px] tabular-nums" style={{ color: '#7C3AED' }}>
                 {forceCloseEligible.length} at {AR_POLICY.forceCloseDays}+ days past expected pay
               </p>
@@ -482,7 +494,7 @@ export default function ClientInvoices() {
                               }}
                             >
                               {invoice.daysOutstanding}d
-                              {invoice.isForceCloseEligible && (
+                              {invoice.isForceCloseEligible && capabilities.hasForceClose && (
                                 <span className="block text-[10px] font-medium" style={{ color: '#7C3AED' }}>
                                   FC
                                 </span>
@@ -494,7 +506,7 @@ export default function ClientInvoices() {
                           <div className="inline-flex items-center gap-1 flex-nowrap min-w-0">
                             {getInvoiceRowStatusBadge(invoice)}
                             <InvoiceDisputeBadges invoice={invoice} />
-                            {invoice.isForceCloseEligible && (
+                            {invoice.isForceCloseEligible && capabilities.hasForceClose && (
                               <span className="status-pill status-pill--hold text-[10px]">Force Close</span>
                             )}
                           </div>
@@ -605,6 +617,7 @@ export default function ClientInvoices() {
         highlightedInvoiceId={highlightedInvoiceId}
         clientName={data.client_name}
         onInvoiceUpdated={() => setInvoicesRefreshKey((key) => key + 1)}
+        enableClientActions={capabilities.canOpenDispute}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
         statusFilter={statusFilter}

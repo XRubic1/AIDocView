@@ -11,13 +11,16 @@ import {
   Wallet,
   Shield,
 } from 'lucide-react'
+import Spinner from '../components/ui/Spinner'
 import ClientLayout from '../components/ClientLayout'
 import PlanBillingPanel from '../components/client/PlanBillingPanel'
 import { useTheme, useClientTheme, type ThemeMode } from '../theme/ThemeContext'
-import { getClientById } from '../services/clientRegistry'
+import { getClientById, updateClient } from '../services/clientRegistry'
 import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { getTierLabel } from '../utils/clientCapabilities'
+import { updateClientPassword } from '../services/clientAuthService'
+import { useToast } from '../components/ui/ToastProvider'
 import {
   getInitialListPageSize,
   LIST_PAGE_SIZE_KEY,
@@ -180,11 +183,13 @@ export default function ClientSettings() {
   const { clientId, clientName } = useClientSession()
   const { capabilities, tier } = useClientCapabilities()
   const { mode: themeMode, setMode: setThemeMode } = useTheme()
+  const { showToast } = useToast()
 
   const currentClient = getClientById(clientId)
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const [saved, setSaved] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   const [profileData, setProfileData] = useState({
     company_name: currentClient?.name || clientName,
@@ -258,35 +263,65 @@ export default function ClientSettings() {
     { id: 'remittance', label: 'Remittance', icon: CreditCard },
   ]
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (isSaving) return
+    setIsSaving(true)
     try {
       const size = Number(preferences.itemsPerPage)
       if (PAGE_SIZE_OPTIONS.includes(size as (typeof PAGE_SIZE_OPTIONS)[number])) {
         localStorage.setItem(LIST_PAGE_SIZE_KEY, String(size))
       }
-    } catch {
-      /* ignore */
+
+      await updateClient(clientId, {
+        name: profileData.company_name,
+        contact_person: profileData.contact_person,
+        email: profileData.email,
+        phone: profileData.phone,
+        fax: profileData.fax,
+        address: profileData.address,
+        city: profileData.city,
+        state: profileData.state,
+        zip: profileData.zip,
+        mc_number: profileData.mc_number,
+        dot_number: profileData.dot_number,
+        remittance_info: remittanceData.remittance_info,
+        bank_name: remittanceData.bank_name,
+        account_number: remittanceData.account_number,
+        routing_number: remittanceData.routing_number,
+      })
+
+      setSaved(true)
+      showToast('Settings saved', 'success')
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not save settings', 'error')
+    } finally {
+      setIsSaving(false)
     }
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
   }
 
   const handlePasswordChange = () => {
     if (securitySettings.newPassword !== securitySettings.confirmPassword) {
-      alert('New password and confirm password do not match')
+      showToast('New password and confirm password do not match', 'error')
       return
     }
     if (securitySettings.newPassword.length < 8) {
-      alert('Password must be at least 8 characters long')
+      showToast('Password must be at least 8 characters long', 'error')
       return
     }
-    alert('Password changed successfully')
-    setSecuritySettings((prev) => ({
-      ...prev,
-      currentPassword: '',
-      newPassword: '',
-      confirmPassword: '',
-    }))
+    void updateClientPassword(securitySettings.newPassword).then((result) => {
+      if (result.ok) {
+        showToast('Password changed successfully', 'success')
+        setSecuritySettings((prev) => ({
+          ...prev,
+          currentPassword: '',
+          newPassword: '',
+          confirmPassword: '',
+        }))
+      } else {
+        showToast(result.error ?? 'Could not change password', 'error')
+      }
+    })
   }
 
   const inputStyle = {
@@ -304,10 +339,16 @@ export default function ClientSettings() {
     >
       <button
         type="button"
-        onClick={handleSave}
-        className="dashboard-btn-primary inline-flex items-center gap-2 text-sm"
+        onClick={() => void handleSave()}
+        disabled={isSaving || saved}
+        className="dashboard-btn-primary inline-flex items-center gap-2 text-sm disabled:opacity-60"
       >
-        {saved ? (
+        {isSaving ? (
+          <>
+            <Spinner size="sm" className="text-white" />
+            Saving…
+          </>
+        ) : saved ? (
           <>
             <Check className="w-4 h-4" />
             Saved

@@ -1,5 +1,7 @@
 import { AuditLog, AuditActionType } from '../types/audit'
 import { persistAuditLog } from '../services/supabase/tenantPersist'
+import { persistOrThrow } from '../services/persistHelper'
+import { persistWithFeedback } from '../services/persistFeedback'
 
 let auditLogs: AuditLog[] = []
 
@@ -49,11 +51,55 @@ export const logAuditEvent = (
   auditLogs.push(logEntry)
 
   console.log('[AUDIT]', logEntry)
-  void persistAuditLog(logEntry).catch(console.error)
+  void persistWithFeedback('Audit log', () => persistAuditLog(logEntry))
 
   if (auditLogs.length > 10000) {
     auditLogs = auditLogs.slice(-10000)
   }
+}
+
+/** Log and await Supabase persist (money-path / compliance). */
+export async function logAuditEventAsync(
+  action: AuditActionType,
+  entityType: AuditLog['entity_type'],
+  entityId: string | null,
+  entityName: string | null,
+  description: string,
+  userId: string = 'system',
+  userName: string = 'System',
+  userRole: string = 'System',
+  changes?: AuditLog['changes'],
+  metadata?: Record<string, unknown>,
+  severity: AuditLog['severity'] = 'info',
+  success: boolean = true,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> {
+  const logEntry: AuditLog = {
+    id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    timestamp: new Date().toISOString(),
+    user_id: userId,
+    user_name: userName,
+    user_role: userRole,
+    action,
+    entity_type: entityType,
+    entity_id: entityId,
+    entity_name: entityName,
+    description,
+    ip_address: ipAddress,
+    user_agent: userAgent,
+    changes,
+    metadata,
+    severity,
+    success,
+  }
+
+  auditLogs.push(logEntry)
+  if (auditLogs.length > 10000) {
+    auditLogs = auditLogs.slice(-10000)
+  }
+
+  await persistOrThrow('audit', () => persistAuditLog(logEntry))
 }
 
 /**

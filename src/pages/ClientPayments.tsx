@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useClientSession } from '../hooks/useClientSession'
 import { Payment } from '../types/payment'
 import { formatCurrency, formatDate } from '../utils/format'
@@ -8,10 +8,13 @@ import {
   Filter,
   X,
   Eye,
-  CheckCircle,
   ChevronLeft,
   ChevronRight,
   Plus,
+  MoreVertical,
+  ArrowRightLeft,
+  Undo2,
+  Info,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
 import PaymentKpiCards from '../components/client/PaymentKpiCards'
@@ -19,12 +22,15 @@ import PostPaymentForm from '../components/client/PostPaymentForm'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import { useClientTheme } from '../theme/ThemeContext'
-import {
-  confirmClientPayment,
-  type PostPaymentResult,
-} from '../services/clientPaymentService'
+import { listPostableInvoices, type PostPaymentResult } from '../services/clientPaymentService'
+import { movePaymentFunds, unprocessPayment } from '../services/paymentCorrectionService'
+import { getInvoiceById } from '../data/mockInvoices'
 import { getClientPayments as getClientDemoPayments } from '../data/clientDemoData'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
+import { useClientCapabilities } from '../hooks/useClientCapabilities'
+import { useToast } from '../components/ui/ToastProvider'
+import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
+import { MoveFundsModal, UnprocessPaymentModal } from '../components/client/PaymentCorrectionModals'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
@@ -48,13 +54,33 @@ const METHOD_LABELS: Record<string, string> = {
   credit_card: 'Credit Card',
 }
 
-function getPaymentStatusPill(status: string) {
+type PaymentStatusFilter = 'all' | 'pending' | 'confirmed' | 'rejected' | 'reversed'
+
+function getPaymentStatusPill(status: string, payment?: Payment) {
   const config: Record<string, { className: string; label: string }> = {
     pending: { className: 'status-pill status-pill--pending', label: 'Pending' },
     confirmed: { className: 'status-pill status-pill--approved', label: 'Confirmed' },
+    rejected: { className: 'status-pill status-pill--overdue', label: 'Rejected' },
+    reversed: { className: 'status-pill status-pill--hold', label: 'Reversed' },
   }
   const entry = config[status] ?? { className: 'status-pill', label: status }
-  return <span className={`inline-flex items-center ${entry.className}`}>{entry.label}</span>
+  const pill = (
+    <span className={`inline-flex items-center ${entry.className}`}>{entry.label}</span>
+  )
+  const reason =
+    status === 'reversed'
+      ? payment?.reversal_reason
+      : status === 'rejected'
+        ? payment?.rejection_reason
+        : undefined
+  if (reason) {
+    return (
+      <span title={reason} className="inline-flex items-center">
+        {pill}
+      </span>
+    )
+  }
+  return pill
 }
 
 function buildInitialPayments(clientId: string, clientName: string): Payment[] {
@@ -66,6 +92,8 @@ type PaymentsViewTab = 'history' | 'post'
 export default function ClientPayments() {
   const c = useClientTheme()
   const { clientId, clientName } = useClientSession()
+  const { capabilities } = useClientCapabilities()
+  const { showToast } = useToast()
   const authorName = clientName
   const [viewTab, setViewTab] = useState<PaymentsViewTab>('history')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -73,12 +101,23 @@ export default function ClientPayments() {
     buildInitialPayments(clientId, clientName)
   )
 
-  const { invoices: clientInvoices } = useClientDemoSnapshot(refreshKey)
+  const { invoices: rawInvoices } = useClientDemoSnapshot(refreshKey)
+  const clientInvoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
+  const postableInvoices = useMemo(
+    () => listPostableInvoices(clientInvoices),
+    [clientInvoices]
+  )
 
   const refreshPayments = useCallback(() => {
     setRefreshKey((k) => k + 1)
     setPayments(buildInitialPayments(clientId, clientName))
   }, [clientId, clientName])
+
+  useEffect(() => {
+    if (!capabilities.canPostPayment && viewTab === 'post') {
+      setViewTab('history')
+    }
+  }, [capabilities.canPostPayment, viewTab])
 
   useEffect(() => {
     refreshPayments()
@@ -88,23 +127,21 @@ export default function ClientPayments() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [methodFilter, setMethodFilter] = useState<string>('all')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'confirmed'>('all')
+  const [statusFilter, setStatusFilter] = useState<PaymentStatusFilter>('all')
+  const [actionsMenuId, setActionsMenuId] = useState<string | null>(null)
+  const [moveTarget, setMoveTarget] = useState<Payment | null>(null)
+  const [unprocessTarget, setUnprocessTarget] = useState<Payment | null>(null)
+  const [moveTargetInvoiceId, setMoveTargetInvoiceId] = useState<string | null>(null)
+  const [moveReason, setMoveReason] = useState('')
+  const [unprocessReason, setUnprocessReason] = useState('')
   const historyTableRef = useRef<HTMLDivElement>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [showPaymentDetailModal, setShowPaymentDetailModal] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
-  const [inlineConfirmId, setInlineConfirmId] = useState<string | null>(null)
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<PaymentSortField>('payment_date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [confirmPaymentData, setConfirmPaymentData] = useState({
-    payment_method: 'check' as 'check' | 'wire' | 'ach' | 'credit_card',
-    payment_reference: '',
-    received_date: new Date().toISOString().split('T')[0],
-    notes: '',
-  })
-
   const activeFilterCount = useMemo(() => {
     let count = 0
     if (dateFrom || dateTo) count += 1
@@ -239,56 +276,6 @@ export default function ClientPayments() {
     setShowPaymentDetailModal(true)
   }
 
-  const openInlineConfirm = (payment: Payment) => {
-    setInlineConfirmId(payment.id)
-    setConfirmPaymentData({
-      payment_method: payment.payment_method || 'check',
-      payment_reference: payment.payment_reference || '',
-      received_date: payment.received_date || new Date().toISOString().split('T')[0],
-      notes: payment.notes || '',
-    })
-  }
-
-  const handleConfirmPaymentSubmit = (paymentId: string) => {
-    const result = confirmClientPayment(
-      {
-        paymentId,
-        paymentMethod: confirmPaymentData.payment_method,
-        paymentReference: confirmPaymentData.payment_reference,
-        receivedDate: confirmPaymentData.received_date,
-        notes: confirmPaymentData.notes,
-      },
-      authorName
-    )
-
-    if (!result) {
-      setPayments((prev) =>
-        prev.map((p) =>
-          p.id === paymentId
-            ? {
-                ...p,
-                status: 'confirmed',
-                payment_method: confirmPaymentData.payment_method,
-                payment_reference: confirmPaymentData.payment_reference || p.payment_reference,
-                received_date: confirmPaymentData.received_date,
-                notes: confirmPaymentData.notes || p.notes,
-              }
-            : p
-        )
-      )
-    } else {
-      refreshPayments()
-    }
-
-    setInlineConfirmId(null)
-    setConfirmPaymentData({
-      payment_method: 'check',
-      payment_reference: '',
-      received_date: new Date().toISOString().split('T')[0],
-      notes: '',
-    })
-  }
-
   const handlePaymentPosted = useCallback(
     (_result: PostPaymentResult) => {
       refreshPayments()
@@ -299,6 +286,65 @@ export default function ClientPayments() {
     },
     [refreshPayments]
   )
+
+  const handleMoveSubmit = useCallback(() => {
+    if (!moveTarget || !moveTargetInvoiceId || !moveReason.trim()) return
+    const result = movePaymentFunds(
+      moveTarget.id,
+      moveTargetInvoiceId,
+      authorName,
+      moveReason.trim(),
+      capabilities
+    )
+    if (result) {
+      showToast('Funds moved successfully', 'success')
+      setMoveTarget(null)
+      setMoveTargetInvoiceId(null)
+      setMoveReason('')
+      refreshPayments()
+    } else {
+      showToast('Could not move funds — check target invoice eligibility', 'error')
+    }
+  }, [
+    moveTarget,
+    moveTargetInvoiceId,
+    moveReason,
+    authorName,
+    capabilities,
+    showToast,
+    refreshPayments,
+  ])
+
+  const handleUnprocessSubmit = useCallback(() => {
+    if (!unprocessTarget || !unprocessReason.trim()) return
+    const payment = unprocessPayment(
+      unprocessTarget.id,
+      authorName,
+      unprocessReason.trim(),
+      capabilities
+    )
+    if (payment) {
+      showToast('Payment unprocessed', 'success')
+      setUnprocessTarget(null)
+      setUnprocessReason('')
+      refreshPayments()
+    } else {
+      showToast('Could not unprocess payment', 'error')
+    }
+  }, [unprocessTarget, unprocessReason, authorName, capabilities, showToast, refreshPayments])
+
+  const openMoveModal = useCallback((payment: Payment) => {
+    setActionsMenuId(null)
+    setMoveTarget(payment)
+    setMoveTargetInvoiceId(null)
+    setMoveReason('')
+  }, [])
+
+  const openUnprocessModal = useCallback((payment: Payment) => {
+    setActionsMenuId(null)
+    setUnprocessTarget(payment)
+    setUnprocessReason('')
+  }, [])
 
   const inputCompactStyle = {
     backgroundColor: c.card,
@@ -323,15 +369,17 @@ export default function ClientPayments() {
             >
               Payment history
             </button>
-            <button
-              type="button"
-              onClick={() => setViewTab('post')}
-              className={`page-tab ${viewTab === 'post' ? 'page-tab--active' : ''}`}
-            >
-              Post payment
-            </button>
+            {capabilities.canPostPayment && (
+              <button
+                type="button"
+                onClick={() => setViewTab('post')}
+                className={`page-tab ${viewTab === 'post' ? 'page-tab--active' : ''}`}
+              >
+                Post payment
+              </button>
+            )}
           </div>
-          {viewTab === 'post' && (
+          {viewTab === 'post' && capabilities.canPostPayment && (
             <button
               type="button"
               onClick={() => setViewTab('history')}
@@ -340,7 +388,7 @@ export default function ClientPayments() {
               View history
             </button>
           )}
-          {viewTab === 'history' && (
+          {viewTab === 'history' && capabilities.canPostPayment && (
             <button
               type="button"
               onClick={() => setViewTab('post')}
@@ -352,7 +400,7 @@ export default function ClientPayments() {
           )}
         </div>
 
-        {viewTab === 'post' ? (
+        {viewTab === 'post' && capabilities.canPostPayment ? (
           <div className="client-payments-page--post overflow-y-auto flex flex-col min-h-0 flex-1">
             <PostPaymentForm
               clientId={clientId}
@@ -365,9 +413,35 @@ export default function ClientPayments() {
           </div>
         ) : (
           <div className="client-payments-page--history overflow-hidden flex flex-col min-h-0 flex-1">
+        {!capabilities.canPostPayment && (
+          <section
+            className="shrink-0 px-4 py-2.5 border-b text-sm flex gap-3 items-start"
+            style={{ borderColor: c.border, backgroundColor: c.stat.amber, color: c.secondary }}
+          >
+            <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: c.info }} />
+            <p>
+              Your account is on the Managed plan. Credyx posts payments from remittances — view
+              history here. Contact Credyx to correct a mis-posted payment.
+            </p>
+          </section>
+        )}
+        {!capabilities.canCorrectPayments && capabilities.canPostPayment && (
+          <section
+            className="shrink-0 px-4 py-2.5 border-b text-sm"
+            style={{ borderColor: c.border, backgroundColor: c.stat.slate, color: c.secondary }}
+          >
+            Payment corrections are handled by Credyx on your plan.
+          </section>
+        )}
         <PaymentKpiCards
           payments={payments}
-          statusFilter={statusFilter === 'all' ? 'confirmed' : statusFilter}
+          statusFilter={
+            statusFilter === 'all'
+              ? 'confirmed'
+              : statusFilter === 'pending' || statusFilter === 'confirmed'
+                ? statusFilter
+                : 'all'
+          }
           onStatusFilter={handleKpiStatusFilter}
         />
 
@@ -419,8 +493,8 @@ export default function ClientPayments() {
           <div
             className={`client-payments-filters-wrap ${
               !filtersOpen && activeFilterCount > 0 ? 'client-payments-filters-wrap--open' : ''
-            }`}
-            inert={filtersOpen || activeFilterCount === 0}
+            } ${filtersOpen || activeFilterCount === 0 ? 'pointer-events-none' : ''}`}
+            aria-hidden={filtersOpen || activeFilterCount === 0}
           >
             <div
               className="client-payments-filters client-payments-filters--chips"
@@ -433,7 +507,13 @@ export default function ClientPayments() {
                     onClick={() => setStatusFilter('all')}
                     className="batch-filter-pill batch-filter-pill--sm batch-filter-pill--active"
                   >
-                    {statusFilter === 'pending' ? 'Pending only' : 'Confirmed only'}
+                    {statusFilter === 'pending'
+                      ? 'Pending only'
+                      : statusFilter === 'rejected'
+                        ? 'Rejected only'
+                        : statusFilter === 'reversed'
+                          ? 'Reversed only'
+                          : 'Confirmed only'}
                     <X className="w-3 h-3 opacity-60" aria-hidden />
                   </button>
                 )}
@@ -481,8 +561,8 @@ export default function ClientPayments() {
           <div
             className={`client-payments-filters-wrap ${
               filtersOpen ? 'client-payments-filters-wrap--open' : ''
-            }`}
-            inert={!filtersOpen}
+            } ${!filtersOpen ? 'pointer-events-none' : ''}`}
+            aria-hidden={!filtersOpen}
           >
             <div
               id="payments-filters-panel"
@@ -492,15 +572,15 @@ export default function ClientPayments() {
               <div className="client-payments-filters__bar">
                 <select
                   value={statusFilter}
-                  onChange={(e) =>
-                    setStatusFilter(e.target.value as 'all' | 'pending' | 'confirmed')
-                  }
+                  onChange={(e) => setStatusFilter(e.target.value as PaymentStatusFilter)}
                   className="client-input client-payments-filters__select"
                   aria-label="Status"
                 >
                   <option value="all">All statuses</option>
                   <option value="pending">Pending</option>
                   <option value="confirmed">Confirmed</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="reversed">Reversed</option>
                 </select>
 
                 <span className="client-payments-filters__sep" aria-hidden />
@@ -659,23 +739,29 @@ export default function ClientPayments() {
                 </thead>
                 <tbody>
                   {paginatedPayments.map((payment) => (
-                    <Fragment key={payment.id}>
                       <tr
-                        className={`${payment.status === 'pending' ? 'payment-row--pending' : ''} ${
-                          inlineConfirmId !== payment.id ? 'cursor-pointer' : ''
+                        key={payment.id}
+                        className={`cursor-pointer ${payment.status === 'pending' ? 'payment-row--pending' : ''} ${
+                          payment.status === 'reversed' || payment.status === 'rejected' ? 'opacity-70' : ''
                         }`}
-                        onClick={() => {
-                          if (inlineConfirmId !== payment.id) handleViewPaymentDetail(payment)
-                        }}
+                        onClick={() => handleViewPaymentDetail(payment)}
                       >
-                        <ClientListTd variant="primary" className="font-semibold">
+                        <ClientListTd
+                          variant="primary"
+                          className={`font-semibold ${payment.status === 'reversed' ? 'line-through' : ''}`}
+                        >
                           {payment.invoice_number}
                         </ClientListTd>
                         <ClientListTd variant="meta" className="truncate">
                           <span className="client-list-meta-short">{payment.broker_name}</span>
                           <span className="client-list-meta-full">{payment.broker_name}</span>
                         </ClientListTd>
-                        <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
+                        <ClientListTd
+                          variant="amount"
+                          className={`text-right font-medium tabular-nums ${
+                            payment.status === 'reversed' ? 'line-through' : ''
+                          }`}
+                        >
                           {formatCurrency(payment.amount)}
                         </ClientListTd>
                         <ClientListTd variant="desktop" label="Payment Date" style={{ color: c.secondary }}>
@@ -688,22 +774,52 @@ export default function ClientPayments() {
                           {METHOD_LABELS[payment.payment_method] || payment.payment_method}
                         </ClientListTd>
                         <ClientListTd variant="desktop" label="Status" className="text-center">
-                          {getPaymentStatusPill(payment.status)}
+                          {getPaymentStatusPill(payment.status, payment)}
                         </ClientListTd>
                         <ClientListTd variant="actions" className="text-center">
-                          <div className="inline-flex items-center justify-center gap-1">
-                            {payment.status === 'pending' && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  openInlineConfirm(payment)
-                                }}
-                                className="dashboard-btn-primary dashboard-btn-compact inline-flex items-center"
-                              >
-                                <CheckCircle className="w-3 h-3 mr-1" />
-                                Confirm
-                              </button>
+                          <div className="inline-flex items-center justify-center gap-1 relative">
+                            {payment.status === 'confirmed' && capabilities.canCorrectPayments && (
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setActionsMenuId((id) => (id === payment.id ? null : payment.id))
+                                  }}
+                                  className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
+                                  style={{ color: c.secondary }}
+                                  title="Payment actions"
+                                  aria-label="Payment actions"
+                                >
+                                  <MoreVertical className="w-4 h-4" />
+                                </button>
+                                {actionsMenuId === payment.id && (
+                                  <div
+                                    className="absolute right-0 top-full mt-1 z-20 min-w-[160px] rounded-lg border shadow-lg py-1 text-left"
+                                    style={{ borderColor: c.border, backgroundColor: c.card }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <button
+                                      type="button"
+                                      className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50 flex items-center gap-2"
+                                      style={{ color: c.primary }}
+                                      onClick={() => openMoveModal(payment)}
+                                    >
+                                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                                      Move funds
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50 flex items-center gap-2"
+                                      style={{ color: c.error }}
+                                      onClick={() => openUnprocessModal(payment)}
+                                    >
+                                      <Undo2 className="w-3.5 h-3.5" />
+                                      Unprocess
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             )}
                             <button
                               type="button"
@@ -720,118 +836,6 @@ export default function ClientPayments() {
                           </div>
                         </ClientListTd>
                       </tr>
-                      {inlineConfirmId === payment.id && (
-                        <tr className="payment-row-confirm">
-                          <td colSpan={8}>
-                            <div
-                              className="payment-inline-confirm p-3 rounded-lg border"
-                              style={{ borderColor: c.border, backgroundColor: c.surface }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <p className="text-sm font-semibold mb-2" style={{ color: c.primary }}>
-                                Confirm {formatCurrency(payment.amount)} on {payment.invoice_number}
-                              </p>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-2">
-                                <div>
-                                  <label className="client-label" htmlFor={`confirm-method-${payment.id}`}>
-                                    Method
-                                  </label>
-                                  <select
-                                    id={`confirm-method-${payment.id}`}
-                                    value={confirmPaymentData.payment_method}
-                                    onChange={(e) =>
-                                      setConfirmPaymentData({
-                                        ...confirmPaymentData,
-                                        payment_method: e.target.value as typeof confirmPaymentData.payment_method,
-                                      })
-                                    }
-                                    className="client-input w-full"
-                                    style={inputCompactStyle}
-                                  >
-                                    <option value="check">Check</option>
-                                    <option value="wire">Wire</option>
-                                    <option value="ach">ACH</option>
-                                    <option value="credit_card">Card</option>
-                                  </select>
-                                </div>
-                                <div>
-                                  <label className="client-label" htmlFor={`confirm-ref-${payment.id}`}>
-                                    Reference
-                                  </label>
-                                  <input
-                                    id={`confirm-ref-${payment.id}`}
-                                    type="text"
-                                    value={confirmPaymentData.payment_reference}
-                                    onChange={(e) =>
-                                      setConfirmPaymentData({
-                                        ...confirmPaymentData,
-                                        payment_reference: e.target.value,
-                                      })
-                                    }
-                                    className="client-input w-full"
-                                    style={inputCompactStyle}
-                                    placeholder="Check #, wire ref…"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="client-label" htmlFor={`confirm-received-${payment.id}`}>
-                                    Received date
-                                  </label>
-                                  <input
-                                    id={`confirm-received-${payment.id}`}
-                                    type="date"
-                                    value={confirmPaymentData.received_date}
-                                    onChange={(e) =>
-                                      setConfirmPaymentData({
-                                        ...confirmPaymentData,
-                                        received_date: e.target.value,
-                                      })
-                                    }
-                                    className="client-input w-full"
-                                    style={inputCompactStyle}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="client-label" htmlFor={`confirm-notes-${payment.id}`}>
-                                    Note
-                                  </label>
-                                  <input
-                                    id={`confirm-notes-${payment.id}`}
-                                    type="text"
-                                    value={confirmPaymentData.notes}
-                                    onChange={(e) =>
-                                      setConfirmPaymentData({
-                                        ...confirmPaymentData,
-                                        notes: e.target.value,
-                                      })
-                                    }
-                                    className="client-input w-full"
-                                    style={inputCompactStyle}
-                                  />
-                                </div>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleConfirmPaymentSubmit(payment.id)}
-                                  className="dashboard-btn-primary dashboard-btn-compact"
-                                >
-                                  <CheckCircle className="w-3.5 h-3.5" />
-                                  Confirm payment
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setInlineConfirmId(null)}
-                                  className="dashboard-btn-secondary dashboard-btn-compact"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -954,7 +958,7 @@ export default function ClientPayments() {
                   <label className="text-sm font-medium" style={{ color: c.secondary }}>
                     Status
                   </label>
-                  <div className="mt-1">{getPaymentStatusPill(selectedPayment.status)}</div>
+                  <div className="mt-1">{getPaymentStatusPill(selectedPayment.status, selectedPayment)}</div>
                 </div>
                 <div>
                   <label className="text-sm font-medium" style={{ color: c.secondary }}>
@@ -1012,6 +1016,34 @@ export default function ClientPayments() {
                 )}
               </div>
 
+              {selectedPayment.reversal_reason && (
+                <div>
+                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
+                    Reversal reason
+                  </label>
+                  <p
+                    className="text-sm mt-1 p-3 rounded-lg"
+                    style={{ color: c.primary, backgroundColor: c.surface }}
+                  >
+                    {selectedPayment.reversal_reason}
+                  </p>
+                </div>
+              )}
+
+              {selectedPayment.rejection_reason && (
+                <div>
+                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
+                    Rejection reason
+                  </label>
+                  <p
+                    className="text-sm mt-1 p-3 rounded-lg"
+                    style={{ color: c.primary, backgroundColor: c.surface }}
+                  >
+                    {selectedPayment.rejection_reason}
+                  </p>
+                </div>
+              )}
+
               {selectedPayment.notes && (
                 <div>
                   <label className="text-sm font-medium" style={{ color: c.secondary }}>
@@ -1027,18 +1059,6 @@ export default function ClientPayments() {
               )}
 
               <div className="flex justify-end gap-2 pt-4 border-t" style={{ borderColor: c.border }}>
-                {selectedPayment.status === 'pending' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowPaymentDetailModal(false)
-                      openInlineConfirm(selectedPayment)
-                    }}
-                    className="dashboard-btn-primary"
-                  >
-                    Confirm payment
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -1053,6 +1073,31 @@ export default function ClientPayments() {
             </div>
           </div>
         </div>
+      )}
+
+      {moveTarget && (
+        <MoveFundsModal
+          payment={moveTarget}
+          sourceInvoice={getInvoiceById(moveTarget.invoice_id)}
+          postableInvoices={postableInvoices}
+          targetInvoiceId={moveTargetInvoiceId}
+          reason={moveReason}
+          onTargetChange={setMoveTargetInvoiceId}
+          onReasonChange={setMoveReason}
+          onClose={() => setMoveTarget(null)}
+          onConfirm={handleMoveSubmit}
+        />
+      )}
+
+      {unprocessTarget && (
+        <UnprocessPaymentModal
+          payment={unprocessTarget}
+          sourceInvoice={getInvoiceById(unprocessTarget.invoice_id)}
+          reason={unprocessReason}
+          onReasonChange={setUnprocessReason}
+          onClose={() => setUnprocessTarget(null)}
+          onConfirm={handleUnprocessSubmit}
+        />
       )}
     </ClientLayout>
   )

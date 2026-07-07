@@ -1,10 +1,11 @@
+import type { Session } from '@supabase/supabase-js'
 import { getSupabase, isSupabaseConfigured } from '../../lib/supabase'
-import { hydrateInvoices } from '../../data/mockInvoices'
-import { hydrateBatches } from '../../data/mockBatches'
-import { hydratePayments } from '../../data/mockPayments'
+import { hydrateInvoices, clearInvoices } from '../../data/mockInvoices'
+import { hydrateBatches, clearBatches } from '../../data/mockBatches'
+import { hydratePayments, clearPayments } from '../../data/mockPayments'
 import { hydrateBrokers } from '../../data/mockBrokers'
-import { hydrateNotifications } from '../../data/mockNotifications'
-import { hydrateClientDocuments } from '../../data/mockClientDocuments'
+import { hydrateNotifications, clearNotifications } from '../../data/mockNotifications'
+import { hydrateClientDocuments, clearClientDocuments } from '../../data/mockClientDocuments'
 import { registerClientDocumentStoragePath } from '../clientDocumentService'
 import {
   batchRowToBatch,
@@ -23,21 +24,69 @@ import {
   type ClientDocumentRow,
   type NotificationRow,
 } from './platformMappers'
-import { hydrateClientRegistry } from '../clientRegistry'
+import { hydrateClientRegistry, resetClientRegistryCache, getClientById } from '../clientRegistry'
+import { restoreClientDraftBatches } from '../clientBatchDraftService'
+import { clearClientBills, hydrateClientBillsFromSupabase, refreshOverdueBillStatuses } from '../arBillingService'
+import { hydrateAdminNotifications } from '../adminNotificationService'
+import { loadArPolicy, applyArPolicy } from '../platformSettingsService'
+import { resolveSession } from '../sessionService'
 
-let hydratePromise: Promise<void> | null = null
+export class HydrationError extends Error {
+  constructor(
+    message: string,
+    public readonly details?: string[]
+  ) {
+    super(message)
+    this.name = 'HydrationError'
+  }
+}
 
-/** Load all platform data from Supabase into in-memory stores. */
-export async function hydrateAllStores(): Promise<void> {
-  if (hydratePromise) return hydratePromise
+let lastHydratedPrincipal: 'admin' | 'client' | 'none' | null = null
+let lastHydratedClientId: string | null = null
 
-  hydratePromise = (async () => {
-    await hydrateClientRegistry()
+/** Clear in-memory tenant stores (on sign-out or principal change). */
+export function clearTenantStores(): void {
+  clearInvoices()
+  clearBatches()
+  clearPayments()
+  clearNotifications()
+  clearClientDocuments()
+  clearClientBills()
+  resetClientRegistryCache()
+  lastHydratedPrincipal = null
+  lastHydratedClientId = null
+}
 
-    if (!isSupabaseConfigured()) return
+/** Load platform data scoped to the authenticated principal. */
+export async function hydrateStoresForSession(session: Session | null): Promise<void> {
+  if (!isSupabaseConfigured()) {
+    throw new HydrationError('Supabase is required but not configured.')
+  }
 
-    const supabase = getSupabase()
-    if (!supabase) return
+  const supabase = getSupabase()
+  if (!supabase) {
+    throw new HydrationError('Supabase client could not be initialized.')
+  }
+
+  const resolved = resolveSession(session)
+  const { principal, clientId } = resolved
+
+  if (principal === lastHydratedPrincipal && clientId === lastHydratedClientId) {
+    return
+  }
+
+  clearTenantStores()
+
+  if (principal === 'none') {
+    lastHydratedPrincipal = 'none'
+    lastHydratedClientId = null
+    return
+  }
+
+  const errors: string[] = []
+
+  if (principal === 'admin') {
+    await hydrateClientRegistry({ scope: 'admin' })
 
     const [
       invoicesRes,
@@ -45,7 +94,6 @@ export async function hydrateAllStores(): Promise<void> {
       paymentsRes,
       brokersRes,
       notificationsRes,
-      auditRes,
       documentsRes,
     ] = await Promise.all([
       supabase.from('invoices').select('*').order('created_at', { ascending: false }),
@@ -53,45 +101,173 @@ export async function hydrateAllStores(): Promise<void> {
       supabase.from('payments').select('*').order('received_date', { ascending: false }),
       supabase.from('brokers').select('*').order('name', { ascending: true }),
       supabase.from('notifications').select('*').order('timestamp', { ascending: false }),
-      supabase.from('audit_logs').select('*').order('timestamp', { ascending: false }).limit(10000),
       supabase.from('client_documents').select('*').order('uploaded_at', { ascending: false }),
     ])
 
-    if (!invoicesRes.error && invoicesRes.data) {
+    if (invoicesRes.error) errors.push(`invoices: ${invoicesRes.error.message}`)
+    else if (invoicesRes.data) {
       hydrateInvoices((invoicesRes.data as InvoiceRow[]).map(invoiceRowToInvoice))
     }
-    if (!batchesRes.error && batchesRes.data) {
+
+    if (batchesRes.error) errors.push(`batches: ${batchesRes.error.message}`)
+    else if (batchesRes.data) {
       hydrateBatches((batchesRes.data as BatchRow[]).map(batchRowToBatch))
     }
-    if (!paymentsRes.error && paymentsRes.data) {
+
+    if (paymentsRes.error) errors.push(`payments: ${paymentsRes.error.message}`)
+    else if (paymentsRes.data) {
       hydratePayments((paymentsRes.data as PaymentRow[]).map(paymentRowToPayment))
     }
-    if (!brokersRes.error && brokersRes.data) {
+
+    if (brokersRes.error) errors.push(`brokers: ${brokersRes.error.message}`)
+    else if (brokersRes.data) {
       hydrateBrokers((brokersRes.data as BrokerRow[]).map(brokerRowToBroker))
     }
-    if (!notificationsRes.error && notificationsRes.data) {
+
+    if (notificationsRes.error) errors.push(`notifications: ${notificationsRes.error.message}`)
+    else if (notificationsRes.data) {
       hydrateNotifications(
         (notificationsRes.data as NotificationRow[]).map(notificationRowToNotification)
       )
     }
-    if (!auditRes.error && auditRes.data) {
-      const { setAuditLogsFromHydrate } = await import('../../utils/auditLogger')
-      setAuditLogsFromHydrate((auditRes.data as AuditLogRow[]).map(auditLogRowToAuditLog))
-    }
-    if (!documentsRes.error && documentsRes.data) {
+
+    if (documentsRes.error) errors.push(`client_documents: ${documentsRes.error.message}`)
+    else if (documentsRes.data) {
       const docs = (documentsRes.data as ClientDocumentRow[]).map(clientDocumentRowToClientDocument)
       hydrateClientDocuments(docs)
       for (const row of documentsRes.data as ClientDocumentRow[]) {
         if (row.storage_path) registerClientDocumentStoragePath(row.id, row.storage_path)
       }
     }
-  })()
 
-  try {
-    await hydratePromise
-  } finally {
-    hydratePromise = null
+    try {
+      await hydrateClientBillsFromSupabase()
+      refreshOverdueBillStatuses()
+    } catch (err) {
+      errors.push(`client_bills: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      await hydrateAdminNotifications()
+    } catch (err) {
+      errors.push(`admin_notifications: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      const policy = await loadArPolicy()
+      applyArPolicy(policy)
+    } catch (err) {
+      errors.push(`ar_policy: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  } else if (principal === 'client' && clientId) {
+    await hydrateClientRegistry({ scope: 'client', clientId })
+
+    const [
+      invoicesRes,
+      batchesRes,
+      paymentsRes,
+      brokersRes,
+      notificationsRes,
+      documentsRes,
+    ] = await Promise.all([
+      supabase.from('invoices').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
+      supabase.from('batches').select('*').eq('client_id', clientId).order('submitted_at', { ascending: false }),
+      supabase.from('payments').select('*').eq('client_id', clientId).order('received_date', { ascending: false }),
+      supabase.from('brokers').select('*').order('name', { ascending: true }),
+      supabase.from('notifications').select('*').eq('client_id', clientId).order('timestamp', { ascending: false }),
+      supabase.from('client_documents').select('*').eq('client_id', clientId).order('uploaded_at', { ascending: false }),
+    ])
+
+    if (invoicesRes.error) errors.push(`invoices: ${invoicesRes.error.message}`)
+    else if (invoicesRes.data) {
+      hydrateInvoices((invoicesRes.data as InvoiceRow[]).map(invoiceRowToInvoice))
+    }
+
+    if (batchesRes.error) errors.push(`batches: ${batchesRes.error.message}`)
+    else if (batchesRes.data) {
+      hydrateBatches((batchesRes.data as BatchRow[]).map(batchRowToBatch))
+    }
+
+    if (paymentsRes.error) errors.push(`payments: ${paymentsRes.error.message}`)
+    else if (paymentsRes.data) {
+      hydratePayments((paymentsRes.data as PaymentRow[]).map(paymentRowToPayment))
+    }
+
+    if (brokersRes.error) errors.push(`brokers: ${brokersRes.error.message}`)
+    else if (brokersRes.data) {
+      hydrateBrokers((brokersRes.data as BrokerRow[]).map(brokerRowToBroker))
+    }
+
+    if (notificationsRes.error) errors.push(`notifications: ${notificationsRes.error.message}`)
+    else if (notificationsRes.data) {
+      hydrateNotifications(
+        (notificationsRes.data as NotificationRow[]).map(notificationRowToNotification)
+      )
+    }
+
+    if (documentsRes.error) errors.push(`client_documents: ${documentsRes.error.message}`)
+    else if (documentsRes.data) {
+      const docs = (documentsRes.data as ClientDocumentRow[]).map(clientDocumentRowToClientDocument)
+      hydrateClientDocuments(docs)
+      for (const row of documentsRes.data as ClientDocumentRow[]) {
+        if (row.storage_path) registerClientDocumentStoragePath(row.id, row.storage_path)
+      }
+    }
+
+    try {
+      await hydrateClientBillsFromSupabase(clientId)
+      refreshOverdueBillStatuses()
+    } catch (err) {
+      errors.push(`client_bills: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      const client = getClientById(clientId)
+      await restoreClientDraftBatches(clientId, client?.name ?? 'Client')
+    } catch (err) {
+      errors.push(`draft_batches: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
+
+  lastHydratedPrincipal = principal
+  lastHydratedClientId = clientId
+
+  if (errors.length > 0) {
+    throw new HydrationError('Some data failed to load.', errors)
+  }
+}
+
+/** Lazy-load audit logs when the Audit page opens (not during boot hydration). */
+export async function hydrateAuditLogsFromSupabase(): Promise<void> {
+  if (!isSupabaseConfigured()) {
+    throw new HydrationError('Supabase is required but not configured.')
+  }
+
+  const supabase = getSupabase()
+  if (!supabase) {
+    throw new HydrationError('Supabase client could not be initialized.')
+  }
+
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('*')
+    .order('timestamp', { ascending: false })
+    .limit(10000)
+
+  if (error) {
+    throw new HydrationError(`audit_logs: ${error.message}`)
+  }
+
+  const { setAuditLogsFromHydrate } = await import('../../utils/auditLogger')
+  setAuditLogsFromHydrate((data as AuditLogRow[]).map(auditLogRowToAuditLog))
+}
+
+/** @deprecated Use hydrateStoresForSession after auth resolves. */
+export async function hydrateAllStores(): Promise<void> {
+  const supabase = getSupabase()
+  if (!supabase) return
+  const { data } = await supabase.auth.getSession()
+  await hydrateStoresForSession(data.session)
 }
 
 export const hydrateStores = hydrateAllStores

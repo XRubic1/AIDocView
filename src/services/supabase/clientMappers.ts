@@ -19,10 +19,12 @@ export interface ClientRow {
   account_number: string | null
   routing_number: string | null
   notes: string | null
-  status: 'active' | 'inactive' | 'pending'
+  status: 'active' | 'inactive' | 'pending' | 'suspended'
   service_tier: ServiceTier
   fleet_size: string | null
   batch_code: string | null
+  factoring: boolean
+  ar_rate_override: number | null
   billing: ClientBilling | null
   fee_terms: Client['fee_terms'] | null
   created_at?: string
@@ -52,6 +54,8 @@ export function clientRowToClient(row: ClientRow): Client {
     service_tier: row.service_tier,
     fleet_size: row.fleet_size ?? undefined,
     batch_code: row.batch_code ?? undefined,
+    factoring: row.factoring ?? false,
+    ar_rate_override: row.ar_rate_override ?? undefined,
     billing: row.billing ?? undefined,
     fee_terms: row.fee_terms ?? undefined,
   }
@@ -80,6 +84,8 @@ export function clientToRow(client: Client): ClientRow {
     service_tier: client.service_tier ?? 'self_service',
     fleet_size: client.fleet_size ?? null,
     batch_code: client.batch_code ?? null,
+    factoring: client.factoring ?? false,
+    ar_rate_override: client.ar_rate_override ?? null,
     billing: client.billing ?? null,
     fee_terms: client.fee_terms ?? null,
   }

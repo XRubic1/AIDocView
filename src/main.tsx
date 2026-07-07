@@ -2,24 +2,11 @@ import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
-import { isSupabaseConfigured } from './lib/supabase'
-import { hydrateAllStores } from './services/supabase/hydrateStores'
+import SupabaseConfigGate from './components/SupabaseConfigGate'
+import { AuthProvider } from './context/AuthContext'
 
-async function bootstrap() {
-  if (isSupabaseConfigured()) {
-    await hydrateAllStores()
-  }
-
-  bootstrapTheme()
-
-  ReactDOM.createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  )
-}
-
-function bootstrapTheme() {  try {
+function bootstrapTheme() {
+  try {
     const stored = localStorage.getItem('credyx-theme')
     const resolved =
       stored === 'dark'
@@ -36,4 +23,14 @@ function bootstrapTheme() {  try {
   }
 }
 
-void bootstrap()
+bootstrapTheme()
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <SupabaseConfigGate>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </SupabaseConfigGate>
+  </StrictMode>
+)

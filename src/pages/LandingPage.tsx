@@ -82,7 +82,7 @@ export default function LandingPage() {
             </a>
           </li>
         </ul>
-        <button type="button" className="nav-cta" onClick={() => navigate('/dev/load-review')}>
+        <button type="button" className="nav-cta" onClick={() => navigate('/tour')}>
           Open Engine
         </button>
       </nav>
@@ -108,7 +108,7 @@ export default function LandingPage() {
               <p className="hero-sub">{HERO_SUB_COPY}</p>
 
               <div className="hero-buttons">
-                <button type="button" className="btn-primary" onClick={() => navigate('/dev/load-review')}>
+                <button type="button" className="btn-primary" onClick={() => navigate('/tour')}>
                   <PlusIcon />
                   Open Review Engine
                 </button>

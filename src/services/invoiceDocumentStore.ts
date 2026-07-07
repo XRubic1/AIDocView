@@ -1,4 +1,7 @@
 import type { Invoice } from '../types/invoice'
+import { getInvoiceById } from '../data/mockInvoices'
+import { isSupabaseConfigured } from '../lib/supabase'
+import { saveInvoiceDocuments } from '../services/supabase/tenantPersist'
 
 export interface StoredInvoiceDocument {
   id: string
@@ -10,18 +13,22 @@ export interface StoredInvoiceDocument {
   uploaded_at: string
   uploaded_by: string
   source: 'client' | 'batch'
+  storage_path?: string
 }
 
 const fileStore = new Map<string, File>()
 const documentsByInvoice = new Map<string, StoredInvoiceDocument[]>()
 
-/** Persist uploaded files for an invoice (in-memory mock store). */
-export function addInvoiceDocuments(
+/** Persist uploaded files for an invoice; uploads to batch-documents when Supabase is configured. */
+export async function addInvoiceDocuments(
   invoiceId: string,
   files: File[],
   uploadedBy: string,
   source: StoredInvoiceDocument['source'] = 'client'
-): StoredInvoiceDocument[] {
+): Promise<StoredInvoiceDocument[]> {
+  const invoice = getInvoiceById(invoiceId)
+  if (!invoice) throw new Error('Invoice not found')
+
   const added: StoredInvoiceDocument[] = files.map((file, index) => {
     const doc: StoredInvoiceDocument = {
       id: `inv-doc-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
@@ -39,7 +46,23 @@ export function addInvoiceDocuments(
   })
 
   const existing = documentsByInvoice.get(invoiceId) ?? []
-  documentsByInvoice.set(invoiceId, [...existing, ...added])
+  const merged = [...existing, ...added]
+  documentsByInvoice.set(invoiceId, merged)
+
+  if (isSupabaseConfigured() && invoice.batch_id) {
+    const filesByDocId = new Map<string, File>()
+    added.forEach((doc) => {
+      const file = fileStore.get(doc.id)
+      if (file) filesByDocId.set(doc.id, file)
+    })
+    const docIds = merged.map((d) => d.id)
+    const updated = await saveInvoiceDocuments(invoice, filesByDocId, docIds, merged.length)
+    const paths = updated.document_storage_paths ?? {}
+    merged.forEach((doc) => {
+      if (paths[doc.id]) doc.storage_path = paths[doc.id]
+    })
+  }
+
   return added
 }
 
@@ -79,6 +102,6 @@ export function getInvoiceDocumentsForViewer(invoice: Invoice): InvoiceDocumentV
     id: `doc-${invoice.id}-${idx}`,
     name: `Document ${idx + 1}.pdf`,
     type: 'application/pdf',
-    size: 1024 * 500,
+    size: 0,
   }))
 }

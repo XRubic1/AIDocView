@@ -1,6 +1,5 @@
 import { BUILT_IN_REVIEW_RULES } from '../config/reviewRulesDefaults'
 import {
-  BuiltInReviewRuleOverride,
   CustomReviewRule,
   EffectiveBuiltInRule,
   ReviewRulesStorage,

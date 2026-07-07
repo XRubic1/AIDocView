@@ -7,17 +7,14 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import {
-  fetchClientById,
-  hydrateClientRegistry,
-  CLIENT_ID_STORAGE_KEY,
-} from '../services/clientRegistry'
-import { loadClientTenantData, clearClientTenantCache } from '../data/clientDemoData'
+import { fetchClientById } from '../services/clientRegistry'
+import { clearClientTenantCache } from '../data/clientDemoData'
 import { getPlanForTier } from '../config/servicePlans'
 import { getClientCapabilities } from '../utils/clientCapabilities'
 import type { Client, ServiceTier } from '../types/client'
 import type { ClientCapabilities } from '../utils/clientCapabilities'
 import type { ServicePlan } from '../types/billing'
+import { useAuth } from './AuthContext'
 
 interface ClientPortalContextValue {
   client: Client | null
@@ -32,32 +29,40 @@ interface ClientPortalContextValue {
 const ClientPortalContext = createContext<ClientPortalContextValue | null>(null)
 
 export function ClientPortalProvider({ children }: { children: ReactNode }) {
+  const { resolved, isReady } = useAuth()
   const [client, setClient] = useState<Client | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   const loadClient = useCallback(async () => {
+    if (!isReady) return
+
+    const clientId = resolved.clientId
+    if (!clientId || resolved.principal !== 'client') {
+      setClient(null)
+      setIsLoading(false)
+      return
+    }
+
     try {
-      const id = localStorage.getItem(CLIENT_ID_STORAGE_KEY)
-      if (!id) {
-        setClient(null)
-        return
-      }
-      await hydrateClientRegistry()
-      const loaded = (await fetchClientById(id)) ?? null
+      setIsLoading(true)
+      const loaded = (await fetchClientById(clientId)) ?? null
       setClient(loaded)
-      if (loaded) {
-        await loadClientTenantData(loaded.id, loaded.name)
-      }
     } catch {
       setClient(null)
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [isReady, resolved.clientId, resolved.principal])
 
   useEffect(() => {
-    loadClient()
+    void loadClient()
   }, [loadClient])
+
+  useEffect(() => {
+    if (resolved.principal !== 'client') {
+      clearClientTenantCache()
+    }
+  }, [resolved.principal])
 
   const tier: ServiceTier = client?.service_tier ?? 'self_service'
   const capabilities = useMemo(() => getClientCapabilities(tier), [tier])
@@ -70,10 +75,10 @@ export function ClientPortalProvider({ children }: { children: ReactNode }) {
       tier,
       capabilities,
       plan,
-      isLoading,
-      refreshClient: loadClient,
+      isLoading: !isReady || isLoading,
+      refreshClient: () => void loadClient(),
     }),
-    [client, tier, capabilities, plan, isLoading, loadClient]
+    [client, tier, capabilities, plan, isReady, isLoading, loadClient]
   )
 
   return (

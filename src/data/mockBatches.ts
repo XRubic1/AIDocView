@@ -20,6 +20,10 @@ export function hydrateBatches(items: Batch[]): void {
   batchesData = items
 }
 
+export function clearBatches(): void {
+  batchesData = []
+}
+
 export const getAllBatches = (): Batch[] => {
   return batchesData
 }
@@ -95,14 +99,14 @@ export const updateBatchStatus = (batchId: string, newStatus: Batch['status']): 
 }
 
 // Function to add a new batch
-export const addBatch = (batchData: Omit<Batch, 'id' | 'minutes_since_submitted'>): Batch => {
+export const addBatch = (batchData: Omit<Batch, 'id' | 'minutes_since_submitted'> & { id?: string }): Batch => {
   const submittedDate = new Date(batchData.submitted_at)
   const now = new Date()
   const minutesSinceSubmitted = Math.floor((now.getTime() - submittedDate.getTime()) / (1000 * 60))
 
   const newBatch: Batch = {
     ...batchData,
-    id: `batch-${Date.now()}`,
+    id: batchData.id ?? `batch-${Date.now()}`,
     minutes_since_submitted: minutesSinceSubmitted,
     in_use: false,
   }

@@ -1,4 +1,5 @@
 import { Invoice } from '../types/invoice'
+import type { ClientCapabilities } from './clientCapabilities'
 
 /** Matches admin Settings defaults — overdue after 15 days past expected pay, force close at 90. */
 export const AR_POLICY = {
@@ -44,7 +45,13 @@ export function isOpenArInvoice(invoice: Invoice): boolean {
  * Written-off and force-closed invoices are excluded from open payment posting.
  */
 export function isPostableForPayment(invoice: Invoice): boolean {
-  if (invoice.status === 'force_closed' || invoice.status === 'written_off') return false
+  if (
+    invoice.status === 'force_closed' ||
+    invoice.status === 'written_off' ||
+    invoice.status === 'write_off_pending'
+  ) {
+    return false
+  }
   return invoice.status === 'approved' || invoice.status === 'paid'
 }
 
@@ -65,7 +72,8 @@ export function getDaysOutstanding(invoice: Invoice, asOf: Date = new Date()): n
     invoice.status === 'paid' ||
     invoice.status === 'rejected' ||
     invoice.status === 'force_closed' ||
-    invoice.status === 'written_off'
+    invoice.status === 'written_off' ||
+    invoice.status === 'write_off_pending'
   ) {
     return 0
   }
@@ -98,6 +106,15 @@ export function isForceCloseEligible(invoice: Invoice, asOf: Date = new Date()):
   return getDaysOutstanding(invoice, asOf) >= AR_POLICY.forceCloseDays
 }
 
+/** Managed-tier clients only see force-close when eligible and capability allows. */
+export function isForceCloseApplicable(
+  invoice: Invoice,
+  capabilities: Pick<ClientCapabilities, 'hasForceClose'>,
+  asOf: Date = new Date()
+): boolean {
+  return capabilities.hasForceClose && isForceCloseEligible(invoice, asOf)
+}
+
 export function getOverdueSeverity(daysOutstanding: number, isOverdue: boolean): OverdueSeverity {
   if (!isOverdue) return 'none'
   if (daysOutstanding >= AR_POLICY.forceCloseDays) return 'force_close'
@@ -110,7 +127,8 @@ export function getAgingBucket(invoice: Invoice, daysOutstanding: number): Aging
   if (
     invoice.status === 'paid' ||
     invoice.status === 'force_closed' ||
-    invoice.status === 'written_off'
+    invoice.status === 'written_off' ||
+    invoice.status === 'write_off_pending'
   ) {
     return 'closed'
   }

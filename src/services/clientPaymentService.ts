@@ -4,15 +4,21 @@ import {
   addPayment,
   getConfirmedPaymentTotal,
   getPaymentById,
+  getPaymentsByInvoiceId,
   getPaymentsForClientInvoiceIds,
+  mockPayments,
   updatePayment,
 } from '../data/mockPayments'
 import type { Invoice, InvoiceNote } from '../types/invoice'
 import type { Payment } from '../types/payment'
+import type { ClientCapabilities } from '../utils/clientCapabilities'
+import { getClientCapabilities } from '../utils/clientCapabilities'
+import { getClientById } from './clientRegistry'
 import { buildPaymentConfirmationNote } from './clientInvoiceActions'
 import { logAuditEvent } from '../utils/auditLogger'
 import { isPostableForPayment } from '../utils/invoiceAging'
 import { formatCurrency } from '../utils/format'
+import { notifyAdminPaymentReported } from './adminNotificationService'
 
 export interface PostClientPaymentInput {
   invoiceId: string
@@ -76,18 +82,86 @@ function applyPaymentToInvoice(
 }
 
 /**
- * Post a broker payment against an invoice — creates payment row and updates invoice.
- * Supports approved (open/short), paid-in-full (additional remittance e.g. lumper), and variance routing.
- * Blocked when invoice is written off or force closed.
+ * Post a broker payment against an invoice — client posts create pending payments.
  */
 export function postClientPayment(
   input: PostClientPaymentInput,
-  authorName: string
+  authorName: string,
+  capabilities?: Pick<ClientCapabilities, 'canPostPayment'>
+): PostPaymentResult | undefined {
+  const invoice = getInvoiceById(input.invoiceId)
+  if (!invoice || !isPostableForPayment(invoice)) return undefined
+
+  const caps = getClientCapabilities(getClientById(invoice.client_id)?.service_tier)
+  const canPost = capabilities?.canPostPayment ?? caps.canPostPayment
+  if (!canPost) return undefined
+  if (getPaymentsByInvoiceId(invoice.id).some((p) => p.status === 'pending')) return undefined
+  if (!Number.isFinite(input.amount) || input.amount <= 0) return undefined
+  if (!input.paymentDate || !input.receivedDate) return undefined
+
+  const pendingNote: InvoiceNote = {
+    id: `note-pending-${Date.now()}`,
+    note: `Payment of ${formatCurrency(input.amount)} reported, awaiting confirmation.`,
+    created_by: authorName,
+    created_at: new Date().toISOString(),
+    type: 'client_note',
+    visibility: 'client',
+  }
+
+  const payment = addPayment({
+    invoice_id: invoice.id,
+    invoice_number: invoice.invoice_number,
+    broker_name: invoice.broker_name,
+    amount: input.amount,
+    payment_date: input.paymentDate,
+    received_date: input.receivedDate,
+    payment_method: input.paymentMethod,
+    payment_reference: input.paymentReference?.trim() || undefined,
+    status: 'pending',
+    posted_source: 'client',
+    posted_by: authorName,
+    notes: input.notes?.trim() || undefined,
+    batch_id: invoice.batch_id,
+    batch_number: invoice.batch_number,
+    load_number: invoice.load_number,
+  })
+
+  const updated = updateInvoice(invoice.id, {
+    notes_history: [...(invoice.notes_history || []), pendingNote],
+    updated_at: new Date().toISOString(),
+  })
+  if (!updated) return undefined
+
+  notifyAdminPaymentReported({
+    clientName: invoice.client_name,
+    invoiceNumber: invoice.invoice_number,
+    amount: input.amount,
+  })
+
+  logAuditEvent(
+    'payment_received',
+    'invoice',
+    updated.id,
+    updated.invoice_number,
+    `${authorName} reported ${formatCurrency(input.amount)} on ${updated.invoice_number} (pending)`,
+    'client-portal',
+    authorName,
+    'Client',
+    undefined,
+    { payment_id: payment.id, status: 'pending' }
+  )
+
+  return { payment, invoice: updated, variance: 'full' }
+}
+
+/** Admin posts a confirmed payment directly. */
+export function postAdminPayment(
+  input: PostClientPaymentInput,
+  adminName: string
 ): PostPaymentResult | undefined {
   const invoice = getInvoiceById(input.invoiceId)
   if (!invoice || !isPostableForPayment(invoice)) return undefined
   if (!Number.isFinite(input.amount) || input.amount <= 0) return undefined
-  if (!input.paymentDate || !input.receivedDate) return undefined
 
   const payment = addPayment({
     invoice_id: invoice.id,
@@ -99,6 +173,10 @@ export function postClientPayment(
     payment_method: input.paymentMethod,
     payment_reference: input.paymentReference?.trim() || undefined,
     status: 'confirmed',
+    posted_source: 'credyx',
+    posted_by: adminName,
+    confirmed_by: adminName,
+    confirmed_at: new Date().toISOString(),
     notes: input.notes?.trim() || undefined,
     batch_id: invoice.batch_id,
     batch_number: invoice.batch_number,
@@ -114,26 +192,8 @@ export function postClientPayment(
     ? `Posted ${formatCurrency(input.amount)} via ${input.paymentMethod.toUpperCase()}. ${input.notes.trim()}`
     : `Posted ${formatCurrency(input.amount)} via ${input.paymentMethod.toUpperCase()}`
 
-  const updated = applyPaymentToInvoice(invoice, totalReceived, authorName, noteSuffix)
+  const updated = applyPaymentToInvoice(invoice, totalReceived, adminName, noteSuffix)
   if (!updated) return undefined
-
-  logAuditEvent(
-    'payment_received',
-    'invoice',
-    updated.id,
-    updated.invoice_number,
-    `${authorName} posted ${formatCurrency(input.amount)} on ${updated.invoice_number}`,
-    'client-portal',
-    authorName,
-    'Client',
-    undefined,
-    {
-      payment_id: payment.id,
-      variance,
-      total_received: totalReceived,
-      invoice_amount: invoice.amount,
-    }
-  )
 
   return { payment, invoice: updated, variance }
 }
@@ -193,13 +253,17 @@ export function createAdHocInvoiceForPayment(
 export function postClientPaymentOnNewInvoice(
   invoiceInput: CreateAdHocInvoiceInput,
   paymentInput: Omit<PostClientPaymentInput, 'invoiceId'>,
-  authorName: string
+  authorName: string,
+  capabilities?: Pick<ClientCapabilities, 'canPostPayment' | 'canCreateAdHocInvoice'>
 ): PostPaymentResult | undefined {
+  const caps = getClientCapabilities(getClientById(invoiceInput.clientId)?.service_tier)
+  if (!(capabilities?.canCreateAdHocInvoice ?? caps.canCreateAdHocInvoice)) return undefined
+  if (!(capabilities?.canPostPayment ?? caps.canPostPayment)) return undefined
   if (!invoiceInput.invoiceNumber.trim() || !invoiceInput.brokerName.trim()) return undefined
   if (!Number.isFinite(invoiceInput.amount) || invoiceInput.amount <= 0) return undefined
 
   const invoice = createAdHocInvoiceForPayment(invoiceInput, authorName)
-  return postClientPayment({ ...paymentInput, invoiceId: invoice.id }, authorName)
+  return postClientPayment({ ...paymentInput, invoiceId: invoice.id }, authorName, capabilities)
 }
 
 export interface ConfirmClientPaymentInput {
@@ -227,7 +291,8 @@ export interface MarkClientInvoiceAsPaidOptions {
 export function markClientInvoiceAsPaid(
   invoiceId: string,
   authorName: string,
-  options: MarkClientInvoiceAsPaidOptions
+  options: MarkClientInvoiceAsPaidOptions,
+  capabilities?: Pick<ClientCapabilities, 'canPostPayment'>
 ): Invoice | undefined {
   const today = new Date().toISOString().split('T')[0]
   const result = postClientPayment(
@@ -240,7 +305,8 @@ export function markClientInvoiceAsPaid(
       paymentReference: options.paymentReference?.trim() || undefined,
       notes: options.optionalNote?.trim() || undefined,
     },
-    authorName
+    authorName,
+    capabilities
   )
   return result?.invoice
 }
@@ -259,6 +325,8 @@ export function confirmClientPayment(
     payment_reference: input.paymentReference?.trim() || undefined,
     received_date: input.receivedDate,
     notes: input.notes?.trim() || undefined,
+    confirmed_by: authorName,
+    confirmed_at: new Date().toISOString(),
   })
   if (!payment) return undefined
 
@@ -292,4 +360,57 @@ export function confirmClientPayment(
   )
 
   return { payment, invoice: updated }
+}
+
+/** List pending client-reported payments for admin queue. */
+export function listPendingPayments(): Payment[] {
+  return mockPayments.filter((p) => p.status === 'pending')
+}
+
+/** Reject a pending client-reported payment. */
+export function rejectClientPayment(
+  paymentId: string,
+  adminName: string,
+  opts: { reason: string }
+): Payment | undefined {
+  const existing = getPaymentById(paymentId)
+  if (!existing || existing.status !== 'pending') return undefined
+  if (!opts.reason.trim()) return undefined
+
+  const payment = updatePayment(paymentId, {
+    status: 'rejected',
+    rejection_reason: opts.reason.trim(),
+  })
+  if (!payment) return undefined
+
+  const invoice = getInvoiceById(payment.invoice_id)
+  if (invoice) {
+    const rejectNote: InvoiceNote = {
+      id: `note-reject-${Date.now()}`,
+      note: `Payment of ${formatCurrency(payment.amount)} was not confirmed: ${opts.reason.trim()}`,
+      created_by: adminName,
+      created_at: new Date().toISOString(),
+      type: 'client_note',
+      visibility: 'client',
+    }
+    updateInvoice(invoice.id, {
+      notes_history: [...(invoice.notes_history || []), rejectNote],
+      updated_at: new Date().toISOString(),
+    })
+  }
+
+  logAuditEvent(
+    'payment_received',
+    'invoice',
+    payment.invoice_id,
+    payment.invoice_number,
+    `${adminName} rejected ${formatCurrency(payment.amount)} on ${payment.invoice_number}`,
+    'admin-portal',
+    adminName,
+    'Admin',
+    undefined,
+    { action: 'rejected', reason: opts.reason.trim() }
+  )
+
+  return payment
 }

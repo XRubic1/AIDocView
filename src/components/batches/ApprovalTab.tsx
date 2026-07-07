@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useAuth } from '../../context/AuthContext'
+import { getAdminUserDisplayName } from '../../config/adminNav'
 import { formatCurrency } from '../../utils/format'
 import { formatDate } from '../../utils/format'
 import { ArrowLeft, CheckCircle, Download } from 'lucide-react'
@@ -11,6 +13,8 @@ import AccountingModal from './AccountingModal'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 import { sendPaperworkForBatch } from '../../utils/paperworkSender'
 import { logAuditEvent } from '../../utils/auditLogger'
+import { useToast } from '../ui/ToastProvider'
+import Spinner from '../ui/Spinner'
 
 interface ApprovalTabProps {
   batchId: string | null
@@ -23,6 +27,12 @@ export default function ApprovalTab({
   onBatchSelect,
   onBack,
 }: ApprovalTabProps) {
+  const { resolved, session } = useAuth()
+  const { showToast } = useToast()
+  const authUser = resolved.user ?? session?.user ?? null
+  const adminUserId = authUser?.id ?? 'unknown'
+  const adminUserName = getAdminUserDisplayName(authUser?.email ?? null)
+
   const [batches] = useState(() => {
     const allBatches = getAllBatches()
     return allBatches.filter((b) => b.status === 'approval')
@@ -30,6 +40,7 @@ export default function ApprovalTab({
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [approvalNotes, setApprovalNotes] = useState('')
   const [showAccountingModal, setShowAccountingModal] = useState(false)
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false)
 
   // Find the batch - search in all batches, not just filtered ones
   const allBatches = getAllBatches()
@@ -68,84 +79,91 @@ export default function ApprovalTab({
   const allApproved = batchInvoices.every((inv) => inv.status === 'approved')
   const approvedInvoices = batchInvoices.filter((inv) => inv.status === 'approved')
 
-  const handleProcessBatch = () => {
+  const handleProcessBatch = async () => {
+    if (isProcessingBatch) return
     if (!allApproved) {
-      alert('All invoices must be approved before processing the batch.')
+      showToast('All invoices must be approved before processing the batch.', 'error')
       return
     }
-    
+
     if (!batchId || !batch) {
-      alert('Batch not found')
+      showToast('Batch not found', 'error')
       return
     }
 
-    // Log batch processing start
-    logAuditEvent(
-      'batch_status_changed',
-      'batch',
-      batchId,
-      batch.batch_number,
-      `Processing batch ${batch.batch_number} - moving to submitted status`,
-      'user-1', // In real app, get from auth context
-      'Admin User',
-      'Admin',
-      [
+    setIsProcessingBatch(true)
+    try {
+      logAuditEvent(
+        'batch_status_changed',
+        'batch',
+        batchId,
+        batch.batch_number,
+        `Processing batch ${batch.batch_number} - moving to submitted status`,
+        adminUserId,
+        adminUserName,
+        'Admin',
+        [
+          {
+            field: 'status',
+            old_value: 'approval',
+            new_value: 'submitted',
+          },
+        ],
         {
-          field: 'status',
-          old_value: 'approval',
-          new_value: 'submitted',
+          total_invoices: batchInvoices.length,
+          total_amount: batch.total_amount,
         },
-      ],
-      {
-        total_invoices: batchInvoices.length,
-        total_amount: batch.total_amount,
-      },
-      'info',
-      true
-    )
-
-    // Automatically send paperwork for all approved invoices
-    const paperworkResults = sendPaperworkForBatch(
-      approvedInvoices,
-      batch.batch_number,
-      'user-1', // In real app, get from auth context
-      'Admin User',
-      'Admin'
-    )
-
-    // Update batch status to submitted
-    updateBatchStatus(batchId, 'submitted')
-
-    // Show results
-    if (paperworkResults.failed > 0) {
-      alert(
-        `Batch processed successfully!\n\nPaperwork sending results:\n- ${paperworkResults.success} invoices sent successfully\n- ${paperworkResults.failed} invoices failed to send\n\nPlease check the audit logs for details.`
+        'info',
+        true
       )
-    } else {
-      alert(
-        `Batch processed successfully!\n\nPaperwork has been automatically sent to brokers for all ${paperworkResults.success} invoices.`
+
+      const paperworkResults = await sendPaperworkForBatch(
+        approvedInvoices,
+        batch.batch_number,
+        adminUserId,
+        adminUserName,
+        'Admin'
       )
+
+      updateBatchStatus(batchId, 'submitted')
+
+      if (paperworkResults.failed > 0) {
+        showToast(
+          `Batch processed. Paperwork: ${paperworkResults.success} sent, ${paperworkResults.failed} failed — check audit logs.`,
+          'info'
+        )
+      } else {
+        showToast(
+          `Batch processed — paperwork sent for all ${paperworkResults.success} invoices.`,
+          'success'
+        )
+      }
+
+      logAuditEvent(
+        'batch_status_changed',
+        'batch',
+        batchId,
+        batch.batch_number,
+        `Batch ${batch.batch_number} processed and moved to submitted status. Paperwork sent: ${paperworkResults.success} successful, ${paperworkResults.failed} failed`,
+        adminUserId,
+        adminUserName,
+        'Admin',
+        undefined,
+        {
+          total_invoices: batchInvoices.length,
+          paperwork_sent: paperworkResults.success,
+          paperwork_failed: paperworkResults.failed,
+        },
+        paperworkResults.failed > 0 ? 'warning' : 'info',
+        true
+      )
+
+      onBack()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Batch processing failed', 'error')
+    } finally {
+      setIsProcessingBatch(false)
     }
-
-    // Log batch processing completion
-    logAuditEvent(
-      'batch_status_changed',
-      'batch',
-      batchId,
-      batch.batch_number,
-      `Batch ${batch.batch_number} processed and moved to submitted status. Paperwork sent: ${paperworkResults.success} successful, ${paperworkResults.failed} failed`,
-      'user-1',
-      'Admin User',
-      'Admin',
-      undefined,
-      {
-        total_invoices: batchInvoices.length,
-        paperwork_sent: paperworkResults.success,
-        paperwork_failed: paperworkResults.failed,
-      },
-      paperworkResults.failed > 0 ? 'warning' : 'info',
-      true
-    )
   }
 
   return (
@@ -207,18 +225,23 @@ export default function ApprovalTab({
           </button>
           {allApproved && (
             <button
-              onClick={handleProcessBatch}
-              className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white transition-colors"
+              onClick={() => void handleProcessBatch()}
+              disabled={isProcessingBatch}
+              className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               style={{ backgroundColor: '#819291' }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#6b7a7a'
+                if (!isProcessingBatch) e.currentTarget.style.backgroundColor = '#6b7a7a'
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = '#819291'
               }}
             >
-              <CheckCircle className="w-4 h-4" />
-              <span>Process Batch</span>
+              {isProcessingBatch ? (
+                <Spinner size="sm" className="text-white" />
+              ) : (
+                <CheckCircle className="w-4 h-4" />
+              )}
+              <span>{isProcessingBatch ? 'Processing…' : 'Process Batch'}</span>
             </button>
           )}
         </div>

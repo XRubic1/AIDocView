@@ -23,6 +23,7 @@ import {
   DocumentCategory,
   getCategoryLabel,
 } from '../utils/documentCategories'
+import { useToast } from '../components/ui/ToastProvider'
 
 interface TestDocument {
   id: string
@@ -56,6 +57,7 @@ function CategoryBadge({ category }: { category: DocumentCategory }) {
 }
 
 export default function DocumentReviewTest() {
+  const { showToast } = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [documents, setDocuments] = useState<TestDocument[]>([])
   const [isClassifying, setIsClassifying] = useState(false)
@@ -100,7 +102,7 @@ export default function DocumentReviewTest() {
   const classifyAll = useCallback(
     async (docs: TestDocument[]) => {
       if (!isAIReviewEnabled()) {
-        alert('Add VITE_OPENAI_API_KEY to your .env file first.')
+        showToast('Add VITE_OPENAI_API_KEY to your .env file first.', 'error')
         return
       }
 

@@ -27,9 +27,7 @@ export default function BatchStatusWidget({ clientId, compact = false }: BatchSt
       (b) => b.status === 'verification' || b.status === 'approval' || b.status === 'processing'
     ).length
 
-    const processedBatches = clientBatches.filter(
-      (b) => b.status === 'submitted' || b.status === 'approved'
-    ).length
+    const processedBatches = clientBatches.filter((b) => b.status === 'submitted').length
 
     const clientInvoices = clientId
       ? allInvoices.filter((inv) => inv.client_id === clientId)

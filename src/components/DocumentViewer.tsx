@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, ChevronLeft, ChevronRight, Download, Printer, FileText } from 'lucide-react'
 import jsPDF from 'jspdf'
+import { useToast } from './ui/ToastProvider'
 
 interface Document {
   id: string
@@ -39,6 +40,7 @@ export default function DocumentViewer({
   lockedDocIds = [],
   moveDisabled = false,
 }: DocumentViewerProps) {
+  const { showToast } = useToast()
   const [currentIndex, setCurrentIndex] = useState(0)
   const [documentUrls, setDocumentUrls] = useState<string[]>([])
 
@@ -220,7 +222,10 @@ export default function DocumentViewer({
       }
     } else {
       // For DOC/DOCX, show message that conversion is needed
-      alert('Please download the document and convert it to PDF using a document converter, or contact support for assistance.')
+      showToast(
+        'Please download the document and convert it to PDF using a document converter, or contact support for assistance.',
+        'info'
+      )
     }
   }
 

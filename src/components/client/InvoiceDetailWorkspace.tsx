@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Invoice, InvoiceNote } from '../../types/invoice'
 import { formatCurrency, formatDate, formatDateTime } from '../../utils/format'
 import {
@@ -28,6 +28,13 @@ import ShortPaymentCloseModal from './ShortPaymentCloseModal'
 import OverpaymentAcceptModal from './OverpaymentAcceptModal'
 import { enrichInvoice, getOverdueSeverityLabel, isOpenArInvoice, AR_POLICY, getDaysOutstandingColor } from '../../utils/invoiceAging'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { useClientCapabilities } from '../../hooks/useClientCapabilities'
+import {
+  clientVisibleNotes,
+  mapClientVisibleInvoices,
+  toClientVisibleInvoice,
+  toClientVisibleStatus,
+} from '../../utils/clientInvoiceView'
 
 const NOTE_TYPE_LABELS: Record<string, string> = {
   note: 'Note',
@@ -49,8 +56,9 @@ function inputCompactStyle(card: string) {
 }
 
 function getInvoiceNoteEntries(invoice: Invoice): InvoiceNote[] {
-  if (invoice.notes_history?.length) {
-    return [...invoice.notes_history].sort(
+  const visible = clientVisibleNotes(invoice.notes_history)
+  if (visible.length) {
+    return [...visible].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
   }
@@ -136,7 +144,8 @@ type NoticeType = 'hold' | 'force_close' | 'overdue' | 'dispute'
 function getInvoiceNotice(
   invoice: Invoice,
   enriched: ReturnType<typeof enrichInvoice>,
-  openDisputeCount: number
+  openDisputeCount: number,
+  hasForceClose: boolean
 ): { type: NoticeType; message: string } | null {
   if (invoice.status === 'hold') {
     return {
@@ -146,7 +155,7 @@ function getInvoiceNotice(
         : 'This invoice is currently on hold.',
     }
   }
-  if (enriched.isForceCloseEligible) {
+  if (hasForceClose && enriched.isForceCloseEligible) {
     return {
       type: 'force_close',
       message: `${enriched.daysOutstanding} days past expected pay — eligible for force close (${AR_POLICY.forceCloseDays}+ days).`,
@@ -319,10 +328,13 @@ function InvoiceDetailPane({
   enableClientActions = true,
 }: InvoiceDetailPaneProps) {
   const c = useClientTheme()
-  const enriched = enrichInvoice(invoice)
-  const shortPayment = payments.length > 0 ? buildShortPaymentRecord(invoice, payments) : null
-  const overpayment = payments.length > 0 ? buildOverpaymentRecord(invoice, payments) : null
+  const { capabilities } = useClientCapabilities()
+  const visibleInvoice = toClientVisibleInvoice(invoice)
+  const enriched = enrichInvoice(visibleInvoice)
+  const shortPayment = payments.length > 0 ? buildShortPaymentRecord(visibleInvoice, payments) : null
+  const overpayment = payments.length > 0 ? buildOverpaymentRecord(visibleInvoice, payments) : null
   const canWriteOff =
+    capabilities.canRequestWriteOff &&
     shortPayment?.resolution === 'open' &&
     canCloseShortPaymentAsUncollectable(invoice) &&
     !!onCloseAsUncollectable
@@ -330,8 +342,8 @@ function InvoiceDetailPane({
     overpayment?.resolution === 'open' &&
     canAcceptOverpayment(invoice, payments) &&
     !!onAcceptOverpayment
-  const noteEntries = getInvoiceNoteEntries(invoice)
-  const openDisputes = getOpenDisputes(invoice)
+  const noteEntries = getInvoiceNoteEntries(visibleInvoice)
+  const openDisputes = getOpenDisputes(visibleInvoice)
   const [newNote, setNewNote] = useState('')
   const [isAddingNote, setIsAddingNote] = useState(false)
   const [showDisputeModal, setShowDisputeModal] = useState(false)
@@ -355,16 +367,16 @@ function InvoiceDetailPane({
 
   const invoiceDocuments = getInvoiceDocuments(invoice.id)
   const documentCount = Math.max(invoice.documents_count || 0, invoiceDocuments.length)
-  const canMarkAsPaid = enableClientActions && isOpenArInvoice(invoice)
+  const canMarkAsPaid = enableClientActions && capabilities.canRunInvoiceOps && isOpenArInvoice(visibleInvoice)
   const canViewDocuments = documentCount > 0 && !!onViewDocuments
 
-  const notice = getInvoiceNotice(invoice, enriched, openDisputes.length)
+  const notice = getInvoiceNotice(visibleInvoice, enriched, openDisputes.length, capabilities.hasForceClose)
 
   const handleUploadDocuments = async (files: File[]) => {
     if (isUploadingDocs || files.length === 0) return
     setIsUploadingDocs(true)
     try {
-      const updated = uploadClientInvoiceDocuments(invoice.id, files, clientName)
+      const updated = await uploadClientInvoiceDocuments(invoice.id, files, clientName)
       if (!updated) throw new Error('Upload failed')
       setUploadSuccess(
         `${files.length} file${files.length > 1 ? 's' : ''} uploaded — Credyx has been notified.`
@@ -376,9 +388,9 @@ function InvoiceDetailPane({
     }
   }
   const headerMeta = [
-    invoice.broker_name,
-    invoice.load_number ? `Load ${invoice.load_number}` : null,
-    invoice.batch_number ? `Batch ${invoice.batch_number}` : null,
+    visibleInvoice.broker_name,
+    visibleInvoice.load_number ? `Load ${visibleInvoice.load_number}` : null,
+    visibleInvoice.batch_number ? `Batch ${visibleInvoice.batch_number}` : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -517,7 +529,7 @@ function InvoiceDetailPane({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg font-bold leading-tight" style={{ color: c.primary }}>
-                  {invoice.invoice_number}
+                  {visibleInvoice.invoice_number}
                 </h2>
                 {getInvoiceRowStatusBadge(enriched)}
               </div>
@@ -1128,10 +1140,20 @@ export default function InvoiceDetailWorkspace({
   const statusFilter = externalStatusFilter ?? localStatusFilter
   const onStatusFilterChange = externalOnStatusFilterChange ?? setLocalStatusFilter
 
-  if (!isOpen || !selectedInvoice) return null
+  const visibleInvoices = useMemo(() => mapClientVisibleInvoices(invoices), [invoices])
+  const visibleSelected = useMemo(() => {
+    if (!selectedInvoice) return null
+    return (
+      visibleInvoices.find((inv) => inv.id === selectedInvoice.id) ??
+      toClientVisibleInvoice(selectedInvoice)
+    )
+  }, [selectedInvoice, visibleInvoices])
 
-  const filteredList = invoices.filter((invoice) => {
+  if (!isOpen || !visibleSelected) return null
+
+  const filteredList = visibleInvoices.filter((invoice) => {
     const enriched = enrichInvoice(invoice)
+    const displayStatus = toClientVisibleStatus(invoice.status)
     const matchesSearch =
       invoice.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
       invoice.broker_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1140,7 +1162,7 @@ export default function InvoiceDetailWorkspace({
     const matchesStatus =
       !showStatusFilter ||
       statusFilter === 'all' ||
-      (statusFilter === 'overdue' ? enriched.isOverdue : invoice.status === statusFilter)
+      (statusFilter === 'overdue' ? enriched.isOverdue : displayStatus === statusFilter)
     return matchesSearch && matchesStatus
   })
 
@@ -1174,7 +1196,7 @@ export default function InvoiceDetailWorkspace({
       <div className="invoice-workspace invoice-workspace--overlay">
         <div
           className={`invoice-workspace-body ${
-            selectedInvoice && !mobileListMode ? 'invoice-workspace-body--detail-open' : ''
+            visibleSelected && !mobileListMode ? 'invoice-workspace-body--detail-open' : ''
           }`}
         >
           <aside className="invoice-list-panel">
@@ -1219,7 +1241,7 @@ export default function InvoiceDetailWorkspace({
               ) : (
                 filteredList.map((invoice) => {
                   const enriched = enrichInvoice(invoice)
-                  const isActive = selectedInvoice.id === invoice.id
+                  const isActive = visibleSelected.id === invoice.id
                   const isHighlighted = highlightedInvoiceId === invoice.id
                   return (
                     <button
@@ -1271,10 +1293,10 @@ export default function InvoiceDetailWorkspace({
 
           <section className="invoice-detail-panel">
             <InvoiceDetailPane
-              key={selectedInvoice.id}
-              invoice={selectedInvoice}
+              key={visibleSelected.id}
+              invoice={visibleSelected}
               clientName={clientName}
-              onViewDocuments={onViewDocuments ? () => onViewDocuments(selectedInvoice) : undefined}
+              onViewDocuments={onViewDocuments ? () => onViewDocuments(selectedInvoice!) : undefined}
               onBack={() => setMobileListMode(true)}
               onInvoiceUpdated={onInvoiceUpdated}
               onAddNote={onAddNote}

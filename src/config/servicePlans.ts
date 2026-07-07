@@ -23,10 +23,9 @@ export const SERVICE_PLANS: ServicePlan[] = [
     id: 'managed',
     tier: 'managed',
     name: 'Managed',
-    tagline: 'Credyx handles operations — you stay in control',
+    tagline: 'Credyx handles operations — A/R fee based on collected volume',
     app_fee_monthly: 99,
     storage_quota_bytes: 10 * GB,
-    service_fee_monthly: 299,
     features: [
       'Everything in Self-Service portal (view)',
       'Credyx processes batches & collections',

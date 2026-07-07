@@ -2,9 +2,12 @@ import type { PendingBatch } from '../types/admin'
 import type { Client } from '../types/client'
 import type { Invoice } from '../types/invoice'
 
-/** Invoices written off after short pay are fee-exempt; force-closed collection failures still bill. */
+/** Invoices written off after short pay are fee-exempt; write_off_pending stays billable. */
 export function isFeeBillableInvoice(invoice: Pick<Invoice, 'status'>): boolean {
-  return invoice.status !== 'written_off' && invoice.status !== 'rejected'
+  return (
+    invoice.status !== 'written_off' &&
+    invoice.status !== 'rejected'
+  )
 }
 
 export function billableInvoices(invoices: Pick<Invoice, 'amount' | 'status'>[]): typeof invoices {

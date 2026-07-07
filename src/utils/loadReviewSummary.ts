@@ -1,5 +1,5 @@
 import { BatchDocumentReviewResult, DocumentReviewResult } from '../types/documentReview'
-import { ExcelFieldMatch, ExcelMatchResult } from '../types/loadSheet'
+import { ExcelMatchResult } from '../types/loadSheet'
 import {
   bolAuditMeetsDeliveryRequirements,
   isPickupSignatureMessage,
@@ -57,13 +57,6 @@ export function getApprovalGateMessage(
   }
 }
 
-function excelStatusToCheck(status: ExcelFieldMatch['status']): LoadCheckStatus {
-  if (status === 'MATCH') return 'ok'
-  if (status === 'MISMATCH') return 'issue'
-  if (status === 'WARNING') return 'warning'
-  return 'info'
-}
-
 function resolveExcelMatch(
   doc: DocumentReviewResult,
   batch: BatchDocumentReviewResult
@@ -72,10 +65,6 @@ function resolveExcelMatch(
     (v) => v.unit.fileName === doc.fileName
   )?.excelMatch
   return perInvoice ?? batch.excelMatch
-}
-
-function excelField(excel: ExcelMatchResult | undefined, field: string): ExcelFieldMatch | undefined {
-  return excel?.fields.find((row) => row.field === field)
 }
 
 function isFalseBolReferenceMessage(message: string, doc: DocumentReviewResult): boolean {
@@ -179,7 +168,7 @@ export function buildStructuredLoadReview(
 
   const partyMatch =
     hasExcel || excelFileName
-      ? matchBrokerCarrierFromExcel(excelFileName, excelDebtor, docBroker, docCarrier)
+      ? matchBrokerCarrierFromExcel(excelFileName, excelDebtor ?? undefined, docBroker ?? undefined, docCarrier ?? undefined)
       : null
 
   const required: LoadCheckRow[] = []
@@ -360,7 +349,7 @@ export function buildStructuredLoadReview(
         'req_stops',
         CHECK_LABELS.multiStop,
         checkOk(cross.multi_stop_coverage.status) ? 'ok' : 'issue',
-        cross.multi_stop_coverage.details,
+        (cross.multi_stop_coverage.details ?? ''),
         { documentValue: stopsDisplay }
       )
     )
@@ -370,7 +359,7 @@ export function buildStructuredLoadReview(
   if (partyMatch) {
     const carrier = partyMatch.carrier
     required.push(
-      row('req_carrier', CHECK_LABELS.carrier, carrier.status, carrier.summary, {
+      row('req_carrier', CHECK_LABELS.carrier, carrier.status, (carrier.summary ?? ''), {
         excelValue: carrier.excelValue,
         documentValue: carrier.documentValue,
       })

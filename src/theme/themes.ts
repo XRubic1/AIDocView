@@ -126,5 +126,5 @@ export const darkClientTheme = {
   },
 } as const
 
-export type ClientTheme = typeof lightClientTheme
+export type ClientTheme = typeof lightClientTheme | typeof darkClientTheme
 export type ThemeMode = 'light' | 'dark' | 'system'

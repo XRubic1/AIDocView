@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { formatCurrency } from '../../utils/format'
 import { formatDate } from '../../utils/format'
-import { ArrowLeft, Check, X, FileText, Phone, Download, Paperclip, Mail, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Check, X, FileText, Phone, Download, Paperclip, Mail, ChevronDown, ChevronUp } from 'lucide-react'
 import { mockInvoices } from '../../data/mockInvoices'
 import { mockBrokers } from '../../data/mockBrokers'
 import { getClientById } from '../../services/clientRegistry'

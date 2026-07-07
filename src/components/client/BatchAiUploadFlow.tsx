@@ -367,7 +367,7 @@ export default function BatchAiUploadFlow({
     setSubmitting(true)
     setError(null)
     try {
-      const { batchId } = submitAiBatch({
+      const { batchId } = await submitAiBatch({
         clientId,
         clientName,
         drafts: draft.invoices,

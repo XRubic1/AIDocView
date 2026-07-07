@@ -340,7 +340,7 @@ export interface MultiInvoiceValidationOptions {
 export function validateMultiInvoiceCoverage(
   rateConParse: RateConParse | undefined,
   invoiceUnits: InvoiceUnit[],
-  excelAmount?: number | null,
+  _excelAmount?: number | null,
   options?: MultiInvoiceValidationOptions
 ): MultiInvoiceResult {
   const flags: CrossValidationFlag[] = []
@@ -508,7 +508,7 @@ export function validateMultiInvoiceCoverage(
     flags,
     multiLoadUpload,
     distinctLoadNumbers,
-    primaryLoadNumber: options?.primaryLoadNumber ?? rateConParse?.load_number,
+    primaryLoadNumber: (options?.primaryLoadNumber ?? rateConParse?.load_number) ?? undefined,
     primaryAcceptedCount: acceptedCount,
     primaryLoadIncomplete,
   }

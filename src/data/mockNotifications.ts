@@ -8,6 +8,10 @@ export function hydrateNotifications(items: Notification[]): void {
   mockNotifications.push(...items)
 }
 
+export function clearNotifications(): void {
+  mockNotifications.length = 0
+}
+
 /** Add a client notification and persist when Supabase is configured. */
 export function addNotification(
   clientId: string,

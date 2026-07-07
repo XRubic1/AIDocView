@@ -1,122 +1,98 @@
 # Credyx A/R Solutions
 
-Accounts Receivable Management System built with Next.js, TypeScript, and Tailwind CSS.
+Multi-tenant accounts receivable platform — **Vite + React + TypeScript + Supabase**.
 
-## 🚀 Getting Started
+## Getting started
 
 ### Prerequisites
 
-- Node.js 18+ installed
-- npm or yarn package manager
+- Node.js 20+
+- A Supabase project with migrations applied
 
-### Installation
+### Setup
 
-1. Install dependencies:
+1. Copy environment variables:
+
 ```bash
-npm install
+cp .env.example .env
 ```
 
-2. Run the development server:
+2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env`.
+
+3. Install and run:
+
 ```bash
+npm install
 npm run dev
 ```
 
-3. Open [http://localhost:3000](http://localhost:3000) in your browser.
+4. Open [http://localhost:3000](http://localhost:3000).
 
-## 📁 Project Structure
+### Admin bootstrap
 
-```
-.
-├── app/                    # Next.js App Router
-│   ├── components/         # React components
-│   │   ├── dashboard/      # Dashboard-specific components
-│   │   └── ui/             # Reusable UI components
-│   ├── data/               # Mock data and fixtures
-│   ├── types/              # TypeScript type definitions
-│   ├── utils/              # Utility functions
-│   ├── globals.css         # Global styles
-│   ├── layout.tsx          # Root layout
-│   └── page.tsx            # Home page
-├── templates/              # Component templates
-├── public/                 # Static assets
-├── next.config.ts          # Next.js configuration
-├── tailwind.config.ts      # Tailwind CSS configuration
-├── tsconfig.json           # TypeScript configuration
-└── package.json            # Dependencies and scripts
+Admin login uses **Supabase Auth**. The account must have **`app_metadata.role = "admin"`** (not user metadata).
+
+**Option A — Supabase Dashboard (no script)**
+
+1. Open [Supabase Dashboard](https://supabase.com/dashboard) → your project → **Authentication** → **Users**.
+2. Click **Add user** → **Create new user**.
+3. Email: `admin@credyx.net`, set a password, enable **Auto Confirm User**.
+4. Open the new user → **App Metadata** (Raw JSON) and set:
+
+```json
+{ "role": "admin" }
 ```
 
-## 🛠️ Available Scripts
+5. Sign in at `/login` with that email and password.
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
+**Option B — CLI script (recommended)**
 
-## 🎨 Styling
+1. Copy the **service_role** key from **Project Settings → API** into `.env` as `SUPABASE_SERVICE_ROLE_KEY` (never commit this).
+2. Run:
 
-This project uses:
-- **Tailwind CSS** for styling
-- **Lucide React** for icons
-- **Recharts** for data visualization
+```bash
+npm run create-admin -- --email admin@credyx.net --password 'your-secure-password'
+```
 
-See `UI_Template_Reference.md` for detailed styling guidelines and component patterns.
+This creates the user (or promotes an existing one) with the admin role.
 
-## 📚 Documentation
+**Common login errors**
 
-- **UI Template Reference**: `UI_Template_Reference.md` - Comprehensive UI guidelines
-- **Quick Reference**: `UI_Quick_Reference.md` - Quick lookup cheat sheet
-- **Developer Specification**: `Developer_Specification.md` - System requirements
-- **Templates**: `templates/` - Ready-to-use component templates
+| Error | Cause |
+|-------|--------|
+| Invalid login credentials | Wrong email/password, or user does not exist |
+| This account does not have admin access | User exists but `app_metadata.role` is not `"admin"` |
 
-## 🧩 Component Templates
+### Edge Functions
 
-Copy templates from `templates/` folder when creating new components:
-- `ComponentTemplate.tsx` - Basic component
-- `SummaryCardTemplate.tsx` - Summary card
-- `DataTableTemplate.tsx` - Data table
-- `PageTemplate.tsx` - Full page
-- `TypeDefinitionTemplate.ts` - Type definitions
-- `UtilityFunctionsTemplate.ts` - Utility functions
+Deploy functions under `supabase/functions/`:
 
-## 🔧 Tech Stack
+- `openai-proxy` — server-side OpenAI (requires `OPENAI_API_KEY`)
+- `send-email` — Resend transactional email (`RESEND_API_KEY`)
+- `provision-client-auth` — client invite on approval (`SUPABASE_SERVICE_ROLE_KEY`)
 
-- **Framework**: Next.js 16 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **Icons**: Lucide React
-- **Charts**: Recharts
-- **Package Manager**: npm
+## Project structure
 
-## 📝 Code Style
+```
+src/                 # React SPA (pages, components, services)
+supabase/migrations/ # Postgres schema + RLS
+supabase/functions/  # Edge Functions
+docs/                # Launch readiness + feature specs
+```
 
-- Use TypeScript for all files
-- Follow the patterns in `UI_Template_Reference.md`
-- Use named exports for components
-- Follow the import order guidelines
-- Use Tailwind classes (no inline styles)
+## Scripts
 
-## 🚧 Development
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Vite dev server (port 3000) |
+| `npm run build` | Typecheck + production build |
+| `npm test` | Vitest unit tests |
+| `npm run lint` | TypeScript check |
 
-### Adding New Components
+## Security
 
-1. Copy a template from `templates/`
-2. Place in appropriate directory (`app/components/`)
-3. Follow naming conventions (PascalCase)
-4. Add TypeScript types
-5. Use Tailwind for styling
+- Supabase Auth required for admin and client portals
+- RLS tenant isolation (no anon data bypass)
+- OpenAI API key server-side only via Edge Function
 
-### Adding New Pages
-
-1. Create a new file in `app/` directory
-2. Export a default component
-3. Use the `PageTemplate.tsx` as reference
-4. Follow the layout structure
-
-## 📄 License
-
-ISC
-
----
-
-For detailed development guidelines, see `UI_Template_Reference.md`.
-
+See [docs/LAUNCH_READINESS.md](docs/LAUNCH_READINESS.md) for the full launch checklist.

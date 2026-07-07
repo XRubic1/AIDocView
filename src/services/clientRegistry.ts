@@ -1,12 +1,9 @@
+import { logAuditEvent } from '../utils/auditLogger'
 import { createDefaultBilling } from '../config/servicePlans'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { clientRowToClient, clientToRow } from './supabase/clientMappers'
 import { pickAvailableBatchCode } from '../utils/clientBatchCode'
 import type { Client, ServiceTier } from '../types/client'
-
-const STORAGE_KEY = 'credyx_clients'
-const REGISTRY_VERSION_KEY = 'credyx_clients_version'
-const REGISTRY_VERSION = '3'
 
 let clientsCache: Client[] | null = null
 let hydratePromise: Promise<void> | null = null
@@ -15,38 +12,9 @@ function seedClients(): Client[] {
   return []
 }
 
-function loadFromStorage(): Client[] | null {
-  if (isSupabaseConfigured()) return null
-  try {
-    const version = localStorage.getItem(REGISTRY_VERSION_KEY)
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw || version !== REGISTRY_VERSION) return null
-    const clients = JSON.parse(raw) as Client[]
-    return clients.map((client) =>
-      client.service_tier === 'self_service' && client.status === 'pending'
-        ? { ...client, status: 'active' as const }
-        : client
-    )
-  } catch {
-    return null
-  }
-}
-
-function persistLocal(clients: Client[]): void {
-  if (isSupabaseConfigured()) return
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(clients))
-    localStorage.setItem(REGISTRY_VERSION_KEY, REGISTRY_VERSION)
-  } catch {
-    /* ignore */
-  }
-}
-
 function ensureLoaded(): Client[] {
   if (clientsCache) return clientsCache
-  const stored = loadFromStorage()
-  clientsCache = stored ?? seedClients()
-  if (!stored && !isSupabaseConfigured()) persistLocal(clientsCache)
+  clientsCache = seedClients()
   return clientsCache
 }
 
@@ -70,26 +38,40 @@ async function updateClientRow(client: Client): Promise<void> {
   }
 }
 
-/** Load all clients from Supabase into the in-memory cache. */
-export async function hydrateClientRegistry(): Promise<void> {
+export interface HydrateClientRegistryOptions {
+  scope?: 'admin' | 'client' | 'none'
+  clientId?: string
+}
+
+/** Load clients from Supabase into the in-memory cache (scoped by principal). */
+export async function hydrateClientRegistry(
+  options: HydrateClientRegistryOptions = {}
+): Promise<void> {
+  const scope = options.scope ?? 'admin'
+
   if (hydratePromise) return hydratePromise
 
   hydratePromise = (async () => {
     const supabase = getSupabase()
     if (!supabase) {
-      ensureLoaded()
+      throw new Error('Supabase is required')
+    }
+
+    if (scope === 'none') {
+      clientsCache = []
       return
     }
 
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .order('created_at', { ascending: false })
+    let query = supabase.from('clients').select('*')
+
+    if (scope === 'client' && options.clientId) {
+      query = query.eq('id', options.clientId)
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false })
 
     if (error) {
-      console.error('[clientRegistry] Supabase fetch failed:', error.message)
-      ensureLoaded()
-      return
+      throw new Error(`[clientRegistry] Supabase fetch failed: ${error.message}`)
     }
 
     clientsCache = (data ?? []).map((row) => clientRowToClient(row))
@@ -100,6 +82,11 @@ export async function hydrateClientRegistry(): Promise<void> {
   } finally {
     hydratePromise = null
   }
+}
+
+export function resetClientRegistryCache(): void {
+  clientsCache = null
+  hydratePromise = null
 }
 
 export function getAllClients(): Client[] {
@@ -130,8 +117,6 @@ export function ensureClientBatchCode(clientId: string): string {
     clientsCache = next
     if (isSupabaseConfigured()) {
       void updateClientRow(updated).catch(console.error)
-    } else {
-      persistLocal(next)
     }
   }
 
@@ -221,10 +206,6 @@ export async function createClient(input: CreateClientInput): Promise<Client> {
 
   if (isSupabaseConfigured()) {
     await insertClientRow(client)
-  } else {
-    const clients = ensureLoaded()
-    clientsCache = [client, ...clients]
-    persistLocal(clientsCache)
   }
 
   clientsCache = [client, ...ensureLoaded().filter((c) => c.id !== client.id)]
@@ -246,19 +227,18 @@ export async function updateClient(
 
   if (isSupabaseConfigured()) {
     await updateClientRow(updated)
-  } else {
-    persistLocal(next)
   }
 
   return updated
 }
 
-export async function updateClientTier(id: string, tier: ServiceTier): Promise<Client | undefined> {
+export async function updateClientTier(id: string, tier: ServiceTier, actorName = 'Admin'): Promise<Client | undefined> {
   const client = getClientById(id)
   if (!client) return undefined
 
+  const previousTier = client.service_tier
   const planBilling = createDefaultBilling(tier)
-  return updateClient(id, {
+  const updated = await updateClient(id, {
     service_tier: tier,
     billing: {
       ...client.billing,
@@ -268,17 +248,26 @@ export async function updateClientTier(id: string, tier: ServiceTier): Promise<C
       enrolled_at: client.billing?.enrolled_at ?? planBilling.enrolled_at,
     },
   })
+
+  if (updated && previousTier !== tier) {
+    logAuditEvent(
+      'client_updated',
+      'client',
+      updated.id,
+      updated.name,
+      `Service tier changed from ${previousTier ?? 'self_service'} to ${tier}`,
+      'admin-portal',
+      actorName,
+      'Admin',
+      [{ field: 'service_tier', old_value: previousTier, new_value: tier }]
+    )
+  }
+
+  return updated
 }
 
 export function resetClientRegistry(): void {
-  clientsCache = null
-  hydratePromise = null
-  try {
-    localStorage.removeItem(STORAGE_KEY)
-    localStorage.removeItem(REGISTRY_VERSION_KEY)
-  } catch {
-    /* ignore */
-  }
+  resetClientRegistryCache()
 }
 
-export const CLIENT_ID_STORAGE_KEY = 'clientId'
+export const CLIENT_ID_STORAGE_KEY = 'clientId' // legacy — session JWT is source of truth

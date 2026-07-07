@@ -1,6 +1,9 @@
 import {
+  addBatch,
   createDraftBatch,
   deleteBatch,
+  generateBatchNumber,
+  getBatchById,
   getClientDraftBatch,
   updateBatch,
   type Batch,
@@ -18,6 +21,7 @@ import type {
 import {
   deleteDraftRecord,
   draftFileKey,
+  listDraftRecordsForClient,
   loadDraftFile,
   loadDraftRecord,
   saveDraftRecord,
@@ -130,6 +134,42 @@ async function deserializeIntakeDraft(
       fileById: fileMap,
     },
     files: fileMap,
+  }
+}
+
+/** Rebuild in-memory draft batch rows from IndexedDB after hydration clears them. */
+export async function restoreClientDraftBatches(
+  clientId: string,
+  clientName: string
+): Promise<void> {
+  const records = await listDraftRecordsForClient(clientId)
+
+  for (const record of records) {
+    if (getBatchById(record.batchId)) continue
+
+    const batchNumber =
+      record.ai?.intake?.batchNumber ?? generateBatchNumber(clientId)
+    const sortStatus =
+      record.mode === 'ai'
+        ? record.ai?.step === 'confirm'
+          ? 'ready'
+          : record.ai?.step === 'processing'
+            ? 'sorting'
+            : 'pending'
+        : 'pending'
+
+    addBatch({
+      id: record.batchId,
+      batch_number: batchNumber,
+      client_name: clientName,
+      client_id: clientId,
+      total_invoices: 0,
+      total_amount: 0,
+      status: 'draft',
+      submitted_at: record.updatedAt,
+      upload_mode: record.mode,
+      sort_status: sortStatus,
+    })
   }
 }
 

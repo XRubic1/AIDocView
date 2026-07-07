@@ -4,6 +4,7 @@ import { formatDate } from '../../utils/format'
 import { X, FileText, MessageSquare, Send, AlertTriangle, XCircle } from 'lucide-react'
 import { Invoice, InvoiceNote } from '../../types/invoice'
 import DocumentViewer from '../DocumentViewer'
+import { useToast } from '../ui/ToastProvider'
 
 interface CollectionsInvoiceModalProps {
   invoice: Invoice | null
@@ -22,6 +23,7 @@ export default function CollectionsInvoiceModal({
   onMarkNotReceived,
   paymentStatus = 'not_received',
 }: CollectionsInvoiceModalProps) {
+  const { showToast } = useToast()
   const [newNote, setNewNote] = useState('')
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
   const [isSubmittingNote, setIsSubmittingNote] = useState(false)
@@ -70,7 +72,10 @@ export default function CollectionsInvoiceModal({
 
   const handleMarkNotReceived = async () => {
     if (!newNote.trim() && isUrgent) {
-      alert('A note is required for invoices over 25 days overdue. Please add a note explaining the payment status.')
+      showToast(
+        'A note is required for invoices over 25 days overdue. Please add a note explaining the payment status.',
+        'error'
+      )
       return
     }
 

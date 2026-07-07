@@ -12,8 +12,9 @@
     "eval:live": "tsx scripts/eval/run.ts --mode live",
     "eval:record": "tsx scripts/eval/run.ts --record",
     "test:supabase": "tsx scripts/testSupabaseConnection.ts",
+    "create-admin": "tsx scripts/createAdmin.ts",
     "preview": "vite preview",
-    "lint": "echo 'Linting skipped'"
+    "lint": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",

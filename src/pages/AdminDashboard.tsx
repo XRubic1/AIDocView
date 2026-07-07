@@ -12,8 +12,7 @@ import { TodaysActions } from '../components/admin/widgets/TodaysActions'
 import ManagedIntakeWidget from '../components/admin/ManagedIntakeWidget'
 import BatchStatusWidget from '../components/client/BatchStatusWidget'
 import { getAllBatches } from '../data/mockBatches'
-import { mockInvoices } from '../data/mockInvoices'
-import { getAllAuditLogs } from '../utils/auditLogger'
+import { mockInvoices, updateInvoice } from '../data/mockInvoices'
 import { PendingBatch, CollectionsAlert, AgingAR } from '../types/admin'
 import { formatCurrency } from '../utils/format'
 
@@ -23,7 +22,6 @@ export default function AdminDashboard() {
   // Get all real data
   const allBatches = getAllBatches()
   const allInvoices = mockInvoices
-  const allAuditLogs = getAllAuditLogs()
   
   // Calculate pending batches from real data
   const pendingBatches = useMemo(() => {
@@ -174,7 +172,7 @@ export default function AdminDashboard() {
       const collected = allInvoices
         .filter(inv => inv.status === 'paid' && inv.approved_at)
         .filter(inv => {
-          const paidDate = new Date(inv.approved_at)
+          const paidDate = new Date(inv.approved_at!)
           return paidDate <= date
         })
         .reduce((sum, inv) => sum + inv.amount, 0)
@@ -352,11 +350,10 @@ export default function AdminDashboard() {
   }
 
   const handleMarkContacted = (invoiceId: string) => {
-    const invoice = allInvoices.find(inv => inv.id === invoiceId)
-    if (invoice) {
-      invoice.broker_contacted = true
-      invoice.last_broker_contact = new Date().toISOString()
-    }
+    updateInvoice(invoiceId, {
+      broker_contacted: true,
+      last_broker_contact: new Date().toISOString(),
+    })
   }
 
   const handleAlertClick = (alert: any) => {
@@ -390,8 +387,8 @@ export default function AdminDashboard() {
             totalInvoicesHLD={invoicesOnHold}
             totalAR={totalAR}
             collectionsAlerts={collectionsAlerts}
-            forceCloseRate={parseFloat(forceCloseRate)}
-            avgReviewTime={parseFloat(avgReviewTime)}
+            forceCloseRate={parseFloat(String(forceCloseRate))}
+            avgReviewTime={parseFloat(String(avgReviewTime))}
             onCardClick={handleCardClick}
           />
 

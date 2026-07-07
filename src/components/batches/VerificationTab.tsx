@@ -8,6 +8,7 @@ import { Invoice } from '../../types/invoice'
 import AdminInvoiceDetailView from './AdminInvoiceDetailView'
 import AccountingModal from './AccountingModal'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
+import { useToast } from '../ui/ToastProvider'
 
 interface VerificationTabProps {
   batchId: string | null
@@ -22,6 +23,7 @@ export default function VerificationTab({
   onMoveToApproval,
   onBack,
 }: VerificationTabProps) {
+  const { showToast } = useToast()
   const [batches] = useState(() => {
     const allBatches = getAllBatches()
     return allBatches.filter((b) => b.status === 'verification')
@@ -153,7 +155,10 @@ export default function VerificationTab({
             <button
               onClick={() => {
                 if (!allVerified) {
-                  alert(`Cannot move batch to approval. All invoices must be verified.\nVerified: ${verifiedCount}/${totalCount}`)
+                  showToast(
+                    `Cannot move batch to approval. All invoices must be verified (${verifiedCount}/${totalCount}).`,
+                    'error'
+                  )
                   return
                 }
                 onMoveToApproval(batchId)

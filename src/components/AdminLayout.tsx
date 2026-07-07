@@ -18,9 +18,13 @@ import {
 } from '../services/adminNotificationService'
 import { getAllBatches } from '../data/mockBatches'
 import { adminNavSections, getInitials, getAdminUserDisplayName } from '../config/adminNav'
+import { listPendingPayments } from '../services/clientPaymentService'
+import { listPendingWriteOffs } from '../services/writeOffApprovalService'
 import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
+import { signOutAdmin } from '../services/adminAuthService'
+import { useAuth } from '../context/AuthContext'
 import '../styles/clientPortal.css'
 import '../styles/clientPortalDark.css'
 import '../styles/credyxWordmark.css'
@@ -56,9 +60,10 @@ export default function AdminLayout({
     }
   })
 
-  const userEmail = localStorage.getItem('userEmail')
-  const userName = userNameProp || getAdminUserDisplayName(userEmail)
-  const userRole = userRoleProp || localStorage.getItem('userRole') || 'Administrator'
+  const { resolved } = useAuth()
+  const userEmail = resolved.user?.email ?? undefined
+  const userName = userNameProp || getAdminUserDisplayName(userEmail ?? null)
+  const userRole = userRoleProp || 'Administrator'
 
   useEffect(() => {
     setNotifications(getAdminNotifications())
@@ -90,8 +95,13 @@ export default function AdminLayout({
     ).length
   }, [])
 
+  const pendingPaymentCount = useMemo(() => listPendingPayments().length, [])
+  const pendingWriteOffCount = useMemo(() => listPendingWriteOffs().length, [])
+
   const badges: Record<string, number> = {
     pendingBatches: pendingBatchCount,
+    pendingPayments: pendingPaymentCount,
+    pendingWriteOffs: pendingWriteOffCount,
   }
 
   const isNavActive = (path: string) => {
@@ -107,10 +117,7 @@ export default function AdminLayout({
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('isAuthenticated')
-    localStorage.removeItem('userEmail')
-    localStorage.removeItem('userRole')
-    navigate('/login')
+    void signOutAdmin().then(() => navigate('/login'))
   }
 
   const sidebarContent = (isMobile = false) => (
@@ -179,7 +186,11 @@ export default function AdminLayout({
               {section.items.map((item) => {
                 const active = isNavActive(item.path)
                 const Icon = item.icon
-                const badge = item.badgeKey ? badges[item.badgeKey] : 0
+                const badge = item.badgeKeys
+                  ? item.badgeKeys.reduce((sum, key) => sum + (badges[key] ?? 0), 0)
+                  : item.badgeKey
+                    ? (badges[item.badgeKey] ?? 0)
+                    : 0
 
                 return (
                   <li key={item.path}>

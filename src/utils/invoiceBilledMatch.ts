@@ -126,12 +126,12 @@ export function buildInvoiceBilledMatch(
 
   const row: LoadSheetRow = {
     rowIndex: 0,
-    loadNumber: invoice.load_number,
-    broker: invoice.broker_name,
-    carrier: invoice.carrier_name,
+    loadNumber: invoice.load_number ?? undefined,
+    broker: invoice.broker_name ?? undefined,
+    carrier: invoice.carrier_name ?? undefined,
     amount: invoice.amount_total ?? undefined,
-    invoiceNumber: invoice.invoice_number,
-    invoiceDate: invoice.invoice_date,
+    invoiceNumber: invoice.invoice_number ?? undefined,
+    invoiceDate: invoice.invoice_date ?? undefined,
   }
 
   return {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import AdminLayout from '../components/AdminLayout'
 import {
   User,
@@ -10,12 +10,17 @@ import {
   Save,
   Check,
 } from 'lucide-react'
+import { saveArPolicy, loadArPolicy, applyArPolicy } from '../services/platformSettingsService'
+import { useToast } from '../components/ui/ToastProvider'
+import Spinner from '../components/ui/Spinner'
 
 type SettingsTab = 'profile' | 'notifications' | 'invoices' | 'email' | 'security' | 'system'
 
 export default function Settings() {
+  const { showToast } = useToast()
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const [saved, setSaved] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   // Profile Settings
   const [profileData, setProfileData] = useState({
@@ -84,6 +89,23 @@ export default function Settings() {
     backupFrequency: 'daily',
   })
 
+  useEffect(() => {
+    void loadArPolicy().then((policy) => {
+      setInvoiceSettings((prev) => ({
+        ...prev,
+        forceCloseDays: String(policy.forceCloseDays),
+        agingBuckets: {
+          bucket1: String(policy.agingBuckets[0]),
+          bucket2: String(policy.agingBuckets[1]),
+          bucket3: String(policy.agingBuckets[2]),
+          bucket4: String(policy.agingBuckets[3]),
+          bucket5: String(policy.agingBuckets[4]),
+        },
+      }))
+      applyArPolicy(policy)
+    })
+  }, [])
+
   const tabs = [
     { id: 'profile' as SettingsTab, label: 'Profile', icon: User },
     { id: 'notifications' as SettingsTab, label: 'Notifications', icon: Bell },
@@ -93,10 +115,33 @@ export default function Settings() {
     { id: 'system' as SettingsTab, label: 'System', icon: Database },
   ]
 
-  const handleSave = () => {
-    // TODO: Implement save logic
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+  const handleSave = async () => {
+    if (isSaving) return
+    setIsSaving(true)
+    try {
+      if (activeTab === 'invoices') {
+        await saveArPolicy({
+          collectionsOverdueDays: (Number(invoiceSettings.agingBuckets.bucket1) || 15) as typeof import('../utils/invoiceAging').AR_POLICY.collectionsOverdueDays,
+          clientUrgentDays: 25,
+          criticalDays: 60,
+          forceCloseDays: (Number(invoiceSettings.forceCloseDays) || 90) as typeof import('../utils/invoiceAging').AR_POLICY.forceCloseDays,
+          agingBuckets: [
+            Number(invoiceSettings.agingBuckets.bucket1) || 15,
+            Number(invoiceSettings.agingBuckets.bucket2) || 30,
+            Number(invoiceSettings.agingBuckets.bucket3) || 45,
+            Number(invoiceSettings.agingBuckets.bucket4) || 60,
+            Number(invoiceSettings.agingBuckets.bucket5) || 90,
+          ] as typeof import('../utils/invoiceAging').AR_POLICY.agingBuckets,
+        })
+      }
+      setSaved(true)
+      showToast('Settings saved', 'success')
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not save settings', 'error')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleProfileChange = (field: string, value: string) => {
@@ -783,11 +828,21 @@ export default function Settings() {
                     </div>
                   )}
                   <button
-                    onClick={handleSave}
-                    className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-black hover:bg-gray-800 transition-colors"
+                    onClick={() => void handleSave()}
+                    disabled={isSaving}
+                    className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-black hover:bg-gray-800 transition-colors disabled:opacity-60"
                   >
-                    <Save className="w-4 h-4" />
-                    <span>Save Changes</span>
+                    {isSaving ? (
+                      <>
+                        <Spinner size="sm" className="text-white" />
+                        <span>Saving…</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>Save Changes</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

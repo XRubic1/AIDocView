@@ -7,6 +7,7 @@ import {
   getNextClientInvoiceNumber,
 } from '../../utils/clientInvoiceNumbers'
 import { Trash2 } from 'lucide-react'
+import { useToast } from '../ui/ToastProvider'
 
 interface InvoiceDocument {
   id: string
@@ -58,6 +59,7 @@ export default function ManualBatchBuilder({
   onSuccess,
   onBack,
 }: ManualBatchBuilderProps) {
+  const { showToast } = useToast()
   const [invoices, setInvoices] = useState<ManualInvoiceRow[]>([])
   const [form, setForm] = useState<ManualInvoiceRow>(() => ({
     ...emptyForm(),
@@ -113,7 +115,7 @@ export default function ManualBatchBuilder({
 
   const handleAddInvoice = () => {
     if (!form.broker_name || !form.broker_address || !form.amount) {
-      alert('Broker name, broker address, and amount are required.')
+      showToast('Broker name, broker address, and amount are required.', 'error')
       return
     }
     const reserved = invoices.map((inv) => inv.invoice_number)
@@ -133,7 +135,7 @@ export default function ManualBatchBuilder({
 
   const handleSubmit = async () => {
     if (invoices.length === 0) {
-      alert('Add at least one invoice before creating the batch.')
+      showToast('Add at least one invoice before creating the batch.', 'error')
       return
     }
     setSubmitting(true)
@@ -153,7 +155,7 @@ export default function ManualBatchBuilder({
       })
       onSuccess(batch.id)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not create batch')
+      showToast(err instanceof Error ? err.message : 'Could not create batch', 'error')
     } finally {
       setSubmitting(false)
     }

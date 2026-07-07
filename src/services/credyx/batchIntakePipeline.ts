@@ -1,6 +1,13 @@
 import { isAIReviewEnabled } from '../../config/aiReview'
 import { addBatch, addInvoicesForBatch, generateBatchNumber, updateBatch } from '../../data/mockBatches'
+import { updateInvoice } from '../../data/mockInvoices'
 import { setBatchFiles } from '../../data/batchFileStore'
+import { clearClientTenantCache } from '../../data/clientDemoData'
+import { isSupabaseConfigured } from '../../lib/supabase'
+import {
+  persistInvoice,
+  uploadBatchInvoiceDocuments,
+} from '../supabase/tenantPersist'
 import {
   buildCredyxDraftFromGroup,
   draftToInvoiceFields,
@@ -32,7 +39,9 @@ export async function runBatchIntakePipeline(
   onProgress?: (p: DocSortProgress) => void
 ): Promise<BatchIntakeDraft> {
   if (!isAIReviewEnabled()) {
-    throw new Error('Add VITE_OPENAI_API_KEY to your .env file to run AI upload.')
+    throw new Error(
+      'AI review requires Supabase configuration. Deploy the openai-proxy Edge Function with OPENAI_API_KEY.'
+    )
   }
   if (files.length === 0) {
     throw new Error('Upload at least one PDF.')
@@ -64,7 +73,7 @@ export async function runBatchIntakePipeline(
 }
 
 /** Persist confirmed AI batch into mockBatches + mockInvoices. */
-export function submitAiBatch(input: SubmitAiBatchInput): SubmitAiBatchResult {
+export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAiBatchResult> {
   const { clientId, clientName, drafts, sortResult, fileById, confirmedBy, existingBatchId } = input
 
   const allConfirmed = drafts.every((d) => d.confirmed)
@@ -133,6 +142,45 @@ export function submitAiBatch(input: SubmitAiBatchInput): SubmitAiBatchResult {
     }
   })
   setBatchFiles(batch.id, storeMap)
+
+  if (isSupabaseConfigured()) {
+    for (let i = 0; i < invoices.length; i++) {
+      const invoice = invoices[i]
+      const draft = drafts[i]
+      const docFiles = new Map<string, File>()
+
+      for (const docId of draft.document_doc_ids) {
+        const file = storeMap.get(docId)
+        if (file) docFiles.set(docId, file)
+      }
+
+      const invoicePdfKey = `invoice-pdf-${draft.groupId}`
+      const invoicePdf = storeMap.get(invoicePdfKey)
+      if (invoicePdf) docFiles.set(invoicePdfKey, invoicePdf)
+
+      let storagePaths: Record<string, string> | undefined
+
+      if (docFiles.size > 0) {
+        storagePaths = await uploadBatchInvoiceDocuments(
+          clientId,
+          batch.id,
+          invoice.id,
+          docFiles
+        )
+        updateInvoice(invoice.id, { document_storage_paths: storagePaths })
+        Object.assign(invoice, { document_storage_paths: storagePaths })
+      }
+
+      try {
+        await persistInvoice(invoice)
+      } catch (err) {
+        console.error('[submitAiBatch] invoice persist failed:', err)
+        throw err instanceof Error ? err : new Error('Could not save invoice to database')
+      }
+    }
+  }
+
+  clearClientTenantCache(clientId)
 
   return {
     batchId: batch.id,

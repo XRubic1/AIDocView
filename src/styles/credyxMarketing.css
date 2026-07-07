@@ -424,6 +424,64 @@
   margin: 0;
 }
 
+.credyx-page .cx-tour-highlights {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--cx-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.credyx-page .cx-tour-highlights li {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cx-ink);
+  padding-left: 14px;
+  position: relative;
+}
+
+.credyx-page .cx-tour-highlights li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--cx-gold);
+}
+
+.credyx-page .cx-tour-cta {
+  display: flex;
+  align-items: center;
+  gap: clamp(20px, 4vw, 36px);
+  flex-wrap: wrap;
+  background: #ffffff;
+  border: 1px solid var(--cx-border);
+  border-radius: 20px;
+  padding: clamp(28px, 4vw, 40px);
+  box-shadow: 0 20px 48px rgba(15, 23, 27, 0.06);
+}
+
+.credyx-page .cx-tour-cta-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--cx-gold-soft);
+  color: var(--cx-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.credyx-page .cx-tour-cta-body {
+  flex: 1;
+  min-width: 220px;
+}
+
 /* ══ COVERAGE CHECKLIST ══ */
 .credyx-page .cx-coverage {
   display: grid;

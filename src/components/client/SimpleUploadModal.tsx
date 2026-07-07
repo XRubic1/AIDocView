@@ -1,5 +1,6 @@
 import { useState, useRef, DragEvent } from 'react'
 import { Upload, X, FileText, CheckCircle, Loader } from 'lucide-react'
+import { useToast } from '../ui/ToastProvider'
 
 interface UploadedFile {
   id: string
@@ -21,9 +22,10 @@ export default function SimpleUploadModal({
   isOpen,
   onClose,
   onUploadComplete,
-  clientId,
-  clientName,
+  clientId: _clientId,
+  clientName: _clientName,
 }: SimpleUploadModalProps) {
+  const { showToast } = useToast()
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -90,7 +92,7 @@ export default function SimpleUploadModal({
 
   const handleSubmit = async () => {
     if (uploadedFiles.length === 0) {
-      alert('Please upload at least one document')
+      showToast('Please upload at least one document', 'error')
       return
     }
 

@@ -9,7 +9,10 @@ import { getAllClients, getClientById } from '../../services/clientRegistry'
 import jsPDF from 'jspdf'
 import { generateInvoicePDFFile } from '../../utils/generateInvoicePDF'
 import { addBatchFile, getBatchFile } from '../../data/batchFileStore'
-import { updateInvoice, getInvoiceById } from '../../data/mockInvoices'
+import { updateInvoice, getInvoiceById, updateInvoiceAsync } from '../../data/mockInvoices'
+import { sendBrokerPacketForInvoice } from '../../utils/paperworkSender'
+import { useAuth } from '../../context/AuthContext'
+import { getAdminUserDisplayName } from '../../config/adminNav'
 import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
 import {
   saveInvoiceDocuments,
@@ -19,6 +22,7 @@ import {
   invoiceDocumentsMissingFromStore,
   resolveInvoiceDocumentsAsync,
 } from '../../utils/resolveInvoiceDocuments'
+import { useToast } from '../ui/ToastProvider'
 
 function docIdsFromDocuments(docs: Document[]): string[] {
   return docs.map((d) => d.id).filter((id) => !id.startsWith('invoice-pdf-'))
@@ -68,6 +72,10 @@ export default function AdminInvoiceDetailView({
   stage,
   isCollectionsView = false,
 }: AdminInvoiceDetailViewProps) {
+  const { showToast } = useToast()
+  const { resolved, session } = useAuth()
+  const authUser = resolved.user ?? session?.user ?? null
+  const adminActor = getAdminUserDisplayName(authUser?.email ?? null) ?? authUser?.email ?? 'Admin'
   // Local state for invoice to handle updates and trigger re-renders
   const [currentInvoice, setCurrentInvoice] = useState<Invoice | null>(invoice)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -141,12 +149,12 @@ export default function AdminInvoiceDetailView({
     if (!currentInvoice) return
     
     if (!collectionStatus) {
-      alert('Please select a status (C/B or W/P)')
+      showToast('Please select a status (C/B or W/P)', 'error')
       return
     }
     
     if (!collectionDate) {
-      alert('Please select a date')
+      showToast('Please select a date', 'error')
       return
     }
     
@@ -164,42 +172,50 @@ export default function AdminInvoiceDetailView({
     
     // In a real implementation, this would make an API call to save the collection info
     console.log('Collection info posted:', {
-      invoice_id: invoice.id,
+      invoice_id: currentInvoice.id,
       collection_date: collectionDate,
       collection_status: collectionStatus,
     })
     
-    alert('Collection information posted successfully')
+    showToast('Collection information posted successfully', 'success')
   }
 
   const handleCloseInvoice = () => {
-    if (!invoice) return
+    if (!currentInvoice) return
+
+    if (closeType === 'Force Close') {
+      const client = getClientById(currentInvoice.client_id)
+      if (client?.service_tier !== 'managed') {
+        showToast('Force close is only available for Managed service clients.', 'error')
+        return
+      }
+    }
     
     if (!closeType) {
-      alert('Please select a close type')
+      showToast('Please select a close type', 'error')
       return
     }
     
     if (!closeNote.trim()) {
-      alert('Please enter a note explaining why you are closing this invoice')
+      showToast('Please enter a note explaining why you are closing this invoice', 'error')
       return
     }
     
     if (!closeAmount || closeAmount <= 0) {
-      alert('Please enter a valid amount')
+      showToast('Please enter a valid amount', 'error')
       return
     }
     
-    if (!invoice.notes_history) {
-      invoice.notes_history = []
+    if (!currentInvoice.notes_history) {
+      currentInvoice.notes_history = []
     }
     
-    const amountDifference = invoice.amount - closeAmount
+    const amountDifference = currentInvoice.amount - closeAmount
     let amountNote = ''
     let statusNote = ''
     
     if (closeType === 'Paid') {
-      amountNote = closeAmount === invoice.amount
+      amountNote = closeAmount === currentInvoice.amount
         ? `Paid in full: $${closeAmount.toFixed(2)}`
         : `Paid: $${closeAmount.toFixed(2)}${amountDifference !== 0 ? ` (${amountDifference > 0 ? 'short paid' : 'overpaid'} by $${Math.abs(amountDifference).toFixed(2)})` : ''}`
       statusNote = 'Invoice marked as paid'
@@ -215,7 +231,7 @@ export default function AdminInvoiceDetailView({
 
     const nextStatus =
       closeType === 'Paid' ? 'paid' : closeType === 'Write Off' ? 'written_off' : 'force_closed'
-    const notes_history = [...(invoice.notes_history ?? [])]
+    const notes_history = [...(currentInvoice.notes_history ?? [])]
     notes_history.push({
       id: `note-${Date.now()}`,
       note: `${statusNote}: ${amountNote}. ${closeNote}`,
@@ -224,10 +240,10 @@ export default function AdminInvoiceDetailView({
       type: 'note',
     })
 
-    const updated = updateInvoice(invoice.id, {
+    const updated = updateInvoice(currentInvoice.id, {
       status: nextStatus,
       notes_history,
-      paid_amount: closeType === 'Paid' || closeType === 'Write Off' ? closeAmount : invoice.paid_amount,
+      paid_amount: closeType === 'Paid' || closeType === 'Write Off' ? closeAmount : currentInvoice.paid_amount,
     })
     if (updated) {
       setCurrentInvoice(updated)
@@ -235,19 +251,19 @@ export default function AdminInvoiceDetailView({
     
     // Clear the close fields
     setCloseNote('')
-    setCloseAmount(invoice.amount || 0)
+    setCloseAmount(currentInvoice.amount || 0)
     setCloseType('')
     
-    // In a real implementation, this would make an API call to close the invoice
+    // In a real implementation, this would make an API call to close the currentInvoice
     console.log('Invoice closed:', {
-      invoice_id: invoice.id,
+      invoice_id: currentInvoice.id,
       close_type: closeType,
       close_amount: closeAmount,
-      original_amount: invoice.amount,
+      original_amount: currentInvoice.amount,
       close_note: closeNote,
     })
     
-    alert('Invoice closed successfully')
+    showToast('Invoice closed successfully', 'success')
     
     // Optionally close the detail view or refresh
     // onClose?.()
@@ -396,7 +412,7 @@ export default function AdminInvoiceDetailView({
       document.body.removeChild(link)
     } else {
       // Mock download for documents without files
-      alert(`Downloading ${currentDocument.name}`)
+      showToast(`Downloading ${currentDocument.name}`, 'info')
     }
   }
 
@@ -414,7 +430,7 @@ export default function AdminInvoiceDetailView({
       }
     } else {
       // Mock print for documents without files
-      alert(`Printing ${currentDocument.name}`)
+      showToast(`Printing ${currentDocument.name}`, 'info')
     }
   }
 
@@ -442,63 +458,30 @@ export default function AdminInvoiceDetailView({
     setEmailMessage(`Please find attached all documents for Invoice ${currentInvoice.invoice_number}.\n\nThank you.`)
   }
 
-  const handleEmailSubmit = () => {
+  const handleEmailSubmit = async () => {
     if (!emailRecipient.trim()) {
-      alert('Please enter a recipient email address')
+      showToast('Please enter a recipient email address', 'error')
       return
     }
     if (!currentInvoice) return
 
-    // In real implementation, this would send the email with all documents attached
-    console.log('Sending email to:', emailRecipient)
-    console.log('Subject:', emailSubject)
-    console.log('Message:', emailMessage)
-    console.log('Attachments:', documents.map(d => d.name))
-    
-    // Create document send record
-    const sendRecord = {
-      email_address: emailRecipient,
-      sent_at: new Date().toISOString(),
-      sent_by: 'Admin User', // In real app, get from auth context
-      status: 'delivered' as const,
-      documents_sent: documents.map(d => d.name),
+    const result = await sendBrokerPacketForInvoice(currentInvoice, {
+      recipientEmail: emailRecipient,
+      documentNames: documents.map((d) => d.name),
+      sentBy: adminActor,
+      userId: authUser?.id,
+      automatic: false,
+    })
+
+    if (!result.success) {
+      showToast(result.error ?? 'Failed to send email', 'error')
+      return
     }
 
-    // Add to invoice's document_send_history
-    if (!currentInvoice.document_send_history) {
-      currentInvoice.document_send_history = []
-    }
-    currentInvoice.document_send_history.push(sendRecord)
+    const refreshed = getInvoiceById(currentInvoice.id)
+    if (refreshed) setCurrentInvoice({ ...refreshed })
 
-    // Update invoice state
-    setCurrentInvoice({ ...currentInvoice })
-
-    // Log audit event
-    const { logAuditEvent } = require('../../utils/auditLogger')
-    logAuditEvent(
-      'document_sent',
-      'invoice',
-      currentInvoice.id,
-      currentInvoice.invoice_number,
-      `Paperwork manually sent to ${emailRecipient} for invoice ${currentInvoice.invoice_number}`,
-      'user-1', // In real app, get from auth context
-      'Admin User',
-      'Admin',
-      undefined,
-      {
-        broker_id: currentInvoice.broker_id,
-        broker_name: currentInvoice.broker_name,
-        broker_email: emailRecipient,
-        documents_sent: documents.map(d => d.name),
-        automatic: false,
-        manual: true,
-      },
-      'info',
-      true
-    )
-    
-    // Show success message
-    alert(`Email sent successfully to ${emailRecipient}`)
+    showToast(`Email sent successfully to ${emailRecipient}`, 'success')
     setShowEmailModal(false)
     setEmailRecipient('')
     setSelectedEmailIndex(null)
@@ -507,7 +490,7 @@ export default function AdminInvoiceDetailView({
   }
 
   const handleContactBroker = () => {
-    onContactBroker?.(invoice.id)
+    onContactBroker?.(currentInvoice?.id ?? '')
     setShowContactBrokerModal(true)
   }
 
@@ -520,35 +503,39 @@ export default function AdminInvoiceDetailView({
     setBrokerSearchTerm('')
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (!currentInvoice) return
     // Validate broker is set when in ready_to_post stage
     if (isBrokerRequired && !editedInvoice.broker_id) {
-      alert('A broker must be assigned to this invoice before saving. Please select a broker.')
+      showToast('A broker must be assigned to this invoice before saving. Please select a broker.', 'error')
       return
     }
-    
-    // Update invoice with edited values
-    invoice.invoice_number = editedInvoice.invoice_number
-    invoice.load_number = editedInvoice.load_number
-    invoice.invoice_date = editedInvoice.invoice_date
-    invoice.amount = editedInvoice.amount
-    invoice.broker_id = editedInvoice.broker_id
-    invoice.broker_name = editedInvoice.broker_name
-    
+
+    const updated = await updateInvoiceAsync(currentInvoice.id, {
+      invoice_number: editedInvoice.invoice_number,
+      load_number: editedInvoice.load_number,
+      invoice_date: editedInvoice.invoice_date,
+      amount: editedInvoice.amount,
+      broker_id: editedInvoice.broker_id,
+      broker_name: editedInvoice.broker_name,
+    })
+
+    if (updated) {
+      setCurrentInvoice(updated)
+    }
     setIsEditing(false)
-    // In real implementation, this would save to the backend
-    console.log('Invoice updated:', invoice)
   }
 
   const handleCancelEdit = () => {
+    if (!currentInvoice) return
     // Reset to original values
     setEditedInvoice({
-      invoice_number: invoice.invoice_number || '',
-      load_number: invoice.load_number || '',
-      invoice_date: invoice.invoice_date || '',
-      amount: invoice.amount || 0,
-      broker_id: invoice.broker_id || '',
-      broker_name: invoice.broker_name || '',
+      invoice_number: currentInvoice.invoice_number || '',
+      load_number: currentInvoice.load_number || '',
+      invoice_date: currentInvoice.invoice_date || '',
+      amount: currentInvoice.amount || 0,
+      broker_id: currentInvoice.broker_id || '',
+      broker_name: currentInvoice.broker_name || '',
     })
     setIsEditing(false)
     setBrokerSearchTerm('')
@@ -591,7 +578,7 @@ export default function AdminInvoiceDetailView({
       
       // Only add note if there's at least verification info or a note
       if (verificationParts.length === 0) {
-        alert('Please enter verification information or a note')
+        showToast('Please enter verification information or a note', 'error')
       return
     }
     
@@ -647,7 +634,7 @@ export default function AdminInvoiceDetailView({
     } else {
       // Regular note for non-verification stages
       if (!newNote.trim()) {
-        alert('Please enter a note')
+        showToast('Please enter a note', 'error')
         return
       }
       noteText = newNote.trim()
@@ -720,12 +707,12 @@ export default function AdminInvoiceDetailView({
   // Bulk operations handlers
   const handleBulkAddNote = () => {
     if (!bulkNote.trim()) {
-      alert('Please enter a note')
+      showToast('Please enter a note', 'error')
       return
     }
     
     if (selectedInvoiceIds.size === 0) {
-      alert('Please select at least one invoice')
+      showToast('Please select at least one invoice', 'error')
       return
     }
     
@@ -755,7 +742,7 @@ export default function AdminInvoiceDetailView({
 
   const handleBulkApprove = () => {
     if (selectedInvoiceIds.size === 0) {
-      alert('Please select at least one invoice')
+      showToast('Please select at least one invoice', 'error')
       return
     }
     
@@ -773,7 +760,7 @@ export default function AdminInvoiceDetailView({
 
   const handleBulkHold = () => {
     if (selectedInvoiceIds.size === 0) {
-      alert('Please select at least one invoice')
+      showToast('Please select at least one invoice', 'error')
       return
     }
     
@@ -791,17 +778,17 @@ export default function AdminInvoiceDetailView({
 
   const handleBulkPostCollectionInfo = () => {
     if (selectedInvoiceIds.size === 0) {
-      alert('Please select at least one invoice')
+      showToast('Please select at least one invoice', 'error')
       return
     }
     
     if (!bulkCollectionStatus) {
-      alert('Please select a status (C/B or W/P)')
+      showToast('Please select a status (C/B or W/P)', 'error')
       return
     }
     
     if (!bulkCollectionDate) {
-      alert('Please select a date')
+      showToast('Please select a date', 'error')
       return
     }
     
@@ -914,7 +901,7 @@ export default function AdminInvoiceDetailView({
     }
 
     if (!currentInvoice?.batch_id) {
-      alert('This invoice has no batch — documents cannot be saved.')
+      showToast('This invoice has no batch — documents cannot be saved.', 'error')
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
@@ -956,7 +943,7 @@ export default function AdminInvoiceDetailView({
       setRefreshKey((k) => k + 1)
     } catch (error) {
       console.error('Failed to save documents:', error)
-      alert(error instanceof Error ? error.message : 'Failed to save documents')
+      showToast(error instanceof Error ? error.message : 'Failed to save documents', 'error')
     } finally {
       setIsUploadingDocs(false)
       if (fileInputRef.current) {
@@ -977,17 +964,17 @@ export default function AdminInvoiceDetailView({
     if (!currentInvoice) return
 
     if (!currentInvoice.invoice_number?.trim()) {
-      alert('Invoice number is required to create an invoice document.')
+      showToast('Invoice number is required to create an invoice document.', 'error')
       return
     }
 
     if (!currentInvoice.broker_name?.trim()) {
-      alert('Broker is required to create an invoice document.')
+      showToast('Broker is required to create an invoice document.', 'error')
       return
     }
 
     if (!currentInvoice.amount || currentInvoice.amount <= 0) {
-      alert('A valid invoice amount is required to create an invoice document.')
+      showToast('A valid invoice amount is required to create an invoice document.', 'error')
       return
     }
 
@@ -1024,7 +1011,7 @@ export default function AdminInvoiceDetailView({
       }
 
       if (!currentInvoice.batch_id) {
-        alert('This invoice has no batch — document cannot be saved.')
+        showToast('This invoice has no batch — document cannot be saved.', 'error')
         return
       }
 
@@ -1052,7 +1039,7 @@ export default function AdminInvoiceDetailView({
       setRefreshKey((k) => k + 1)
     } catch (error) {
       console.error('Failed to create invoice PDF:', error)
-      alert('Failed to create invoice PDF. Please try again.')
+      showToast('Failed to create invoice PDF. Please try again.', 'error')
     } finally {
       setIsCreatingInvoice(false)
     }
@@ -1088,7 +1075,7 @@ export default function AdminInvoiceDetailView({
       setRefreshKey((k) => k + 1)
     } catch (error) {
       console.error('Failed to delete document:', error)
-      alert(error instanceof Error ? error.message : 'Failed to delete document')
+      showToast(error instanceof Error ? error.message : 'Failed to delete document', 'error')
     }
   }
 
@@ -1198,6 +1185,15 @@ export default function AdminInvoiceDetailView({
   // Check if broker is required but not set (for ready_to_post stage)
   const isBrokerRequired = stage === 'ready_to_post'
   const isBrokerMissing = isBrokerRequired && !currentInvoice?.broker_id
+
+  if (!currentInvoice) {
+    return null
+  }
+
+  const activeInvoice = currentInvoice
+
+  const invoiceClient = getClientById(activeInvoice.client_id)
+  const isManagedClient = invoiceClient?.service_tier === 'managed'
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
@@ -1477,7 +1473,7 @@ export default function AdminInvoiceDetailView({
                         onChange={(e) => {
                           const value = e.target.value as 'Email' | 'Phone' | 'Web' | ''
                           setVerificationStatus(value)
-                          if (invoice) {
+                          if (activeInvoice) {
                             (invoice as any).verification_status = value
                           }
                         }}
@@ -1504,7 +1500,7 @@ export default function AdminInvoiceDetailView({
                           onChange={(e) => {
                             const value = e.target.value
                             setSelectedContactPerson(value)
-                            if (invoice) {
+                            if (activeInvoice) {
                               (invoice as any).selected_contact_person = value
                             }
                           }}
@@ -1544,12 +1540,12 @@ export default function AdminInvoiceDetailView({
                                   if (!contactPersons.includes(newContactPerson.trim())) {
                                     const updated = [...contactPersons, newContactPerson.trim()]
                                     setContactPersons(updated)
-                                    if (invoice) {
+                                    if (activeInvoice) {
                                       (invoice as any).contact_persons = updated
                                     }
                                   }
                                   setSelectedContactPerson(newContactPerson.trim())
-                                  if (invoice) {
+                                  if (activeInvoice) {
                                     (invoice as any).selected_contact_person = newContactPerson.trim()
                                   }
                                   setNewContactPerson('')
@@ -1567,12 +1563,12 @@ export default function AdminInvoiceDetailView({
                                   if (!contactPersons.includes(newContactPerson.trim())) {
                                     const updated = [...contactPersons, newContactPerson.trim()]
                                     setContactPersons(updated)
-                                    if (invoice) {
+                                    if (activeInvoice) {
                                       (invoice as any).contact_persons = updated
                                     }
                                   }
                                   setSelectedContactPerson(newContactPerson.trim())
-                                  if (invoice) {
+                                  if (activeInvoice) {
                                     (invoice as any).selected_contact_person = newContactPerson.trim()
                                   }
                                 }
@@ -1618,7 +1614,7 @@ export default function AdminInvoiceDetailView({
                 className="px-4 py-1.5 border-t flex flex-wrap items-center gap-1.5"
                 style={{ borderColor: '#819291', backgroundColor: '#FFFFFF' }}
               >
-                {invoice.broker_id && (
+                {activeInvoice.broker_id && (
                   <button
                     onClick={handleContactBroker}
                     className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white transition-colors"
@@ -1653,25 +1649,25 @@ export default function AdminInvoiceDetailView({
                 {stage !== 'ready_to_post' && onApprove && (
                   <button
                     onClick={() => {
-                      const updated = approveAdminInvoice(invoice.id)
-                      onApprove?.(invoice.id)
+                      const updated = approveAdminInvoice(activeInvoice.id)
+                      onApprove?.(activeInvoice.id)
                       if (updated) {
                         setCurrentInvoice(updated)
                       }
                     }}
                     className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white transition-colors"
                     style={{
-                      backgroundColor: invoice.status === 'approved' ? '#6b7a7a' : '#819291',
-                      opacity: invoice.status === 'approved' ? 0.7 : 1,
+                      backgroundColor: activeInvoice.status === 'approved' ? '#6b7a7a' : '#819291',
+                      opacity: activeInvoice.status === 'approved' ? 0.7 : 1,
                     }}
-                    disabled={invoice.status === 'approved'}
+                    disabled={activeInvoice.status === 'approved'}
                     onMouseEnter={(e) => {
-                      if (invoice.status !== 'approved') {
+                      if (activeInvoice.status !== 'approved') {
                         e.currentTarget.style.backgroundColor = '#6b7a7a'
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (invoice.status !== 'approved') {
+                      if (activeInvoice.status !== 'approved') {
                         e.currentTarget.style.backgroundColor = '#819291'
                       }
                     }}
@@ -1683,25 +1679,25 @@ export default function AdminInvoiceDetailView({
                 {stage !== 'ready_to_post' && onHold && (
                   <button
                     onClick={() => {
-                      const updated = holdAdminInvoice(invoice.id)
-                      onHold?.(invoice.id)
+                      const updated = holdAdminInvoice(activeInvoice.id)
+                      onHold?.(activeInvoice.id)
                       if (updated) {
                         setCurrentInvoice(updated)
                       }
                     }}
                     className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white transition-colors"
                     style={{
-                      backgroundColor: invoice.status === 'hold' ? '#b89547' : '#C2A558',
-                      opacity: invoice.status === 'hold' ? 0.7 : 1,
+                      backgroundColor: activeInvoice.status === 'hold' ? '#b89547' : '#C2A558',
+                      opacity: activeInvoice.status === 'hold' ? 0.7 : 1,
                     }}
-                    disabled={invoice.status === 'hold'}
+                    disabled={activeInvoice.status === 'hold'}
                     onMouseEnter={(e) => {
-                      if (invoice.status !== 'hold') {
+                      if (activeInvoice.status !== 'hold') {
                         e.currentTarget.style.backgroundColor = '#b89547'
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (invoice.status !== 'hold') {
+                      if (activeInvoice.status !== 'hold') {
                         e.currentTarget.style.backgroundColor = '#C2A558'
                       }
                     }}
@@ -2058,7 +2054,7 @@ export default function AdminInvoiceDetailView({
                     />
                   ) : (
                     <div className="text-xs font-medium" style={{ color: '#113543' }}>
-                      {formatCurrency(invoice.amount)}
+                      {formatCurrency(activeInvoice.amount)}
                     </div>
                   )}
                 </div>
@@ -2236,14 +2232,14 @@ export default function AdminInvoiceDetailView({
                       <>
                         <input
                           type="text"
-                          value={clientSearchTerm || invoice.client_name}
+                          value={clientSearchTerm || activeInvoice.client_name}
                           onChange={(e) => {
                             setClientSearchTerm(e.target.value)
                             setShowClientSuggestions(e.target.value.length > 0)
                             if (!e.target.value) {
                               // Reset client if search is cleared
-                              invoice.client_id = ''
-                              invoice.client_name = ''
+                              activeInvoice.client_id = ''
+                              activeInvoice.client_name = ''
                             }
                           }}
                           placeholder="Search or type carrier name"
@@ -2272,8 +2268,8 @@ export default function AdminInvoiceDetailView({
                               <button
                                 key={c.id}
                                 onClick={() => {
-                                  invoice.client_id = c.id
-                                  invoice.client_name = c.name
+                                  activeInvoice.client_id = c.id
+                                  activeInvoice.client_name = c.name
                                   setClientSearchTerm(c.name)
                                   setShowClientSuggestions(false)
                                 }}
@@ -2400,9 +2396,9 @@ export default function AdminInvoiceDetailView({
                 </div>
 
                 {/* Close Invoice Section (Collections View Only) */}
-                {invoice.status !== 'force_closed' &&
-                  invoice.status !== 'written_off' &&
-                  invoice.status !== 'paid' && (
+                {activeInvoice.status !== 'force_closed' &&
+                  activeInvoice.status !== 'written_off' &&
+                  activeInvoice.status !== 'paid' && (
                   <div className="space-y-4 border-t pt-4" style={{ borderColor: '#819291' }}>
                     <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                       Close Invoice
@@ -2416,12 +2412,12 @@ export default function AdminInvoiceDetailView({
                         onChange={(e) => {
                           const value = e.target.value as 'Force Close' | 'Write Off' | 'Paid' | ''
                           setCloseType(value)
-                          if (value === 'Write Off' && closeAmount >= invoice.amount) {
-                            setCloseAmount(invoice.amount * 0.9)
+                          if (value === 'Write Off' && closeAmount >= activeInvoice.amount) {
+                            setCloseAmount(activeInvoice.amount * 0.9)
                           } else if (value === 'Force Close') {
                             setCloseAmount(0)
-                          } else if (value === 'Paid' && closeAmount < invoice.amount) {
-                            setCloseAmount(invoice.amount)
+                          } else if (value === 'Paid' && closeAmount < activeInvoice.amount) {
+                            setCloseAmount(activeInvoice.amount)
                           }
                         }}
                         className="w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2"
@@ -2440,7 +2436,9 @@ export default function AdminInvoiceDetailView({
                         }}
                       >
                         <option value="">Select close type</option>
-                        <option value="Force Close">Force Close (uncollectable — fee applies)</option>
+                        {isManagedClient && (
+                          <option value="Force Close">Force Close (uncollectable — fee applies)</option>
+                        )}
                         <option value="Write Off">Write Off (short paid — no fee)</option>
                         <option value="Paid">Paid</option>
                       </select>
@@ -2460,7 +2458,7 @@ export default function AdminInvoiceDetailView({
                           color: '#819291',
                           backgroundColor: '#F5F5F5',
                         }}>
-                          ${invoice.amount.toFixed(2)}
+                          ${activeInvoice.amount.toFixed(2)}
                         </div>
                       </div>
                       <div>
@@ -2491,11 +2489,11 @@ export default function AdminInvoiceDetailView({
                             e.currentTarget.style.boxShadow = 'none'
                           }}
                         />
-                        {closeAmount !== invoice.amount && (
-                          <p className="text-xs mt-1" style={{ color: closeAmount < invoice.amount ? '#C2A558' : '#819291' }}>
-                            {closeAmount < invoice.amount 
-                              ? `Short paid by $${(invoice.amount - closeAmount).toFixed(2)}`
-                              : `Overpaid by $${(closeAmount - invoice.amount).toFixed(2)}`
+                        {closeAmount !== activeInvoice.amount && (
+                          <p className="text-xs mt-1" style={{ color: closeAmount < activeInvoice.amount ? '#C2A558' : '#819291' }}>
+                            {closeAmount < activeInvoice.amount 
+                              ? `Short paid by $${(activeInvoice.amount - closeAmount).toFixed(2)}`
+                              : `Overpaid by $${(closeAmount - activeInvoice.amount).toFixed(2)}`
                             }
                           </p>
                         )}
@@ -2508,7 +2506,7 @@ export default function AdminInvoiceDetailView({
                       <textarea
                         value={closeNote}
                         onChange={(e) => setCloseNote(e.target.value)}
-                        placeholder="Enter a note explaining why you are closing this invoice..."
+                        placeholder="Enter a note explaining why you are closing this activeInvoice..."
                         rows={4}
                         className="w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2"
                         style={{
@@ -3075,13 +3073,13 @@ export default function AdminInvoiceDetailView({
       {showContactBrokerModal && broker && (
         <ContactBrokerModal
           broker={broker}
-          invoiceNumber={invoice.invoice_number}
+          invoiceNumber={activeInvoice.invoice_number}
           onClose={() => setShowContactBrokerModal(false)}
           onCall={() => {
-            console.log('Calling broker for invoice:', invoice.id)
+            console.log('Calling broker for invoice:', activeInvoice.id)
           }}
           onEmail={() => {
-            console.log('Emailing broker for invoice:', invoice.id)
+            console.log('Emailing broker for invoice:', activeInvoice.id)
           }}
         />
       )}
@@ -3102,9 +3100,9 @@ export default function AdminInvoiceDetailView({
                   <h2 className="text-xl font-bold" style={{ color: '#113543' }}>
                     Contact Carrier
                   </h2>
-                  {invoice.invoice_number && (
+                  {activeInvoice.invoice_number && (
                     <p className="text-sm mt-1" style={{ color: '#819291' }}>
-                      Invoice: {invoice.invoice_number}
+                      Invoice: {activeInvoice.invoice_number}
                     </p>
                   )}
                 </div>
@@ -3174,7 +3172,7 @@ export default function AdminInvoiceDetailView({
                         </div>
                       </div>
                       <a
-                        href={`mailto:${client.email}${invoice.invoice_number ? `?subject=Invoice ${invoice.invoice_number}` : ''}`}
+                        href={`mailto:${client.email}${activeInvoice.invoice_number ? `?subject=Invoice ${activeInvoice.invoice_number}` : ''}`}
                         className="px-4 py-2 text-sm font-medium text-white transition-colors"
                         style={{ backgroundColor: '#C2A558' }}
                         onMouseEnter={(e) => {
@@ -3234,7 +3232,7 @@ export default function AdminInvoiceDetailView({
                     Send Documents via Email
                   </h2>
                   <p className="text-sm mt-1" style={{ color: '#819291' }}>
-                    Invoice {invoice.invoice_number}
+                    Invoice {activeInvoice.invoice_number}
                   </p>
                 </div>
                 <button

@@ -9,6 +9,7 @@ import AccountingModal from './AccountingModal'
 import BatchAiReviewPanel, { InvoiceAiReviewBadge } from './BatchAiReviewPanel'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { useToast } from '../ui/ToastProvider'
 
 interface ReadyToPostTabProps {
   batchId: string | null
@@ -23,6 +24,7 @@ export default function ReadyToPostTab({
   onMoveToVerification,
   onBack,
 }: ReadyToPostTabProps) {
+  const { showToast } = useToast()
   const c = useClientTheme()
   const batches = getAllBatches().filter((b) => b.status === 'ready_to_post')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
@@ -129,8 +131,9 @@ export default function ReadyToPostTab({
               type="button"
               onClick={() => {
                 if (!allComplete || progress !== 100) {
-                  alert(
-                    `Cannot move batch to verification. Progress must be 100%.\nCurrent progress: ${progress}%`
+                  showToast(
+                    `Cannot move batch to verification. Progress must be 100%. Current progress: ${progress}%`,
+                    'error'
                   )
                   return
                 }

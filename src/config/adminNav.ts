@@ -10,15 +10,21 @@ import {
   Users,
   UserCog,
   Settings,
+  Wallet,
+  Receipt,
   type LucideIcon,
 } from 'lucide-react'
 import { getInitials, getClientUserDisplayName } from './clientNav'
+
+export type AdminNavBadgeKey = 'pendingBatches' | 'pendingPayments' | 'pendingWriteOffs'
 
 export interface AdminNavItem {
   label: string
   path: string
   icon: LucideIcon
-  badgeKey?: 'pendingBatches'
+  badgeKey?: AdminNavBadgeKey
+  /** When set, badge shows the sum of all listed keys. */
+  badgeKeys?: AdminNavBadgeKey[]
 }
 
 export interface AdminNavSection {
@@ -41,6 +47,13 @@ export const adminNavSections: AdminNavSection[] = [
     title: 'OPERATIONS',
     items: [
       { label: 'Accounting', path: '/accounting', icon: Calculator },
+      {
+        label: 'Payment Posting',
+        path: '/payment-posting',
+        icon: Wallet,
+        badgeKeys: ['pendingPayments', 'pendingWriteOffs'],
+      },
+      { label: 'Billing', path: '/billing', icon: Receipt },
       { label: 'Audit Logs', path: '/Audit/dashboard', icon: ScrollText },
     ],
   },

@@ -1,4 +1,4 @@
-import { getInvoiceById, updateInvoice } from '../data/mockInvoices'
+import { getInvoiceById, updateInvoice, updateInvoiceAsync } from '../data/mockInvoices'
 import { Invoice, InvoiceDispute, InvoiceNote } from '../types/invoice'
 import type { Payment } from '../types/payment'
 import { formatCurrency } from '../utils/format'
@@ -13,7 +13,10 @@ import {
 } from '../utils/overPayments'
 import { getOverageAmount } from '../utils/paymentVariance'
 import { addInvoiceDocuments } from './invoiceDocumentStore'
-import { notifyAdminClientDocumentUpload } from './adminNotificationService'
+import { notifyAdminClientDocumentUpload, notifyAdminWriteOffRequested } from './adminNotificationService'
+import type { ClientCapabilities } from '../utils/clientCapabilities'
+import { getClientCapabilities } from '../utils/clientCapabilities'
+import { getClientById } from './clientRegistry'
 import { logAuditEvent } from '../utils/auditLogger'
 
 const DISPUTE_REASON_LABELS: Record<string, string> = {
@@ -195,11 +198,16 @@ export function closeClientInvoiceAsUncollectable(
   invoiceId: string,
   authorName: string,
   options: CloseUncollectableOptions,
-  payments: Payment[]
+  payments: Payment[],
+  capabilities?: Pick<ClientCapabilities, 'canRequestWriteOff'>
 ): Invoice | undefined {
   const invoice = getInvoiceById(invoiceId)
   if (!invoice || !options.note.trim()) return undefined
+
+  const caps = getClientCapabilities(getClientById(invoice.client_id)?.service_tier)
+  if (!(capabilities?.canRequestWriteOff ?? caps.canRequestWriteOff)) return undefined
   if (!canCloseShortPaymentAsUncollectable(invoice)) return undefined
+  if (payments.some((p) => p.invoice_id === invoiceId && p.status === 'pending')) return undefined
 
   const received = getInvoiceReceivedAmount(invoice, payments)
   if (!isShortPaymentInvoice(invoice, payments)) return undefined
@@ -216,25 +224,38 @@ export function closeClientInvoiceAsUncollectable(
   const notesHistory = [...(invoice.notes_history || []), closeNote]
 
   const updated = updateInvoice(invoiceId, {
-    status: 'written_off',
+    status: 'write_off_pending',
     paid_amount: received,
     notes_history: notesHistory,
-    days_since_expected: 0,
+    write_off_request: {
+      requested_by: authorName,
+      requested_at: new Date().toISOString(),
+      client_note: options.note.trim(),
+      received_amount: received,
+      shortfall,
+    },
     updated_at: new Date().toISOString(),
   })
 
   if (updated) {
+    notifyAdminWriteOffRequested({
+      clientId: updated.client_id,
+      clientName: updated.client_name,
+      invoiceNumber: updated.invoice_number,
+      shortfall,
+    })
+
     logAuditEvent(
       'invoice_closed',
       'invoice',
       updated.id,
       updated.invoice_number,
-      `${authorName} wrote off ${updated.invoice_number} (${formatCurrency(shortfall)} balance, no fee)`,
+      `${authorName} requested write-off on ${updated.invoice_number} (${formatCurrency(shortfall)} balance)`,
       'client-portal',
       authorName,
       'Client',
       undefined,
-      { close_type: 'written_off', received, shortfall }
+      { close_type: 'write_off_requested', received, shortfall }
     )
   }
 
@@ -301,15 +322,15 @@ export function acceptClientOverpayment(
 }
 
 /** Upload additional documents from the client invoice detail page. */
-export function uploadClientInvoiceDocuments(
+export async function uploadClientInvoiceDocuments(
   invoiceId: string,
   files: File[],
   uploadedBy: string
-): Invoice | undefined {
+): Promise<Invoice | undefined> {
   const invoice = getInvoiceById(invoiceId)
   if (!invoice || files.length === 0) return undefined
 
-  const added = addInvoiceDocuments(invoiceId, files, uploadedBy, 'client')
+  const added = await addInvoiceDocuments(invoiceId, files, uploadedBy, 'client')
   const fileNames = added.map((doc) => doc.file_name)
   const label =
     fileNames.length <= 3
@@ -326,7 +347,7 @@ export function uploadClientInvoiceDocuments(
 
   const documentDocIds = [...(invoice.document_doc_ids ?? []), ...added.map((doc) => doc.id)]
 
-  const updated = updateInvoice(invoiceId, {
+  const updated = await updateInvoiceAsync(invoiceId, {
     documents_count: (invoice.documents_count ?? 0) + added.length,
     document_doc_ids: documentDocIds,
     notes_history: [...(invoice.notes_history || []), uploadNote],

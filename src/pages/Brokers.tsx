@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import AdminLayout from '../components/AdminLayout'
 import { mockBrokers, addBroker } from '../data/mockBrokers'
-import { Broker, BrokerEmail, BrokerPhone, EmailCategory, PhoneCategory } from '../types/broker'
+import { Broker, BrokerEmail, BrokerPhone } from '../types/broker'
 import { Phone, Mail, MapPin, Search, X, Plus, Trash2 } from 'lucide-react'
+import { useToast } from '../components/ui/ToastProvider'
 
 export default function Brokers() {
+  const { showToast } = useToast()
   const [brokers, setBrokers] = useState<Broker[]>(mockBrokers)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null)
@@ -127,7 +129,7 @@ export default function Brokers() {
     e.preventDefault()
     
     if (!formData.name) {
-      alert('Broker name is required')
+      showToast('Broker name is required', 'error')
       return
     }
 

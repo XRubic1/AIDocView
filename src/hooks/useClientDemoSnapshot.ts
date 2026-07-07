@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildClientDashboardData,
   loadClientTenantData,
@@ -15,6 +15,8 @@ export function useClientDemoSnapshot(refreshKey = 0) {
   const [payments, setPayments] = useState<Payment[]>([])
   const [batches, setBatches] = useState<Batch[]>([])
   const [loading, setLoading] = useState(true)
+  const [staleError, setStaleError] = useState<string | null>(null)
+  const hasLoadedRef = useRef(false)
 
   const [focusRefresh, setFocusRefresh] = useState(0)
 
@@ -34,25 +36,33 @@ export function useClientDemoSnapshot(refreshKey = 0) {
       setPayments([])
       setBatches([])
       setLoading(false)
+      hasLoadedRef.current = false
+      setStaleError(null)
       return
     }
 
     let cancelled = false
     void (async () => {
       setLoading(true)
+      setStaleError(null)
       try {
         const data = await loadClientTenantData(clientId, clientName)
         if (!cancelled) {
           setInvoices(data.invoices)
           setPayments(data.payments)
           setBatches(data.batches)
+          hasLoadedRef.current = true
         }
       } catch (err) {
         console.error('[useClientDemoSnapshot] load failed:', err)
         if (!cancelled) {
-          setInvoices([])
-          setPayments([])
-          setBatches([])
+          if (hasLoadedRef.current) {
+            setStaleError('Data may be out of date. Try refreshing the page.')
+          } else {
+            setInvoices([])
+            setPayments([])
+            setBatches([])
+          }
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -77,5 +87,9 @@ export function useClientDemoSnapshot(refreshKey = 0) {
     payments,
     batches,
     loading,
+    isInitialLoad: loading && !hasLoadedRef.current,
+    isRefreshing: loading && hasLoadedRef.current,
+    staleError,
+    dismissStaleError: () => setStaleError(null),
   }
 }

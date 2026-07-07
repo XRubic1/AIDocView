@@ -1,17 +1,22 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { LogIn, Eye, EyeOff } from 'lucide-react'
+import { signInAdmin, getCurrentSession } from '../services/adminAuthService'
 
 export default function Login() {
   const navigate = useNavigate()
-  
-  // Redirect if already authenticated
+  const location = useLocation()
+  const from = (location.state as { from?: string } | null)?.from ?? '/admin/dashboard'
+
   useEffect(() => {
-    const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true'
-    if (isAuthenticated) {
-      navigate('/admin/dashboard', { replace: true })
-    }
-  }, [navigate])
+    void (async () => {
+      const session = await getCurrentSession()
+      if (session.isAdmin) {
+        navigate(from, { replace: true })
+      }
+    })()
+  }, [navigate, from])
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -23,34 +28,20 @@ export default function Login() {
     setError('')
     setIsLoading(true)
 
-    // Basic validation
     if (!email || !password) {
       setError('Please enter both email and password')
       setIsLoading(false)
       return
     }
 
-    // Mock authentication (in a real app, this would be an API call)
-    // For demo purposes, accept any email/password combination
-    // In production, this would validate against a backend
     try {
-      // Simulate API call delay
-      await new Promise((resolve) => setTimeout(resolve, 500))
-
-      // Mock authentication - accept any credentials for demo
-      // In production, replace this with actual authentication
-      if (email && password) {
-        // Store authentication state (in production, use secure token storage)
-        localStorage.setItem('isAuthenticated', 'true')
-        localStorage.setItem('userEmail', email)
-        localStorage.setItem('userRole', 'Administrator')
-
-        // Redirect to admin dashboard
-        navigate('/admin/dashboard')
-      } else {
-        setError('Invalid email or password')
+      const result = await signInAdmin(email, password)
+      if (!result.ok) {
+        setError(result.error ?? 'Invalid email or password')
+        return
       }
-    } catch (err) {
+      navigate(from)
+    } catch {
       setError('An error occurred during login. Please try again.')
     } finally {
       setIsLoading(false)
@@ -60,36 +51,29 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F5F5F5' }}>
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="flex justify-center mb-8">
-          <img 
-            src="/Logo.png" 
-            alt="CREDYX A/R SOLUTIONS" 
+          <img
+            src="/Logo.png"
+            alt="CREDYX A/R SOLUTIONS"
             className="h-12 w-auto"
             style={{ maxHeight: '48px' }}
           />
         </div>
 
-        {/* Login Card */}
-        <div className="border rounded-lg shadow-lg" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
+        <div className="border rounded-lg shadow-lg" style={{ backgroundColor: '#FFFFFF', borderColor: '#e2e8f0' }}>
           <div className="p-8">
             <div className="text-center mb-8">
               <h1 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
                 Admin Login
               </h1>
-              <p className="text-sm" style={{ color: '#819291' }}>
-                Sign in to access the admin portal
+              <p className="text-sm" style={{ color: '#64748b' }}>
+                Sign in to access the Credyx operations portal
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Email Field */}
               <div>
-                <label 
-                  htmlFor="email" 
-                  className="block text-sm font-medium mb-2" 
-                  style={{ color: '#113543' }}
-                >
+                <label htmlFor="email" className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
                   Email Address
                 </label>
                 <input
@@ -100,31 +84,20 @@ export default function Login() {
                     setEmail(e.target.value)
                     setError('')
                   }}
-                  placeholder="admin@credyx.com"
+                  placeholder="admin@credyx.net"
                   className="w-full px-4 py-2.5 text-sm border rounded focus:outline-none transition-colors"
                   style={{
-                    borderColor: error ? '#ef4444' : '#819291',
+                    borderColor: error ? '#ef4444' : '#64748b',
                     color: '#113543',
                     backgroundColor: '#FFFFFF',
-                  }}
-                  onFocus={(e) => {
-                    e.currentTarget.style.borderColor = '#C2A558'
-                  }}
-                  onBlur={(e) => {
-                    e.currentTarget.style.borderColor = error ? '#ef4444' : '#819291'
                   }}
                   required
                   disabled={isLoading}
                 />
               </div>
 
-              {/* Password Field */}
               <div>
-                <label 
-                  htmlFor="password" 
-                  className="block text-sm font-medium mb-2" 
-                  style={{ color: '#113543' }}
-                >
+                <label htmlFor="password" className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
                   Password
                 </label>
                 <div className="relative">
@@ -139,15 +112,9 @@ export default function Login() {
                     placeholder="Enter your password"
                     className="w-full px-4 py-2.5 pr-10 text-sm border rounded focus:outline-none transition-colors"
                     style={{
-                      borderColor: error ? '#ef4444' : '#819291',
+                      borderColor: error ? '#ef4444' : '#64748b',
                       color: '#113543',
                       backgroundColor: '#FFFFFF',
-                    }}
-                    onFocus={(e) => {
-                      e.currentTarget.style.borderColor = '#C2A558'
-                    }}
-                    onBlur={(e) => {
-                      e.currentTarget.style.borderColor = error ? '#ef4444' : '#819291'
                     }}
                     required
                     disabled={isLoading}
@@ -156,13 +123,7 @@ export default function Login() {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1"
-                    style={{ color: '#819291' }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = '#113543'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = '#819291'
-                    }}
+                    style={{ color: '#64748b' }}
                     disabled={isLoading}
                   >
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
@@ -170,40 +131,28 @@ export default function Login() {
                 </div>
               </div>
 
-              {/* Error Message */}
               {error && (
-                <div 
+                <div
                   className="p-3 rounded text-sm"
-                  style={{ 
-                    backgroundColor: '#FEE2E2', 
+                  style={{
+                    backgroundColor: '#FEE2E2',
                     color: '#DC2626',
-                    border: '1px solid #FECACA'
+                    border: '1px solid #FECACA',
                   }}
                 >
                   {error}
                 </div>
               )}
 
-              {/* Login Button */}
               <button
                 type="submit"
                 disabled={isLoading}
                 className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 text-sm font-medium text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ backgroundColor: isLoading ? '#b89547' : '#113543' }}
-                onMouseEnter={(e) => {
-                  if (!isLoading) {
-                    e.currentTarget.style.backgroundColor = '#0a2529'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isLoading) {
-                    e.currentTarget.style.backgroundColor = '#113543'
-                  }
-                }}
+                style={{ backgroundColor: isLoading ? '#0a2529' : '#113543' }}
               >
                 {isLoading ? (
                   <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     <span>Signing in...</span>
                   </>
                 ) : (
@@ -215,21 +164,11 @@ export default function Login() {
               </button>
             </form>
 
-            {/* Link to Client Login */}
-            <div className="mt-6 pt-6 border-t" style={{ borderColor: '#819291' }}>
-              <p className="text-xs text-center mb-2" style={{ color: '#819291' }}>
-                Demo Mode: Enter any email and password to continue
-              </p>
+            <div className="mt-6 pt-6 border-t" style={{ borderColor: '#e2e8f0' }}>
               <button
                 onClick={() => navigate('/client/login')}
                 className="w-full text-xs text-center transition-colors"
-                style={{ color: '#819291' }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = '#113543'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = '#819291'
-                }}
+                style={{ color: '#64748b' }}
               >
                 Client Login →
               </button>
@@ -237,9 +176,8 @@ export default function Login() {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="mt-6 text-center">
-          <p className="text-xs" style={{ color: '#819291' }}>
+          <p className="text-xs" style={{ color: '#64748b' }}>
             © {new Date().getFullYear()} CREDYX A/R SOLUTIONS. All rights reserved.
           </p>
         </div>
@@ -247,4 +185,3 @@ export default function Login() {
     </div>
   )
 }
-

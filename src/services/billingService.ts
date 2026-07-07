@@ -1,17 +1,20 @@
-import { getPlanForTier, formatStorage } from '../config/servicePlans'
+import { getPlanForTier } from '../config/servicePlans'
+import { PLATFORM_APP_FEE_MONTHLY } from '../config/arBillingRates'
 import { getClientById } from './clientRegistry'
+import {
+  computeMonthlyBill,
+  currentBillingPeriod,
+  getClientBills,
+  getBillingStanding,
+  resolveArRate,
+  getClientCollectedVolume,
+} from './arBillingService'
 import type { BillingLineItem, BillingSummary } from '../types/billing'
 import type { ServiceTier } from '../types/client'
 
 const GB = 1024 * 1024 * 1024
 
-function daysAgoIso(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() - days)
-  return d.toISOString().split('T')[0]
-}
-
-/** Mock billing summary for client Settings → Plan & Billing. */
+/** Billing summary for client Settings → Plan & Billing (A/R model). */
 export function getClientBillingSummary(clientId: string): BillingSummary | null {
   const client = getClientById(clientId)
   if (!client) return null
@@ -21,58 +24,47 @@ export function getClientBillingSummary(clientId: string): BillingSummary | null
   const billing = client.billing
   const storageUsed = billing?.storage_used_bytes ?? 2.1 * GB
   const storageQuota = billing?.storage_quota_bytes ?? plan.storage_quota_bytes
-  const appFee = billing?.app_fee_monthly ?? plan.app_fee_monthly
-  const serviceFee = billing?.service_fee_monthly ?? plan.service_fee_monthly ?? 0
+  const trial = billing?.subscription_status === 'trial'
+  const period = currentBillingPeriod()
+  const collectedVolume = getClientCollectedVolume(clientId, period)
+  const ratePct = resolveArRate(client, collectedVolume)
+  const computed = computeMonthlyBill(clientId, period)
+
+  const appFee = trial ? 0 : PLATFORM_APP_FEE_MONTHLY
+  const arFee = computed.arFee
 
   return {
     plan,
     subscription_status: billing?.subscription_status ?? 'active',
     app_fee_monthly: appFee,
-    service_fee_monthly: serviceFee,
-    total_monthly: appFee + serviceFee,
+    service_fee_monthly: arFee,
+    total_monthly: appFee + arFee,
     usage: {
       storage_used_bytes: storageUsed,
       storage_quota_bytes: storageQuota,
       storage_pct: storageQuota > 0 ? Math.min(100, (storageUsed / storageQuota) * 100) : 0,
       document_count: Math.round(storageUsed / (2.5 * 1024 * 1024)),
     },
-    line_items: getMockInvoices(clientId),
+    line_items: billsToLineItems(getClientBills(clientId)),
+    collected_volume: collectedVolume,
+    rate_pct: ratePct,
+    factoring: client.factoring ?? false,
+    billing_standing: getBillingStanding(client),
   }
 }
 
-export function getMockInvoices(clientId: string): BillingLineItem[] {
-  const client = getClientById(clientId)
-  const tier = client?.service_tier ?? 'self_service'
-  const plan = getPlanForTier(tier)
-  const appFee = client?.billing?.app_fee_monthly ?? plan.app_fee_monthly
-  const serviceFee = client?.billing?.service_fee_monthly ?? plan.service_fee_monthly ?? 0
-
-  const items: BillingLineItem[] = [
-    {
-      id: 'inv-1',
-      date: daysAgoIso(5),
-      description: `${plan.name} — platform subscription`,
-      amount: appFee,
-      status: 'paid',
-    },
-    {
-      id: 'inv-2',
-      date: daysAgoIso(5),
-      description: `Storage (${formatStorage(client?.billing?.storage_used_bytes ?? 0)} used)`,
-      amount: 0,
-      status: 'paid',
-    },
-  ]
-
-  if (tier === 'managed' && serviceFee > 0) {
-    items.push({
-      id: 'inv-3',
-      date: daysAgoIso(5),
-      description: 'Managed service fee',
-      amount: serviceFee,
-      status: 'paid',
-    })
-  }
-
-  return items
+function billsToLineItems(bills: ReturnType<typeof getClientBills>): BillingLineItem[] {
+  return bills.flatMap((bill) =>
+    bill.line_items.map((li) => ({
+      ...li,
+      id: `${bill.id}-${li.id}`,
+      date: bill.period,
+      status:
+        bill.status === 'paid'
+          ? ('paid' as const)
+          : bill.status === 'overdue'
+            ? ('overdue' as const)
+            : ('pending' as const),
+    }))
+  )
 }

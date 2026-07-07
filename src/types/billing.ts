@@ -21,6 +21,40 @@ export interface BillingLineItem {
   status: 'paid' | 'pending' | 'overdue'
 }
 
+/** Calendar month for A/R billing (e.g. July 2026 → { year: 2026, month: 7 }). */
+export interface BillingPeriod {
+  year: number
+  month: number
+}
+
+export type ClientBillStatus = 'open' | 'paid' | 'overdue' | 'written_off'
+
+/** Escalation state from unpaid bill ages (spec §3b). */
+export type BillingStanding = 'ok' | 'overdue' | 'warning' | 'locked'
+
+export interface ClientBill {
+  id: string
+  client_id: string
+  period: string
+  issued_at: string
+  due_at: string
+  amount: number
+  status: ClientBillStatus
+  paid_at?: string
+  payoneer_reference?: string
+  line_items: BillingLineItem[]
+}
+
+export interface ComputedMonthlyBill {
+  appFee: number
+  collectedVolume: number
+  ratePct: number
+  arFee: number
+  adjustments: BillingLineItem[]
+  total: number
+  lineItems: BillingLineItem[]
+}
+
 export interface UsageSnapshot {
   storage_used_bytes: number
   storage_quota_bytes: number
@@ -36,4 +70,12 @@ export interface BillingSummary {
   total_monthly: number
   usage: UsageSnapshot
   line_items: BillingLineItem[]
+  /** Current period collected volume (A/R billing). */
+  collected_volume?: number
+  /** Current A/R rate %. */
+  rate_pct?: number
+  /** Whether factoring discount applies. */
+  factoring?: boolean
+  /** Escalation state from unpaid bills. */
+  billing_standing?: BillingStanding
 }

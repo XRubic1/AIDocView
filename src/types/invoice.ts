@@ -6,6 +6,7 @@ export interface InvoiceNote {
   created_by: string
   created_at: string
   type?: 'note' | 'client_note' | 'hold_reason' | 'approval' | 'rejection' | 'dispute'
+  visibility?: 'client' | 'internal'
 }
 
 export interface InvoiceDispute {
@@ -37,7 +38,7 @@ export interface Invoice {
   invoice_date: string
   due_date: string
   expected_payment_date: string
-  status: 'pending' | 'approved' | 'rejected' | 'hold' | 'paid' | 'force_closed' | 'written_off'
+  status: 'pending' | 'approved' | 'rejected' | 'hold' | 'paid' | 'force_closed' | 'written_off' | 'write_off_pending'
   load_number?: string
   batch_id?: string
   batch_number?: string
@@ -74,6 +75,17 @@ export interface Invoice {
   document_doc_ids?: string[]
   /** Supabase storage paths keyed by document_doc_ids entry. */
   document_storage_paths?: Record<string, string>
+  write_off_request?: {
+    requested_by: string
+    requested_at: string
+    client_note: string
+    received_amount: number
+    shortfall: number
+    resolved_at?: string
+    resolved_by?: string
+    resolution?: 'approved' | 'denied'
+    internal_note?: string
+  }
 }
 
 export interface DocumentSendRecord {

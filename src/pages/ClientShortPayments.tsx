@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientSession } from '../hooks/useClientSession'
+import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
@@ -47,6 +48,7 @@ import {
   closeClientInvoiceAsUncollectable,
 } from '../services/clientInvoiceActions'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
+import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 
 type VarianceTab = 'short' | 'over'
 type ShortFilter = 'all' | ShortPaymentResolution
@@ -77,13 +79,15 @@ function getOverResolutionPill(resolution: OverpaymentResolution) {
 export default function ClientShortPayments() {
   const c = useClientTheme()
   const { clientId, clientName } = useClientSession()
+  const { capabilities } = useClientCapabilities()
   const authorName = clientName
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [varianceTab, setVarianceTab] = useState<VarianceTab>('short')
   const [refreshKey, setRefreshKey] = useState(0)
-  const { dashboard: data, invoices: clientInvoices, payments: clientPayments } =
+  const { dashboard: data, invoices: rawInvoices, payments: clientPayments } =
     useClientDemoSnapshot(refreshKey)
+  const clientInvoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
   const [searchTerm, setSearchTerm] = useState('')
   const [shortFilter, setShortFilter] = useState<ShortFilter>('open')
   const [overFilter, setOverFilter] = useState<OverFilter>('open')
@@ -282,6 +286,15 @@ export default function ClientShortPayments() {
   return (
     <ClientLayout clientName={clientName} clientId={clientId} flushMain>
       <div className="client-short-payments-page overflow-hidden flex flex-col min-h-0">
+        {!capabilities.canRequestWriteOff && varianceTab === 'short' && (
+          <section
+            className="shrink-0 px-4 py-2.5 border-b text-sm"
+            style={{ borderColor: c.border, backgroundColor: c.stat.amber, color: c.secondary }}
+          >
+            Write-offs and short-pay closures are managed by Credyx on your plan. Contact your
+            Credyx team to close a remaining balance.
+          </section>
+        )}
         <section
           className="client-stat-strip grid grid-cols-2 lg:grid-cols-4 border-b shrink-0"
           style={{ borderColor: c.border }}
@@ -607,7 +620,7 @@ export default function ClientShortPayments() {
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
-                              {row.resolution === 'open' && (
+                              {row.resolution === 'open' && capabilities.canRequestWriteOff && (
                                 <button
                                   type="button"
                                   onClick={() => setCloseTarget(row)}
@@ -761,10 +774,15 @@ export default function ClientShortPayments() {
         title={varianceTab === 'short' ? 'Short payment' : 'Overpayment'}
         onInvoiceUpdated={refresh}
         onAddNote={handleAddNote}
-        onCloseAsUncollectable={varianceTab === 'short' ? handleCloseUncollectable : undefined}
+        onCloseAsUncollectable={
+          varianceTab === 'short' && capabilities.canRequestWriteOff
+            ? handleCloseUncollectable
+            : undefined
+        }
         onAcceptOverpayment={varianceTab === 'over' ? handleAcceptOverpayment : undefined}
         payments={clientPayments}
         showStatusFilter={false}
+        enableClientActions={capabilities.canRunInvoiceOps}
       />
 
       {closeTarget && (

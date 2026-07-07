@@ -34,7 +34,7 @@ export function applyPageClassificationCorrections(
   }
 
   if (hasInvoicePage && extraction.documentType === 'rate_confirmation') {
-    extraction.documentType = 'invoice'
+    extraction.documentType = 'invoice' as import('../types/documentReview').DocumentType
   }
 
   return { ...doc, extraction }

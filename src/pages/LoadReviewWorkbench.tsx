@@ -727,7 +727,6 @@ export default function LoadReviewWorkbench() {
 
                 onFiles={(files) => void addDocuments(files)}
 
-                compact
 
                 label="Add PDF"
                 compact

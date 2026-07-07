@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AI_REVIEW_CONFIG } from '../config/aiReview'
-import {
-  EXAMPLE_BATCH_LOAD_COUNT,
-  HERO_STATS_BASELINE,
-  TYPICAL_SECONDS_PER_LOAD,
-  estimateBatchMinutes,
-} from '../data/landingMetrics'
+import { HERO_STATS_BASELINE } from '../data/landingMetrics'
 import { TICKER_ITEMS as EXAMPLE_TICKER, type TickerItem } from '../data/landingData'
 import { getLoadHistory } from '../utils/loadHistoryStore'
 import { getCustomReviewRules, getEffectiveBuiltInRules } from '../utils/reviewRulesStore'

@@ -1,11 +1,8 @@
-import { CLIENT_ID_STORAGE_KEY } from '../services/clientRegistry'
 import { signOutClientAuth } from '../services/clientAuthService'
+import { clearTenantStores } from '../services/supabase/hydrateStores'
 
-/** Remove client portal auth keys from localStorage. */
-export function clearClientSession(): void {
-  localStorage.removeItem('clientAuthenticated')
-  localStorage.removeItem('clientEmail')
-  localStorage.removeItem('clientRole')
-  localStorage.removeItem(CLIENT_ID_STORAGE_KEY)
-  void signOutClientAuth()
+/** Sign out client session and clear tenant caches. */
+export async function clearClientSession(): Promise<void> {
+  await signOutClientAuth()
+  clearTenantStores()
 }

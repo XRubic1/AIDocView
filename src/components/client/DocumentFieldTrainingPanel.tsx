@@ -1,5 +1,6 @@
 import { Check, HelpCircle, MessageSquare, RefreshCw, Scan, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useToast } from '../ui/ToastProvider'
 import { reExtractFieldWithGuidance } from '../../services/documentReviewService'
 import {
   DocumentReviewResult,
@@ -74,6 +75,7 @@ export default function DocumentFieldTrainingPanel({
   variant = 'light',
   engineLayout = false,
 }: DocumentFieldTrainingPanelProps) {
+  const { showToast } = useToast()
   const dark = variant === 'dark'
   const engine = engineLayout && dark
   const border = dark ? ff.border : '#0891b2'
@@ -125,7 +127,7 @@ export default function DocumentFieldTrainingPanel({
       if (field.value !== undefined) onOverrideChange(fieldKey, field.value)
       result.debugLog.attempts.push(attempt)
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Could not read marked region')
+      showToast(error instanceof Error ? error.message : 'Could not read marked region', 'error')
     } finally {
       setReExtracting(null)
     }

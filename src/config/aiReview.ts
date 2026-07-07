@@ -1,5 +1,7 @@
 /** AI document review configuration — primary model with confidence-based fallback. */
 import { getRuntimeEnvString } from '../platform/runtimeEnv'
+import { getOpenAIChatCompletionsHandler } from '../platform/openaiTransport'
+import { isSupabaseConfigured } from '../lib/supabase'
 import { getUserTpmLimit } from '../utils/aiReviewUserSettings'
 
 const DEFAULT_PRIMARY_MODEL = 'gpt-4.1-2025-04-14'
@@ -207,7 +209,8 @@ export function getOpenAIApiKey(): string | undefined {
 }
 
 export function isAIReviewEnabled(): boolean {
-  return Boolean(getOpenAIApiKey())
+  if (getOpenAIChatCompletionsHandler()) return true
+  return isSupabaseConfigured()
 }
 
 /** Labels shown in the UI for the active model setup. */

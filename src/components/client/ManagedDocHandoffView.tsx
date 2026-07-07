@@ -1,7 +1,11 @@
 import { useCallback, useState } from 'react'
 import { Upload, FileText, CheckCircle, Loader2 } from 'lucide-react'
 import { addBatch, generateBatchNumber } from '../../data/mockBatches'
+import { HANDOFF_PLACEHOLDER_INVOICE_ID, setBatchFiles } from '../../data/batchFileStore'
+import { isSupabaseConfigured } from '../../lib/supabase'
 import { notifyAdminDocHandoff } from '../../services/adminNotificationService'
+import { uploadBatchInvoiceDocuments } from '../../services/supabase/tenantPersist'
+import { useToast } from '../ui/ToastProvider'
 import { useClientTheme } from '../../theme/ThemeContext'
 
 interface ManagedDocHandoffViewProps {
@@ -17,6 +21,7 @@ export default function ManagedDocHandoffView({
   onSubmitted,
 }: ManagedDocHandoffViewProps) {
   const c = useClientTheme()
+  const { showToast } = useToast()
   const [files, setFiles] = useState<File[]>([])
   const [notes, setNotes] = useState('')
   const [isDragging, setIsDragging] = useState(false)
@@ -46,6 +51,22 @@ export default function ManagedDocHandoffView({
         upload_mode: 'handoff',
       })
 
+      const fileMap = new Map<string, File>()
+      files.forEach((file, index) => {
+        const docId = `handoff-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`
+        fileMap.set(docId, file)
+      })
+      setBatchFiles(batch.id, fileMap)
+
+      if (isSupabaseConfigured()) {
+        await uploadBatchInvoiceDocuments(
+          clientId,
+          batch.id,
+          HANDOFF_PLACEHOLDER_INVOICE_ID,
+          fileMap
+        )
+      }
+
       notifyAdminDocHandoff({
         clientId,
         clientName,
@@ -58,8 +79,11 @@ export default function ManagedDocHandoffView({
 
       setSubmitted(true)
       onSubmitted?.()
-    } catch {
-      /* ignore */
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Could not send documents to Credyx',
+        'error'
+      )
     } finally {
       setIsSubmitting(false)
     }

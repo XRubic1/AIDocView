@@ -526,8 +526,10 @@ async function callOpenAIJson(
   }
 ): Promise<{ data: Record<string, unknown>; usage: ApiUsageRecord }> {
   const apiKey = getOpenAIApiKey()
-  if (!apiKey) {
-    throw new Error('OpenAI API key is not configured. Add VITE_OPENAI_API_KEY to your .env file.')
+  if (!apiKey && !isAIReviewEnabled()) {
+    throw new Error(
+      'AI review requires Supabase configuration. Deploy the openai-proxy Edge Function with OPENAI_API_KEY.'
+    )
   }
 
   options.budget?.assertWithinBudget()
@@ -630,7 +632,7 @@ async function auditBolPages(
 
   const consensusRuns = AI_REVIEW_CONFIG.SIGNATURE_CONSENSUS_RUNS
   const attempts: DocumentReviewAttempt[] = []
-  const receiverPasses: Array<{ receiver: BolAudit['signatures']['receiver']; cropVerified: boolean }> =
+  const receiverPasses: Array<{ receiver: BolAudit['signatures']['receiver']; cropVerified: boolean; localizationTrusted?: boolean }> =
     []
   let primaryAudit: BolAudit | undefined
   let primaryRaw: Record<string, unknown> | undefined
@@ -781,8 +783,10 @@ async function extractWithModel(
   budget?: ReviewCostBudget
 ): Promise<ModelExtractionResult> {
   const apiKey = getOpenAIApiKey()
-  if (!apiKey) {
-    throw new Error('OpenAI API key is not configured. Add VITE_OPENAI_API_KEY to your .env file.')
+  if (!apiKey && !isAIReviewEnabled()) {
+    throw new Error(
+      'AI review requires Supabase configuration. Deploy the openai-proxy Edge Function with OPENAI_API_KEY.'
+    )
   }
 
   budget?.assertWithinBudget()
@@ -1721,7 +1725,9 @@ export async function reviewUploadedDocuments(
   options?: ReviewUploadOptions
 ): Promise<BatchDocumentReviewResult> {
   if (!isAIReviewEnabled()) {
-    throw new Error('AI review is not configured. Add VITE_OPENAI_API_KEY to your .env file.')
+    throw new Error(
+      'AI review requires Supabase configuration. Deploy the openai-proxy Edge Function with OPENAI_API_KEY.'
+    )
   }
 
   let batchRateConParse: RateConParse | undefined

@@ -280,7 +280,6 @@ export default function HowItWorks() {
                      position: 'absolute',
                      top: '40%',
                      left: '50%',
-                     transform: 'translate(-50%, -40%)',
                      width: '100%',
                      maxWidth: '80rem',
                      padding: '0 1.5rem',
