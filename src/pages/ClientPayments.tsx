@@ -15,9 +15,13 @@ import {
   ArrowRightLeft,
   Undo2,
   Info,
+  CheckCircle,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
 import PaymentKpiCards from '../components/client/PaymentKpiCards'
+import PaymentReceiptConfirmationPanel from '../components/client/PaymentReceiptConfirmationPanel'
 import PostPaymentForm from '../components/client/PostPaymentForm'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
@@ -37,6 +41,17 @@ import {
   type SortDir,
 } from '../utils/clientListPage'
 import { getPresetRange } from '../utils/clientReports'
+import {
+  PAYMENT_STATUS_LABELS,
+  PAYMENT_STATUS_PILL_CLASS,
+  getReceiptConfirmationDaysLeft,
+} from '../utils/paymentStatus'
+import {
+  confirmPaymentReceipt,
+  openPaymentReceiptDispute,
+  PAYMENT_RECEIPT_DISPUTE_REASONS,
+  processExpiredReceiptConfirmations,
+} from '../services/paymentReceiptConfirmationService'
 
 type PaymentSortField =
   | 'invoice_number'
@@ -54,25 +69,28 @@ const METHOD_LABELS: Record<string, string> = {
   credit_card: 'Credit Card',
 }
 
-type PaymentStatusFilter = 'all' | 'pending' | 'confirmed' | 'rejected' | 'reversed'
+type PaymentStatusFilter =
+  | 'all'
+  | 'pending'
+  | 'awaiting_receipt'
+  | 'disputed'
+  | 'confirmed'
+  | 'rejected'
+  | 'reversed'
 
 function getPaymentStatusPill(status: string, payment?: Payment) {
-  const config: Record<string, { className: string; label: string }> = {
-    pending: { className: 'status-pill status-pill--pending', label: 'Pending' },
-    confirmed: { className: 'status-pill status-pill--approved', label: 'Confirmed' },
-    rejected: { className: 'status-pill status-pill--overdue', label: 'Rejected' },
-    reversed: { className: 'status-pill status-pill--hold', label: 'Reversed' },
-  }
-  const entry = config[status] ?? { className: 'status-pill', label: status }
-  const pill = (
-    <span className={`inline-flex items-center ${entry.className}`}>{entry.label}</span>
-  )
+  const label = PAYMENT_STATUS_LABELS[status as keyof typeof PAYMENT_STATUS_LABELS] ?? status
+  const className =
+    PAYMENT_STATUS_PILL_CLASS[status as keyof typeof PAYMENT_STATUS_PILL_CLASS] ?? 'status-pill'
+  const pill = <span className={`inline-flex items-center ${className}`}>{label}</span>
   const reason =
     status === 'reversed'
       ? payment?.reversal_reason
       : status === 'rejected'
         ? payment?.rejection_reason
-        : undefined
+        : status === 'disputed'
+          ? payment?.dispute?.description
+          : undefined
   if (reason) {
     return (
       <span title={reason} className="inline-flex items-center">
@@ -123,6 +141,12 @@ export default function ClientPayments() {
     refreshPayments()
   }, [clientId, refreshPayments])
 
+  useEffect(() => {
+    if (!capabilities.canConfirmPaymentReceipt) return
+    const autoConfirmed = processExpiredReceiptConfirmations()
+    if (autoConfirmed > 0) refreshPayments()
+  }, [capabilities.canConfirmPaymentReceipt, clientId, refreshPayments])
+
   const [searchTerm, setSearchTerm] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -134,6 +158,12 @@ export default function ClientPayments() {
   const [moveTargetInvoiceId, setMoveTargetInvoiceId] = useState<string | null>(null)
   const [moveReason, setMoveReason] = useState('')
   const [unprocessReason, setUnprocessReason] = useState('')
+  const [receiptActionLoading, setReceiptActionLoading] = useState(false)
+  const [showReceiptDisputeModal, setShowReceiptDisputeModal] = useState(false)
+  const [receiptDisputeReason, setReceiptDisputeReason] = useState<string>(
+    PAYMENT_RECEIPT_DISPUTE_REASONS[0].value
+  )
+  const [receiptDisputeDescription, setReceiptDisputeDescription] = useState('')
   const historyTableRef = useRef<HTMLDivElement>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [showPaymentDetailModal, setShowPaymentDetailModal] = useState(false)
@@ -204,8 +234,14 @@ export default function ClientPayments() {
     const sorted = [...filteredPayments]
     sorted.sort((a, b) => {
       if (a.status !== b.status) {
-        if (a.status === 'pending') return -1
-        if (b.status === 'pending') return 1
+        const priority: Record<string, number> = {
+          awaiting_receipt: 0,
+          disputed: 1,
+          pending: 2,
+        }
+        const aPri = priority[a.status] ?? 10
+        const bPri = priority[b.status] ?? 10
+        if (aPri !== bPri) return aPri - bPri
       }
 
       let cmp = 0
@@ -275,6 +311,57 @@ export default function ClientPayments() {
     setSelectedPayment(payment)
     setShowPaymentDetailModal(true)
   }
+
+  const handleConfirmReceipt = useCallback(async () => {
+    if (!selectedPayment || selectedPayment.status !== 'awaiting_receipt') return
+    setReceiptActionLoading(true)
+    try {
+      const result = confirmPaymentReceipt(selectedPayment.id, authorName)
+      if (result) {
+        showToast('Payment confirmed — funds released', 'success')
+        setShowPaymentDetailModal(false)
+        setSelectedPayment(null)
+        refreshPayments()
+      } else {
+        showToast('Could not confirm payment', 'error')
+      }
+    } finally {
+      setReceiptActionLoading(false)
+    }
+  }, [selectedPayment, authorName, showToast, refreshPayments])
+
+  const handleSubmitReceiptDispute = useCallback(async () => {
+    if (!selectedPayment || !receiptDisputeDescription.trim() || receiptActionLoading) return
+    setReceiptActionLoading(true)
+    try {
+      const result = openPaymentReceiptDispute(
+        selectedPayment.id,
+        receiptDisputeReason,
+        receiptDisputeDescription,
+        authorName
+      )
+      if (result) {
+        showToast('Dispute submitted — funds on hold', 'success')
+        setShowReceiptDisputeModal(false)
+        setShowPaymentDetailModal(false)
+        setSelectedPayment(null)
+        setReceiptDisputeDescription('')
+        refreshPayments()
+      } else {
+        showToast('Could not submit dispute', 'error')
+      }
+    } finally {
+      setReceiptActionLoading(false)
+    }
+  }, [
+    selectedPayment,
+    receiptDisputeReason,
+    receiptDisputeDescription,
+    receiptActionLoading,
+    authorName,
+    showToast,
+    refreshPayments,
+  ])
 
   const handlePaymentPosted = useCallback(
     (_result: PostPaymentResult) => {
@@ -420,10 +507,19 @@ export default function ClientPayments() {
           >
             <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: c.info }} />
             <p>
-              Your account is on the Managed plan. Credyx posts payments from remittances — view
-              history here. Contact Credyx to correct a mis-posted payment.
+              Your account is on the Managed plan. Credyx posts payments from remittances — confirm
+              receipt within 30 days or dispute if funds were not received. Contact Credyx to
+              correct a mis-posted payment.
             </p>
           </section>
+        )}
+        {capabilities.canConfirmPaymentReceipt && (
+          <PaymentReceiptConfirmationPanel
+            payments={payments}
+            clientName={authorName}
+            onUpdated={refreshPayments}
+            onViewPayment={handleViewPaymentDetail}
+          />
         )}
         {!capabilities.canCorrectPayments && capabilities.canPostPayment && (
           <section
@@ -509,11 +605,15 @@ export default function ClientPayments() {
                   >
                     {statusFilter === 'pending'
                       ? 'Pending only'
-                      : statusFilter === 'rejected'
-                        ? 'Rejected only'
-                        : statusFilter === 'reversed'
-                          ? 'Reversed only'
-                          : 'Confirmed only'}
+                      : statusFilter === 'awaiting_receipt'
+                        ? 'Awaiting confirmation'
+                        : statusFilter === 'disputed'
+                          ? 'Disputed only'
+                          : statusFilter === 'rejected'
+                            ? 'Rejected only'
+                            : statusFilter === 'reversed'
+                              ? 'Reversed only'
+                              : 'Confirmed only'}
                     <X className="w-3 h-3 opacity-60" aria-hidden />
                   </button>
                 )}
@@ -577,6 +677,8 @@ export default function ClientPayments() {
                   aria-label="Status"
                 >
                   <option value="all">All statuses</option>
+                  <option value="awaiting_receipt">Awaiting confirmation</option>
+                  <option value="disputed">Disputed</option>
                   <option value="pending">Pending</option>
                   <option value="confirmed">Confirmed</option>
                   <option value="rejected">Rejected</option>
@@ -741,9 +843,9 @@ export default function ClientPayments() {
                   {paginatedPayments.map((payment) => (
                       <tr
                         key={payment.id}
-                        className={`cursor-pointer ${payment.status === 'pending' ? 'payment-row--pending' : ''} ${
+                        className={`cursor-pointer ${payment.status === 'pending' || payment.status === 'awaiting_receipt' ? 'payment-row--pending' : ''} ${
                           payment.status === 'reversed' || payment.status === 'rejected' ? 'opacity-70' : ''
-                        }`}
+                        } ${payment.status === 'disputed' ? 'opacity-90' : ''}`}
                         onClick={() => handleViewPaymentDetail(payment)}
                       >
                         <ClientListTd
@@ -1044,6 +1146,42 @@ export default function ClientPayments() {
                 </div>
               )}
 
+              {selectedPayment.status === 'awaiting_receipt' &&
+                selectedPayment.client_confirmation_deadline && (
+                  <div
+                    className="rounded-lg px-3 py-2 text-sm"
+                    style={{ backgroundColor: c.stat.amber, color: c.secondary }}
+                  >
+                    <p className="font-medium" style={{ color: c.primary }}>
+                      Confirm receipt within{' '}
+                      {getReceiptConfirmationDaysLeft(selectedPayment) ?? 0} day
+                      {(getReceiptConfirmationDaysLeft(selectedPayment) ?? 0) !== 1 ? 's' : ''}
+                    </p>
+                    <p className="text-xs mt-0.5">
+                      Deadline: {formatDate(selectedPayment.client_confirmation_deadline.split('T')[0])}
+                    </p>
+                  </div>
+                )}
+
+              {selectedPayment.dispute && (
+                <div>
+                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
+                    Dispute
+                  </label>
+                  <p
+                    className="text-sm mt-1 p-3 rounded-lg"
+                    style={{ color: c.primary, backgroundColor: c.surface }}
+                  >
+                    {selectedPayment.dispute.description}
+                  </p>
+                  {selectedPayment.dispute.response && (
+                    <p className="text-xs mt-2" style={{ color: c.secondary }}>
+                      Credyx response: {selectedPayment.dispute.response}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {selectedPayment.notes && (
                 <div>
                   <label className="text-sm font-medium" style={{ color: c.secondary }}>
@@ -1058,7 +1196,41 @@ export default function ClientPayments() {
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-4 border-t" style={{ borderColor: c.border }}>
+              <div className="flex justify-between gap-2 pt-4 border-t" style={{ borderColor: c.border }}>
+                <div className="flex gap-2">
+                  {capabilities.canConfirmPaymentReceipt &&
+                    selectedPayment.status === 'awaiting_receipt' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleConfirmReceipt}
+                          disabled={receiptActionLoading}
+                          className="dashboard-btn-primary inline-flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          {receiptActionLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle className="w-4 h-4" />
+                          )}
+                          Confirm received
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReceiptDisputeReason(PAYMENT_RECEIPT_DISPUTE_REASONS[0].value)
+                            setReceiptDisputeDescription('')
+                            setShowReceiptDisputeModal(true)
+                          }}
+                          disabled={receiptActionLoading}
+                          className="dashboard-btn-secondary inline-flex items-center gap-1.5 disabled:opacity-50"
+                          style={{ color: c.error, borderColor: c.error }}
+                        >
+                          <AlertTriangle className="w-4 h-4" />
+                          Dispute
+                        </button>
+                      </>
+                    )}
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -1070,6 +1242,77 @@ export default function ClientPayments() {
                   Close
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReceiptDisputeModal && selectedPayment && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div
+            className="rounded-lg shadow-xl max-w-md w-full"
+            style={{ backgroundColor: c.card, boxShadow: c.shadow.cardHover }}
+          >
+            <div className="p-5 border-b" style={{ borderColor: c.border }}>
+              <h3 className="text-base font-semibold" style={{ color: c.primary }}>
+                Dispute payment receipt
+              </h3>
+              <p className="text-xs mt-1" style={{ color: c.secondary }}>
+                Funds will be placed on hold until Credyx resolves this dispute.
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: c.secondary }}>
+                  Reason
+                </label>
+                <select
+                  value={receiptDisputeReason}
+                  onChange={(e) => setReceiptDisputeReason(e.target.value)}
+                  className="client-input w-full"
+                >
+                  {PAYMENT_RECEIPT_DISPUTE_REASONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: c.secondary }}>
+                  Description
+                </label>
+                <textarea
+                  value={receiptDisputeDescription}
+                  onChange={(e) => setReceiptDisputeDescription(e.target.value)}
+                  rows={3}
+                  className="client-input w-full resize-none"
+                  placeholder="Explain why funds were not received…"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 p-5 border-t" style={{ borderColor: c.border }}>
+              <button
+                type="button"
+                onClick={() => setShowReceiptDisputeModal(false)}
+                className="dashboard-btn-secondary"
+                disabled={receiptActionLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitReceiptDispute}
+                disabled={!receiptDisputeDescription.trim() || receiptActionLoading}
+                className="dashboard-btn-primary inline-flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {receiptActionLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4" />
+                )}
+                Submit dispute
+              </button>
             </div>
           </div>
         </div>

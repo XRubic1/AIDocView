@@ -1,5 +1,5 @@
 import { Invoice } from '../types/invoice'
-import { persistInvoice } from '../services/supabase/tenantPersist'
+import { deleteInvoiceFromDb, persistInvoice } from '../services/supabase/tenantPersist'
 import { syncBatchFees } from '../services/batchFeeSync'
 import { persistOrThrow } from '../services/persistHelper'
 import { persistWithFeedback } from '../services/persistFeedback'
@@ -72,6 +72,17 @@ export async function updateInvoiceAsync(
     syncBatchFees(batchId)
   }
   return inv
+}
+
+/** Remove an invoice from the store and Supabase. Returns the removed invoice. */
+export function deleteInvoice(invoiceId: string): Invoice | undefined {
+  const index = mockInvoices.findIndex((i) => i.id === invoiceId)
+  if (index === -1) return undefined
+  const [removed] = mockInvoices.splice(index, 1)
+  void persistWithFeedback('Invoice delete', () =>
+    deleteInvoiceFromDb(removed.id, removed.client_id)
+  )
+  return removed
 }
 
 export async function addInvoiceAsync(

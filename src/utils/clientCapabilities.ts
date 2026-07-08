@@ -15,6 +15,7 @@ export interface ClientCapabilities {
   hasForceClose: boolean
   canCorrectPayments: boolean
   canOpenDispute: boolean
+  canConfirmPaymentReceipt: boolean
 }
 
 export class CapabilityError extends Error {
@@ -39,6 +40,7 @@ const SELF_SERVICE: ClientCapabilities = {
   hasForceClose: false,
   canCorrectPayments: true,
   canOpenDispute: true,
+  canConfirmPaymentReceipt: false,
 }
 
 const MANAGED: ClientCapabilities = {
@@ -56,6 +58,7 @@ const MANAGED: ClientCapabilities = {
   hasForceClose: true,
   canCorrectPayments: false,
   canOpenDispute: true,
+  canConfirmPaymentReceipt: true,
 }
 
 /** Throws when the client plan does not allow an action. */

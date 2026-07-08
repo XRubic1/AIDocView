@@ -26,6 +26,21 @@ export function getConfirmedPaymentTotal(invoiceId: string): number {
     .reduce((sum, p) => sum + p.amount, 0)
 }
 
+/** Statuses where money is posted but not yet applied to the invoice. */
+const UNCONFIRMED_STATUSES = new Set(['pending', 'awaiting_receipt', 'disputed'])
+
+/** Total posted-but-not-yet-confirmed amount (pending / awaiting receipt / disputed). */
+export function getUnconfirmedPaymentTotal(invoiceId: string): number {
+  return getPaymentsByInvoiceId(invoiceId)
+    .filter((p) => UNCONFIRMED_STATUSES.has(p.status))
+    .reduce((sum, p) => sum + p.amount, 0)
+}
+
+/** True when an invoice has a payment awaiting confirmation or under dispute. */
+export function hasUnconfirmedPayment(invoiceId: string): boolean {
+  return getPaymentsByInvoiceId(invoiceId).some((p) => UNCONFIRMED_STATUSES.has(p.status))
+}
+
 /** Append a payment to the store and persist to Supabase when configured. */
 export function addPayment(data: Omit<Payment, 'id'> & { id?: string }): Payment {
   const payment: Payment = {

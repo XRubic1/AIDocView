@@ -1,5 +1,26 @@
 // Type definitions for Payments
 
+/** Client dispute when posted funds were not received (managed clients). */
+export interface PaymentReceiptDispute {
+  id: string
+  reason: string
+  description: string
+  status: 'open' | 'under_review' | 'resolved' | 'closed'
+  created_by: string
+  created_at: string
+  resolved_at?: string
+  resolved_by?: string
+  response?: string
+}
+
+export type PaymentStatus =
+  | 'pending'
+  | 'awaiting_receipt'
+  | 'disputed'
+  | 'confirmed'
+  | 'rejected'
+  | 'reversed'
+
 export interface Payment {
   id: string
   invoice_id: string
@@ -10,7 +31,7 @@ export interface Payment {
   received_date: string
   payment_method: 'check' | 'wire' | 'ach' | 'credit_card'
   payment_reference?: string
-  status: 'pending' | 'confirmed' | 'rejected' | 'reversed'
+  status: PaymentStatus
   notes?: string
   batch_id?: string
   batch_number?: string
@@ -19,6 +40,11 @@ export interface Payment {
   posted_source?: 'client' | 'credyx'
   confirmed_by?: string
   confirmed_at?: string
+  /** Managed clients must confirm receipt by this date (ISO). */
+  client_confirmation_deadline?: string
+  client_confirmed_at?: string
+  client_confirmed_by?: string
+  dispute?: PaymentReceiptDispute
   rejection_reason?: string
   reversed_at?: string
   reversed_by?: string

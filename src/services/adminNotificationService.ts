@@ -246,3 +246,27 @@ export function notifyAdminPaymentReported(input: PaymentReportedNotificationInp
     metadata: { amount: input.amount },
   })
 }
+
+export interface PaymentReceiptDisputeNotificationInput {
+  clientName: string
+  invoiceNumber: string
+  amount: number
+  reason: string
+}
+
+export function notifyAdminPaymentReceiptDispute(
+  input: PaymentReceiptDisputeNotificationInput
+): Notification {
+  return pushNotification({
+    id: `admin-notif-pay-dispute-${Date.now()}`,
+    type: 'payment_received',
+    title: 'Payment receipt dispute',
+    message: `${input.clientName} disputed ${input.invoiceNumber} ($${input.amount.toFixed(2)}) — ${input.reason}. Funds on hold.`,
+    timestamp: new Date().toISOString(),
+    read: false,
+    link: '/payment-posting',
+    link_label: 'Resolve dispute',
+    invoice_number: input.invoiceNumber,
+    metadata: { amount: input.amount, reason: input.reason },
+  })
+}

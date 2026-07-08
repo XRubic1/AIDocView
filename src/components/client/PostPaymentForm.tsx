@@ -4,7 +4,7 @@ import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
-import { getConfirmedPaymentTotal } from '../../data/mockPayments'
+import { getConfirmedPaymentTotal, getUnconfirmedPaymentTotal } from '../../data/mockPayments'
 import {
   postClientPayment,
   postClientPaymentOnNewInvoice,
@@ -76,14 +76,15 @@ export default function PostPaymentForm({
   const [lastResult, setLastResult] = useState<PostPaymentResult | null>(null)
 
   const getReceived = useCallback((invoiceId: string) => getConfirmedPaymentTotal(invoiceId), [])
+  const getPending = useCallback((invoiceId: string) => getUnconfirmedPaymentTotal(invoiceId), [])
 
   const invoiceList = useMemo((): PostPaymentSearchHit[] => {
     const q = filterQuery.trim()
     if (q) {
-      return searchInvoicesForPostPayment(invoices, q, 100)
+      return searchInvoicesForPostPayment(invoices, q, 100, getPending)
     }
-    return listDefaultPickerInvoices(invoices, getReceived, showAllInvoices)
-  }, [invoices, filterQuery, showAllInvoices, getReceived])
+    return listDefaultPickerInvoices(invoices, getReceived, showAllInvoices, 200, getPending)
+  }, [invoices, filterQuery, showAllInvoices, getReceived, getPending])
 
   const exactInvoiceMatch = useMemo(() => {
     const q = filterQuery.trim().toLowerCase()
@@ -354,6 +355,7 @@ export default function PostPaymentForm({
 
               {invoiceList.map(({ invoice, isPostable }) => {
                 const received = getConfirmedPaymentTotal(invoice.id)
+                const pending = getUnconfirmedPaymentTotal(invoice.id)
                 const balance = getInvoiceBalanceState(invoice.amount, received)
                 const isSelected = selected?.id === invoice.id && selectionMode === 'existing'
                 const balanceClass = `post-payment-picker__balance post-payment-picker__balance--${balance.tone}`
@@ -371,8 +373,8 @@ export default function PostPaymentForm({
                     <div className="post-payment-picker__row-main">
                       <div className="post-payment-picker__row-top">
                         <span className="post-payment-picker__inv-num">{invoice.invoice_number}</span>
-                        <span className={getInvoicePostStatusClass(invoice, received)}>
-                          {getInvoicePostStatusLabel(invoice, received)}
+                        <span className={getInvoicePostStatusClass(invoice, received, pending)}>
+                          {getInvoicePostStatusLabel(invoice, received, pending)}
                         </span>
                       </div>
                       <p className="post-payment-picker__row-meta">

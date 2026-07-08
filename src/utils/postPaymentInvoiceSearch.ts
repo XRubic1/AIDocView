@@ -22,33 +22,41 @@ export function getInvoicePickerCategory(
   return 'open'
 }
 
-/** Default picker list — approved open A/R only (hides paid, short, over, closed). */
+/** Default picker list — approved open A/R only (hides paid, short, over, closed, pending confirmation). */
 export function isDefaultPickerVisible(
   invoice: Invoice,
-  receivedAmount: number
+  receivedAmount: number,
+  pendingAmount = 0
 ): boolean {
   if (invoice.status === 'paid') return false
+  // Hide invoices that already have a payment awaiting confirmation / under dispute.
+  if (pendingAmount > 0) return false
   return getInvoicePickerCategory(invoice, receivedAmount) === 'open'
 }
 
-/** Build the default invoice list (no search query). */
+/**
+ * Build the default invoice list (no search query).
+ * `getPending` reports posted-but-unconfirmed amounts so those invoices are
+ * hidden from the default list and marked non-postable (prevents double posting).
+ */
 export function listDefaultPickerInvoices(
   invoices: Invoice[],
   getReceived: (invoiceId: string) => number,
   showAll: boolean,
-  limit = 200
+  limit = 200,
+  getPending?: (invoiceId: string) => number
 ): PostPaymentSearchHit[] {
   return invoices
     .filter((invoice) => {
       if (showAll) return true
-      return isDefaultPickerVisible(invoice, getReceived(invoice.id))
+      return isDefaultPickerVisible(invoice, getReceived(invoice.id), getPending?.(invoice.id) ?? 0)
     })
     .sort((a, b) => b.invoice_date.localeCompare(a.invoice_date))
     .slice(0, limit)
     .map((invoice) => ({
       invoice,
       score: 0,
-      isPostable: isPostableForPayment(invoice),
+      isPostable: isPostableForPayment(invoice) && (getPending?.(invoice.id) ?? 0) <= 0,
     }))
 }
 
@@ -64,7 +72,8 @@ function parseAmountQuery(query: string): number | null {
 export function searchInvoicesForPostPayment(
   invoices: Invoice[],
   query: string,
-  limit = 8
+  limit = 8,
+  getPending?: (invoiceId: string) => number
 ): PostPaymentSearchHit[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
@@ -98,7 +107,7 @@ export function searchInvoicesForPostPayment(
       return {
         invoice,
         score,
-        isPostable: isPostableForPayment(invoice),
+        isPostable: isPostableForPayment(invoice) && (getPending?.(invoice.id) ?? 0) <= 0,
       }
     })
     .filter((hit) => hit.score > 0)
@@ -127,13 +136,19 @@ export function getDefaultPostPaymentSuggestions(
     }))
 }
 
-export function getInvoicePostStatusLabel(invoice: Invoice, receivedAmount?: number): string {
+export function getInvoicePostStatusLabel(
+  invoice: Invoice,
+  receivedAmount?: number,
+  pendingAmount?: number
+): string {
   if (invoice.status === 'written_off') return 'Written off'
   if (invoice.status === 'force_closed') return 'Force closed'
   if (receivedAmount !== undefined && receivedAmount > 0) {
     if (receivedAmount < invoice.amount - 0.01) return 'Short'
     if (receivedAmount > invoice.amount + 0.01) return 'Over'
   }
+  // Payment posted but not yet confirmed by the client (managed) or Credyx.
+  if (pendingAmount !== undefined && pendingAmount > 0) return 'Pending'
   if (isOpenArInvoice(invoice)) return 'Open'
   switch (invoice.status) {
     case 'paid':
@@ -151,13 +166,18 @@ export function getInvoicePostStatusLabel(invoice: Invoice, receivedAmount?: num
   }
 }
 
-export function getInvoicePostStatusClass(invoice: Invoice, receivedAmount?: number): string {
+export function getInvoicePostStatusClass(
+  invoice: Invoice,
+  receivedAmount?: number,
+  pendingAmount?: number
+): string {
   if (invoice.status === 'written_off') return 'status-pill status-pill--hold'
   if (invoice.status === 'force_closed') return 'status-pill status-pill--overdue'
   if (receivedAmount !== undefined && receivedAmount > 0) {
     if (receivedAmount < invoice.amount - 0.01) return 'status-pill status-pill--pending'
     if (receivedAmount > invoice.amount + 0.01) return 'status-pill status-pill--overdue'
   }
+  if (pendingAmount !== undefined && pendingAmount > 0) return 'status-pill status-pill--pending'
   if (isOpenArInvoice(invoice)) return 'status-pill status-pill--approved'
   switch (invoice.status) {
     case 'paid':

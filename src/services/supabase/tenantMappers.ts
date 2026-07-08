@@ -67,6 +67,10 @@ export interface PaymentRow {
   posted_by: string | null
   confirmed_by: string | null
   confirmed_at: string | null
+  client_confirmation_deadline: string | null
+  client_confirmed_at: string | null
+  client_confirmed_by: string | null
+  dispute: Payment['dispute'] | null
   rejection_reason: string | null
   reversed_at: string | null
   reversed_by: string | null
@@ -177,6 +181,10 @@ export function paymentRowToPayment(row: PaymentRow): Payment {
     posted_by: row.posted_by ?? undefined,
     confirmed_by: row.confirmed_by ?? undefined,
     confirmed_at: row.confirmed_at ?? undefined,
+    client_confirmation_deadline: row.client_confirmation_deadline ?? undefined,
+    client_confirmed_at: row.client_confirmed_at ?? undefined,
+    client_confirmed_by: row.client_confirmed_by ?? undefined,
+    dispute: row.dispute ?? undefined,
     rejection_reason: row.rejection_reason ?? undefined,
     reversed_at: row.reversed_at ?? undefined,
     reversed_by: row.reversed_by ?? undefined,
@@ -311,6 +319,10 @@ export function paymentToRow(payment: Payment, clientId: string): PaymentRow {
     posted_by: payment.posted_by ?? null,
     confirmed_by: payment.confirmed_by ?? null,
     confirmed_at: payment.confirmed_at ?? null,
+    client_confirmation_deadline: payment.client_confirmation_deadline ?? null,
+    client_confirmed_at: payment.client_confirmed_at ?? null,
+    client_confirmed_by: payment.client_confirmed_by ?? null,
+    dispute: payment.dispute ?? null,
     rejection_reason: payment.rejection_reason ?? null,
     reversed_at: payment.reversed_at ?? null,
     reversed_by: payment.reversed_by ?? null,

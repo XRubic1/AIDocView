@@ -12,7 +12,11 @@ import {
   Info,
 } from 'lucide-react'
 import AdminLayout from '../components/AdminLayout'
-import { mockPayments, getConfirmedPaymentTotal } from '../data/mockPayments'
+import {
+  mockPayments,
+  getConfirmedPaymentTotal,
+  getUnconfirmedPaymentTotal,
+} from '../data/mockPayments'
 import { getInvoiceById, mockInvoices } from '../data/mockInvoices'
 import type { Payment } from '../types/payment'
 import type { Invoice } from '../types/invoice'
@@ -23,6 +27,15 @@ import {
   postAdminPayment,
   createAdHocInvoiceForPayment,
 } from '../services/clientPaymentService'
+import {
+  getPaymentReceiptDisputeLabel,
+  listAwaitingReceiptPayments,
+  listReceiptDisputedPayments,
+  resolvePaymentReceiptDispute,
+  type ResolveReceiptDisputeOutcome,
+} from '../services/paymentReceiptConfirmationService'
+import { getReceiptConfirmationDaysLeft } from '../utils/paymentStatus'
+import { getAllClients } from '../services/clientRegistry'
 import { listPendingWriteOffs, approveWriteOff, denyWriteOff } from '../services/writeOffApprovalService'
 import { movePaymentFunds, unprocessPayment } from '../services/paymentCorrectionService'
 import { formatCurrency, formatDate } from '../utils/format'
@@ -47,7 +60,7 @@ import InvoiceBalanceSummary from '../components/client/InvoiceBalanceSummary'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
 
-type Tab = 'pending' | 'writeoffs' | 'corrections' | 'post'
+type Tab = 'pending' | 'awaiting' | 'receipt_disputes' | 'writeoffs' | 'corrections' | 'post'
 
 const METHOD_OPTIONS = [
   { value: 'check' as const, label: 'Check' },
@@ -153,15 +166,16 @@ function InvoiceSearchPicker({
   const [query, setQuery] = useState('')
   const [showAll, setShowAll] = useState(false)
   const getReceived = useCallback((invoiceId: string) => getConfirmedPaymentTotal(invoiceId), [])
+  const getPending = useCallback((invoiceId: string) => getUnconfirmedPaymentTotal(invoiceId), [])
 
   const hits = useMemo((): PostPaymentSearchHit[] => {
     const scoped = excludeInvoiceId
       ? invoices.filter((inv) => inv.id !== excludeInvoiceId)
       : invoices
     const q = query.trim()
-    if (q) return searchInvoicesForPostPayment(scoped, q, 50)
-    return listDefaultPickerInvoices(scoped, getReceived, showAll, 100)
-  }, [invoices, excludeInvoiceId, query, showAll, getReceived])
+    if (q) return searchInvoicesForPostPayment(scoped, q, 50, getPending)
+    return listDefaultPickerInvoices(scoped, getReceived, showAll, 100, getPending)
+  }, [invoices, excludeInvoiceId, query, showAll, getReceived, getPending])
 
   return (
     <div className="space-y-2">
@@ -206,6 +220,7 @@ function InvoiceSearchPicker({
         ) : (
           hits.map(({ invoice, isPostable }) => {
             const received = getConfirmedPaymentTotal(invoice.id)
+            const pending = getUnconfirmedPaymentTotal(invoice.id)
             const balance = getInvoiceBalanceState(invoice.amount, received)
             const isSelected = selectedId === invoice.id
             return (
@@ -223,8 +238,8 @@ function InvoiceSearchPicker({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold tabular-nums">{invoice.invoice_number}</span>
-                    <span className={getInvoicePostStatusClass(invoice, received)}>
-                      {getInvoicePostStatusLabel(invoice, received)}
+                    <span className={getInvoicePostStatusClass(invoice, received, pending)}>
+                      {getInvoicePostStatusLabel(invoice, received, pending)}
                     </span>
                   </div>
                   <p className="text-xs truncate" style={{ color: c.secondary }}>
@@ -258,6 +273,8 @@ export default function PaymentPosting() {
   const bump = () => setRefreshKey((k) => k + 1)
 
   const pending = useMemo(() => listPendingPayments(), [refreshKey])
+  const awaitingReceipt = useMemo(() => listAwaitingReceiptPayments(), [refreshKey])
+  const receiptDisputes = useMemo(() => listReceiptDisputedPayments(), [refreshKey])
   const writeOffs = useMemo(() => listPendingWriteOffs(), [refreshKey])
   const confirmed = useMemo(
     () => mockPayments.filter((p) => p.status === 'confirmed'),
@@ -274,6 +291,11 @@ export default function PaymentPosting() {
     () => new Date().toISOString().split('T')[0]
   )
   const [rejectReason, setRejectReason] = useState('')
+
+  // Receipt dispute resolution (managed clients)
+  const [resolveTarget, setResolveTarget] = useState<Payment | null>(null)
+  const [resolveResponse, setResolveResponse] = useState('')
+  const [resolveOutcome, setResolveOutcome] = useState<ResolveReceiptDisputeOutcome>('confirm')
 
   // Write-off modals
   const [approveTarget, setApproveTarget] = useState<Invoice | null>(null)
@@ -460,8 +482,36 @@ export default function PaymentPosting() {
     }
   }
 
+  const handleResolveReceiptDispute = async () => {
+    if (!resolveTarget || !resolveResponse.trim()) return
+    setMutationBusy(resolveTarget.id)
+    try {
+      const result = resolvePaymentReceiptDispute(
+        resolveTarget.id,
+        adminName,
+        resolveResponse.trim(),
+        resolveOutcome
+      )
+      if (result) {
+        showToast(
+          resolveOutcome === 'confirm' ? 'Dispute resolved — payment confirmed' : 'Dispute resolved — payment rejected',
+          'success'
+        )
+        setResolveTarget(null)
+        setResolveResponse('')
+        bump()
+      } else {
+        showToast('Could not resolve dispute', 'error')
+      }
+    } finally {
+      setMutationBusy(null)
+    }
+  }
+
   const tabItems: { id: Tab; label: string; count?: number }[] = [
     { id: 'pending', label: 'Pending payments', count: pending.length },
+    { id: 'awaiting', label: 'Awaiting confirmation', count: awaitingReceipt.length },
+    { id: 'receipt_disputes', label: 'Receipt disputes', count: receiptDisputes.length },
     { id: 'writeoffs', label: 'Write-offs', count: writeOffs.length },
     { id: 'corrections', label: 'Corrections' },
     { id: 'post', label: 'Post payment' },
@@ -491,7 +541,7 @@ export default function PaymentPosting() {
 
         <div className="flex-1 min-h-0 overflow-y-auto p-4">
           {tab === 'pending' && (
-            <div className="client-table-scroll overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="dashboard-table dashboard-table--compact w-full">
                 <thead>
                   <tr>
@@ -585,8 +635,143 @@ export default function PaymentPosting() {
             </div>
           )}
 
+          {tab === 'awaiting' && (
+            <div className="overflow-x-auto">
+              <p className="text-sm mb-3" style={{ color: c.mutedLight }}>
+                Payments you posted for managed clients, awaiting their receipt confirmation. These
+                auto-confirm after the 30-day window.
+              </p>
+              <table className="dashboard-table dashboard-table--compact w-full">
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Client</th>
+                    <th>Broker</th>
+                    <th className="text-right">Amount</th>
+                    <th>Method</th>
+                    <th>Posted</th>
+                    <th>Confirm by</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {awaitingReceipt.length === 0 ? (
+                    <tr>
+                      <td colSpan={8}>
+                        <EmptyState
+                          title="No payments awaiting confirmation"
+                          hint="Payments you post for managed clients appear here until confirmed."
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    awaitingReceipt.map((p) => {
+                      const inv = getInvoiceById(p.invoice_id)
+                      const daysLeft = getReceiptConfirmationDaysLeft(p)
+                      return (
+                        <tr key={p.id}>
+                          <td>
+                            {inv ? (
+                              <Link
+                                to={`/invoice-search?invoice=${encodeURIComponent(inv.invoice_number)}`}
+                                className="font-medium text-teal-700 hover:underline"
+                              >
+                                {p.invoice_number}
+                              </Link>
+                            ) : (
+                              p.invoice_number
+                            )}
+                          </td>
+                          <td>{inv?.client_name ?? '—'}</td>
+                          <td>{p.broker_name}</td>
+                          <td className="text-right tabular-nums font-medium">
+                            {formatCurrency(p.amount)}
+                          </td>
+                          <td>{METHOD_OPTIONS.find((m) => m.value === p.payment_method)?.label ?? p.payment_method}</td>
+                          <td>{formatDate(p.received_date)}</td>
+                          <td>
+                            {p.client_confirmation_deadline
+                              ? formatDate(p.client_confirmation_deadline.split('T')[0])
+                              : '—'}
+                          </td>
+                          <td>
+                            <span className="status-pill status-pill--pending">
+                              {daysLeft != null ? `${daysLeft}d left` : 'Awaiting'}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === 'receipt_disputes' && (
+            <div className="overflow-x-auto">
+              <p className="text-sm mb-3" style={{ color: c.mutedLight }}>
+                Managed clients disputed Credyx-posted payments. Funds are on hold until resolved.
+              </p>
+              <table className="dashboard-table dashboard-table--compact w-full">
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Client</th>
+                    <th className="text-right">Amount</th>
+                    <th>Reason</th>
+                    <th>Disputed</th>
+                    <th className="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receiptDisputes.length === 0 ? (
+                    <tr>
+                      <td colSpan={6}>
+                        <EmptyState
+                          title="No receipt disputes"
+                          hint="When managed clients dispute posted payments, they appear here."
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    receiptDisputes.map((p) => {
+                      const inv = getInvoiceById(p.invoice_id)
+                      return (
+                        <tr key={p.id}>
+                          <td className="font-medium">{p.invoice_number}</td>
+                          <td>{inv?.client_name ?? '—'}</td>
+                          <td className="text-right tabular-nums font-medium">
+                            {formatCurrency(p.amount)}
+                          </td>
+                          <td>
+                            {p.dispute ? getPaymentReceiptDisputeLabel(p.dispute.reason) : '—'}
+                          </td>
+                          <td>{p.dispute ? formatDate(p.dispute.created_at.split('T')[0]) : '—'}</td>
+                          <td className="text-right">
+                            <button
+                              type="button"
+                              className="dashboard-btn-primary !h-8 !px-3 !text-xs"
+                              onClick={() => {
+                                setResolveTarget(p)
+                                setResolveResponse('')
+                                setResolveOutcome('confirm')
+                              }}
+                            >
+                              Resolve
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {tab === 'writeoffs' && (
-            <div className="client-table-scroll overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="dashboard-table dashboard-table--compact w-full">
                 <thead>
                   <tr>
@@ -644,7 +829,7 @@ export default function PaymentPosting() {
           )}
 
           {tab === 'corrections' && (
-            <div className="client-table-scroll overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="dashboard-table dashboard-table--compact w-full">
                 <thead>
                   <tr>
@@ -860,6 +1045,78 @@ export default function PaymentPosting() {
                 rows={3}
                 className="client-input w-full"
                 placeholder="e.g. No matching remittance received"
+              />
+            </div>
+          </div>
+        </ModalShell>
+      )}
+
+      {resolveTarget && (
+        <ModalShell
+          title={`Resolve receipt dispute — ${resolveTarget.invoice_number}`}
+          onClose={() => setResolveTarget(null)}
+          footer={
+            <>
+              <button type="button" className="dashboard-btn-secondary" onClick={() => setResolveTarget(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="dashboard-btn-primary inline-flex items-center gap-2"
+                disabled={!resolveResponse.trim() || mutationBusy === resolveTarget.id}
+                onClick={() => void handleResolveReceiptDispute()}
+              >
+                {mutationBusy === resolveTarget.id && <Spinner size="sm" className="text-white" />}
+                {mutationBusy === resolveTarget.id ? 'Saving…' : 'Resolve dispute'}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-4 text-sm">
+            <p style={{ color: c.secondary }}>
+              {formatCurrency(resolveTarget.amount)} on {resolveTarget.invoice_number} — funds on hold.
+            </p>
+            {resolveTarget.dispute && (
+              <div
+                className="rounded-lg p-3"
+                style={{ backgroundColor: c.surface, color: c.primary }}
+              >
+                <p className="font-medium">{getPaymentReceiptDisputeLabel(resolveTarget.dispute.reason)}</p>
+                <p className="mt-1">{resolveTarget.dispute.description}</p>
+              </div>
+            )}
+            <div>
+              <label className="client-label">Resolution</label>
+              <div className="flex gap-3 mt-1">
+                <label className="inline-flex items-center gap-1.5 text-sm">
+                  <input
+                    type="radio"
+                    checked={resolveOutcome === 'confirm'}
+                    onChange={() => setResolveOutcome('confirm')}
+                  />
+                  Confirm payment (release funds)
+                </label>
+                <label className="inline-flex items-center gap-1.5 text-sm">
+                  <input
+                    type="radio"
+                    checked={resolveOutcome === 'reject'}
+                    onChange={() => setResolveOutcome('reject')}
+                  />
+                  Reject payment (client was correct)
+                </label>
+              </div>
+            </div>
+            <div>
+              <label className="client-label" htmlFor="resolve-response">
+                Response to client <span className="text-red-600">*</span>
+              </label>
+              <textarea
+                id="resolve-response"
+                value={resolveResponse}
+                onChange={(e) => setResolveResponse(e.target.value)}
+                rows={3}
+                className="client-input w-full"
+                placeholder="Explain the resolution…"
               />
             </div>
           </div>
@@ -1145,12 +1402,19 @@ function AdminRemittancePostForm({
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const getReceived = useCallback((invoiceId: string) => getConfirmedPaymentTotal(invoiceId), [])
+  const getPending = useCallback((invoiceId: string) => getUnconfirmedPaymentTotal(invoiceId), [])
+
+  // Real clients only — ad-hoc invoices must reference a valid client (FK to clients table).
+  const clientOptions = useMemo(
+    () => getAllClients().sort((a, b) => a.name.localeCompare(b.name)),
+    []
+  )
 
   const invoiceList = useMemo((): PostPaymentSearchHit[] => {
     const q = filterQuery.trim()
-    if (q) return searchInvoicesForPostPayment(invoices, q, 100)
-    return listDefaultPickerInvoices(invoices, getReceived, showAllInvoices)
-  }, [invoices, filterQuery, showAllInvoices, getReceived])
+    if (q) return searchInvoicesForPostPayment(invoices, q, 100, getPending)
+    return listDefaultPickerInvoices(invoices, getReceived, showAllInvoices, 200, getPending)
+  }, [invoices, filterQuery, showAllInvoices, getReceived, getPending])
 
   const exactInvoiceMatch = useMemo(() => {
     const q = filterQuery.trim().toLowerCase()
@@ -1219,6 +1483,7 @@ function AdminRemittancePostForm({
       (selectionMode === 'new' &&
         newInvoiceNumber.trim() &&
         newBrokerName.trim() &&
+        newClientId.trim() &&
         newClientName.trim()))
 
   const handleSubmit = async () => {
@@ -1231,9 +1496,13 @@ function AdminRemittancePostForm({
       let invoiceId = selected?.id
 
       if (selectionMode === 'new') {
+        if (!newClientId.trim()) {
+          onError('Select a client for the new invoice.')
+          return
+        }
         const created = createAdHocInvoiceForPayment(
           {
-            clientId: newClientId.trim() || `client-adhoc-${Date.now()}`,
+            clientId: newClientId.trim(),
             clientName: newClientName.trim(),
             invoiceNumber: newInvoiceNumber.trim(),
             brokerName: newBrokerName.trim(),
@@ -1292,7 +1561,8 @@ function AdminRemittancePostForm({
         <header className="post-payment-workspace__header">
           <h2 className="post-payment-workspace__title">Post remittance</h2>
           <p className="post-payment-workspace__subtitle">
-            Credyx-posted payments are confirmed immediately and applied to the invoice
+            Self-service payments apply immediately; managed-client payments await client receipt
+            confirmation (30 days)
           </p>
         </header>
 
@@ -1333,6 +1603,7 @@ function AdminRemittancePostForm({
             <div className="post-payment-picker__list" role="listbox">
               {invoiceList.map(({ invoice, isPostable }) => {
                 const received = getConfirmedPaymentTotal(invoice.id)
+                const pending = getUnconfirmedPaymentTotal(invoice.id)
                 const balance = getInvoiceBalanceState(invoice.amount, received)
                 const isSelected = selected?.id === invoice.id && selectionMode === 'existing'
                 return (
@@ -1348,8 +1619,8 @@ function AdminRemittancePostForm({
                     <div className="post-payment-picker__row-main">
                       <div className="post-payment-picker__row-top">
                         <span className="post-payment-picker__inv-num">{invoice.invoice_number}</span>
-                        <span className={getInvoicePostStatusClass(invoice, received)}>
-                          {getInvoicePostStatusLabel(invoice, received)}
+                        <span className={getInvoicePostStatusClass(invoice, received, pending)}>
+                          {getInvoicePostStatusLabel(invoice, received, pending)}
                         </span>
                       </div>
                       <p className="post-payment-picker__row-meta">
@@ -1449,16 +1720,27 @@ function AdminRemittancePostForm({
                   </div>
                   <div>
                     <label className="client-label" htmlFor="admin-new-client">
-                      Client name
+                      Client
                     </label>
-                    <input
+                    <select
                       id="admin-new-client"
-                      type="text"
-                      value={newClientName}
-                      onChange={(e) => setNewClientName(e.target.value)}
+                      value={newClientId}
+                      onChange={(e) => {
+                        const client = clientOptions.find((cl) => cl.id === e.target.value)
+                        setNewClientId(e.target.value)
+                        setNewClientName(client?.name ?? '')
+                      }}
                       className="client-input w-full"
                       required
-                    />
+                    >
+                      <option value="">Select a client…</option>
+                      {clientOptions.map((client) => (
+                        <option key={client.id} value={client.id}>
+                          {client.name}
+                          {client.service_tier === 'managed' ? ' (Managed)' : ''}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="client-label" htmlFor="admin-new-load">
@@ -1566,7 +1848,7 @@ function AdminRemittancePostForm({
                 <div className="post-payment-entry__actions mt-4">
                   <button type="submit" disabled={isSubmitting || !canSubmit} className="dashboard-btn-primary">
                     <CircleCheck className="w-4 h-4" />
-                    {isSubmitting ? 'Posting…' : 'Post confirmed payment'}
+                    {isSubmitting ? 'Posting…' : 'Post payment'}
                   </button>
                   <button type="button" onClick={resetForm} className="dashboard-btn-secondary" disabled={isSubmitting}>
                     Clear

@@ -1,9 +1,21 @@
 import { AuditLog, AuditActionType } from '../types/audit'
 import { persistAuditLog } from '../services/supabase/tenantPersist'
 import { persistOrThrow } from '../services/persistHelper'
-import { persistWithFeedback } from '../services/persistFeedback'
 
 let auditLogs: AuditLog[] = []
+
+/**
+ * Persist an audit log without ever surfacing errors to the user.
+ * Audit logging is a background/compliance concern: a failed write (e.g. RLS
+ * on the client portal) must never block or alarm the user mid-action. The
+ * primary action always persists through its own tenant-scoped write.
+ */
+function persistAuditLogSilently(logEntry: AuditLog): void {
+  void persistAuditLog(logEntry).catch((err) => {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn('[audit] persist skipped:', message)
+  })
+}
 
 /** Replace audit log cache (used during hydration). */
 export function setAuditLogsFromHydrate(logs: AuditLog[]): void {
@@ -51,7 +63,7 @@ export const logAuditEvent = (
   auditLogs.push(logEntry)
 
   console.log('[AUDIT]', logEntry)
-  void persistWithFeedback('Audit log', () => persistAuditLog(logEntry))
+  persistAuditLogSilently(logEntry)
 
   if (auditLogs.length > 10000) {
     auditLogs = auditLogs.slice(-10000)

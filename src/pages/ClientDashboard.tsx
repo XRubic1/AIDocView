@@ -1,18 +1,12 @@
-import { useState, useMemo, type ReactNode, type KeyboardEvent } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
   DollarSign,
-  FileText,
-  Clock,
-  AlertCircle,
-  CheckCircle,
   Upload,
   Plus,
   BarChart3,
   ArrowUpRight,
-  ExternalLink,
-  Inbox,
   Activity,
 } from 'lucide-react'
 import ClientLayout from '../components/ClientLayout'
@@ -21,7 +15,7 @@ import AgingARChart from '../components/client/AgingARChart'
 import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
 import CollectionForecastKpiCard from '../components/client/CollectionForecastKpiCard'
 import DashboardPanel from '../components/client/dashboard/DashboardPanel'
-import { enrichInvoices } from '../utils/invoiceAging'
+import ActivityMetricsRow from '../components/client/dashboard/ActivityMetricsRow'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useClientSession } from '../hooks/useClientSession'
@@ -33,7 +27,6 @@ import DataStaleBanner from '../components/ui/DataStaleBanner'
 import { SkeletonRows } from '../components/ui/Skeleton'
 
 type InvoiceStatus = 'pending' | 'approved' | 'hold' | 'overdue'
-type StatusFilterKey = 'pending' | 'approved' | 'hold' | 'overdue'
 
 function StatusPill({ status }: { status: InvoiceStatus | string }) {
   const normalized = status === 'hold' ? 'hold' : status
@@ -87,48 +80,11 @@ function InlineSparkline({ values, stroke }: { values: number[]; stroke: string 
   )
 }
 
-function getAttentionRowSeverity(invoice: ReturnType<typeof enrichInvoices>[number]) {
-  if (invoice.isOverdue) return 'overdue'
-  if (invoice.status === 'hold') return 'hold'
-  return 'pending'
-}
-
 function getTimelineDotClass(type: string) {
   if (type.includes('payment')) return 'timeline-dot timeline-dot--payment'
   if (type.includes('hold')) return 'timeline-dot timeline-dot--hold'
   if (type.includes('upload') || type.includes('document')) return 'timeline-dot timeline-dot--upload'
   return 'timeline-dot timeline-dot--default'
-}
-
-interface StatusMetricCardProps {
-  label: string
-  value: number
-  context: string
-  status: StatusFilterKey
-  icon: ReactNode
-  onNavigate: (status: StatusFilterKey) => void
-}
-
-function StatusMetricCard({ label, value, context, status, icon, onNavigate }: StatusMetricCardProps) {
-  const animatedCount = useCountUp(value)
-
-  return (
-    <button
-      type="button"
-      className={`dashboard-status-card dashboard-card-lift dashboard-status-card--${status}`}
-      onClick={() => onNavigate(status)}
-      aria-label={`${label}: ${value}. ${context}`}
-    >
-      <div className="dashboard-status-card__head">
-        <span className={`dashboard-status-card__icon dashboard-status-card__icon--${status}`}>
-          {icon}
-        </span>
-        <span className="dashboard-status-card__label">{label}</span>
-      </div>
-      <span className="dashboard-status-card__count tabular-nums">{animatedCount}</span>
-      <span className="dashboard-status-card__context">{context}</span>
-    </button>
-  )
 }
 
 function formatRelativeTime(iso: string) {
@@ -143,13 +99,6 @@ function formatRelativeTime(iso: string) {
   return formatDate(iso)
 }
 
-function handleRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, onActivate: () => void) {
-  if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault()
-    onActivate()
-  }
-}
-
 export default function ClientDashboard() {
   const c = useClientTheme()
   const { clientId, clientName } = useClientSession()
@@ -157,6 +106,7 @@ export default function ClientDashboard() {
     dashboard: data,
     invoices: rawInvoices,
     payments: clientPayments,
+    batches: clientBatches,
     isInitialLoad,
     isRefreshing,
     staleError,
@@ -189,53 +139,6 @@ export default function ClientDashboard() {
     return months
   }, [clientInvoices])
 
-  const statusContexts = useMemo(
-    () => ({
-      pending:
-        data.summary.pending_invoices > 0
-          ? `${data.summary.pending_invoices} need action`
-          : 'All reviewed',
-      approved:
-        data.summary.approved_invoices > 0
-          ? `${data.summary.approved_invoices} open for collection`
-          : 'None open',
-      hold:
-        data.summary.on_hold_invoices > 0
-          ? `${data.summary.on_hold_invoices} need action`
-          : 'None on hold',
-      overdue:
-        data.summary.overdue_invoices > 0
-          ? `${data.summary.overdue_invoices} past due`
-          : 'None overdue',
-    }),
-    [data.summary]
-  )
-
-  const attentionInvoices = useMemo(() => {
-    return enrichInvoices(clientInvoices)
-      .filter(
-        (inv) =>
-          inv.isOverdue ||
-          inv.status === 'hold' ||
-          inv.status === 'pending'
-      )
-      .sort((a, b) => {
-        const severityOrder = (inv: (typeof a)) => {
-          if (inv.isForceCloseEligible) return 0
-          if (inv.overdueSeverity === 'critical') return 1
-          if (inv.overdueSeverity === 'urgent') return 2
-          if (inv.isOverdue) return 3
-          if (inv.status === 'hold') return 4
-          return 5
-        }
-        const pa = severityOrder(a)
-        const pb = severityOrder(b)
-        if (pa !== pb) return pa - pb
-        return b.daysOutstanding - a.daysOutstanding
-      })
-      .slice(0, 6)
-  }, [clientInvoices])
-
   const recentPayments = useMemo(
     () =>
       [...clientPayments]
@@ -246,14 +149,6 @@ export default function ClientDashboard() {
 
   const handleSimpleUploadComplete = (files: File[]) => {
     navigate(`/client/batches?tab=create&mode=ai`, { state: { initialFiles: files } })
-  }
-
-  const navigateToInvoiceStatus = (status: StatusFilterKey) => {
-    navigate(`/client/invoices?status=${status}`)
-  }
-
-  const openInvoice = (invoiceId: string) => {
-    navigate(`/client/invoices?highlight_invoice=${invoiceId}`)
   }
 
   return (
@@ -277,7 +172,7 @@ export default function ClientDashboard() {
         )}
 
         {/* Row 1 — Compact welcome */}
-        <section className="dashboard-card p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <section className="dashboard-card px-5 py-3.5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-xl font-bold leading-tight" style={{ color: c.primary }}>
               Welcome Back, {clientName}
@@ -383,7 +278,7 @@ export default function ClientDashboard() {
             </div>
           </div>
 
-          <div className="dashboard-card dashboard-kpi-companion p-0 overflow-hidden flex min-h-[124px]">
+          <div className="dashboard-card dashboard-kpi-companion p-0 overflow-hidden flex min-h-[104px]">
             <CollectionForecastKpiCard
               invoices={clientInvoices}
               payments={clientPayments}
@@ -392,136 +287,18 @@ export default function ClientDashboard() {
           </div>
         </section>
 
-        {/* Row 3 — Status metrics */}
+        {/* Row 3 — Today's activity (last 7 days + standing held/overdue) */}
         <section className="dashboard-section-enter dashboard-section-enter--2 grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatusMetricCard
-            label="Pending"
-            value={data.summary.pending_invoices}
-            context={statusContexts.pending}
-            status="pending"
-            icon={<Clock className="w-3.5 h-3.5" />}
-            onNavigate={navigateToInvoiceStatus}
-          />
-          <StatusMetricCard
-            label="Approved"
-            value={data.summary.approved_invoices}
-            context={statusContexts.approved}
-            status="approved"
-            icon={<CheckCircle className="w-3.5 h-3.5" />}
-            onNavigate={navigateToInvoiceStatus}
-          />
-          <StatusMetricCard
-            label="On Hold"
-            value={data.summary.on_hold_invoices}
-            context={statusContexts.hold}
-            status="hold"
-            icon={<AlertCircle className="w-3.5 h-3.5" />}
-            onNavigate={navigateToInvoiceStatus}
-          />
-          <StatusMetricCard
-            label="Overdue"
-            value={data.summary.overdue_invoices}
-            context={statusContexts.overdue}
-            status="overdue"
-            icon={<FileText className="w-3.5 h-3.5" />}
-            onNavigate={navigateToInvoiceStatus}
+          <ActivityMetricsRow
+            invoices={clientInvoices}
+            payments={clientPayments}
+            batches={clientBatches}
+            clientId={clientId}
+            onNavigate={(path) => navigate(path)}
           />
         </section>
 
-        {/* Row 4 — Invoices requiring attention */}
-        <div className="dashboard-section-enter dashboard-section-enter--3">
-          <DashboardPanel
-            title="Invoices Requiring Attention"
-            compact
-            actionLabel="View all"
-            onAction={() => navigate('/client/invoices')}
-            interactive={false}
-            className="dashboard-attention-panel"
-            icon={AlertCircle}
-            iconTone="red"
-          >
-            <div className="overflow-x-auto">
-              <table className="dashboard-table">
-                <thead>
-                  <tr>
-                    <th>Invoice</th>
-                    <th>Customer</th>
-                    <th>Amount</th>
-                    <th>Days Outstanding</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {attentionInvoices.length === 0 ? (
-                    <tr>
-                      <td colSpan={6}>
-                        <div className="dashboard-empty-state">
-                          <Inbox className="dashboard-empty-state__icon" aria-hidden />
-                          <p className="dashboard-empty-state__title">All caught up</p>
-                          <p className="dashboard-empty-state__help">
-                            No invoices need your attention right now
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    attentionInvoices.map((invoice) => {
-                      const severity = getAttentionRowSeverity(invoice)
-                      return (
-                        <tr
-                          key={invoice.id}
-                          className={`dashboard-table-row--clickable dashboard-table-row--severity-${severity}`}
-                          onClick={() => openInvoice(invoice.id)}
-                          onKeyDown={(event) =>
-                            handleRowKeyDown(event, () => openInvoice(invoice.id))
-                          }
-                          tabIndex={0}
-                          role="link"
-                          aria-label={`View invoice ${invoice.invoice_number}`}
-                        >
-                          <td>
-                            <span className="dashboard-table__invoice-cell">
-                              <span
-                                className={`dashboard-table__severity-dot dashboard-table__severity-dot--${severity}`}
-                                aria-hidden
-                              />
-                              {invoice.invoice_number}
-                            </span>
-                          </td>
-                          <td style={{ color: c.secondary }}>{invoice.broker_name}</td>
-                          <td className="tabular-nums dashboard-table__amount">
-                            {formatCurrency(invoice.amount)}
-                          </td>
-                          <td className="tabular-nums">{invoice.daysOutstanding}</td>
-                          <td>
-                            <StatusPill status={invoice.displayStatus} />
-                          </td>
-                          <td>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                openInvoice(invoice.id)
-                              }}
-                              className="inline-flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-70"
-                              style={{ color: c.info }}
-                            >
-                              View
-                              <ExternalLink className="w-3 h-3" />
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </DashboardPanel>
-        </div>
-
-        {/* Row 5 — Analytics */}
+        {/* Row 4 — Analytics */}
         <section className="dashboard-section-enter dashboard-section-enter--4 grid grid-cols-1 xl:grid-cols-2 gap-3">
           <DashboardPanel title="Aging A/R" compact interactive={false}>
             <AgingARChart aging={data.aging_ar} />

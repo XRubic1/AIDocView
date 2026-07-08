@@ -9,6 +9,18 @@ export function setBatchFiles(batchId: string, fileById: Map<string, File>): voi
   filesByBatch.set(batchId, new Map(fileById))
 }
 
+/** Merge files into an existing batch map without removing other documents. */
+export function mergeBatchFiles(batchId: string, fileById: Map<string, File>): void {
+  let map = filesByBatch.get(batchId)
+  if (!map) {
+    filesByBatch.set(batchId, new Map(fileById))
+    return
+  }
+  for (const [docId, file] of fileById.entries()) {
+    map.set(docId, file)
+  }
+}
+
 export function addBatchFile(batchId: string, docId: string, file: File): void {
   let map = filesByBatch.get(batchId)
   if (!map) {

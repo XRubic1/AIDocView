@@ -61,13 +61,15 @@ export function computePaymentTrendSummary(
     if (p.status === 'confirmed') {
       buckets[idx].paid += p.amount
       buckets[idx].count += 1
-    } else if (p.status === 'pending') {
+    } else if (p.status === 'pending' || p.status === 'awaiting_receipt' || p.status === 'disputed') {
       buckets[idx].pending += p.amount
     }
   }
 
   const confirmed = payments.filter((p) => p.status === 'confirmed')
-  const pending = payments.filter((p) => p.status === 'pending')
+  const pending = payments.filter(
+    (p) => p.status === 'pending' || p.status === 'awaiting_receipt' || p.status === 'disputed'
+  )
   const totalPaid = confirmed.reduce((s, p) => s + p.amount, 0)
   const totalPending = pending.reduce((s, p) => s + p.amount, 0)
 
@@ -100,8 +102,10 @@ export function computeKpiDetail(
   months = 6
 ): KpiDetailData {
   const { buckets, monthIndex } = buildMonthBuckets(months)
-  const status = type === 'pending' ? 'pending' : 'confirmed'
-  const filtered = payments.filter((p) => p.status === status)
+  const status = type === 'pending' ? ['pending', 'awaiting_receipt', 'disputed'] : 'confirmed'
+  const filtered = payments.filter((p) =>
+    Array.isArray(status) ? status.includes(p.status) : p.status === status
+  )
 
   for (const p of filtered) {
     const key = p.received_date.slice(0, 7)

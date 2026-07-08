@@ -1,3 +1,4 @@
+import { HANDOFF_PLACEHOLDER_INVOICE_ID } from '../../data/batchFileStore'
 import { getSupabase, isSupabaseConfigured } from '../../lib/supabase'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
@@ -104,6 +105,40 @@ export async function uploadBatchInvoiceDocuments(
     paths[docId] = path
   }
   return paths
+}
+
+export interface HandoffStorageDocument {
+  docId: string
+  storagePath: string
+  fileName: string
+}
+
+/** List documents uploaded via managed handoff before invoices exist. */
+export async function listHandoffBatchDocuments(
+  clientId: string,
+  batchId: string
+): Promise<HandoffStorageDocument[]> {
+  const supabase = getSupabase()
+  if (!supabase) return []
+
+  const prefix = `${clientId}/${batchId}/${HANDOFF_PLACEHOLDER_INVOICE_ID}`
+  const { data: docFolders, error } = await supabase.storage.from('batch-documents').list(prefix)
+  if (error || !docFolders?.length) return []
+
+  const results: HandoffStorageDocument[] = []
+  for (const folder of docFolders) {
+    if (!folder.name || folder.name === '.emptyFolderPlaceholder') continue
+    const docId = folder.name
+    const { data: files } = await supabase.storage.from('batch-documents').list(`${prefix}/${docId}`)
+    const fileName = files?.find((f) => f.name && f.name !== '.emptyFolderPlaceholder')?.name
+    if (!fileName) continue
+    results.push({
+      docId,
+      storagePath: `${prefix}/${docId}/${fileName}`,
+      fileName,
+    })
+  }
+  return results
 }
 
 /** Download a batch document from storage. */
@@ -218,6 +253,12 @@ export async function persistPayment(payment: Payment, clientId?: string): Promi
 export async function deleteBatchFromDb(batchId: string, clientId?: string): Promise<void> {
   if (!isSupabaseConfigured()) return
   await remove('batches', batchId)
+  if (clientId) invalidateTenant(clientId)
+}
+
+export async function deleteInvoiceFromDb(invoiceId: string, clientId?: string): Promise<void> {
+  if (!isSupabaseConfigured()) return
+  await remove('invoices', invoiceId)
   if (clientId) invalidateTenant(clientId)
 }
 

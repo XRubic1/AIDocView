@@ -1,6 +1,6 @@
 import { addBatch, addInvoicesForBatch, generateBatchNumber, updateBatch } from '../../data/mockBatches'
 import { updateInvoice } from '../../data/mockInvoices'
-import { setBatchFiles } from '../../data/batchFileStore'
+import { mergeBatchFiles } from '../../data/batchFileStore'
 import { resolveBrokerId } from '../../integrations/docSortToCredyx'
 import { getClientById } from '../../services/clientRegistry'
 import { isSupabaseConfigured } from '../../lib/supabase'
@@ -156,7 +156,7 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
   const created = addInvoicesForBatch(batch.id, batchNumber, invoiceFields)
 
   if (fileMap.size > 0) {
-    setBatchFiles(batch.id, fileMap)
+    mergeBatchFiles(batch.id, fileMap)
   }
 
   if (isSupabaseConfigured()) {

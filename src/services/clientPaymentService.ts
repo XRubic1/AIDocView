@@ -19,6 +19,10 @@ import { logAuditEvent } from '../utils/auditLogger'
 import { isPostableForPayment } from '../utils/invoiceAging'
 import { formatCurrency } from '../utils/format'
 import { notifyAdminPaymentReported } from './adminNotificationService'
+import {
+  buildReceiptConfirmationDeadline,
+  CLIENT_RECEIPT_CONFIRMATION_DAYS,
+} from './paymentReceiptConfirmationService'
 
 export interface PostClientPaymentInput {
   invoiceId: string
@@ -154,7 +158,7 @@ export function postClientPayment(
   return { payment, invoice: updated, variance: 'full' }
 }
 
-/** Admin posts a confirmed payment directly. */
+/** Admin posts a payment — managed clients require receipt confirmation within 30 days. */
 export function postAdminPayment(
   input: PostClientPaymentInput,
   adminName: string
@@ -162,6 +166,47 @@ export function postAdminPayment(
   const invoice = getInvoiceById(input.invoiceId)
   if (!invoice || !isPostableForPayment(invoice)) return undefined
   if (!Number.isFinite(input.amount) || input.amount <= 0) return undefined
+
+  const client = getClientById(invoice.client_id)
+  const isManaged = client?.service_tier === 'managed'
+
+  if (isManaged) {
+    const pendingNote: InvoiceNote = {
+      id: `note-awaiting-receipt-${Date.now()}`,
+      note: `Credyx posted ${formatCurrency(input.amount)} — please confirm receipt within ${CLIENT_RECEIPT_CONFIRMATION_DAYS} days or open a dispute if funds were not received.`,
+      created_by: adminName,
+      created_at: new Date().toISOString(),
+      type: 'client_note',
+      visibility: 'client',
+    }
+
+    const payment = addPayment({
+      invoice_id: invoice.id,
+      invoice_number: invoice.invoice_number,
+      broker_name: invoice.broker_name,
+      amount: input.amount,
+      payment_date: input.paymentDate,
+      received_date: input.receivedDate,
+      payment_method: input.paymentMethod,
+      payment_reference: input.paymentReference?.trim() || undefined,
+      status: 'awaiting_receipt',
+      posted_source: 'credyx',
+      posted_by: adminName,
+      client_confirmation_deadline: buildReceiptConfirmationDeadline(),
+      notes: input.notes?.trim() || undefined,
+      batch_id: invoice.batch_id,
+      batch_number: invoice.batch_number,
+      load_number: invoice.load_number,
+    })
+
+    const updated = updateInvoice(invoice.id, {
+      notes_history: [...(invoice.notes_history || []), pendingNote],
+      updated_at: new Date().toISOString(),
+    })
+    if (!updated) return undefined
+
+    return { payment, invoice: updated, variance: 'full' }
+  }
 
   const payment = addPayment({
     invoice_id: invoice.id,
