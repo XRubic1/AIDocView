@@ -3,17 +3,20 @@ import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 import { formatCurrency } from '../../utils/format'
 import { computePaymentTrendSummary, type KpiDetailType } from '../../utils/paymentTrends'
 import type { Payment } from '../../types/payment'
+import { getAwaitingReceiptPayments } from '../../utils/paymentStatus'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport'
 import PaymentKpiDetailModal from './PaymentKpiDetailModal'
 
-type PaymentStatusFilter = 'all' | 'pending' | 'confirmed'
+type PaymentStatusFilter = 'all' | 'pending' | 'confirmed' | 'awaiting_receipt'
 
 const CLOSE_ANIMATION_MS = 280
 
 interface PaymentKpiCardsProps {
   payments: Payment[]
   statusFilter: PaymentStatusFilter
-  onStatusFilter: (status: 'confirmed' | 'pending') => void
+  onStatusFilter: (status: 'confirmed' | 'pending' | 'awaiting_receipt') => void
+  showAwaitingConfirmation?: boolean
 }
 
 interface KpiCardProps {
@@ -26,6 +29,10 @@ interface KpiCardProps {
   isActive?: boolean
   onFilter?: () => void
   onChartClick?: () => void
+  /** Stronger styling when payments await client confirmation. */
+  attention?: boolean
+  /** Compact mobile layout — no sparkline. */
+  compact?: boolean
 }
 
 function Sparkline({
@@ -77,6 +84,8 @@ function KpiCard({
   isActive,
   onFilter,
   onChartClick,
+  attention = false,
+  compact = false,
 }: KpiCardProps) {
   const c = useClientTheme()
   const color =
@@ -86,8 +95,15 @@ function KpiCard({
 
   return (
     <div
-      className={`payment-kpi-card ${isActive ? 'payment-kpi-card--active' : ''}`}
-      style={isActive ? { backgroundColor: activeBg } : undefined}
+      className={[
+        'payment-kpi-card',
+        compact ? 'payment-kpi-card--compact' : '',
+        isActive ? 'payment-kpi-card--active' : '',
+        attention ? 'payment-kpi-card--confirm-attention' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      style={isActive && !attention ? { backgroundColor: activeBg } : undefined}
     >
       <button
         type="button"
@@ -95,29 +111,37 @@ function KpiCard({
         onClick={onFilter}
         aria-pressed={isActive}
       >
-        <p className="payment-kpi-card__title" style={{ color: c.secondary }}>
+        <p className="payment-kpi-card__title" style={{ color: attention ? undefined : c.secondary }}>
           {title}
         </p>
-        <p className="payment-kpi-card__value tabular-nums" style={{ color: c.primary }}>
+        <p
+          className="payment-kpi-card__value tabular-nums"
+          style={{ color: attention ? undefined : c.primary }}
+        >
           {value}
         </p>
-        {subtitle && (
-          <p className="payment-kpi-card__subtitle" style={{ color: c.mutedLight }}>
+        {subtitle && !compact && (
+          <p
+            className="payment-kpi-card__subtitle"
+            style={{ color: attention ? undefined : c.mutedLight }}
+          >
             {subtitle}
           </p>
         )}
       </button>
-      <button
-        type="button"
-        className="payment-kpi-card__chart-btn"
-        onClick={onChartClick}
-        aria-label={`View ${title} details`}
-        title="View payment details"
-      >
-        <div className="payment-kpi-card__sparkline" aria-hidden>
-          <Sparkline data={data} dataKey={dataKey} color={color} showArea={showArea} />
-        </div>
-      </button>
+      {!compact && (
+        <button
+          type="button"
+          className="payment-kpi-card__chart-btn"
+          onClick={onChartClick}
+          aria-label={`View ${title} details`}
+          title="View payment details"
+        >
+          <div className="payment-kpi-card__sparkline" aria-hidden>
+            <Sparkline data={data} dataKey={dataKey} color={color} showArea={showArea} />
+          </div>
+        </button>
+      )}
     </div>
   )
 }
@@ -127,8 +151,15 @@ export default function PaymentKpiCards({
   payments,
   statusFilter,
   onStatusFilter,
+  showAwaitingConfirmation = false,
 }: PaymentKpiCardsProps) {
+  const isMobile = useIsMobileViewport()
   const summary = useMemo(() => computePaymentTrendSummary(payments, 6), [payments])
+  const awaitingReceipt = useMemo(() => getAwaitingReceiptPayments(payments), [payments])
+  const awaitingReceiptAmount = useMemo(
+    () => awaitingReceipt.reduce((sum, p) => sum + p.amount, 0),
+    [awaitingReceipt]
+  )
   const [detailType, setDetailType] = useState<KpiDetailType | null>(null)
   const [detailClosing, setDetailClosing] = useState(false)
 
@@ -147,36 +178,68 @@ export default function PaymentKpiCards({
 
   return (
     <>
-      <section className="payment-kpi-strip shrink-0" aria-label="Payment trends">
+      <section
+        className={[
+          'payment-kpi-strip',
+          'shrink-0',
+          showAwaitingConfirmation && !isMobile ? 'payment-kpi-strip--4' : '',
+          isMobile ? 'payment-kpi-strip--mobile-compact' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        aria-label="Payment trends"
+      >
         <KpiCard
           title="Total Paid"
           value={formatCurrency(summary.totalPaid)}
           dataKey="paid"
           data={summary.months}
           isActive={statusFilter === 'confirmed'}
+          compact={isMobile}
           onFilter={() => onStatusFilter('confirmed')}
           onChartClick={() => openDetail('paid')}
         />
-        <KpiCard
-          title="Pending"
-          value={formatCurrency(summary.totalPending)}
-          subtitle="Awaiting confirmation"
-          dataKey="pending"
-          data={summary.months}
-          isActive={statusFilter === 'pending'}
-          onFilter={() => onStatusFilter('pending')}
-          onChartClick={() => openDetail('pending')}
-        />
-        <KpiCard
-          title="Payments Received"
-          value={String(summary.confirmedCount)}
-          dataKey="count"
-          data={summary.months}
-          showArea
-          isActive={statusFilter === 'confirmed'}
-          onFilter={() => onStatusFilter('confirmed')}
-          onChartClick={() => openDetail('received')}
-        />
+        {!isMobile && (
+          <>
+            <KpiCard
+              title="Pending"
+              value={formatCurrency(summary.totalPending)}
+              subtitle="Awaiting Credyx confirmation"
+              dataKey="pending"
+              data={summary.months}
+              isActive={statusFilter === 'pending'}
+              onFilter={() => onStatusFilter('pending')}
+              onChartClick={() => openDetail('pending')}
+            />
+            {showAwaitingConfirmation && (
+              <KpiCard
+                title="Confirm payment"
+                value={String(awaitingReceipt.length)}
+                subtitle={
+                  awaitingReceipt.length > 0
+                    ? `${formatCurrency(awaitingReceiptAmount)} to confirm`
+                    : 'None awaiting'
+                }
+                dataKey="pending"
+                data={summary.months}
+                isActive={statusFilter === 'awaiting_receipt'}
+                attention={awaitingReceipt.length > 0}
+                onFilter={() => onStatusFilter('awaiting_receipt')}
+                onChartClick={() => openDetail('pending')}
+              />
+            )}
+            <KpiCard
+              title="Payments Received"
+              value={String(summary.confirmedCount)}
+              dataKey="count"
+              data={summary.months}
+              showArea
+              isActive={statusFilter === 'confirmed'}
+              onFilter={() => onStatusFilter('confirmed')}
+              onChartClick={() => openDetail('received')}
+            />
+          </>
+        )}
       </section>
 
       {detailType && (

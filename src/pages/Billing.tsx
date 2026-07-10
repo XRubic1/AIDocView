@@ -24,6 +24,7 @@ import {
   getClientCollectedVolume,
   sendPayoneerRequest,
 } from '../services/arBillingService'
+import { getReimbursementReportForPeriod } from '../services/reimbursementAccountService'
 import { formatCurrency } from '../utils/format'
 import { useToast } from '../components/ui/ToastProvider'
 import { SkeletonRows } from '../components/ui/Skeleton'
@@ -40,6 +41,8 @@ interface ClientBillRow {
   collectedVolume: number
   ratePct: number
   computedTotal: number
+  feeCreditsThisPeriod: number
+  reimbursementBalance: number
   standing: ReturnType<typeof getBillingStanding>
   billStatus: string
   billId?: string
@@ -84,6 +87,11 @@ export default function Billing() {
 
         const bill = getBillForPeriod(client.id, period)
         const collectedVolume = getClientCollectedVolume(client.id, period)
+        const reimbReport = getReimbursementReportForPeriod(client.id, period)
+        const feeCreditsThisPeriod = reimbReport.feeCredits.reduce(
+          (sum, e) => sum + e.fee_credit_amount,
+          0
+        )
         let ratePct = 0
         try {
           ratePct = resolveArRate(client, collectedVolume)
@@ -96,6 +104,8 @@ export default function Billing() {
           collectedVolume,
           ratePct,
           computedTotal: computed.total,
+          feeCreditsThisPeriod,
+          reimbursementBalance: reimbReport.pendingOnAccount,
           standing: getBillingStanding(client),
           billStatus: bill?.status ?? '—',
           billId: bill?.id,
@@ -243,6 +253,8 @@ export default function Billing() {
                   <th>Client</th>
                   <th className="text-right">Collected</th>
                   <th className="text-right">Rate</th>
+                  <th className="text-right">Fee credits</th>
+                  <th className="text-right">Reimb. acct</th>
                   <th className="text-right">Bill</th>
                   <th>Status</th>
                   <th>Standing</th>
@@ -270,6 +282,16 @@ export default function Billing() {
                       </td>
                       <td className="text-right tabular-nums">
                         {Number.isFinite(row.ratePct) ? `${row.ratePct}%` : 'Override needed'}
+                      </td>
+                      <td className="text-right tabular-nums text-emerald-700">
+                        {row.feeCreditsThisPeriod > 0
+                          ? `−${formatCurrency(row.feeCreditsThisPeriod)}`
+                          : '—'}
+                      </td>
+                      <td className="text-right tabular-nums text-slate-600">
+                        {row.reimbursementBalance > 0
+                          ? formatCurrency(row.reimbursementBalance)
+                          : '—'}
                       </td>
                       <td className="text-right tabular-nums font-medium">
                         {Number.isFinite(row.computedTotal)

@@ -5,6 +5,7 @@
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
 import type { Batch } from '../data/mockBatches'
+import { getAwaitingReceiptPayments } from './paymentStatus'
 
 /** Visual tone reused from the shared dashboard panel icon palette. */
 export type ActivityTone = 'green' | 'blue' | 'amber' | 'red' | 'slate'
@@ -119,6 +120,10 @@ export function computeActivityMetrics(
   const heldInvoices = heldInvoiceIds.length
   const overdueInvoices = overdueInvoiceIds.length
 
+  const awaitingReceipt = getAwaitingReceiptPayments(payments)
+  const awaitingReceiptIds = awaitingReceipt.map((p) => p.id)
+  const awaitingReceiptAmount = awaitingReceipt.reduce((sum, p) => sum + p.amount, 0)
+
   const totalActions =
     recentPayments.length + recentBatches.length + recentApprovals.length
 
@@ -133,6 +138,18 @@ export function computeActivityMetrics(
           : `Last ${windowDays} days`,
       tone: 'green',
       navigateTo: '/client/payments',
+    },
+    {
+      key: 'payment_confirmation',
+      label: 'Pending confirmation',
+      count: awaitingReceipt.length,
+      detail:
+        awaitingReceipt.length > 0
+          ? `${formatCompactAmount(awaitingReceiptAmount)} · confirm receipt`
+          : 'None awaiting',
+      tone: 'amber',
+      navigateTo: '/client/payments?status=awaiting_receipt',
+      ids: awaitingReceiptIds,
     },
     {
       key: 'batches',

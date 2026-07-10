@@ -9,7 +9,6 @@ import {
   ArrowUpRight,
   Activity,
 } from 'lucide-react'
-import ClientLayout from '../components/ClientLayout'
 import SimpleUploadModal from '../components/client/SimpleUploadModal'
 import AgingARChart from '../components/client/AgingARChart'
 import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
@@ -152,7 +151,7 @@ export default function ClientDashboard() {
   }
 
   return (
-    <ClientLayout clientName={clientName} clientId={clientId}>
+    <>
       {staleError && <DataStaleBanner message={staleError} onDismiss={dismissStaleError} />}
       <RefreshIndicator visible={isRefreshing} />
       {isInitialLoad ? (
@@ -288,7 +287,11 @@ export default function ClientDashboard() {
         </section>
 
         {/* Row 3 — Today's activity (last 7 days + standing held/overdue) */}
-        <section className="dashboard-section-enter dashboard-section-enter--2 grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <section
+          className={`dashboard-section-enter dashboard-section-enter--2 grid grid-cols-2 gap-3 ${
+            tier === 'managed' ? 'lg:grid-cols-5' : 'lg:grid-cols-4'
+          }`}
+        >
           <ActivityMetricsRow
             invoices={clientInvoices}
             payments={clientPayments}
@@ -399,6 +402,6 @@ export default function ClientDashboard() {
         clientId={clientId}
         clientName={clientName}
       />
-    </ClientLayout>
+    </>
   )
 }

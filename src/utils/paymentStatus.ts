@@ -1,5 +1,7 @@
 import type { Payment, PaymentStatus } from '../types/payment'
 
+export const CREDYX_FORCE_CONFIRM_ACTOR = 'Credyx'
+
 export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
   pending: 'Pending',
   awaiting_receipt: 'Awaiting your confirmation',
@@ -34,4 +36,17 @@ export function getReceiptConfirmationDaysLeft(payment: Payment): number | null 
 export function isReceiptConfirmationOverdue(payment: Payment): boolean {
   if (!payment.client_confirmation_deadline || payment.status !== 'awaiting_receipt') return false
   return new Date(payment.client_confirmation_deadline).getTime() < Date.now()
+}
+
+/** Credyx-posted payments awaiting managed-client receipt confirmation. */
+export function getAwaitingReceiptPayments(payments: Payment[]): Payment[] {
+  return payments.filter((p) => p.status === 'awaiting_receipt')
+}
+
+/** First awaiting-receipt payment on an invoice, if any. */
+export function getAwaitingReceiptPaymentForInvoice(
+  invoiceId: string,
+  payments: Payment[]
+): Payment | undefined {
+  return payments.find((p) => p.invoice_id === invoiceId && p.status === 'awaiting_receipt')
 }

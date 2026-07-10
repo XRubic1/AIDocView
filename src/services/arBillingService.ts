@@ -9,6 +9,8 @@ import {
 } from '../config/arBillingRates'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
+import { getEffectivePaymentAmount } from '../utils/paymentVariance'
+import { getShortPaymentFeeCreditsForPeriod } from './reimbursementAccountService'
 import { getSupabase, isSupabaseConfigured, requireSupabase } from '../lib/supabase'
 import { updateClient, getClientById } from './clientRegistry'
 import { persistOrThrow } from './persistHelper'
@@ -177,13 +179,13 @@ function upsertBillInCache(bill: ClientBill): void {
   }
 }
 
-/** Sum confirmed payment amounts for the client in the billing period. */
+/** Sum confirmed payment amounts for the client in the billing period (net of short corrections). */
 export function getClientCollectedVolume(clientId: string, period: BillingPeriod): number {
   const invoiceIds = invoiceIdsForClient(clientId)
   return mockPayments
     .filter((p) => invoiceIds.has(p.invoice_id) && p.status === 'confirmed')
     .filter((p) => isDateInPeriod(p.confirmed_at ?? p.received_date, period))
-    .reduce((sum, p) => sum + p.amount, 0)
+    .reduce((sum, p) => sum + getEffectivePaymentAmount(p), 0)
 }
 
 /** Resolve A/R rate % from client flags and collected volume. */
@@ -245,6 +247,11 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
     ? []
     : [...getForceCloseAdjustments(clientId, period, ratePct), ...getReversalCredits(clientId, period)]
 
+  const reimbursementCredits = trial
+    ? []
+    : getShortPaymentFeeCreditsForPeriod(clientId, period)
+  const reimbursementBalance = client.reimbursement_balance ?? 0
+
   const adjustmentTotal = adjustments.reduce((sum, a) => sum + a.amount, 0)
   const periodLabel = formatBillingPeriod(period)
 
@@ -274,7 +281,20 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
     lineItems.push(adj)
   }
 
-  const total = appFee + arFee + adjustmentTotal
+  const subtotal = appFee + arFee + adjustmentTotal
+  const total = Math.max(0, subtotal - reimbursementBalance)
+  if (reimbursementCredits.length > 0) {
+    lineItems.push(...reimbursementCredits)
+  }
+  if (reimbursementBalance > 0 && subtotal > 0) {
+    lineItems.push({
+      id: `reimb-acct-${clientId}-${periodLabel}`,
+      date: periodLabel,
+      description: `Reimbursement account credit applied (${formatVolume(reimbursementBalance)} available)`,
+      amount: -Math.min(reimbursementBalance, subtotal),
+      status: 'pending',
+    })
+  }
 
   return {
     appFee,
@@ -284,6 +304,8 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
     adjustments,
     total,
     lineItems,
+    reimbursementCredits,
+    reimbursementBalance,
   }
 }
 
@@ -325,8 +347,17 @@ export async function issueClientBill(clientId: string, period: BillingPeriod): 
   const existing = getBillForPeriod(clientId, period)
   if (existing) return existing
 
+  const client = getClientById(clientId)
   const computed = computeMonthlyBill(clientId, period)
+  const subtotal = computed.appFee + computed.arFee + computed.adjustments.reduce((s, a) => s + a.amount, 0)
+  const appliedFromAccount = Math.min(client?.reimbursement_balance ?? 0, Math.max(0, subtotal))
   const now = new Date().toISOString()
+
+  if (appliedFromAccount > 0 && client) {
+    const newBalance = Math.round(((client.reimbursement_balance ?? 0) - appliedFromAccount) * 100) / 100
+    await updateClient(client.id, { reimbursement_balance: newBalance })
+  }
+
   const bill: ClientBill = {
     id: `bill-${clientId}-${formatBillingPeriod(period)}`,
     client_id: clientId,

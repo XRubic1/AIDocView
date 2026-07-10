@@ -40,8 +40,8 @@ export const lightClientTheme = {
     badge: '#3B82F6',
     avatarBg: '#EFF6FF',
     avatarText: '#3B82F6',
-    collapsedWidth: 72,
-    expandedWidth: 220,
+    collapsedWidth: 64,
+    expandedWidth: 208,
   },
   density: {
     gap: 16,
@@ -104,8 +104,8 @@ export const darkClientTheme = {
     badge: '#D4A853',
     avatarBg: '#1C1810',
     avatarText: '#D4A853',
-    collapsedWidth: 72,
-    expandedWidth: 220,
+    collapsedWidth: 64,
+    expandedWidth: 208,
   },
   density: {
     gap: 16,

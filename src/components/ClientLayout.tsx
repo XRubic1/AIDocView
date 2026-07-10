@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, type ReactNode } from 'react'
+import { useMemo, useState, useEffect, useRef, type ReactNode } from 'react'
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import {
   ChevronDown,
@@ -11,7 +11,12 @@ import {
 } from 'lucide-react'
 import { Notification } from '../types/notification'
 import NotificationBell from './NotificationBell'
-import { getNotificationsForClient, markNotificationRead } from '../data/mockNotifications'
+import {
+  getNotificationsForClient,
+  markAllClientNotificationsRead,
+  markNotificationRead,
+  subscribeClientNotifications,
+} from '../data/mockNotifications'
 import { getAllBatches } from '../data/mockBatches'
 import { clearClientTenantCache } from '../data/clientDemoData'
 import { clearClientSession } from '../utils/clearClientSession'
@@ -57,19 +62,93 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   const [notifications, setNotifications] = useState<Notification[]>([])
 
   useEffect(() => {
-    if (resolvedClientId) {
-      setNotifications(getNotificationsForClient(resolvedClientId))
+    if (!resolvedClientId) {
+      setNotifications([])
+      return
     }
+    const refresh = () => setNotifications(getNotificationsForClient(resolvedClientId))
+    refresh()
+    return subscribeClientNotifications(refresh, resolvedClientId)
   }, [resolvedClientId])
   const [collapsed, setCollapsed] = useState(() => {
     try {
-      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true'
+      const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+      if (stored === 'true' || stored === 'false') return stored === 'true'
+      // Mid-size desktops: start collapsed so list tables keep usable width.
+      return typeof window !== 'undefined' && window.innerWidth < 1400
     } catch {
       return false
     }
   })
+  const [hoverExpanded, setHoverExpanded] = useState(false)
+  const hoverLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const sidebarWidth = collapsed ? t.sidebar.collapsedWidth : t.sidebar.expandedWidth
+  // Auto-collapse when shrinking into the mid-size range (do not auto-expand).
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1399px)')
+    const onChange = () => {
+      if (media.matches) {
+        setCollapsed(true)
+        try {
+          localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'true')
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (hoverLeaveTimer.current) clearTimeout(hoverLeaveTimer.current)
+    }
+  }, [])
+
+  // Rail mode = icon strip; hover temporarily expands as a flyout over content.
+  const railMode = collapsed
+  const sidebarExpanded = !railMode || hoverExpanded
+  const sidebarWidth = sidebarExpanded ? t.sidebar.expandedWidth : t.sidebar.collapsedWidth
+  // Main content only reserves the rail width so hover expand doesn't reflow the page.
+  const mainOffset = railMode ? t.sidebar.collapsedWidth : t.sidebar.expandedWidth
+
+  // Reveal labels after width settles so text never wraps mid-animation.
+  const [labelsReady, setLabelsReady] = useState(() => sidebarExpanded)
+  useEffect(() => {
+    if (!sidebarExpanded) {
+      setLabelsReady(false)
+      return
+    }
+    const id = window.setTimeout(() => setLabelsReady(true), 160)
+    return () => window.clearTimeout(id)
+  }, [sidebarExpanded])
+
+  const clearHoverLeaveTimer = () => {
+    if (hoverLeaveTimer.current) {
+      clearTimeout(hoverLeaveTimer.current)
+      hoverLeaveTimer.current = null
+    }
+  }
+
+  const handleSidebarMouseEnter = () => {
+    clearHoverLeaveTimer()
+    if (railMode) setHoverExpanded(true)
+  }
+
+  const handleSidebarMouseLeave = () => {
+    clearHoverLeaveTimer()
+    hoverLeaveTimer.current = setTimeout(() => {
+      if (!userMenuOpen) setHoverExpanded(false)
+    }, 160)
+  }
+
+  useEffect(() => {
+    if (!userMenuOpen && railMode) {
+      clearHoverLeaveTimer()
+      hoverLeaveTimer.current = setTimeout(() => setHoverExpanded(false), 160)
+    }
+  }, [userMenuOpen, railMode])
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -79,6 +158,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       } catch {
         /* ignore */
       }
+      if (next) setHoverExpanded(false)
       return next
     })
   }
@@ -129,6 +209,8 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
   const handleNavClick = (path: string) => {
     setMobileOpen(false)
+    // Collapse hover flyout immediately so chrome stays stable while the page loads.
+    if (railMode) setHoverExpanded(false)
     if (path.startsWith('mailto:')) {
       window.location.href = path
       return
@@ -145,7 +227,11 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
   const handleMarkAsRead = (id: string) => {
     markNotificationRead(id)
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+  }
+
+  const handleMarkAllAsRead = () => {
+    if (!resolvedClientId) return
+    markAllClientNotificationsRead(resolvedClientId)
   }
 
   const handleNotificationClick = (notification: Notification) => {
@@ -153,77 +239,76 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     const params = new URLSearchParams()
     if (notification.invoice_id) params.set('highlight_invoice', notification.invoice_id)
     if (notification.batch_id) params.set('highlight_batch', notification.batch_id)
+    if (notification.payment_id) params.set('paymentId', notification.payment_id)
     const url = params.toString() ? `${notification.link}?${params.toString()}` : notification.link
     navigate(url)
     setMobileOpen(false)
   }
 
-  const sidebarContent = (isMobile = false) => (
-    <div className="flex flex-col h-full">
-      {/* Brand */}
+  const sidebarContent = (isMobile = false) => {
+    const showLabels = isMobile || labelsReady
+    // Fixed left inset so icons stay put while the rail expands/collapses.
+    const iconInsetClass = 'pl-5'
+    // Collapse label width until ready so text never wraps mid-width animation.
+    const labelClass = showLabels
+      ? 'opacity-100 min-w-0'
+      : 'opacity-0 max-w-0 w-0 min-w-0 overflow-hidden pointer-events-none shrink-0'
+    return (
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Brand — mark always; wordmark fades in after width settles */}
       <div
-        className={`flex items-center border-b ${collapsed && !isMobile ? 'justify-center px-2' : 'px-5'} pt-5 pb-4`}
+        className={`flex items-center border-b ${iconInsetClass} pr-2.5 py-2.5 gap-2.5 min-h-[52px]`}
         style={{ borderColor: t.sidebar.border }}
       >
-        {collapsed && !isMobile ? (
+        <CredyxWordmark
+          variant="mark"
+          theme="client"
+          onClick={() => navigate('/client/dashboard')}
+        />
+        <div className={`overflow-hidden whitespace-nowrap transition-opacity duration-75 ${labelClass}`}>
           <CredyxWordmark
-            variant="mark"
+            variant="compact"
             theme="client"
             onClick={() => navigate('/client/dashboard')}
           />
-        ) : (
-          <CredyxWordmark
-            variant="full"
-            theme="client"
-            onClick={() => navigate('/client/dashboard')}
-          />
-        )}
+        </div>
       </div>
 
       {/* Company context */}
-      {!collapsed || isMobile ? (
-        <div className="px-5 py-4 border-b" style={{ borderColor: t.sidebar.border }}>
-          <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
-              style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
-            >
-              {getInitials(resolvedClientName)}
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold truncate" style={{ color: t.sidebar.text }}>
-                {resolvedClientName}
-              </div>
-              <div className="text-xs truncate" style={{ color: t.sidebar.muted }}>
-                {getTierLabel(tier)}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="py-4 border-b flex justify-center" style={{ borderColor: t.sidebar.border }}>
+      <div className={`py-2 border-b ${iconInsetClass} pr-2.5`} style={{ borderColor: t.sidebar.border }}>
+        <div className="flex items-center gap-2.5 min-w-0">
           <div
-            className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0"
             style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
+            title={resolvedClientName}
           >
             {getInitials(resolvedClientName)}
           </div>
+          <div className={`transition-opacity duration-75 ${labelClass}`}>
+            <div className="text-[13px] font-semibold truncate whitespace-nowrap leading-tight" style={{ color: t.sidebar.text }}>
+              {resolvedClientName}
+            </div>
+            <div className="text-[11px] truncate whitespace-nowrap leading-tight" style={{ color: t.sidebar.muted }}>
+              {getTierLabel(tier)}
+            </div>
+          </div>
         </div>
-      )}
+      </div>
 
       {/* Navigation */}
-      <nav className={`flex-1 overflow-y-auto py-4 space-y-5 ${collapsed && !isMobile ? 'px-2' : 'px-3'}`}>
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-2.5">
         {navSections.map((section) => (
           <div key={section.title}>
-            {!collapsed || isMobile ? (
-              <div
-                className="px-3 mb-2 text-[11px] font-semibold tracking-wider uppercase"
-                style={{ color: t.sidebar.muted }}
-              >
-                {section.title}
-              </div>
-            ) : null}
-            <ul className="space-y-1">
+            <div
+              className={`${iconInsetClass} pr-2.5 mb-1 text-[10px] font-semibold tracking-wider uppercase whitespace-nowrap overflow-hidden transition-opacity duration-75 ${
+                showLabels ? 'opacity-100' : 'opacity-0'
+              }`}
+              style={{ color: t.sidebar.muted, height: '0.875rem' }}
+              aria-hidden={!showLabels}
+            >
+              {section.title}
+            </div>
+            <ul className="space-y-0.5">
               {section.items.map((item) => {
                 const active = isNavActive(item.path)
                 const Icon = item.icon
@@ -234,14 +319,14 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                     <button
                       type="button"
                       onClick={() => handleNavClick(item.path)}
-                      title={collapsed && !isMobile ? item.label : undefined}
-                      className={`w-full flex items-center rounded-lg text-sm transition-all duration-200 border-l-[3px] ${
-                        collapsed && !isMobile ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'
-                      }`}
+                      title={!showLabels ? item.label : undefined}
+                      className={`w-full flex items-center gap-2.5 ${iconInsetClass} pr-2.5 py-1.5 rounded-md text-[13px] transition-[background-color,color] duration-200`}
                       style={{
                         backgroundColor: active ? t.sidebar.active : 'transparent',
                         color: active ? t.sidebar.activeText : t.sidebar.muted,
-                        borderLeftColor: active ? t.sidebar.activeBorder : 'transparent',
+                        boxShadow: active
+                          ? `inset 3px 0 0 ${t.sidebar.activeBorder}`
+                          : 'inset 3px 0 0 transparent',
                         fontWeight: active ? 600 : 500,
                       }}
                       onMouseEnter={(e) => {
@@ -252,22 +337,24 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                       }}
                     >
                       <Icon
-                        className="w-[18px] h-[18px] shrink-0"
+                        className="w-4 h-4 shrink-0"
                         strokeWidth={1.75}
                         style={{ color: active ? t.info : t.mutedLight }}
                       />
-                      {(!collapsed || isMobile) && (
-                        <>
-                          <span className="flex-1 text-left truncate">{item.label}</span>
-                          {badge > 0 && (
-                            <span
-                              className="min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full text-[10px] font-bold text-white"
-                              style={{ backgroundColor: t.sidebar.badge }}
-                            >
-                              {badge}
-                            </span>
-                          )}
-                        </>
+                      <span
+                        className={`flex-1 text-left truncate whitespace-nowrap transition-opacity duration-75 ${labelClass}`}
+                      >
+                        {item.label}
+                      </span>
+                      {badge > 0 && (
+                        <span
+                          className={`min-w-[18px] h-4 px-1 flex items-center justify-center rounded-full text-[9px] font-bold text-white transition-opacity duration-75 ${
+                            showLabels ? 'opacity-100' : 'opacity-0 max-w-0 overflow-hidden'
+                          }`}
+                          style={{ backgroundColor: t.sidebar.badge }}
+                        >
+                          {badge}
+                        </span>
                       )}
                     </button>
                   </li>
@@ -280,13 +367,11 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
       {/* Collapse toggle — desktop only */}
       {!isMobile && (
-        <div className="px-3 pb-2">
+        <div className={`pb-1 ${iconInsetClass} pr-2.5`}>
           <button
             type="button"
             onClick={toggleCollapsed}
-            className={`w-full flex items-center rounded-lg py-2 text-sm transition-colors ${
-              collapsed ? 'justify-center px-2' : 'gap-2 px-3'
-            }`}
+            className="w-full flex items-center gap-2.5 py-1.5 text-[13px] transition-colors rounded-md"
             style={{ color: t.sidebar.muted }}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = t.sidebar.hover
@@ -294,28 +379,26 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = 'transparent'
             }}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={railMode ? 'Keep sidebar expanded' : 'Collapse sidebar'}
           >
-            {collapsed ? (
-              <PanelLeft className="w-[18px] h-[18px]" strokeWidth={1.75} />
+            {railMode ? (
+              <PanelLeft className="w-4 h-4 shrink-0" strokeWidth={1.75} />
             ) : (
-              <>
-                <PanelLeftClose className="w-[18px] h-[18px]" strokeWidth={1.75} />
-                <span>Collapse</span>
-              </>
+              <PanelLeftClose className="w-4 h-4 shrink-0" strokeWidth={1.75} />
             )}
+            <span className={`whitespace-nowrap transition-opacity duration-75 ${labelClass}`}>
+              {railMode ? 'Pin open' : 'Collapse'}
+            </span>
           </button>
         </div>
       )}
 
       {/* User profile */}
-      <div className="px-3 py-3 border-t relative" style={{ borderColor: t.sidebar.border }}>
+      <div className={`py-2 border-t relative ${iconInsetClass} pr-2.5`} style={{ borderColor: t.sidebar.border }}>
         <button
           type="button"
           onClick={() => setUserMenuOpen((open) => !open)}
-          className={`w-full flex items-center rounded-lg py-2 transition-colors ${
-            collapsed && !isMobile ? 'justify-center px-2' : 'gap-3 px-2'
-          }`}
+          className="w-full flex items-center gap-2.5 py-1.5 transition-colors rounded-md"
           style={{ color: t.sidebar.text }}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = t.sidebar.hover
@@ -325,25 +408,23 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
           }}
         >
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0"
             style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
           >
             {getInitials(userDisplayName)}
           </div>
-          {(!collapsed || isMobile) && (
-            <>
-              <div className="flex-1 min-w-0 text-left">
-                <div className="text-sm font-semibold truncate">{userDisplayName}</div>
-                <div className="text-xs truncate" style={{ color: t.sidebar.muted }}>
-                  {userRole === 'Client' ? 'A/R Manager' : userRole}
-                </div>
-              </div>
-              <ChevronDown
-                className={`w-4 h-4 shrink-0 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
-                style={{ color: t.sidebar.muted }}
-              />
-            </>
-          )}
+          <div className={`flex-1 text-left transition-opacity duration-75 ${labelClass}`}>
+            <div className="text-[13px] font-semibold truncate whitespace-nowrap leading-tight">{userDisplayName}</div>
+            <div className="text-[11px] truncate whitespace-nowrap leading-tight" style={{ color: t.sidebar.muted }}>
+              {userRole === 'Client' ? 'A/R Manager' : userRole}
+            </div>
+          </div>
+          <ChevronDown
+            className={`w-3.5 h-3.5 shrink-0 transition-all duration-75 ${userMenuOpen ? 'rotate-180' : ''} ${
+              showLabels ? 'opacity-100' : 'opacity-0'
+            }`}
+            style={{ color: t.sidebar.muted }}
+          />
         </button>
 
         {userMenuOpen && (
@@ -374,23 +455,28 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
         )}
       </div>
     </div>
-  )
+    )
+  }
 
   return (
     <div
       className="client-portal flex h-screen overflow-hidden"
       data-theme={resolvedTheme}
-      style={{ backgroundColor: t.surface, ['--sidebar-width' as string]: `${sidebarWidth}px` }}
+      style={{ backgroundColor: t.surface, ['--sidebar-width' as string]: `${mainOffset}px` }}
     >
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar — hover expands over content when in rail mode */}
       <aside
-        className="hidden lg:flex flex-col shrink-0 fixed inset-y-0 left-0 z-40 border-r transition-all duration-200"
+        className={`client-sidebar-rail hidden lg:flex flex-col shrink-0 fixed inset-y-0 left-0 z-40 border-r ${
+          railMode && hoverExpanded ? 'client-sidebar-rail--flyout' : ''
+        }`}
         style={{
           width: sidebarWidth,
           backgroundColor: t.sidebar.bg,
           borderColor: t.sidebar.border,
-          boxShadow: t.shadow.card,
+          boxShadow: railMode && hoverExpanded ? t.shadow.cardHover : t.shadow.card,
         }}
+        onMouseEnter={handleSidebarMouseEnter}
+        onMouseLeave={handleSidebarMouseLeave}
       >
         {sidebarContent()}
       </aside>
@@ -427,7 +513,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-all duration-200 lg:ml-[var(--sidebar-width)]">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-[margin] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] lg:ml-[var(--sidebar-width)]">
         <header
           className="sticky top-0 z-30 flex items-center justify-between gap-3 px-5 h-12 border-b"
           style={{ borderColor: t.border, backgroundColor: t.card }}
@@ -466,9 +552,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             <NotificationBell
               notifications={notifications}
               onMarkAsRead={handleMarkAsRead}
-              onMarkAllAsRead={() =>
-                setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
-              }
+              onMarkAllAsRead={handleMarkAllAsRead}
               onNotificationClick={handleNotificationClick}
             />
           </div>

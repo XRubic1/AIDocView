@@ -19,7 +19,6 @@ import {
 import { generateInvoice } from '../../pdfTemplate'
 import jsPDF from 'jspdf'
 import DocumentViewer from '../components/DocumentViewer'
-import ClientLayout from '../components/ClientLayout'
 import ClientBatchesListView from '../components/client/ClientBatchesListView'
 import ClientBatchDetailView from '../components/client/ClientBatchDetailView'
 import ClientSubmitDocsView from '../components/client/ClientSubmitDocsView'
@@ -349,6 +348,27 @@ export default function ClientBatches() {
     }
     setSelectedBatch(batchId)
   }
+
+  // Deep-link from invoice details: open the batch and show all its invoices
+  useEffect(() => {
+    const batchId = searchParams.get('batch')
+    if (!batchId || batches.length === 0) return
+
+    const match = batches.find((b) => b.id === batchId)
+    if (!match) return
+
+    if (match.status === 'draft') {
+      void resumeDraftBatch(batchId, match.upload_mode)
+    } else {
+      setActiveTab('view')
+      setSelectedBatch(batchId)
+    }
+
+    const next = new URLSearchParams(searchParams)
+    next.delete('batch')
+    if (next.get('tab') === 'view') next.delete('tab')
+    setSearchParams(next, { replace: true })
+  }, [batches, resumeDraftBatch, searchParams, setSearchParams])
 
   const startAiDraft = useCallback(async () => {
     const existing = getClientDraftBatch(clientId, 'ai')
@@ -1293,11 +1313,7 @@ export default function ClientBatches() {
   }
 
   return (
-    <ClientLayout
-      clientName={clientName}
-      clientId={clientId}
-      flushMain={activeTab === 'view' || activeTab === 'create'}
-    >
+    <>
       <div className="client-flush-shell flex flex-col min-h-0 flex-1 overflow-hidden">
         {activeTab === 'create' && !capabilities.canCreateBatch ? (
           <ManagedDocHandoffView clientId={clientId} clientName={clientName} />
@@ -1441,6 +1457,6 @@ export default function ClientBatches() {
         showStatusFilter={false}
         enableClientActions={capabilities.canOpenDispute}
       />
-    </ClientLayout>
+    </>
   )
 }

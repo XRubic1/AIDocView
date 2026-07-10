@@ -17,7 +17,6 @@ import {
   CircleCheck,
   TrendingUp,
 } from 'lucide-react'
-import ClientLayout from '../components/ClientLayout'
 import InvoiceDetailWorkspace from '../components/client/InvoiceDetailWorkspace'
 import ShortPaymentCloseModal from '../components/client/ShortPaymentCloseModal'
 import OverpaymentAcceptModal from '../components/client/OverpaymentAcceptModal'
@@ -284,7 +283,7 @@ export default function ClientShortPayments() {
   } as const
 
   return (
-    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
+    <>
       <div className="client-short-payments-page overflow-hidden flex flex-col min-h-0">
         {!capabilities.canRequestWriteOff && varianceTab === 'short' && (
           <section
@@ -821,6 +820,6 @@ export default function ClientShortPayments() {
           title="View Documents"
         />
       )}
-    </ClientLayout>
+    </>
   )
 }

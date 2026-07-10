@@ -52,7 +52,8 @@ const MANAGED: ClientCapabilities = {
   canEditRemittance: false,
   canRunInvoiceOps: false,
   canEditProfile: true,
-  canPostPayment: false,
+  // Managed clients may post payment from Invoices (awaits Credyx approval).
+  canPostPayment: true,
   canCreateAdHocInvoice: false,
   canRequestWriteOff: true,
   hasForceClose: true,

@@ -27,7 +27,8 @@ export function clearInvoices(): void {
 
 /** Add invoice to store and persist to Supabase when configured. */
 export function addInvoice(
-  data: Omit<Invoice, 'id' | 'created_at'> & { id?: string; created_at?: string }
+  data: Omit<Invoice, 'id' | 'created_at'> & { id?: string; created_at?: string },
+  options?: { deferPersist?: boolean }
 ): Invoice {
   const now = new Date().toISOString()
   const due = new Date()
@@ -42,7 +43,9 @@ export function addInvoice(
     documents_count: data.documents_count ?? 0,
   }
   mockInvoices.unshift(invoice)
-  void persistWithFeedback('Invoice save', () => persistInvoice(invoice))
+  if (!options?.deferPersist) {
+    void persistWithFeedback('Invoice save', () => persistInvoice(invoice))
+  }
   return invoice
 }
 
@@ -88,7 +91,7 @@ export function deleteInvoice(invoiceId: string): Invoice | undefined {
 export async function addInvoiceAsync(
   data: Omit<Invoice, 'id' | 'created_at'> & { id?: string; created_at?: string }
 ): Promise<Invoice> {
-  const invoice = addInvoice(data)
+  const invoice = addInvoice(data, { deferPersist: true })
   await persistOrThrow('invoice', () => persistInvoice(invoice))
   return invoice
 }

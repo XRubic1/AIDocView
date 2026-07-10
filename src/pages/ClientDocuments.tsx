@@ -16,7 +16,6 @@ import {
   Shield,
   Filter,
 } from 'lucide-react'
-import ClientLayout from '../components/ClientLayout'
 import DocumentViewer from '../components/DocumentViewer'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
@@ -329,7 +328,7 @@ export default function ClientDocuments() {
   ] as const
 
   return (
-    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
+    <>
       <div className="client-documents-page overflow-hidden flex flex-col min-h-0">
             <section
               className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
@@ -936,6 +935,6 @@ export default function ClientDocuments() {
           </div>
         </div>
       )}
-    </ClientLayout>
+    </>
   )
 }

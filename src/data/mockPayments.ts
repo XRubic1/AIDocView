@@ -1,4 +1,5 @@
 import { Payment } from '../types/payment'
+import { getEffectivePaymentAmount } from '../utils/paymentVariance'
 import { persistPayment } from '../services/supabase/tenantPersist'
 import { persistOrThrow } from '../services/persistHelper'
 import { persistWithFeedback } from '../services/persistFeedback'
@@ -21,9 +22,10 @@ export function getPaymentsByInvoiceId(invoiceId: string): Payment[] {
 }
 
 export function getConfirmedPaymentTotal(invoiceId: string): number {
-  return getPaymentsByInvoiceId(invoiceId)
-    .filter((p) => p.status === 'confirmed')
-    .reduce((sum, p) => sum + p.amount, 0)
+  return getPaymentsByInvoiceId(invoiceId).reduce(
+    (sum, p) => sum + getEffectivePaymentAmount(p),
+    0
+  )
 }
 
 /** Statuses where money is posted but not yet applied to the invoice. */
@@ -32,7 +34,16 @@ const UNCONFIRMED_STATUSES = new Set(['pending', 'awaiting_receipt', 'disputed']
 /** Total posted-but-not-yet-confirmed amount (pending / awaiting receipt / disputed). */
 export function getUnconfirmedPaymentTotal(invoiceId: string): number {
   return getPaymentsByInvoiceId(invoiceId)
-    .filter((p) => UNCONFIRMED_STATUSES.has(p.status))
+    .filter(
+      (p) => UNCONFIRMED_STATUSES.has(p.status) && p.payment_kind !== 'short'
+    )
+    .reduce((sum, p) => sum + p.amount, 0)
+}
+
+/** Short corrections awaiting client confirmation (reduce received once confirmed). */
+export function getUnconfirmedShortPaymentTotal(invoiceId: string): number {
+  return getPaymentsByInvoiceId(invoiceId)
+    .filter((p) => UNCONFIRMED_STATUSES.has(p.status) && p.payment_kind === 'short')
     .reduce((sum, p) => sum + p.amount, 0)
 }
 
@@ -42,14 +53,19 @@ export function hasUnconfirmedPayment(invoiceId: string): boolean {
 }
 
 /** Append a payment to the store and persist to Supabase when configured. */
-export function addPayment(data: Omit<Payment, 'id'> & { id?: string }): Payment {
+export function addPayment(
+  data: Omit<Payment, 'id'> & { id?: string },
+  options?: { deferPersist?: boolean }
+): Payment {
   const payment: Payment = {
     ...data,
     id: data.id ?? `pay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   }
   mockPayments.unshift(payment)
-  const clientId = getInvoiceById(payment.invoice_id)?.client_id
-  void persistWithFeedback('Payment save', () => persistPayment(payment, clientId))
+  if (!options?.deferPersist) {
+    const clientId = getInvoiceById(payment.invoice_id)?.client_id
+    void persistWithFeedback('Payment save', () => persistPayment(payment, clientId))
+  }
   return payment
 }
 
@@ -76,7 +92,7 @@ export function getPaymentById(paymentId: string): Payment | undefined {
 export async function addPaymentAsync(
   data: Omit<Payment, 'id'> & { id?: string }
 ): Promise<Payment> {
-  const payment = addPayment(data)
+  const payment = addPayment(data, { deferPersist: true })
   const clientId = getInvoiceById(payment.invoice_id)?.client_id
   await persistOrThrow('payment', () => persistPayment(payment, clientId))
   return payment
@@ -86,8 +102,9 @@ export async function updatePaymentAsync(
   paymentId: string,
   patch: Partial<Payment>
 ): Promise<Payment | undefined> {
-  const payment = updatePayment(paymentId, patch)
+  const payment = mockPayments.find((p) => p.id === paymentId)
   if (!payment) return undefined
+  Object.assign(payment, patch)
   const clientId = getInvoiceById(payment.invoice_id)?.client_id
   await persistOrThrow('payment', () => persistPayment(payment, clientId))
   return payment

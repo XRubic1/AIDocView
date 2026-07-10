@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useClientSession } from '../hooks/useClientSession'
 import { Payment } from '../types/payment'
 import { formatCurrency, formatDate } from '../utils/format'
@@ -10,23 +11,19 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
-  Plus,
   MoreVertical,
   ArrowRightLeft,
   Undo2,
-  Info,
-  CheckCircle,
   AlertTriangle,
   Loader2,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react'
-import ClientLayout from '../components/ClientLayout'
 import PaymentKpiCards from '../components/client/PaymentKpiCards'
-import PaymentReceiptConfirmationPanel from '../components/client/PaymentReceiptConfirmationPanel'
-import PostPaymentForm from '../components/client/PostPaymentForm'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import { useClientTheme } from '../theme/ThemeContext'
-import { listPostableInvoices, type PostPaymentResult } from '../services/clientPaymentService'
+import { listPostableInvoices } from '../services/clientPaymentService'
 import { movePaymentFunds, unprocessPayment } from '../services/paymentCorrectionService'
 import { getInvoiceById } from '../data/mockInvoices'
 import { getClientPayments as getClientDemoPayments } from '../data/clientDemoData'
@@ -35,6 +32,9 @@ import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { useToast } from '../components/ui/ToastProvider'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import { MoveFundsModal, UnprocessPaymentModal } from '../components/client/PaymentCorrectionModals'
+import PaymentConfirmationPanel from '../components/client/PaymentConfirmationPanel'
+import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
+import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
@@ -44,7 +44,6 @@ import { getPresetRange } from '../utils/clientReports'
 import {
   PAYMENT_STATUS_LABELS,
   PAYMENT_STATUS_PILL_CLASS,
-  getReceiptConfirmationDaysLeft,
 } from '../utils/paymentStatus'
 import {
   confirmPaymentReceipt,
@@ -52,6 +51,28 @@ import {
   PAYMENT_RECEIPT_DISPUTE_REASONS,
   processExpiredReceiptConfirmations,
 } from '../services/paymentReceiptConfirmationService'
+import { AMOUNT_EPSILON, getInvoiceReceivedAmount } from '../utils/paymentVariance'
+import { buildPaymentTableGroups, isShortPaymentChild, isOverpaymentChild } from '../utils/paymentTableGrouping'
+
+/** Parent-row Additional payment: invoice overage when overpaid, else supplemental children total. */
+function getParentAdditionalAmount(
+  invoiceAmount: number | undefined,
+  confirmedReceived: number | undefined,
+  siblingChildren: Payment[]
+): { amount: number; isOverpayment: boolean } {
+  const overage = Math.max(0, (confirmedReceived ?? 0) - (invoiceAmount ?? 0))
+  const childAdditional = siblingChildren
+    .filter((child) => !isShortPaymentChild(child))
+    .reduce((sum, child) => sum + child.amount, 0)
+
+  if (overage > AMOUNT_EPSILON) {
+    return { amount: overage, isOverpayment: true }
+  }
+  if (childAdditional > AMOUNT_EPSILON) {
+    return { amount: childAdditional, isOverpayment: false }
+  }
+  return { amount: 0, isOverpayment: false }
+}
 
 type PaymentSortField =
   | 'invoice_number'
@@ -105,15 +126,15 @@ function buildInitialPayments(clientId: string, clientName: string): Payment[] {
   return getClientDemoPayments(clientId, clientName)
 }
 
-type PaymentsViewTab = 'history' | 'post'
-
 export default function ClientPayments() {
   const c = useClientTheme()
   const { clientId, clientName } = useClientSession()
   const { capabilities } = useClientCapabilities()
   const { showToast } = useToast()
+  const useFullPageDetail = useCompactDetailViewport()
+  const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
+  const [searchParams, setSearchParams] = useSearchParams()
   const authorName = clientName
-  const [viewTab, setViewTab] = useState<PaymentsViewTab>('history')
   const [refreshKey, setRefreshKey] = useState(0)
   const [payments, setPayments] = useState<Payment[]>(() =>
     buildInitialPayments(clientId, clientName)
@@ -126,16 +147,23 @@ export default function ClientPayments() {
     [clientInvoices]
   )
 
+  const invoiceConfirmedById = useMemo(() => {
+    const map = new Map<string, number>()
+    const invoiceIds = new Set(payments.map((p) => p.invoice_id))
+
+    for (const invoiceId of invoiceIds) {
+      const invoice = clientInvoices.find((inv) => inv.id === invoiceId) ?? getInvoiceById(invoiceId)
+      if (!invoice) continue
+      map.set(invoiceId, getInvoiceReceivedAmount(invoice, payments))
+    }
+
+    return map
+  }, [clientInvoices, payments])
+
   const refreshPayments = useCallback(() => {
     setRefreshKey((k) => k + 1)
     setPayments(buildInitialPayments(clientId, clientName))
   }, [clientId, clientName])
-
-  useEffect(() => {
-    if (!capabilities.canPostPayment && viewTab === 'post') {
-      setViewTab('history')
-    }
-  }, [capabilities.canPostPayment, viewTab])
 
   useEffect(() => {
     refreshPayments()
@@ -166,7 +194,8 @@ export default function ClientPayments() {
   const [receiptDisputeDescription, setReceiptDisputeDescription] = useState('')
   const historyTableRef = useRef<HTMLDivElement>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [showPaymentDetailModal, setShowPaymentDetailModal] = useState(false)
+  const [showPaymentDetail, setShowPaymentDetail] = useState(false)
+  const [detailPanelClosing, setDetailPanelClosing] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
@@ -206,28 +235,66 @@ export default function ClientPayments() {
     setStatusFilter('all')
   }, [])
 
-  const handleKpiStatusFilter = useCallback((status: 'confirmed' | 'pending') => {
-    setStatusFilter(status)
-    historyTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [])
+  const handleKpiStatusFilter = useCallback(
+    (status: 'confirmed' | 'pending' | 'awaiting_receipt') => {
+      setStatusFilter(status)
+      historyTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    },
+    []
+  )
 
   const filteredPayments = useMemo(() => {
-    return payments.filter((payment) => {
-      const matchesSearch =
-        payment.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        payment.broker_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        payment.load_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        payment.batch_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        payment.payment_reference?.toLowerCase().includes(searchTerm.toLowerCase())
+    const term = searchTerm.trim().toLowerCase()
 
-      const matchesMethod = methodFilter === 'all' || payment.payment_method === methodFilter
-      const matchesStatus = statusFilter === 'all' || payment.status === statusFilter
-      const matchesDate =
-        (!dateFrom || payment.payment_date >= dateFrom) &&
-        (!dateTo || payment.payment_date <= dateTo)
+    const matchesSearch = (payment: Payment) => {
+      if (!term) return true
+      return (
+        payment.invoice_number.toLowerCase().includes(term) ||
+        payment.broker_name.toLowerCase().includes(term) ||
+        payment.load_number?.toLowerCase().includes(term) ||
+        payment.batch_number?.toLowerCase().includes(term) ||
+        payment.payment_reference?.toLowerCase().includes(term)
+      )
+    }
 
-      return matchesSearch && matchesMethod && matchesStatus && matchesDate
-    })
+    const matchesMethod = (payment: Payment) =>
+      methodFilter === 'all' || payment.payment_method === methodFilter
+
+    const matchesDate = (payment: Payment) =>
+      (!dateFrom || payment.payment_date >= dateFrom) &&
+      (!dateTo || payment.payment_date <= dateTo)
+
+    const matchesStatus = (payment: Payment) =>
+      statusFilter === 'all' || payment.status === statusFilter
+
+    const base = payments.filter(
+      (payment) =>
+        matchesSearch(payment) &&
+        matchesMethod(payment) &&
+        matchesDate(payment) &&
+        matchesStatus(payment)
+    )
+
+    // Searching an invoice should still surface awaiting/pending siblings even if
+    // a status chip like "Confirmed only" is active.
+    if (!term) return base
+
+    const matchedInvoiceIds = new Set(
+      payments
+        .filter((payment) => matchesSearch(payment) && matchesMethod(payment) && matchesDate(payment))
+        .map((payment) => payment.invoice_id)
+    )
+    const baseIds = new Set(base.map((payment) => payment.id))
+    const actionNeeded = payments.filter(
+      (payment) =>
+        matchedInvoiceIds.has(payment.invoice_id) &&
+        !baseIds.has(payment.id) &&
+        matchesMethod(payment) &&
+        matchesDate(payment) &&
+        (payment.status === 'awaiting_receipt' || payment.status === 'pending')
+    )
+
+    return actionNeeded.length > 0 ? [...base, ...actionNeeded] : base
   }, [payments, searchTerm, dateFrom, dateTo, methodFilter, statusFilter])
 
   const sortedPayments = useMemo(() => {
@@ -273,15 +340,58 @@ export default function ClientPayments() {
     return sorted
   }, [filteredPayments, sortField, sortDir])
 
-  const totalPages = Math.max(1, Math.ceil(sortedPayments.length / pageSize))
+  const invoiceAmountById = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const invoice of clientInvoices) {
+      map.set(invoice.id, invoice.amount)
+    }
+    for (const payment of payments) {
+      if (map.has(payment.invoice_id)) continue
+      const invoice = getInvoiceById(payment.invoice_id)
+      if (invoice) map.set(payment.invoice_id, invoice.amount)
+    }
+    return map
+  }, [clientInvoices, payments])
 
-  const paginatedPayments = useMemo(() => {
+  const paymentTableGroups = useMemo(
+    () => buildPaymentTableGroups(sortedPayments, payments, invoiceAmountById),
+    [sortedPayments, payments, invoiceAmountById]
+  )
+
+  const paginatedGroups = useMemo(() => {
     const start = (currentPage - 1) * pageSize
-    return sortedPayments.slice(start, start + pageSize)
-  }, [sortedPayments, currentPage, pageSize])
+    return paymentTableGroups.slice(start, start + pageSize)
+  }, [paymentTableGroups, currentPage, pageSize])
 
-  const pageStart = sortedPayments.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
-  const pageEnd = Math.min(currentPage * pageSize, sortedPayments.length)
+  /** Column totals for filtered payment groups (unique invoices + overages / supplementals). */
+  const amountTotals = useMemo(() => {
+    let invoiced = 0
+    let received = 0
+    let additional = 0
+
+    for (const group of paymentTableGroups) {
+      if (group.orphanChild) {
+        if (!isShortPaymentChild(group.payment)) {
+          additional += group.payment.amount
+        }
+        continue
+      }
+
+      const invoiceId = group.payment.invoice_id
+      const invoiceAmount = invoiceAmountById.get(invoiceId)
+      const confirmedReceived = invoiceConfirmedById.get(invoiceId) ?? 0
+      invoiced += invoiceAmount ?? 0
+      received += confirmedReceived
+      additional += getParentAdditionalAmount(invoiceAmount, confirmedReceived, group.children).amount
+    }
+
+    return { invoiced, received, additional }
+  }, [paymentTableGroups, invoiceAmountById, invoiceConfirmedById])
+
+  const totalPages = Math.max(1, Math.ceil(paymentTableGroups.length / pageSize))
+
+  const pageStart = paymentTableGroups.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const pageEnd = Math.min(currentPage * pageSize, paymentTableGroups.length)
 
   const handleSort = useCallback(
     (field: PaymentSortField) => {
@@ -307,35 +417,148 @@ export default function ClientPayments() {
     }
   }, [currentPage, totalPages])
 
+  useEffect(() => {
+    const statusParam = searchParams.get('status')
+    if (
+      statusParam === 'awaiting_receipt' ||
+      statusParam === 'pending' ||
+      statusParam === 'confirmed' ||
+      statusParam === 'disputed'
+    ) {
+      setStatusFilter(statusParam as PaymentStatusFilter)
+    }
+
+    const paymentId = searchParams.get('paymentId')
+    if (!paymentId) return
+
+    const payment = payments.find((p) => p.id === paymentId)
+    if (payment) {
+      setSelectedPayment(payment)
+      if (useFullPageDetail) setShowPaymentDetail(true)
+      const next = new URLSearchParams(searchParams)
+      next.delete('paymentId')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, payments, setSearchParams, useFullPageDetail])
+
+  useEffect(() => {
+    if (!selectedPayment) return
+    const updated = payments.find((p) => p.id === selectedPayment.id)
+    if (updated) setSelectedPayment(updated)
+    else {
+      setSelectedPayment(null)
+      setShowPaymentDetail(false)
+    }
+  }, [payments, selectedPayment?.id])
+
   const handleViewPaymentDetail = (payment: Payment) => {
+    setDetailPanelClosing(false)
     setSelectedPayment(payment)
-    setShowPaymentDetailModal(true)
+    if (useFullPageDetail) setShowPaymentDetail(true)
   }
 
+  const handleClosePaymentDetail = useCallback(() => {
+    if (useFullPageDetail) {
+      setShowPaymentDetail(false)
+      setSelectedPayment(null)
+      setDetailPanelClosing(false)
+      return
+    }
+
+    if (!selectedPayment) return
+
+    setDetailPanelClosing(true)
+    window.setTimeout(() => {
+      setSelectedPayment(null)
+      setDetailPanelClosing(false)
+      setShowPaymentDetail(false)
+    }, 400)
+  }, [useFullPageDetail, selectedPayment])
+
+  const detailPanelOpen = Boolean(selectedPayment) && !detailPanelClosing
+
+  const selectedInvoice = useMemo(
+    () => (selectedPayment ? getInvoiceById(selectedPayment.invoice_id) : undefined),
+    [selectedPayment]
+  )
+
+  const selectedInvoicePayments = useMemo(() => {
+    if (!selectedPayment) return []
+    return payments.filter((p) => p.invoice_id === selectedPayment.invoice_id)
+  }, [selectedPayment, payments])
+
   const handleConfirmReceipt = useCallback(async () => {
-    if (!selectedPayment || selectedPayment.status !== 'awaiting_receipt') return
+    if (!selectedPayment || !capabilities.canConfirmPaymentReceipt) return
+
+    const targets =
+      selectedPayment.status === 'awaiting_receipt'
+        ? [selectedPayment]
+        : payments.filter(
+            (p) =>
+              p.invoice_id === selectedPayment.invoice_id && p.status === 'awaiting_receipt'
+          )
+
+    if (targets.length === 0) return
+
     setReceiptActionLoading(true)
     try {
-      const result = confirmPaymentReceipt(selectedPayment.id, authorName)
-      if (result) {
-        showToast('Payment confirmed — funds released', 'success')
-        setShowPaymentDetailModal(false)
-        setSelectedPayment(null)
+      let confirmed = 0
+      for (const target of targets) {
+        const result = confirmPaymentReceipt(target.id, authorName)
+        if (result) confirmed += 1
+      }
+      if (confirmed > 0) {
+        showToast(
+          confirmed === 1
+            ? 'Payment confirmed — funds released'
+            : `${confirmed} payments confirmed — funds released`,
+          'success'
+        )
+        if (useFullPageDetail) handleClosePaymentDetail()
         refreshPayments()
       } else {
-        showToast('Could not confirm payment', 'error')
+        showToast(
+          'Could not confirm payment. Refresh the page and try again, or contact Credyx if it keeps failing.',
+          'error'
+        )
       }
+    } catch (err) {
+      console.error('[ClientPayments] confirm receipt failed', err)
+      showToast('Could not confirm payment', 'error')
     } finally {
       setReceiptActionLoading(false)
     }
-  }, [selectedPayment, authorName, showToast, refreshPayments])
+  }, [
+    selectedPayment,
+    payments,
+    capabilities.canConfirmPaymentReceipt,
+    authorName,
+    showToast,
+    refreshPayments,
+    handleClosePaymentDetail,
+    useFullPageDetail,
+  ])
 
   const handleSubmitReceiptDispute = useCallback(async () => {
     if (!selectedPayment || !receiptDisputeDescription.trim() || receiptActionLoading) return
+
+    const disputeTarget =
+      selectedPayment.status === 'awaiting_receipt'
+        ? selectedPayment
+        : payments.find(
+            (p) =>
+              p.invoice_id === selectedPayment.invoice_id && p.status === 'awaiting_receipt'
+          )
+
+    if (!disputeTarget) {
+      showToast('No payment awaiting confirmation to dispute', 'error')
+      return
+    }
+
     setReceiptActionLoading(true)
     try {
       const result = openPaymentReceiptDispute(
-        selectedPayment.id,
+        disputeTarget.id,
         receiptDisputeReason,
         receiptDisputeDescription,
         authorName
@@ -343,8 +566,7 @@ export default function ClientPayments() {
       if (result) {
         showToast('Dispute submitted — funds on hold', 'success')
         setShowReceiptDisputeModal(false)
-        setShowPaymentDetailModal(false)
-        setSelectedPayment(null)
+        if (useFullPageDetail) handleClosePaymentDetail()
         setReceiptDisputeDescription('')
         refreshPayments()
       } else {
@@ -355,24 +577,16 @@ export default function ClientPayments() {
     }
   }, [
     selectedPayment,
+    payments,
     receiptDisputeReason,
     receiptDisputeDescription,
     receiptActionLoading,
     authorName,
     showToast,
     refreshPayments,
+    handleClosePaymentDetail,
+    useFullPageDetail,
   ])
-
-  const handlePaymentPosted = useCallback(
-    (_result: PostPaymentResult) => {
-      refreshPayments()
-      setViewTab('history')
-      requestAnimationFrame(() => {
-        historyTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      })
-    },
-    [refreshPayments]
-  )
 
   const handleMoveSubmit = useCallback(() => {
     if (!moveTarget || !moveTargetInvoiceId || !moveReason.trim()) return
@@ -433,6 +647,245 @@ export default function ClientPayments() {
     setUnprocessReason('')
   }, [])
 
+  const renderPaymentRow = (
+    payment: Payment,
+    isChild = false,
+    isOrphanChild = false,
+    siblingChildren: Payment[] = []
+  ) => {
+    const isSelected = selectedPayment?.id === payment.id
+    const invoiceAmount = invoiceAmountById.get(payment.invoice_id)
+    const confirmedReceived = invoiceConfirmedById.get(payment.invoice_id)
+    const invoiceHasAwaiting =
+      !isChild &&
+      payments.some(
+        (p) => p.invoice_id === payment.invoice_id && p.status === 'awaiting_receipt'
+      )
+    const shortChild = isChild && isShortPaymentChild(payment)
+    const overChild =
+      isChild && !shortChild && invoiceAmount != null && isOverpaymentChild(payment, payments, invoiceAmount)
+    const childLabel = shortChild ? 'Short payment' : overChild ? 'Overpayment' : 'Additional payment'
+    const childMeta = shortChild
+      ? payment.short_pay_reason === 'chargeback'
+        ? 'Chargeback'
+        : 'Amount correction'
+      : overChild
+        ? 'Supplemental payment'
+        : 'Toward same invoice'
+    const invoicedDisplay =
+      !isChild || isOrphanChild
+        ? invoiceAmount != null
+          ? formatCurrency(invoiceAmount)
+          : '—'
+        : '—'
+    const receivedDisplay =
+      !isChild || isOrphanChild
+        ? formatCurrency(confirmedReceived ?? 0)
+        : '—'
+    // Parent: invoice overage when overpaid (003 → $200.02), else supplemental children (007 → $250).
+    const parentAdditional = getParentAdditionalAmount(
+      invoiceAmount,
+      confirmedReceived,
+      siblingChildren
+    )
+    const additionalDisplay = (() => {
+      if (shortChild) {
+        return (
+          <span className="inline-flex items-center justify-end gap-0.5 payment-amount--short">
+            <ArrowDown className="w-3 h-3 shrink-0" aria-hidden />
+            <span>−{formatCurrency(payment.amount)}</span>
+          </span>
+        )
+      }
+      if (overChild) {
+        return (
+          <span className="inline-flex items-center justify-end gap-0.5 payment-amount--over">
+            <ArrowUp className="w-3 h-3 shrink-0" aria-hidden />
+            <span>{formatCurrency(payment.amount)}</span>
+          </span>
+        )
+      }
+      if (isChild) {
+        return (
+          <span className="inline-flex items-center justify-end gap-0.5">
+            <ArrowUp className="w-3 h-3 shrink-0 payment-amount--over" aria-hidden />
+            <span>{formatCurrency(payment.amount)}</span>
+          </span>
+        )
+      }
+      if (parentAdditional.amount <= AMOUNT_EPSILON) return '—'
+      if (parentAdditional.isOverpayment) {
+        return (
+          <span className="inline-flex items-center justify-end gap-0.5 payment-amount--over">
+            <ArrowUp className="w-3 h-3 shrink-0" aria-hidden />
+            <span>{formatCurrency(parentAdditional.amount)}</span>
+          </span>
+        )
+      }
+      return formatCurrency(parentAdditional.amount)
+    })()
+    const rowClass = [
+      'cursor-pointer',
+      !isChild &&
+      (payment.status === 'pending' ||
+        payment.status === 'awaiting_receipt' ||
+        invoiceHasAwaiting)
+        ? 'payment-row--pending'
+        : '',
+      payment.status === 'reversed' || payment.status === 'rejected' ? 'opacity-70' : '',
+      payment.status === 'disputed' ? 'opacity-90' : '',
+      isSelected ? 'payment-row--selected' : '',
+      isChild ? 'payment-row--child' : '',
+      shortChild ? 'payment-row--short-child' : '',
+      isOrphanChild ? 'payment-row--orphan-child' : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    return (
+      <tr key={payment.id} className={rowClass} onClick={() => handleViewPaymentDetail(payment)}>
+        <ClientListTd
+          variant="primary"
+          className={`${isChild && !isOrphanChild ? 'payment-row__invoice-child' : 'font-semibold'} ${
+            payment.status === 'reversed' ? 'line-through' : ''
+          }`}
+        >
+          {isChild && !isOrphanChild ? (
+            <span className={`payment-row__child-label ${shortChild ? 'payment-row__child-label--short' : ''}`}>
+              {childLabel}
+            </span>
+          ) : isOrphanChild ? (
+            <span className="payment-row__orphan-invoice">
+              <span>{payment.invoice_number}</span>
+              <span
+                className={`payment-row__child-label payment-row__child-label--orphan ${
+                  shortChild ? 'payment-row__child-label--short' : ''
+                }`}
+              >
+                {childLabel}
+              </span>
+            </span>
+          ) : (
+            payment.invoice_number
+          )}
+        </ClientListTd>
+        <ClientListTd variant="meta" className="truncate">
+          {isChild && !isOrphanChild ? (
+            <span className="payment-row__child-meta">{childMeta}</span>
+          ) : isOrphanChild ? (
+            <span className="client-list-meta-full">{payment.broker_name}</span>
+          ) : (
+            <>
+              <span className="client-list-meta-short">{payment.broker_name}</span>
+              <span className="client-list-meta-full">{payment.broker_name}</span>
+            </>
+          )}
+        </ClientListTd>
+        <ClientListTd
+          label="Invoiced Amount"
+          className="text-right font-medium tabular-nums"
+          style={{ color: c.secondary }}
+        >
+          {invoicedDisplay}
+        </ClientListTd>
+        <ClientListTd
+          label="Received Amount"
+          className={`text-right font-medium tabular-nums ${
+            payment.status === 'reversed' ? 'line-through' : ''
+          }`}
+        >
+          {receivedDisplay}
+        </ClientListTd>
+        <ClientListTd
+          variant="amount"
+          className={`text-right font-medium tabular-nums ${
+            payment.status === 'reversed' ? 'line-through' : ''
+          }`}
+        >
+          {additionalDisplay}
+        </ClientListTd>
+        <ClientListTd variant="desktop" label="Payment Date" style={{ color: c.secondary }}>
+          {formatDate(payment.payment_date)}
+        </ClientListTd>
+        <ClientListTd variant="desktop" label="Received" style={{ color: c.secondary }}>
+          {formatDate(payment.received_date)}
+        </ClientListTd>
+        <ClientListTd variant="desktop" label="Method" style={{ color: c.secondary }}>
+          {METHOD_LABELS[payment.payment_method] || payment.payment_method}
+        </ClientListTd>
+        <ClientListTd variant="desktop" label="Status" className="text-center">
+          <div className="inline-flex items-center justify-center gap-1 flex-nowrap min-w-0">
+            {getPaymentStatusPill(payment.status, payment)}
+            {invoiceHasAwaiting && payment.status !== 'awaiting_receipt' && (
+              <span className="status-pill status-pill--pending status-pill--compact">
+                Awaiting confirmation
+              </span>
+            )}
+          </div>
+        </ClientListTd>
+        <ClientListTd variant="actions" className="text-center">
+          <div className="inline-flex items-center justify-center gap-1 relative">
+            {!isChild && payment.status === 'confirmed' && capabilities.canCorrectPayments && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setActionsMenuId((id) => (id === payment.id ? null : payment.id))
+                  }}
+                  className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
+                  style={{ color: c.secondary }}
+                  title="Payment actions"
+                  aria-label="Payment actions"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+                {actionsMenuId === payment.id && (
+                  <div
+                    className="absolute right-0 top-full mt-1 z-20 min-w-[160px] rounded-lg border shadow-lg py-1 text-left"
+                    style={{ borderColor: c.border, backgroundColor: c.card }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50 flex items-center gap-2"
+                      style={{ color: c.primary }}
+                      onClick={() => openMoveModal(payment)}
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                      Move funds
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50 flex items-center gap-2"
+                      style={{ color: c.error }}
+                      onClick={() => openUnprocessModal(payment)}
+                    >
+                      <Undo2 className="w-3.5 h-3.5" />
+                      Unprocess
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleViewPaymentDetail(payment)
+              }}
+              className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
+              style={{ color: c.info }}
+              title="View details"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+          </div>
+        </ClientListTd>
+      </tr>
+    )
+  }
+
   const inputCompactStyle = {
     backgroundColor: c.card,
     height: 34,
@@ -442,103 +895,42 @@ export default function ClientPayments() {
   } as const
 
   return (
-    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
+    <>
       <div className="client-payments-page overflow-hidden flex flex-col min-h-0">
-        <div
-          className="client-page-toolbar px-4 py-2 border-b shrink-0 flex flex-wrap items-center gap-2"
-          style={{ borderColor: c.border, backgroundColor: c.card }}
-        >
-          <div className="page-tabs">
-            <button
-              type="button"
-              onClick={() => setViewTab('history')}
-              className={`page-tab ${viewTab === 'history' ? 'page-tab--active' : ''}`}
-            >
-              Payment history
-            </button>
-            {capabilities.canPostPayment && (
-              <button
-                type="button"
-                onClick={() => setViewTab('post')}
-                className={`page-tab ${viewTab === 'post' ? 'page-tab--active' : ''}`}
-              >
-                Post payment
-              </button>
-            )}
-          </div>
-          {viewTab === 'post' && capabilities.canPostPayment && (
-            <button
-              type="button"
-              onClick={() => setViewTab('history')}
-              className="dashboard-btn-secondary dashboard-btn-compact ml-auto"
-            >
-              View history
-            </button>
-          )}
-          {viewTab === 'history' && capabilities.canPostPayment && (
-            <button
-              type="button"
-              onClick={() => setViewTab('post')}
-              className="dashboard-btn-primary dashboard-btn-compact ml-auto"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Post payment
-            </button>
-          )}
-        </div>
-
-        {viewTab === 'post' && capabilities.canPostPayment ? (
-          <div className="client-payments-page--post overflow-y-auto flex flex-col min-h-0 flex-1">
-            <PostPaymentForm
-              clientId={clientId}
-              clientName={clientName}
-              invoices={clientInvoices}
-              payments={payments}
-              authorName={authorName}
-              onPosted={handlePaymentPosted}
-            />
-          </div>
-        ) : (
-          <div className="client-payments-page--history overflow-hidden flex flex-col min-h-0 flex-1">
-        {!capabilities.canPostPayment && (
-          <section
-            className="shrink-0 px-4 py-2.5 border-b text-sm flex gap-3 items-start"
-            style={{ borderColor: c.border, backgroundColor: c.stat.amber, color: c.secondary }}
-          >
-            <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: c.info }} />
-            <p>
-              Your account is on the Managed plan. Credyx posts payments from remittances — confirm
-              receipt within 30 days or dispute if funds were not received. Contact Credyx to
-              correct a mis-posted payment.
-            </p>
-          </section>
-        )}
-        {capabilities.canConfirmPaymentReceipt && (
-          <PaymentReceiptConfirmationPanel
-            payments={payments}
-            clientName={authorName}
-            onUpdated={refreshPayments}
-            onViewPayment={handleViewPaymentDetail}
+        <div className="client-payments-page--history overflow-hidden flex flex-col min-h-0 flex-1">
+        {useFullPageDetail && showPaymentDetail && selectedPayment ? (
+          <PaymentConfirmationPanel
+            variant="mobile"
+            payment={selectedPayment}
+            invoice={selectedInvoice}
+            invoicePayments={selectedInvoicePayments}
+            navigationPayments={sortedPayments}
+            onClose={handleClosePaymentDetail}
+            onNavigatePayment={handleViewPaymentDetail}
+            canConfirmReceipt={capabilities.canConfirmPaymentReceipt}
+            receiptActionLoading={receiptActionLoading}
+            onConfirmReceipt={() => void handleConfirmReceipt()}
+            onOpenDispute={() => {
+              setReceiptDisputeReason(PAYMENT_RECEIPT_DISPUTE_REASONS[0].value)
+              setReceiptDisputeDescription('')
+              setShowReceiptDisputeModal(true)
+            }}
           />
-        )}
-        {!capabilities.canCorrectPayments && capabilities.canPostPayment && (
-          <section
-            className="shrink-0 px-4 py-2.5 border-b text-sm"
-            style={{ borderColor: c.border, backgroundColor: c.stat.slate, color: c.secondary }}
-          >
-            Payment corrections are handled by Credyx on your plan.
-          </section>
-        )}
+        ) : (
+          <>
         <PaymentKpiCards
           payments={payments}
           statusFilter={
             statusFilter === 'all'
               ? 'confirmed'
-              : statusFilter === 'pending' || statusFilter === 'confirmed'
+              : statusFilter === 'pending' ||
+                  statusFilter === 'confirmed' ||
+                  statusFilter === 'awaiting_receipt'
                 ? statusFilter
                 : 'all'
           }
           onStatusFilter={handleKpiStatusFilter}
+          showAwaitingConfirmation={capabilities.canConfirmPaymentReceipt}
         />
 
         <div
@@ -546,14 +938,6 @@ export default function ClientPayments() {
           className="client-page-toolbar px-4 py-2 border-b shrink-0"
           style={{ borderColor: c.border, backgroundColor: c.card }}
         >
-          <div className="flex items-center gap-2 mb-1">
-            <h2 className="text-sm font-semibold" style={{ color: c.primary }}>
-              Payment history
-            </h2>
-            <span className="text-xs" style={{ color: c.mutedLight }}>
-              Pending and confirmed in one list
-            </span>
-          </div>
           <div className="flex items-center gap-2">
             <div className="flex-1 relative min-w-0">
               <Search
@@ -764,22 +1148,35 @@ export default function ClientPayments() {
         </div>
 
         {sortedPayments.length === 0 ? (
-          <div className="flex items-center justify-center text-center py-8 px-4">
-            <div>
-              <DollarSign className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
-              <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
-                No payments found
-              </p>
-              <p className="text-sm" style={{ color: c.secondary }}>
-                {searchTerm || dateFrom || dateTo || methodFilter !== 'all' || statusFilter !== 'all'
-                  ? 'Try adjusting your search or filters'
-                  : 'Posted and pending payments appear here'}
-              </p>
+          <div className="payments-workspace-body flex-1 min-h-0">
+            <div className="payments-list-panel flex items-center justify-center text-center py-8 px-4">
+              <div>
+                <DollarSign className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
+                <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
+                  No payments found
+                </p>
+                <p className="text-sm" style={{ color: c.secondary }}>
+                  {searchTerm || dateFrom || dateTo || methodFilter !== 'all' || statusFilter !== 'all'
+                    ? 'Try adjusting your search or filters'
+                    : 'Posted and pending payments appear here'}
+                </p>
+              </div>
             </div>
           </div>
         ) : (
-          <>
-            <div className="client-table-scroll client-table-scroll--mobile-stack overflow-x-auto">
+          <div
+            ref={workspaceRef}
+            className={`payments-workspace-body flex-1 min-h-0 ${
+              detailPanelOpen ? 'payments-workspace-body--detail-open' : ''
+            } ${isResizing ? 'payments-workspace-body--resizing' : ''}`}
+            style={
+              detailPanelOpen
+                ? ({ '--payments-detail-width': `${detailWidth}px` } as React.CSSProperties)
+                : undefined
+            }
+          >
+            <div className="payments-list-panel">
+            <div className="client-table-scroll client-table-scroll--mobile-stack overflow-x-auto flex-1 min-h-0">
               <table className="dashboard-table dashboard-table--compact">
                 <thead>
                   <tr>
@@ -797,9 +1194,11 @@ export default function ClientPayments() {
                       sortDir={sortDir}
                       onSort={handleSort}
                     />
+                    <th className="text-right">Invoiced Amount</th>
+                    <th className="text-right">Received Amount</th>
                     <ClientSortableHeader
                       field="amount"
-                      label="Amount"
+                      label="Additional payment"
                       sortField={sortField}
                       sortDir={sortDir}
                       onSort={handleSort}
@@ -840,106 +1239,33 @@ export default function ClientPayments() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedPayments.map((payment) => (
-                      <tr
-                        key={payment.id}
-                        className={`cursor-pointer ${payment.status === 'pending' || payment.status === 'awaiting_receipt' ? 'payment-row--pending' : ''} ${
-                          payment.status === 'reversed' || payment.status === 'rejected' ? 'opacity-70' : ''
-                        } ${payment.status === 'disputed' ? 'opacity-90' : ''}`}
-                        onClick={() => handleViewPaymentDetail(payment)}
-                      >
-                        <ClientListTd
-                          variant="primary"
-                          className={`font-semibold ${payment.status === 'reversed' ? 'line-through' : ''}`}
-                        >
-                          {payment.invoice_number}
-                        </ClientListTd>
-                        <ClientListTd variant="meta" className="truncate">
-                          <span className="client-list-meta-short">{payment.broker_name}</span>
-                          <span className="client-list-meta-full">{payment.broker_name}</span>
-                        </ClientListTd>
-                        <ClientListTd
-                          variant="amount"
-                          className={`text-right font-medium tabular-nums ${
-                            payment.status === 'reversed' ? 'line-through' : ''
-                          }`}
-                        >
-                          {formatCurrency(payment.amount)}
-                        </ClientListTd>
-                        <ClientListTd variant="desktop" label="Payment Date" style={{ color: c.secondary }}>
-                          {formatDate(payment.payment_date)}
-                        </ClientListTd>
-                        <ClientListTd variant="desktop" label="Received" style={{ color: c.secondary }}>
-                          {formatDate(payment.received_date)}
-                        </ClientListTd>
-                        <ClientListTd variant="desktop" label="Method" style={{ color: c.secondary }}>
-                          {METHOD_LABELS[payment.payment_method] || payment.payment_method}
-                        </ClientListTd>
-                        <ClientListTd variant="desktop" label="Status" className="text-center">
-                          {getPaymentStatusPill(payment.status, payment)}
-                        </ClientListTd>
-                        <ClientListTd variant="actions" className="text-center">
-                          <div className="inline-flex items-center justify-center gap-1 relative">
-                            {payment.status === 'confirmed' && capabilities.canCorrectPayments && (
-                              <div className="relative">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setActionsMenuId((id) => (id === payment.id ? null : payment.id))
-                                  }}
-                                  className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-                                  style={{ color: c.secondary }}
-                                  title="Payment actions"
-                                  aria-label="Payment actions"
-                                >
-                                  <MoreVertical className="w-4 h-4" />
-                                </button>
-                                {actionsMenuId === payment.id && (
-                                  <div
-                                    className="absolute right-0 top-full mt-1 z-20 min-w-[160px] rounded-lg border shadow-lg py-1 text-left"
-                                    style={{ borderColor: c.border, backgroundColor: c.card }}
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <button
-                                      type="button"
-                                      className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50 flex items-center gap-2"
-                                      style={{ color: c.primary }}
-                                      onClick={() => openMoveModal(payment)}
-                                    >
-                                      <ArrowRightLeft className="w-3.5 h-3.5" />
-                                      Move funds
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50 flex items-center gap-2"
-                                      style={{ color: c.error }}
-                                      onClick={() => openUnprocessModal(payment)}
-                                    >
-                                      <Undo2 className="w-3.5 h-3.5" />
-                                      Unprocess
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleViewPaymentDetail(payment)
-                              }}
-                              className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-                              style={{ color: c.info }}
-                              title="View details"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </ClientListTd>
-                      </tr>
-                  ))}
+                  {paginatedGroups.flatMap(({ payment, children, orphanChild }) => {
+                    if (orphanChild) {
+                      return [renderPaymentRow(payment, true, true)]
+                    }
+                    return [
+                      renderPaymentRow(payment, false, false, children),
+                      ...children.map((child) => renderPaymentRow(child, true)),
+                    ]
+                  })}
                 </tbody>
+                <tfoot>
+                  <tr className="payments-table-totals">
+                    <td colSpan={2} className="font-semibold" style={{ color: c.primary }}>
+                      Totals
+                    </td>
+                    <td className="text-right font-semibold tabular-nums" style={{ color: c.primary }}>
+                      {formatCurrency(amountTotals.invoiced)}
+                    </td>
+                    <td className="text-right font-semibold tabular-nums" style={{ color: c.primary }}>
+                      {formatCurrency(amountTotals.received)}
+                    </td>
+                    <td className="text-right font-semibold tabular-nums" style={{ color: c.primary }}>
+                      {amountTotals.additional > 0 ? formatCurrency(amountTotals.additional) : '—'}
+                    </td>
+                    <td colSpan={5} />
+                  </tr>
+                </tfoot>
               </table>
             </div>
 
@@ -948,7 +1274,7 @@ export default function ClientPayments() {
               style={{ borderColor: c.border, backgroundColor: c.card }}
             >
               <p className="text-xs font-medium" style={{ color: c.secondary }}>
-                Showing {pageStart}–{pageEnd} of {sortedPayments.length}
+                Showing {pageStart}–{pageEnd} of {paymentTableGroups.length}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: c.secondary }}>
@@ -998,254 +1324,51 @@ export default function ClientPayments() {
                 </div>
               </div>
             </div>
+            </div>
+
+            {!useFullPageDetail && (
+              <aside className="payments-detail-panel" aria-hidden={!selectedPayment}>
+                {detailPanelOpen && (
+                  <div
+                    className="payments-resize-handle"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize payment details panel"
+                    aria-valuemin={320}
+                    aria-valuemax={720}
+                    aria-valuenow={detailWidth}
+                    {...resizeHandleProps}
+                  />
+                )}
+                {selectedPayment ? (
+                  <div className="payments-detail-panel__inner">
+                    <PaymentConfirmationPanel
+                      variant="sidebar"
+                      payment={selectedPayment}
+                      invoice={selectedInvoice}
+                      invoicePayments={selectedInvoicePayments}
+                      navigationPayments={sortedPayments}
+                      onClose={handleClosePaymentDetail}
+                      onNavigatePayment={handleViewPaymentDetail}
+                      canConfirmReceipt={capabilities.canConfirmPaymentReceipt}
+                      receiptActionLoading={receiptActionLoading}
+                      onConfirmReceipt={() => void handleConfirmReceipt()}
+                      onOpenDispute={() => {
+                        setReceiptDisputeReason(PAYMENT_RECEIPT_DISPUTE_REASONS[0].value)
+                        setReceiptDisputeDescription('')
+                        setShowReceiptDisputeModal(true)
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </aside>
+            )}
+          </div>
+        )}
           </>
         )}
           </div>
-        )}
       </div>
-
-      {showPaymentDetailModal && selectedPayment && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div
-            className="rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-            style={{ backgroundColor: c.card, boxShadow: c.shadow.cardHover }}
-          >
-            <div
-              className="flex items-center justify-between p-6 border-b"
-              style={{ borderColor: c.border }}
-            >
-              <h3 className="text-lg font-semibold" style={{ color: c.primary }}>
-                Payment Details
-              </h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPaymentDetailModal(false)
-                  setSelectedPayment(null)
-                }}
-                className="p-2 rounded-lg transition-colors hover:bg-slate-100"
-                style={{ color: c.primary }}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Invoice Number
-                  </label>
-                  <p className="text-sm mt-1" style={{ color: c.primary }}>
-                    {selectedPayment.invoice_number}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Broker Name
-                  </label>
-                  <p className="text-sm mt-1" style={{ color: c.primary }}>
-                    {selectedPayment.broker_name}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Amount
-                  </label>
-                  <p className="text-sm mt-1 font-semibold tabular-nums" style={{ color: c.primary }}>
-                    {formatCurrency(selectedPayment.amount)}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Status
-                  </label>
-                  <div className="mt-1">{getPaymentStatusPill(selectedPayment.status, selectedPayment)}</div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Payment Date
-                  </label>
-                  <p className="text-sm mt-1" style={{ color: c.primary }}>
-                    {formatDate(selectedPayment.payment_date)}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Received Date
-                  </label>
-                  <p className="text-sm mt-1" style={{ color: c.primary }}>
-                    {formatDate(selectedPayment.received_date)}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Payment Method
-                  </label>
-                  <p className="text-sm mt-1" style={{ color: c.primary }}>
-                    {METHOD_LABELS[selectedPayment.payment_method] || selectedPayment.payment_method}
-                  </p>
-                </div>
-                {selectedPayment.payment_reference && (
-                  <div>
-                    <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                      Payment Reference
-                    </label>
-                    <p className="text-sm mt-1" style={{ color: c.primary }}>
-                      {selectedPayment.payment_reference}
-                    </p>
-                  </div>
-                )}
-                {selectedPayment.load_number && (
-                  <div>
-                    <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                      Load Number
-                    </label>
-                    <p className="text-sm mt-1" style={{ color: c.primary }}>
-                      {selectedPayment.load_number}
-                    </p>
-                  </div>
-                )}
-                {selectedPayment.batch_number && (
-                  <div>
-                    <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                      Batch Number
-                    </label>
-                    <p className="text-sm mt-1" style={{ color: c.primary }}>
-                      {selectedPayment.batch_number}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {selectedPayment.reversal_reason && (
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Reversal reason
-                  </label>
-                  <p
-                    className="text-sm mt-1 p-3 rounded-lg"
-                    style={{ color: c.primary, backgroundColor: c.surface }}
-                  >
-                    {selectedPayment.reversal_reason}
-                  </p>
-                </div>
-              )}
-
-              {selectedPayment.rejection_reason && (
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Rejection reason
-                  </label>
-                  <p
-                    className="text-sm mt-1 p-3 rounded-lg"
-                    style={{ color: c.primary, backgroundColor: c.surface }}
-                  >
-                    {selectedPayment.rejection_reason}
-                  </p>
-                </div>
-              )}
-
-              {selectedPayment.status === 'awaiting_receipt' &&
-                selectedPayment.client_confirmation_deadline && (
-                  <div
-                    className="rounded-lg px-3 py-2 text-sm"
-                    style={{ backgroundColor: c.stat.amber, color: c.secondary }}
-                  >
-                    <p className="font-medium" style={{ color: c.primary }}>
-                      Confirm receipt within{' '}
-                      {getReceiptConfirmationDaysLeft(selectedPayment) ?? 0} day
-                      {(getReceiptConfirmationDaysLeft(selectedPayment) ?? 0) !== 1 ? 's' : ''}
-                    </p>
-                    <p className="text-xs mt-0.5">
-                      Deadline: {formatDate(selectedPayment.client_confirmation_deadline.split('T')[0])}
-                    </p>
-                  </div>
-                )}
-
-              {selectedPayment.dispute && (
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Dispute
-                  </label>
-                  <p
-                    className="text-sm mt-1 p-3 rounded-lg"
-                    style={{ color: c.primary, backgroundColor: c.surface }}
-                  >
-                    {selectedPayment.dispute.description}
-                  </p>
-                  {selectedPayment.dispute.response && (
-                    <p className="text-xs mt-2" style={{ color: c.secondary }}>
-                      Credyx response: {selectedPayment.dispute.response}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {selectedPayment.notes && (
-                <div>
-                  <label className="text-sm font-medium" style={{ color: c.secondary }}>
-                    Notes
-                  </label>
-                  <p
-                    className="text-sm mt-1 p-3 rounded-lg"
-                    style={{ color: c.primary, backgroundColor: c.surface }}
-                  >
-                    {selectedPayment.notes}
-                  </p>
-                </div>
-              )}
-
-              <div className="flex justify-between gap-2 pt-4 border-t" style={{ borderColor: c.border }}>
-                <div className="flex gap-2">
-                  {capabilities.canConfirmPaymentReceipt &&
-                    selectedPayment.status === 'awaiting_receipt' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={handleConfirmReceipt}
-                          disabled={receiptActionLoading}
-                          className="dashboard-btn-primary inline-flex items-center gap-1.5 disabled:opacity-50"
-                        >
-                          {receiptActionLoading ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <CheckCircle className="w-4 h-4" />
-                          )}
-                          Confirm received
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReceiptDisputeReason(PAYMENT_RECEIPT_DISPUTE_REASONS[0].value)
-                            setReceiptDisputeDescription('')
-                            setShowReceiptDisputeModal(true)
-                          }}
-                          disabled={receiptActionLoading}
-                          className="dashboard-btn-secondary inline-flex items-center gap-1.5 disabled:opacity-50"
-                          style={{ color: c.error, borderColor: c.error }}
-                        >
-                          <AlertTriangle className="w-4 h-4" />
-                          Dispute
-                        </button>
-                      </>
-                    )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowPaymentDetailModal(false)
-                    setSelectedPayment(null)
-                  }}
-                  className="dashboard-btn-secondary"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showReceiptDisputeModal && selectedPayment && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
@@ -1342,6 +1465,6 @@ export default function ClientPayments() {
           onConfirm={handleUnprocessSubmit}
         />
       )}
-    </ClientLayout>
+    </>
   )
 }

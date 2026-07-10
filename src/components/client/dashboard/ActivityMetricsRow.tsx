@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { DollarSign, Layers, PauseCircle, AlertTriangle } from 'lucide-react'
+import { DollarSign, Layers, PauseCircle, AlertTriangle, Clock } from 'lucide-react'
+import { useClientCapabilities } from '../../../hooks/useClientCapabilities'
 import type { LucideIcon } from 'lucide-react'
 import { useCountUp } from '../../../hooks/useCountUp'
 import { useSeenInvoiceAlert } from '../../../hooks/useSeenInvoiceAlert'
@@ -13,6 +14,7 @@ import {
 /** Maps a metric key to its Lucide icon. */
 const METRIC_ICONS: Record<string, LucideIcon> = {
   payments: DollarSign,
+  payment_confirmation: Clock,
   batches: Layers,
   held: PauseCircle,
   overdue: AlertTriangle,
@@ -60,16 +62,30 @@ function ActivityMetricCard({ metric, storageKeyPrefix, onNavigate }: ActivityMe
     hasNew ? '. New items since your last visit' : ''
   }`
 
+  const needsAttention =
+    metric.key === 'payment_confirmation' && metric.count > 0
+
   return (
     <button
       type="button"
-      className={`dashboard-status-card dashboard-card-lift dashboard-status-card--${variant}`}
+      className={[
+        'dashboard-status-card',
+        'dashboard-card-lift',
+        `dashboard-status-card--${variant}`,
+        needsAttention ? 'dashboard-status-card--confirm-attention' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       onClick={handleClick}
       disabled={!clickable}
       aria-label={ariaLabel}
     >
-      {hasNew && (
-        <span className="dashboard-status-card__alert" aria-hidden title="New activity" />
+      {(hasNew || needsAttention) && (
+        <span
+          className="dashboard-status-card__alert"
+          aria-hidden
+          title={needsAttention ? 'Payments awaiting confirmation' : 'New activity'}
+        />
       )}
       <div className="dashboard-status-card__head">
         <span className={`dashboard-status-card__icon dashboard-status-card__icon--${variant}`}>
@@ -105,12 +121,17 @@ export default function ActivityMetricsRow({
   clientId,
   onNavigate,
 }: ActivityMetricsRowProps) {
-  const metrics = useMemo(
-    () => computeActivityMetrics({ invoices, payments, batches }, windowDays).metrics,
-    [invoices, payments, batches, windowDays]
-  )
+  const { capabilities } = useClientCapabilities()
 
-  const storageKeyPrefix = clientId ? `credyx:seen-invoices:${clientId}` : null
+  const metrics = useMemo(() => {
+    const all = computeActivityMetrics({ invoices, payments, batches }, windowDays).metrics
+    if (!capabilities.canConfirmPaymentReceipt) {
+      return all.filter((metric) => metric.key !== 'payment_confirmation')
+    }
+    return all
+  }, [invoices, payments, batches, windowDays, capabilities.canConfirmPaymentReceipt])
+
+  const storageKeyPrefix = clientId ? `credyx:seen-activity:${clientId}` : null
 
   return (
     <>

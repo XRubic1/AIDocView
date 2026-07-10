@@ -53,6 +53,10 @@ export interface ComputedMonthlyBill {
   adjustments: BillingLineItem[]
   total: number
   lineItems: BillingLineItem[]
+  /** Short-payment fee credits this period (reporting). */
+  reimbursementCredits: BillingLineItem[]
+  /** Client reimbursement account balance before bill issue. */
+  reimbursementBalance: number
 }
 
 export interface UsageSnapshot {

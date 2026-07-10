@@ -17,7 +17,6 @@ import {
   Receipt,
   type LucideIcon,
 } from 'lucide-react'
-import ClientLayout from '../components/ClientLayout'
 import DashboardPanel from '../components/client/dashboard/DashboardPanel'
 import AgingARChart from '../components/client/AgingARChart'
 import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
@@ -230,10 +229,13 @@ export default function ClientReports() {
     [previousRange.end_date]
   )
 
-  const aging = useMemo(() => computeOpenArAging(clientInvoices), [clientInvoices])
+  const aging = useMemo(
+    () => computeOpenArAging(clientInvoices, new Date(), clientPayments),
+    [clientInvoices, clientPayments]
+  )
   const prevAging = useMemo(
-    () => computeOpenArAging(clientInvoices, prevEndDate),
-    [clientInvoices, prevEndDate]
+    () => computeOpenArAging(clientInvoices, prevEndDate, clientPayments),
+    [clientInvoices, prevEndDate, clientPayments]
   )
   const summary = useMemo(
     () => computePeriodSummary(clientInvoices, clientPayments, dateRange),
@@ -380,7 +382,7 @@ export default function ClientReports() {
   const openArTrend = pctChange(aging.total_ar, prevAging.total_ar)
 
   return (
-    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
+    <>
       <div className="client-reports-page overflow-hidden flex flex-col min-h-0">
         <div
           className="client-reports-chrome shrink-0 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 px-4 py-2"
@@ -899,6 +901,6 @@ export default function ClientReports() {
           )}
         </div>
       </div>
-    </ClientLayout>
+    </>
   )
 }

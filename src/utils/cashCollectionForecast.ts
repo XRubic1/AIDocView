@@ -1,6 +1,7 @@
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
 import { isOpenArInvoice } from './invoiceAging'
+import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from './paymentVariance'
 
 export type ForecastHorizon = 7 | 30
 
@@ -143,8 +144,14 @@ export function computeCashCollectionForecast(
   asOfDate.setHours(0, 0, 0, 0)
 
   const brokerLag = buildBrokerPayLag(invoices, payments)
-  const openInvoices = invoices.filter(isOpenArInvoice)
-  const open_ar = openInvoices.reduce((sum, inv) => sum + inv.amount, 0)
+  const openInvoices = invoices.filter((inv) => {
+    if (!isOpenArInvoice(inv)) return false
+    return getInvoiceOpenArBalance(inv, payments) > AMOUNT_EPSILON
+  })
+  const open_ar = openInvoices.reduce(
+    (sum, inv) => sum + getInvoiceOpenArBalance(inv, payments),
+    0
+  )
 
   const bucketMap = new Map<string, ForecastBucket>()
   for (let i = 0; i < horizonDays; i++) {
@@ -163,12 +170,13 @@ export function computeCashCollectionForecast(
     const lag = brokerLag.get(invoice.broker_name) ?? 0
     const predicted_date = predictPaymentDate(invoice, lag, asOfDate)
     const days_until = daysBetween(toDateKey(asOfDate), predicted_date)
+    const openBalance = getInvoiceOpenArBalance(invoice, payments)
 
     if (days_until < 0 || days_until >= horizonDays) continue
 
     const bucket = bucketMap.get(predicted_date)
     if (bucket) {
-      bucket.amount += invoice.amount
+      bucket.amount += openBalance
       bucket.invoice_count += 1
     }
 
@@ -176,7 +184,7 @@ export function computeCashCollectionForecast(
       invoice_id: invoice.id,
       invoice_number: invoice.invoice_number,
       broker_name: invoice.broker_name,
-      amount: invoice.amount,
+      amount: openBalance,
       expected_date: invoice.expected_payment_date,
       predicted_date,
       days_until,

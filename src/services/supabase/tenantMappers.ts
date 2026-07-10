@@ -78,6 +78,9 @@ export interface PaymentRow {
   reversal_type: string | null
   moved_to_payment_id: string | null
   moved_from_payment_id: string | null
+  parent_payment_id: string | null
+  payment_kind: string | null
+  short_pay_reason: string | null
   batch_id: string | null
   batch_number: string | null
   load_number: string | null
@@ -192,6 +195,9 @@ export function paymentRowToPayment(row: PaymentRow): Payment {
     reversal_type: (row.reversal_type as Payment['reversal_type']) ?? undefined,
     moved_to_payment_id: row.moved_to_payment_id ?? undefined,
     moved_from_payment_id: row.moved_from_payment_id ?? undefined,
+    parent_payment_id: row.parent_payment_id ?? undefined,
+    payment_kind: (row.payment_kind as Payment['payment_kind']) ?? undefined,
+    short_pay_reason: (row.short_pay_reason as Payment['short_pay_reason']) ?? undefined,
     batch_id: row.batch_id ?? undefined,
     batch_number: row.batch_number ?? undefined,
     load_number: row.load_number ?? undefined,
@@ -330,6 +336,9 @@ export function paymentToRow(payment: Payment, clientId: string): PaymentRow {
     reversal_type: payment.reversal_type ?? null,
     moved_to_payment_id: payment.moved_to_payment_id ?? null,
     moved_from_payment_id: payment.moved_from_payment_id ?? null,
+    parent_payment_id: payment.parent_payment_id ?? null,
+    payment_kind: payment.payment_kind ?? 'normal',
+    short_pay_reason: payment.short_pay_reason ?? null,
     batch_id: payment.batch_id ?? null,
     batch_number: payment.batch_number ?? null,
     load_number: payment.load_number ?? null,

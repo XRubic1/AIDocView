@@ -21,6 +21,11 @@ export type PaymentStatus =
   | 'rejected'
   | 'reversed'
 
+export type PaymentKind = 'normal' | 'short' | 'over'
+
+/** Why a short payment was posted against a parent payment. */
+export type ShortPayReason = 'wrong_amount' | 'chargeback'
+
 export interface Payment {
   id: string
   invoice_id: string
@@ -52,6 +57,18 @@ export interface Payment {
   reversal_type?: 'moved' | 'unprocessed'
   moved_to_payment_id?: string
   moved_from_payment_id?: string
+  /** Parent payment when this row is a supplemental short/over correction. */
+  parent_payment_id?: string
+  payment_kind?: PaymentKind
+  short_pay_reason?: ShortPayReason
+}
+
+export function isShortPayment(payment: Payment): boolean {
+  return payment.payment_kind === 'short'
+}
+
+export function isChargebackPayment(payment: Payment): boolean {
+  return payment.payment_kind === 'short' && payment.short_pay_reason === 'chargeback'
 }
 
 export interface PaymentSummary {

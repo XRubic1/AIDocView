@@ -110,7 +110,7 @@ export function buildClientDashboardData(
 ): ClientDashboardData {
   const enriched = enrichInvoices(invoices)
   const openAr = enriched.filter(isOpenArInvoice)
-  const aging = computeOpenArAging(invoices)
+  const aging = computeOpenArAging(invoices, new Date(), payments)
 
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)

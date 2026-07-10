@@ -9,15 +9,36 @@ import type { Invoice, InvoiceNote } from '../types/invoice'
 import type { Payment, PaymentReceiptDispute } from '../types/payment'
 import { formatCurrency } from '../utils/format'
 import { logAuditEvent } from '../utils/auditLogger'
-import { isPostableForPayment } from '../utils/invoiceAging'
 import { buildPaymentConfirmationNote } from './clientInvoiceActions'
-import { notifyAdminPaymentReceiptDispute } from './adminNotificationService'
+import {
+  notifyAdminPaymentReceiptConfirmed,
+  notifyAdminPaymentReceiptDispute,
+} from './adminNotificationService'
 import { clearClientTenantCache } from '../data/clientDemoData'
+import { notifyClientDisputeResolved } from '../data/mockNotifications'
+import { recordShortPaymentFeeReimbursement } from './reimbursementAccountService'
+import { isShortPayment } from '../types/payment'
 
 export const CLIENT_RECEIPT_CONFIRMATION_DAYS = 30
 
 const RECEIPT_DISPUTE_HOLD_REASON =
   'Payment receipt dispute — funds on hold until Credyx resolves'
+
+/**
+ * Receipt confirmation applies a Credyx-posted payment that already exists.
+ * Allow hold (stale dispute hold in client memory) and paid/force_closed;
+ * only block write-offs / rejected drafts.
+ */
+function canApplyReceiptConfirmation(invoice: Invoice): boolean {
+  if (
+    invoice.status === 'written_off' ||
+    invoice.status === 'write_off_pending' ||
+    invoice.status === 'rejected'
+  ) {
+    return false
+  }
+  return true
+}
 
 export const PAYMENT_RECEIPT_DISPUTE_REASONS = [
   { value: 'funds_not_received', label: 'Funds not received' },
@@ -75,6 +96,9 @@ function finalizeReceiptConfirmation(
   const existing = getPaymentById(paymentId)
   if (!existing || existing.status !== 'awaiting_receipt') return undefined
 
+  const invoice = getInvoiceById(existing.invoice_id)
+  if (!invoice || !canApplyReceiptConfirmation(invoice)) return undefined
+
   const now = new Date().toISOString()
   const payment = updatePayment(paymentId, {
     status: 'confirmed',
@@ -85,31 +109,50 @@ function finalizeReceiptConfirmation(
   })
   if (!payment) return undefined
 
-  const invoice = getInvoiceById(payment.invoice_id)
-  if (!invoice || !isPostableForPayment(invoice)) return undefined
-
   const totalReceived = getConfirmedPaymentTotal(invoice.id)
-  const noteSuffix = autoConfirmed
-    ? `Auto-confirmed after ${CLIENT_RECEIPT_CONFIRMATION_DAYS}-day window — ${formatCurrency(payment.amount)}`
-    : `Client confirmed receipt of ${formatCurrency(payment.amount)}`
+  const noteSuffix =
+    payment.payment_kind === 'short'
+      ? autoConfirmed
+        ? `Auto-confirmed short payment correction of ${formatCurrency(payment.amount)} after ${CLIENT_RECEIPT_CONFIRMATION_DAYS}-day window`
+        : `Client confirmed short payment correction of ${formatCurrency(payment.amount)}`
+      : autoConfirmed
+        ? `Auto-confirmed after ${CLIENT_RECEIPT_CONFIRMATION_DAYS}-day window — ${formatCurrency(payment.amount)}`
+        : `Client confirmed receipt of ${formatCurrency(payment.amount)}`
 
   const updated = applyPaymentToInvoice(invoice, totalReceived, confirmedBy, noteSuffix)
   if (!updated) return undefined
 
   clearClientTenantCache(invoice.client_id)
 
+  if (!autoConfirmed) {
+    notifyAdminPaymentReceiptConfirmed({
+      clientId: invoice.client_id,
+      clientName: invoice.client_name,
+      invoiceNumber: invoice.invoice_number,
+      amount: payment.amount,
+      paymentId: payment.id,
+      isShortCorrection: isShortPayment(payment),
+    })
+  }
+
   logAuditEvent(
     'payment_received',
     'invoice',
     updated.id,
     updated.invoice_number,
-    `${confirmedBy} confirmed receipt of ${formatCurrency(payment.amount)} on ${updated.invoice_number}`,
+    payment.payment_kind === 'short'
+      ? `${confirmedBy} confirmed short payment correction of ${formatCurrency(payment.amount)} on ${updated.invoice_number}`
+      : `${confirmedBy} confirmed receipt of ${formatCurrency(payment.amount)} on ${updated.invoice_number}`,
     autoConfirmed ? 'system' : 'client-portal',
     confirmedBy,
     autoConfirmed ? 'System' : 'Client',
     undefined,
     { payment_id: payment.id, action: 'receipt_confirmed', auto_confirmed: autoConfirmed }
   )
+
+  if (isShortPayment(payment)) {
+    void recordShortPaymentFeeReimbursement(payment)
+  }
 
   return { payment, invoice: updated }
 }
@@ -170,10 +213,12 @@ export function openPaymentReceiptDispute(
   if (!updated) return undefined
 
   notifyAdminPaymentReceiptDispute({
+    clientId: invoice.client_id,
     clientName: invoice.client_name,
     invoiceNumber: invoice.invoice_number,
     amount: payment.amount,
     reason: reasonLabel,
+    paymentId: payment.id,
   })
 
   clearClientTenantCache(invoice.client_id)
@@ -196,12 +241,18 @@ export function openPaymentReceiptDispute(
 
 export type ResolveReceiptDisputeOutcome = 'confirm' | 'reject'
 
+export interface ResolveReceiptDisputeOptions {
+  /** Optional corrected payment amount when Credyx upholds the posting. */
+  adjustedAmount?: number
+}
+
 /** Credyx resolves a payment receipt dispute. */
 export function resolvePaymentReceiptDispute(
   paymentId: string,
   adminName: string,
   response: string,
-  outcome: ResolveReceiptDisputeOutcome
+  outcome: ResolveReceiptDisputeOutcome,
+  options?: ResolveReceiptDisputeOptions
 ): { payment: Payment; invoice: Invoice } | undefined {
   const existing = getPaymentById(paymentId)
   if (!existing || existing.status !== 'disputed' || !existing.dispute) return undefined
@@ -220,22 +271,85 @@ export function resolvePaymentReceiptDispute(
   }
 
   if (outcome === 'confirm') {
+    const priorAmount = existing.amount
+    const amount =
+      options?.adjustedAmount != null &&
+      Number.isFinite(options.adjustedAmount) &&
+      options.adjustedAmount > 0
+        ? options.adjustedAmount
+        : existing.amount
+
     const payment = updatePayment(paymentId, {
-      status: 'confirmed',
+      status: 'awaiting_receipt',
+      amount,
       dispute: resolvedDispute,
-      client_confirmed_at: now,
-      client_confirmed_by: adminName,
-      confirmed_by: adminName,
-      confirmed_at: now,
+      client_confirmed_at: undefined,
+      client_confirmed_by: undefined,
+      confirmed_by: undefined,
+      confirmed_at: undefined,
+      client_confirmation_deadline: buildReceiptConfirmationDeadline(),
+      notes:
+        amount !== priorAmount
+          ? [existing.notes, `Credyx adjusted posted amount from ${formatCurrency(priorAmount)} to ${formatCurrency(amount)}.`]
+              .filter(Boolean)
+              .join(' ')
+          : existing.notes,
     })
     if (!payment) return undefined
 
-    const totalReceived = getConfirmedPaymentTotal(invoice.id)
-    const noteSuffix = `Dispute resolved — payment confirmed. ${response.trim()}`
-    const updated = applyPaymentToInvoice(invoice, totalReceived, adminName, noteSuffix)
+    const amountNote =
+      amount !== priorAmount
+        ? `Credyx adjusted the posted amount to ${formatCurrency(amount)} and `
+        : ''
+
+    const resolveNote: InvoiceNote = {
+      id: `note-dispute-requeue-${Date.now()}`,
+      note: `Payment receipt dispute resolved — ${amountNote}please confirm receipt of ${formatCurrency(amount)} within ${CLIENT_RECEIPT_CONFIRMATION_DAYS} days or dispute again. ${response.trim()}`,
+      created_by: adminName,
+      created_at: now,
+      type: 'client_note',
+      visibility: 'client',
+    }
+
+    const updated = updateInvoice(invoice.id, {
+      status: invoice.hold_reason === RECEIPT_DISPUTE_HOLD_REASON ? 'approved' : invoice.status,
+      hold_reason:
+        invoice.hold_reason === RECEIPT_DISPUTE_HOLD_REASON ? undefined : invoice.hold_reason,
+      notes_history: [...(invoice.notes_history || []), resolveNote],
+      updated_at: now,
+    })
     if (!updated) return undefined
 
     clearClientTenantCache(invoice.client_id)
+
+    notifyClientDisputeResolved({
+      clientId: invoice.client_id,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoice_number,
+      paymentId: payment.id,
+      amount,
+      outcome: 'requeued',
+      response: response.trim(),
+    })
+
+    logAuditEvent(
+      'payment_received',
+      'invoice',
+      updated.id,
+      updated.invoice_number,
+      `${adminName} resolved receipt dispute — ${formatCurrency(amount)} awaiting client confirmation on ${updated.invoice_number}`,
+      'admin',
+      adminName,
+      'Admin',
+      undefined,
+      {
+        payment_id: payment.id,
+        action: 'receipt_dispute_requeued',
+        prior_amount: priorAmount,
+        adjusted_amount: amount,
+      }
+    )
+
     return { payment, invoice: updated }
   }
 
@@ -263,6 +377,19 @@ export function resolvePaymentReceiptDispute(
   })
 
   clearClientTenantCache(invoice.client_id)
+
+  if (updated) {
+    notifyClientDisputeResolved({
+      clientId: invoice.client_id,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoice_number,
+      paymentId: payment.id,
+      amount: payment.amount,
+      outcome: 'rejected',
+      response: response.trim(),
+    })
+  }
+
   return { payment, invoice: updated! }
 }
 
@@ -288,6 +415,28 @@ export function listAwaitingReceiptPayments(): Payment[] {
 
 export function listReceiptDisputedPayments(): Payment[] {
   return mockPayments.filter((p) => p.status === 'disputed')
+}
+
+/**
+ * Ensure open receipt disputes have Credyx bell notifications
+ * (covers disputes opened before persist/realtime was fixed).
+ */
+export function syncAdminNotificationsForOpenReceiptDisputes(): void {
+  for (const payment of listReceiptDisputedPayments()) {
+    const invoice = getInvoiceById(payment.invoice_id)
+    if (!invoice) continue
+    const reasonLabel = payment.dispute?.reason
+      ? getPaymentReceiptDisputeLabel(payment.dispute.reason)
+      : 'Dispute'
+    notifyAdminPaymentReceiptDispute({
+      clientId: invoice.client_id,
+      clientName: invoice.client_name,
+      invoiceNumber: invoice.invoice_number,
+      amount: payment.amount,
+      reason: reasonLabel,
+      paymentId: payment.id,
+    })
+  }
 }
 
 /** Build deadline ISO for a newly posted managed-client payment. */

@@ -83,4 +83,86 @@ body {
   --cp-error: #dc2626;
 }
 
+/* Notification bell — pulse when unread items need attention (client + admin) */
+.notification-bell-btn--attention {
+  color: #c2410c;
+  animation: notification-bell-pulse 1.6s ease-in-out infinite;
+}
+
+.notification-bell-btn--attention .notification-bell-btn__icon {
+  animation: notification-bell-ring 1.6s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+.notification-bell-btn__badge {
+  background-color: #ea580c;
+  color: #ffffff;
+  box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.55);
+  animation: notification-badge-flash 1.6s ease-in-out infinite;
+}
+
+@keyframes notification-bell-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  50% {
+    transform: scale(1.08);
+    filter: drop-shadow(0 0 8px rgba(234, 88, 12, 0.55));
+  }
+}
+
+@keyframes notification-bell-ring {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  15% {
+    transform: rotate(14deg);
+  }
+  30% {
+    transform: rotate(-12deg);
+  }
+  45% {
+    transform: rotate(8deg);
+  }
+  60% {
+    transform: rotate(-4deg);
+  }
+  75% {
+    transform: rotate(2deg);
+  }
+}
+
+@keyframes notification-badge-flash {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.55);
+    background-color: #ea580c;
+  }
+  50% {
+    transform: scale(1.12);
+    box-shadow: 0 0 0 6px rgba(234, 88, 12, 0);
+    background-color: #f97316;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-bell-btn--attention,
+  .notification-bell-btn--attention .notification-bell-btn__icon,
+  .notification-bell-btn__badge {
+    animation: none !important;
+  }
+
+  .notification-bell-btn--attention {
+    color: #c2410c;
+  }
+
+  .notification-bell-btn__badge {
+    background-color: #ea580c;
+  }
+}
+
 

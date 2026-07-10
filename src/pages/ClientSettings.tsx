@@ -12,7 +12,6 @@ import {
   Shield,
 } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
-import ClientLayout from '../components/ClientLayout'
 import PlanBillingPanel from '../components/client/PlanBillingPanel'
 import { useTheme, useClientTheme, type ThemeMode } from '../theme/ThemeContext'
 import { getClientById, updateClient } from '../services/clientRegistry'
@@ -364,7 +363,7 @@ export default function ClientSettings() {
   ) : undefined
 
   return (
-    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
+    <>
       <div className="client-settings-page overflow-hidden flex flex-col min-h-0">
         <div className="client-page-tabs-bar shrink-0 overflow-x-auto">
           <div className="page-tabs">
@@ -732,6 +731,6 @@ export default function ClientSettings() {
           </div>
         </div>
       </div>
-    </ClientLayout>
+    </>
   )
 }

@@ -7,7 +7,6 @@ import {
   Eye,
   CircleDot,
 } from 'lucide-react'
-import ClientLayout from '../components/ClientLayout'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import BrokerPayRatingBadge from '../components/client/BrokerPayRatingBadge'
@@ -170,7 +169,7 @@ export default function ClientBrokers() {
   } as const
 
   return (
-    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
+    <>
       <div className="client-brokers-page overflow-hidden flex flex-col min-h-0">
         <section
           className="client-stat-strip grid grid-cols-2 lg:grid-cols-4 border-b shrink-0"
@@ -534,6 +533,6 @@ export default function ClientBrokers() {
           )}
         </div>
       </div>
-    </ClientLayout>
+    </>
   )
 }

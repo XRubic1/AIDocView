@@ -66,6 +66,7 @@ When adding a **new tab** or page section:
 | Nested list tab shell | `client-flush-shell` (batches view tab) |
 | List page size helper | `getInitialListPageSize()` from `src/utils/clientListPage.ts` |
 | Sortable column header | `ClientSortableHeader` from `src/components/client/ClientSortableHeader.tsx` |
+| Entity detail sidebar | Payment Details pattern — see `.cursor/rules/detail-panel-design.mdc` (`PaymentConfirmationPanel`) |
 
 ## Lists & tables
 

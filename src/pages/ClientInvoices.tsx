@@ -1,29 +1,40 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { getClientInvoices } from '../data/clientDemoData'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
-import { FileText, Eye, Search, Filter, DollarSign, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react'
+import { FileText, Search, Filter, DollarSign, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react'
 import DocumentViewer from '../components/DocumentViewer'
-import ClientLayout from '../components/ClientLayout'
-import InvoiceDetailWorkspace, {
+import {
   getInvoiceRowStatusBadge,
   InvoiceDisputeBadges,
 } from '../components/client/InvoiceDetailWorkspace'
+import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, isOpenArInvoice, AR_POLICY } from '../utils/invoiceAging'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
 import { useClientTheme } from '../theme/ThemeContext'
+import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
+import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
   type SortDir,
 } from '../utils/clientListPage'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
+import { getAwaitingReceiptPaymentForInvoice } from '../utils/paymentStatus'
+import {
+  getClientDisplayBalanceState,
+  getClientInvoiceStatusParts,
+  getClientPostedPendingTotal,
+  getInvoiceBalanceState,
+  getInvoiceReceivedAmount,
+  type InvoiceBalanceState,
+} from '../utils/paymentVariance'
 
 type InvoiceSortField =
   | 'invoice_number'
@@ -31,24 +42,46 @@ type InvoiceSortField =
   | 'broker_name'
   | 'batch_number'
   | 'amount'
+  | 'balance'
   | 'invoice_date'
   | 'days_outstanding'
   | 'status'
 
-function getSortableDaysOutstanding(invoice: EnrichedInvoice): number {
-  if (!isOpenArInvoice(invoice) || invoice.status === 'force_closed' || invoice.status === 'written_off') return -1
-  return invoice.daysOutstanding
+/** Open balance display — remaining due, $0 when settled, +overage when overpaid. */
+function formatInvoiceOpenBalance(
+  balance: InvoiceBalanceState,
+  mutedColor: string,
+  textColor: string
+): { text: string; color: string } {
+  switch (balance.tone) {
+    case 'over':
+      return { text: `+${formatCurrency(Math.abs(balance.signedBalance))}`, color: '#16a34a' }
+    case 'zero':
+      return { text: formatCurrency(0), color: mutedColor }
+    case 'short':
+      return { text: formatCurrency(balance.signedBalance), color: '#dc2626' }
+    case 'open':
+    default:
+      return { text: formatCurrency(balance.signedBalance), color: textColor }
+  }
+}
+
+function getSortableInvoiceAge(invoice: EnrichedInvoice): number {
+  return invoice.invoiceAgeDays
 }
 
 export default function ClientInvoices() {
   const c = useClientTheme()
+  const navigate = useNavigate()
   const { clientId, clientName } = useClientSession()
   const { capabilities } = useClientCapabilities()
+  const useFullPageDetail = useCompactDetailViewport()
+  const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
   const [searchParams, setSearchParams] = useSearchParams()
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
   const [invoicesRefreshKey, setInvoicesRefreshKey] = useState(0)
-  const { dashboard: data } = useClientDemoSnapshot(invoicesRefreshKey)
+  const { dashboard: data, payments } = useClientDemoSnapshot(invoicesRefreshKey)
 
   const invoices = useMemo(
     () => mapClientVisibleInvoices(getClientInvoices(clientId, clientName)),
@@ -56,8 +89,9 @@ export default function ClientInvoices() {
   )
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [showInvoiceDetailView, setShowInvoiceDetailView] = useState(false)
+  const [showInvoiceDetail, setShowInvoiceDetail] = useState(false)
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
+  const [detailPanelClosing, setDetailPanelClosing] = useState(false)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
   const [viewingInvoiceDocuments, setViewingInvoiceDocuments] = useState<Invoice | null>(null)
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
@@ -65,7 +99,38 @@ export default function ClientInvoices() {
   const [sortField, setSortField] = useState<InvoiceSortField>('invoice_date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
+  const handleViewPaymentForInvoice = useCallback(
+    (paymentId: string) => {
+      navigate(`/client/payments?status=awaiting_receipt&paymentId=${encodeURIComponent(paymentId)}`)
+    },
+    [navigate]
+  )
+
   const enrichedInvoices = useMemo(() => enrichInvoices(invoices), [invoices])
+
+  const invoiceBalanceById = useMemo(() => {
+    const map = new Map<string, InvoiceBalanceState>()
+    for (const invoice of enrichedInvoices) {
+      const received = getInvoiceReceivedAmount(invoice, payments)
+      const pendingClient = getClientPostedPendingTotal(invoice.id, payments)
+      map.set(
+        invoice.id,
+        getClientDisplayBalanceState(invoice.amount, received, pendingClient)
+      )
+    }
+    return map
+  }, [enrichedInvoices, payments])
+
+  const invoicePendingById = useMemo(() => {
+    const map = new Map<string, { pending: number; confirmed: number }>()
+    for (const invoice of enrichedInvoices) {
+      map.set(invoice.id, {
+        pending: getClientPostedPendingTotal(invoice.id, payments),
+        confirmed: getInvoiceReceivedAmount(invoice, payments),
+      })
+    }
+    return map
+  }, [enrichedInvoices, payments])
 
   const filteredInvoices = enrichedInvoices.filter((invoice) => {
     const matchesSearch =
@@ -74,9 +139,23 @@ export default function ClientInvoices() {
       invoice.load_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       invoice.batch_number?.toLowerCase().includes(searchTerm.toLowerCase())
 
+    const balance =
+      invoiceBalanceById.get(invoice.id) ??
+      getClientDisplayBalanceState(invoice.amount, 0, 0)
+    const pendingInfo = invoicePendingById.get(invoice.id)
+    const { status: displayStatus } = getClientInvoiceStatusParts(invoice, balance, {
+      pendingClientPosted: pendingInfo?.pending,
+      confirmedReceived: pendingInfo?.confirmed,
+      invoiceAmount: invoice.amount,
+    })
+
     const matchesStatus =
       statusFilter === 'all' ||
-      (statusFilter === 'overdue' ? invoice.isOverdue : invoice.status === statusFilter)
+      (statusFilter === 'overdue'
+        ? invoice.isOverdue
+        : statusFilter === 'approved' || statusFilter === 'paid'
+          ? displayStatus === statusFilter
+          : invoice.status === statusFilter)
 
     return matchesSearch && matchesStatus
   })
@@ -101,11 +180,17 @@ export default function ClientInvoices() {
         case 'amount':
           cmp = a.amount - b.amount
           break
+        case 'balance': {
+          const aBal = invoiceBalanceById.get(a.id)?.signedBalance ?? a.amount
+          const bBal = invoiceBalanceById.get(b.id)?.signedBalance ?? b.amount
+          cmp = aBal - bBal
+          break
+        }
         case 'invoice_date':
           cmp = new Date(a.invoice_date).getTime() - new Date(b.invoice_date).getTime()
           break
         case 'days_outstanding':
-          cmp = getSortableDaysOutstanding(a) - getSortableDaysOutstanding(b)
+          cmp = getSortableInvoiceAge(a) - getSortableInvoiceAge(b)
           break
         case 'status':
           cmp = a.status.localeCompare(b.status)
@@ -114,7 +199,7 @@ export default function ClientInvoices() {
       return sortDir === 'asc' ? cmp : -cmp
     })
     return sorted
-  }, [filteredInvoices, sortField, sortDir])
+  }, [filteredInvoices, sortField, sortDir, invoiceBalanceById])
 
   const totalPages = Math.max(1, Math.ceil(sortedInvoices.length / pageSize))
 
@@ -127,9 +212,11 @@ export default function ClientInvoices() {
   const pageEnd = Math.min(currentPage * pageSize, sortedInvoices.length)
 
   const selectedInvoice = useMemo(
-    () => enrichedInvoices.find((inv) => inv.id === selectedInvoiceId) ?? null,
-    [enrichedInvoices, selectedInvoiceId]
+    () => sortedInvoices.find((inv) => inv.id === selectedInvoiceId) ?? null,
+    [sortedInvoices, selectedInvoiceId]
   )
+
+  const detailPanelOpen = Boolean(selectedInvoice) && !detailPanelClosing
 
   const handleSort = useCallback(
     (field: InvoiceSortField) => {
@@ -138,7 +225,10 @@ export default function ClientInvoices() {
       } else {
         setSortField(field)
         const defaultDesc =
-          field === 'amount' || field === 'invoice_date' || field === 'days_outstanding'
+          field === 'amount' ||
+          field === 'balance' ||
+          field === 'invoice_date' ||
+          field === 'days_outstanding'
         setSortDir(defaultDesc ? 'desc' : 'asc')
       }
     },
@@ -167,21 +257,41 @@ export default function ClientInvoices() {
   }, [currentPage, totalPages])
 
   useEffect(() => {
-    if (!showInvoiceDetailView || !selectedInvoiceId) return
-    const stillVisible = filteredInvoices.some((inv) => inv.id === selectedInvoiceId)
+    if (!selectedInvoiceId) return
+    const stillVisible = sortedInvoices.some((inv) => inv.id === selectedInvoiceId)
     if (!stillVisible) {
-      if (filteredInvoices.length > 0) {
-        setSelectedInvoiceId(filteredInvoices[0].id)
+      if (sortedInvoices.length > 0 && (showInvoiceDetail || !useFullPageDetail)) {
+        setSelectedInvoiceId(sortedInvoices[0].id)
       } else {
-        setShowInvoiceDetailView(false)
+        setShowInvoiceDetail(false)
+        setSelectedInvoiceId(null)
       }
     }
-  }, [filteredInvoices, selectedInvoiceId, showInvoiceDetailView])
+  }, [sortedInvoices, selectedInvoiceId, showInvoiceDetail, useFullPageDetail])
 
   const handleViewInvoiceDetail = (invoice: EnrichedInvoice) => {
+    setDetailPanelClosing(false)
     setSelectedInvoiceId(invoice.id)
-    setShowInvoiceDetailView(true)
+    if (useFullPageDetail) setShowInvoiceDetail(true)
   }
+
+  const handleCloseInvoiceDetail = useCallback(() => {
+    if (useFullPageDetail) {
+      setShowInvoiceDetail(false)
+      setSelectedInvoiceId(null)
+      setDetailPanelClosing(false)
+      return
+    }
+
+    if (!selectedInvoice) return
+
+    setDetailPanelClosing(true)
+    window.setTimeout(() => {
+      setSelectedInvoiceId(null)
+      setDetailPanelClosing(false)
+      setShowInvoiceDetail(false)
+    }, 400)
+  }, [useFullPageDetail, selectedInvoice])
 
   const handleViewDocuments = (invoice: Invoice) => {
     setViewingInvoiceDocuments(invoice)
@@ -201,7 +311,8 @@ export default function ClientInvoices() {
     if (highlightInvoiceId) {
       setHighlightedInvoiceId(highlightInvoiceId)
       setSelectedInvoiceId(highlightInvoiceId)
-      setShowInvoiceDetailView(true)
+      setDetailPanelClosing(false)
+      if (useFullPageDetail) setShowInvoiceDetail(true)
       const highlightIndex = sortedInvoices.findIndex((inv) => inv.id === highlightInvoiceId)
       if (highlightIndex >= 0) {
         setCurrentPage(Math.floor(highlightIndex / pageSize) + 1)
@@ -215,7 +326,7 @@ export default function ClientInvoices() {
 
       return () => clearTimeout(timer)
     }
-  }, [searchParams, setSearchParams, sortedInvoices, pageSize])
+  }, [searchParams, setSearchParams, sortedInvoices, pageSize, useFullPageDetail])
 
   const inputCompactStyle = {
     backgroundColor: c.card,
@@ -225,404 +336,464 @@ export default function ClientInvoices() {
     fontSize: 13,
   } as const
 
+  const invoiceDetailPanelProps = selectedInvoice
+    ? {
+        invoice: selectedInvoice,
+        clientName: data.client_name,
+        navigationInvoices: sortedInvoices,
+        onClose: handleCloseInvoiceDetail,
+        onNavigateInvoice: (invoice: Invoice) => handleViewInvoiceDetail(invoice as EnrichedInvoice),
+        onViewDocuments: () => handleViewDocuments(selectedInvoice),
+        onInvoiceUpdated: () => setInvoicesRefreshKey((key) => key + 1),
+        enableClientActions: capabilities.canOpenDispute,
+        payments,
+        onViewPayment: handleViewPaymentForInvoice,
+      }
+    : null
+
   return (
-    <ClientLayout clientName={clientName} clientId={clientId} flushMain>
+    <>
       <div className="client-invoices-page overflow-hidden flex flex-col min-h-0">
-        {!capabilities.canRunInvoiceOps && (
-          <section
-            className="shrink-0 px-4 py-2.5 border-b text-sm"
-            style={{ borderColor: c.border, backgroundColor: c.stat.amber, color: c.secondary }}
-          >
-            Invoice actions are managed by Credyx on your plan. You can view invoices and open
-            disputes; payment and write-off actions are handled by your Credyx team.
-          </section>
-        )}
-        <section
-          className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
-          style={{ borderColor: c.border }}
-        >
-          <div
-            className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
-            style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
-              <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
-                Total Invoices
-              </span>
-              <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
-                Invoices
-              </span>
-            </div>
-            <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-              {enrichedInvoices.length}
-            </span>
-          </div>
-          <div
-            className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b sm:border-b-0"
-            style={{ backgroundColor: c.stat.green, borderColor: c.border }}
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.success }} />
-              <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
-                Total Amount
-              </span>
-              <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
-                Amount
-              </span>
-            </div>
-            <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-              {formatCurrency(enrichedInvoices.reduce((sum, inv) => sum + inv.amount, 0))}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setStatusFilter(statusFilter === 'overdue' ? 'all' : 'overdue')}
-            className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left transition-colors hover:opacity-90"
-            style={{
-              backgroundColor: statusFilter === 'overdue' ? c.stat.redActive : c.stat.red,
-              borderColor: c.border,
-            }}
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ color: c.error }} />
-              <span className="text-xs font-medium truncate client-stat-strip__label-long" style={{ color: c.secondary }}>
-                Overdue (15+ days past expected pay)
-              </span>
-              <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
-                Overdue
-              </span>
-            </div>
-            <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.error }}>
-              {overdueInvoices.length}
-            </span>
-          </button>
-          <div
-            className="flex flex-col justify-center gap-0.5 px-4 py-2.5"
-            style={{ backgroundColor: c.stat.amber }}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
-                <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
-                  Overdue Amount
-                </span>
-                <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
-                  Ovd Amt
-                </span>
-              </div>
-              <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-                {formatCurrency(overdueAmount)}
-              </span>
-            </div>
-            {forceCloseEligible.length > 0 && capabilities.hasForceClose && (
-              <p className="text-[11px] tabular-nums" style={{ color: '#7C3AED' }}>
-                {forceCloseEligible.length} at {AR_POLICY.forceCloseDays}+ days past expected pay
-              </p>
-            )}
-          </div>
-        </section>
-
-        <div
-          className="client-page-toolbar px-4 py-2 border-b shrink-0"
-          style={{ borderColor: c.border, backgroundColor: c.card }}
-        >
-          <div className="flex flex-col md:flex-row md:items-center gap-2">
-            <div className="flex-1 relative">
-              <Search
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
-                style={{ color: c.secondary }}
-              />
-              <input
-                type="text"
-                placeholder="Search invoices..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="client-input pl-8"
-                style={inputCompactStyle}
-              />
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Filter className="w-3.5 h-3.5" style={{ color: c.secondary }} />
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="client-input w-full md:w-auto min-w-[120px]"
-                style={inputCompactStyle}
-              >
-                <option value="all">All Status</option>
-                <option value="overdue">Overdue</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="hold">On Hold</option>
-                <option value="paid">Paid</option>
-                <option value="force_closed">Force Closed</option>
-                <option value="written_off">Written Off</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {sortedInvoices.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-center py-6 px-4">
-            <div>
-              <FileText className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
-              <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
-                No invoices found
-              </p>
-              <p className="text-sm" style={{ color: c.secondary }}>
-                {searchTerm || statusFilter !== 'all'
-                  ? 'Try adjusting your search or filters'
-                  : 'Your invoices will appear here'}
-              </p>
-            </div>
-          </div>
+        {useFullPageDetail && showInvoiceDetail && selectedInvoice && invoiceDetailPanelProps ? (
+          <InvoiceDetailPanel variant="mobile" {...invoiceDetailPanelProps} />
         ) : (
           <>
-            <div className="client-table-scroll client-table-scroll--mobile-stack flex-1 min-h-0 overflow-y-auto overflow-x-auto">
-              <table className="dashboard-table dashboard-table--compact">
-                <thead>
-                  <tr>
-                    <ClientSortableHeader
-                      field="invoice_number"
-                      label="Invoice#"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={handleSort}
-                    />
-                    <ClientSortableHeader
-                      field="load_number"
-                      label="Load#"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={handleSort}
-                    />
-                    <ClientSortableHeader
-                      field="broker_name"
-                      label="Broker"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={handleSort}
-                    />
-                    <ClientSortableHeader
-                      field="batch_number"
-                      label="Batch#"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={handleSort}
-                    />
-                    <ClientSortableHeader
-                      field="amount"
-                      label="Amount"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={handleSort}
-                      className="text-right"
-                      align="right"
-                    />
-                    <ClientSortableHeader
-                      field="invoice_date"
-                      label="Invoice Date"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={handleSort}
-                    />
-                    <ClientSortableHeader
-                      field="days_outstanding"
-                      label="Days Out"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={handleSort}
-                      className="text-right"
-                      align="right"
-                    />
-                    <ClientSortableHeader
-                      field="status"
-                      label="Status"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={handleSort}
-                    />
-                    <th className="text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedInvoices.map((invoice) => {
-                    const isHighlighted = highlightedInvoiceId === invoice.id
-                    return (
-                      <tr
-                        key={invoice.id}
-                        className={`cursor-pointer ${isHighlighted ? 'batch-highlight-row' : ''} ${
-                          invoice.isForceCloseEligible
-                            ? 'invoice-row--force-close'
-                            : invoice.isOverdue
-                              ? 'invoice-row--overdue'
-                              : ''
-                        }`}
-                        onClick={() => handleViewInvoiceDetail(invoice)}
-                      >
-                        <ClientListTd variant="primary" className="font-semibold">
-                          {invoice.invoice_number}
-                        </ClientListTd>
-                        <ClientListTd variant="desktop" label="Load#" style={{ color: c.secondary }}>
-                          {invoice.load_number || '-'}
-                        </ClientListTd>
-                        <ClientListTd variant="meta" className="truncate">
-                          {invoice.broker_name}
-                        </ClientListTd>
-                        <ClientListTd variant="desktop" label="Batch#" style={{ color: c.secondary }}>
-                          {invoice.batch_number || '-'}
-                        </ClientListTd>
-                        <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
-                          {formatCurrency(invoice.amount)}
-                        </ClientListTd>
-                        <ClientListTd variant="desktop" label="Invoice Date" style={{ color: c.secondary }}>
-                          {formatDate(invoice.invoice_date)}
-                        </ClientListTd>
-                        <ClientListTd variant="desktop" label="Days Out" className="text-right tabular-nums">
-                          {!isOpenArInvoice(invoice) ||
-                          invoice.status === 'force_closed' ||
-                          invoice.status === 'written_off' ? (
-                            <span style={{ color: c.mutedLight }}>—</span>
-                          ) : (
-                            <span
-                              className="text-sm font-semibold"
-                              style={{
-                                color: invoice.isOverdue
-                                  ? getDaysOutstandingColor(invoice.overdueSeverity)
-                                  : c.secondary,
-                              }}
-                            >
-                              {invoice.daysOutstanding}d
-                              {invoice.isForceCloseEligible && capabilities.hasForceClose && (
-                                <span className="block text-[10px] font-medium" style={{ color: '#7C3AED' }}>
-                                  FC
-                                </span>
-                              )}
-                            </span>
-                          )}
-                        </ClientListTd>
-                        <ClientListTd variant="status">
-                          <div className="inline-flex items-center gap-1 flex-nowrap min-w-0">
-                            {getInvoiceRowStatusBadge(invoice)}
-                            <InvoiceDisputeBadges invoice={invoice} />
-                            {invoice.isForceCloseEligible && capabilities.hasForceClose && (
-                              <span className="status-pill status-pill--hold text-[10px]">Force Close</span>
-                            )}
-                          </div>
-                        </ClientListTd>
-                        <ClientListTd variant="actions" className="text-center">
-                          <div className="inline-flex items-center justify-center gap-1">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleViewInvoiceDetail(invoice)
-                              }}
-                              className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-                              style={{ color: c.info }}
-                              title="View Details"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            {(invoice.documents_count || 0) > 0 && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleViewDocuments(invoice)
-                                }}
-                                className="p-1.5 rounded-lg transition-colors client-icon-btn"
-                                style={{ color: c.info }}
-                                title="View Documents"
-                              >
-                                <FileText className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </ClientListTd>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <section
+              className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
+              style={{ borderColor: c.border }}
+            >
+              <div
+                className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
+                style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
+                  <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
+                    Total Invoices
+                  </span>
+                  <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
+                    Invoices
+                  </span>
+                </div>
+                <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
+                  {enrichedInvoices.length}
+                </span>
+              </div>
+              <div
+                className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b sm:border-b-0"
+                style={{ backgroundColor: c.stat.green, borderColor: c.border }}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.success }} />
+                  <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
+                    Total Amount
+                  </span>
+                  <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
+                    Amount
+                  </span>
+                </div>
+                <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
+                  {formatCurrency(enrichedInvoices.reduce((sum, inv) => sum + inv.amount, 0))}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatusFilter(statusFilter === 'overdue' ? 'all' : 'overdue')}
+                className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left transition-colors hover:opacity-90"
+                style={{
+                  backgroundColor: statusFilter === 'overdue' ? c.stat.redActive : c.stat.red,
+                  borderColor: c.border,
+                }}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ color: c.error }} />
+                  <span className="text-xs font-medium truncate client-stat-strip__label-long" style={{ color: c.secondary }}>
+                    Overdue (15+ days past expected pay)
+                  </span>
+                  <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
+                    Overdue
+                  </span>
+                </div>
+                <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.error }}>
+                  {overdueInvoices.length}
+                </span>
+              </button>
+              <div
+                className="flex flex-col justify-center gap-0.5 px-4 py-2.5"
+                style={{ backgroundColor: c.stat.amber }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
+                    <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
+                      Overdue Amount
+                    </span>
+                    <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
+                      Ovd Amt
+                    </span>
+                  </div>
+                  <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
+                    {formatCurrency(overdueAmount)}
+                  </span>
+                </div>
+                {forceCloseEligible.length > 0 && capabilities.hasForceClose && (
+                  <p className="text-[11px] tabular-nums" style={{ color: '#7C3AED' }}>
+                    {forceCloseEligible.length} at {AR_POLICY.forceCloseDays}+ days past expected pay
+                  </p>
+                )}
+              </div>
+            </section>
 
             <div
-              className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t shrink-0"
+              className="client-page-toolbar px-4 py-2 border-b shrink-0"
               style={{ borderColor: c.border, backgroundColor: c.card }}
             >
-              <p className="text-xs font-medium" style={{ color: c.secondary }}>
-                Showing {pageStart}–{pageEnd} of {sortedInvoices.length}
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: c.secondary }}>
-                  Rows
+              <div className="flex flex-col md:flex-row md:items-center gap-2">
+                <div className="flex-1 relative">
+                  <Search
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
+                    style={{ color: c.secondary }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search invoices..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="client-input pl-8"
+                    style={inputCompactStyle}
+                  />
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Filter className="w-3.5 h-3.5" style={{ color: c.secondary }} />
                   <select
-                    value={pageSize}
-                    onChange={(e) => setPageSize(Number(e.target.value))}
-                    className="client-input"
-                    style={{
-                      backgroundColor: c.card,
-                      height: 30,
-                      paddingTop: 4,
-                      paddingBottom: 4,
-                      fontSize: 12,
-                      width: 64,
-                    }}
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="client-input w-full md:w-auto min-w-[120px]"
+                    style={inputCompactStyle}
                   >
-                    {PAGE_SIZE_OPTIONS.map((size) => (
-                      <option key={size} value={size}>
-                        {size}
-                      </option>
-                    ))}
+                    <option value="all">All Status</option>
+                    <option value="overdue">Overdue</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Open</option>
+                    <option value="hold">On Hold</option>
+                    <option value="paid">Paid</option>
+                    <option value="force_closed">Force Closed</option>
+                    <option value="written_off">Written Off</option>
                   </select>
-                </label>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage <= 1}
-                    className="table-page-btn"
-                    aria-label="Previous page"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-xs font-medium px-2 tabular-nums" style={{ color: c.primary }}>
-                    {currentPage} / {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={currentPage >= totalPages}
-                    className="table-page-btn"
-                    aria-label="Next page"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
                 </div>
               </div>
             </div>
+
+            {sortedInvoices.length === 0 ? (
+              <div className="payments-workspace-body flex-1 min-h-0">
+                <div className="payments-list-panel flex items-center justify-center text-center py-6 px-4">
+                  <div>
+                    <FileText className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
+                    <p className="text-base font-medium mb-1" style={{ color: c.primary }}>
+                      No invoices found
+                    </p>
+                    <p className="text-sm" style={{ color: c.secondary }}>
+                      {searchTerm || statusFilter !== 'all'
+                        ? 'Try adjusting your search or filters'
+                        : 'Your invoices will appear here'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                ref={workspaceRef}
+                className={`payments-workspace-body flex-1 min-h-0 ${
+                  detailPanelOpen ? 'payments-workspace-body--detail-open' : ''
+                } ${isResizing ? 'payments-workspace-body--resizing' : ''}`}
+                style={
+                  detailPanelOpen
+                    ? ({ '--payments-detail-width': `${detailWidth}px` } as React.CSSProperties)
+                    : undefined
+                }
+              >
+                <div className="payments-list-panel">
+                  <div className="client-table-scroll client-table-scroll--mobile-stack flex-1 min-h-0 overflow-y-auto">
+                    <table className="dashboard-table dashboard-table--compact">
+                      <thead>
+                        <tr>
+                          <ClientSortableHeader
+                            field="invoice_number"
+                            label="Invoice#"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                          />
+                          <ClientSortableHeader
+                            field="load_number"
+                            label="Load#"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                          />
+                          <ClientSortableHeader
+                            field="broker_name"
+                            label="Broker"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                            className="client-list-td--broker"
+                          />
+                          <ClientSortableHeader
+                            field="batch_number"
+                            label="Batch#"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                            className="client-list-td--batch"
+                          />
+                          <ClientSortableHeader
+                            field="amount"
+                            label="Amount"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                            className="text-right"
+                            align="right"
+                          />
+                          <ClientSortableHeader
+                            field="balance"
+                            label="Balance"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                            className="text-right"
+                            align="right"
+                          />
+                          <ClientSortableHeader
+                            field="invoice_date"
+                            label="Invoice Date"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                          />
+                          <ClientSortableHeader
+                            field="days_outstanding"
+                            label="Days Out"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                            className="text-right"
+                            align="right"
+                          />
+                          <ClientSortableHeader
+                            field="status"
+                            label="Status"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                            className="client-list-td--status-col"
+                          />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedInvoices.map((invoice) => {
+                          const isHighlighted = highlightedInvoiceId === invoice.id
+                          const isSelected = selectedInvoice?.id === invoice.id
+                          const awaitingPayment =
+                            capabilities.canConfirmPaymentReceipt
+                              ? getAwaitingReceiptPaymentForInvoice(invoice.id, payments)
+                              : undefined
+                          const balance =
+                            invoiceBalanceById.get(invoice.id) ??
+                            getInvoiceBalanceState(invoice.amount, 0)
+                          const isWrittenOff =
+                            invoice.status === 'written_off' || invoice.status === 'write_off_pending'
+                          const writtenOffAmount =
+                            invoice.write_off_request?.shortfall ??
+                            (balance.signedBalance > 0 ? balance.signedBalance : invoice.amount)
+                          const balanceDisplay = isWrittenOff
+                            ? { text: formatCurrency(writtenOffAmount), color: c.warning }
+                            : formatInvoiceOpenBalance(balance, c.mutedLight, c.primary)
+                          return (
+                            <tr
+                              key={invoice.id}
+                              className={`cursor-pointer ${isHighlighted ? 'batch-highlight-row' : ''} ${
+                                isSelected ? 'bg-slate-50' : ''
+                              } ${
+                                invoice.isForceCloseEligible
+                                  ? 'invoice-row--force-close'
+                                  : invoice.isOverdue
+                                    ? 'invoice-row--overdue'
+                                    : ''
+                              }`}
+                              onClick={() => handleViewInvoiceDetail(invoice)}
+                            >
+                              <ClientListTd
+                                variant="primary"
+                                className="font-semibold"
+                                title={invoice.invoice_number}
+                              >
+                                {invoice.invoice_number}
+                              </ClientListTd>
+                              <ClientListTd
+                                variant="desktop"
+                                label="Load#"
+                                style={{ color: c.secondary }}
+                                title={invoice.load_number || undefined}
+                              >
+                                {invoice.load_number || '-'}
+                              </ClientListTd>
+                              <ClientListTd
+                                variant="meta"
+                                className="client-list-td--ellipsis client-list-td--broker"
+                                title={invoice.broker_name}
+                              >
+                                <span className="client-list-td__clip">{invoice.broker_name}</span>
+                              </ClientListTd>
+                              <ClientListTd
+                                variant="desktop"
+                                label="Batch#"
+                                className="client-list-td--ellipsis client-list-td--batch"
+                                style={{ color: c.secondary }}
+                                title={invoice.batch_number || undefined}
+                              >
+                                <span className="client-list-td__clip">{invoice.batch_number || '-'}</span>
+                              </ClientListTd>
+                              <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
+                                {formatCurrency(invoice.amount)}
+                              </ClientListTd>
+                              <ClientListTd
+                                variant="desktop"
+                                label="Balance"
+                                className="text-right font-medium tabular-nums"
+                              >
+                                <span style={{ color: balanceDisplay.color }}>{balanceDisplay.text}</span>
+                              </ClientListTd>
+                              <ClientListTd variant="desktop" label="Invoice Date" style={{ color: c.secondary }}>
+                                {formatDate(invoice.invoice_date)}
+                              </ClientListTd>
+                              <ClientListTd variant="desktop" label="Days Out" className="text-right tabular-nums">
+                                <span
+                                  className="text-sm font-semibold"
+                                  style={{
+                                    color:
+                                      isOpenArInvoice(invoice) && invoice.isOverdue
+                                        ? getDaysOutstandingColor(invoice.overdueSeverity)
+                                        : c.secondary,
+                                  }}
+                                >
+                                  {invoice.invoiceAgeDays}d
+                                  {invoice.isForceCloseEligible && capabilities.hasForceClose && (
+                                    <span className="block text-[10px] font-medium" style={{ color: '#7C3AED' }}>
+                                      FC
+                                    </span>
+                                  )}
+                                </span>
+                              </ClientListTd>
+                              <ClientListTd variant="status" className="client-list-td--status-col">
+                                <div className="inline-flex items-center gap-1 flex-nowrap min-w-0">
+                                  {getInvoiceRowStatusBadge(invoice, {
+                                    balance,
+                                    pendingClientPosted: invoicePendingById.get(invoice.id)?.pending,
+                                    confirmedReceived: invoicePendingById.get(invoice.id)?.confirmed,
+                                  })}
+                                  <InvoiceDisputeBadges invoice={invoice} />
+                                  {awaitingPayment && (
+                                    <span className="status-pill status-pill--pending text-[10px]">
+                                      Confirm payment
+                                    </span>
+                                  )}
+                                  {invoice.isForceCloseEligible && capabilities.hasForceClose && (
+                                    <span className="status-pill status-pill--hold text-[10px]">Force Close</span>
+                                  )}
+                                </div>
+                              </ClientListTd>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div
+                    className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t shrink-0"
+                    style={{ borderColor: c.border, backgroundColor: c.card }}
+                  >
+                    <p className="text-xs font-medium" style={{ color: c.secondary }}>
+                      Showing {pageStart}–{pageEnd} of {sortedInvoices.length}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: c.secondary }}>
+                        Rows
+                        <select
+                          value={pageSize}
+                          onChange={(e) => setPageSize(Number(e.target.value))}
+                          className="client-input"
+                          style={{
+                            backgroundColor: c.card,
+                            height: 30,
+                            paddingTop: 4,
+                            paddingBottom: 4,
+                            fontSize: 12,
+                            width: 64,
+                          }}
+                        >
+                          {PAGE_SIZE_OPTIONS.map((size) => (
+                            <option key={size} value={size}>
+                              {size}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                          disabled={currentPage <= 1}
+                          className="table-page-btn"
+                          aria-label="Previous page"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="text-xs font-medium px-2 tabular-nums" style={{ color: c.primary }}>
+                          {currentPage} / {totalPages}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={currentPage >= totalPages}
+                          className="table-page-btn"
+                          aria-label="Next page"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {!useFullPageDetail && (
+                  <aside className="payments-detail-panel" aria-hidden={!selectedInvoice}>
+                    {detailPanelOpen && (
+                      <div
+                        className="payments-resize-handle"
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label="Resize invoice details panel"
+                        aria-valuemin={320}
+                        aria-valuemax={720}
+                        aria-valuenow={detailWidth}
+                        {...resizeHandleProps}
+                      />
+                    )}
+                    {selectedInvoice && invoiceDetailPanelProps ? (
+                      <div className="payments-detail-panel__inner">
+                        <InvoiceDetailPanel variant="sidebar" {...invoiceDetailPanelProps} />
+                      </div>
+                    ) : null}
+                  </aside>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
-
-      <InvoiceDetailWorkspace
-        isOpen={showInvoiceDetailView}
-        onClose={() => setShowInvoiceDetailView(false)}
-        invoices={filteredInvoices}
-        selectedInvoice={selectedInvoice}
-        onSelectInvoice={(invoice) => setSelectedInvoiceId(invoice.id)}
-        onViewDocuments={handleViewDocuments}
-        highlightedInvoiceId={highlightedInvoiceId}
-        clientName={data.client_name}
-        onInvoiceUpdated={() => setInvoicesRefreshKey((key) => key + 1)}
-        enableClientActions={capabilities.canOpenDispute}
-        searchTerm={searchTerm}
-        onSearchChange={setSearchTerm}
-        statusFilter={statusFilter}
-        onStatusFilterChange={setStatusFilter}
-      />
 
       {showDocumentViewer && viewingInvoiceDocuments && (
         <DocumentViewer
@@ -636,6 +807,6 @@ export default function ClientInvoices() {
           title="View Documents"
         />
       )}
-    </ClientLayout>
+    </>
   )
 }

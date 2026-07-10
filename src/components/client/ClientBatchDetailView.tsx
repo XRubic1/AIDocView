@@ -33,7 +33,7 @@ function getBatchInvoiceStatusBadge(status: string) {
   const visibleStatus = toClientVisibleStatus(status as Invoice['status'])
   const classMap: Record<string, string> = {
     pending: 'status-pill status-pill--pending',
-    approved: 'status-pill status-pill--approved',
+    approved: 'status-pill status-pill--pending',
     paid: 'status-pill status-pill--approved',
     rejected: 'status-pill status-pill--overdue',
     force_closed: 'status-pill status-pill--overdue',
@@ -42,8 +42,8 @@ function getBatchInvoiceStatusBadge(status: string) {
   }
   const labels: Record<string, string> = {
     pending: 'Pending',
-    approved: 'Approved',
-    paid: 'Approved',
+    approved: 'Open',
+    paid: 'Paid',
     rejected: 'Denied',
     force_closed: 'Force Closed',
     written_off: 'Written Off',

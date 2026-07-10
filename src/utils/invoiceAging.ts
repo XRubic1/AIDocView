@@ -55,6 +55,21 @@ export function isPostableForPayment(invoice: Invoice): boolean {
   return invoice.status === 'approved' || invoice.status === 'paid'
 }
 
+/**
+ * Credyx admin posting — includes paid and force-closed invoices for overpayment remittance.
+ * Written-off invoices remain blocked.
+ */
+export function isAdminPostableForPayment(invoice: Invoice): boolean {
+  if (invoice.status === 'written_off' || invoice.status === 'write_off_pending') {
+    return false
+  }
+  return (
+    invoice.status === 'approved' ||
+    invoice.status === 'paid' ||
+    invoice.status === 'force_closed'
+  )
+}
+
 /** Days since invoice date (calendar age of the invoice). */
 export function getInvoiceAgeDays(invoice: Invoice, asOf: Date = new Date()): number {
   if (!invoice.invoice_date) return 0

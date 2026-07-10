@@ -20,6 +20,7 @@ import { getAllBatches } from '../data/mockBatches'
 import { adminNavSections, getInitials, getAdminUserDisplayName } from '../config/adminNav'
 import { listPendingPayments } from '../services/clientPaymentService'
 import { listPendingWriteOffs } from '../services/writeOffApprovalService'
+import { syncAdminNotificationsForOpenReceiptDisputes } from '../services/paymentReceiptConfirmationService'
 import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
@@ -66,6 +67,7 @@ export default function AdminLayout({
   const userRole = userRoleProp || 'Administrator'
 
   useEffect(() => {
+    syncAdminNotificationsForOpenReceiptDisputes()
     setNotifications(getAdminNotifications())
     return subscribeAdminNotifications(() => {
       setNotifications(getAdminNotifications())

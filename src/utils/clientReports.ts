@@ -1,6 +1,7 @@
 import type { AgingAR } from '../types/admin'
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
+import { getPaymentsByInvoiceId } from '../data/mockPayments'
 import {
   DISPLAY_AGING_BUCKETS,
   type DisplayAgingBucketId,
@@ -9,6 +10,13 @@ import {
   getDisplayAgingBucketId,
   isOpenArInvoice,
 } from './invoiceAging'
+import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from './paymentVariance'
+
+/** Open balance for aging — uses provided payments or the in-memory store. */
+function openArBalance(invoice: Invoice, payments?: Payment[]): number {
+  const rows = payments ?? getPaymentsByInvoiceId(invoice.id)
+  return getInvoiceOpenArBalance(invoice, rows)
+}
 
 export type DateRange = { start_date: string; end_date: string }
 
@@ -80,8 +88,12 @@ function daysBetween(start: string, end: string): number {
   return Math.max(0, Math.floor((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24)))
 }
 
-/** Open A/R aging buckets from live invoice data. */
-export function computeOpenArAging(invoices: Invoice[], asOf = new Date()): {
+/** Open A/R aging buckets from live invoice data (amounts = open balance, not face). */
+export function computeOpenArAging(
+  invoices: Invoice[],
+  asOf = new Date(),
+  payments?: Payment[]
+): {
   buckets: AgingBucketRow[]
   total_ar: number
   total_invoices: number
@@ -100,12 +112,15 @@ export function computeOpenArAging(invoices: Invoice[], asOf = new Date()): {
   let overdue_count = 0
 
   for (const inv of enriched) {
+    const balance = openArBalance(inv, payments)
+    if (balance <= AMOUNT_EPSILON) continue
+
     const id = getDisplayAgingBucketId(inv.daysOutstanding)
     const row = bucketMap.get(id)!
-    row.amount += inv.amount
+    row.amount += balance
     row.count += 1
     if (inv.isOverdue) {
-      overdue_amount += inv.amount
+      overdue_amount += balance
       overdue_count += 1
     }
   }
@@ -133,13 +148,16 @@ export function computeOpenArAging(invoices: Invoice[], asOf = new Date()): {
   return { buckets, total_ar, total_invoices, overdue_amount, overdue_count, aging_ar }
 }
 
-/** Weighted days sales outstanding on open A/R. */
-export function computeDso(openInvoices: EnrichedInvoice[]): number | null {
+/** Weighted days sales outstanding on open A/R (weighted by open balance). */
+export function computeDso(openInvoices: EnrichedInvoice[], payments?: Payment[]): number | null {
   const open = openInvoices.filter(isOpenArInvoice)
   if (open.length === 0) return null
-  const total = open.reduce((s, inv) => s + inv.amount, 0)
-  if (total <= 0) return null
-  const weighted = open.reduce((s, inv) => s + inv.daysOutstanding * inv.amount, 0)
+  const total = open.reduce((s, inv) => s + openArBalance(inv, payments), 0)
+  if (total <= AMOUNT_EPSILON) return null
+  const weighted = open.reduce(
+    (s, inv) => s + inv.daysOutstanding * openArBalance(inv, payments),
+    0
+  )
   return Math.round(weighted / total)
 }
 
@@ -202,16 +220,19 @@ export function computeBrokerScores(
   const rangeInvoices = invoices.filter((inv) => inRange(inv.invoice_date, range))
 
   for (const inv of enriched.filter(isOpenArInvoice)) {
+    const balance = openArBalance(inv, payments)
+    if (balance <= AMOUNT_EPSILON) continue
+
     const row = openByBroker.get(inv.broker_name) ?? {
       ar: 0,
       count: 0,
       overdue: 0,
       overdueCount: 0,
     }
-    row.ar += inv.amount
+    row.ar += balance
     row.count += 1
     if (inv.isOverdue) {
-      row.overdue += inv.amount
+      row.overdue += balance
       row.overdueCount += 1
     }
     openByBroker.set(inv.broker_name, row)
@@ -369,7 +390,9 @@ export function computePeriodSummary(
     .filter((p) => p.status === 'confirmed' && inRange(p.received_date, range))
     .reduce((s, p) => s + p.amount, 0)
 
-  const open_ar = enriched.filter(isOpenArInvoice).reduce((s, i) => s + i.amount, 0)
+  const open_ar = enriched
+    .filter(isOpenArInvoice)
+    .reduce((s, i) => s + openArBalance(i, payments), 0)
 
   return {
     invoiced,
@@ -380,7 +403,7 @@ export function computePeriodSummary(
       (p) => p.status === 'confirmed' && inRange(p.received_date, range)
     ).length,
     open_ar,
-    dso: computeDso(enriched),
+    dso: computeDso(enriched, payments),
   }
 }
 

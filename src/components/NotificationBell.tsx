@@ -89,21 +89,25 @@ export default function NotificationBell({
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 transition-colors"
-        style={{ color: t.muted }}
-        onMouseEnter={(e) => (e.currentTarget.style.color = t.primary)}
-        onMouseLeave={(e) => (e.currentTarget.style.color = t.muted)}
-        aria-label="Notifications"
+        className={`notification-bell-btn relative p-2 transition-colors${
+          unreadCount > 0 ? ' notification-bell-btn--attention' : ''
+        }`}
+        style={{ color: unreadCount > 0 ? undefined : t.muted }}
+        onMouseEnter={(e) => {
+          if (unreadCount === 0) e.currentTarget.style.color = t.primary
+        }}
+        onMouseLeave={(e) => {
+          if (unreadCount === 0) e.currentTarget.style.color = t.muted
+        }}
+        aria-label={
+          unreadCount > 0
+            ? `Notifications, ${unreadCount} unread`
+            : 'Notifications'
+        }
       >
-        <Bell className="w-5 h-5" />
+        <Bell className="w-5 h-5 notification-bell-btn__icon" />
         {unreadCount > 0 && (
-          <span
-            className="absolute top-0 right-0 flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full"
-            style={{
-              backgroundColor: t.accent,
-              color: '#FFFFFF',
-            }}
-          >
+          <span className="notification-bell-btn__badge absolute top-0 right-0 flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}

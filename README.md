@@ -56,6 +56,16 @@ npm run create-admin -- --email admin@credyx.net --password 'your-secure-passwor
 
 This creates the user (or promotes an existing one) with the admin role.
 
+**Dedicated admin (force confirm payments)**
+
+To show **Force confirm** on Post payment / Post short payment (skips managed-client receipt confirmation), set App Metadata:
+
+```json
+{ "role": "admin", "admin_tier": "dedicated" }
+```
+
+Or set `"can_force_confirm_payments": true` on any admin account.
+
 **Common login errors**
 
 | Error | Cause |

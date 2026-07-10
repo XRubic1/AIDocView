@@ -38,6 +38,8 @@ export interface Client {
   factoring?: boolean
   /** Negotiated rate % for high-volume clients (e.g. >$500k/mo). */
   ar_rate_override?: number
+  /** Unapplied short-payment fee credits (reimbursement account). */
+  reimbursement_balance?: number
   billing?: ClientBilling
   fleet_size?: string
   /** 4-letter code used in batch numbers, e.g. ABCL for ABC LOGISTICS INC */

@@ -1,11 +1,17 @@
 import type { Invoice } from '../types/invoice'
-import { isOpenArInvoice, isPostableForPayment } from './invoiceAging'
+import { isAdminPostableForPayment, isOpenArInvoice, isPostableForPayment } from './invoiceAging'
 import { AMOUNT_EPSILON } from './paymentVariance'
 
 export type PostPaymentSearchHit = {
   invoice: Invoice
   score: number
   isPostable: boolean
+}
+
+export type PostPaymentPickerMode = 'client' | 'admin'
+
+export type PostPaymentPickerOptions = {
+  mode?: PostPaymentPickerMode
 }
 
 export type InvoicePickerCategory = 'open' | 'short' | 'over' | 'closed' | 'other'
@@ -34,29 +40,76 @@ export function isDefaultPickerVisible(
   return getInvoicePickerCategory(invoice, receivedAmount) === 'open'
 }
 
+/** Admin picker — includes paid / force-closed invoices for overpayment posting. */
+export function isAdminDefaultPickerVisible(
+  invoice: Invoice,
+  receivedAmount: number,
+  _pendingAmount = 0
+): boolean {
+  if (invoice.status === 'written_off' || invoice.status === 'write_off_pending') return false
+  if (invoice.status === 'paid' || invoice.status === 'force_closed') return true
+  const category = getInvoicePickerCategory(invoice, receivedAmount)
+  return category === 'open' || category === 'short' || category === 'over'
+}
+
+function isPickerPostable(
+  invoice: Invoice,
+  pendingAmount: number,
+  mode: PostPaymentPickerMode
+): boolean {
+  const eligible =
+    mode === 'admin' ? isAdminPostableForPayment(invoice) : isPostableForPayment(invoice)
+  // Credyx admin may post supplemental/over payments while prior posts await client confirmation.
+  if (mode === 'admin') return eligible
+  return eligible && pendingAmount <= 0
+}
+
+function isPickerDefaultVisible(
+  invoice: Invoice,
+  receivedAmount: number,
+  pendingAmount: number,
+  mode: PostPaymentPickerMode
+): boolean {
+  return mode === 'admin'
+    ? isAdminDefaultPickerVisible(invoice, receivedAmount, pendingAmount)
+    : isDefaultPickerVisible(invoice, receivedAmount, pendingAmount)
+}
+
 /**
  * Build the default invoice list (no search query).
- * `getPending` reports posted-but-unconfirmed amounts so those invoices are
- * hidden from the default list and marked non-postable (prevents double posting).
+ * Client mode hides invoices with unconfirmed payments to prevent double posting.
+ * Admin mode allows additional posts (e.g. overpayments) while receipt confirmation is pending.
  */
 export function listDefaultPickerInvoices(
   invoices: Invoice[],
   getReceived: (invoiceId: string) => number,
   showAll: boolean,
   limit = 200,
-  getPending?: (invoiceId: string) => number
+  getPending?: (invoiceId: string) => number,
+  options?: PostPaymentPickerOptions
 ): PostPaymentSearchHit[] {
+  const mode = options?.mode ?? 'client'
   return invoices
     .filter((invoice) => {
-      if (showAll) return true
-      return isDefaultPickerVisible(invoice, getReceived(invoice.id), getPending?.(invoice.id) ?? 0)
+      if (showAll) {
+        if (mode === 'admin') {
+          return invoice.status !== 'written_off' && invoice.status !== 'write_off_pending'
+        }
+        return true
+      }
+      return isPickerDefaultVisible(
+        invoice,
+        getReceived(invoice.id),
+        getPending?.(invoice.id) ?? 0,
+        mode
+      )
     })
     .sort((a, b) => b.invoice_date.localeCompare(a.invoice_date))
     .slice(0, limit)
     .map((invoice) => ({
       invoice,
       score: 0,
-      isPostable: isPostableForPayment(invoice) && (getPending?.(invoice.id) ?? 0) <= 0,
+      isPostable: isPickerPostable(invoice, getPending?.(invoice.id) ?? 0, mode),
     }))
 }
 
@@ -73,11 +126,13 @@ export function searchInvoicesForPostPayment(
   invoices: Invoice[],
   query: string,
   limit = 8,
-  getPending?: (invoiceId: string) => number
+  getPending?: (invoiceId: string) => number,
+  options?: PostPaymentPickerOptions
 ): PostPaymentSearchHit[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
 
+  const mode = options?.mode ?? 'client'
   const amountQuery = parseAmountQuery(q)
   const numericFragment = q.replace(/[^0-9.]/g, '')
 
@@ -88,6 +143,7 @@ export function searchInvoicesForPostPayment(
       const broker = invoice.broker_name.toLowerCase()
       const load = invoice.load_number?.toLowerCase() ?? ''
       const amountStr = invoice.amount.toFixed(2)
+      const clientName = invoice.client_name.toLowerCase()
 
       if (invNum === q) score += 200
       else if (invNum.includes(q)) score += 100
@@ -98,6 +154,9 @@ export function searchInvoicesForPostPayment(
       if (broker === q) score += 90
       else if (broker.includes(q)) score += 60
 
+      if (clientName === q) score += 85
+      else if (clientName.includes(q)) score += 55
+
       if (amountQuery !== null && Math.abs(invoice.amount - amountQuery) < 0.01) {
         score += 150
       } else if (numericFragment && amountStr.includes(numericFragment)) {
@@ -107,7 +166,7 @@ export function searchInvoicesForPostPayment(
       return {
         invoice,
         score,
-        isPostable: isPostableForPayment(invoice) && (getPending?.(invoice.id) ?? 0) <= 0,
+        isPostable: isPickerPostable(invoice, getPending?.(invoice.id) ?? 0, mode),
       }
     })
     .filter((hit) => hit.score > 0)

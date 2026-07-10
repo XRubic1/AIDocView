@@ -4,7 +4,7 @@ import { LogOut } from 'lucide-react'
 import { Notification } from '../types/notification'
 import NotificationBell from './NotificationBell'
 import CredyxWordmark from './CredyxWordmark'
-import { getNotificationsForClient } from '../data/mockNotifications'
+import { getNotificationsForClient, markAllClientNotificationsRead, markNotificationRead, subscribeClientNotifications } from '../data/mockNotifications'
 import { useClientSession } from '../hooks/useClientSession'
 import '../styles/credyxWordmark.css'
 
@@ -20,7 +20,13 @@ export default function ClientHeader({ clientName, navItems }: ClientHeaderProps
   const [notifications, setNotifications] = useState<Notification[]>([])
 
   useEffect(() => {
-    if (clientId) setNotifications(getNotificationsForClient(clientId))
+    if (!clientId) {
+      setNotifications([])
+      return
+    }
+    const refresh = () => setNotifications(getNotificationsForClient(clientId))
+    refresh()
+    return subscribeClientNotifications(refresh, clientId)
   }, [clientId])
 
   const isActive = (path: string) => {
@@ -28,24 +34,25 @@ export default function ClientHeader({ clientName, navItems }: ClientHeaderProps
   }
 
   const handleMarkAsRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    )
+    markNotificationRead(id)
   }
 
   const handleMarkAllAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+    if (!clientId) return
+    markAllClientNotificationsRead(clientId)
   }
 
   const handleNotificationClick = (notification: Notification) => {
     if (notification.link) {
-      // Add invoice_id or batch_id as URL parameter for highlighting
       const params = new URLSearchParams()
       if (notification.invoice_id) {
         params.set('highlight_invoice', notification.invoice_id)
       }
       if (notification.batch_id) {
         params.set('highlight_batch', notification.batch_id)
+      }
+      if (notification.payment_id) {
+        params.set('paymentId', notification.payment_id)
       }
       const url = params.toString() ? `${notification.link}?${params.toString()}` : notification.link
       navigate(url)

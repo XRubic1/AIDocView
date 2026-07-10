@@ -10,22 +10,26 @@ import {
   Undo2,
   FileText,
   Info,
+  ShieldCheck,
 } from 'lucide-react'
 import AdminLayout from '../components/AdminLayout'
 import {
   mockPayments,
   getConfirmedPaymentTotal,
   getUnconfirmedPaymentTotal,
+  getUnconfirmedShortPaymentTotal,
 } from '../data/mockPayments'
 import { getInvoiceById, mockInvoices } from '../data/mockInvoices'
-import type { Payment } from '../types/payment'
+import type { Payment, ShortPayReason } from '../types/payment'
 import type { Invoice } from '../types/invoice'
 import {
   listPendingPayments,
   confirmClientPayment,
   rejectClientPayment,
-  postAdminPayment,
-  createAdHocInvoiceForPayment,
+  postAdminPaymentAsync,
+  postAdminShortPayment,
+  listParentPaymentCandidates,
+  createAdHocInvoiceForPaymentAsync,
 } from '../services/clientPaymentService'
 import {
   getPaymentReceiptDisputeLabel,
@@ -35,15 +39,18 @@ import {
   type ResolveReceiptDisputeOutcome,
 } from '../services/paymentReceiptConfirmationService'
 import { getReceiptConfirmationDaysLeft } from '../utils/paymentStatus'
-import { getAllClients } from '../services/clientRegistry'
+import { getAllClients, getClientById } from '../services/clientRegistry'
 import { listPendingWriteOffs, approveWriteOff, denyWriteOff } from '../services/writeOffApprovalService'
 import { movePaymentFunds, unprocessPayment } from '../services/paymentCorrectionService'
+import { listArRecalcIssues } from '../services/invoiceArRecalcService'
+import ArRecalcPanel from '../components/admin/ArRecalcPanel'
 import { formatCurrency, formatDate } from '../utils/format'
 import { useToast } from '../components/ui/ToastProvider'
 import { useAuth } from '../context/AuthContext'
+import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
 import { getAdminUserDisplayName } from '../config/adminNav'
 import { useClientTheme } from '../theme/ThemeContext'
-import { isPostableForPayment } from '../utils/invoiceAging'
+import { isAdminPostableForPayment } from '../utils/invoiceAging'
 import {
   classifyPaymentVariance,
   getInvoiceBalanceState,
@@ -60,7 +67,15 @@ import InvoiceBalanceSummary from '../components/client/InvoiceBalanceSummary'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
 
-type Tab = 'pending' | 'awaiting' | 'receipt_disputes' | 'writeoffs' | 'corrections' | 'post'
+type Tab =
+  | 'pending'
+  | 'awaiting'
+  | 'receipt_disputes'
+  | 'writeoffs'
+  | 'recalc'
+  | 'corrections'
+  | 'post'
+  | 'post_short'
 
 const METHOD_OPTIONS = [
   { value: 'check' as const, label: 'Check' },
@@ -73,7 +88,7 @@ function varianceLabel(kind: PaymentVarianceKind | null): string {
   if (kind === 'short') return 'Short pay'
   if (kind === 'over') return 'Overpayment'
   if (kind === 'full') return 'Paid in full'
-  return '—'
+  return 'â€”'
 }
 
 function variancePillClass(kind: PaymentVarianceKind | null): string {
@@ -173,8 +188,8 @@ function InvoiceSearchPicker({
       ? invoices.filter((inv) => inv.id !== excludeInvoiceId)
       : invoices
     const q = query.trim()
-    if (q) return searchInvoicesForPostPayment(scoped, q, 50, getPending)
-    return listDefaultPickerInvoices(scoped, getReceived, showAll, 100, getPending)
+    if (q) return searchInvoicesForPostPayment(scoped, q, 50, getPending, { mode: 'admin' })
+    return listDefaultPickerInvoices(scoped, getReceived, showAll, 100, getPending, { mode: 'admin' })
   }, [invoices, excludeInvoiceId, query, showAll, getReceived, getPending])
 
   return (
@@ -202,7 +217,7 @@ function InvoiceSearchPicker({
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Invoice #, load #, broker, amount…"
+          placeholder="Invoice #, load #, broker, amountâ€¦"
           className="client-input w-full pl-9"
           autoComplete="off"
         />
@@ -243,8 +258,8 @@ function InvoiceSearchPicker({
                     </span>
                   </div>
                   <p className="text-xs truncate" style={{ color: c.secondary }}>
-                    {invoice.client_name} · {invoice.broker_name}
-                    {invoice.load_number ? ` · ${invoice.load_number}` : ''}
+                    {invoice.client_name} Â· {invoice.broker_name}
+                    {invoice.load_number ? ` Â· ${invoice.load_number}` : ''}
                   </p>
                 </div>
                 <div className="text-right shrink-0 tabular-nums">
@@ -266,6 +281,7 @@ export default function PaymentPosting() {
   const c = useClientTheme()
   const { showToast } = useToast()
   const { resolved } = useAuth()
+  const { capabilities: adminCapabilities } = useAdminCapabilities()
   const adminName = getAdminUserDisplayName(resolved.user?.email ?? null)
 
   const [tab, setTab] = useState<Tab>('pending')
@@ -276,6 +292,7 @@ export default function PaymentPosting() {
   const awaitingReceipt = useMemo(() => listAwaitingReceiptPayments(), [refreshKey])
   const receiptDisputes = useMemo(() => listReceiptDisputedPayments(), [refreshKey])
   const writeOffs = useMemo(() => listPendingWriteOffs(), [refreshKey])
+  const arRecalcIssues = useMemo(() => listArRecalcIssues(), [refreshKey])
   const confirmed = useMemo(
     () => mockPayments.filter((p) => p.status === 'confirmed'),
     [refreshKey]
@@ -295,6 +312,7 @@ export default function PaymentPosting() {
   // Receipt dispute resolution (managed clients)
   const [resolveTarget, setResolveTarget] = useState<Payment | null>(null)
   const [resolveResponse, setResolveResponse] = useState('')
+  const [resolveAmount, setResolveAmount] = useState('')
   const [resolveOutcome, setResolveOutcome] = useState<ResolveReceiptDisputeOutcome>('confirm')
 
   // Write-off modals
@@ -303,7 +321,7 @@ export default function PaymentPosting() {
   const [approveNote, setApproveNote] = useState('')
   const [denyInternal, setDenyInternal] = useState('')
   const [denyClientNote, setDenyClientNote] = useState(
-    'Balance reviewed — this load remains collectible.'
+    'Balance reviewed â€” this load remains collectible.'
   )
 
   // Correction modals
@@ -457,7 +475,7 @@ export default function PaymentPosting() {
         setMoveReason('')
         bump()
       } else {
-        showToast('Could not move funds — check target invoice eligibility', 'error')
+        showToast('Could not move funds â€” check target invoice eligibility', 'error')
       }
     } finally {
       setMutationBusy(null)
@@ -484,21 +502,36 @@ export default function PaymentPosting() {
 
   const handleResolveReceiptDispute = async () => {
     if (!resolveTarget || !resolveResponse.trim()) return
+
+    const adjustedAmount =
+      resolveOutcome === 'confirm' ? parseFloat(resolveAmount) : undefined
+    if (
+      resolveOutcome === 'confirm' &&
+      (!Number.isFinite(adjustedAmount) || (adjustedAmount ?? 0) <= 0)
+    ) {
+      showToast('Enter a valid payment amount', 'error')
+      return
+    }
+
     setMutationBusy(resolveTarget.id)
     try {
       const result = resolvePaymentReceiptDispute(
         resolveTarget.id,
         adminName,
         resolveResponse.trim(),
-        resolveOutcome
+        resolveOutcome,
+        resolveOutcome === 'confirm' ? { adjustedAmount } : undefined
       )
       if (result) {
         showToast(
-          resolveOutcome === 'confirm' ? 'Dispute resolved — payment confirmed' : 'Dispute resolved — payment rejected',
+          resolveOutcome === 'confirm'
+            ? 'Dispute resolved â€” sent back for client confirmation'
+            : 'Dispute resolved â€” payment rejected',
           'success'
         )
         setResolveTarget(null)
         setResolveResponse('')
+        setResolveAmount('')
         bump()
       } else {
         showToast('Could not resolve dispute', 'error')
@@ -513,8 +546,10 @@ export default function PaymentPosting() {
     { id: 'awaiting', label: 'Awaiting confirmation', count: awaitingReceipt.length },
     { id: 'receipt_disputes', label: 'Receipt disputes', count: receiptDisputes.length },
     { id: 'writeoffs', label: 'Write-offs', count: writeOffs.length },
+    { id: 'recalc', label: 'Recalc', count: arRecalcIssues.length },
     { id: 'corrections', label: 'Corrections' },
     { id: 'post', label: 'Post payment' },
+    { id: 'post_short', label: 'Post short payment' },
   ]
 
   return (
@@ -580,7 +615,7 @@ export default function PaymentPosting() {
                               p.invoice_number
                             )}
                           </td>
-                          <td>{invoice?.client_name ?? '—'}</td>
+                          <td>{invoice?.client_name ?? 'â€”'}</td>
                           <td>{p.broker_name}</td>
                           <td className="text-right tabular-nums font-medium">
                             {formatCurrency(p.amount)}
@@ -594,12 +629,12 @@ export default function PaymentPosting() {
                                   {varianceLabel(preview.variance)}
                                 </span>
                                 <span className="text-xs tabular-nums" style={{ color: c.mutedLight }}>
-                                  {formatCurrency(preview.confirmed)} → {formatCurrency(preview.projected)} /{' '}
+                                  {formatCurrency(preview.confirmed)} â†’ {formatCurrency(preview.projected)} /{' '}
                                   {formatCurrency(preview.invoice.amount)}
                                 </span>
                               </div>
                             ) : (
-                              '—'
+                              'â€”'
                             )}
                           </td>
                           <td className="text-right whitespace-nowrap">
@@ -682,7 +717,7 @@ export default function PaymentPosting() {
                               p.invoice_number
                             )}
                           </td>
-                          <td>{inv?.client_name ?? '—'}</td>
+                          <td>{inv?.client_name ?? 'â€”'}</td>
                           <td>{p.broker_name}</td>
                           <td className="text-right tabular-nums font-medium">
                             {formatCurrency(p.amount)}
@@ -692,7 +727,7 @@ export default function PaymentPosting() {
                           <td>
                             {p.client_confirmation_deadline
                               ? formatDate(p.client_confirmation_deadline.split('T')[0])
-                              : '—'}
+                              : 'â€”'}
                           </td>
                           <td>
                             <span className="status-pill status-pill--pending">
@@ -711,7 +746,8 @@ export default function PaymentPosting() {
           {tab === 'receipt_disputes' && (
             <div className="overflow-x-auto">
               <p className="text-sm mb-3" style={{ color: c.mutedLight }}>
-                Managed clients disputed Credyx-posted payments. Funds are on hold until resolved.
+                Managed clients disputed Credyx-posted payments. Upholding a posting sends it back
+                for client confirmation; rejecting reverses the payment.
               </p>
               <table className="dashboard-table dashboard-table--compact w-full">
                 <thead>
@@ -740,14 +776,14 @@ export default function PaymentPosting() {
                       return (
                         <tr key={p.id}>
                           <td className="font-medium">{p.invoice_number}</td>
-                          <td>{inv?.client_name ?? '—'}</td>
+                          <td>{inv?.client_name ?? 'â€”'}</td>
                           <td className="text-right tabular-nums font-medium">
                             {formatCurrency(p.amount)}
                           </td>
                           <td>
-                            {p.dispute ? getPaymentReceiptDisputeLabel(p.dispute.reason) : '—'}
+                            {p.dispute ? getPaymentReceiptDisputeLabel(p.dispute.reason) : 'â€”'}
                           </td>
-                          <td>{p.dispute ? formatDate(p.dispute.created_at.split('T')[0]) : '—'}</td>
+                          <td>{p.dispute ? formatDate(p.dispute.created_at.split('T')[0]) : 'â€”'}</td>
                           <td className="text-right">
                             <button
                               type="button"
@@ -755,6 +791,7 @@ export default function PaymentPosting() {
                               onClick={() => {
                                 setResolveTarget(p)
                                 setResolveResponse('')
+                                setResolveAmount(p.amount.toFixed(2))
                                 setResolveOutcome('confirm')
                               }}
                             >
@@ -828,6 +865,15 @@ export default function PaymentPosting() {
             </div>
           )}
 
+          {tab === 'recalc' && (
+            <ArRecalcPanel
+              adminName={adminName}
+              refreshKey={refreshKey}
+              onFixed={bump}
+              onToast={showToast}
+            />
+          )}
+
           {tab === 'corrections' && (
             <div className="overflow-x-auto">
               <table className="dashboard-table dashboard-table--compact w-full">
@@ -854,7 +900,7 @@ export default function PaymentPosting() {
                       return (
                         <tr key={p.id}>
                           <td className="font-medium">{p.invoice_number}</td>
-                          <td>{inv?.client_name ?? '—'}</td>
+                          <td>{inv?.client_name ?? 'â€”'}</td>
                           <td className="text-right tabular-nums">{formatCurrency(p.amount)}</td>
                           <td>{METHOD_OPTIONS.find((m) => m.value === p.payment_method)?.label ?? p.payment_method}</td>
                           <td>{formatDate(p.received_date)}</td>
@@ -896,8 +942,30 @@ export default function PaymentPosting() {
             <AdminRemittancePostForm
               invoices={allInvoices}
               adminName={adminName}
+              canForceConfirmPayment={adminCapabilities.canForceConfirmPayment}
               onPosted={() => {
                 showToast('Payment posted', 'success')
+                bump()
+              }}
+              onForceConfirmed={() => {
+                showToast('Payment force-confirmed — Credyx closed invoice', 'success')
+                bump()
+              }}
+              onError={(msg) => showToast(msg, 'error')}
+            />
+          )}
+
+          {tab === 'post_short' && (
+            <AdminShortPaymentPostForm
+              invoices={allInvoices}
+              adminName={adminName}
+              canForceConfirmPayment={adminCapabilities.canForceConfirmPayment}
+              onPosted={() => {
+                showToast('Short payment posted', 'success')
+                bump()
+              }}
+              onForceConfirmed={() => {
+                showToast('Short payment force-confirmed by Credyx', 'success')
                 bump()
               }}
               onError={(msg) => showToast(msg, 'error')}
@@ -908,7 +976,7 @@ export default function PaymentPosting() {
 
       {confirmTarget && (
         <ModalShell
-          title={`Confirm payment — ${confirmTarget.invoice_number}`}
+          title={`Confirm payment â€” ${confirmTarget.invoice_number}`}
           onClose={() => setConfirmTarget(null)}
           footer={
             <>
@@ -922,7 +990,7 @@ export default function PaymentPosting() {
                 onClick={() => void handleConfirmSubmit()}
               >
                 {mutationBusy === 'confirm' && <Spinner size="sm" className="text-white" />}
-                {mutationBusy === 'confirm' ? 'Confirming…' : 'Confirm payment'}
+                {mutationBusy === 'confirm' ? 'Confirmingâ€¦' : 'Confirm payment'}
               </button>
             </>
           }
@@ -999,7 +1067,7 @@ export default function PaymentPosting() {
                   value={confirmReference}
                   onChange={(e) => setConfirmReference(e.target.value)}
                   className="client-input w-full"
-                  placeholder="Check #, wire ref…"
+                  placeholder="Check #, wire refâ€¦"
                 />
               </div>
             </div>
@@ -1009,7 +1077,7 @@ export default function PaymentPosting() {
 
       {rejectTarget && (
         <ModalShell
-          title={`Reject payment — ${rejectTarget.invoice_number}`}
+          title={`Reject payment â€” ${rejectTarget.invoice_number}`}
           onClose={() => setRejectTarget(null)}
           footer={
             <>
@@ -1024,7 +1092,7 @@ export default function PaymentPosting() {
                 onClick={() => void handleRejectSubmit()}
               >
                 {mutationBusy === 'reject' && <Spinner size="sm" className="text-white" />}
-                {mutationBusy === 'reject' ? 'Rejecting…' : 'Reject payment'}
+                {mutationBusy === 'reject' ? 'Rejectingâ€¦' : 'Reject payment'}
               </button>
             </>
           }
@@ -1053,7 +1121,7 @@ export default function PaymentPosting() {
 
       {resolveTarget && (
         <ModalShell
-          title={`Resolve receipt dispute — ${resolveTarget.invoice_number}`}
+          title={`Resolve receipt dispute â€” ${resolveTarget.invoice_number}`}
           onClose={() => setResolveTarget(null)}
           footer={
             <>
@@ -1067,14 +1135,14 @@ export default function PaymentPosting() {
                 onClick={() => void handleResolveReceiptDispute()}
               >
                 {mutationBusy === resolveTarget.id && <Spinner size="sm" className="text-white" />}
-                {mutationBusy === resolveTarget.id ? 'Saving…' : 'Resolve dispute'}
+                {mutationBusy === resolveTarget.id ? 'Savingâ€¦' : 'Resolve dispute'}
               </button>
             </>
           }
         >
           <div className="space-y-4 text-sm">
             <p style={{ color: c.secondary }}>
-              {formatCurrency(resolveTarget.amount)} on {resolveTarget.invoice_number} — funds on hold.
+              {formatCurrency(resolveTarget.amount)} on {resolveTarget.invoice_number} â€” funds on hold.
             </p>
             {resolveTarget.dispute && (
               <div
@@ -1087,14 +1155,14 @@ export default function PaymentPosting() {
             )}
             <div>
               <label className="client-label">Resolution</label>
-              <div className="flex gap-3 mt-1">
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-1">
                 <label className="inline-flex items-center gap-1.5 text-sm">
                   <input
                     type="radio"
                     checked={resolveOutcome === 'confirm'}
                     onChange={() => setResolveOutcome('confirm')}
                   />
-                  Confirm payment (release funds)
+                  Uphold posting â€” client must confirm again
                 </label>
                 <label className="inline-flex items-center gap-1.5 text-sm">
                   <input
@@ -1106,6 +1174,28 @@ export default function PaymentPosting() {
                 </label>
               </div>
             </div>
+            {resolveOutcome === 'confirm' && (
+              <div>
+                <label className="client-label" htmlFor="resolve-amount">
+                  Posted amount <span className="text-red-600">*</span>
+                </label>
+                <input
+                  id="resolve-amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={resolveAmount}
+                  onChange={(e) => setResolveAmount(e.target.value)}
+                  className="client-input w-full financial-nums"
+                  placeholder="0.00"
+                />
+                <p className="text-xs mt-1" style={{ color: c.mutedLight }}>
+                  Adjust if the remittance amount was wrong. The client will confirm or dispute this
+                  amount.
+                </p>
+              </div>
+            )}
             <div>
               <label className="client-label" htmlFor="resolve-response">
                 Response to client <span className="text-red-600">*</span>
@@ -1116,7 +1206,7 @@ export default function PaymentPosting() {
                 onChange={(e) => setResolveResponse(e.target.value)}
                 rows={3}
                 className="client-input w-full"
-                placeholder="Explain the resolution…"
+                placeholder="Explain the resolutionâ€¦"
               />
             </div>
           </div>
@@ -1125,7 +1215,7 @@ export default function PaymentPosting() {
 
       {approveTarget && (
         <ModalShell
-          title={`Approve write-off — ${approveTarget.invoice_number}`}
+          title={`Approve write-off â€” ${approveTarget.invoice_number}`}
           onClose={() => setApproveTarget(null)}
           footer={
             <>
@@ -1139,7 +1229,7 @@ export default function PaymentPosting() {
                 onClick={() => void handleApproveSubmit()}
               >
                 {mutationBusy === 'approve' && <Spinner size="sm" className="text-white" />}
-                {mutationBusy === 'approve' ? 'Approving…' : 'Approve write-off'}
+                {mutationBusy === 'approve' ? 'Approvingâ€¦' : 'Approve write-off'}
               </button>
             </>
           }
@@ -1172,7 +1262,7 @@ export default function PaymentPosting() {
 
       {denyTarget && (
         <ModalShell
-          title={`Deny write-off — ${denyTarget.invoice_number}`}
+          title={`Deny write-off â€” ${denyTarget.invoice_number}`}
           onClose={() => setDenyTarget(null)}
           footer={
             <>
@@ -1187,7 +1277,7 @@ export default function PaymentPosting() {
                 onClick={() => void handleDenySubmit()}
               >
                 {mutationBusy === 'deny' && <Spinner size="sm" className="text-white" />}
-                {mutationBusy === 'deny' ? 'Denying…' : 'Deny write-off'}
+                {mutationBusy === 'deny' ? 'Denyingâ€¦' : 'Deny write-off'}
               </button>
             </>
           }
@@ -1223,7 +1313,7 @@ export default function PaymentPosting() {
 
       {moveTarget && (
         <ModalShell
-          title={`Move funds — ${moveTarget.invoice_number}`}
+          title={`Move funds â€” ${moveTarget.invoice_number}`}
           wide
           onClose={() => setMoveTarget(null)}
           footer={
@@ -1238,7 +1328,7 @@ export default function PaymentPosting() {
                 onClick={() => void handleMoveSubmit()}
               >
                 {mutationBusy === 'move' && <Spinner size="sm" className="text-white" />}
-                {mutationBusy === 'move' ? 'Moving…' : 'Move funds'}
+                {mutationBusy === 'move' ? 'Movingâ€¦' : 'Move funds'}
               </button>
             </>
           }
@@ -1249,11 +1339,11 @@ export default function PaymentPosting() {
               style={{ borderColor: c.border, backgroundColor: c.stat.slate }}
             >
               <p className="font-medium" style={{ color: c.primary }}>
-                Source: {moveTarget.invoice_number} — {formatCurrency(moveTarget.amount)}
+                Source: {moveTarget.invoice_number} â€” {formatCurrency(moveTarget.amount)}
               </p>
               <p className="text-xs mt-1" style={{ color: c.mutedLight }}>
                 {moveTarget.broker_name}
-                {moveTarget.load_number ? ` · Load ${moveTarget.load_number}` : ''}
+                {moveTarget.load_number ? ` Â· Load ${moveTarget.load_number}` : ''}
               </p>
             </div>
 
@@ -1275,7 +1365,7 @@ export default function PaymentPosting() {
                 onChange={(e) => setMoveReason(e.target.value)}
                 rows={2}
                 className="client-input w-full"
-                placeholder="Due to…"
+                placeholder="Due toâ€¦"
               />
             </div>
 
@@ -1306,7 +1396,7 @@ export default function PaymentPosting() {
 
       {unprocessTarget && (
         <ModalShell
-          title={`Unprocess payment — ${unprocessTarget.invoice_number}`}
+          title={`Unprocess payment â€” ${unprocessTarget.invoice_number}`}
           onClose={() => setUnprocessTarget(null)}
           footer={
             <>
@@ -1321,7 +1411,7 @@ export default function PaymentPosting() {
                 onClick={() => void handleUnprocessSubmit()}
               >
                 {mutationBusy === 'unprocess' && <Spinner size="sm" className="text-white" />}
-                {mutationBusy === 'unprocess' ? 'Unprocessing…' : 'Unprocess payment'}
+                {mutationBusy === 'unprocess' ? 'Unprocessingâ€¦' : 'Unprocess payment'}
               </button>
             </>
           }
@@ -1341,7 +1431,7 @@ export default function PaymentPosting() {
                 onChange={(e) => setUnprocessReason(e.target.value)}
                 rows={2}
                 className="client-input w-full"
-                placeholder="Due to…"
+                placeholder="Due toâ€¦"
               />
             </div>
             {unprocessPreview && (
@@ -1368,15 +1458,19 @@ type SelectionMode = 'none' | 'existing' | 'new'
 interface AdminRemittancePostFormProps {
   invoices: Invoice[]
   adminName: string
+  canForceConfirmPayment: boolean
   onPosted: () => void
+  onForceConfirmed: () => void
   onError: (message: string) => void
 }
 
-/** Admin remittance posting — confirmed payments applied immediately. */
+/** Admin remittance posting â€” confirmed payments applied immediately. */
 function AdminRemittancePostForm({
   invoices,
   adminName,
+  canForceConfirmPayment,
   onPosted,
+  onForceConfirmed,
   onError,
 }: AdminRemittancePostFormProps) {
   const c = useClientTheme()
@@ -1404,7 +1498,7 @@ function AdminRemittancePostForm({
   const getReceived = useCallback((invoiceId: string) => getConfirmedPaymentTotal(invoiceId), [])
   const getPending = useCallback((invoiceId: string) => getUnconfirmedPaymentTotal(invoiceId), [])
 
-  // Real clients only — ad-hoc invoices must reference a valid client (FK to clients table).
+  // Real clients only â€” ad-hoc invoices must reference a valid client (FK to clients table).
   const clientOptions = useMemo(
     () => getAllClients().sort((a, b) => a.name.localeCompare(b.name)),
     []
@@ -1412,8 +1506,9 @@ function AdminRemittancePostForm({
 
   const invoiceList = useMemo((): PostPaymentSearchHit[] => {
     const q = filterQuery.trim()
-    if (q) return searchInvoicesForPostPayment(invoices, q, 100, getPending)
-    return listDefaultPickerInvoices(invoices, getReceived, showAllInvoices, 200, getPending)
+    const pickerOptions = { mode: 'admin' as const }
+    if (q) return searchInvoicesForPostPayment(invoices, q, 100, getPending, pickerOptions)
+    return listDefaultPickerInvoices(invoices, getReceived, showAllInvoices, 200, getPending, pickerOptions)
   }, [invoices, filterQuery, showAllInvoices, getReceived, getPending])
 
   const exactInvoiceMatch = useMemo(() => {
@@ -1426,15 +1521,24 @@ function AdminRemittancePostForm({
     filterQuery.trim().length >= 2 && !exactInvoiceMatch && selectionMode !== 'new'
 
   const priorReceived = selected ? getConfirmedPaymentTotal(selected.id) : 0
+  const pendingConfirmation = selected ? getUnconfirmedPaymentTotal(selected.id) : 0
   const amountNum = parseFloat(amount)
+  const isManagedClient =
+    selectionMode === 'existing' && selected
+      ? getClientById(selected.client_id)?.service_tier === 'managed'
+      : selectionMode === 'new' && newClientId.trim()
+        ? getClientById(newClientId.trim())?.service_tier === 'managed'
+        : false
+  const showForceConfirm = canForceConfirmPayment && isManagedClient
 
   const selectInvoice = useCallback((invoice: Invoice) => {
-    if (!isPostableForPayment(invoice)) {
+    if (!isAdminPostableForPayment(invoice)) {
       onError(`Invoice ${invoice.invoice_number} cannot receive payments.`)
       return
     }
     const already = getConfirmedPaymentTotal(invoice.id)
-    const balance = Math.max(0, invoice.amount - already)
+    const pending = getUnconfirmedPaymentTotal(invoice.id)
+    const balance = Math.max(0, invoice.amount - already - pending)
     setSelected(invoice)
     setSelectionMode('existing')
     setFilterQuery('')
@@ -1500,7 +1604,7 @@ function AdminRemittancePostForm({
           onError('Select a client for the new invoice.')
           return
         }
-        const created = createAdHocInvoiceForPayment(
+        const created = await createAdHocInvoiceForPaymentAsync(
           {
             clientId: newClientId.trim(),
             clientName: newClientName.trim(),
@@ -1519,7 +1623,7 @@ function AdminRemittancePostForm({
         return
       }
 
-      const result = postAdminPayment(
+      const result = await postAdminPaymentAsync(
         {
           invoiceId,
           amount: amountNum,
@@ -1544,6 +1648,76 @@ function AdminRemittancePostForm({
         setSelectionMode('existing')
         setNewBrokerName(selected.broker_name)
       }
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not save payment.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleForceConfirm = async () => {
+    if (!canSubmit) {
+      onError('Select an invoice and enter a valid amount.')
+      return
+    }
+    if (
+      !window.confirm(
+        'Force confirm skips the client receipt window and closes the invoice as Credyx. Continue?'
+      )
+    ) {
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      let invoiceId = selected?.id
+
+      if (selectionMode === 'new') {
+        if (!newClientId.trim()) {
+          onError('Select a client for the new invoice.')
+          return
+        }
+        const created = await createAdHocInvoiceForPaymentAsync(
+          {
+            clientId: newClientId.trim(),
+            clientName: newClientName.trim(),
+            invoiceNumber: newInvoiceNumber.trim(),
+            brokerName: newBrokerName.trim(),
+            amount: amountNum,
+            loadNumber: newLoadNumber.trim() || undefined,
+          },
+          adminName
+        )
+        invoiceId = created.id
+      }
+
+      if (!invoiceId) {
+        onError('No invoice selected.')
+        return
+      }
+
+      const result = await postAdminPaymentAsync(
+        {
+          invoiceId,
+          amount: amountNum,
+          paymentDate,
+          receivedDate,
+          paymentMethod,
+          paymentReference: paymentReference.trim() || undefined,
+          notes: notes.trim() || undefined,
+        },
+        adminName,
+        { forceConfirm: true }
+      )
+
+      if (!result) {
+        onError('Could not force confirm payment. Invoice may not be eligible.')
+        return
+      }
+
+      onForceConfirmed()
+      resetForm()
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not force confirm payment.')
     } finally {
       setIsSubmitting(false)
     }
@@ -1593,7 +1767,7 @@ function AdminRemittancePostForm({
                 ref={filterRef}
                 id="admin-post-invoice-filter"
                 type="search"
-                placeholder="Invoice #, load #, broker, amount…"
+                placeholder="Invoice #, load #, broker, amountâ€¦"
                 value={filterQuery}
                 onChange={(e) => setFilterQuery(e.target.value)}
                 className="client-input post-payment-picker__filter-input"
@@ -1624,8 +1798,8 @@ function AdminRemittancePostForm({
                         </span>
                       </div>
                       <p className="post-payment-picker__row-meta">
-                        {invoice.client_name} · {invoice.broker_name}
-                        {invoice.load_number ? ` · ${invoice.load_number}` : ''}
+                        {invoice.client_name} Â· {invoice.broker_name}
+                        {invoice.load_number ? ` Â· ${invoice.load_number}` : ''}
                       </p>
                     </div>
                     <div className="post-payment-picker__row-amounts">
@@ -1682,14 +1856,16 @@ function AdminRemittancePostForm({
                 loadNumber={selected.load_number}
                 invoiceAmount={selected.amount}
                 receivedToDate={priorReceived}
+                pendingConfirmation={pendingConfirmation}
                 amountApplying={Number.isFinite(amountNum) ? amountNum : 0}
+                applyingAsPending={isManagedClient}
               />
             )}
 
             {selectionMode === 'new' && (
               <div className="post-payment-entry__new-invoice space-y-3">
                 <p className="text-sm font-semibold" style={{ color: c.primary }}>
-                  Unmatched remittance — new invoice
+                  Unmatched remittance â€” new invoice
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -1733,7 +1909,7 @@ function AdminRemittancePostForm({
                       className="client-input w-full"
                       required
                     >
-                      <option value="">Select a client…</option>
+                      <option value="">Select a clientâ€¦</option>
                       {clientOptions.map((client) => (
                         <option key={client.id} value={client.id}>
                           {client.name}
@@ -1848,13 +2024,567 @@ function AdminRemittancePostForm({
                 <div className="post-payment-entry__actions mt-4">
                   <button type="submit" disabled={isSubmitting || !canSubmit} className="dashboard-btn-primary">
                     <CircleCheck className="w-4 h-4" />
-                    {isSubmitting ? 'Posting…' : 'Post payment'}
+                    {isSubmitting ? 'Postingâ€¦' : 'Post payment'}
                   </button>
+                  {showForceConfirm && (
+                    <button
+                      type="button"
+                      disabled={isSubmitting || !canSubmit}
+                      className="dashboard-btn-secondary post-payment-entry__force-confirm"
+                      onClick={() => void handleForceConfirm()}
+                      title="Skip client receipt confirmation — Credyx closes the invoice"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      Force confirm
+                    </button>
+                  )}
                   <button type="button" onClick={resetForm} className="dashboard-btn-secondary" disabled={isSubmitting}>
                     Clear
                   </button>
                 </div>
+                {showForceConfirm && (
+                  <p className="post-payment-entry__force-hint text-xs mt-2" style={{ color: c.secondary }}>
+                    Force confirm is for dedicated Credyx users — payment is confirmed immediately and the
+                    client sees that Credyx closed the invoice.
+                  </p>
+                )}
               </fieldset>
+            )}
+          </div>
+        </div>
+      </form>
+    </section>
+  )
+}
+
+interface AdminShortPaymentPostFormProps {
+  invoices: Invoice[]
+  adminName: string
+  canForceConfirmPayment: boolean
+  onPosted: () => void
+  onForceConfirmed: () => void
+  onError: (message: string) => void
+}
+
+const SHORT_PAY_REASON_OPTIONS: { value: ShortPayReason; label: string; hint: string }[] = [
+  {
+    value: 'wrong_amount',
+    label: 'Wrong amount posted',
+    hint: 'Reduces received total when the original payment was posted for the wrong amount.',
+  },
+  {
+    value: 'chargeback',
+    label: 'Broker chargeback',
+    hint: 'Reduces received total when a broker requests a chargeback or clawback.',
+  },
+]
+
+/** Admin short payment â€” correction or chargeback linked to an existing payment. */
+function AdminShortPaymentPostForm({
+  invoices,
+  adminName,
+  canForceConfirmPayment,
+  onPosted,
+  onForceConfirmed,
+  onError,
+}: AdminShortPaymentPostFormProps) {
+  const c = useClientTheme()
+  const today = new Date().toISOString().split('T')[0]
+  const filterRef = useRef<HTMLInputElement>(null)
+  const amountRef = useRef<HTMLInputElement>(null)
+
+  const [filterQuery, setFilterQuery] = useState('')
+  const [showAllInvoices, setShowAllInvoices] = useState(false)
+  const [selected, setSelected] = useState<Invoice | null>(null)
+  const [parentPaymentId, setParentPaymentId] = useState('')
+  const [shortPayReason, setShortPayReason] = useState<ShortPayReason>('wrong_amount')
+  const [amount, setAmount] = useState('')
+  const [paymentDate, setPaymentDate] = useState(today)
+  const [receivedDate, setReceivedDate] = useState(today)
+  const [paymentMethod, setPaymentMethod] = useState<Payment['payment_method']>('check')
+  const [paymentReference, setPaymentReference] = useState('')
+  const [notes, setNotes] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const getReceived = useCallback((invoiceId: string) => getConfirmedPaymentTotal(invoiceId), [])
+  const getPending = useCallback((invoiceId: string) => getUnconfirmedPaymentTotal(invoiceId), [])
+
+  const invoiceList = useMemo((): PostPaymentSearchHit[] => {
+    const q = filterQuery.trim()
+    const pickerOptions = { mode: 'admin' as const }
+    if (q) return searchInvoicesForPostPayment(invoices, q, 100, getPending, pickerOptions)
+    return listDefaultPickerInvoices(invoices, getReceived, showAllInvoices, 200, getPending, pickerOptions)
+  }, [invoices, filterQuery, showAllInvoices, getReceived, getPending])
+
+  const parentCandidates = useMemo(
+    () => (selected ? listParentPaymentCandidates(selected.id) : []),
+    [selected]
+  )
+
+  const selectedParent = parentCandidates.find((p) => p.id === parentPaymentId)
+  const amountNum = parseFloat(amount)
+  const priorReceived = selected ? getConfirmedPaymentTotal(selected.id) : 0
+  const pendingConfirmation = selected ? getUnconfirmedPaymentTotal(selected.id) : 0
+  const pendingShortCorrection = selected ? getUnconfirmedShortPaymentTotal(selected.id) : 0
+  const isManagedClient =
+    selected != null && getClientById(selected.client_id)?.service_tier === 'managed'
+  const showForceConfirm = canForceConfirmPayment && isManagedClient
+
+  const selectInvoice = useCallback(
+    (invoice: Invoice) => {
+      if (!isAdminPostableForPayment(invoice)) {
+        onError(`Invoice ${invoice.invoice_number} cannot receive payment corrections.`)
+        return
+      }
+      const parents = listParentPaymentCandidates(invoice.id)
+      if (parents.length === 0) {
+        onError(`Invoice ${invoice.invoice_number} has no confirmed payments to correct.`)
+        return
+      }
+      setSelected(invoice)
+      setParentPaymentId(parents[0]?.id ?? '')
+      setFilterQuery('')
+      setAmount('')
+      requestAnimationFrame(() => amountRef.current?.focus())
+    },
+    [onError]
+  )
+
+  const resetForm = () => {
+    setFilterQuery('')
+    setSelected(null)
+    setParentPaymentId('')
+    setShortPayReason('wrong_amount')
+    setAmount('')
+    setPaymentReference('')
+    setNotes('')
+    setPaymentDate(today)
+    setReceivedDate(today)
+    setPaymentMethod('check')
+    filterRef.current?.focus()
+  }
+
+  const canSubmit =
+    selected &&
+    parentPaymentId &&
+    Number.isFinite(amountNum) &&
+    amountNum > 0 &&
+    paymentDate &&
+    receivedDate
+
+  const handleSubmit = async () => {
+    if (!canSubmit || !selected) {
+      onError('Select an invoice, parent payment, and valid amount.')
+      return
+    }
+    if (amountNum > priorReceived + 0.01) {
+      onError('Short payment cannot exceed confirmed received total on this invoice.')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const result = postAdminShortPayment(
+        {
+          invoiceId: selected.id,
+          parentPaymentId,
+          shortPayReason,
+          amount: amountNum,
+          paymentDate,
+          receivedDate,
+          paymentMethod,
+          paymentReference: paymentReference.trim() || undefined,
+          notes: notes.trim() || undefined,
+        },
+        adminName
+      )
+
+      if (!result) {
+        onError('Could not post short payment. Check invoice, parent payment, and amount.')
+        return
+      }
+
+      onPosted()
+      resetForm()
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleForceConfirm = async () => {
+    if (!canSubmit || !selected) {
+      onError('Select an invoice, parent payment, and valid amount.')
+      return
+    }
+    if (amountNum > priorReceived + 0.01) {
+      onError('Short payment cannot exceed confirmed received total on this invoice.')
+      return
+    }
+    if (
+      !window.confirm(
+        'Force confirm applies the short correction immediately as Credyx — the client will not need to confirm. Continue?'
+      )
+    ) {
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const result = postAdminShortPayment(
+        {
+          invoiceId: selected.id,
+          parentPaymentId,
+          shortPayReason,
+          amount: amountNum,
+          paymentDate,
+          receivedDate,
+          paymentMethod,
+          paymentReference: paymentReference.trim() || undefined,
+          notes: notes.trim() || undefined,
+        },
+        adminName,
+        { forceConfirm: true }
+      )
+
+      if (!result) {
+        onError('Could not force confirm short payment.')
+        return
+      }
+
+      onForceConfirmed()
+      resetForm()
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <section className="post-payment-workspace" aria-label="Post short payment">
+      <form
+        className="post-payment-workspace__form"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void handleSubmit()
+        }}
+      >
+        <header className="post-payment-workspace__header">
+          <h2 className="post-payment-workspace__title">Post short payment</h2>
+          <p className="post-payment-workspace__subtitle">
+            Record a correction when an amount was posted incorrectly, or when a broker requests a
+            chargeback. Short payments appear as child rows under the original payment on the client
+            portal.
+          </p>
+        </header>
+
+        <div className="post-payment-workspace__panels">
+          <aside className="post-payment-picker" aria-labelledby="admin-short-picker-heading">
+            <div className="post-payment-picker__head">
+              <h3 id="admin-short-picker-heading" className="post-payment-panel__step">
+                <span className="post-payment-panel__step-num">1</span>
+                Select invoice
+              </h3>
+            </div>
+            <div className="post-payment-picker__filter-row">
+              <label className="client-label" htmlFor="admin-short-invoice-filter">
+                Filter invoices
+              </label>
+              <label className="post-payment-picker__show-all">
+                <input
+                  type="checkbox"
+                  checked={showAllInvoices}
+                  onChange={(e) => setShowAllInvoices(e.target.checked)}
+                />
+                <span>Show all invoices</span>
+              </label>
+            </div>
+            <div className="post-payment-picker__filter">
+              <Search
+                className="post-payment-picker__filter-icon"
+                style={{ color: c.secondary }}
+                aria-hidden
+              />
+              <input
+                ref={filterRef}
+                id="admin-short-invoice-filter"
+                type="search"
+                placeholder="Invoice #, load #, broker, amountâ€¦"
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+                className="client-input post-payment-picker__filter-input"
+              />
+            </div>
+            <div className="post-payment-picker__list" role="listbox" aria-label="Invoices">
+              {invoiceList.length === 0 ? (
+                <p className="post-payment-picker__empty">No matching invoices</p>
+              ) : (
+                invoiceList.map(({ invoice, isPostable }) => {
+                  const received = getConfirmedPaymentTotal(invoice.id)
+                  const pending = getUnconfirmedPaymentTotal(invoice.id)
+                  const parents = listParentPaymentCandidates(invoice.id)
+                  const disabled = !isPostable || parents.length === 0
+                  const isSelected = selected?.id === invoice.id
+                  return (
+                    <button
+                      key={invoice.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      disabled={disabled}
+                      className={`post-payment-picker__row ${isSelected ? 'post-payment-picker__row--selected' : ''} ${disabled ? 'post-payment-picker__row--disabled' : ''}`}
+                      onClick={() => selectInvoice(invoice)}
+                    >
+                      <div className="post-payment-picker__row-main">
+                        <div className="post-payment-picker__row-top">
+                          <span className="post-payment-picker__inv-num">{invoice.invoice_number}</span>
+                          {parents.length === 0 ? (
+                            <span className="text-xs text-red-600">No confirmed payments</span>
+                          ) : (
+                            <span className="text-xs opacity-70">
+                              {parents.length} payment{parents.length === 1 ? '' : 's'}
+                            </span>
+                          )}
+                        </div>
+                        <p className="post-payment-picker__row-meta">
+                          {invoice.client_name} Â· {invoice.broker_name}
+                          {invoice.load_number ? ` Â· ${invoice.load_number}` : ''}
+                        </p>
+                      </div>
+                      <div className="post-payment-picker__row-amounts">
+                        <span className="post-payment-picker__total financial-nums">
+                          {formatCurrency(invoice.amount)}
+                        </span>
+                        {received > 0 && (
+                          <span className="post-payment-picker__balance opacity-70">
+                            {formatCurrency(received)} received
+                          </span>
+                        )}
+                        {pending > 0 && (
+                          <span className="text-amber-700 text-xs">{formatCurrency(pending)} pending</span>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </aside>
+
+          <div className="post-payment-entry">
+            {selected ? (
+              <>
+                <div className="post-payment-entry__summary mb-4">
+                  <h3 className="post-payment-panel__step">
+                    <span className="post-payment-panel__step-num">2</span>
+                    Payment correction
+                  </h3>
+                </div>
+
+                <InvoiceBalanceSummary
+                  invoiceNumber={selected.invoice_number}
+                  brokerName={selected.broker_name}
+                  loadNumber={selected.load_number}
+                  invoiceAmount={selected.amount}
+                  receivedToDate={priorReceived}
+                  pendingConfirmation={pendingConfirmation}
+                  pendingShortCorrection={pendingShortCorrection}
+                  shortCorrectionApplying={Number.isFinite(amountNum) ? amountNum : 0}
+                  shortCorrectionAwaitingConfirm={isManagedClient}
+                />
+
+                {selectedParent && (
+                  <p className="text-xs mt-2" style={{ color: c.secondary }}>
+                    Linked to parent payment of {formatCurrency(selectedParent.amount)} on{' '}
+                    {formatDate(selectedParent.received_date)}
+                  </p>
+                )}
+
+                <fieldset className="post-payment-entry__fieldset mt-4" disabled={isSubmitting}>
+                  <div className="post-payment-entry__fields">
+                    <div className="post-payment-entry__field post-payment-entry__field--wide">
+                      <label className="client-label" htmlFor="admin-short-parent">
+                        Parent payment
+                      </label>
+                      <select
+                        id="admin-short-parent"
+                        value={parentPaymentId}
+                        onChange={(e) => setParentPaymentId(e.target.value)}
+                        className="client-input w-full"
+                        required
+                      >
+                        {parentCandidates.map((payment) => (
+                          <option key={payment.id} value={payment.id}>
+                            {formatCurrency(payment.amount)} Â· {formatDate(payment.received_date)} Â·{' '}
+                            {METHOD_OPTIONS.find((m) => m.value === payment.payment_method)?.label ??
+                              payment.payment_method}
+                            {payment.payment_reference ? ` Â· ${payment.payment_reference}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="post-payment-entry__field post-payment-entry__field--wide">
+                      <label className="client-label" htmlFor="admin-short-reason">
+                        Reason
+                      </label>
+                      <select
+                        id="admin-short-reason"
+                        value={shortPayReason}
+                        onChange={(e) => setShortPayReason(e.target.value as ShortPayReason)}
+                        className="client-input w-full"
+                      >
+                        {SHORT_PAY_REASON_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs mt-1" style={{ color: c.secondary }}>
+                        {SHORT_PAY_REASON_OPTIONS.find((o) => o.value === shortPayReason)?.hint}
+                      </p>
+                    </div>
+
+                    <div className="post-payment-entry__field post-payment-entry__field--amount">
+                      <label className="client-label" htmlFor="admin-short-amount">
+                        Amount
+                      </label>
+                      <input
+                        ref={amountRef}
+                        id="admin-short-amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        className="client-input w-full financial-nums"
+                        required
+                      />
+                    </div>
+
+                    <div className="post-payment-entry__field">
+                      <label className="client-label" htmlFor="admin-short-method">
+                        Method
+                      </label>
+                      <select
+                        id="admin-short-method"
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value as Payment['payment_method'])}
+                        className="client-input w-full"
+                      >
+                        {METHOD_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="post-payment-entry__field">
+                      <label className="client-label" htmlFor="admin-short-reference">
+                        Reference #
+                      </label>
+                      <input
+                        id="admin-short-reference"
+                        type="text"
+                        value={paymentReference}
+                        onChange={(e) => setPaymentReference(e.target.value)}
+                        className="client-input w-full"
+                      />
+                    </div>
+
+                    <div className="post-payment-entry__field">
+                      <label className="client-label" htmlFor="admin-short-payment-date">
+                        Payment date
+                      </label>
+                      <input
+                        id="admin-short-payment-date"
+                        type="date"
+                        value={paymentDate}
+                        onChange={(e) => setPaymentDate(e.target.value)}
+                        className="client-input w-full"
+                        required
+                      />
+                    </div>
+
+                    <div className="post-payment-entry__field">
+                      <label className="client-label" htmlFor="admin-short-received-date">
+                        Received date
+                      </label>
+                      <input
+                        id="admin-short-received-date"
+                        type="date"
+                        value={receivedDate}
+                        onChange={(e) => setReceivedDate(e.target.value)}
+                        className="client-input w-full"
+                        required
+                      />
+                    </div>
+
+                    <div className="post-payment-entry__field post-payment-entry__field--wide">
+                      <label className="client-label" htmlFor="admin-short-notes">
+                        Note
+                      </label>
+                      <input
+                        id="admin-short-notes"
+                        type="text"
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        className="client-input w-full"
+                        placeholder={
+                          shortPayReason === 'chargeback'
+                            ? 'e.g. Broker requested chargeback on overposted remittance'
+                            : 'e.g. Original post was short by this amount'
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="post-payment-entry__actions mt-4">
+                    <button
+                      type="submit"
+                      disabled={isSubmitting || !canSubmit}
+                      className="dashboard-btn-primary"
+                    >
+                      <CircleCheck className="w-4 h-4" />
+                      {isSubmitting ? 'Postingâ€¦' : 'Post short payment'}
+                    </button>
+                    {showForceConfirm && (
+                      <button
+                        type="button"
+                        disabled={isSubmitting || !canSubmit}
+                        className="dashboard-btn-secondary post-payment-entry__force-confirm"
+                        onClick={() => void handleForceConfirm()}
+                        title="Apply correction immediately as Credyx"
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        Force confirm
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={resetForm}
+                      className="dashboard-btn-secondary"
+                      disabled={isSubmitting}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  {showForceConfirm && (
+                    <p className="post-payment-entry__force-hint text-xs mt-2" style={{ color: c.secondary }}>
+                      Force confirm applies the correction immediately — the client sees that Credyx updated
+                      the invoice.
+                    </p>
+                  )}
+                </fieldset>
+              </>
+            ) : (
+              <div className="post-payment-entry__placeholder flex flex-col items-center justify-center h-full min-h-[280px] text-center px-6">
+                <FileText className="w-10 h-10 mb-3 opacity-40" style={{ color: c.secondary }} />
+                <p className="font-medium" style={{ color: c.primary }}>
+                  Select an invoice with a confirmed payment
+                </p>
+                <p className="text-sm mt-1 max-w-md" style={{ color: c.secondary }}>
+                  Short payments correct a prior post â€” wrong amount or broker chargeback â€” and
+                  nest under that payment on the client payment history.
+                </p>
+              </div>
             )}
           </div>
         </div>

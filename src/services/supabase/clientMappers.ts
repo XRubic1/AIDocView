@@ -25,6 +25,7 @@ export interface ClientRow {
   batch_code: string | null
   factoring: boolean
   ar_rate_override: number | null
+  reimbursement_balance: number | null
   billing: ClientBilling | null
   fee_terms: Client['fee_terms'] | null
   created_at?: string
@@ -56,6 +57,7 @@ export function clientRowToClient(row: ClientRow): Client {
     batch_code: row.batch_code ?? undefined,
     factoring: row.factoring ?? false,
     ar_rate_override: row.ar_rate_override ?? undefined,
+    reimbursement_balance: row.reimbursement_balance != null ? Number(row.reimbursement_balance) : undefined,
     billing: row.billing ?? undefined,
     fee_terms: row.fee_terms ?? undefined,
   }
@@ -86,6 +88,7 @@ export function clientToRow(client: Client): ClientRow {
     batch_code: client.batch_code ?? null,
     factoring: client.factoring ?? false,
     ar_rate_override: client.ar_rate_override ?? null,
+    reimbursement_balance: client.reimbursement_balance ?? 0,
     billing: client.billing ?? null,
     fee_terms: client.fee_terms ?? null,
   }

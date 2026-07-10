@@ -56,29 +56,10 @@ export async function persistInvoice(invoice: Invoice): Promise<void> {
   if (!supabase) return
 
   const row = invoiceToRow(invoice)
-  const { data: existing, error: fetchError } = await supabase
-    .from('invoices')
-    .select('id')
-    .eq('id', invoice.id)
-    .maybeSingle()
-
-  if (fetchError) {
-    console.error('[tenantPersist] invoices lookup failed:', fetchError.message)
-    throw new Error(fetchError.message)
-  }
-
-  if (existing) {
-    const { error } = await supabase.from('invoices').update(row).eq('id', invoice.id)
-    if (error) {
-      console.error('[tenantPersist] invoices update failed:', error.message)
-      throw new Error(error.message)
-    }
-  } else {
-    const { error } = await supabase.from('invoices').insert(row)
-    if (error) {
-      console.error('[tenantPersist] invoices insert failed:', error.message)
-      throw new Error(error.message)
-    }
+  const { error } = await supabase.from('invoices').upsert(row, { onConflict: 'id' })
+  if (error) {
+    console.error('[tenantPersist] invoices upsert failed:', error.message)
+    throw new Error(error.message)
   }
 
   invalidateTenant(invoice.client_id)

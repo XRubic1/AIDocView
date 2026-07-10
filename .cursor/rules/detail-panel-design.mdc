@@ -1,0 +1,81 @@
+---
+description: Reuse the Payment Details panel layout for entity detail sidebars (compact header, status summary, activity timeline)
+globs: src/components/client/**Panel*.tsx,src/components/client/**Detail*.tsx,src/components/client/**Workspace*.tsx,src/pages/Client*.tsx,src/styles/clientPortal.css
+alwaysApply: false
+---
+
+# Detail panel design — Payment Details pattern
+
+When building a **detail sidebar / mobile detail view** (invoice, payment, batch, dispute, etc.), reuse the **Payment Details** composition — not a new modal chrome or card stack.
+
+## Canonical reference
+
+- Component: `src/components/client/PaymentConfirmationPanel.tsx`
+- Styles: `.payment-confirmation-panel*` in `src/styles/clientPortal.css`
+- Desktop: resizable split pane sidebar (`useResizableSplitPane`)
+- Mobile: full-page `variant="mobile"` with back arrow (not a bottom sheet)
+
+## Layout (top → bottom)
+
+1. **Header (compact, `shrink-0`)**
+   - Eyebrow: uppercase small label (`Payment details`)
+   - Context line: primary entity id (`Invoice 333 · Load …`)
+   - Sub line: secondary party (`broker_name`)
+   - Actions: prev/next record nav + close (`X` desktop / back on mobile)
+   - Padding ~`8px 10px`; icon buttons `28×28`
+
+2. **Status summary (`shrink-0`)**
+   - Soft tinted band by status (confirmed green, awaiting amber, disputed red, pending indigo)
+   - Optional balance strip (`InvoiceBalanceSummary` with `hideIdentity`)
+   - **2×2 meta grid** of compact cells: uppercase `dt` + value `dd`
+   - One-line helper / deadline under the grid
+   - Keep summary **tight** so the timeline gets the remaining height
+
+3. **Activity & notes (flex grow + scroll)**
+   - Section title + filter chips on **one row** (`Activity` / `Notes`)
+   - Scrollable list only in this region (`overflow-y: auto`)
+   - Note cards: title + date on one row, detail text below
+   - Tone classes on titles (`success` / `warning` / `error`)
+
+4. **Footer actions (`shrink-0`, optional)**
+   - Primary + secondary buttons (`dashboard-btn-primary` / `dashboard-btn-secondary`)
+   - Only when an action is available (e.g. confirm / dispute)
+
+## Density rules (do not regress)
+
+- Prefer **compact** over hero typography — no large display amounts in the header
+- Summary padding ~`8px 10px`; meta cells ~`6px 8px`; values ~`0.8125rem`
+- Timeline must own vertical space: summary stays short; notes section `flex: 1; min-height: 0`
+- Use `tabular-nums` for money and dates
+- Status color = meaning only (not decoration on every block)
+
+## Structure recipe
+
+```tsx
+<div className="…-panel flex flex-col min-h-0 h-full overflow-hidden">
+  <header className="…-panel__header shrink-0">…</header>
+  <div className="…-panel__body flex flex-col min-h-0 flex-1 overflow-hidden">
+    <section className="…-panel__summary shrink-0">…</section>
+    <section className="…-panel__notes flex flex-col min-h-0 flex-1">
+      <div className="…-panel__notes-head shrink-0">title + filters</div>
+      <div className="…-panel__notes-scroll flex-1 min-h-0 overflow-y-auto">…</div>
+    </section>
+  </div>
+  <footer className="…-panel__footer shrink-0">…</footer>
+</div>
+```
+
+## Do
+
+- Copy BEM-style block naming from `payment-confirmation-panel` (or extract shared `detail-panel` classes later)
+- Support `sidebar` + `mobile` variants from one component
+- Wire prev/next against the current filtered list order
+- Keep identity in the header; don’t repeat invoice # / broker in the summary when `hideIdentity` applies
+
+## Don’t
+
+- Full-screen modal with heavy padding for desktop detail
+- Large hero amount + sparse meta that pushes activity off-screen
+- Nested cards inside cards in the summary
+- Scrolling the whole panel including header/footer — only the notes/timeline scrolls
+- Invent a second detail visual language for invoices/batches/disputes

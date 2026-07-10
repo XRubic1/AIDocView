@@ -2,12 +2,12 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Search, Plus, FileText, CircleCheck, Info } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
-import { formatCurrency, formatDate } from '../../utils/format'
+import { formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { getConfirmedPaymentTotal, getUnconfirmedPaymentTotal } from '../../data/mockPayments'
 import {
   postClientPayment,
-  postClientPaymentOnNewInvoice,
+  postClientPaymentOnNewInvoiceAsync,
   type PostPaymentResult,
 } from '../../services/clientPaymentService'
 import { isPostableForPayment } from '../../utils/invoiceAging'
@@ -18,7 +18,10 @@ import {
   searchInvoicesForPostPayment,
   type PostPaymentSearchHit,
 } from '../../utils/postPaymentInvoiceSearch'
-import { getInvoiceBalanceState } from '../../utils/paymentVariance'
+import {
+  formatSignedInvoiceBalanceDisplay,
+  getInvoiceBalanceState,
+} from '../../utils/paymentVariance'
 import InvoiceBalanceSummary from './InvoiceBalanceSummary'
 import PaymentVarianceResolution from './PaymentVarianceResolution'
 import { useClientCapabilities } from '../../hooks/useClientCapabilities'
@@ -199,7 +202,7 @@ export default function PostPaymentForm({
           return
         }
       } else if (selectionMode === 'new') {
-        result = postClientPaymentOnNewInvoice(
+        result = await postClientPaymentOnNewInvoiceAsync(
           {
             clientId,
             clientName,
@@ -358,7 +361,7 @@ export default function PostPaymentForm({
                 const pending = getUnconfirmedPaymentTotal(invoice.id)
                 const balance = getInvoiceBalanceState(invoice.amount, received)
                 const isSelected = selected?.id === invoice.id && selectionMode === 'existing'
-                const balanceClass = `post-payment-picker__balance post-payment-picker__balance--${balance.tone}`
+                const balanceClass = `post-payment-picker__total post-payment-picker__balance post-payment-picker__balance--${balance.tone}`
 
                 return (
                   <button
@@ -383,15 +386,8 @@ export default function PostPaymentForm({
                       </p>
                     </div>
                     <div className="post-payment-picker__row-amounts">
-                      <span className="post-payment-picker__total financial-nums">
-                        {formatCurrency(invoice.amount)}
-                      </span>
-                      <span className={balanceClass}>
-                        {balance.tone === 'over'
-                          ? `+${formatCurrency(Math.abs(balance.signedBalance))}`
-                          : balance.tone === 'zero'
-                            ? '$0.00'
-                            : formatCurrency(balance.signedBalance)}
+                      <span className={`${balanceClass} financial-nums`}>
+                        {formatSignedInvoiceBalanceDisplay(balance)}
                       </span>
                     </div>
                   </button>

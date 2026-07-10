@@ -9,6 +9,7 @@ import {
   markAllAdminNotificationsRead,
   subscribeAdminNotifications,
 } from '../../services/adminNotificationService'
+import { syncAdminNotificationsForOpenReceiptDisputes } from '../../services/paymentReceiptConfirmationService'
 import { Notification } from '../../types/notification'
 import CredyxWordmark from '../CredyxWordmark'
 import { signOutAdmin } from '../../services/adminAuthService'
@@ -28,6 +29,7 @@ export function Header({ userName, userRole = 'Admin' }: HeaderProps) {
   const [notifications, setNotifications] = useState<Notification[]>(() => getAdminNotifications())
 
   useEffect(() => {
+    syncAdminNotificationsForOpenReceiptDisputes()
     setNotifications(getAdminNotifications())
     return subscribeAdminNotifications(() => {
       setNotifications(getAdminNotifications())
