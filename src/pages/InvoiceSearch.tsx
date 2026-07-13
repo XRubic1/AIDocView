@@ -31,6 +31,7 @@ import {
   type SortDir,
 } from '../utils/clientListPage'
 import { getAwaitingReceiptPaymentForInvoice } from '../utils/paymentStatus'
+import { getAdminInvoiceAttention } from '../utils/adminInvoiceAttention'
 import {
   getClientInvoiceStatusParts,
   getClientPostedPendingTotal,
@@ -170,6 +171,10 @@ export default function InvoiceSearch() {
   const sortedInvoices = useMemo(() => {
     const sorted = [...filteredInvoices]
     sorted.sort((a, b) => {
+      const aAttention = getAdminInvoiceAttention(a, payments).needsAttention ? 0 : 1
+      const bAttention = getAdminInvoiceAttention(b, payments).needsAttention ? 0 : 1
+      if (aAttention !== bAttention) return aAttention - bAttention
+
       let cmp = 0
       switch (sortField) {
         case 'invoice_number':
@@ -209,7 +214,7 @@ export default function InvoiceSearch() {
       return sortDir === 'asc' ? cmp : -cmp
     })
     return sorted
-  }, [filteredInvoices, sortField, sortDir, invoiceBalanceById])
+  }, [filteredInvoices, sortField, sortDir, invoiceBalanceById, payments])
 
   const totalPages = Math.max(1, Math.ceil(sortedInvoices.length / pageSize))
 
@@ -659,6 +664,7 @@ export default function InvoiceSearch() {
                             invoice.id,
                             payments
                           )
+                          const attention = getAdminInvoiceAttention(invoice, payments)
                           const balance =
                             invoiceBalanceById.get(invoice.id) ??
                             getInvoiceBalanceState(invoice.amount, 0)
@@ -677,20 +683,34 @@ export default function InvoiceSearch() {
                               className={`cursor-pointer ${isHighlighted ? 'batch-highlight-row' : ''} ${
                                 isSelected ? 'bg-slate-50' : ''
                               } ${
-                                invoice.isForceCloseEligible
-                                  ? 'invoice-row--force-close'
-                                  : invoice.isOverdue
-                                    ? 'invoice-row--overdue'
-                                    : ''
+                                attention.needsAttention
+                                  ? 'invoice-row--needs-attention'
+                                  : invoice.isForceCloseEligible
+                                    ? 'invoice-row--force-close'
+                                    : invoice.isOverdue
+                                      ? 'invoice-row--overdue'
+                                      : ''
                               }`}
                               onClick={() => handleViewInvoiceDetail(invoice)}
                             >
                               <ClientListTd
                                 variant="primary"
                                 className="font-semibold"
-                                title={invoice.invoice_number}
+                                title={
+                                  attention.needsAttention
+                                    ? `${invoice.invoice_number} — ${attention.label}`
+                                    : invoice.invoice_number
+                                }
                               >
-                                {invoice.invoice_number}
+                                <span className="inline-flex items-center gap-1.5 min-w-0">
+                                  {attention.needsAttention && (
+                                    <AlertCircle
+                                      className="w-3.5 h-3.5 shrink-0 text-amber-600"
+                                      aria-label="Needs attention"
+                                    />
+                                  )}
+                                  <span className="truncate">{invoice.invoice_number}</span>
+                                </span>
                               </ClientListTd>
                               <ClientListTd
                                 variant="desktop"
@@ -767,12 +787,22 @@ export default function InvoiceSearch() {
                               </ClientListTd>
                               <ClientListTd variant="status" className="client-list-td--status-col">
                                 <div className="inline-flex items-center gap-1 flex-nowrap min-w-0">
+                                  {attention.needsAttention && (
+                                    <span className="status-pill status-pill--review text-[10px]">
+                                      Needs attention
+                                    </span>
+                                  )}
                                   {getInvoiceRowStatusBadge(invoice, {
                                     balance,
                                     pendingClientPosted: invoicePendingById.get(invoice.id)?.pending,
                                     confirmedReceived: invoicePendingById.get(invoice.id)?.confirmed,
                                   })}
                                   <InvoiceDisputeBadges invoice={invoice} />
+                                  {attention.reason === 'receipt_dispute' && (
+                                    <span className="status-pill status-pill--overdue text-[10px]">
+                                      {attention.label}
+                                    </span>
+                                  )}
                                   {awaitingPayment && (
                                     <span className="status-pill status-pill--pending text-[10px]">
                                       Awaiting receipt

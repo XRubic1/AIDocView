@@ -2176,6 +2176,15 @@
   background: #fef2f2;
 }
 
+.client-portal .invoice-row--needs-attention {
+  background: #fffbeb;
+  box-shadow: inset 3px 0 0 #f59e0b;
+}
+
+.client-portal .invoice-row--needs-attention:hover {
+  background: #fef3c7;
+}
+
 .client-portal .invoice-detail-note-entry {
   padding: 8px 14px;
   border-bottom: 1px solid #f1f5f9;
