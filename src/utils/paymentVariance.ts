@@ -64,7 +64,7 @@ export function getInvoiceBalanceState(
 
 export type InvoiceBalanceState = ReturnType<typeof getInvoiceBalanceState>
 
-/** Signed balance for UI — short/open as negative (red), over as positive (+). */
+/** Balance for UI — open/short show amount due; overpaid shows +overage. */
 export function formatSignedInvoiceBalanceDisplay(state: InvoiceBalanceState): string {
   switch (state.tone) {
     case 'over':
@@ -73,9 +73,9 @@ export function formatSignedInvoiceBalanceDisplay(state: InvoiceBalanceState): s
       return formatCurrency(0)
     case 'open':
     case 'short':
-      return `-${formatCurrency(state.signedBalance)}`
-    default:
       return formatCurrency(state.signedBalance)
+    default:
+      return formatCurrency(Math.abs(state.signedBalance))
   }
 }
 

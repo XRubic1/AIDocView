@@ -3,9 +3,12 @@ import { getAllBatches, updateBatchStatus } from '../../data/mockBatches'
 import { PendingBatch } from '../../types/admin'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { voidAdminBatch, canVoidAdminBatch } from '../../services/adminBatchActions'
+import { useToast } from '../ui/ToastProvider'
 
 interface AllBatchesTabProps {
   onBatchSelect: (batchId: string, tab?: 'ready_to_post' | 'verification' | 'approval') => void
+  onBatchesChanged?: () => void
 }
 
 interface Batch extends PendingBatch {
@@ -17,12 +20,18 @@ interface Batch extends PendingBatch {
   in_use_by?: string
 }
 
-export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
+export default function AllBatchesTab({ onBatchSelect, onBatchesChanged }: AllBatchesTabProps) {
   const c = useClientTheme()
+  const { showToast } = useToast()
   const [listVersion, setListVersion] = useState(0)
   const batches = useMemo(() => getAllBatches() as Batch[], [listVersion])
   const [showNavigationModal, setShowNavigationModal] = useState(false)
   const [selectedBatchForNavigation, setSelectedBatchForNavigation] = useState<Batch | null>(null)
+
+  const bumpList = () => {
+    setListVersion((v) => v + 1)
+    onBatchesChanged?.()
+  }
 
   const listItems: AdminBatchListItem[] = batches.map((batch) => ({
     id: batch.id,
@@ -44,6 +53,11 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
     const full = batches.find((b) => b.id === batch.id)
     if (!full) return
 
+    if (full.status === 'voided') {
+      showToast('This batch has been voided', 'info')
+      return
+    }
+
     if (full.status === 'ready_to_post') {
       onBatchSelect(full.id, 'ready_to_post')
     } else if (full.status === 'verification' || full.status === 'approval') {
@@ -57,7 +71,9 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
   const handleReturnToApproval = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
     const full = batches.find((b) => b.id === batch.id)
-    if (!full || full.status === 'approval' || full.status === 'draft') return
+    if (!full || full.status === 'approval' || full.status === 'draft' || full.status === 'voided') {
+      return
+    }
 
     const confirmed = window.confirm(
       `Return batch ${full.batch_number} to Approval? It will reappear in the Approval workflow.`
@@ -65,10 +81,34 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
     if (!confirmed) return
 
     updateBatchStatus(full.id, 'approval')
-    setListVersion((v) => v + 1)
+    bumpList()
   }
 
-  const canReturnToApproval = (status: string) => status !== 'approval' && status !== 'draft'
+  const handleVoidBatch = (batch: AdminBatchListItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const full = batches.find((b) => b.id === batch.id)
+    if (!full || !canVoidAdminBatch(full.status)) {
+      showToast('Only unprocessed batches can be voided', 'info')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Void batch ${full.batch_number}?\n\nThis removes it from the workflow. Invoice statuses are not changed. This cannot be undone.`
+    )
+    if (!confirmed) return
+
+    const updated = voidAdminBatch(full.id)
+    if (!updated) {
+      showToast('Could not void batch', 'error')
+      return
+    }
+
+    showToast(`Batch ${full.batch_number} voided`, 'success')
+    bumpList()
+  }
+
+  const canReturnToApproval = (status: string) =>
+    status !== 'approval' && status !== 'draft' && status !== 'voided'
 
   const handleNavigateToTab = (tab: 'ready_to_post' | 'verification' | 'approval') => {
     if (selectedBatchForNavigation) {
@@ -83,10 +123,18 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
       <AdminBatchesListView
         batches={listItems}
         variant="all"
-        onSelectBatch={(batchId) => onBatchSelect(batchId)}
+        onSelectBatch={(batchId) => {
+          const full = batches.find((b) => b.id === batchId)
+          if (full?.status === 'voided') {
+            showToast('This batch has been voided', 'info')
+            return
+          }
+          onBatchSelect(batchId)
+        }}
         onViewClick={handleViewClick}
         onReturnToApproval={handleReturnToApproval}
         canReturnToApproval={canReturnToApproval}
+        onVoidBatch={handleVoidBatch}
         actionLabel="View"
         emptyTitle="No batches found"
         emptyHint="Try adjusting your search or filters"

@@ -147,7 +147,10 @@ export default function Batches() {
                 />
               )}
               {activeTab === 'all' && (
-                <AllBatchesTab onBatchSelect={handleAllBatchesSelect} />
+                <AllBatchesTab
+                  onBatchSelect={handleAllBatchesSelect}
+                  onBatchesChanged={() => setRefreshKey((k) => k + 1)}
+                />
               )}
             </div>
           </>

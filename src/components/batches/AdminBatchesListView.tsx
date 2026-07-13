@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, type ReactNode } from 'react'
-import { Boxes, ChevronLeft, ChevronRight, RotateCcw, Search } from 'lucide-react'
+import { Ban, Boxes, ChevronLeft, ChevronRight, RotateCcw, Search } from 'lucide-react'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { mockInvoices } from '../../data/mockInvoices'
 import { useClientTheme } from '../../theme/ThemeContext'
@@ -11,6 +11,7 @@ import {
   type SortDir,
 } from '../../utils/clientListPage'
 import { getAdminBatchStatusBadge } from './adminBatchStatus'
+import { canVoidAdminBatch } from '../../services/adminBatchActions'
 
 export interface AdminBatchListItem {
   id: string
@@ -47,6 +48,7 @@ type StatusFilter =
   | 'processing'
   | 'approved'
   | 'documents_uploaded'
+  | 'voided'
 
 interface AdminBatchesListViewProps {
   batches: AdminBatchListItem[]
@@ -59,6 +61,7 @@ interface AdminBatchesListViewProps {
   onViewClick?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   onReturnToApproval?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   canReturnToApproval?: (status: string) => boolean
+  onVoidBatch?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
 }
 
 function getReadyToPostProgress(batchId: string): number {
@@ -93,6 +96,7 @@ export default function AdminBatchesListView({
   onViewClick,
   onReturnToApproval,
   canReturnToApproval,
+  onVoidBatch,
 }: AdminBatchesListViewProps) {
   const c = useClientTheme()
   const [searchTerm, setSearchTerm] = useState('')
@@ -200,6 +204,7 @@ export default function AdminBatchesListView({
     { id: 'submitted', label: 'Submitted' },
     { id: 'processing', label: 'Processing' },
     { id: 'approved', label: 'Approved' },
+    { id: 'voided', label: 'Voided' },
   ]
 
   const inputStyle = {
@@ -502,6 +507,18 @@ export default function AdminBatchesListView({
                           >
                             <RotateCcw className="w-3 h-3" />
                             Approval
+                          </button>
+                        )}
+                        {onVoidBatch && canVoidAdminBatch(batch.status) && (
+                          <button
+                            type="button"
+                            onClick={(e) => onVoidBatch(batch, e)}
+                            className="dashboard-btn-secondary !h-7 !px-2 !text-xs inline-flex items-center gap-1"
+                            style={{ color: c.error }}
+                            title="Void batch"
+                          >
+                            <Ban className="w-3 h-3" />
+                            Void
                           </button>
                         )}
                         <button

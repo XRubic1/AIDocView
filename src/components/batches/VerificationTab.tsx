@@ -24,10 +24,7 @@ export default function VerificationTab({
   onBack,
 }: VerificationTabProps) {
   const { showToast } = useToast()
-  const [batches] = useState(() => {
-    const allBatches = getAllBatches()
-    return allBatches.filter((b) => b.status === 'verification')
-  })
+  const batches = getAllBatches().filter((b) => b.status === 'verification')
   const [selectedInvoices, setSelectedInvoices] = useState<Set<string>>(new Set())
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [verificationNotes, setVerificationNotes] = useState('')

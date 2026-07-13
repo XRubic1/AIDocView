@@ -94,8 +94,9 @@ export default function InvoiceBalanceSummary({
     }
     switch (tone) {
       case 'short':
-      case 'open':
         return c.error
+      case 'open':
+        return c.info
       case 'over':
         return c.success
       case 'zero':
@@ -111,8 +112,9 @@ export default function InvoiceBalanceSummary({
     }
     switch (tone) {
       case 'short':
-      case 'open':
         return c.stat.red
+      case 'open':
+        return c.stat.blue
       case 'over':
         return c.stat.green
       case 'zero':

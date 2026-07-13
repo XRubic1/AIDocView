@@ -44,7 +44,7 @@ import {
   isOpenArInvoice,
 } from '../../utils/invoiceAging'
 import { useClientTheme } from '../../theme/ThemeContext'
-import { useClientCapabilities } from '../../hooks/useClientCapabilities'
+import { useOptionalClientCapabilities } from '../../hooks/useClientCapabilities'
 import { toClientVisibleInvoice } from '../../utils/clientInvoiceView'
 import {
   getAwaitingReceiptPaymentForInvoice,
@@ -52,7 +52,6 @@ import {
 } from '../../utils/paymentStatus'
 import {
   getClientDisplayBalanceState,
-  getClientInvoiceStatusParts,
   getClientPostedPendingTotal,
   getInvoiceReceivedAmount,
 } from '../../utils/paymentVariance'
@@ -66,6 +65,7 @@ import {
   getInvoiceNoteEntries,
   getInvoiceNotice,
   getInvoiceRowStatusBadge,
+  InvoiceDisputeBadges,
   InvoiceNoteCompose,
 } from './invoiceDetailShared'
 
@@ -146,7 +146,8 @@ export default function InvoiceDetailPanel({
 }: InvoiceDetailPanelProps) {
   const c = useClientTheme()
   const navigate = useNavigate()
-  const { capabilities } = useClientCapabilities()
+  // Safe outside ClientPortalProvider (Credyx Invoice Search, etc.)
+  const { capabilities } = useOptionalClientCapabilities()
   const isSidebar = variant === 'sidebar'
   const isMobile = variant === 'mobile'
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('activity')
@@ -245,16 +246,6 @@ export default function InvoiceDetailPanel({
         pendingClientPosted
       ),
     [visibleInvoice.amount, receivedAmount, pendingClientPosted]
-  )
-
-  const clientStatusParts = useMemo(
-    () =>
-      getClientInvoiceStatusParts(enriched, balanceState, {
-        pendingClientPosted,
-        confirmedReceived: receivedAmount,
-        invoiceAmount: visibleInvoice.amount,
-      }),
-    [enriched, balanceState, pendingClientPosted, receivedAmount, visibleInvoice.amount]
   )
 
   const pendingConfirmation = useMemo(() => {
@@ -536,9 +527,20 @@ export default function InvoiceDetailPanel({
         ) : null}
 
         <div className="payment-confirmation-panel__header-main min-w-0">
-          <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
-            Invoice details
-          </p>
+          <div className="payment-confirmation-panel__eyebrow-row flex items-center gap-1.5 flex-wrap min-w-0">
+            <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
+              Invoice details
+            </p>
+            <div className="inline-flex items-center gap-1 flex-nowrap min-w-0">
+              {getInvoiceRowStatusBadge(enriched, {
+                compact: true,
+                balance: balanceState,
+                pendingClientPosted,
+                confirmedReceived: receivedAmount,
+              })}
+              <InvoiceDisputeBadges invoice={visibleInvoice} />
+            </div>
+          </div>
           <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
             Invoice {visibleInvoice.invoice_number}
             {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
@@ -602,43 +604,24 @@ export default function InvoiceDetailPanel({
               pendingShortCorrection={pendingShortCorrection}
               clientView
               hideIdentity
-              statusBadge={getInvoiceRowStatusBadge(enriched, {
-                compact: true,
-                balance: balanceState,
-                pendingClientPosted,
-                confirmedReceived: receivedAmount,
-              })}
-              statusBadgePlacement={
-                // Open / short / write-off on Balance due; Paid (+ overpaid / awaiting Credyx) on Confirmed received
-                clientStatusParts.status === 'paid' ? 'confirmed' : 'balance'
-              }
               writtenOff={
                 visibleInvoice.status === 'written_off' ||
                 visibleInvoice.status === 'write_off_pending'
               }
             />
           ) : (
-            <>
-              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                {getInvoiceRowStatusBadge(enriched, {
-                  balance: balanceState,
-                  pendingClientPosted,
-                  confirmedReceived: receivedAmount,
-                })}
+            <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta mb-1">
+              <div className="payment-confirmation-panel__summary-cell payment-confirmation-panel__summary-cell--primary">
+                <dt>Amount</dt>
+                <dd className="tabular-nums payment-confirmation-panel__summary-value">
+                  {formatCurrency(
+                    invoice.status === 'paid' && invoice.paid_amount != null
+                      ? invoice.paid_amount
+                      : invoice.amount
+                  )}
+                </dd>
               </div>
-              <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta mb-1">
-                <div className="payment-confirmation-panel__summary-cell payment-confirmation-panel__summary-cell--primary">
-                  <dt>Amount</dt>
-                  <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                    {formatCurrency(
-                      invoice.status === 'paid' && invoice.paid_amount != null
-                        ? invoice.paid_amount
-                        : invoice.amount
-                    )}
-                  </dd>
-                </div>
-              </dl>
-            </>
+            </dl>
           )}
 
           <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta">
