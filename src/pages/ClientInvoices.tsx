@@ -15,7 +15,7 @@ import {
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
-import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, isOpenArInvoice, AR_POLICY } from '../utils/invoiceAging'
+import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, getDisplayInvoiceAgeDays, isOpenArInvoice, AR_POLICY } from '../utils/invoiceAging'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
@@ -114,7 +114,26 @@ export default function ClientInvoices() {
     [navigate]
   )
 
-  const enrichedInvoices = useMemo(() => enrichInvoices(invoices), [invoices])
+  const enrichedInvoices = useMemo(() => {
+    const base = enrichInvoices(invoices)
+    // Freeze age at confirmed pay date for paid invoices (list + sort).
+    const payDateByInvoice = new Map<string, string>()
+    for (const payment of payments) {
+      if (payment.status !== 'confirmed') continue
+      const dateStr = payment.received_date || payment.payment_date
+      const prev = payDateByInvoice.get(payment.invoice_id)
+      if (!prev || dateStr > prev) payDateByInvoice.set(payment.invoice_id, dateStr)
+    }
+    return base.map((invoice) => {
+      if (invoice.status !== 'paid') return invoice
+      return {
+        ...invoice,
+        invoiceAgeDays: getDisplayInvoiceAgeDays(invoice, {
+          payDate: payDateByInvoice.get(invoice.id) ?? null,
+        }),
+      }
+    })
+  }, [invoices, payments])
 
   const invoiceBalanceById = useMemo(() => {
     const map = new Map<string, InvoiceBalanceState>()
@@ -636,7 +655,7 @@ export default function ClientInvoices() {
                           />
                           <ClientSortableHeader
                             field="days_outstanding"
-                            label="Days Out"
+                            label="Age"
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={handleSort}
@@ -676,7 +695,7 @@ export default function ClientInvoices() {
                             <tr
                               key={invoice.id}
                               className={`cursor-pointer ${isHighlighted ? 'batch-highlight-row' : ''} ${
-                                isSelected ? 'bg-slate-50' : ''
+                                isSelected ? 'invoice-row--selected' : ''
                               } ${
                                 invoice.isForceCloseEligible
                                   ? 'invoice-row--force-close'
@@ -730,9 +749,9 @@ export default function ClientInvoices() {
                               <ClientListTd variant="desktop" label="Invoice Date" style={{ color: c.secondary }}>
                                 {formatDate(invoice.invoice_date)}
                               </ClientListTd>
-                              <ClientListTd variant="desktop" label="Days Out" className="text-right tabular-nums">
+                              <ClientListTd variant="desktop" label="Age" className="text-right tabular-nums">
                                 <span
-                                  className="text-sm font-semibold"
+                                  className="client-invoices-age"
                                   style={{
                                     color:
                                       isOpenArInvoice(invoice) && invoice.isOverdue
@@ -742,7 +761,7 @@ export default function ClientInvoices() {
                                 >
                                   {invoice.invoiceAgeDays}d
                                   {invoice.isForceCloseEligible && capabilities.hasForceClose && (
-                                    <span className="block text-[10px] font-medium" style={{ color: '#7C3AED' }}>
+                                    <span className="block text-[9px] font-medium" style={{ color: '#7C3AED' }}>
                                       FC
                                     </span>
                                   )}

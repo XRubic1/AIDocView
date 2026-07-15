@@ -158,10 +158,18 @@ export function getClientInvoiceStatusParts(
     raw === 'hold' ||
     raw === 'pending'
   ) {
-    return {
-      status: raw === 'write_off_pending' ? 'written_off' : raw,
-      variance: null,
+    const status = raw === 'write_off_pending' ? 'written_off' : raw
+    // Keep Short paid visible when a write-off closed a partially paid invoice.
+    if (
+      (raw === 'written_off' || raw === 'write_off_pending') &&
+      (balance.tone === 'short' || balance.tone === 'open')
+    ) {
+      const confirmed = options?.confirmedReceived ?? 0
+      if (confirmed > AMOUNT_EPSILON) {
+        return { status, variance: 'short_paid' }
+      }
     }
+    return { status, variance: null }
   }
 
   const pending = options?.pendingClientPosted ?? 0

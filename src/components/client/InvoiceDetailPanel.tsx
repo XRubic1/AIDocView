@@ -41,6 +41,7 @@ import OverpaymentAcceptModal from './OverpaymentAcceptModal'
 import {
   enrichInvoice,
   getDaysOutstandingColor,
+  getDisplayInvoiceAgeDays,
   isOpenArInvoice,
 } from '../../utils/invoiceAging'
 import { useClientTheme } from '../../theme/ThemeContext'
@@ -50,9 +51,9 @@ import {
   getAwaitingReceiptPaymentForInvoice,
   getReceiptConfirmationDaysLeft,
 } from '../../utils/paymentStatus'
+import { buildClientPaymentAuditTimeline, isPaymentRelatedInvoiceNote, getPaymentNoteCategoryTitle } from '../../utils/clientPaymentAuditTimeline'
 import {
   getClientDisplayBalanceState,
-  getClientInvoiceStatusParts,
   getClientPostedPendingTotal,
   getInvoiceReceivedAmount,
 } from '../../utils/paymentVariance'
@@ -69,8 +70,9 @@ import {
   InvoiceNoteCompose,
 } from './invoiceDetailShared'
 
-type TimelineFilter = 'activity' | 'notes' | 'send'
+type TimelineFilter = 'all' | 'activity' | 'notes' | 'payments' | 'send'
 type TimelineTone = 'neutral' | 'success' | 'warning' | 'error' | 'info'
+type NoteSource = 'carrier' | 'credyx'
 
 interface TimelineEntry {
   id: string
@@ -78,6 +80,10 @@ interface TimelineEntry {
   detail: string
   timestamp: string
   tone: TimelineTone
+  /** Note/activity kind for color coding (e.g. client_note, dispute). */
+  kind?: string
+  /** Who authored the entry — carrier (client) or Credyx. */
+  source?: NoteSource
   meta?: string
 }
 
@@ -96,14 +102,59 @@ function noteTone(type?: string): TimelineTone {
   switch (type) {
     case 'approval':
       return 'success'
+    case 'client_note':
+      return 'info'
     case 'rejection':
     case 'dispute':
       return 'error'
     case 'hold_reason':
       return 'warning'
+    case 'note':
+      return 'neutral'
     default:
       return 'neutral'
   }
+}
+
+/** Carrier notes use client_note; Credyx owns admin/status notes. */
+function noteSource(type?: string, author?: string, noteText?: string): NoteSource {
+  if (type === 'dispute') return 'carrier'
+  if (type === 'client_note') {
+    const by = author?.trim().toLowerCase() || ''
+    if (
+      noteText &&
+      isPaymentRelatedInvoiceNote(noteText, type as 'client_note') &&
+      (by === 'admin' || by.includes('credyx'))
+    ) {
+      return 'credyx'
+    }
+    return 'carrier'
+  }
+  return 'credyx'
+}
+
+function noteTitle(type?: string): string {
+  switch (type) {
+    case 'client_note':
+      return 'Note'
+    case 'note':
+      return 'Note'
+    case 'hold_reason':
+      return 'On Hold'
+    case 'approval':
+      return 'Approved'
+    case 'rejection':
+      return 'Rejected'
+    case 'dispute':
+      return 'Dispute'
+    default:
+      return NOTE_TYPE_LABELS[type || 'note'] || 'Update'
+  }
+}
+
+function formatNoteMeta(author?: string): string | undefined {
+  const name = author?.trim()
+  return name || undefined
 }
 
 export interface InvoiceDetailPanelProps {
@@ -149,13 +200,13 @@ export default function InvoiceDetailPanel({
   const { capabilities } = useClientCapabilities()
   const isSidebar = variant === 'sidebar'
   const isMobile = variant === 'mobile'
-  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('activity')
+  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all')
 
   const visibleInvoice = useMemo(() => toClientVisibleInvoice(invoice), [invoice])
   const enriched = useMemo(() => enrichInvoice(visibleInvoice), [visibleInvoice])
 
   useEffect(() => {
-    setTimelineFilter('activity')
+    setTimelineFilter('all')
   }, [invoice.id])
 
   const invoicePayments = useMemo(
@@ -247,16 +298,6 @@ export default function InvoiceDetailPanel({
     [visibleInvoice.amount, receivedAmount, pendingClientPosted]
   )
 
-  const clientStatusParts = useMemo(
-    () =>
-      getClientInvoiceStatusParts(enriched, balanceState, {
-        pendingClientPosted,
-        confirmedReceived: receivedAmount,
-        invoiceAmount: visibleInvoice.amount,
-      }),
-    [enriched, balanceState, pendingClientPosted, receivedAmount, visibleInvoice.amount]
-  )
-
   const pendingConfirmation = useMemo(() => {
     if (!showBalanceSummary) return 0
     // Client-posted pending awaits Credyx approval — not client receipt confirmation.
@@ -278,21 +319,26 @@ export default function InvoiceDetailPanel({
         detail: dispute.description,
         timestamp: dispute.created_at,
         tone: 'error',
+        kind: 'dispute',
+        source: 'carrier',
         meta: dispute.response?.trim()
-          ? `Credyx: ${dispute.response}`
+          ? `Credyx response · ${dispute.response}`
           : undefined,
       })
     }
     for (const entry of noteEntries) {
       const typeKey = entry.type || 'note'
       if (typeKey === 'note' || typeKey === 'client_note') continue
+      const source = noteSource(typeKey)
       entries.push({
         id: `activity-note-${entry.id}`,
-        title: NOTE_TYPE_LABELS[typeKey] || 'Update',
+        title: noteTitle(typeKey),
         detail: entry.note,
         timestamp: entry.created_at,
         tone: noteTone(typeKey),
-        meta: entry.created_by,
+        kind: typeKey,
+        source,
+        meta: formatNoteMeta(entry.created_by),
       })
     }
     return entries.sort(
@@ -300,44 +346,144 @@ export default function InvoiceDetailPanel({
     )
   }, [openDisputes, noteEntries])
 
+  /** Payment lifecycle + payment-related free-text notes. */
+  const paymentTimelineEntries = useMemo((): TimelineEntry[] => {
+    const entries: TimelineEntry[] = []
+
+    for (const entry of noteEntries) {
+      const typeKey = entry.type || 'note'
+      if (typeKey !== 'note' && typeKey !== 'client_note') continue
+      if (!isPaymentRelatedInvoiceNote(entry.note, entry.type)) continue
+      const source = noteSource(typeKey, entry.created_by, entry.note)
+      entries.push({
+        id: `payment-note-${entry.id}`,
+        title: getPaymentNoteCategoryTitle(entry.note),
+        detail: entry.note,
+        timestamp: entry.created_at,
+        tone: 'info',
+        kind: 'payment',
+        source,
+        meta: formatNoteMeta(entry.created_by),
+      })
+    }
+
+    if (invoicePayments.length > 0) {
+      for (const entry of buildClientPaymentAuditTimeline(visibleInvoice, invoicePayments)) {
+        if (entry.kind !== 'activity') continue
+        // Exclude invoice notes/disputes/audits — payment notes already added above.
+        if (
+          entry.id.startsWith('invoice-dispute-') ||
+          entry.id.startsWith('audit-')
+        ) {
+          continue
+        }
+        // Typed non-payment activity notes (hold/approval) belong under Activity.
+        if (
+          entry.id.startsWith('note-') &&
+          entry.noteKind !== 'payment' &&
+          entry.noteKind !== 'client_note' &&
+          entry.noteKind !== 'note'
+        ) {
+          continue
+        }
+        // Free-text payment notes already mapped above with stable ids.
+        if (entry.noteKind === 'payment' && entry.id.startsWith('note-')) {
+          continue
+        }
+        if (
+          entry.noteKind === 'payment' ||
+          entry.id.startsWith('payment-') ||
+          entry.id.startsWith('move-') ||
+          entry.id.startsWith('reversal-') ||
+          entry.id.startsWith('reject-') ||
+          entry.id.startsWith('dispute-open-') ||
+          entry.id.startsWith('dispute-resolved-')
+        ) {
+          entries.push({
+            id: entry.id,
+            title: entry.title,
+            detail: entry.detail,
+            timestamp: entry.timestamp,
+            tone: entry.tone,
+            kind: entry.noteKind || 'payment',
+            source: entry.source,
+            meta: entry.meta,
+          })
+        }
+      }
+    }
+
+    return entries.sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )
+  }, [noteEntries, invoicePayments, visibleInvoice])
+
   const noteTimelineEntries = useMemo((): TimelineEntry[] => {
     return noteEntries
       .filter((entry) => {
         const typeKey = entry.type || 'note'
-        return typeKey === 'note' || typeKey === 'client_note'
+        if (typeKey !== 'note' && typeKey !== 'client_note') return false
+        // Payment-related notes live under the Payments tab only.
+        return !isPaymentRelatedInvoiceNote(entry.note, entry.type)
       })
-      .map((entry) => ({
-        id: `note-${entry.id}`,
-        title: NOTE_TYPE_LABELS[entry.type || 'note'] || 'Note',
-        detail: entry.note,
-        timestamp: entry.created_at,
-        tone: 'neutral' as TimelineTone,
-        meta: entry.created_by,
-      }))
+      .map((entry) => {
+        const typeKey = entry.type || 'note'
+        const source = noteSource(typeKey, entry.created_by, entry.note)
+        return {
+          id: `note-${entry.id}`,
+          title: noteTitle(typeKey),
+          detail: entry.note,
+          timestamp: entry.created_at,
+          tone: noteTone(typeKey),
+          kind: typeKey,
+          source,
+          meta: formatNoteMeta(entry.created_by),
+        }
+      })
   }, [noteEntries])
 
   const sendEntries = useMemo((): TimelineEntry[] => {
     const history = invoice.document_send_history || []
-    return history.map((send, idx) => ({
-      id: `send-${idx}-${send.sent_at}`,
-      title: send.email_address,
-      detail: send.status ? `Status: ${send.status}` : 'Document sent',
-      timestamp: send.sent_at,
-      tone:
+    return history.map((send, idx) => {
+      const sendTone: TimelineTone =
         send.status === 'delivered'
           ? 'success'
           : send.status === 'failed'
             ? 'error'
-            : ('neutral' as TimelineTone),
-    }))
+            : 'info'
+      return {
+        id: `send-${idx}-${send.sent_at}`,
+        title: 'Document sent',
+        detail: send.status
+          ? `${send.email_address} · ${send.status}`
+          : send.email_address,
+        timestamp: send.sent_at,
+        tone: sendTone,
+        kind: send.status === 'failed' ? 'send_failed' : 'send',
+        source: 'credyx' as NoteSource,
+      }
+    })
   }, [invoice.document_send_history])
 
+  const allTimelineEntries = useMemo((): TimelineEntry[] => {
+    return [
+      ...activityEntries,
+      ...noteTimelineEntries,
+      ...paymentTimelineEntries,
+      ...sendEntries,
+    ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+  }, [activityEntries, noteTimelineEntries, paymentTimelineEntries, sendEntries])
+
   const filteredTimeline =
-    timelineFilter === 'activity'
-      ? activityEntries
-      : timelineFilter === 'notes'
-        ? noteTimelineEntries
-        : sendEntries
+    timelineFilter === 'all'
+      ? allTimelineEntries
+      : timelineFilter === 'activity'
+        ? activityEntries
+        : timelineFilter === 'notes'
+          ? noteTimelineEntries
+          : timelineFilter === 'payments'
+            ? paymentTimelineEntries
+            : sendEntries
 
   const navIndex = navigationInvoices.findIndex((inv) => inv.id === invoice.id)
   const hasPrev = navIndex > 0
@@ -349,12 +495,31 @@ export default function InvoiceDetailPanel({
       ? 'payment-confirmation-panel__summary--disputed'
       : 'payment-confirmation-panel__summary--neutral')
 
-  const daysOutLabel =
-    !isOpenArInvoice(invoice) ||
-    invoice.status === 'force_closed' ||
-    invoice.status === 'written_off'
-      ? '—'
-      : `${enriched.daysOutstanding}d`
+  /** Latest confirmed payment date for display (Pay date). */
+  const payDate = useMemo(() => {
+    const confirmed = invoicePayments.filter((p) => p.status === 'confirmed')
+    if (confirmed.length === 0) return null
+    let latest: string | null = null
+    let latestMs = -Infinity
+    for (const payment of confirmed) {
+      const dateStr = payment.received_date || payment.payment_date
+      const ms = new Date(dateStr).getTime()
+      if (Number.isFinite(ms) && ms >= latestMs) {
+        latestMs = ms
+        latest = dateStr
+      }
+    }
+    return latest
+  }, [invoicePayments])
+
+  /**
+   * Invoice calendar age — freezes on pay date once the invoice is paid
+   * so age no longer increases after settlement.
+   */
+  const invoiceAgeLabel = useMemo(() => {
+    const days = getDisplayInvoiceAgeDays(visibleInvoice, { payDate })
+    return `${days}d`
+  }, [visibleInvoice, payDate])
 
   const hasFooterActions =
     Boolean(awaitingReceiptPayment && onViewPayment) ||
@@ -513,11 +678,15 @@ export default function InvoiceDetailPanel({
   }
 
   const emptyMessage =
-    timelineFilter === 'activity'
-      ? 'No activity recorded for this invoice yet.'
-      : timelineFilter === 'notes'
-        ? 'No notes recorded for this invoice yet.'
-        : 'No documents sent yet.'
+    timelineFilter === 'all'
+      ? 'No activity or notes recorded for this invoice yet.'
+      : timelineFilter === 'activity'
+        ? 'No activity recorded for this invoice yet.'
+        : timelineFilter === 'notes'
+          ? 'No notes recorded for this invoice yet.'
+          : timelineFilter === 'payments'
+            ? 'No payment activity on this invoice yet.'
+            : 'No documents sent yet.'
 
   const panelBody = (
     <>
@@ -536,9 +705,17 @@ export default function InvoiceDetailPanel({
         ) : null}
 
         <div className="payment-confirmation-panel__header-main min-w-0">
-          <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
-            Invoice details
-          </p>
+          <div className="payment-confirmation-panel__eyebrow-row">
+            <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
+              Invoice details
+            </p>
+            {getInvoiceRowStatusBadge(enriched, {
+              compact: true,
+              balance: balanceState,
+              pendingClientPosted,
+              confirmedReceived: receivedAmount,
+            })}
+          </div>
           <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
             Invoice {visibleInvoice.invoice_number}
             {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
@@ -602,43 +779,24 @@ export default function InvoiceDetailPanel({
               pendingShortCorrection={pendingShortCorrection}
               clientView
               hideIdentity
-              statusBadge={getInvoiceRowStatusBadge(enriched, {
-                compact: true,
-                balance: balanceState,
-                pendingClientPosted,
-                confirmedReceived: receivedAmount,
-              })}
-              statusBadgePlacement={
-                // Open / short / write-off on Balance due; Paid (+ overpaid / awaiting Credyx) on Confirmed received
-                clientStatusParts.status === 'paid' ? 'confirmed' : 'balance'
-              }
               writtenOff={
                 visibleInvoice.status === 'written_off' ||
                 visibleInvoice.status === 'write_off_pending'
               }
             />
           ) : (
-            <>
-              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                {getInvoiceRowStatusBadge(enriched, {
-                  balance: balanceState,
-                  pendingClientPosted,
-                  confirmedReceived: receivedAmount,
-                })}
+            <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta mb-1">
+              <div className="payment-confirmation-panel__summary-cell payment-confirmation-panel__summary-cell--primary">
+                <dt>Amount</dt>
+                <dd className="tabular-nums payment-confirmation-panel__summary-value">
+                  {formatCurrency(
+                    invoice.status === 'paid' && invoice.paid_amount != null
+                      ? invoice.paid_amount
+                      : invoice.amount
+                  )}
+                </dd>
               </div>
-              <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta mb-1">
-                <div className="payment-confirmation-panel__summary-cell payment-confirmation-panel__summary-cell--primary">
-                  <dt>Amount</dt>
-                  <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                    {formatCurrency(
-                      invoice.status === 'paid' && invoice.paid_amount != null
-                        ? invoice.paid_amount
-                        : invoice.amount
-                    )}
-                  </dd>
-                </div>
-              </dl>
-            </>
+            </dl>
           )}
 
           <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta">
@@ -649,13 +807,13 @@ export default function InvoiceDetailPanel({
               </dd>
             </div>
             <div className="payment-confirmation-panel__summary-cell">
-              <dt>Due date</dt>
+              <dt>Pay date</dt>
               <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                {invoice.due_date ? formatDate(invoice.due_date) : '—'}
+                {payDate ? formatDate(payDate) : '—'}
               </dd>
             </div>
             <div className="payment-confirmation-panel__summary-cell">
-              <dt>Days out</dt>
+              <dt>Invoice age</dt>
               <dd
                 className="tabular-nums payment-confirmation-panel__summary-value"
                 style={{
@@ -665,35 +823,13 @@ export default function InvoiceDetailPanel({
                       : undefined,
                 }}
               >
-                {daysOutLabel}
+                {invoiceAgeLabel}
               </dd>
             </div>
             <div className="payment-confirmation-panel__summary-cell">
-              <dt>Documents</dt>
-              <dd className="payment-confirmation-panel__summary-value">
-                <span className="inline-flex items-center gap-1.5 flex-wrap">
-                  <span className="tabular-nums">{documentCount}</span>
-                  {canViewDocuments && (
-                    <button
-                      type="button"
-                      onClick={onViewDocuments}
-                      className="text-[11px] font-semibold underline-offset-2 hover:underline"
-                      style={{ color: c.info }}
-                    >
-                      View
-                    </button>
-                  )}
-                  {enableClientActions && (
-                    <button
-                      type="button"
-                      onClick={() => setShowUploadModal(true)}
-                      className="text-[11px] font-semibold underline-offset-2 hover:underline"
-                      style={{ color: c.info }}
-                    >
-                      Add
-                    </button>
-                  )}
-                </span>
+              <dt>Due date</dt>
+              <dd className="tabular-nums payment-confirmation-panel__summary-value">
+                {invoice.due_date ? formatDate(invoice.due_date) : '—'}
               </dd>
             </div>
           </dl>
@@ -733,8 +869,10 @@ export default function InvoiceDetailPanel({
             >
               {(
                 [
+                  ['all', 'All', allTimelineEntries.length],
                   ['activity', 'Activity', activityEntries.length],
                   ['notes', 'Notes', noteTimelineEntries.length],
+                  ['payments', 'Payments', paymentTimelineEntries.length],
                   ['send', 'Send', sendEntries.length],
                 ] as const
               ).map(([key, label, count]) => (
@@ -775,38 +913,39 @@ export default function InvoiceDetailPanel({
             ) : (
               <ol className="payment-confirmation-panel__notes-list">
                 {filteredTimeline.map((entry) => (
-                  <li
-                    key={entry.id}
-                    className={`payment-confirmation-panel__note payment-confirmation-panel__note--${entry.tone}`}
-                  >
-                    <div className="payment-confirmation-panel__note-head">
+                  <li key={entry.id} className="payment-confirmation-panel__note">
+                    {entry.source ? (
                       <span
-                        className="payment-confirmation-panel__note-title"
-                        style={{ color: c.primary }}
+                        className={`payment-confirmation-panel__note-source payment-confirmation-panel__note-source--${entry.source}`}
+                        aria-label={entry.source === 'carrier' ? 'Carrier' : 'Credyx'}
+                        title={entry.source === 'carrier' ? 'Carrier' : 'Credyx'}
                       >
-                        {entry.title}
+                        <span className="payment-confirmation-panel__note-source-dot" aria-hidden />
                       </span>
+                    ) : (
+                      <span
+                        className="payment-confirmation-panel__note-source"
+                        aria-hidden
+                      >
+                        <span className="payment-confirmation-panel__note-source-dot" />
+                      </span>
+                    )}
+                    <div className="payment-confirmation-panel__note-head">
+                      <div className="payment-confirmation-panel__note-title-row">
+                        <span className="payment-confirmation-panel__note-title">
+                          {entry.title}
+                        </span>
+                      </div>
                       <time
                         className="payment-confirmation-panel__note-date tabular-nums"
-                        style={{ color: c.mutedLight }}
                         dateTime={entry.timestamp}
                       >
                         {formatDate(entry.timestamp)}
                       </time>
                     </div>
-                    <p
-                      className="payment-confirmation-panel__note-detail"
-                      style={{ color: c.secondary }}
-                    >
-                      {entry.detail}
-                    </p>
+                    <p className="payment-confirmation-panel__note-detail">{entry.detail}</p>
                     {entry.meta && (
-                      <p
-                        className="payment-confirmation-panel__note-detail mt-0.5"
-                        style={{ color: c.mutedLight }}
-                      >
-                        {entry.meta}
-                      </p>
+                      <p className="payment-confirmation-panel__note-meta">{entry.meta}</p>
                     )}
                   </li>
                 ))}
@@ -817,7 +956,7 @@ export default function InvoiceDetailPanel({
       </div>
 
       {hasFooterActions ? (
-        <footer className="payment-confirmation-panel__footer" style={{ borderColor: c.border }}>
+        <footer className="payment-confirmation-panel__footer shrink-0" style={{ borderColor: c.border }}>
           <div className="flex flex-wrap gap-2 w-full">
             {awaitingReceiptPayment && onViewPayment && (
               <button

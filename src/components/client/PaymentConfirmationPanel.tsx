@@ -46,7 +46,7 @@ const SUMMARY_TONE_CLASS: Partial<Record<Payment['status'], string>> = {
   reversed: 'payment-confirmation-panel__summary--reversed',
 }
 
-type TimelineFilter = 'activity' | 'notes'
+type TimelineFilter = 'all' | 'activity' | 'notes' | 'payments'
 
 export interface PaymentConfirmationPanelProps {
   variant: 'sidebar' | 'mobile'
@@ -84,12 +84,12 @@ export default function PaymentConfirmationPanel({
   const { clientName } = useClientSession()
   const isSidebar = variant === 'sidebar'
   const isMobile = variant === 'mobile'
-  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('notes')
+  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all')
   const [newNote, setNewNote] = useState('')
   const [isAddingNote, setIsAddingNote] = useState(false)
 
   useEffect(() => {
-    setTimelineFilter('notes')
+    setTimelineFilter('all')
     setNewNote('')
   }, [payment.id])
 
@@ -138,12 +138,51 @@ export default function PaymentConfirmationPanel({
   }, [visibleInvoice, invoicePayments, payment.id])
 
   const activityEntries = useMemo(
-    () => timeline.filter((entry) => entry.kind === 'activity'),
+    () =>
+      timeline.filter((entry) => {
+        if (entry.kind !== 'activity') return false
+        // Payment lifecycle lives under the Payments tab.
+        if (
+          entry.noteKind === 'payment' ||
+          entry.id.startsWith('payment-') ||
+          entry.id.startsWith('move-') ||
+          entry.id.startsWith('reversal-') ||
+          entry.id.startsWith('reject-') ||
+          entry.id.startsWith('dispute-open-') ||
+          entry.id.startsWith('dispute-resolved-')
+        ) {
+          return false
+        }
+        return true
+      }),
     [timeline]
   )
   const noteEntries = useMemo(() => timeline.filter((entry) => entry.kind === 'note'), [timeline])
+  const paymentEntries = useMemo(
+    () =>
+      timeline.filter((entry) => {
+        if (entry.kind !== 'activity') return false
+        return (
+          entry.noteKind === 'payment' ||
+          entry.id.startsWith('payment-') ||
+          entry.id.startsWith('move-') ||
+          entry.id.startsWith('reversal-') ||
+          entry.id.startsWith('reject-') ||
+          entry.id.startsWith('dispute-open-') ||
+          entry.id.startsWith('dispute-resolved-')
+        )
+      }),
+    [timeline]
+  )
 
-  const filteredTimeline = timelineFilter === 'activity' ? activityEntries : noteEntries
+  const filteredTimeline =
+    timelineFilter === 'all'
+      ? timeline
+      : timelineFilter === 'activity'
+        ? activityEntries
+        : timelineFilter === 'payments'
+          ? paymentEntries
+          : noteEntries
 
   const navIndex = navigationPayments.findIndex((p) => p.id === payment.id)
   const hasPrev = navIndex > 0
@@ -355,38 +394,29 @@ export default function PaymentConfirmationPanel({
               role="group"
               aria-label="Filter timeline"
             >
-              <button
-                type="button"
-                className={`payment-confirmation-panel__notes-filter ${
-                  timelineFilter === 'notes' ? 'payment-confirmation-panel__notes-filter--active' : ''
-                }`}
-                onClick={() => setTimelineFilter('notes')}
-                aria-pressed={timelineFilter === 'notes'}
-              >
-                Notes
-                {noteEntries.length > 0 && (
-                  <span className="payment-confirmation-panel__notes-filter-count">
-                    {noteEntries.length}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                className={`payment-confirmation-panel__notes-filter ${
-                  timelineFilter === 'activity'
-                    ? 'payment-confirmation-panel__notes-filter--active'
-                    : ''
-                }`}
-                onClick={() => setTimelineFilter('activity')}
-                aria-pressed={timelineFilter === 'activity'}
-              >
-                Activity
-                {activityEntries.length > 0 && (
-                  <span className="payment-confirmation-panel__notes-filter-count">
-                    {activityEntries.length}
-                  </span>
-                )}
-              </button>
+              {(
+                [
+                  ['all', 'All', timeline.length],
+                  ['notes', 'Notes', noteEntries.length],
+                  ['activity', 'Activity', activityEntries.length],
+                  ['payments', 'Payments', paymentEntries.length],
+                ] as const
+              ).map(([key, label, count]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`payment-confirmation-panel__notes-filter ${
+                    timelineFilter === key ? 'payment-confirmation-panel__notes-filter--active' : ''
+                  }`}
+                  onClick={() => setTimelineFilter(key)}
+                  aria-pressed={timelineFilter === key}
+                >
+                  {label}
+                  {count > 0 && (
+                    <span className="payment-confirmation-panel__notes-filter-count">{count}</span>
+                  )}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -404,38 +434,46 @@ export default function PaymentConfirmationPanel({
           <div className="payment-confirmation-panel__notes-scroll">
             {filteredTimeline.length === 0 ? (
               <p className="payment-confirmation-panel__notes-empty" style={{ color: c.mutedLight }}>
-                {timelineFilter === 'activity'
-                  ? 'No payment activity recorded for this invoice yet.'
-                  : 'No notes recorded for this invoice yet.'}
+                {timelineFilter === 'all'
+                  ? 'No activity or notes recorded for this invoice yet.'
+                  : timelineFilter === 'activity'
+                    ? 'No invoice activity recorded yet.'
+                    : timelineFilter === 'payments'
+                      ? 'No payment activity on this invoice yet.'
+                      : 'No notes recorded for this invoice yet.'}
               </p>
             ) : (
               <ol className="payment-confirmation-panel__notes-list">
                 {filteredTimeline.map((entry) => (
-                  <li
-                    key={entry.id}
-                    className={`payment-confirmation-panel__note payment-confirmation-panel__note--${entry.tone}`}
-                  >
-                    <div className="payment-confirmation-panel__note-head">
+                  <li key={entry.id} className="payment-confirmation-panel__note">
+                    {entry.source ? (
                       <span
-                        className="payment-confirmation-panel__note-title"
-                        style={{ color: c.primary }}
+                        className={`payment-confirmation-panel__note-source payment-confirmation-panel__note-source--${entry.source}`}
+                        aria-label={entry.source === 'carrier' ? 'Carrier' : 'Credyx'}
+                        title={entry.source === 'carrier' ? 'Carrier' : 'Credyx'}
                       >
-                        {entry.title}
+                        <span className="payment-confirmation-panel__note-source-dot" aria-hidden />
                       </span>
+                    ) : (
+                      <span className="payment-confirmation-panel__note-source" aria-hidden>
+                        <span className="payment-confirmation-panel__note-source-dot" />
+                      </span>
+                    )}
+                    <div className="payment-confirmation-panel__note-head">
+                      <div className="payment-confirmation-panel__note-title-row">
+                        <span className="payment-confirmation-panel__note-title">{entry.title}</span>
+                      </div>
                       <time
                         className="payment-confirmation-panel__note-date tabular-nums"
-                        style={{ color: c.mutedLight }}
                         dateTime={entry.timestamp}
                       >
                         {formatDate(entry.timestamp)}
                       </time>
                     </div>
-                    <p
-                      className="payment-confirmation-panel__note-detail"
-                      style={{ color: c.secondary }}
-                    >
-                      {entry.detail}
-                    </p>
+                    <p className="payment-confirmation-panel__note-detail">{entry.detail}</p>
+                    {entry.meta ? (
+                      <p className="payment-confirmation-panel__note-meta">{entry.meta}</p>
+                    ) : null}
                   </li>
                 ))}
               </ol>
@@ -445,7 +483,7 @@ export default function PaymentConfirmationPanel({
       </div>
 
       {hasFooterActions ? (
-        <footer className="payment-confirmation-panel__footer" style={{ borderColor: c.border }}>
+        <footer className="payment-confirmation-panel__footer shrink-0" style={{ borderColor: c.border }}>
           <div className="payment-confirmation-panel__footer-actions">
             {canConfirmOnInvoice ? (
               <>

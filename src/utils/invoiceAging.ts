@@ -81,6 +81,21 @@ export function getInvoiceAgeDays(invoice: Invoice, asOf: Date = new Date()): nu
   return Math.max(0, Math.floor((today.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24)))
 }
 
+/**
+ * Display age — stops increasing once the invoice is paid.
+ * Pass `payDate` (confirmed received date) to freeze at settlement; otherwise uses updated_at.
+ */
+export function getDisplayInvoiceAgeDays(
+  invoice: Invoice,
+  options?: { payDate?: string | null; asOf?: Date }
+): number {
+  if (invoice.status === 'paid') {
+    const freezeAt = options?.payDate || invoice.updated_at || invoice.invoice_date
+    return getInvoiceAgeDays(invoice, new Date(freezeAt))
+  }
+  return getInvoiceAgeDays(invoice, options?.asOf ?? new Date())
+}
+
 /** Days past expected payment (0 if closed or not yet due). */
 export function getDaysOutstanding(invoice: Invoice, asOf: Date = new Date()): number {
   if (
@@ -157,7 +172,7 @@ export function getAgingBucket(invoice: Invoice, daysOutstanding: number): Aging
 }
 
 export function enrichInvoice(invoice: Invoice, asOf: Date = new Date()): EnrichedInvoice {
-  const invoiceAgeDays = getInvoiceAgeDays(invoice, asOf)
+  const invoiceAgeDays = getDisplayInvoiceAgeDays(invoice, { asOf: asOf })
   const daysOutstanding = getDaysOutstanding(invoice, asOf)
   const isOverdue = isInvoiceOverdue(invoice, asOf)
   const isForceCloseEligibleFlag = isForceCloseEligible(invoice, asOf)
