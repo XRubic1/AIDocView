@@ -894,7 +894,11 @@ export default function ClientReports() {
                   interactive={false}
                   className="client-reports-panel-card"
                 >
-                  <PaymentTrendsChart payments={clientPayments} compact />
+                  <PaymentTrendsChart
+                    payments={clientPayments}
+                    invoices={clientInvoices}
+                    compact
+                  />
                 </DashboardPanel>
               </ReportPanel>
             </div>

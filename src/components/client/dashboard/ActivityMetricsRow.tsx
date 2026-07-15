@@ -29,7 +29,8 @@ const TONE_VARIANT: Record<ActivityTone, string> = {
   blue: 'pending',
   amber: 'hold',
   red: 'overdue',
-  slate: 'pending',
+  // Zero / non-actionable metrics — gray, not warning-tinted
+  slate: 'neutral',
 }
 
 interface ActivityMetricCardProps {
@@ -110,8 +111,9 @@ interface ActivityMetricsRowProps extends ActivityMetricsInput {
 /**
  * "Today's Activity" metric cards that replace the static status row: payments
  * received and batches processed over the last {windowDays} days, plus the
- * all-time held and overdue invoice counts. Held/overdue cards flash a faint
- * indicator when new invoices appear, clearing once the user interacts.
+ * all-time held and overdue invoice counts. Warning/error tints only apply when
+ * the count is > 0; zeros stay neutral gray. Held/overdue cards flash when new
+ * items appear, clearing once the user interacts.
  */
 export default function ActivityMetricsRow({
   invoices,

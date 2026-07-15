@@ -370,6 +370,12 @@
   border-left-color: var(--cp-warning);
 }
 
+/* Zero / non-actionable — neutral gray, no warning tint */
+.client-portal .dashboard-status-card--neutral {
+  background: var(--cp-stat-slate-bg);
+  border-left-color: #94a3b8;
+}
+
 /* Pending payment confirmation — high-visibility when count > 0 */
 .client-portal .dashboard-status-card--confirm-attention {
   background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 55%, #fed7aa 100%);
@@ -494,6 +500,10 @@
 
 .client-portal .dashboard-status-card__icon--overdue {
   color: var(--cp-error);
+}
+
+.client-portal .dashboard-status-card__icon--neutral {
+  color: #64748b;
 }
 
 .client-portal .dashboard-status-card__label {

@@ -8,8 +8,10 @@ import {
   Plus,
   BarChart3,
   ArrowUpRight,
+  ArrowDownRight,
   Activity,
 } from 'lucide-react'
+import { computeOpenArMonthlyTrend } from '../utils/openArTrend'
 import SimpleUploadModal from '../components/client/SimpleUploadModal'
 import AgingARChart from '../components/client/AgingARChart'
 import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
@@ -88,25 +90,22 @@ export default function ClientDashboard() {
   const totalArAnimated = useCountUp(data.summary.total_ar, { decimals: 2 })
   const arSparklineGradientId = useId().replace(/:/g, '')
 
-  const invoicedSparkline = useMemo(() => {
-    const now = new Date()
-    const months: { amount: number }[] = []
+  /** Open A/R month-ends from invoice + payment history (sparkline + MoM %). */
+  const openArTrend = useMemo(
+    () => computeOpenArMonthlyTrend(clientInvoices, clientPayments, 6),
+    [clientInvoices, clientPayments]
+  )
 
-    for (let offset = 5; offset >= 0; offset -= 1) {
-      const monthDate = new Date(now.getFullYear(), now.getMonth() - offset, 1)
-      const year = monthDate.getFullYear()
-      const month = monthDate.getMonth()
-      const total = clientInvoices
-        .filter((invoice) => {
-          const invoiceDate = new Date(invoice.invoice_date)
-          return invoiceDate.getFullYear() === year && invoiceDate.getMonth() === month
-        })
-        .reduce((sum, invoice) => sum + invoice.amount, 0)
-      months.push({ amount: total })
-    }
+  const arMomLabel = useMemo(() => {
+    const pct = openArTrend.momPct
+    if (pct == null || !Number.isFinite(pct)) return 'No prior month'
+    const rounded = Math.abs(pct) >= 10 ? pct.toFixed(0) : pct.toFixed(1)
+    const sign = pct > 0 ? '+' : ''
+    return `${sign}${rounded}% vs last month`
+  }, [openArTrend.momPct])
 
-    return months
-  }, [clientInvoices])
+  const arMomRising = (openArTrend.momPct ?? 0) > 0.05
+  const arMomFalling = (openArTrend.momPct ?? 0) < -0.05
 
   const recentPayments = useMemo(
     () =>
@@ -215,15 +214,29 @@ export default function ClientDashboard() {
                 </p>
                 <p
                   className="payment-kpi-card__subtitle inline-flex items-center gap-1"
-                  style={{ color: c.success }}
+                  style={{
+                    color: arMomFalling
+                      ? c.success
+                      : arMomRising
+                        ? c.warning
+                        : c.mutedLight,
+                  }}
+                  title="Change in open A/R vs prior month-end"
                 >
-                  <ArrowUpRight className="w-3 h-3" />
-                  +12% vs last month
+                  {arMomRising ? (
+                    <ArrowUpRight className="w-3 h-3" aria-hidden />
+                  ) : arMomFalling ? (
+                    <ArrowDownRight className="w-3 h-3" aria-hidden />
+                  ) : null}
+                  {arMomLabel}
                 </p>
               </div>
               <div className="payment-kpi-card__sparkline" aria-hidden>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={invoicedSparkline} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                  <AreaChart
+                    data={openArTrend.points}
+                    margin={{ top: 4, right: 0, left: 0, bottom: 0 }}
+                  >
                     <defs>
                       <linearGradient id={arSparklineGradientId} x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={c.accent} stopOpacity={0.22} />
@@ -276,7 +289,7 @@ export default function ClientDashboard() {
             <AgingARChart aging={data.aging_ar} />
           </DashboardPanel>
           <DashboardPanel title="Payment Trends" compact interactive={false}>
-            <PaymentTrendsChart payments={clientPayments} />
+            <PaymentTrendsChart payments={clientPayments} invoices={clientInvoices} />
           </DashboardPanel>
         </section>
 

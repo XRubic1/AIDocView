@@ -10,11 +10,14 @@ import {
 } from 'recharts'
 import { TrendingUp } from 'lucide-react'
 import { formatCurrency } from '../../utils/format'
-import { Payment } from '../../types/payment'
+import type { Invoice } from '../../types/invoice'
+import type { Payment } from '../../types/payment'
+import { computeCashFlowTrend } from '../../utils/clientReports'
 import { useClientTheme } from '../../theme/ThemeContext'
 
 interface PaymentTrendsChartProps {
   payments: Payment[]
+  invoices?: Invoice[]
   compact?: boolean
 }
 
@@ -29,6 +32,10 @@ function ChartTooltip({
 }) {
   const t = useClientTheme()
   if (!active || !payload?.length) return null
+
+  const seriesLabel = (dataKey: string) =>
+    dataKey === 'collections' ? 'Collections' : 'Invoiced'
+
   return (
     <div
       className="rounded-xl px-3 py-2 text-xs shadow-lg border"
@@ -41,7 +48,7 @@ function ChartTooltip({
         <div key={entry.dataKey} className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
           <span style={{ color: t.primary }}>
-            {entry.dataKey === 'collections' ? 'Collections' : 'Funding'}:{' '}
+            {seriesLabel(entry.dataKey)}:{' '}
             <span className="font-semibold">{formatCurrency(entry.value)}</span>
           </span>
         </div>
@@ -50,44 +57,26 @@ function ChartTooltip({
   )
 }
 
-export default function PaymentTrendsChart({ payments, compact = false }: PaymentTrendsChartProps) {
+export default function PaymentTrendsChart({
+  payments,
+  invoices = [],
+  compact = false,
+}: PaymentTrendsChartProps) {
   const t = useClientTheme()
   const collectionsGradientId = useId().replace(/:/g, '')
-  const fundingGradientId = useId().replace(/:/g, '')
+  const invoicedGradientId = useId().replace(/:/g, '')
 
   const { data, thisMonthTotal, monthChangePct } = useMemo(() => {
-    const today = new Date()
-    const months: Record<string, { collections: number; funding: number }> = {}
+    const cashFlow = computeCashFlowTrend(invoices, payments, 6)
 
-    for (let i = 5; i >= 0; i--) {
-      const date = new Date(today.getFullYear(), today.getMonth() - i, 1)
-      const monthKey = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-      months[monthKey] = { collections: 0, funding: 0 }
-    }
-
-    payments.forEach((payment) => {
-      if (payment.status === 'confirmed') {
-        const paymentDate = new Date(payment.received_date)
-        const monthKey = paymentDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-        if (monthKey in months) {
-          months[monthKey].collections += payment.amount
-          months[monthKey].funding += payment.amount * 0.88
-        }
-      }
-    })
-
-    const chartData = Object.entries(months).map(([month, values]) => ({
-      month: month.split(' ')[0],
-      collections: Math.round(values.collections * 100) / 100,
-      funding: Math.round(values.funding * 100) / 100,
+    const chartData = cashFlow.map((row) => ({
+      month: row.month,
+      collections: Math.round(row.collected * 100) / 100,
+      invoiced: Math.round(row.invoiced * 100) / 100,
     }))
 
-    const currentMonthKey = today.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-    const prevDate = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-    const prevMonthKey = prevDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-
-    const thisMonth = months[currentMonthKey]?.collections ?? 0
-    const prevMonth = months[prevMonthKey]?.collections ?? 0
+    const thisMonth = cashFlow[cashFlow.length - 1]?.collected ?? 0
+    const prevMonth = cashFlow[cashFlow.length - 2]?.collected ?? 0
     const changePct = prevMonth > 0 ? Math.round(((thisMonth - prevMonth) / prevMonth) * 100) : 0
 
     return {
@@ -95,21 +84,12 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
       thisMonthTotal: thisMonth,
       monthChangePct: changePct,
     }
-  }, [payments])
+  }, [invoices, payments])
 
   const hasMonthComparison = useMemo(() => {
-    const today = new Date()
-    const prevDate = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-    const prevMonthKey = prevDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-    return payments.some((payment) => {
-      if (payment.status !== 'confirmed') return false
-      const monthKey = new Date(payment.received_date).toLocaleDateString('en-US', {
-        month: 'short',
-        year: 'numeric',
-      })
-      return monthKey === prevMonthKey
-    })
-  }, [payments])
+    const cashFlow = computeCashFlowTrend(invoices, payments, 6)
+    return (cashFlow[cashFlow.length - 2]?.collected ?? 0) > 0
+  }, [invoices, payments])
 
   if (compact) {
     return (
@@ -179,7 +159,7 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
                 <stop offset="0%" stopColor={t.info} stopOpacity={0.25} />
                 <stop offset="100%" stopColor={t.info} stopOpacity={0} />
               </linearGradient>
-              <linearGradient id={fundingGradientId} x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id={invoicedGradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={t.success} stopOpacity={0.2} />
                 <stop offset="100%" stopColor={t.success} stopOpacity={0} />
               </linearGradient>
@@ -211,11 +191,11 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
             />
             <Area
               type="monotone"
-              dataKey="funding"
-              name="Funding"
+              dataKey="invoiced"
+              name="Invoiced"
               stroke={t.success}
               strokeWidth={2}
-              fill={`url(#${fundingGradientId})`}
+              fill={`url(#${invoicedGradientId})`}
               dot={false}
               activeDot={{ r: 4, fill: t.success }}
             />
@@ -233,7 +213,7 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
         <div className="flex items-center gap-2">
           <span className="w-3 h-3 rounded-full" style={{ backgroundColor: t.success }} />
           <span className="text-xs font-medium" style={{ color: t.secondary }}>
-            Funding
+            Invoiced
           </span>
         </div>
         <span className="text-xs ml-auto" style={{ color: t.mutedLight }}>

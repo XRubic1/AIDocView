@@ -127,6 +127,7 @@ export function computeActivityMetrics(
   const totalActions =
     recentPayments.length + recentBatches.length + recentApprovals.length
 
+  // Warning/error tones only when the count is actionable (> 0); zeros stay slate/neutral.
   const metrics: ActivityMetric[] = [
     {
       key: 'payments',
@@ -136,7 +137,7 @@ export function computeActivityMetrics(
         recentPayments.length > 0
           ? `${formatCompactAmount(paymentsAmount)} · last ${windowDays}d`
           : `Last ${windowDays} days`,
-      tone: 'green',
+      tone: recentPayments.length > 0 ? 'green' : 'slate',
       navigateTo: '/client/payments',
     },
     {
@@ -147,7 +148,7 @@ export function computeActivityMetrics(
         awaitingReceipt.length > 0
           ? `${formatCompactAmount(awaitingReceiptAmount)} · confirm receipt`
           : 'None awaiting',
-      tone: 'amber',
+      tone: awaitingReceipt.length > 0 ? 'amber' : 'slate',
       navigateTo: '/client/payments?status=awaiting_receipt',
       ids: awaitingReceiptIds,
     },
@@ -159,7 +160,7 @@ export function computeActivityMetrics(
         recentBatches.length > 0
           ? `Processed · last ${windowDays}d`
           : `Last ${windowDays} days`,
-      tone: 'blue',
+      tone: recentBatches.length > 0 ? 'blue' : 'slate',
       navigateTo: '/client/batches',
     },
     {
@@ -167,7 +168,7 @@ export function computeActivityMetrics(
       label: 'Held invoices',
       count: heldInvoices,
       detail: heldInvoices > 0 ? 'Awaiting action · all time' : 'None on hold',
-      tone: 'amber',
+      tone: heldInvoices > 0 ? 'amber' : 'slate',
       navigateTo: '/client/invoices?status=hold',
       ids: heldInvoiceIds,
     },
@@ -176,7 +177,7 @@ export function computeActivityMetrics(
       label: 'Overdue invoices',
       count: overdueInvoices,
       detail: overdueInvoices > 0 ? 'Past due · all time' : 'None overdue',
-      tone: 'red',
+      tone: overdueInvoices > 0 ? 'red' : 'slate',
       navigateTo: '/client/invoices?status=overdue',
       ids: overdueInvoiceIds,
     },
