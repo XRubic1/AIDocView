@@ -45,6 +45,7 @@ import {
   ensureUniqueClientInvoiceNumber,
 } from '../utils/clientInvoiceNumbers'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
+import ClientReturnBanner from '../components/client/ClientReturnBanner'
 
 type ClientBatchRow = {
   id: string
@@ -367,8 +368,9 @@ export default function ClientBatches() {
     const next = new URLSearchParams(searchParams)
     next.delete('batch')
     if (next.get('tab') === 'view') next.delete('tab')
-    setSearchParams(next, { replace: true })
-  }, [batches, resumeDraftBatch, searchParams, setSearchParams])
+    // Preserve returnTo so "Back to payment" stays available.
+    setSearchParams(next, { replace: true, state: location.state })
+  }, [batches, resumeDraftBatch, searchParams, setSearchParams, location.state])
 
   const startAiDraft = useCallback(async () => {
     const existing = getClientDraftBatch(clientId, 'ai')
@@ -1315,6 +1317,7 @@ export default function ClientBatches() {
   return (
     <>
       <div className="client-flush-shell flex flex-col min-h-0 flex-1 overflow-hidden">
+        <ClientReturnBanner />
         {activeTab === 'create' && !capabilities.canCreateBatch ? (
           <ManagedDocHandoffView clientId={clientId} clientName={clientName} />
         ) : activeTab === 'create' ? (

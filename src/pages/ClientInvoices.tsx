@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import { getClientInvoices } from '../data/clientDemoData'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientSession } from '../hooks/useClientSession'
@@ -27,6 +27,12 @@ import {
 } from '../utils/clientListPage'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import { getAwaitingReceiptPaymentForInvoice } from '../utils/paymentStatus'
+import ClientReturnBanner from '../components/client/ClientReturnBanner'
+import {
+  clearInvoiceRestoreTarget,
+  peekInvoiceRestoreTarget,
+  stashInvoiceRestoreTarget,
+} from '../utils/paymentRestoreTarget'
 import {
   getClientDisplayBalanceState,
   getClientInvoiceStatusParts,
@@ -78,6 +84,8 @@ export default function ClientInvoices() {
   const useFullPageDetail = useCompactDetailViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const openedHighlightRef = useRef<string | null>(null)
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
   const [invoicesRefreshKey, setInvoicesRefreshKey] = useState(0)
@@ -212,8 +220,11 @@ export default function ClientInvoices() {
   const pageEnd = Math.min(currentPage * pageSize, sortedInvoices.length)
 
   const selectedInvoice = useMemo(
-    () => sortedInvoices.find((inv) => inv.id === selectedInvoiceId) ?? null,
-    [sortedInvoices, selectedInvoiceId]
+    () =>
+      sortedInvoices.find((inv) => inv.id === selectedInvoiceId) ??
+      enrichedInvoices.find((inv) => inv.id === selectedInvoiceId) ??
+      null,
+    [sortedInvoices, enrichedInvoices, selectedInvoiceId]
   )
 
   const detailPanelOpen = Boolean(selectedInvoice) && !detailPanelClosing
@@ -258,6 +269,8 @@ export default function ClientInvoices() {
 
   useEffect(() => {
     if (!selectedInvoiceId) return
+    // Keep a deep-linked invoice selected even if filters temporarily hide it.
+    if (openedHighlightRef.current === selectedInvoiceId) return
     const stillVisible = sortedInvoices.some((inv) => inv.id === selectedInvoiceId)
     if (!stillVisible) {
       if (sortedInvoices.length > 0 && (showInvoiceDetail || !useFullPageDetail)) {
@@ -270,12 +283,23 @@ export default function ClientInvoices() {
   }, [sortedInvoices, selectedInvoiceId, showInvoiceDetail, useFullPageDetail])
 
   const handleViewInvoiceDetail = (invoice: EnrichedInvoice) => {
+    // Remember this invoice so returning from Batches / Payments reopens it.
+    stashInvoiceRestoreTarget(invoice.id)
     setDetailPanelClosing(false)
     setSelectedInvoiceId(invoice.id)
     if (useFullPageDetail) setShowInvoiceDetail(true)
   }
 
   const handleCloseInvoiceDetail = useCallback(() => {
+    openedHighlightRef.current = null
+    clearInvoiceRestoreTarget()
+
+    if (searchParams.get('highlight_invoice')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('highlight_invoice')
+      setSearchParams(next, { replace: true })
+    }
+
     if (useFullPageDetail) {
       setShowInvoiceDetail(false)
       setSelectedInvoiceId(null)
@@ -291,7 +315,7 @@ export default function ClientInvoices() {
       setDetailPanelClosing(false)
       setShowInvoiceDetail(false)
     }, 400)
-  }, [useFullPageDetail, selectedInvoice])
+  }, [useFullPageDetail, selectedInvoice, searchParams, setSearchParams])
 
   const handleViewDocuments = (invoice: Invoice) => {
     setViewingInvoiceDocuments(invoice)
@@ -308,25 +332,62 @@ export default function ClientInvoices() {
 
   useEffect(() => {
     const highlightInvoiceId = searchParams.get('highlight_invoice')
-    if (highlightInvoiceId) {
-      setHighlightedInvoiceId(highlightInvoiceId)
-      setSelectedInvoiceId(highlightInvoiceId)
-      setDetailPanelClosing(false)
-      if (useFullPageDetail) setShowInvoiceDetail(true)
-      const highlightIndex = sortedInvoices.findIndex((inv) => inv.id === highlightInvoiceId)
-      if (highlightIndex >= 0) {
-        setCurrentPage(Math.floor(highlightIndex / pageSize) + 1)
-      }
-      searchParams.delete('highlight_invoice')
-      setSearchParams(searchParams, { replace: true })
+    if (!highlightInvoiceId) return
+    if (openedHighlightRef.current === highlightInvoiceId) return
 
-      const timer = setTimeout(() => {
-        setHighlightedInvoiceId(null)
-      }, 3000)
+    const highlightIndex = enrichedInvoices.findIndex((inv) => inv.id === highlightInvoiceId)
+    // Wait until the invoice list includes the target (async tenant load).
+    if (highlightIndex < 0 && enrichedInvoices.length === 0) return
 
-      return () => clearTimeout(timer)
+    openedHighlightRef.current = highlightInvoiceId
+    setStatusFilter('all')
+    setSearchTerm('')
+    setHighlightedInvoiceId(highlightInvoiceId)
+    setSelectedInvoiceId(highlightInvoiceId)
+    stashInvoiceRestoreTarget(highlightInvoiceId)
+    setDetailPanelClosing(false)
+    if (useFullPageDetail) setShowInvoiceDetail(true)
+
+    if (highlightIndex >= 0) {
+      setCurrentPage(Math.floor(highlightIndex / pageSize) + 1)
     }
-  }, [searchParams, setSearchParams, sortedInvoices, pageSize, useFullPageDetail])
+
+    // Strip the highlight param but keep returnTo / other location state.
+    const next = new URLSearchParams(searchParams)
+    next.delete('highlight_invoice')
+    setSearchParams(next, { replace: true, state: location.state })
+
+    const timer = setTimeout(() => {
+      setHighlightedInvoiceId(null)
+    }, 3000)
+
+    return () => clearTimeout(timer)
+  }, [
+    searchParams,
+    enrichedInvoices,
+    pageSize,
+    setSearchParams,
+    location.state,
+    useFullPageDetail,
+  ])
+
+  // Restore last-open invoice when returning from another tab (Batches, Payments, etc.).
+  useEffect(() => {
+    if (searchParams.get('highlight_invoice')) return
+    const stashedId = peekInvoiceRestoreTarget()
+    if (!stashedId) return
+    if (openedHighlightRef.current === stashedId) return
+    if (enrichedInvoices.length === 0) return
+
+    const index = enrichedInvoices.findIndex((inv) => inv.id === stashedId)
+    if (index < 0) return
+
+    openedHighlightRef.current = stashedId
+    setSelectedInvoiceId(stashedId)
+    setDetailPanelClosing(false)
+    if (useFullPageDetail) setShowInvoiceDetail(true)
+    setCurrentPage(Math.floor(index / pageSize) + 1)
+  }, [enrichedInvoices, searchParams, pageSize, useFullPageDetail])
 
   const inputCompactStyle = {
     backgroundColor: c.card,
@@ -354,6 +415,7 @@ export default function ClientInvoices() {
   return (
     <>
       <div className="client-invoices-page overflow-hidden flex flex-col min-h-0">
+        <ClientReturnBanner />
         {useFullPageDetail && showInvoiceDetail && selectedInvoice && invoiceDetailPanelProps ? (
           <InvoiceDetailPanel variant="mobile" {...invoiceDetailPanelProps} />
         ) : (

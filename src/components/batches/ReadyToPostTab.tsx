@@ -30,6 +30,7 @@ export default function ReadyToPostTab({
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [showAccountingModal, setShowAccountingModal] = useState(false)
   const [, setReviewRefresh] = useState(0)
+  const [batchRefresh, setBatchRefresh] = useState(0)
 
   // Find the batch - search in all batches, not just filtered ones
   const allBatches = getAllBatches()

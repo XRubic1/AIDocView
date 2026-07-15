@@ -99,6 +99,20 @@ export function buildPaymentChildMap(
       attachChild(root.id, active[i])
     }
 
+    // Rejected / reversed rows nest under the invoice parent when one exists (same UX as short/over).
+    for (const payment of invoicePayments) {
+      if (payment.status !== 'rejected' && payment.status !== 'reversed') continue
+      if (payment.id === root.id) continue
+      // Cross-invoice moved-fund rows link to their source in the block below.
+      if (
+        payment.moved_from_payment_id &&
+        !active.some((p) => p.id === payment.moved_from_payment_id)
+      ) {
+        continue
+      }
+      attachChild(root.id, payment)
+    }
+
     // Moved-fund rows stay linked to their source when it is outside this invoice group.
     for (const payment of invoicePayments) {
       if (!payment.moved_from_payment_id) continue
@@ -162,6 +176,11 @@ export function isShortPaymentChild(payment: Payment): boolean {
   return isShortPayment(payment)
 }
 
+/** Rejected / reversed rows nested under a parent — excluded from supplemental totals. */
+export function isInactivePaymentChild(payment: Payment): boolean {
+  return payment.status === 'rejected' || payment.status === 'reversed'
+}
+
 /** True when a nested child payment was posted after the invoice was already fully paid. */
 export function isOverpaymentChild(
   payment: Payment,
@@ -169,6 +188,7 @@ export function isOverpaymentChild(
   invoiceAmount: number
 ): boolean {
   if (invoiceAmount <= 0) return false
+  if (isInactivePaymentChild(payment)) return false
   const receivedBefore = getCumulativeReceivedBeforePayment(payment, allPayments)
   return receivedBefore >= invoiceAmount - AMOUNT_EPSILON
 }

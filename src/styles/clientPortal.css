@@ -1,14 +1,45 @@
-/* Client sidebar — smooth rail ↔ flyout width */
+/* Client sidebar — width slide reveals labels (no opacity fade) */
 .client-portal .client-sidebar-rail {
   overflow: hidden;
   transition:
-    width 0.32s cubic-bezier(0.32, 0.72, 0, 1),
-    box-shadow 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    width 0.2s cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 0.2s cubic-bezier(0.32, 0.72, 0, 1);
   will-change: width;
 }
 
 .client-portal .client-sidebar-rail--flyout {
   z-index: 45;
+}
+
+/*
+ * One selection treatment for collapsed + expanded:
+ * same left/right inset and fill; the chip simply grows as the rail widens.
+ * overflow:hidden clips labels in the narrow rail so letters don't peek.
+ */
+.client-portal .client-sidebar-nav-item {
+  margin-inline: 8px;
+  width: calc(100% - 16px);
+  min-height: 32px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.client-portal .client-sidebar-nav-item__badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -229,6 +260,11 @@
   flex-shrink: 0;
 }
 
+/* Dashboard — page greeting header (sits on page bg, not in a card) */
+.client-portal .dashboard-page-header {
+  border-bottom: 1px solid var(--cp-border);
+}
+
 .client-portal .dashboard-metric-primary {
   padding: 20px;
   min-height: 110px;
@@ -246,67 +282,74 @@
   gap: 12px;
 }
 
-/* Dashboard — hero KPI anchor */
+/* Dashboard — compact A/R summary strip (matches collection forecast layout) */
 .client-portal .dashboard-kpi-hero {
   position: relative;
-  padding: 16px 22px;
-  min-height: 104px;
+  min-height: 68px;
   background: var(--cp-accent-light);
-  border-left: 3px solid var(--cp-accent);
+  border: none;
+  box-shadow: none;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.client-portal .dashboard-kpi-hero__value {
-  font-size: 36px;
-  font-weight: 700;
-  line-height: 1;
-  margin-top: 4px;
-  letter-spacing: -0.02em;
-}
-
-.client-portal .dashboard-kpi-hero__footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-  flex-wrap: wrap;
-}
-
-.client-portal .dashboard-kpi-hero__trend {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.client-portal .dashboard-inline-sparkline {
-  width: 72px;
-  height: 22px;
-  flex-shrink: 0;
-  display: block;
 }
 
 .client-portal .dashboard-kpi-companion {
   opacity: 0.92;
+  border: none;
+  box-shadow: none;
+}
+
+.client-portal .total-ar-kpi-card {
+  flex: 1;
+  border: none;
+  border-bottom: none;
+  box-shadow: none !important;
+  padding: 10px 16px;
+  min-height: 100%;
+  background: transparent;
+}
+
+.client-portal .total-ar-kpi-card .payment-kpi-card__value {
+  font-size: 1.5rem;
+}
+
+.client-portal .total-ar-kpi-card .payment-kpi-card__title {
+  margin-bottom: 2px;
+}
+
+.client-portal .total-ar-kpi-card .payment-kpi-card__subtitle {
+  margin-top: 2px;
+}
+
+@media (min-width: 768px) {
+  .client-portal .total-ar-kpi-card .payment-kpi-card__sparkline {
+    flex-basis: 112px;
+    width: 112px;
+    height: 44px;
+  }
 }
 
 .client-portal .dashboard-kpi-companion .payment-kpi-card__value {
   font-size: 1.5rem;
 }
 
-/* Dashboard — status metric cards (left accent matches dashboard-kpi-hero) */
+.client-portal .dashboard-kpi-companion .payment-kpi-card__title {
+  margin-bottom: 2px;
+}
+
+.client-portal .dashboard-kpi-companion .payment-kpi-card__subtitle {
+  margin-top: 2px;
+}
+
+/* Dashboard — compact activity stat chips (left accent matches dashboard-kpi-hero) */
 .client-portal .dashboard-status-card {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 11px 14px 11px 18px;
+  gap: 2px;
+  padding: 8px 12px 8px 14px;
   border: 1px solid var(--cp-border);
   border-left-width: 3px;
-  border-radius: 16px;
+  border-radius: 12px;
   box-shadow: var(--cp-shadow-card);
   text-align: left;
   cursor: pointer;
@@ -421,7 +464,7 @@
 .client-portal .dashboard-status-card__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -429,8 +472,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   border-radius: 9999px;
   flex-shrink: 0;
   background: var(--cp-card);
@@ -454,8 +497,9 @@
 }
 
 .client-portal .dashboard-status-card__label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
+  line-height: 1.2;
   color: var(--cp-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -463,27 +507,28 @@
 }
 
 .client-portal .dashboard-status-card__count {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.15;
   color: var(--cp-primary);
-  padding-left: 36px;
+  padding-left: 30px;
 }
 
 .client-portal .dashboard-status-card__context {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
+  line-height: 1.25;
   color: var(--cp-muted-light);
-  padding-left: 36px;
+  padding-left: 30px;
 }
 
 /* Dashboard — "new item" flashing indicator (held / overdue cards) */
 .client-portal .dashboard-status-card__alert {
   position: absolute;
-  top: 12px;
-  right: 14px;
-  width: 9px;
-  height: 9px;
+  top: 8px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 9999px;
   pointer-events: none;
 }
@@ -692,6 +737,11 @@
 .client-portal .timeline-dot--default {
   border-color: var(--cp-accent);
   background: var(--cp-card);
+}
+
+.client-portal .timeline-dot--overdue {
+  border-color: var(--cp-error);
+  background: var(--cp-attention-bg);
 }
 
 .client-portal .alert-inline {
@@ -2176,15 +2226,6 @@
   background: #fef2f2;
 }
 
-.client-portal .invoice-row--needs-attention {
-  background: #fffbeb;
-  box-shadow: inset 3px 0 0 #f59e0b;
-}
-
-.client-portal .invoice-row--needs-attention:hover {
-  background: #fef3c7;
-}
-
 .client-portal .invoice-detail-note-entry {
   padding: 8px 14px;
   border-bottom: 1px solid #f1f5f9;
@@ -2299,7 +2340,6 @@
 }
 
 .client-portal .client-main--flush .client-invoices-page,
-.client-portal .client-main--flush .admin-invoice-search-page,
 .client-portal .client-main--flush .client-collections-page,
 .client-portal .client-main--flush .client-batches-page,
 .client-portal .client-main--flush .admin-batches-page,
@@ -2341,6 +2381,14 @@
 
 .client-portal .client-invoices-page .client-stat-strip > * {
   padding-top: 0.7rem !important;
+  padding-bottom: calc(0.7rem - 2px) !important;
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+  min-height: calc(3rem - 2px);
+}
+
+.client-portal .client-payments-page .client-stat-strip > * {
+  padding-top: 0.7rem !important;
   padding-bottom: 0.7rem !important;
   padding-left: 1rem !important;
   padding-right: 1rem !important;
@@ -2352,12 +2400,29 @@
   line-height: 1.25;
 }
 
+.client-portal .client-payments-page .client-stat-strip .text-lg {
+  font-size: 1.125rem;
+  line-height: 1.25;
+}
+
 .client-portal .client-invoices-page .client-page-toolbar {
   padding-top: 0.35rem !important;
   padding-bottom: 0.35rem !important;
 }
 
+.client-portal .client-payments-page .client-page-toolbar {
+  padding-top: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+}
+
 .client-portal .client-invoices-page .client-page-toolbar .client-input {
+  height: 30px !important;
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  font-size: 12px !important;
+}
+
+.client-portal .client-payments-page .client-page-toolbar .client-input {
   height: 30px !important;
   padding-top: 4px !important;
   padding-bottom: 4px !important;
@@ -2425,18 +2490,6 @@
   width: 13%;
 }
 
-/* Credyx Invoice Search — extra Client column between Load# and Broker */
-.client-portal .admin-invoice-search-page .dashboard-table th.client-list-td--client,
-.client-portal .admin-invoice-search-page .dashboard-table td.client-list-td--client {
-  width: 12%;
-}
-
-.client-portal .admin-invoice-search-page .dashboard-table th.client-list-td--broker,
-.client-portal .admin-invoice-search-page .dashboard-table td.client-list-td--broker {
-  width: 14%;
-}
-
-.client-portal .client-invoices-page .dashboard-table td.client-list-td--client .client-list-td__clip,
 .client-portal .client-invoices-page .dashboard-table td.client-list-td--broker .client-list-td__clip,
 .client-portal .client-invoices-page .dashboard-table td.client-list-td--batch .client-list-td__clip {
   display: block;
@@ -2673,200 +2726,11 @@
   }
 }
 
-/* Admin Payment Posting — flush, no hero, fill remaining viewport */
-.client-portal .admin-payment-posting-page .admin-post-payment-shell {
-  background: var(--cp-surface, #f8fafc);
-}
-
-.client-portal .admin-payment-posting-page .post-payment-workspace--admin {
-  height: 100%;
-  padding: 0.5rem 0.75rem;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.client-portal .admin-payment-posting-page .post-payment-workspace--admin .post-payment-workspace__form {
-  max-width: none;
-  margin: 0;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-  gap: 0;
-}
-
-.client-portal .admin-payment-posting-page .post-payment-workspace--admin .post-payment-workspace__panels {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-  align-items: stretch;
-  gap: 0.5rem;
-}
-
-@media (min-width: 900px) {
-  .client-portal .admin-payment-posting-page .post-payment-workspace--admin .post-payment-workspace__panels {
-    grid-template-columns: minmax(240px, 300px) 1fr;
-  }
-}
-
-.client-portal .admin-payment-posting-page .post-payment-workspace--admin .post-payment-picker,
-.client-portal .admin-payment-posting-page .post-payment-workspace--admin .post-payment-entry {
-  min-height: 0;
-  max-height: none;
-  height: 100%;
-  overflow: hidden;
-  padding: 0.625rem 0.75rem;
-  gap: 0.5rem;
-}
-
-.client-portal .admin-payment-posting-page .post-payment-workspace--admin .post-payment-entry--compact {
-  padding: 0;
-  gap: 0;
-}
-
-.client-portal .admin-payment-posting-page .post-payment-workspace--admin .post-payment-picker__row {
-  padding: 0.4rem 0.55rem;
-}
-
-.client-portal .admin-payment-posting-page .post-payment-workspace--admin .post-payment-picker__inv-num {
-  font-size: 0.8125rem;
-}
-
-.client-portal .admin-payment-posting-page .post-payment-workspace--admin .client-input {
-  height: 30px;
-  padding-top: 4px;
-  padding-bottom: 4px;
-  font-size: 12px;
-}
-
-.client-portal .admin-payment-posting-page .post-payment-workspace--admin .client-label {
-  font-size: 11px;
-  margin-bottom: 2px;
-}
-
-.client-portal .post-payment-entry--compact {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 0;
-  overflow: hidden;
-}
-
-.client-portal .post-payment-entry__scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0.625rem 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-}
-
-.client-portal .post-payment-entry__sticky-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-top: 1px solid #e5e7eb;
-  background: #fff;
-  flex-shrink: 0;
-}
-
-.client-portal .post-payment-entry__fields--compact {
-  gap: 0.5rem;
-}
-
-@media (min-width: 540px) {
-  .client-portal .post-payment-entry__fields--compact {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .client-portal .post-payment-entry__fields--compact .post-payment-entry__field--wide {
-    grid-column: span 2;
-  }
-
-  .client-portal .post-payment-entry__fields--compact .post-payment-entry__field--amount {
-    grid-column: span 1;
-  }
-}
-
-.client-portal .post-payment-correction-preview {
-  border: 1px solid #e5e7eb;
-  border-radius: 0.5rem;
-  background: #f9fafb;
-  padding: 0.625rem 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.client-portal .post-payment-correction-preview__inv {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--cp-text, #0f172a);
-  margin: 0;
-}
-
-.client-portal .post-payment-correction-preview__meta {
-  font-size: 0.75rem;
-  color: #6b7280;
-  margin: 0.125rem 0 0;
-}
-
-.client-portal .post-payment-correction-preview__explain {
-  font-size: 0.75rem;
-  color: #4b5563;
-  margin: 0;
-  line-height: 1.35;
-}
-
-.client-portal .post-payment-correction-preview__math {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  padding-top: 0.25rem;
-  border-top: 1px solid #e5e7eb;
-}
-
-.client-portal .post-payment-correction-preview__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  font-size: 0.75rem;
-  color: #4b5563;
-}
-
-.client-portal .post-payment-correction-preview__row--reduce {
-  color: #be123c;
-}
-
-.client-portal .post-payment-correction-preview__row--result {
-  color: #0f172a;
-  padding-top: 0.25rem;
-  margin-top: 0.125rem;
-  border-top: 1px dashed #e5e7eb;
-}
-
-.client-portal .post-payment-correction-preview__warn {
-  margin: 0.25rem 0 0;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  color: #be123c;
-}
-
-.client-portal .post-payment-correction-preview__hint {
-  margin: 0.25rem 0 0;
-  font-size: 0.6875rem;
-  color: #6b7280;
-}
-
 .client-portal .post-payment-panel__step {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--cp-text, #0f172a);
   margin: 0;
@@ -2891,10 +2755,9 @@
   flex-direction: column;
   gap: 0.625rem;
   padding: 1rem;
-  border: 1px solid #f3f4f6;
-  border-radius: 0.5rem;
+  border: 1px solid var(--cp-border, #e2e8f0);
+  border-radius: 0.625rem;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
   min-height: 320px;
   max-height: min(70vh, 640px);
 }
@@ -2975,9 +2838,9 @@
 
 .client-portal .post-payment-picker__row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.75rem;
   width: 100%;
   padding: 0.625rem 0.75rem;
   text-align: left;
@@ -2986,36 +2849,6 @@
   background: #fff;
   cursor: pointer;
   transition: background-color 0.12s ease, box-shadow 0.12s ease;
-}
-
-.client-portal .post-payment-picker__row--compact {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.35rem 0.55rem;
-  min-height: 0;
-}
-
-.client-portal .post-payment-picker__row--compact .post-payment-picker__inv-num {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.client-portal .post-payment-picker__row--compact .post-payment-picker__count-chip {
-  justify-self: start;
-  font-size: 0.6875rem;
-  padding: 0.05rem 0.4rem;
-}
-
-.client-portal .post-payment-picker__row--compact .post-payment-picker__total {
-  font-size: 0.75rem;
-  font-weight: 700;
-  justify-self: end;
-  white-space: nowrap;
 }
 
 .client-portal .post-payment-picker__row:last-child {
@@ -3032,21 +2865,8 @@
 }
 
 .client-portal .post-payment-picker__row--disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
-  color: #9ca3af;
-  background: #f9fafb;
-}
-
-.client-portal .post-payment-picker__row--disabled .post-payment-picker__inv-num,
-.client-portal .post-payment-picker__row--disabled .post-payment-picker__total,
-.client-portal .post-payment-picker__row--disabled .post-payment-picker__row-meta,
-.client-portal .post-payment-picker__row--disabled .post-payment-picker__received,
-.client-portal .post-payment-picker__row--disabled .post-payment-picker__muted-chip,
-.client-portal .post-payment-picker__row--disabled .post-payment-picker__count-chip {
-  color: #9ca3af;
-  border-color: #e5e7eb;
-  background: #f3f4f6;
 }
 
 .client-portal .post-payment-picker__row-main {
@@ -3067,29 +2887,9 @@
   color: var(--cp-text, #0f172a);
 }
 
-.client-portal .post-payment-picker__count-chip,
-.client-portal .post-payment-picker__muted-chip {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 9999px;
-  background: #f3f4f6;
-  color: #4b5563;
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1.25;
-  padding: 0.125rem 0.5rem;
-  border: 1px solid transparent;
-}
-
-.client-portal .post-payment-picker__muted-chip {
-  color: #9ca3af;
-  background: #f9fafb;
-  border-color: #e5e7eb;
-}
-
 .client-portal .post-payment-picker__row-meta {
-  font-size: 0.8125rem;
-  color: #6b7280;
+  font-size: 0.6875rem;
+  color: var(--cp-text-muted, #64748b);
   margin-top: 0.125rem;
   white-space: nowrap;
   overflow: hidden;
@@ -3100,57 +2900,14 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.25rem;
+  gap: 0.125rem;
   flex-shrink: 0;
 }
 
 .client-portal .post-payment-picker__total {
   font-size: 0.8125rem;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--cp-text, #0f172a);
-}
-
-.client-portal .post-payment-picker__received-row {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-}
-
-.client-portal .post-payment-picker__received {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: #6b7280;
-}
-
-.client-portal .post-payment-picker__pending-note {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: #6b7280;
-}
-
-.client-portal .post-payment-picker__variance-badge {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1.25;
-  padding: 0.125rem 0.5rem;
-  white-space: nowrap;
-}
-
-.client-portal .post-payment-picker__variance-badge--short {
-  background: #fff1f2;
-  color: #be123c;
-  border: 1px solid #fecdd3;
-}
-
-.client-portal .post-payment-picker__variance-badge--over {
-  background: #fffbeb;
-  color: #b45309;
-  border: 1px solid #fde68a;
 }
 
 .client-portal .post-payment-picker__total.post-payment-picker__balance--open,
@@ -3218,15 +2975,13 @@
   flex-direction: column;
   gap: 1rem;
   padding: 1rem 1.25rem;
-  border: 1px solid #f3f4f6;
-  border-radius: 0.5rem;
+  border: 1px solid var(--cp-border, #e2e8f0);
+  border-radius: 0.625rem;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
   min-height: 320px;
 }
 
 .client-portal .post-payment-entry__placeholder {
-  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -3234,54 +2989,9 @@
   justify-content: center;
   text-align: center;
   padding: 2rem 1rem;
-  min-height: 280px;
-  border: 1px dashed #e5e7eb;
+  border: 1px dashed var(--cp-border, #e2e8f0);
   border-radius: 0.5rem;
-  background: #f9fafb;
-  overflow: hidden;
-}
-
-.client-portal .post-payment-entry__placeholder-skeleton {
-  position: absolute;
-  inset: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  opacity: 0.3;
-  pointer-events: none;
-}
-
-.client-portal .post-payment-entry__skeleton-block {
-  border-radius: 0.375rem;
-  background: #d1d5db;
-}
-
-.client-portal .post-payment-entry__skeleton-block--label {
-  width: 4.5rem;
-  height: 0.625rem;
-}
-
-.client-portal .post-payment-entry__skeleton-block--field {
-  width: 100%;
-  height: 2.25rem;
-  margin-bottom: 0.5rem;
-}
-
-.client-portal .post-payment-entry__skeleton-block--narrow {
-  width: 42%;
-}
-
-.client-portal .post-payment-entry__skeleton-block--tall {
-  height: 4.5rem;
-}
-
-.client-portal .post-payment-entry__placeholder-content {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 0 1.5rem;
+  background: var(--cp-surface, #f8fafc);
 }
 
 .client-portal .post-payment-entry__fieldset {
@@ -3407,12 +3117,9 @@
   border-width: 2px;
 }
 
-.client-portal .invoice-balance-summary__fig--short {
-  border-color: #fecaca;
-}
-
+.client-portal .invoice-balance-summary__fig--short,
 .client-portal .invoice-balance-summary__fig--open {
-  border-color: #bfdbfe;
+  border-color: #fecaca;
 }
 
 .client-portal .invoice-balance-summary__fig--written-off {
@@ -3847,6 +3554,50 @@
   box-shadow: inset 3px 0 0 var(--cp-accent, #3b82f6);
 }
 
+.client-portal .payment-row__invoice-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.client-portal .payment-row__expand-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+}
+
+.client-portal .payment-row__expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cp-secondary, #64748b);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.client-portal .payment-row__expand-btn:hover {
+  background: color-mix(in srgb, var(--cp-accent, #3b82f6) 12%, transparent);
+  color: var(--cp-primary, #0f172a);
+}
+
+.client-portal .payment-row__expand-icon {
+  transition: transform 150ms ease;
+}
+
+.client-portal .payment-row__expand-icon--open {
+  transform: rotate(90deg);
+}
+
 .client-portal .payment-amount--short {
   color: #b91c1c;
 }
@@ -3871,6 +3622,35 @@
   border-bottom: 2px solid var(--cp-muted-light, #94a3b8);
   transform: translateY(-65%);
   opacity: 0.85;
+}
+
+.client-portal .payment-row__event-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.client-portal .payment-row__event-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cp-secondary, #475569);
+}
+
+.client-portal .payment-row__event-label--short {
+  color: #b45309;
+}
+
+.client-portal .payment-row__event-label--over,
+.client-portal .payment-row__event-label--additional {
+  color: #15803d;
+}
+
+.client-portal .payment-row__event-label--rejected {
+  color: #b91c1c;
+}
+
+.client-portal .payment-row__event-label--reversed {
+  color: #64748b;
 }
 
 .client-portal .payment-variance-indicator {
@@ -3962,7 +3742,8 @@
 
 .client-portal .payment-row__child-meta {
   font-size: 11px;
-  color: var(--cp-muted-light, #94a3b8);
+  font-weight: 500;
+  color: var(--cp-secondary, #475569);
 }
 
 .client-portal .payment-row__orphan-invoice {
@@ -6173,7 +5954,55 @@
   font-weight: 600;
 }
 
-/* Aging A/R chart — compact single-row legend */
+/* Aging A/R — compact stacked distribution (no tall chart) */
+.client-portal .aging-ar-chart__buckets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.client-portal .aging-ar-chart__bucket-row {
+  display: grid;
+  grid-template-columns: 8px 40px minmax(0, 1fr) auto 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.client-portal .aging-ar-chart__bucket-label {
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.client-portal .aging-ar-chart__bucket-track {
+  height: 6px;
+  border-radius: 9999px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.client-portal .aging-ar-chart__bucket-fill {
+  height: 100%;
+  border-radius: 9999px;
+  min-width: 0;
+}
+
+.client-portal .aging-ar-chart__bucket-amount {
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.client-portal .aging-ar-chart__bucket-pct {
+  font-size: 10px;
+  font-weight: 500;
+  text-align: right;
+}
+
 .client-portal .aging-ar-chart__legend {
   display: flex;
   flex-wrap: wrap;
@@ -6697,6 +6526,15 @@
   border: 2px solid #3b82f6;
 }
 
+/* Inline status dot inside dashboard tables (Recent Actions, etc.) */
+.client-portal .timeline-dot--inline {
+  position: static;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+
 /* Flush list pages — tab bar above stat strip */
 .client-portal .client-page-tabs-bar {
   display: flex;
@@ -6712,10 +6550,10 @@
   display: flex;
   gap: 4px;
   padding: 4px;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 12px;
-  box-shadow: none;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
   width: fit-content;
 }
 
@@ -6726,12 +6564,11 @@
   padding: 8px 16px;
   border-radius: 8px;
   font-size: 13px;
-  font-weight: 400;
-  color: #6b7280;
+  font-weight: 500;
+  color: #64748b;
   background: transparent;
   border: none;
   cursor: pointer;
-  box-shadow: none;
   transition: all 0.2s ease;
 }
 
@@ -6742,9 +6579,8 @@
 
 .client-portal .page-tab--active {
   color: #0f172a;
-  background: #ffffff;
-  font-weight: 500;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  background: #eff6ff;
+  font-weight: 600;
 }
 
 .client-portal .page-tab svg {
@@ -6768,17 +6604,16 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 6px 16px;
+  padding: 5px 12px;
   border-radius: 6px;
   font-size: 12px;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1;
-  color: #6b7280;
+  color: #64748b;
   background: transparent;
   border: none;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: none;
   transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -6788,7 +6623,7 @@
 
 .client-portal .client-segmented-control__btn--active {
   color: #0f172a;
-  font-weight: 500;
+  font-weight: 600;
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
@@ -8079,21 +7914,22 @@
 
 .client-portal .collection-forecast-kpi-card {
   flex: 1;
+  border: none;
   border-bottom: none;
-  box-shadow: none;
-  padding: 18px 20px;
+  box-shadow: none !important;
+  padding: 10px 16px;
   min-height: 100%;
 }
 
 @media (min-width: 768px) {
   .client-portal .collection-forecast-kpi-card .payment-kpi-card__value {
-    font-size: 1.75rem;
+    font-size: 1.5rem;
   }
 
   .client-portal .collection-forecast-kpi-card .payment-kpi-card__sparkline {
-    flex-basis: 140px;
-    width: 140px;
-    height: 64px;
+    flex-basis: 112px;
+    width: 112px;
+    height: 44px;
   }
 }
 
@@ -8926,15 +8762,6 @@
   line-height: 1.2;
 }
 
-.client-portal .payment-confirmation-panel__eyebrow-row {
-  margin: 0;
-}
-
-.client-portal .payment-confirmation-panel__eyebrow-row .payment-confirmation-panel__eyebrow {
-  margin: 0;
-  flex-shrink: 0;
-}
-
 .client-portal .payment-confirmation-panel__amount {
   font-size: 1.125rem;
   font-weight: 700;
@@ -9304,7 +9131,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 8px 10px 10px;
+  padding: 6.1px 7.6px 7.6px;
   background: var(--cp-surface);
   overflow: hidden;
 }
@@ -9315,13 +9142,13 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 4px 8px;
-  margin-bottom: 6px;
+  gap: 3px 6.1px;
+  margin-bottom: 4.6px;
   flex-shrink: 0;
 }
 
 .client-portal .payment-confirmation-panel__notes-title {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 650;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -9332,18 +9159,18 @@
 .client-portal .payment-confirmation-panel__notes-filters {
   display: inline-flex;
   align-self: flex-start;
-  gap: 4px;
+  gap: 3px;
 }
 
 .client-portal .payment-confirmation-panel__notes-filter {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 6px;
+  gap: 2.5px;
+  padding: 1.65px 5.1px;
   border-radius: 999px;
   border: 1px solid var(--cp-border);
   background: var(--cp-card);
-  font-size: 10px;
+  font-size: 9.9px;
   font-weight: 500;
   line-height: 1.2;
   color: var(--cp-secondary);
@@ -9366,11 +9193,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.125rem;
-  height: 1.125rem;
-  padding: 0 4px;
+  min-width: 1.11rem;
+  height: 1.11rem;
+  padding: 0 3.3px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 9.9px;
   font-weight: 700;
   line-height: 1;
   background: rgba(15, 23, 42, 0.08);
@@ -9386,20 +9213,66 @@
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding-right: 2px;
+  padding-right: 1.5px;
 }
 
 /* Invoice detail panel — note compose flush within Payment Details notes region */
 .client-portal .payment-confirmation-panel__notes .invoice-detail-note-compose {
-  margin: 0 -12px 8px;
+  margin: 0 -9.1px 4px;
+  padding: 4px 9.5px;
   border-top: 1px solid var(--cp-border, #e2e8f0);
   border-bottom: 1px solid var(--cp-border, #e2e8f0);
 }
 
+.client-portal .payment-confirmation-panel__notes .invoice-detail-note-compose--collapsed {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.client-portal .payment-confirmation-panel__notes .invoice-detail-note-compose__toggle {
+  gap: 4px;
+  font-size: 10px;
+  padding: 1px 0;
+}
+
+.client-portal .payment-confirmation-panel__notes .invoice-detail-note-compose__toggle svg {
+  width: 12px;
+  height: 12px;
+}
+
+.client-portal .payment-confirmation-panel__notes .invoice-detail-note-compose__toggle--open {
+  margin-bottom: 2px;
+}
+
+.client-portal .payment-confirmation-panel__notes .invoice-detail-note-compose-row {
+  gap: 6px;
+}
+
+.client-portal .payment-confirmation-panel__notes .invoice-detail-note-input {
+  min-height: 28px;
+  max-height: 56px;
+  font-size: 11px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  line-height: 1.3;
+}
+
+.client-portal .payment-confirmation-panel__notes .invoice-detail-add-note-btn {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.client-portal .payment-confirmation-panel__notes .invoice-detail-add-note-btn svg {
+  width: 11px;
+  height: 11px;
+}
+
 .client-portal .payment-confirmation-panel__notes-empty {
-  font-size: 13px;
+  font-size: 11.7px;
   margin: 0;
-  padding: 8px 0;
+  padding: 6.1px 0;
   color: var(--cp-secondary);
 }
 
@@ -9409,37 +9282,37 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4.6px;
 }
 
 .client-portal .payment-confirmation-panel__note {
-  padding: 8px 10px;
+  padding: 6.1px 7.6px;
   border-radius: 8px;
   background: var(--cp-card);
   border: 1px solid var(--cp-border);
 }
 
 .client-portal .payment-confirmation-panel__note:last-child {
-  padding-bottom: 10px;
+  padding-bottom: 7.6px;
 }
 
 .client-portal .payment-confirmation-panel__note-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 6rem;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 5.7rem;
+  gap: 7.6px;
   align-items: baseline;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .client-portal .payment-confirmation-panel__note-title {
-  font-size: 13px;
+  font-size: 11.7px;
   font-weight: 600;
   line-height: 1.3;
   min-width: 0;
 }
 
 .client-portal .payment-confirmation-panel__note-date {
-  font-size: 11px;
+  font-size: 9.9px;
   line-height: 1.3;
   text-align: right;
   justify-self: end;
@@ -9448,7 +9321,7 @@
 }
 
 .client-portal .payment-confirmation-panel__note-detail {
-  font-size: 12px;
+  font-size: 10.8px;
   line-height: 1.5;
   margin: 0;
   word-break: break-word;
@@ -9469,17 +9342,57 @@
 
 .client-portal .payment-confirmation-panel__footer {
   flex-shrink: 0;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-top: 1px solid var(--cp-border);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   background: var(--cp-card);
 }
 
-.client-portal .payment-confirmation-panel__nav--footer {
-  justify-content: space-between;
+.client-portal .payment-confirmation-panel__footer .dashboard-btn-primary,
+.client-portal .payment-confirmation-panel__footer .dashboard-btn-secondary {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 4px;
+  min-width: 0;
+}
+
+.client-portal .payment-confirmation-panel__footer .dashboard-btn-primary svg,
+.client-portal .payment-confirmation-panel__footer .dashboard-btn-secondary svg {
+  width: 12px;
+  height: 12px;
+}
+
+.client-portal .payment-confirmation-panel__footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   width: 100%;
+}
+
+.client-portal .client-return-banner {
+  padding: 4px 12px;
+}
+
+.client-portal .client-return-banner__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.client-portal .client-return-banner__btn:hover {
+  opacity: 0.8;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -33,7 +33,10 @@ export default function ApprovalTab({
   const adminUserId = authUser?.id ?? 'unknown'
   const adminUserName = getAdminUserDisplayName(authUser?.email ?? null)
 
-  const batches = getAllBatches().filter((b) => b.status === 'approval')
+  const [batches] = useState(() => {
+    const allBatches = getAllBatches()
+    return allBatches.filter((b) => b.status === 'approval')
+  })
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [approvalNotes, setApprovalNotes] = useState('')
   const [showAccountingModal, setShowAccountingModal] = useState(false)

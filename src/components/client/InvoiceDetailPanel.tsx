@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
-import { formatCurrency, formatDate, formatDateTime } from '../../utils/format'
+import { formatCurrency, formatDate } from '../../utils/format'
 import {
   addClientInvoiceNote,
   openClientInvoiceDispute,
@@ -44,23 +44,15 @@ import {
   isOpenArInvoice,
 } from '../../utils/invoiceAging'
 import { useClientTheme } from '../../theme/ThemeContext'
-import { useOptionalClientCapabilities } from '../../hooks/useClientCapabilities'
+import { useClientCapabilities } from '../../hooks/useClientCapabilities'
 import { toClientVisibleInvoice } from '../../utils/clientInvoiceView'
 import {
   getAwaitingReceiptPaymentForInvoice,
-  getDisputedPaymentsForInvoice,
   getReceiptConfirmationDaysLeft,
 } from '../../utils/paymentStatus'
 import {
-  resolvePaymentReceiptDispute,
-  getPaymentReceiptDisputeLabel,
-  type ResolveReceiptDisputeOutcome,
-} from '../../services/paymentReceiptConfirmationService'
-import { resolveAdminInvoiceDispute } from '../../services/adminInvoiceActions'
-import { useAuth } from '../../context/AuthContext'
-import { getAdminUserDisplayName } from '../../config/adminNav'
-import {
   getClientDisplayBalanceState,
+  getClientInvoiceStatusParts,
   getClientPostedPendingTotal,
   getInvoiceReceivedAmount,
 } from '../../utils/paymentVariance'
@@ -74,11 +66,10 @@ import {
   getInvoiceNoteEntries,
   getInvoiceNotice,
   getInvoiceRowStatusBadge,
-  InvoiceDisputeBadges,
   InvoiceNoteCompose,
 } from './invoiceDetailShared'
 
-type TimelineFilter = 'activity' | 'notes' | 'payments' | 'send'
+type TimelineFilter = 'activity' | 'notes' | 'send'
 type TimelineTone = 'neutral' | 'success' | 'warning' | 'error' | 'info'
 
 interface TimelineEntry {
@@ -113,41 +104,6 @@ function noteTone(type?: string): TimelineTone {
     default:
       return 'neutral'
   }
-}
-
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  check: 'Check',
-  wire: 'Wire',
-  ach: 'ACH',
-  credit_card: 'Card',
-}
-
-/** Notes that describe payment / remittance activity. */
-function isPaymentRelatedNote(note: string, type?: string): boolean {
-  if (type === 'dispute') return false
-  const text = note.toLowerCase()
-  return (
-    /payment|received|remittance|short pay|shortfall|overpay|overpayment|chargeback|wire|ach\b|check #|force.?confirm|receipt dispute|posted amount|confirmed receiving|paid in full/.test(
-      text
-    )
-  )
-}
-
-/** Actual pay date from confirmed payments (latest received date). */
-function getInvoicePayDate(payments: Payment[]): string | null {
-  const confirmed = payments.filter((p) => p.status === 'confirmed')
-  if (confirmed.length === 0) return null
-  let latest: string | null = null
-  let latestMs = -Infinity
-  for (const payment of confirmed) {
-    const dateStr = payment.received_date || payment.payment_date
-    const ms = new Date(dateStr).getTime()
-    if (Number.isFinite(ms) && ms >= latestMs) {
-      latestMs = ms
-      latest = dateStr
-    }
-  }
-  return latest
 }
 
 export interface InvoiceDetailPanelProps {
@@ -190,20 +146,17 @@ export default function InvoiceDetailPanel({
 }: InvoiceDetailPanelProps) {
   const c = useClientTheme()
   const navigate = useNavigate()
-  const { resolved } = useAuth()
-  // Safe outside ClientPortalProvider (Credyx Invoice Search, etc.)
-  const { capabilities } = useOptionalClientCapabilities()
+  const { capabilities } = useClientCapabilities()
   const isSidebar = variant === 'sidebar'
   const isMobile = variant === 'mobile'
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('activity')
-  /** Credyx admin can resolve; client portal only views. */
-  const canResolveDisputes = !enableClientActions
-  const resolverName = canResolveDisputes
-    ? getAdminUserDisplayName(resolved.user?.email ?? null)
-    : clientName
 
   const visibleInvoice = useMemo(() => toClientVisibleInvoice(invoice), [invoice])
   const enriched = useMemo(() => enrichInvoice(visibleInvoice), [visibleInvoice])
+
+  useEffect(() => {
+    setTimelineFilter('activity')
+  }, [invoice.id])
 
   const invoicePayments = useMemo(
     () => payments.filter((p) => p.invoice_id === invoice.id),
@@ -233,55 +186,16 @@ export default function InvoiceDetailPanel({
         : undefined,
     [capabilities.canConfirmPaymentReceipt, invoice.id, payments]
   )
-  const disputedPayments = useMemo(
-    () => getDisputedPaymentsForInvoice(invoice.id, payments),
-    [invoice.id, payments]
-  )
   const receiptDaysLeft = awaitingReceiptPayment
     ? getReceiptConfirmationDaysLeft(awaitingReceiptPayment)
     : null
 
   const noteEntries = getInvoiceNoteEntries(visibleInvoice)
   const openDisputes = getOpenDisputes(visibleInvoice)
-  const hasOpenDispute = openDisputes.length > 0 || disputedPayments.length > 0
-
-  /** All open disputes (invoice + receipt), oldest first. */
-  const disputeQueue = useMemo(() => {
-    const items: Array<
-      | { kind: 'invoice'; id: string; createdAt: string; dispute: (typeof openDisputes)[number] }
-      | { kind: 'receipt'; id: string; createdAt: string; payment: Payment }
-    > = [
-      ...openDisputes.map((dispute) => ({
-        kind: 'invoice' as const,
-        id: dispute.id,
-        createdAt: dispute.created_at,
-        dispute,
-      })),
-      ...disputedPayments.map((payment) => ({
-        kind: 'receipt' as const,
-        id: payment.id,
-        createdAt: payment.dispute?.created_at || payment.received_date,
-        payment,
-      })),
-    ]
-    return items.sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    )
-  }, [openDisputes, disputedPayments])
 
   const [newNote, setNewNote] = useState('')
   const [isAddingNote, setIsAddingNote] = useState(false)
   const [showDisputeModal, setShowDisputeModal] = useState(false)
-  const [showViewDisputeModal, setShowViewDisputeModal] = useState(false)
-  const [disputeBrowseIndex, setDisputeBrowseIndex] = useState(0)
-  const [invoiceDisputeResponse, setInvoiceDisputeResponse] = useState('')
-  const [resolvingDisputeId, setResolvingDisputeId] = useState<string | null>(null)
-  const [receiptResolveOutcome, setReceiptResolveOutcome] =
-    useState<ResolveReceiptDisputeOutcome>('confirm')
-  const [receiptResolveResponse, setReceiptResolveResponse] = useState('')
-  const [receiptResolveAmount, setReceiptResolveAmount] = useState('')
-  const [isResolvingReceipt, setIsResolvingReceipt] = useState(false)
-  const [resolveError, setResolveError] = useState<string | null>(null)
   const [disputeReason, setDisputeReason] = useState<string>(DISPUTE_REASON_OPTIONS[0].value)
   const [disputeDescription, setDisputeDescription] = useState('')
   const [isOpeningDispute, setIsOpeningDispute] = useState(false)
@@ -298,52 +212,6 @@ export default function InvoiceDetailPanel({
   const [showAcceptOverModal, setShowAcceptOverModal] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const [isAcceptingOver, setIsAcceptingOver] = useState(false)
-
-  useEffect(() => {
-    setTimelineFilter('activity')
-    setShowViewDisputeModal(false)
-    setDisputeBrowseIndex(0)
-    setInvoiceDisputeResponse('')
-    setResolvingDisputeId(null)
-    setReceiptResolveResponse('')
-    setReceiptResolveOutcome('confirm')
-    setResolveError(null)
-  }, [invoice.id])
-
-  useEffect(() => {
-    if (disputeBrowseIndex >= disputeQueue.length) {
-      setDisputeBrowseIndex(Math.max(0, disputeQueue.length - 1))
-    }
-  }, [disputeQueue.length, disputeBrowseIndex])
-
-  useEffect(() => {
-    if (showViewDisputeModal && disputeQueue.length === 0) {
-      setShowViewDisputeModal(false)
-      setDisputeBrowseIndex(0)
-    }
-  }, [showViewDisputeModal, disputeQueue.length])
-
-  const currentDisputeItem = disputeQueue[disputeBrowseIndex] ?? null
-  const currentDisputeKey = currentDisputeItem?.id ?? ''
-
-  useEffect(() => {
-    if (!currentDisputeKey) return
-    const current = disputeQueue.find((item) => item.id === currentDisputeKey)
-    if (current?.kind === 'receipt') {
-      setReceiptResolveAmount(current.payment.amount.toFixed(2))
-      setReceiptResolveResponse('')
-      setReceiptResolveOutcome('confirm')
-    } else {
-      setInvoiceDisputeResponse('')
-    }
-    setResolveError(null)
-    // Only reset form when navigating to a different dispute item.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: key-driven reset
-  }, [currentDisputeKey])
-
-  const canBrowsePrevDispute = disputeBrowseIndex > 0
-  const canBrowseNextDispute = disputeBrowseIndex < disputeQueue.length - 1
-  const disputeBusy = Boolean(resolvingDisputeId) || isResolvingReceipt
 
   const invoiceDocuments = getInvoiceDocuments(invoice.id)
   const documentCount = Math.max(invoice.documents_count || 0, invoiceDocuments.length)
@@ -377,6 +245,16 @@ export default function InvoiceDetailPanel({
         pendingClientPosted
       ),
     [visibleInvoice.amount, receivedAmount, pendingClientPosted]
+  )
+
+  const clientStatusParts = useMemo(
+    () =>
+      getClientInvoiceStatusParts(enriched, balanceState, {
+        pendingClientPosted,
+        confirmedReceived: receivedAmount,
+        invoiceAmount: visibleInvoice.amount,
+      }),
+    [enriched, balanceState, pendingClientPosted, receivedAmount, visibleInvoice.amount]
   )
 
   const pendingConfirmation = useMemo(() => {
@@ -426,9 +304,7 @@ export default function InvoiceDetailPanel({
     return noteEntries
       .filter((entry) => {
         const typeKey = entry.type || 'note'
-        if (typeKey !== 'note' && typeKey !== 'client_note') return false
-        // Payment-related notes live under the Payments tab only.
-        return !isPaymentRelatedNote(entry.note, entry.type)
+        return typeKey === 'note' || typeKey === 'client_note'
       })
       .map((entry) => ({
         id: `note-${entry.id}`,
@@ -439,90 +315,6 @@ export default function InvoiceDetailPanel({
         meta: entry.created_by,
       }))
   }, [noteEntries])
-
-  const paymentTimelineEntries = useMemo((): TimelineEntry[] => {
-    const entries: TimelineEntry[] = []
-
-    for (const payment of invoicePayments) {
-      const method =
-        PAYMENT_METHOD_LABELS[payment.payment_method] ?? payment.payment_method
-      const kindLabel =
-        payment.payment_kind === 'short'
-          ? 'Short / correction'
-          : payment.payment_kind === 'over'
-            ? 'Overpayment'
-            : 'Payment'
-      let detail = `${formatCurrency(payment.amount)} · ${method}`
-      if (payment.payment_reference) detail += ` · Ref ${payment.payment_reference}`
-      if (payment.notes) detail += ` — ${payment.notes}`
-
-      entries.push({
-        id: `payment-${payment.id}`,
-        title: `${kindLabel} · ${payment.status.replace(/_/g, ' ')}`,
-        detail,
-        timestamp: payment.received_date || payment.payment_date,
-        tone:
-          payment.status === 'confirmed'
-            ? 'success'
-            : payment.status === 'rejected' || payment.status === 'reversed'
-              ? 'error'
-              : payment.status === 'disputed' ||
-                  payment.status === 'pending' ||
-                  payment.status === 'awaiting_receipt'
-                ? 'warning'
-                : 'info',
-        meta: payment.posted_by || payment.confirmed_by,
-      })
-
-      if (payment.dispute) {
-        entries.push({
-          id: `payment-dispute-${payment.id}`,
-          title: 'Payment receipt dispute',
-          detail: payment.dispute.description,
-          timestamp: payment.dispute.created_at,
-          tone: 'error',
-          meta: payment.dispute.created_by,
-        })
-        if (payment.dispute.response?.trim()) {
-          entries.push({
-            id: `payment-dispute-resolved-${payment.id}`,
-            title: 'Payment dispute resolved',
-            detail: payment.dispute.response,
-            timestamp: payment.dispute.resolved_at || payment.dispute.created_at,
-            tone: 'info',
-            meta: payment.dispute.resolved_by,
-          })
-        }
-      }
-
-      if (payment.rejection_reason) {
-        entries.push({
-          id: `payment-reject-${payment.id}`,
-          title: 'Payment rejected',
-          detail: payment.rejection_reason,
-          timestamp: payment.confirmed_at || payment.received_date || payment.payment_date,
-          tone: 'error',
-          meta: payment.confirmed_by,
-        })
-      }
-    }
-
-    for (const entry of noteEntries) {
-      if (!isPaymentRelatedNote(entry.note, entry.type)) continue
-      entries.push({
-        id: `payment-note-${entry.id}`,
-        title: NOTE_TYPE_LABELS[entry.type || 'note'] || 'Payment note',
-        detail: entry.note,
-        timestamp: entry.created_at,
-        tone: noteTone(entry.type),
-        meta: entry.created_by,
-      })
-    }
-
-    return entries.sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    )
-  }, [invoicePayments, noteEntries])
 
   const sendEntries = useMemo((): TimelineEntry[] => {
     const history = invoice.document_send_history || []
@@ -545,11 +337,7 @@ export default function InvoiceDetailPanel({
       ? activityEntries
       : timelineFilter === 'notes'
         ? noteTimelineEntries
-        : timelineFilter === 'payments'
-          ? paymentTimelineEntries
-          : sendEntries
-
-  const payDate = useMemo(() => getInvoicePayDate(invoicePayments), [invoicePayments])
+        : sendEntries
 
   const navIndex = navigationInvoices.findIndex((inv) => inv.id === invoice.id)
   const hasPrev = navIndex > 0
@@ -570,7 +358,6 @@ export default function InvoiceDetailPanel({
 
   const hasFooterActions =
     Boolean(awaitingReceiptPayment && onViewPayment) ||
-    hasOpenDispute ||
     canPostPaymentAction ||
     canAcceptOver ||
     canWriteOff ||
@@ -654,62 +441,6 @@ export default function InvoiceDetailPanel({
     }
   }
 
-  const handleResolveInvoiceDispute = async (disputeId: string) => {
-    if (!canResolveDisputes || !invoiceDisputeResponse.trim() || resolvingDisputeId) return
-    setResolvingDisputeId(disputeId)
-    setResolveError(null)
-    try {
-      const updated = resolveAdminInvoiceDispute(
-        invoice.id,
-        disputeId,
-        invoiceDisputeResponse.trim(),
-        resolverName
-      )
-      if (!updated) {
-        setResolveError('Could not resolve dispute. Please try again.')
-        return
-      }
-      setInvoiceDisputeResponse('')
-      onInvoiceUpdated?.()
-    } catch (error) {
-      console.error('Failed to resolve invoice dispute:', error)
-      setResolveError('Could not resolve dispute. Please try again.')
-    } finally {
-      setResolvingDisputeId(null)
-    }
-  }
-
-  const handleResolveReceiptDispute = async (paymentId: string) => {
-    if (!canResolveDisputes || !receiptResolveResponse.trim() || isResolvingReceipt) {
-      return
-    }
-    setIsResolvingReceipt(true)
-    setResolveError(null)
-    try {
-      const amountNum = parseFloat(receiptResolveAmount)
-      const result = resolvePaymentReceiptDispute(
-        paymentId,
-        resolverName,
-        receiptResolveResponse.trim(),
-        receiptResolveOutcome,
-        receiptResolveOutcome === 'confirm' && Number.isFinite(amountNum) && amountNum > 0
-          ? { adjustedAmount: amountNum }
-          : undefined
-      )
-      if (!result) {
-        setResolveError('Could not resolve payment dispute. Check response and amount.')
-        return
-      }
-      setReceiptResolveResponse('')
-      onInvoiceUpdated?.()
-    } catch (error) {
-      console.error('Failed to resolve receipt dispute:', error)
-      setResolveError('Could not resolve payment dispute. Please try again.')
-    } finally {
-      setIsResolvingReceipt(false)
-    }
-  }
-
   const handleMarkAsPaid = async () => {
     if (isMarkingPaid) return
 
@@ -786,9 +517,7 @@ export default function InvoiceDetailPanel({
       ? 'No activity recorded for this invoice yet.'
       : timelineFilter === 'notes'
         ? 'No notes recorded for this invoice yet.'
-        : timelineFilter === 'payments'
-          ? 'No payment activity on this invoice yet.'
-          : 'No documents sent yet.'
+        : 'No documents sent yet.'
 
   const panelBody = (
     <>
@@ -807,20 +536,9 @@ export default function InvoiceDetailPanel({
         ) : null}
 
         <div className="payment-confirmation-panel__header-main min-w-0">
-          <div className="payment-confirmation-panel__eyebrow-row flex items-center gap-1.5 flex-wrap min-w-0">
-            <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
-              Invoice details
-            </p>
-            <div className="inline-flex items-center gap-1 flex-nowrap min-w-0">
-              {getInvoiceRowStatusBadge(enriched, {
-                compact: true,
-                balance: balanceState,
-                pendingClientPosted,
-                confirmedReceived: receivedAmount,
-              })}
-              <InvoiceDisputeBadges invoice={visibleInvoice} />
-            </div>
-          </div>
+          <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
+            Invoice details
+          </p>
           <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
             Invoice {visibleInvoice.invoice_number}
             {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
@@ -884,24 +602,43 @@ export default function InvoiceDetailPanel({
               pendingShortCorrection={pendingShortCorrection}
               clientView
               hideIdentity
+              statusBadge={getInvoiceRowStatusBadge(enriched, {
+                compact: true,
+                balance: balanceState,
+                pendingClientPosted,
+                confirmedReceived: receivedAmount,
+              })}
+              statusBadgePlacement={
+                // Open / short / write-off on Balance due; Paid (+ overpaid / awaiting Credyx) on Confirmed received
+                clientStatusParts.status === 'paid' ? 'confirmed' : 'balance'
+              }
               writtenOff={
                 visibleInvoice.status === 'written_off' ||
                 visibleInvoice.status === 'write_off_pending'
               }
             />
           ) : (
-            <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta mb-1">
-              <div className="payment-confirmation-panel__summary-cell payment-confirmation-panel__summary-cell--primary">
-                <dt>Amount</dt>
-                <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                  {formatCurrency(
-                    invoice.status === 'paid' && invoice.paid_amount != null
-                      ? invoice.paid_amount
-                      : invoice.amount
-                  )}
-                </dd>
+            <>
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                {getInvoiceRowStatusBadge(enriched, {
+                  balance: balanceState,
+                  pendingClientPosted,
+                  confirmedReceived: receivedAmount,
+                })}
               </div>
-            </dl>
+              <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta mb-1">
+                <div className="payment-confirmation-panel__summary-cell payment-confirmation-panel__summary-cell--primary">
+                  <dt>Amount</dt>
+                  <dd className="tabular-nums payment-confirmation-panel__summary-value">
+                    {formatCurrency(
+                      invoice.status === 'paid' && invoice.paid_amount != null
+                        ? invoice.paid_amount
+                        : invoice.amount
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            </>
           )}
 
           <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta">
@@ -912,9 +649,9 @@ export default function InvoiceDetailPanel({
               </dd>
             </div>
             <div className="payment-confirmation-panel__summary-cell">
-              <dt>Pay date</dt>
+              <dt>Due date</dt>
               <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                {payDate ? formatDate(payDate) : '—'}
+                {invoice.due_date ? formatDate(invoice.due_date) : '—'}
               </dd>
             </div>
             <div className="payment-confirmation-panel__summary-cell">
@@ -998,7 +735,6 @@ export default function InvoiceDetailPanel({
                 [
                   ['activity', 'Activity', activityEntries.length],
                   ['notes', 'Notes', noteTimelineEntries.length],
-                  ['payments', 'Payments', paymentTimelineEntries.length],
                   ['send', 'Send', sendEntries.length],
                 ] as const
               ).map(([key, label, count]) => (
@@ -1083,20 +819,6 @@ export default function InvoiceDetailPanel({
       {hasFooterActions ? (
         <footer className="payment-confirmation-panel__footer" style={{ borderColor: c.border }}>
           <div className="flex flex-wrap gap-2 w-full">
-            {hasOpenDispute && (
-              <button
-                type="button"
-                onClick={() => {
-                  setResolveError(null)
-                  setDisputeBrowseIndex(0)
-                  setShowViewDisputeModal(true)
-                }}
-                className="dashboard-btn-primary flex-1 min-w-[120px] inline-flex items-center justify-center gap-1.5"
-              >
-                <AlertTriangle className="w-4 h-4" />
-                {canResolveDisputes ? 'Resolve dispute' : 'View dispute'}
-              </button>
-            )}
             {awaitingReceiptPayment && onViewPayment && (
               <button
                 type="button"
@@ -1308,269 +1030,6 @@ export default function InvoiceDetailPanel({
           onClose={() => setShowAcceptOverModal(false)}
           onConfirm={handleAcceptOverpayment}
         />
-      )}
-
-      {showViewDisputeModal && (
-        <div
-          className="invoice-dispute-modal-overlay"
-          onClick={() => !resolvingDisputeId && !isResolvingReceipt && setShowViewDisputeModal(false)}
-          role="presentation"
-        >
-          <div
-            className="invoice-dispute-modal"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-labelledby="view-dispute-modal-title"
-          >
-            <div className="invoice-dispute-modal-header">
-              <div className="min-w-0">
-                <h3
-                  id="view-dispute-modal-title"
-                  className="text-base font-semibold"
-                  style={{ color: c.primary }}
-                >
-                  {canResolveDisputes ? 'Resolve dispute' : 'Open dispute'}
-                </h3>
-                {disputeQueue.length > 1 && (
-                  <p className="text-[11px] mt-0.5" style={{ color: c.secondary }}>
-                    Dispute {disputeBrowseIndex + 1} of {disputeQueue.length} (oldest first)
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                {disputeQueue.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      className="payment-confirmation-panel__icon-btn"
-                      disabled={!canBrowsePrevDispute || disputeBusy}
-                      onClick={() => setDisputeBrowseIndex((i) => Math.max(0, i - 1))}
-                      aria-label="Previous dispute"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      className="payment-confirmation-panel__icon-btn"
-                      disabled={!canBrowseNextDispute || disputeBusy}
-                      onClick={() =>
-                        setDisputeBrowseIndex((i) => Math.min(disputeQueue.length - 1, i + 1))
-                      }
-                      aria-label="Next dispute"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setShowViewDisputeModal(false)}
-                  className="p-1 rounded-lg transition-colors hover:bg-slate-100"
-                  style={{ color: c.muted }}
-                  aria-label="Close"
-                  disabled={disputeBusy}
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            <div className="invoice-dispute-modal-body space-y-3">
-              {currentDisputeItem?.kind === 'invoice' && (
-                <div
-                  className="rounded-lg border p-3"
-                  style={{ borderColor: c.border, backgroundColor: c.stat.red }}
-                >
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-xs font-semibold" style={{ color: c.error }}>
-                      {getDisputeReasonLabel(currentDisputeItem.dispute.reason)}
-                    </span>
-                    <span className="text-[11px]" style={{ color: c.secondary }}>
-                      {formatDateTime(currentDisputeItem.dispute.created_at)}
-                    </span>
-                  </div>
-                  <p className="text-sm" style={{ color: c.primary }}>
-                    {currentDisputeItem.dispute.description}
-                  </p>
-                  <p className="text-[11px] mt-1" style={{ color: c.secondary }}>
-                    Status:{' '}
-                    {currentDisputeItem.dispute.status === 'under_review'
-                      ? 'Under review'
-                      : 'Open'}
-                    {currentDisputeItem.dispute.created_by
-                      ? ` · ${currentDisputeItem.dispute.created_by}`
-                      : ''}
-                  </p>
-                  {currentDisputeItem.dispute.response?.trim() ? (
-                    <div className="mt-2 pt-2 border-t" style={{ borderColor: c.border }}>
-                      <p className="text-[11px] font-semibold mb-0.5" style={{ color: c.secondary }}>
-                        Credyx response
-                      </p>
-                      <p className="text-sm" style={{ color: c.primary }}>
-                        {currentDisputeItem.dispute.response}
-                      </p>
-                    </div>
-                  ) : canResolveDisputes ? (
-                    <div className="mt-3 space-y-2">
-                      <label
-                        className="client-label"
-                        htmlFor={`resolve-invoice-dispute-${currentDisputeItem.dispute.id}`}
-                      >
-                        Response to client <span className="text-red-600">*</span>
-                      </label>
-                      <textarea
-                        id={`resolve-invoice-dispute-${currentDisputeItem.dispute.id}`}
-                        value={invoiceDisputeResponse}
-                        onChange={(e) => setInvoiceDisputeResponse(e.target.value)}
-                        rows={3}
-                        className="client-input w-full"
-                        placeholder="Explain the resolution to the client..."
-                        disabled={Boolean(resolvingDisputeId)}
-                      />
-                      <button
-                        type="button"
-                        className="dashboard-btn-primary inline-flex items-center gap-1.5"
-                        disabled={!invoiceDisputeResponse.trim() || Boolean(resolvingDisputeId)}
-                        onClick={() =>
-                          void handleResolveInvoiceDispute(currentDisputeItem.dispute.id)
-                        }
-                      >
-                        <CircleCheck className="w-4 h-4" />
-                        {resolvingDisputeId === currentDisputeItem.dispute.id
-                          ? 'Resolving...'
-                          : 'Resolve dispute'}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-
-              {currentDisputeItem?.kind === 'receipt' && (
-                <div
-                  className="rounded-lg border p-3 space-y-2"
-                  style={{ borderColor: c.border, backgroundColor: c.stat.amber }}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold" style={{ color: c.warning }}>
-                      Payment receipt dispute
-                    </span>
-                    <span className="text-[11px] tabular-nums" style={{ color: c.secondary }}>
-                      {formatCurrency(currentDisputeItem.payment.amount)}
-                    </span>
-                  </div>
-                  <p className="text-sm font-medium" style={{ color: c.primary }}>
-                    {currentDisputeItem.payment.dispute
-                      ? getPaymentReceiptDisputeLabel(currentDisputeItem.payment.dispute.reason)
-                      : 'Client disputed this payment'}
-                  </p>
-                  {currentDisputeItem.payment.dispute?.description && (
-                    <p className="text-sm" style={{ color: c.primary }}>
-                      {currentDisputeItem.payment.dispute.description}
-                    </p>
-                  )}
-                  <p className="text-[11px]" style={{ color: c.secondary }}>
-                    Posted {formatDate(currentDisputeItem.payment.received_date)}
-                    {currentDisputeItem.payment.dispute?.created_at
-                      ? ` · Disputed ${formatDateTime(currentDisputeItem.payment.dispute.created_at)}`
-                      : ''}
-                  </p>
-
-                  {canResolveDisputes && (
-                    <div className="mt-2 pt-2 border-t space-y-2" style={{ borderColor: c.border }}>
-                      <div>
-                        <label className="client-label">Resolution</label>
-                        <div className="flex flex-col gap-1.5 mt-1">
-                          <label className="inline-flex items-center gap-1.5 text-sm">
-                            <input
-                              type="radio"
-                              checked={receiptResolveOutcome === 'confirm'}
-                              onChange={() => setReceiptResolveOutcome('confirm')}
-                              disabled={isResolvingReceipt}
-                            />
-                            Uphold posting - client must confirm again
-                          </label>
-                          <label className="inline-flex items-center gap-1.5 text-sm">
-                            <input
-                              type="radio"
-                              checked={receiptResolveOutcome === 'reject'}
-                              onChange={() => setReceiptResolveOutcome('reject')}
-                              disabled={isResolvingReceipt}
-                            />
-                            Reject payment (client was correct)
-                          </label>
-                        </div>
-                      </div>
-                      {receiptResolveOutcome === 'confirm' && (
-                        <div>
-                          <label className="client-label" htmlFor="receipt-resolve-amount">
-                            Posted amount <span className="text-red-600">*</span>
-                          </label>
-                          <input
-                            id="receipt-resolve-amount"
-                            type="number"
-                            min="0.01"
-                            step="0.01"
-                            inputMode="decimal"
-                            value={receiptResolveAmount}
-                            onChange={(e) => setReceiptResolveAmount(e.target.value)}
-                            className="client-input w-full financial-nums"
-                            disabled={isResolvingReceipt}
-                          />
-                        </div>
-                      )}
-                      <div>
-                        <label className="client-label" htmlFor="receipt-resolve-response">
-                          Response to client <span className="text-red-600">*</span>
-                        </label>
-                        <textarea
-                          id="receipt-resolve-response"
-                          value={receiptResolveResponse}
-                          onChange={(e) => setReceiptResolveResponse(e.target.value)}
-                          rows={3}
-                          className="client-input w-full"
-                          placeholder="Explain the resolution..."
-                          disabled={isResolvingReceipt}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        className="dashboard-btn-primary inline-flex items-center gap-1.5"
-                        disabled={!receiptResolveResponse.trim() || isResolvingReceipt}
-                        onClick={() =>
-                          void handleResolveReceiptDispute(currentDisputeItem.payment.id)
-                        }
-                      >
-                        <CircleCheck className="w-4 h-4" />
-                        {isResolvingReceipt ? 'Resolving...' : 'Resolve payment dispute'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!currentDisputeItem && (
-                <p className="text-sm" style={{ color: c.secondary }}>
-                  No open disputes on this invoice.
-                </p>
-              )}
-
-              {resolveError && (
-                <p className="text-sm" style={{ color: c.error }}>
-                  {resolveError}
-                </p>
-              )}
-            </div>
-            <div className="invoice-dispute-modal-footer">
-              <button
-                type="button"
-                className="dashboard-btn-secondary"
-                onClick={() => setShowViewDisputeModal(false)}
-                disabled={disputeBusy}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {showDisputeModal && (

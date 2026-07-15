@@ -15,7 +15,7 @@ END $$;
 DO $$ BEGIN
   CREATE TYPE batch_status AS ENUM (
     'draft', 'ready_to_post', 'verification', 'approval',
-    'submitted', 'processing', 'documents_uploaded', 'voided'
+    'submitted', 'processing', 'documents_uploaded'
   );
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;

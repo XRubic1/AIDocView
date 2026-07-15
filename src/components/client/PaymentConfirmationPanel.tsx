@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   X,
   ChevronLeft,
@@ -7,25 +8,27 @@ import {
   AlertTriangle,
   Loader2,
   ArrowLeft,
+  FileText,
+  Boxes,
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
 import { isShortPayment } from '../../types/payment'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
-import {
-  PAYMENT_STATUS_LABELS,
-} from '../../utils/paymentStatus'
-import {
-  getInvoiceReceivedAmount,
-} from '../../utils/paymentVariance'
+import { useClientSession } from '../../hooks/useClientSession'
+import { PAYMENT_STATUS_LABELS } from '../../utils/paymentStatus'
+import { getInvoiceReceivedAmount } from '../../utils/paymentVariance'
 import { buildClientPaymentAuditTimeline } from '../../utils/clientPaymentAuditTimeline'
 import { toClientVisibleInvoice } from '../../utils/clientInvoiceView'
 import {
   getUnconfirmedPaymentTotal,
   getUnconfirmedShortPaymentTotal,
 } from '../../data/mockPayments'
+import { addClientInvoiceNote } from '../../services/clientInvoiceActions'
+import { stashPaymentRestoreTarget } from '../../utils/paymentRestoreTarget'
 import InvoiceBalanceSummary from './InvoiceBalanceSummary'
+import { InvoiceNoteCompose } from './InvoiceNoteCompose'
 
 const METHOD_LABELS: Record<string, string> = {
   check: 'Check',
@@ -57,6 +60,8 @@ export interface PaymentConfirmationPanelProps {
   receiptActionLoading: boolean
   onConfirmReceipt: () => void
   onOpenDispute: () => void
+  /** Refresh invoice notes / timeline after adding a note. */
+  onInvoiceUpdated?: () => void
 }
 
 /** Payment detail — inline sidebar on desktop, full page on mobile. */
@@ -72,14 +77,20 @@ export default function PaymentConfirmationPanel({
   receiptActionLoading,
   onConfirmReceipt,
   onOpenDispute,
+  onInvoiceUpdated,
 }: PaymentConfirmationPanelProps) {
   const c = useClientTheme()
+  const navigate = useNavigate()
+  const { clientName } = useClientSession()
   const isSidebar = variant === 'sidebar'
   const isMobile = variant === 'mobile'
-  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('activity')
+  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('notes')
+  const [newNote, setNewNote] = useState('')
+  const [isAddingNote, setIsAddingNote] = useState(false)
 
   useEffect(() => {
-    setTimelineFilter('activity')
+    setTimelineFilter('notes')
+    setNewNote('')
   }, [payment.id])
 
   const visibleInvoice = useMemo(
@@ -148,6 +159,65 @@ export default function PaymentConfirmationPanel({
   const displayPaymentAmount = isShortPayment(payment)
     ? `−${formatCurrency(payment.amount)}`
     : formatCurrency(payment.amount)
+
+  const batchId = visibleInvoice?.batch_id || payment.batch_id
+  const hasFooterActions = Boolean(canConfirmOnInvoice || visibleInvoice || batchId)
+
+  const handleGoToInvoice = () => {
+    if (!payment.invoice_id) return
+    stashPaymentRestoreTarget({
+      paymentId: payment.id,
+      invoiceId: payment.invoice_id,
+    })
+    const params = new URLSearchParams({ highlight_invoice: payment.invoice_id })
+    navigate(`/client/invoices?${params.toString()}`, {
+      state: {
+        returnTo: {
+          to: `/client/payments?paymentId=${encodeURIComponent(payment.id)}`,
+          label: 'Back to payment',
+          paymentId: payment.id,
+          invoiceId: payment.invoice_id,
+        },
+      },
+    })
+  }
+
+  const handleGoToBatch = () => {
+    if (!batchId) return
+    stashPaymentRestoreTarget({
+      paymentId: payment.id,
+      invoiceId: payment.invoice_id,
+    })
+    const params = new URLSearchParams({
+      tab: 'view',
+      batch: batchId,
+    })
+    navigate(`/client/batches?${params.toString()}`, {
+      state: {
+        returnTo: {
+          to: `/client/payments?paymentId=${encodeURIComponent(payment.id)}`,
+          label: 'Back to payment',
+          paymentId: payment.id,
+          invoiceId: payment.invoice_id,
+        },
+      },
+    })
+  }
+
+  const handleAddNote = async () => {
+    if (!visibleInvoice || !newNote.trim() || isAddingNote) return
+    setIsAddingNote(true)
+    try {
+      addClientInvoiceNote(visibleInvoice.id, newNote.trim(), clientName)
+      setNewNote('')
+      setTimelineFilter('notes')
+      onInvoiceUpdated?.()
+    } catch (error) {
+      console.error('Failed to add note:', error)
+    } finally {
+      setIsAddingNote(false)
+    }
+  }
 
   const panelBody = (
     <>
@@ -280,20 +350,11 @@ export default function PaymentConfirmationPanel({
             <h3 className="payment-confirmation-panel__notes-title" style={{ color: c.primary }}>
               Activity &amp; notes
             </h3>
-            <div className="payment-confirmation-panel__notes-filters" role="group" aria-label="Filter timeline">
-              <button
-                type="button"
-                className={`payment-confirmation-panel__notes-filter ${
-                  timelineFilter === 'activity' ? 'payment-confirmation-panel__notes-filter--active' : ''
-                }`}
-                onClick={() => setTimelineFilter('activity')}
-                aria-pressed={timelineFilter === 'activity'}
-              >
-                Activity
-                {activityEntries.length > 0 && (
-                  <span className="payment-confirmation-panel__notes-filter-count">{activityEntries.length}</span>
-                )}
-              </button>
+            <div
+              className="payment-confirmation-panel__notes-filters"
+              role="group"
+              aria-label="Filter timeline"
+            >
               <button
                 type="button"
                 className={`payment-confirmation-panel__notes-filter ${
@@ -304,11 +365,41 @@ export default function PaymentConfirmationPanel({
               >
                 Notes
                 {noteEntries.length > 0 && (
-                  <span className="payment-confirmation-panel__notes-filter-count">{noteEntries.length}</span>
+                  <span className="payment-confirmation-panel__notes-filter-count">
+                    {noteEntries.length}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                className={`payment-confirmation-panel__notes-filter ${
+                  timelineFilter === 'activity'
+                    ? 'payment-confirmation-panel__notes-filter--active'
+                    : ''
+                }`}
+                onClick={() => setTimelineFilter('activity')}
+                aria-pressed={timelineFilter === 'activity'}
+              >
+                Activity
+                {activityEntries.length > 0 && (
+                  <span className="payment-confirmation-panel__notes-filter-count">
+                    {activityEntries.length}
+                  </span>
                 )}
               </button>
             </div>
           </div>
+
+          {visibleInvoice ? (
+            <InvoiceNoteCompose
+              newNote={newNote}
+              isAddingNote={isAddingNote}
+              onChange={setNewNote}
+              onSubmit={() => void handleAddNote()}
+              compact
+              collapsible
+            />
+          ) : null}
 
           <div className="payment-confirmation-panel__notes-scroll">
             {filteredTimeline.length === 0 ? (
@@ -325,7 +416,10 @@ export default function PaymentConfirmationPanel({
                     className={`payment-confirmation-panel__note payment-confirmation-panel__note--${entry.tone}`}
                   >
                     <div className="payment-confirmation-panel__note-head">
-                      <span className="payment-confirmation-panel__note-title" style={{ color: c.primary }}>
+                      <span
+                        className="payment-confirmation-panel__note-title"
+                        style={{ color: c.primary }}
+                      >
                         {entry.title}
                       </span>
                       <time
@@ -336,7 +430,10 @@ export default function PaymentConfirmationPanel({
                         {formatDate(entry.timestamp)}
                       </time>
                     </div>
-                    <p className="payment-confirmation-panel__note-detail" style={{ color: c.secondary }}>
+                    <p
+                      className="payment-confirmation-panel__note-detail"
+                      style={{ color: c.secondary }}
+                    >
                       {entry.detail}
                     </p>
                   </li>
@@ -347,34 +444,58 @@ export default function PaymentConfirmationPanel({
         </section>
       </div>
 
-      {canConfirmOnInvoice ? (
+      {hasFooterActions ? (
         <footer className="payment-confirmation-panel__footer" style={{ borderColor: c.border }}>
-          <div className="flex flex-wrap gap-2 w-full">
-            <button
-              type="button"
-              onClick={onConfirmReceipt}
-              disabled={receiptActionLoading}
-              className="dashboard-btn-primary flex-1 min-w-[140px] inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
-            >
-              {receiptActionLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <CheckCircle className="w-4 h-4" />
-              )}
-              {awaitingOnInvoice.length > 1 && payment.status !== 'awaiting_receipt'
-                ? `Confirm ${formatCurrency(confirmAmount)}`
-                : `Confirm ${isShortCorrection ? 'correction' : 'received'}`}
-            </button>
-            <button
-              type="button"
-              onClick={onOpenDispute}
-              disabled={receiptActionLoading || awaitingOnInvoice.length === 0}
-              className="dashboard-btn-secondary flex-1 min-w-[120px] inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
-              style={{ color: c.error, borderColor: c.error }}
-            >
-              <AlertTriangle className="w-4 h-4" />
-              Dispute
-            </button>
+          <div className="payment-confirmation-panel__footer-actions">
+            {canConfirmOnInvoice ? (
+              <>
+                <button
+                  type="button"
+                  onClick={onConfirmReceipt}
+                  disabled={receiptActionLoading}
+                  className="dashboard-btn-primary dashboard-btn-compact flex-1 min-w-[100px] inline-flex items-center justify-center gap-1 disabled:opacity-50"
+                >
+                  {receiptActionLoading ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-3 h-3" />
+                  )}
+                  {awaitingOnInvoice.length > 1 && payment.status !== 'awaiting_receipt'
+                    ? `Confirm ${formatCurrency(confirmAmount)}`
+                    : `Confirm ${isShortCorrection ? 'correction' : 'received'}`}
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenDispute}
+                  disabled={receiptActionLoading || awaitingOnInvoice.length === 0}
+                  className="dashboard-btn-secondary dashboard-btn-compact flex-1 min-w-[88px] inline-flex items-center justify-center gap-1 disabled:opacity-50"
+                  style={{ color: c.error, borderColor: c.error }}
+                >
+                  <AlertTriangle className="w-3 h-3" />
+                  Dispute
+                </button>
+              </>
+            ) : null}
+            {visibleInvoice ? (
+              <button
+                type="button"
+                onClick={handleGoToInvoice}
+                className="dashboard-btn-secondary dashboard-btn-compact flex-1 min-w-[88px] inline-flex items-center justify-center gap-1"
+              >
+                <FileText className="w-3 h-3" />
+                Invoice
+              </button>
+            ) : null}
+            {batchId ? (
+              <button
+                type="button"
+                onClick={handleGoToBatch}
+                className="dashboard-btn-secondary dashboard-btn-compact flex-1 min-w-[88px] inline-flex items-center justify-center gap-1"
+              >
+                <Boxes className="w-3 h-3" />
+                Batch
+              </button>
+            ) : null}
           </div>
         </footer>
       ) : null}

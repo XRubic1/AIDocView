@@ -50,26 +50,3 @@ export function getAwaitingReceiptPaymentForInvoice(
 ): Payment | undefined {
   return payments.find((p) => p.invoice_id === invoiceId && p.status === 'awaiting_receipt')
 }
-
-/** First open receipt dispute payment on an invoice, if any. */
-export function getDisputedPaymentForInvoice(
-  invoiceId: string,
-  payments: Payment[]
-): Payment | undefined {
-  return payments.find((p) => p.invoice_id === invoiceId && p.status === 'disputed')
-}
-
-/** All open receipt dispute payments on an invoice, oldest first. */
-export function getDisputedPaymentsForInvoice(
-  invoiceId: string,
-  payments: Payment[]
-): Payment[] {
-  return payments
-    .filter((p) => p.invoice_id === invoiceId && p.status === 'disputed')
-    .slice()
-    .sort((a, b) => {
-      const aTime = new Date(a.dispute?.created_at || a.received_date).getTime()
-      const bTime = new Date(b.dispute?.created_at || b.received_date).getTime()
-      return aTime - bTime
-    })
-}

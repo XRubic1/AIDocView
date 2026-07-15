@@ -40,7 +40,7 @@ interface ClientBatchesListViewProps {
   onDeleteDraft?: (batchId: string) => void
 }
 
-type StatusFilter = 'all' | 'pending' | 'review' | 'processed' | 'voided'
+type StatusFilter = 'all' | 'pending' | 'review' | 'processed'
 
 type BatchSortField =
   | 'batch_number'
@@ -56,7 +56,6 @@ const STATUS_FILTER_MATCH: Record<StatusFilter, (status: string) => boolean> = {
   pending: (s) => ['draft', 'ready_to_post', 'documents_uploaded'].includes(s),
   review: (s) => ['verification', 'approval'].includes(s),
   processed: (s) => ['submitted', 'processing'].includes(s),
-  voided: (s) => s === 'voided',
 }
 
 function getBatchStatusBadge(status: string) {
@@ -68,7 +67,6 @@ function getBatchStatusBadge(status: string) {
     approval: { label: 'In approval', className: 'status-pill--review' },
     submitted: { label: 'Posted', className: 'status-pill--submitted' },
     processing: { label: 'Processing', className: 'status-pill--approved' },
-    voided: { label: 'Voided', className: 'status-pill--overdue' },
   }
   const config = map[status] ?? { label: status.replace(/_/g, ' '), className: 'status-pill--pending-batch' }
   return <span className={`inline-flex items-center status-pill ${config.className}`}>{config.label}</span>

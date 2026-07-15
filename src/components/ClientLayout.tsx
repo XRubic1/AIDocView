@@ -112,17 +112,8 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   const sidebarWidth = sidebarExpanded ? t.sidebar.expandedWidth : t.sidebar.collapsedWidth
   // Main content only reserves the rail width so hover expand doesn't reflow the page.
   const mainOffset = railMode ? t.sidebar.collapsedWidth : t.sidebar.expandedWidth
-
-  // Reveal labels after width settles so text never wraps mid-animation.
-  const [labelsReady, setLabelsReady] = useState(() => sidebarExpanded)
-  useEffect(() => {
-    if (!sidebarExpanded) {
-      setLabelsReady(false)
-      return
-    }
-    const id = window.setTimeout(() => setLabelsReady(true), 160)
-    return () => window.clearTimeout(id)
-  }, [sidebarExpanded])
+  /** Fixed icon column = collapsed rail width so icons stay centered while labels slide out. */
+  const iconColWidth = t.sidebar.collapsedWidth
 
   const clearHoverLeaveTimer = () => {
     if (hoverLeaveTimer.current) {
@@ -209,8 +200,6 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
   const handleNavClick = (path: string) => {
     setMobileOpen(false)
-    // Collapse hover flyout immediately so chrome stays stable while the page loads.
-    if (railMode) setHoverExpanded(false)
     if (path.startsWith('mailto:')) {
       window.location.href = path
       return
@@ -246,26 +235,28 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   }
 
   const sidebarContent = (isMobile = false) => {
-    const showLabels = isMobile || labelsReady
-    // Fixed left inset so icons stay put while the rail expands/collapses.
-    const iconInsetClass = 'pl-5'
-    // Collapse label width until ready so text never wraps mid-width animation.
-    const labelClass = showLabels
-      ? 'opacity-100 min-w-0'
-      : 'opacity-0 max-w-0 w-0 min-w-0 overflow-hidden pointer-events-none shrink-0'
+    // Labels always render; overflow + width transition reveal them (Supabase-style slide).
+    const tip = (label: string) =>
+      !isMobile && railMode && !hoverExpanded ? label : undefined
+
     return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Brand — mark always; wordmark fades in after width settles */}
+      {/* Brand — mark centered in rail; wordmark slides in with width */}
       <div
-        className={`flex items-center border-b ${iconInsetClass} pr-2.5 py-2.5 gap-2.5 min-h-[52px]`}
+        className="flex items-center border-b min-h-[52px]"
         style={{ borderColor: t.sidebar.border }}
       >
-        <CredyxWordmark
-          variant="mark"
-          theme="client"
-          onClick={() => navigate('/client/dashboard')}
-        />
-        <div className={`overflow-hidden whitespace-nowrap transition-opacity duration-75 ${labelClass}`}>
+        <div
+          className="shrink-0 flex items-center justify-center"
+          style={{ width: iconColWidth }}
+        >
+          <CredyxWordmark
+            variant="mark"
+            theme="client"
+            onClick={() => navigate('/client/dashboard')}
+          />
+        </div>
+        <div className="min-w-0 flex-1 overflow-hidden whitespace-nowrap pr-3">
           <CredyxWordmark
             variant="compact"
             theme="client"
@@ -275,20 +266,25 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       </div>
 
       {/* Company context */}
-      <div className={`py-2 border-b ${iconInsetClass} pr-2.5`} style={{ borderColor: t.sidebar.border }}>
-        <div className="flex items-center gap-2.5 min-w-0">
+      <div className="border-b" style={{ borderColor: t.sidebar.border }}>
+        <div className="flex items-center min-w-0 py-2">
           <div
-            className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0"
-            style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
-            title={resolvedClientName}
+            className="shrink-0 flex items-center justify-center"
+            style={{ width: iconColWidth }}
+            title={tip(resolvedClientName)}
           >
-            {getInitials(resolvedClientName)}
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold"
+              style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
+            >
+              {getInitials(resolvedClientName)}
+            </div>
           </div>
-          <div className={`transition-opacity duration-75 ${labelClass}`}>
-            <div className="text-[13px] font-semibold truncate whitespace-nowrap leading-tight" style={{ color: t.sidebar.text }}>
+          <div className="min-w-0 flex-1 overflow-hidden whitespace-nowrap pr-3">
+            <div className="text-[13px] font-semibold truncate leading-tight" style={{ color: t.sidebar.text }}>
               {resolvedClientName}
             </div>
-            <div className="text-[11px] truncate whitespace-nowrap leading-tight" style={{ color: t.sidebar.muted }}>
+            <div className="text-[11px] truncate leading-tight" style={{ color: t.sidebar.muted }}>
               {getTierLabel(tier)}
             </div>
           </div>
@@ -296,37 +292,43 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-2.5">
-        {navSections.map((section) => (
-          <div key={section.title}>
-            <div
-              className={`${iconInsetClass} pr-2.5 mb-1 text-[10px] font-semibold tracking-wider uppercase whitespace-nowrap overflow-hidden transition-opacity duration-75 ${
-                showLabels ? 'opacity-100' : 'opacity-0'
-              }`}
-              style={{ color: t.sidebar.muted, height: '0.875rem' }}
-              aria-hidden={!showLabels}
-            >
-              {section.title}
-            </div>
-            <ul className="space-y-0.5">
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-1.5 space-y-1">
+        {navSections.map((section, sectionIndex) => (
+          <div key={section.title || `section-${sectionIndex}`}>
+            {section.title ? (
+              <div
+                className="mb-0.5 px-3 text-[10px] font-semibold tracking-wider uppercase whitespace-nowrap overflow-hidden"
+                style={{
+                  color: t.sidebar.muted,
+                  height: '0.875rem',
+                  // Keep row height when collapsed so expand doesn't shove items down.
+                  opacity: sidebarExpanded || isMobile ? 1 : 0,
+                }}
+                aria-hidden={!sidebarExpanded && !isMobile}
+              >
+                {section.title}
+              </div>
+            ) : null}
+            <ul className="space-y-px">
               {section.items.map((item) => {
                 const active = isNavActive(item.path)
                 const Icon = item.icon
                 const badge = item.badgeKey ? badges[item.badgeKey] : 0
+                const showLabels = sidebarExpanded || isMobile
+                // Icon column matches rail width minus the shared 8px inset on each side,
+                // so left offset stays identical while collapsed ↔ expanded.
+                const navIconColWidth = iconColWidth - 16
 
                 return (
                   <li key={item.path}>
                     <button
                       type="button"
                       onClick={() => handleNavClick(item.path)}
-                      title={!showLabels ? item.label : undefined}
-                      className={`w-full flex items-center gap-2.5 ${iconInsetClass} pr-2.5 py-1.5 rounded-md text-[13px] transition-[background-color,color] duration-200`}
+                      title={tip(item.label)}
+                      className="client-sidebar-nav-item w-full flex items-center text-[13px] transition-colors duration-200"
                       style={{
                         backgroundColor: active ? t.sidebar.active : 'transparent',
                         color: active ? t.sidebar.activeText : t.sidebar.muted,
-                        boxShadow: active
-                          ? `inset 3px 0 0 ${t.sidebar.activeBorder}`
-                          : 'inset 3px 0 0 transparent',
                         fontWeight: active ? 600 : 500,
                       }}
                       onMouseEnter={(e) => {
@@ -336,21 +338,31 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                         if (!active) e.currentTarget.style.backgroundColor = 'transparent'
                       }}
                     >
-                      <Icon
-                        className="w-4 h-4 shrink-0"
-                        strokeWidth={1.75}
-                        style={{ color: active ? t.info : t.mutedLight }}
-                      />
                       <span
-                        className={`flex-1 text-left truncate whitespace-nowrap transition-opacity duration-75 ${labelClass}`}
+                        className="relative shrink-0 flex items-center justify-center self-stretch"
+                        style={{ width: navIconColWidth }}
                       >
+                        <Icon
+                          className="w-4 h-4"
+                          strokeWidth={1.75}
+                          style={{ color: active ? t.sidebar.activeText : t.mutedLight }}
+                        />
+                        {/* Collapsed rail: keep count visible on the icon */}
+                        {badge > 0 && !showLabels && (
+                          <span
+                            className="client-sidebar-nav-item__badge"
+                            style={{ backgroundColor: t.sidebar.badge }}
+                          >
+                            {badge > 9 ? '9+' : badge}
+                          </span>
+                        )}
+                      </span>
+                      <span className="flex-1 min-w-0 text-left truncate whitespace-nowrap py-1 pr-3">
                         {item.label}
                       </span>
-                      {badge > 0 && (
+                      {badge > 0 && showLabels && (
                         <span
-                          className={`min-w-[18px] h-4 px-1 flex items-center justify-center rounded-full text-[9px] font-bold text-white transition-opacity duration-75 ${
-                            showLabels ? 'opacity-100' : 'opacity-0 max-w-0 overflow-hidden'
-                          }`}
+                          className="mr-3 min-w-[18px] h-4 px-1 flex items-center justify-center rounded-full text-[9px] font-bold text-white shrink-0"
                           style={{ backgroundColor: t.sidebar.badge }}
                         >
                           {badge}
@@ -367,12 +379,13 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
       {/* Collapse toggle — desktop only */}
       {!isMobile && (
-        <div className={`pb-1 ${iconInsetClass} pr-2.5`}>
+        <div className="pb-1">
           <button
             type="button"
             onClick={toggleCollapsed}
-            className="w-full flex items-center gap-2.5 py-1.5 text-[13px] transition-colors rounded-md"
+            className="w-full flex items-center text-[13px] transition-colors"
             style={{ color: t.sidebar.muted }}
+            title={tip(railMode ? 'Pin open' : 'Collapse')}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = t.sidebar.hover
             }}
@@ -381,12 +394,17 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             }}
             aria-label={railMode ? 'Keep sidebar expanded' : 'Collapse sidebar'}
           >
-            {railMode ? (
-              <PanelLeft className="w-4 h-4 shrink-0" strokeWidth={1.75} />
-            ) : (
-              <PanelLeftClose className="w-4 h-4 shrink-0" strokeWidth={1.75} />
-            )}
-            <span className={`whitespace-nowrap transition-opacity duration-75 ${labelClass}`}>
+            <span
+              className="shrink-0 flex items-center justify-center self-stretch py-1.5"
+              style={{ width: iconColWidth }}
+            >
+              {railMode ? (
+                <PanelLeft className="w-4 h-4" strokeWidth={1.75} />
+              ) : (
+                <PanelLeftClose className="w-4 h-4" strokeWidth={1.75} />
+              )}
+            </span>
+            <span className="whitespace-nowrap truncate py-1.5 pr-3">
               {railMode ? 'Pin open' : 'Collapse'}
             </span>
           </button>
@@ -394,12 +412,13 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       )}
 
       {/* User profile */}
-      <div className={`py-2 border-t relative ${iconInsetClass} pr-2.5`} style={{ borderColor: t.sidebar.border }}>
+      <div className="py-2 border-t relative" style={{ borderColor: t.sidebar.border }}>
         <button
           type="button"
           onClick={() => setUserMenuOpen((open) => !open)}
-          className="w-full flex items-center gap-2.5 py-1.5 transition-colors rounded-md"
+          className="w-full flex items-center transition-colors"
           style={{ color: t.sidebar.text }}
+          title={tip(userDisplayName)}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = t.sidebar.hover
           }}
@@ -407,21 +426,26 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             e.currentTarget.style.backgroundColor = 'transparent'
           }}
         >
-          <div
-            className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0"
-            style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
+          <span
+            className="shrink-0 flex items-center justify-center self-stretch py-1.5"
+            style={{ width: iconColWidth }}
           >
-            {getInitials(userDisplayName)}
-          </div>
-          <div className={`flex-1 text-left transition-opacity duration-75 ${labelClass}`}>
-            <div className="text-[13px] font-semibold truncate whitespace-nowrap leading-tight">{userDisplayName}</div>
-            <div className="text-[11px] truncate whitespace-nowrap leading-tight" style={{ color: t.sidebar.muted }}>
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold"
+              style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
+            >
+              {getInitials(userDisplayName)}
+            </div>
+          </span>
+          <div className="flex-1 min-w-0 text-left overflow-hidden whitespace-nowrap py-1.5 pr-1">
+            <div className="text-[13px] font-semibold truncate leading-tight">{userDisplayName}</div>
+            <div className="text-[11px] truncate leading-tight" style={{ color: t.sidebar.muted }}>
               {userRole === 'Client' ? 'A/R Manager' : userRole}
             </div>
           </div>
           <ChevronDown
-            className={`w-3.5 h-3.5 shrink-0 transition-all duration-75 ${userMenuOpen ? 'rotate-180' : ''} ${
-              showLabels ? 'opacity-100' : 'opacity-0'
+            className={`w-3.5 h-3.5 shrink-0 mr-3 transition-transform duration-150 ${
+              userMenuOpen ? 'rotate-180' : ''
             }`}
             style={{ color: t.sidebar.muted }}
           />
@@ -429,7 +453,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
         {userMenuOpen && (
           <div
-            className="absolute bottom-full left-3 right-3 mb-1 rounded-xl border py-1 z-10"
+            className="absolute bottom-full left-2 right-2 mb-1 rounded-xl border py-1 z-10"
             style={{
               backgroundColor: t.card,
               borderColor: t.border,
@@ -513,9 +537,9 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-[margin] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] lg:ml-[var(--sidebar-width)]">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-[margin] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] lg:ml-[var(--sidebar-width)]">
         <header
-          className="sticky top-0 z-30 flex items-center justify-between gap-3 px-5 h-12 border-b"
+          className="sticky top-0 z-30 flex items-center justify-between gap-3 px-5 mt-1 h-12 border-b"
           style={{ borderColor: t.border, backgroundColor: t.card }}
         >
           <button

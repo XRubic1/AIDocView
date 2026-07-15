@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useId } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Area, AreaChart, ResponsiveContainer } from 'recharts'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
   DollarSign,
@@ -16,6 +17,7 @@ import CollectionForecastKpiCard from '../components/client/CollectionForecastKp
 import DashboardPanel from '../components/client/dashboard/DashboardPanel'
 import ActivityMetricsRow from '../components/client/dashboard/ActivityMetricsRow'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
+import { computeRequiredActions } from '../utils/clientActivityMetrics'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
@@ -48,54 +50,21 @@ function StatusPill({ status }: { status: InvoiceStatus | string }) {
   )
 }
 
-function InlineSparkline({ values, stroke }: { values: number[]; stroke: string }) {
-  if (values.length < 2) return null
-
-  const max = Math.max(...values, 1)
-  const min = Math.min(...values, 0)
-  const range = max - min || 1
-  const width = 72
-  const height = 22
-
-  const points = values
-    .map((value, index) => {
-      const x = (index / (values.length - 1)) * width
-      const y = height - ((value - min) / range) * (height - 4) - 2
-      return `${x},${y}`
-    })
-    .join(' ')
-
-  return (
-    <svg className="dashboard-inline-sparkline" viewBox={`0 0 ${width} ${height}`} aria-hidden>
-      <polyline
-        fill="none"
-        stroke={stroke}
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        points={points}
-      />
-    </svg>
-  )
-}
-
 function getTimelineDotClass(type: string) {
+  if (type === 'confirm_payment') return 'timeline-dot timeline-dot--hold'
+  if (type === 'held_invoice') return 'timeline-dot timeline-dot--hold'
+  if (type === 'overdue_invoice') return 'timeline-dot timeline-dot--overdue'
   if (type.includes('payment')) return 'timeline-dot timeline-dot--payment'
   if (type.includes('hold')) return 'timeline-dot timeline-dot--hold'
   if (type.includes('upload') || type.includes('document')) return 'timeline-dot timeline-dot--upload'
   return 'timeline-dot timeline-dot--default'
 }
 
-function formatRelativeTime(iso: string) {
-  const date = new Date(iso)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-  if (diffHours < 1) return 'Just now'
-  if (diffHours < 24) return `${diffHours}h ago`
-  const diffDays = Math.floor(diffHours / 24)
-  if (diffDays < 7) return `${diffDays}d ago`
-  return formatDate(iso)
+function getRequiredActionTypeLabel(type: string) {
+  if (type === 'confirm_payment') return 'Confirm'
+  if (type === 'held_invoice') return 'Held'
+  if (type === 'overdue_invoice') return 'Overdue'
+  return 'Action'
 }
 
 export default function ClientDashboard() {
@@ -117,10 +86,11 @@ export default function ClientDashboard() {
   const [showSimpleUpload, setShowSimpleUpload] = useState(false)
 
   const totalArAnimated = useCountUp(data.summary.total_ar, { decimals: 2 })
+  const arSparklineGradientId = useId().replace(/:/g, '')
 
   const invoicedSparkline = useMemo(() => {
     const now = new Date()
-    const months: number[] = []
+    const months: { amount: number }[] = []
 
     for (let offset = 5; offset >= 0; offset -= 1) {
       const monthDate = new Date(now.getFullYear(), now.getMonth() - offset, 1)
@@ -132,7 +102,7 @@ export default function ClientDashboard() {
           return invoiceDate.getFullYear() === year && invoiceDate.getMonth() === month
         })
         .reduce((sum, invoice) => sum + invoice.amount, 0)
-      months.push(total)
+      months.push({ amount: total })
     }
 
     return months
@@ -146,6 +116,15 @@ export default function ClientDashboard() {
     [clientPayments]
   )
 
+  const requiredActions = useMemo(
+    () =>
+      computeRequiredActions(
+        { invoices: clientInvoices, payments: clientPayments },
+        { includePaymentConfirmation: capabilities.canConfirmPaymentReceipt, limit: 8 }
+      ),
+    [clientInvoices, clientPayments, capabilities.canConfirmPaymentReceipt]
+  )
+
   const handleSimpleUploadComplete = (files: File[]) => {
     navigate(`/client/batches?tab=create&mode=ai`, { state: { initialFiles: files } })
   }
@@ -155,51 +134,27 @@ export default function ClientDashboard() {
       {staleError && <DataStaleBanner message={staleError} onDismiss={dismissStaleError} />}
       <RefreshIndicator visible={isRefreshing} />
       {isInitialLoad ? (
-        <div className="space-y-3 p-1">
+        <div className="space-y-2 p-1">
           <SkeletonRows rows={4} rowClassName="h-24" />
         </div>
       ) : (
-      <div className="space-y-3">
-        {tier === 'managed' && (
-          <section
-            className="dashboard-card px-4 py-3 text-sm"
-            style={{ backgroundColor: c.stat.amber, color: c.secondary }}
-          >
-            Your Credyx team handles batch processing and collections. Use{' '}
-            <strong>Send documents</strong> to upload paperwork.
-          </section>
-        )}
-
-        {/* Row 1 — Compact welcome */}
-        <section className="dashboard-card px-5 py-3.5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      <div>
+        {/* Page header — greeting zone (not a card) */}
+        <header className="dashboard-page-header flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pt-2 pb-5 mb-3">
           <div className="min-w-0">
-            <h1 className="text-xl font-bold leading-tight" style={{ color: c.primary }}>
+            <h1
+              className="text-2xl sm:text-3xl font-semibold tracking-tight leading-tight"
+              style={{ color: c.primary }}
+            >
               Welcome Back, {clientName}
             </h1>
-            <p className="alert-inline mt-1">
-              <span className="alert-inline__danger">
-                {data.summary.overdue_invoices} Overdue
-              </span>
-              <span className="mx-1.5" style={{ color: c.border }}>
-                •
-              </span>
-              <span className="alert-inline__warning">
-                {data.summary.on_hold_invoices} On Hold
-              </span>
-              <span className="mx-1.5" style={{ color: c.border }}>
-                •
-              </span>
-              <span className="alert-inline__info">
-                {data.summary.pending_invoices} Pending
-              </span>
-            </p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
             {capabilities.canUseAiUpload && (
               <button
                 type="button"
                 onClick={() => setShowSimpleUpload(true)}
-                className="dashboard-btn-primary"
+                className="dashboard-btn-secondary dashboard-btn-compact"
               >
                 <Upload className="w-3.5 h-3.5" />
                 Upload
@@ -209,7 +164,7 @@ export default function ClientDashboard() {
               <button
                 type="button"
                 onClick={() => navigate('/client/batches?tab=create')}
-                className="dashboard-btn-secondary"
+                className="dashboard-btn-secondary dashboard-btn-compact"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Batch
@@ -219,7 +174,7 @@ export default function ClientDashboard() {
               <button
                 type="button"
                 onClick={() => navigate('/client/batches?tab=create')}
-                className="dashboard-btn-primary"
+                className="dashboard-btn-secondary dashboard-btn-compact"
               >
                 <Upload className="w-3.5 h-3.5" />
                 Send documents
@@ -229,7 +184,7 @@ export default function ClientDashboard() {
               <button
                 type="button"
                 onClick={() => navigate('/client/payments')}
-                className="dashboard-btn-secondary"
+                className="dashboard-btn-secondary dashboard-btn-compact"
               >
                 <DollarSign className="w-3.5 h-3.5" />
                 Post payment
@@ -238,46 +193,60 @@ export default function ClientDashboard() {
             <button
               type="button"
               onClick={() => navigate('/client/reports')}
-              className="dashboard-btn-secondary"
+              className="dashboard-btn-secondary dashboard-btn-compact"
             >
               <BarChart3 className="w-3.5 h-3.5" />
               Report
             </button>
           </div>
-        </section>
+        </header>
 
-        {/* Row 2 — Hero KPI */}
-        <section className="dashboard-section-enter dashboard-section-enter--1 grid grid-cols-1 md:grid-cols-[1.2fr_0.8fr] gap-3">
-          <div className="dashboard-card dashboard-kpi-hero">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium" style={{ color: c.secondary }}>
+        <div className="space-y-2">
+        {/* Row 2 — Compact A/R + forecast KPI strip */}
+        <section className="dashboard-section-enter dashboard-section-enter--1 grid grid-cols-1 md:grid-cols-[1.2fr_0.8fr] gap-2">
+          <div className="dashboard-card dashboard-kpi-hero p-0 overflow-hidden flex min-h-[68px]">
+            <div className="payment-kpi-card total-ar-kpi-card">
+              <div className="payment-kpi-card__body" style={{ cursor: 'default' }}>
+                <p className="payment-kpi-card__title" style={{ color: c.secondary }}>
                   Total A/R
                 </p>
-                <p
-                  className="dashboard-kpi-hero__value tabular-nums"
-                  style={{ color: c.primary }}
-                >
+                <p className="payment-kpi-card__value tabular-nums" style={{ color: c.primary }}>
                   {formatCurrency(totalArAnimated)}
                 </p>
-                <div className="dashboard-kpi-hero__footer">
-                  <span className="dashboard-kpi-hero__trend" style={{ color: c.success }}>
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                    +12% vs last month
-                  </span>
-                  <InlineSparkline values={invoicedSparkline} stroke={c.accent} />
-                </div>
+                <p
+                  className="payment-kpi-card__subtitle inline-flex items-center gap-1"
+                  style={{ color: c.success }}
+                >
+                  <ArrowUpRight className="w-3 h-3" />
+                  +12% vs last month
+                </p>
               </div>
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                style={{ backgroundColor: c.card, color: c.accent, border: `1px solid ${c.border}` }}
-              >
-                <DollarSign className="w-4 h-4" />
+              <div className="payment-kpi-card__sparkline" aria-hidden>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={invoicedSparkline} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id={arSparklineGradientId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={c.accent} stopOpacity={0.22} />
+                        <stop offset="100%" stopColor={c.accent} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <Area
+                      type="monotone"
+                      dataKey="amount"
+                      stroke={c.accent}
+                      strokeWidth={2}
+                      fill={`url(#${arSparklineGradientId})`}
+                      dot={false}
+                      isAnimationActive
+                      animationDuration={600}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
             </div>
           </div>
 
-          <div className="dashboard-card dashboard-kpi-companion p-0 overflow-hidden flex min-h-[104px]">
+          <div className="dashboard-card dashboard-kpi-companion p-0 overflow-hidden flex min-h-[68px]">
             <CollectionForecastKpiCard
               invoices={clientInvoices}
               payments={clientPayments}
@@ -288,7 +257,7 @@ export default function ClientDashboard() {
 
         {/* Row 3 — Today's activity (last 7 days + standing held/overdue) */}
         <section
-          className={`dashboard-section-enter dashboard-section-enter--2 grid grid-cols-2 gap-3 ${
+          className={`dashboard-section-enter dashboard-section-enter--2 grid grid-cols-2 gap-2 ${
             tier === 'managed' ? 'lg:grid-cols-5' : 'lg:grid-cols-4'
           }`}
         >
@@ -302,7 +271,7 @@ export default function ClientDashboard() {
         </section>
 
         {/* Row 4 — Analytics */}
-        <section className="dashboard-section-enter dashboard-section-enter--4 grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <section className="dashboard-section-enter dashboard-section-enter--4 grid grid-cols-1 xl:grid-cols-2 gap-2">
           <DashboardPanel title="Aging A/R" compact interactive={false}>
             <AgingARChart aging={data.aging_ar} />
           </DashboardPanel>
@@ -312,7 +281,7 @@ export default function ClientDashboard() {
         </section>
 
         {/* Row 6 — Recent activity */}
-        <section className="dashboard-section-enter dashboard-section-enter--5 grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <section className="dashboard-section-enter dashboard-section-enter--5 grid grid-cols-1 xl:grid-cols-2 gap-2">
           <DashboardPanel
             title="Recent Payments"
             compact
@@ -364,34 +333,70 @@ export default function ClientDashboard() {
             </div>
           </DashboardPanel>
 
-          <DashboardPanel title="Recent Actions" compact interactive={false}>
-            <div className="p-5">
-              {data.recent_activity.length === 0 ? (
-                <div className="dashboard-empty-state py-4">
-                  <Activity className="dashboard-empty-state__icon" aria-hidden />
-                  <p className="dashboard-empty-state__title">No recent activity</p>
-                  <p className="dashboard-empty-state__help">
-                    Payments, approvals, and uploads will show up here
-                  </p>
-                </div>
-              ) : (
-                <ul>
-                  {data.recent_activity.map((activity) => (
-                    <li key={activity.id} className="timeline-item">
-                      <span className={getTimelineDotClass(activity.type)} />
-                      <p className="text-sm font-medium" style={{ color: c.primary }}>
-                        {activity.description}
-                      </p>
-                      <p className="text-xs font-medium mt-0.5" style={{ color: c.secondary }}>
-                        {formatRelativeTime(activity.timestamp)}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
+          <DashboardPanel title="Required Actions" compact interactive={false}>
+            <div className="overflow-x-auto">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Action</th>
+                    <th>Detail</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {requiredActions.length === 0 ? (
+                    <tr>
+                      <td colSpan={3}>
+                        <div className="dashboard-empty-state">
+                          <Activity className="dashboard-empty-state__icon" aria-hidden />
+                          <p className="dashboard-empty-state__title">No required actions</p>
+                          <p className="dashboard-empty-state__help">
+                            Payment confirmations, held invoices, and overdue items will appear here
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    requiredActions.map((action) => (
+                      <tr
+                        key={action.id}
+                        className="dashboard-table-row--clickable"
+                        onClick={() => navigate(action.navigateTo)}
+                      >
+                        <td>
+                          <span className="inline-flex items-center gap-2 min-w-0">
+                            <span
+                              className={`${getTimelineDotClass(action.type)} timeline-dot--inline`}
+                              aria-hidden
+                            />
+                            <span className="font-semibold truncate">{action.label}</span>
+                          </span>
+                        </td>
+                        <td style={{ color: c.secondary }} className="truncate">
+                          {action.detail}
+                        </td>
+                        <td>
+                          <span
+                            className={
+                              action.type === 'overdue_invoice'
+                                ? 'status-pill status-pill--overdue'
+                                : action.type === 'confirm_payment'
+                                  ? 'status-pill status-pill--pending'
+                                  : 'status-pill status-pill--hold'
+                            }
+                          >
+                            {getRequiredActionTypeLabel(action.type)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </DashboardPanel>
         </section>
+        </div>
       </div>
       )}
 

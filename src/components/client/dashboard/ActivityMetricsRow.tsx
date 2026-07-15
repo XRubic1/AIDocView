@@ -89,7 +89,7 @@ function ActivityMetricCard({ metric, storageKeyPrefix, onNavigate }: ActivityMe
       )}
       <div className="dashboard-status-card__head">
         <span className={`dashboard-status-card__icon dashboard-status-card__icon--${variant}`}>
-          <Icon className="w-3.5 h-3.5" />
+          <Icon className="w-3 h-3" />
         </span>
         <span className="dashboard-status-card__label">{metric.label}</span>
       </div>

@@ -184,3 +184,78 @@ export function computeActivityMetrics(
 
   return { windowDays, totalActions, metrics }
 }
+
+/** A single client-facing to-do that still needs attention. */
+export interface RequiredAction {
+  id: string
+  /** Stable category used for styling and empty-state copy. */
+  type: 'confirm_payment' | 'held_invoice' | 'overdue_invoice'
+  /** Primary line shown in the actions table. */
+  label: string
+  /** Secondary context (broker, amount, etc.). */
+  detail: string
+  tone: ActivityTone
+  navigateTo: string
+}
+
+export interface RequiredActionsOptions {
+  /** Include payment-receipt confirmation rows (managed clients). */
+  includePaymentConfirmation?: boolean
+  /** Max rows to return (most urgent first). */
+  limit?: number
+}
+
+/**
+ * Builds the dashboard "Required Actions" list: confirm payments, resolve held
+ * invoices, and address overdue balances — ordered by urgency.
+ */
+export function computeRequiredActions(
+  { invoices, payments }: Pick<ActivityMetricsInput, 'invoices' | 'payments'>,
+  options: RequiredActionsOptions = {}
+): RequiredAction[] {
+  const { includePaymentConfirmation = true, limit = 8 } = options
+  const actions: RequiredAction[] = []
+
+  if (includePaymentConfirmation) {
+    for (const payment of getAwaitingReceiptPayments(payments)) {
+      actions.push({
+        id: `confirm-${payment.id}`,
+        type: 'confirm_payment',
+        label: `Confirm payment · ${payment.invoice_number}`,
+        detail: `${formatCompactAmount(payment.amount)} · ${payment.broker_name}`,
+        tone: 'amber',
+        navigateTo: `/client/payments?status=awaiting_receipt&paymentId=${encodeURIComponent(payment.id)}`,
+      })
+    }
+  }
+
+  for (const invoice of invoices.filter((inv) => inv.status === 'hold')) {
+    actions.push({
+      id: `held-${invoice.id}`,
+      type: 'held_invoice',
+      label: `Held invoice · ${invoice.invoice_number}`,
+      detail: `${formatCompactAmount(invoice.amount)} · ${invoice.broker_name}`,
+      tone: 'amber',
+      navigateTo: `/client/invoices?status=hold&highlight_invoice=${encodeURIComponent(invoice.id)}`,
+    })
+  }
+
+  const now = Date.now()
+  for (const invoice of invoices) {
+    if (invoice.status === 'paid' || invoice.status === 'force_closed' || invoice.status === 'hold') {
+      continue
+    }
+    const due = new Date(invoice.due_date).getTime()
+    if (!Number.isFinite(due) || due >= now) continue
+    actions.push({
+      id: `overdue-${invoice.id}`,
+      type: 'overdue_invoice',
+      label: `Overdue invoice · ${invoice.invoice_number}`,
+      detail: `${formatCompactAmount(invoice.amount)} · ${invoice.broker_name}`,
+      tone: 'red',
+      navigateTo: `/client/invoices?status=overdue&highlight_invoice=${encodeURIComponent(invoice.id)}`,
+    })
+  }
+
+  return actions.slice(0, limit)
+}

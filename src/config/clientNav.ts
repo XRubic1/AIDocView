@@ -31,7 +31,7 @@ export interface ClientNavSection {
 
 export const clientNavSections: ClientNavSection[] = [
   {
-    title: 'MAIN',
+    title: '',
     items: [
       { label: 'Dashboard', path: '/client/dashboard', icon: LayoutDashboard },
       { label: 'Batches', path: '/client/batches', icon: Boxes, badgeKey: 'pendingBatches' },

@@ -1,14 +1,4 @@
 import { useMemo } from 'react'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import { AlertTriangle } from 'lucide-react'
 import { formatCurrency } from '../../utils/format'
 import { AgingAR } from '../../types/admin'
@@ -19,37 +9,7 @@ interface AgingARChartProps {
   compact?: boolean
 }
 
-function AgingTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean
-  payload?: Array<{ value: number; payload?: { pct?: number } }>
-  label?: string
-}) {
-  const t = useClientTheme()
-  if (!active || !payload?.length) return null
-  const pct = payload[0].payload?.pct ?? 0
-
-  return (
-    <div
-      className="rounded-xl px-3 py-2 text-xs shadow-lg border"
-      style={{ backgroundColor: t.card, borderColor: t.border }}
-    >
-      <p className="font-medium mb-1" style={{ color: t.secondary }}>
-        {label}
-      </p>
-      <p className="font-semibold tabular-nums" style={{ color: t.primary }}>
-        {formatCurrency(payload[0].value)}
-      </p>
-      <p className="text-[10px] mt-0.5" style={{ color: t.mutedLight }}>
-        {pct.toFixed(0)}% of open A/R
-      </p>
-    </div>
-  )
-}
-
+/** Compact aging distribution — stacked bar + dense bucket rows (not a tall chart). */
 export default function AgingARChart({ aging, compact = false }: AgingARChartProps) {
   const t = useClientTheme()
   const total = aging.total || 1
@@ -78,19 +38,9 @@ export default function AgingARChart({ aging, compact = false }: AgingARChartPro
     }))
   }, [aging, t.chart, total])
 
-  const chartData = useMemo(
-    () =>
-      buckets.map((bucket) => ({
-        label: bucket.short,
-        amount: bucket.amount,
-        pct: bucket.pct,
-        color: bucket.color,
-      })),
-    [buckets]
-  )
-
   const overdueAmount = aging['61_90'] + aging.over_91
   const overduePct = aging.total > 0 ? Math.round((overdueAmount / aging.total) * 100) : 0
+  const maxAmount = Math.max(...buckets.map((b) => b.amount), 0)
 
   if (compact) {
     return (
@@ -123,27 +73,22 @@ export default function AgingARChart({ aging, compact = false }: AgingARChartPro
   }
 
   return (
-    <div className="p-5">
-      <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
-        <div>
-          <p className="text-2xl font-bold tabular-nums" style={{ color: t.primary }}>
-            {formatCurrency(aging.total)}
-          </p>
-          <p className="text-xs font-medium mt-0.5" style={{ color: t.secondary }}>
-            outstanding
-          </p>
-        </div>
+    <div className="aging-ar-chart p-3 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium" style={{ color: t.secondary }}>
+          Distribution by age
+        </p>
         {overdueAmount > 0 ? (
           <div
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
             style={{ backgroundColor: t.stat.amber, color: t.warning }}
           >
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            <AlertTriangle className="w-3 h-3 shrink-0" />
             {formatCurrency(overdueAmount)} overdue ({overduePct}%)
           </div>
         ) : (
           <div
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
             style={{ backgroundColor: t.stat.green, color: t.success }}
           >
             No overdue A/R
@@ -151,52 +96,65 @@ export default function AgingARChart({ aging, compact = false }: AgingARChartPro
         )}
       </div>
 
-      <div className="w-full min-w-0" style={{ height: 160 }}>
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-          <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={t.chartGrid} vertical={false} />
-            <XAxis
-              dataKey="label"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fontSize: 11, fill: t.muted, fontWeight: 500 }}
+      {/* Stacked distribution bar — replaces tall vertical chart */}
+      <div
+        className="aging-ar-chart__stack flex h-3 w-full rounded-full overflow-hidden"
+        style={{ backgroundColor: t.chartGrid }}
+        role="img"
+        aria-label="A/R aging distribution"
+      >
+        {buckets.map((bucket) =>
+          bucket.pct > 0 ? (
+            <div
+              key={bucket.key}
+              className="h-full transition-all"
+              style={{ width: `${bucket.pct}%`, backgroundColor: bucket.color }}
+              title={`${bucket.label}: ${formatCurrency(bucket.amount)} (${bucket.pct.toFixed(0)}%)`}
             />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={{ fontSize: 11, fill: t.mutedLight }}
-              tickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`)}
-              width={48}
-            />
-            <Tooltip
-              content={<AgingTooltip />}
-              cursor={{ fill: t.chartGrid, opacity: 0.45 }}
-            />
-            <Bar dataKey="amount" radius={[4, 4, 0, 0]} maxBarSize={36}>
-              {chartData.map((entry) => (
-                <Cell key={entry.label} fill={entry.color} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+          ) : null
+        )}
       </div>
 
-      <div className="aging-ar-chart__legend">
-        {buckets.map((bucket) => (
-          <div key={bucket.key} className="aging-ar-chart__legend-item">
-            <span
-              className="aging-ar-chart__legend-dot"
-              style={{ backgroundColor: bucket.color }}
-            />
-            <span className="aging-ar-chart__legend-label" style={{ color: t.secondary }}>
-              {bucket.short}
-            </span>
-          </div>
-        ))}
-        <span className="aging-ar-chart__legend-note" style={{ color: t.mutedLight }}>
-          By age bucket
-        </span>
-      </div>
+      {/* Dense bucket rows with proportional mini bars */}
+      <ul className="aging-ar-chart__buckets">
+        {buckets.map((bucket) => {
+          const barWidth =
+            maxAmount > 0 ? Math.max((bucket.amount / maxAmount) * 100, bucket.amount > 0 ? 4 : 0) : 0
+          return (
+            <li key={bucket.key} className="aging-ar-chart__bucket-row">
+              <span
+                className="aging-ar-chart__legend-dot shrink-0"
+                style={{ backgroundColor: bucket.color }}
+                aria-hidden
+              />
+              <span className="aging-ar-chart__bucket-label" style={{ color: t.secondary }}>
+                {bucket.short}
+              </span>
+              <div
+                className="aging-ar-chart__bucket-track"
+                style={{ backgroundColor: t.chartGrid }}
+              >
+                <div
+                  className="aging-ar-chart__bucket-fill"
+                  style={{ width: `${barWidth}%`, backgroundColor: bucket.color }}
+                />
+              </div>
+              <span
+                className="aging-ar-chart__bucket-amount tabular-nums"
+                style={{ color: t.primary }}
+              >
+                {formatCurrency(bucket.amount)}
+              </span>
+              <span
+                className="aging-ar-chart__bucket-pct tabular-nums"
+                style={{ color: t.mutedLight }}
+              >
+                {bucket.pct.toFixed(0)}%
+              </span>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

@@ -146,10 +146,10 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
   }
 
   return (
-    <div className="p-5">
-      <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+    <div className="p-3">
+      <div className="flex flex-wrap items-end justify-between gap-2 mb-2">
         <div>
-          <p className="text-2xl font-bold tabular-nums" style={{ color: t.primary }}>
+          <p className="text-xl font-bold tabular-nums leading-tight" style={{ color: t.primary }}>
             {formatCurrency(thisMonthTotal)}
           </p>
           <p className="text-xs font-medium mt-0.5" style={{ color: t.secondary }}>
@@ -158,20 +158,20 @@ export default function PaymentTrendsChart({ payments, compact = false }: Paymen
         </div>
         {hasMonthComparison && (
           <div
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
             style={{
               backgroundColor: monthChangePct >= 0 ? t.stat.green : t.stat.amber,
               color: monthChangePct >= 0 ? t.success : t.warning,
             }}
           >
-            <TrendingUp className="w-3.5 h-3.5" />
+            <TrendingUp className="w-3 h-3" />
             {monthChangePct >= 0 ? '+' : ''}
             {monthChangePct}% from previous month
           </div>
         )}
       </div>
 
-      <div className="w-full min-w-0" style={{ height: 160 }}>
+      <div className="w-full min-w-0" style={{ height: 148 }}>
         <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>

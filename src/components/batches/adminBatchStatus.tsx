@@ -8,7 +8,6 @@ export function getAdminBatchStatusBadge(status: string) {
     processing: { label: 'Processing', className: 'status-pill--approved' },
     approved: { label: 'Approved', className: 'status-pill--approved' },
     rejected: { label: 'Rejected', className: 'status-pill--overdue' },
-    voided: { label: 'Voided', className: 'status-pill--overdue' },
     documents_uploaded: { label: 'Docs received', className: 'status-pill--pending-batch' },
     draft: { label: 'Draft', className: 'status-pill--pending' },
   }

@@ -93,8 +93,3 @@ export function useClientPortal(): ClientPortalContextValue {
   }
   return ctx
 }
-
-/** Returns null outside ClientPortalProvider (e.g. Credyx admin pages). */
-export function useOptionalClientPortal(): ClientPortalContextValue | null {
-  return useContext(ClientPortalContext)
-}

@@ -1,5 +1,10 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react'
+import { useSearchParams, useLocation } from 'react-router-dom'
+import {
+  clearPaymentRestoreTarget,
+  peekPaymentRestoreTarget,
+  stashPaymentRestoreTarget,
+} from '../utils/paymentRestoreTarget'
 import { useClientSession } from '../hooks/useClientSession'
 import { Payment } from '../types/payment'
 import { formatCurrency, formatDate } from '../utils/format'
@@ -8,12 +13,8 @@ import {
   Search,
   Filter,
   X,
-  Eye,
   ChevronLeft,
   ChevronRight,
-  MoreVertical,
-  ArrowRightLeft,
-  Undo2,
   AlertTriangle,
   Loader2,
   ArrowUp,
@@ -22,16 +23,14 @@ import {
 import PaymentKpiCards from '../components/client/PaymentKpiCards'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
+import { getInvoiceVarianceBadge } from '../components/client/invoiceDetailShared'
 import { useClientTheme } from '../theme/ThemeContext'
-import { listPostableInvoices } from '../services/clientPaymentService'
-import { movePaymentFunds, unprocessPayment } from '../services/paymentCorrectionService'
 import { getInvoiceById } from '../data/mockInvoices'
 import { getClientPayments as getClientDemoPayments } from '../data/clientDemoData'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { useToast } from '../components/ui/ToastProvider'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
-import { MoveFundsModal, UnprocessPaymentModal } from '../components/client/PaymentCorrectionModals'
 import PaymentConfirmationPanel from '../components/client/PaymentConfirmationPanel'
 import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
 import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
@@ -52,26 +51,120 @@ import {
   processExpiredReceiptConfirmations,
 } from '../services/paymentReceiptConfirmationService'
 import { AMOUNT_EPSILON, getInvoiceReceivedAmount } from '../utils/paymentVariance'
-import { buildPaymentTableGroups, isShortPaymentChild, isOverpaymentChild } from '../utils/paymentTableGrouping'
+import {
+  buildPaymentTableGroups,
+  isShortPaymentChild,
+  isOverpaymentChild,
+  isInactivePaymentChild,
+} from '../utils/paymentTableGrouping'
 
-/** Parent-row Additional payment: invoice overage when overpaid, else supplemental children total. */
+/** Parent-row Additional payment: net invoice variance only (overage or shortfall). */
 function getParentAdditionalAmount(
   invoiceAmount: number | undefined,
   confirmedReceived: number | undefined,
-  siblingChildren: Payment[]
-): { amount: number; isOverpayment: boolean } {
-  const overage = Math.max(0, (confirmedReceived ?? 0) - (invoiceAmount ?? 0))
-  const childAdditional = siblingChildren
-    .filter((child) => !isShortPaymentChild(child))
-    .reduce((sum, child) => sum + child.amount, 0)
+  _siblingChildren: Payment[]
+): { amount: number; isOverpayment: boolean; isShortPayment: boolean; net: number } {
+  const invoiced = invoiceAmount ?? 0
+  const received = confirmedReceived ?? 0
+  const net = received - invoiced
+  const overage = Math.max(0, net)
+  const shortfall = Math.max(0, -net)
 
   if (overage > AMOUNT_EPSILON) {
-    return { amount: overage, isOverpayment: true }
+    return { amount: overage, isOverpayment: true, isShortPayment: false, net }
   }
-  if (childAdditional > AMOUNT_EPSILON) {
-    return { amount: childAdditional, isOverpayment: false }
+  // Partial pay — show remaining shortfall (e.g. $2,000 invoiced / $1,800 received → −$200).
+  if (received > AMOUNT_EPSILON && shortfall > AMOUNT_EPSILON) {
+    return { amount: shortfall, isOverpayment: false, isShortPayment: true, net }
   }
-  return { amount: 0, isOverpayment: false }
+  // Fully paid (or unpaid) — do not sum installment children as a "+$X additional".
+  return { amount: 0, isOverpayment: false, isShortPayment: false, net }
+}
+
+type PaymentEventKind = 'short' | 'over' | 'additional' | 'rejected' | 'reversed'
+
+/** Classify a nested payment event for expanded detail rows. */
+function getPaymentEventKind(
+  payment: Payment,
+  allPayments: Payment[],
+  invoiceAmount: number | undefined
+): PaymentEventKind {
+  if (isShortPaymentChild(payment)) return 'short'
+  if (payment.status === 'rejected') return 'rejected'
+  if (payment.status === 'reversed') return 'reversed'
+  if (
+    invoiceAmount != null &&
+    isOverpaymentChild(payment, allPayments, invoiceAmount)
+  ) {
+    return 'over'
+  }
+  return 'additional'
+}
+
+function getPaymentEventMeta(
+  payment: Payment,
+  allPayments: Payment[],
+  invoiceAmount: number | undefined
+): { kind: PaymentEventKind; label: string; description: string } {
+  const kind = getPaymentEventKind(payment, allPayments, invoiceAmount)
+  switch (kind) {
+    case 'short':
+      return {
+        kind,
+        label: 'Short payment',
+        description:
+          payment.short_pay_reason === 'chargeback' ? 'Chargeback' : 'Amount correction',
+      }
+    case 'over':
+      return { kind, label: 'Overpayment', description: 'Supplemental payment' }
+    case 'rejected':
+      return { kind, label: 'Rejected payment', description: 'Not confirmed' }
+    case 'reversed':
+      return { kind, label: 'Reversed payment', description: 'Funds reversed' }
+    default:
+      return { kind: 'additional', label: 'Additional payment', description: 'Toward same invoice' }
+  }
+}
+
+/** Short paid / Overpaid pills for the dedicated Variance column. */
+function getPaymentVarianceBadges(
+  children: Payment[],
+  invoiceAmount: number | undefined,
+  confirmedReceived: number | undefined,
+  allPayments: Payment[]
+): ReactNode[] {
+  const badges: ReactNode[] = []
+  const invoiced = invoiceAmount ?? 0
+  const received = confirmedReceived ?? 0
+  const shortfall = Math.max(0, invoiced - received)
+  const overage = Math.max(0, received - invoiced)
+
+  const hasShortChild = children.some(isShortPaymentChild)
+  const hasOverChild = children.some(
+    (c) =>
+      !isShortPaymentChild(c) &&
+      !isInactivePaymentChild(c) &&
+      invoiced > 0 &&
+      isOverpaymentChild(c, allPayments, invoiced)
+  )
+
+  const isShort =
+    hasShortChild || (received > AMOUNT_EPSILON && shortfall > AMOUNT_EPSILON)
+  const isOver = hasOverChild || overage > AMOUNT_EPSILON
+
+  if (isShort) {
+    badges.push(
+      <span key="short" className="status-pill status-pill--hold status-pill--compact">
+        Short paid
+      </span>
+    )
+  } else if (isOver) {
+    badges.push(
+      <span key="over">{getInvoiceVarianceBadge('overpaid', { compact: true })}</span>
+    )
+  }
+
+  return badges
 }
 
 type PaymentSortField =
@@ -134,18 +227,17 @@ export default function ClientPayments() {
   const useFullPageDetail = useCompactDetailViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   const authorName = clientName
+  const openedPaymentFromLinkRef = useRef<string | null>(null)
+  const pendingRestorePaymentIdRef = useRef<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [payments, setPayments] = useState<Payment[]>(() =>
     buildInitialPayments(clientId, clientName)
   )
 
-  const { invoices: rawInvoices } = useClientDemoSnapshot(refreshKey)
+  const { invoices: rawInvoices, payments: snapshotPayments } = useClientDemoSnapshot(refreshKey)
   const clientInvoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
-  const postableInvoices = useMemo(
-    () => listPostableInvoices(clientInvoices),
-    [clientInvoices]
-  )
 
   const invoiceConfirmedById = useMemo(() => {
     const map = new Map<string, number>()
@@ -169,6 +261,12 @@ export default function ClientPayments() {
     refreshPayments()
   }, [clientId, refreshPayments])
 
+  // Prefer async tenant snapshot once it arrives (covers remount after invoice/batch).
+  useEffect(() => {
+    if (snapshotPayments.length === 0) return
+    setPayments(snapshotPayments)
+  }, [snapshotPayments])
+
   useEffect(() => {
     if (!capabilities.canConfirmPaymentReceipt) return
     const autoConfirmed = processExpiredReceiptConfirmations()
@@ -180,12 +278,7 @@ export default function ClientPayments() {
   const [dateTo, setDateTo] = useState('')
   const [methodFilter, setMethodFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<PaymentStatusFilter>('all')
-  const [actionsMenuId, setActionsMenuId] = useState<string | null>(null)
-  const [moveTarget, setMoveTarget] = useState<Payment | null>(null)
-  const [unprocessTarget, setUnprocessTarget] = useState<Payment | null>(null)
-  const [moveTargetInvoiceId, setMoveTargetInvoiceId] = useState<string | null>(null)
-  const [moveReason, setMoveReason] = useState('')
-  const [unprocessReason, setUnprocessReason] = useState('')
+  const [expandedPaymentIds, setExpandedPaymentIds] = useState<Set<string>>(() => new Set())
   const [receiptActionLoading, setReceiptActionLoading] = useState(false)
   const [showReceiptDisputeModal, setShowReceiptDisputeModal] = useState(false)
   const [receiptDisputeReason, setReceiptDisputeReason] = useState<string>(
@@ -358,6 +451,12 @@ export default function ClientPayments() {
     [sortedPayments, payments, invoiceAmountById]
   )
 
+  /** Top-level table rows only — detail prev/next skips nested event payments. */
+  const parentNavigationPayments = useMemo(
+    () => paymentTableGroups.map((group) => group.payment),
+    [paymentTableGroups]
+  )
+
   const paginatedGroups = useMemo(() => {
     const start = (currentPage - 1) * pageSize
     return paymentTableGroups.slice(start, start + pageSize)
@@ -371,7 +470,7 @@ export default function ClientPayments() {
 
     for (const group of paymentTableGroups) {
       if (group.orphanChild) {
-        if (!isShortPaymentChild(group.payment)) {
+        if (!isShortPaymentChild(group.payment) && !isInactivePaymentChild(group.payment)) {
           additional += group.payment.amount
         }
         continue
@@ -382,7 +481,15 @@ export default function ClientPayments() {
       const confirmedReceived = invoiceConfirmedById.get(invoiceId) ?? 0
       invoiced += invoiceAmount ?? 0
       received += confirmedReceived
-      additional += getParentAdditionalAmount(invoiceAmount, confirmedReceived, group.children).amount
+      const parentAdditional = getParentAdditionalAmount(
+        invoiceAmount,
+        confirmedReceived,
+        group.children
+      )
+      // Shortfalls are shown on the row but excluded from the positive Additional total.
+      if (!parentAdditional.isShortPayment) {
+        additional += parentAdditional.amount
+      }
     }
 
     return { invoiced, received, additional }
@@ -418,6 +525,19 @@ export default function ClientPayments() {
   }, [currentPage, totalPages])
 
   useEffect(() => {
+    const stashed = peekPaymentRestoreTarget()
+    const restoreState = location.state as
+      | { restorePaymentId?: string; restoreInvoiceId?: string }
+      | null
+
+    const paymentId =
+      searchParams.get('paymentId') ||
+      restoreState?.restorePaymentId ||
+      stashed?.paymentId ||
+      null
+    const invoiceId =
+      restoreState?.restoreInvoiceId || stashed?.invoiceId || null
+
     const statusParam = searchParams.get('status')
     if (
       statusParam === 'awaiting_receipt' ||
@@ -425,39 +545,135 @@ export default function ClientPayments() {
       statusParam === 'confirmed' ||
       statusParam === 'disputed'
     ) {
-      setStatusFilter(statusParam as PaymentStatusFilter)
+      // Don't apply a status chip when restoring a specific payment detail.
+      if (!paymentId) {
+        setStatusFilter(statusParam as PaymentStatusFilter)
+      }
     }
 
-    const paymentId = searchParams.get('paymentId')
-    if (!paymentId) return
+    if (!paymentId && !invoiceId) return
 
-    const payment = payments.find((p) => p.id === paymentId)
-    if (payment) {
-      setSelectedPayment(payment)
-      if (useFullPageDetail) setShowPaymentDetail(true)
-      const next = new URLSearchParams(searchParams)
-      next.delete('paymentId')
-      setSearchParams(next, { replace: true })
+    const linkKey = paymentId || `invoice:${invoiceId}`
+    if (openedPaymentFromLinkRef.current === linkKey) return
+
+    const payment =
+      (paymentId ? payments.find((p) => p.id === paymentId) : undefined) ??
+      (invoiceId
+        ? payments.find(
+            (p) =>
+              p.invoice_id === invoiceId &&
+              !p.parent_payment_id &&
+              p.payment_kind !== 'short'
+          ) ?? payments.find((p) => p.invoice_id === invoiceId)
+        : undefined)
+
+    if (!payment) {
+      // Still loading / empty — keep stash + URL so we can retry when payments arrive.
+      return
     }
-  }, [searchParams, payments, setSearchParams, useFullPageDetail])
+
+    // Resolve parent from the full list (ignore active filters) so detail always opens.
+    const allGroups = buildPaymentTableGroups(payments, payments, invoiceAmountById)
+    const parentGroup = allGroups.find(
+      (g) =>
+        g.payment.id === payment.id ||
+        g.children.some((child) => child.id === payment.id)
+    )
+    const target = parentGroup?.payment ?? payment
+
+    openedPaymentFromLinkRef.current = linkKey
+    setStatusFilter('all')
+    setSearchTerm('')
+    setDetailPanelClosing(false)
+    setSelectedPayment(target)
+    stashPaymentRestoreTarget({
+      paymentId: target.id,
+      invoiceId: target.invoice_id,
+    })
+    if (useFullPageDetail) setShowPaymentDetail(true)
+
+    if (parentGroup && parentGroup.children.length > 0 && !parentGroup.orphanChild) {
+      setExpandedPaymentIds(new Set([parentGroup.payment.id]))
+    }
+
+    // Page after filters clear on the next groups pass (see effect below).
+    pendingRestorePaymentIdRef.current = target.id
+  }, [
+    searchParams,
+    location.state,
+    payments,
+    invoiceAmountById,
+    useFullPageDetail,
+  ])
+
+  // After restore clears filters, jump to the parent row’s page in the updated table.
+  useEffect(() => {
+    const restoreId = pendingRestorePaymentIdRef.current
+    if (!restoreId) return
+    const groupIndex = paymentTableGroups.findIndex(
+      (g) =>
+        g.payment.id === restoreId ||
+        g.children.some((child) => child.id === restoreId)
+    )
+    if (groupIndex < 0) return
+    pendingRestorePaymentIdRef.current = null
+    setCurrentPage(Math.floor(groupIndex / pageSize) + 1)
+  }, [paymentTableGroups, pageSize])
+
 
   useEffect(() => {
     if (!selectedPayment) return
+    // Don't clear the open panel while payments are still loading / refreshing empty.
+    if (payments.length === 0) return
     const updated = payments.find((p) => p.id === selectedPayment.id)
     if (updated) setSelectedPayment(updated)
     else {
       setSelectedPayment(null)
       setShowPaymentDetail(false)
+      // Allow deep-link restore to retry if the row reappears under a new load.
+      openedPaymentFromLinkRef.current = null
     }
   }, [payments, selectedPayment?.id])
 
   const handleViewPaymentDetail = (payment: Payment) => {
+    // Remember this payment so returning from Batches / Invoices reopens it.
+    stashPaymentRestoreTarget({
+      paymentId: payment.id,
+      invoiceId: payment.invoice_id,
+    })
     setDetailPanelClosing(false)
     setSelectedPayment(payment)
     if (useFullPageDetail) setShowPaymentDetail(true)
   }
 
+  /** Open detail and expand that parent’s events (folds any other expanded invoice). */
+  const handleSelectPaymentRow = useCallback(
+    (payment: Payment, options?: { expandIfParent?: boolean }) => {
+      if (options?.expandIfParent) {
+        const group = paymentTableGroups.find((g) => g.payment.id === payment.id)
+        if (group && group.children.length > 0 && !group.orphanChild) {
+          setExpandedPaymentIds(new Set([payment.id]))
+        } else {
+          setExpandedPaymentIds(new Set())
+        }
+      }
+      handleViewPaymentDetail(payment)
+    },
+    [paymentTableGroups, useFullPageDetail]
+  )
+
   const handleClosePaymentDetail = useCallback(() => {
+    setExpandedPaymentIds(new Set())
+    openedPaymentFromLinkRef.current = null
+    clearPaymentRestoreTarget()
+
+    // Drop deep-link query so closing the panel sticks across remounts.
+    if (searchParams.get('paymentId')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('paymentId')
+      setSearchParams(next, { replace: true })
+    }
+
     if (useFullPageDetail) {
       setShowPaymentDetail(false)
       setSelectedPayment(null)
@@ -473,7 +689,7 @@ export default function ClientPayments() {
       setDetailPanelClosing(false)
       setShowPaymentDetail(false)
     }, 400)
-  }, [useFullPageDetail, selectedPayment])
+  }, [useFullPageDetail, selectedPayment, searchParams, setSearchParams])
 
   const detailPanelOpen = Boolean(selectedPayment) && !detailPanelClosing
 
@@ -588,70 +804,26 @@ export default function ClientPayments() {
     useFullPageDetail,
   ])
 
-  const handleMoveSubmit = useCallback(() => {
-    if (!moveTarget || !moveTargetInvoiceId || !moveReason.trim()) return
-    const result = movePaymentFunds(
-      moveTarget.id,
-      moveTargetInvoiceId,
-      authorName,
-      moveReason.trim(),
-      capabilities
-    )
-    if (result) {
-      showToast('Funds moved successfully', 'success')
-      setMoveTarget(null)
-      setMoveTargetInvoiceId(null)
-      setMoveReason('')
-      refreshPayments()
-    } else {
-      showToast('Could not move funds — check target invoice eligibility', 'error')
-    }
-  }, [
-    moveTarget,
-    moveTargetInvoiceId,
-    moveReason,
-    authorName,
-    capabilities,
-    showToast,
-    refreshPayments,
-  ])
-
-  const handleUnprocessSubmit = useCallback(() => {
-    if (!unprocessTarget || !unprocessReason.trim()) return
-    const payment = unprocessPayment(
-      unprocessTarget.id,
-      authorName,
-      unprocessReason.trim(),
-      capabilities
-    )
-    if (payment) {
-      showToast('Payment unprocessed', 'success')
-      setUnprocessTarget(null)
-      setUnprocessReason('')
-      refreshPayments()
-    } else {
-      showToast('Could not unprocess payment', 'error')
-    }
-  }, [unprocessTarget, unprocessReason, authorName, capabilities, showToast, refreshPayments])
-
-  const openMoveModal = useCallback((payment: Payment) => {
-    setActionsMenuId(null)
-    setMoveTarget(payment)
-    setMoveTargetInvoiceId(null)
-    setMoveReason('')
+  const togglePaymentExpanded = useCallback((paymentId: string) => {
+    setExpandedPaymentIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(paymentId)) next.delete(paymentId)
+      else next.add(paymentId)
+      return next
+    })
   }, [])
 
-  const openUnprocessModal = useCallback((payment: Payment) => {
-    setActionsMenuId(null)
-    setUnprocessTarget(payment)
-    setUnprocessReason('')
+  /** Expand event children when opening a parent invoice row (chevron still toggles). */
+  const expandPaymentEvents = useCallback((paymentId: string) => {
+    setExpandedPaymentIds(new Set([paymentId]))
   }, [])
 
   const renderPaymentRow = (
     payment: Payment,
     isChild = false,
     isOrphanChild = false,
-    siblingChildren: Payment[] = []
+    siblingChildren: Payment[] = [],
+    options: { expanded?: boolean; hasEvents?: boolean } = {}
   ) => {
     const isSelected = selectedPayment?.id === payment.id
     const invoiceAmount = invoiceAmountById.get(payment.invoice_id)
@@ -661,17 +833,25 @@ export default function ClientPayments() {
       payments.some(
         (p) => p.invoice_id === payment.invoice_id && p.status === 'awaiting_receipt'
       )
-    const shortChild = isChild && isShortPaymentChild(payment)
-    const overChild =
-      isChild && !shortChild && invoiceAmount != null && isOverpaymentChild(payment, payments, invoiceAmount)
-    const childLabel = shortChild ? 'Short payment' : overChild ? 'Overpayment' : 'Additional payment'
-    const childMeta = shortChild
-      ? payment.short_pay_reason === 'chargeback'
-        ? 'Chargeback'
-        : 'Amount correction'
-      : overChild
-        ? 'Supplemental payment'
-        : 'Toward same invoice'
+    const eventMeta =
+      isChild || isOrphanChild
+        ? getPaymentEventMeta(payment, payments, invoiceAmount)
+        : null
+    const parentAdditional = !isChild
+      ? getParentAdditionalAmount(invoiceAmount, confirmedReceived, siblingChildren)
+      : null
+    const varianceBadges =
+      !isChild && !isOrphanChild
+        ? getPaymentVarianceBadges(
+            siblingChildren,
+            invoiceAmount,
+            confirmedReceived,
+            payments
+          )
+        : []
+    const hasEvents = options.hasEvents ?? siblingChildren.length > 0
+    const expanded = options.expanded ?? false
+
     const invoicedDisplay =
       !isChild || isOrphanChild
         ? invoiceAmount != null
@@ -682,48 +862,56 @@ export default function ClientPayments() {
       !isChild || isOrphanChild
         ? formatCurrency(confirmedReceived ?? 0)
         : '—'
-    // Parent: invoice overage when overpaid (003 → $200.02), else supplemental children (007 → $250).
-    const parentAdditional = getParentAdditionalAmount(
-      invoiceAmount,
-      confirmedReceived,
-      siblingChildren
-    )
+
     const additionalDisplay = (() => {
-      if (shortChild) {
+      if (eventMeta) {
+        if (eventMeta.kind === 'short') {
+          return (
+            <span className="inline-flex items-center justify-end gap-0.5 payment-amount--short">
+              <ArrowDown className="w-3 h-3 shrink-0" aria-hidden />
+              <span>−{formatCurrency(payment.amount)}</span>
+            </span>
+          )
+        }
+        if (eventMeta.kind === 'rejected' || eventMeta.kind === 'reversed') {
+          return formatCurrency(payment.amount)
+        }
+        return (
+          <span className="inline-flex items-center justify-end gap-0.5 payment-amount--over">
+            <ArrowUp className="w-3 h-3 shrink-0" aria-hidden />
+            <span>{formatCurrency(payment.amount)}</span>
+          </span>
+        )
+      }
+
+      if (!parentAdditional || parentAdditional.amount <= AMOUNT_EPSILON) {
+        // Resolved net-zero with events still shows — in Additional.
+        if (hasEvents && parentAdditional && Math.abs(parentAdditional.net) <= AMOUNT_EPSILON) {
+          return '—'
+        }
+        return '—'
+      }
+
+      if (parentAdditional.isShortPayment) {
         return (
           <span className="inline-flex items-center justify-end gap-0.5 payment-amount--short">
             <ArrowDown className="w-3 h-3 shrink-0" aria-hidden />
-            <span>−{formatCurrency(payment.amount)}</span>
+            <span>−{formatCurrency(parentAdditional.amount)}</span>
           </span>
         )
       }
-      if (overChild) {
-        return (
-          <span className="inline-flex items-center justify-end gap-0.5 payment-amount--over">
-            <ArrowUp className="w-3 h-3 shrink-0" aria-hidden />
-            <span>{formatCurrency(payment.amount)}</span>
+
+      return (
+        <span className="inline-flex items-center justify-end gap-0.5 payment-amount--over">
+          <ArrowUp className="w-3 h-3 shrink-0" aria-hidden />
+          <span>
+            {parentAdditional.isOverpayment ? '+' : ''}
+            {formatCurrency(parentAdditional.amount)}
           </span>
-        )
-      }
-      if (isChild) {
-        return (
-          <span className="inline-flex items-center justify-end gap-0.5">
-            <ArrowUp className="w-3 h-3 shrink-0 payment-amount--over" aria-hidden />
-            <span>{formatCurrency(payment.amount)}</span>
-          </span>
-        )
-      }
-      if (parentAdditional.amount <= AMOUNT_EPSILON) return '—'
-      if (parentAdditional.isOverpayment) {
-        return (
-          <span className="inline-flex items-center justify-end gap-0.5 payment-amount--over">
-            <ArrowUp className="w-3 h-3 shrink-0" aria-hidden />
-            <span>{formatCurrency(parentAdditional.amount)}</span>
-          </span>
-        )
-      }
-      return formatCurrency(parentAdditional.amount)
+        </span>
+      )
     })()
+
     const rowClass = [
       'cursor-pointer',
       !isChild &&
@@ -736,42 +924,73 @@ export default function ClientPayments() {
       payment.status === 'disputed' ? 'opacity-90' : '',
       isSelected ? 'payment-row--selected' : '',
       isChild ? 'payment-row--child' : '',
-      shortChild ? 'payment-row--short-child' : '',
+      eventMeta?.kind === 'short' ? 'payment-row--short-child' : '',
       isOrphanChild ? 'payment-row--orphan-child' : '',
+      hasEvents && !isChild ? 'payment-row--has-events' : '',
+      expanded && !isChild ? 'payment-row--expanded' : '',
     ]
       .filter(Boolean)
       .join(' ')
 
     return (
-      <tr key={payment.id} className={rowClass} onClick={() => handleViewPaymentDetail(payment)}>
+      <tr
+        key={payment.id}
+        className={rowClass}
+        onClick={() => {
+          if (hasEvents && !isChild) expandPaymentEvents(payment.id)
+          else if (!isChild) setExpandedPaymentIds(new Set())
+          handleViewPaymentDetail(payment)
+        }}
+      >
         <ClientListTd
           variant="primary"
           className={`${isChild && !isOrphanChild ? 'payment-row__invoice-child' : 'font-semibold'} ${
             payment.status === 'reversed' ? 'line-through' : ''
           }`}
         >
-          {isChild && !isOrphanChild ? (
-            <span className={`payment-row__child-label ${shortChild ? 'payment-row__child-label--short' : ''}`}>
-              {childLabel}
+          {isChild && !isOrphanChild && eventMeta ? (
+            <span className="payment-row__event-detail">
+              <span className={`payment-row__event-label payment-row__event-label--${eventMeta.kind}`}>
+                {eventMeta.label}
+              </span>
             </span>
-          ) : isOrphanChild ? (
+          ) : isOrphanChild && eventMeta ? (
             <span className="payment-row__orphan-invoice">
               <span>{payment.invoice_number}</span>
-              <span
-                className={`payment-row__child-label payment-row__child-label--orphan ${
-                  shortChild ? 'payment-row__child-label--short' : ''
-                }`}
-              >
-                {childLabel}
+              <span className={`payment-row__event-label payment-row__event-label--${eventMeta.kind}`}>
+                {eventMeta.label}
               </span>
             </span>
           ) : (
-            payment.invoice_number
+            <span className="payment-row__invoice-cell">
+              <span className="payment-row__expand-slot">
+                {hasEvents ? (
+                  <button
+                    type="button"
+                    className="payment-row__expand-btn"
+                    aria-expanded={expanded}
+                    aria-label={expanded ? 'Collapse payment events' : 'Expand payment events'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      togglePaymentExpanded(payment.id)
+                    }}
+                  >
+                    <ChevronRight
+                      className={`w-3.5 h-3.5 payment-row__expand-icon ${
+                        expanded ? 'payment-row__expand-icon--open' : ''
+                      }`}
+                      aria-hidden
+                    />
+                  </button>
+                ) : null}
+              </span>
+              <span>{payment.invoice_number}</span>
+            </span>
           )}
         </ClientListTd>
         <ClientListTd variant="meta" className="truncate">
-          {isChild && !isOrphanChild ? (
-            <span className="payment-row__child-meta">{childMeta}</span>
+          {isChild && !isOrphanChild && eventMeta ? (
+            <span className="payment-row__child-meta">{eventMeta.description}</span>
           ) : isOrphanChild ? (
             <span className="client-list-meta-full">{payment.broker_name}</span>
           ) : (
@@ -823,63 +1042,25 @@ export default function ClientPayments() {
             )}
           </div>
         </ClientListTd>
-        <ClientListTd variant="actions" className="text-center">
-          <div className="inline-flex items-center justify-center gap-1 relative">
-            {!isChild && payment.status === 'confirmed' && capabilities.canCorrectPayments && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setActionsMenuId((id) => (id === payment.id ? null : payment.id))
-                  }}
-                  className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-                  style={{ color: c.secondary }}
-                  title="Payment actions"
-                  aria-label="Payment actions"
+        <ClientListTd variant="desktop" label="Short / Over" className="text-center">
+          <div className="inline-flex items-center justify-center gap-1 flex-nowrap min-w-0">
+            {isChild && eventMeta ? (
+              eventMeta.kind === 'short' || eventMeta.kind === 'over' ? (
+                <span
+                  className={`status-pill status-pill--compact ${
+                    eventMeta.kind === 'short' ? 'status-pill--hold' : 'status-pill--approved'
+                  }`}
                 >
-                  <MoreVertical className="w-4 h-4" />
-                </button>
-                {actionsMenuId === payment.id && (
-                  <div
-                    className="absolute right-0 top-full mt-1 z-20 min-w-[160px] rounded-lg border shadow-lg py-1 text-left"
-                    style={{ borderColor: c.border, backgroundColor: c.card }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      type="button"
-                      className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50 flex items-center gap-2"
-                      style={{ color: c.primary }}
-                      onClick={() => openMoveModal(payment)}
-                    >
-                      <ArrowRightLeft className="w-3.5 h-3.5" />
-                      Move funds
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-2 text-sm text-left hover:bg-slate-50 flex items-center gap-2"
-                      style={{ color: c.error }}
-                      onClick={() => openUnprocessModal(payment)}
-                    >
-                      <Undo2 className="w-3.5 h-3.5" />
-                      Unprocess
-                    </button>
-                  </div>
-                )}
-              </div>
+                  {eventMeta.kind === 'short' ? 'Short paid' : 'Overpaid'}
+                </span>
+              ) : (
+                <span style={{ color: c.mutedLight }}>—</span>
+              )
+            ) : varianceBadges.length > 0 ? (
+              varianceBadges
+            ) : (
+              <span style={{ color: c.mutedLight }}>—</span>
             )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                handleViewPaymentDetail(payment)
-              }}
-              className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
-              style={{ color: c.info }}
-              title="View details"
-            >
-              <Eye className="w-4 h-4" />
-            </button>
           </div>
         </ClientListTd>
       </tr>
@@ -888,10 +1069,10 @@ export default function ClientPayments() {
 
   const inputCompactStyle = {
     backgroundColor: c.card,
-    height: 34,
-    paddingTop: 6,
-    paddingBottom: 6,
-    fontSize: 13,
+    height: 30,
+    paddingTop: 4,
+    paddingBottom: 4,
+    fontSize: 12,
   } as const
 
   return (
@@ -904,9 +1085,9 @@ export default function ClientPayments() {
             payment={selectedPayment}
             invoice={selectedInvoice}
             invoicePayments={selectedInvoicePayments}
-            navigationPayments={sortedPayments}
+            navigationPayments={parentNavigationPayments}
             onClose={handleClosePaymentDetail}
-            onNavigatePayment={handleViewPaymentDetail}
+            onNavigatePayment={(next) => handleSelectPaymentRow(next, { expandIfParent: true })}
             canConfirmReceipt={capabilities.canConfirmPaymentReceipt}
             receiptActionLoading={receiptActionLoading}
             onConfirmReceipt={() => void handleConfirmReceipt()}
@@ -915,6 +1096,7 @@ export default function ClientPayments() {
               setReceiptDisputeDescription('')
               setShowReceiptDisputeModal(true)
             }}
+            onInvoiceUpdated={refreshPayments}
           />
         ) : (
           <>
@@ -1235,7 +1417,7 @@ export default function ClientPayments() {
                       className="text-center"
                       align="center"
                     />
-                    <th className="text-center">Actions</th>
+                    <th className="text-center">Short / Over</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1243,9 +1425,16 @@ export default function ClientPayments() {
                     if (orphanChild) {
                       return [renderPaymentRow(payment, true, true)]
                     }
+                    const hasEvents = children.length > 0
+                    const expanded = hasEvents && expandedPaymentIds.has(payment.id)
                     return [
-                      renderPaymentRow(payment, false, false, children),
-                      ...children.map((child) => renderPaymentRow(child, true)),
+                      renderPaymentRow(payment, false, false, children, {
+                        expanded,
+                        hasEvents,
+                      }),
+                      ...(expanded
+                        ? children.map((child) => renderPaymentRow(child, true))
+                        : []),
                     ]
                   })}
                 </tbody>
@@ -1347,9 +1536,11 @@ export default function ClientPayments() {
                       payment={selectedPayment}
                       invoice={selectedInvoice}
                       invoicePayments={selectedInvoicePayments}
-                      navigationPayments={sortedPayments}
+                      navigationPayments={parentNavigationPayments}
                       onClose={handleClosePaymentDetail}
-                      onNavigatePayment={handleViewPaymentDetail}
+                      onNavigatePayment={(next) =>
+                        handleSelectPaymentRow(next, { expandIfParent: true })
+                      }
                       canConfirmReceipt={capabilities.canConfirmPaymentReceipt}
                       receiptActionLoading={receiptActionLoading}
                       onConfirmReceipt={() => void handleConfirmReceipt()}
@@ -1358,6 +1549,7 @@ export default function ClientPayments() {
                         setReceiptDisputeDescription('')
                         setShowReceiptDisputeModal(true)
                       }}
+                      onInvoiceUpdated={refreshPayments}
                     />
                   </div>
                 ) : null}
@@ -1439,31 +1631,6 @@ export default function ClientPayments() {
             </div>
           </div>
         </div>
-      )}
-
-      {moveTarget && (
-        <MoveFundsModal
-          payment={moveTarget}
-          sourceInvoice={getInvoiceById(moveTarget.invoice_id)}
-          postableInvoices={postableInvoices}
-          targetInvoiceId={moveTargetInvoiceId}
-          reason={moveReason}
-          onTargetChange={setMoveTargetInvoiceId}
-          onReasonChange={setMoveReason}
-          onClose={() => setMoveTarget(null)}
-          onConfirm={handleMoveSubmit}
-        />
-      )}
-
-      {unprocessTarget && (
-        <UnprocessPaymentModal
-          payment={unprocessTarget}
-          sourceInvoice={getInvoiceById(unprocessTarget.invoice_id)}
-          reason={unprocessReason}
-          onReasonChange={setUnprocessReason}
-          onClose={() => setUnprocessTarget(null)}
-          onConfirm={handleUnprocessSubmit}
-        />
       )}
     </>
   )
