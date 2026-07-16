@@ -30,6 +30,7 @@ import { getTierLabel } from '../utils/clientCapabilities'
 import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
+import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import '../styles/clientPortal.css'
 import '../styles/clientPortalDark.css'
 import '../styles/credyxWordmark.css'
@@ -52,6 +53,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   const t = useClientTheme()
   const resolvedClientId = clientId ?? client?.id
   const resolvedClientName = clientName || client?.name || 'Client'
+  const tenantRevision = useTenantDataRevision()
   const navSections = useMemo(
     () => filterClientNavSections(capabilities),
     [capabilities]
@@ -166,7 +168,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     return filtered.filter(
       (b) => b.status === 'ready_to_post' || b.status === 'documents_uploaded'
     ).length
-  }, [resolvedClientId])
+  }, [resolvedClientId, tenantRevision])
 
   const badges: Record<string, number> = {
     pendingBatches: pendingBatchCount,

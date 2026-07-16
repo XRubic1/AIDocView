@@ -17,6 +17,22 @@ export function clearPayments(): void {
   mockPayments.length = 0
 }
 
+/** Merge a payment row from Supabase realtime (no persist). */
+export function mergePayment(payment: Payment): void {
+  const idx = mockPayments.findIndex((p) => p.id === payment.id)
+  if (idx >= 0) {
+    mockPayments[idx] = { ...mockPayments[idx], ...payment }
+  } else {
+    mockPayments.unshift(payment)
+  }
+}
+
+/** Remove a payment from the in-memory store (realtime DELETE). */
+export function removePaymentFromStore(paymentId: string): void {
+  const idx = mockPayments.findIndex((p) => p.id === paymentId)
+  if (idx >= 0) mockPayments.splice(idx, 1)
+}
+
 export function getPaymentsByInvoiceId(invoiceId: string): Payment[] {
   return mockPayments.filter((p) => p.invoice_id === invoiceId)
 }

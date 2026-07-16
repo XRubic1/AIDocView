@@ -25,6 +25,22 @@ export function clearInvoices(): void {
   mockInvoices.length = 0
 }
 
+/** Merge an invoice row from Supabase realtime (no persist). */
+export function mergeInvoice(invoice: Invoice): void {
+  const idx = mockInvoices.findIndex((i) => i.id === invoice.id)
+  if (idx >= 0) {
+    mockInvoices[idx] = { ...mockInvoices[idx], ...invoice }
+  } else {
+    mockInvoices.unshift(invoice)
+  }
+}
+
+/** Remove an invoice from the in-memory store (realtime DELETE). */
+export function removeInvoiceFromStore(invoiceId: string): void {
+  const idx = mockInvoices.findIndex((i) => i.id === invoiceId)
+  if (idx >= 0) mockInvoices.splice(idx, 1)
+}
+
 /** Add invoice to store and persist to Supabase when configured. */
 export function addInvoice(
   data: Omit<Invoice, 'id' | 'created_at'> & { id?: string; created_at?: string },

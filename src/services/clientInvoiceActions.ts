@@ -213,15 +213,23 @@ export function closeClientInvoiceAsUncollectable(
   if (!isShortPaymentInvoice(invoice, payments)) return undefined
 
   const shortfall = getShortfallAmount(invoice, received)
-  const closeNote: InvoiceNote = {
-    id: `note-close-${Date.now()}`,
-    note: `Closed as uncollectable — received ${formatCurrency(received)}, write-off ${formatCurrency(shortfall)}. ${options.note.trim()}`,
+  const now = new Date().toISOString()
+  const confirmNote: InvoiceNote = {
+    id: `note-close-confirm-${Date.now()}`,
+    note: `Payment confirmed by client — ${formatCurrency(received)} received`,
     created_by: authorName,
-    created_at: new Date().toISOString(),
+    created_at: now,
+    type: 'client_note',
+  }
+  const writeOffNote: InvoiceNote = {
+    id: `note-close-writeoff-${Date.now() + 1}`,
+    note: `Write-off ${formatCurrency(shortfall)} — ${options.note.trim()}`,
+    created_by: authorName,
+    created_at: new Date(Date.now() + 1000).toISOString(),
     type: 'client_note',
   }
 
-  const notesHistory = [...(invoice.notes_history || []), closeNote]
+  const notesHistory = [...(invoice.notes_history || []), confirmNote, writeOffNote]
 
   const updated = updateInvoice(invoiceId, {
     status: 'write_off_pending',
@@ -229,12 +237,12 @@ export function closeClientInvoiceAsUncollectable(
     notes_history: notesHistory,
     write_off_request: {
       requested_by: authorName,
-      requested_at: new Date().toISOString(),
+      requested_at: now,
       client_note: options.note.trim(),
       received_amount: received,
       shortfall,
     },
-    updated_at: new Date().toISOString(),
+    updated_at: now,
   })
 
   if (updated) {

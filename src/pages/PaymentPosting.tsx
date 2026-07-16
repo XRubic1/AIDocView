@@ -48,6 +48,7 @@ import { formatCurrency, formatDate } from '../utils/format'
 import { useToast } from '../components/ui/ToastProvider'
 import { useAuth } from '../context/AuthContext'
 import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
+import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import { getAdminUserDisplayName } from '../config/adminNav'
 import { useClientTheme } from '../theme/ThemeContext'
 import { isAdminPostableForPayment } from '../utils/invoiceAging'
@@ -286,18 +287,20 @@ export default function PaymentPosting() {
 
   const [tab, setTab] = useState<Tab>('pending')
   const [refreshKey, setRefreshKey] = useState(0)
+  const tenantRevision = useTenantDataRevision()
+  const dataRevision = refreshKey + tenantRevision
   const bump = () => setRefreshKey((k) => k + 1)
 
-  const pending = useMemo(() => listPendingPayments(), [refreshKey])
-  const awaitingReceipt = useMemo(() => listAwaitingReceiptPayments(), [refreshKey])
-  const receiptDisputes = useMemo(() => listReceiptDisputedPayments(), [refreshKey])
-  const writeOffs = useMemo(() => listPendingWriteOffs(), [refreshKey])
-  const arRecalcIssues = useMemo(() => listArRecalcIssues(), [refreshKey])
+  const pending = useMemo(() => listPendingPayments(), [dataRevision])
+  const awaitingReceipt = useMemo(() => listAwaitingReceiptPayments(), [dataRevision])
+  const receiptDisputes = useMemo(() => listReceiptDisputedPayments(), [dataRevision])
+  const writeOffs = useMemo(() => listPendingWriteOffs(), [dataRevision])
+  const arRecalcIssues = useMemo(() => listArRecalcIssues(), [dataRevision])
   const confirmed = useMemo(
     () => mockPayments.filter((p) => p.status === 'confirmed'),
-    [refreshKey]
+    [dataRevision]
   )
-  const allInvoices = useMemo(() => [...mockInvoices], [refreshKey])
+  const allInvoices = useMemo(() => [...mockInvoices], [dataRevision])
 
   // Pending payment modals
   const [confirmTarget, setConfirmTarget] = useState<Payment | null>(null)
@@ -868,7 +871,7 @@ export default function PaymentPosting() {
           {tab === 'recalc' && (
             <ArRecalcPanel
               adminName={adminName}
-              refreshKey={refreshKey}
+              refreshKey={dataRevision}
               onFixed={bump}
               onToast={showToast}
             />

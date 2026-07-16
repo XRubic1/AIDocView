@@ -30,6 +30,10 @@ import { clearClientBills, hydrateClientBillsFromSupabase, refreshOverdueBillSta
 import { hydrateAdminNotifications } from '../adminNotificationService'
 import { loadArPolicy, applyArPolicy } from '../platformSettingsService'
 import { resolveSession } from '../sessionService'
+import {
+  ensureTenantDataLiveSync,
+  stopTenantDataLiveSync,
+} from './tenantDataLiveSync'
 
 export class HydrationError extends Error {
   constructor(
@@ -46,6 +50,7 @@ let lastHydratedClientId: string | null = null
 
 /** Clear in-memory tenant stores (on sign-out or principal change). */
 export function clearTenantStores(): void {
+  stopTenantDataLiveSync()
   clearInvoices()
   clearBatches()
   clearPayments()
@@ -231,6 +236,12 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
 
   lastHydratedPrincipal = principal
   lastHydratedClientId = clientId
+
+  if (principal === 'admin') {
+    ensureTenantDataLiveSync('admin', null)
+  } else if (principal === 'client' && clientId) {
+    ensureTenantDataLiveSync('client', clientId)
+  }
 
   if (errors.length > 0) {
     throw new HydrationError('Some data failed to load.', errors)

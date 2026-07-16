@@ -46,6 +46,7 @@ import {
 } from '../utils/clientInvoiceNumbers'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import ClientReturnBanner from '../components/client/ClientReturnBanner'
+import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 
 type ClientBatchRow = {
   id: string
@@ -112,6 +113,7 @@ function mergeInvoiceExtras(invoice: Invoice, extras?: Partial<Invoice>): Invoic
 export default function ClientBatches() {
   const { showToast } = useToast()
   const { clientId, clientName } = useClientSession()
+  const tenantRevision = useTenantDataRevision()
   const { capabilities } = useClientCapabilities()
   const [batches, setBatches] = useState<ClientBatchRow[]>([])
   const [createSubMode, setCreateSubMode] = useState<'choose' | 'ai' | 'manual'>('choose')
@@ -142,7 +144,7 @@ export default function ClientBatches() {
 
   useEffect(() => {
     refreshBatches()
-  }, [refreshBatches])
+  }, [refreshBatches, tenantRevision])
 
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()

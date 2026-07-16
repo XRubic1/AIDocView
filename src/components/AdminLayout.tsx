@@ -26,6 +26,7 @@ import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
 import { signOutAdmin } from '../services/adminAuthService'
 import { useAuth } from '../context/AuthContext'
+import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import '../styles/clientPortal.css'
 import '../styles/clientPortalDark.css'
 import '../styles/credyxWordmark.css'
@@ -50,6 +51,8 @@ export default function AdminLayout({
   const location = useLocation()
   const t = useClientTheme()
   const { resolvedTheme } = useTheme()
+  const { resolved } = useAuth()
+  const tenantRevision = useTenantDataRevision()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>(() => getAdminNotifications())
@@ -61,7 +64,6 @@ export default function AdminLayout({
     }
   })
 
-  const { resolved } = useAuth()
   const userEmail = resolved.user?.email ?? undefined
   const userName = userNameProp || getAdminUserDisplayName(userEmail ?? null)
   const userRole = userRoleProp || 'Administrator'
@@ -95,10 +97,10 @@ export default function AdminLayout({
         b.status === 'verification' ||
         b.status === 'approval'
     ).length
-  }, [])
+  }, [tenantRevision])
 
-  const pendingPaymentCount = useMemo(() => listPendingPayments().length, [])
-  const pendingWriteOffCount = useMemo(() => listPendingWriteOffs().length, [])
+  const pendingPaymentCount = useMemo(() => listPendingPayments().length, [tenantRevision])
+  const pendingWriteOffCount = useMemo(() => listPendingWriteOffs().length, [tenantRevision])
 
   const badges: Record<string, number> = {
     pendingBatches: pendingBatchCount,

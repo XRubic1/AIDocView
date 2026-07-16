@@ -51,7 +51,7 @@ import {
   getAwaitingReceiptPaymentForInvoice,
   getReceiptConfirmationDaysLeft,
 } from '../../utils/paymentStatus'
-import { buildClientPaymentAuditTimeline, isPaymentRelatedInvoiceNote, getPaymentNoteCategoryTitle } from '../../utils/clientPaymentAuditTimeline'
+import { buildClientPaymentAuditTimeline, isPaymentRelatedInvoiceNote, isRedundantPaymentLifecycleNote, isClosedUncollectableNote, getPaymentNoteCategoryTitle } from '../../utils/clientPaymentAuditTimeline'
 import {
   getClientDisplayBalanceState,
   getClientPostedPendingTotal,
@@ -329,6 +329,8 @@ export default function InvoiceDetailPanel({
     for (const entry of noteEntries) {
       const typeKey = entry.type || 'note'
       if (typeKey === 'note' || typeKey === 'client_note') continue
+      // Payment receipt disputes are shown once under Payments via payment.dispute.
+      if (isRedundantPaymentLifecycleNote(entry.note, entry.type)) continue
       const source = noteSource(typeKey)
       entries.push({
         id: `activity-note-${entry.id}`,
@@ -354,6 +356,10 @@ export default function InvoiceDetailPanel({
       const typeKey = entry.type || 'note'
       if (typeKey !== 'note' && typeKey !== 'client_note') continue
       if (!isPaymentRelatedInvoiceNote(entry.note, entry.type)) continue
+      // Already shown via structured payment / dispute activity rows.
+      if (isRedundantPaymentLifecycleNote(entry.note, entry.type)) continue
+      // Combined close notes are expanded inside buildClientPaymentAuditTimeline.
+      if (isClosedUncollectableNote(entry.note)) continue
       const source = noteSource(typeKey, entry.created_by, entry.note)
       entries.push({
         id: `payment-note-${entry.id}`,

@@ -24,6 +24,21 @@ export function clearBatches(): void {
   batchesData = []
 }
 
+/** Merge a batch row from Supabase realtime (no persist). */
+export function mergeBatch(batch: Batch): void {
+  const idx = batchesData.findIndex((b) => b.id === batch.id)
+  if (idx >= 0) {
+    batchesData[idx] = { ...batchesData[idx], ...batch }
+  } else {
+    batchesData.unshift(batch)
+  }
+}
+
+/** Remove a batch from the in-memory store (realtime DELETE). */
+export function removeBatchFromStore(batchId: string): void {
+  batchesData = batchesData.filter((b) => b.id !== batchId)
+}
+
 export const getAllBatches = (): Batch[] => {
   return batchesData
 }

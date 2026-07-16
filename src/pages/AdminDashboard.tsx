@@ -15,13 +15,15 @@ import { getAllBatches } from '../data/mockBatches'
 import { mockInvoices, updateInvoice } from '../data/mockInvoices'
 import { PendingBatch, CollectionsAlert, AgingAR } from '../types/admin'
 import { formatCurrency } from '../utils/format'
+import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
+  const tenantRevision = useTenantDataRevision()
   
-  // Get all real data
-  const allBatches = getAllBatches()
-  const allInvoices = mockInvoices
+  // Get all real data (re-read when realtime updates land)
+  const allBatches = useMemo(() => getAllBatches(), [tenantRevision])
+  const allInvoices = useMemo(() => [...mockInvoices], [tenantRevision])
   
   // Calculate pending batches from real data
   const pendingBatches = useMemo(() => {

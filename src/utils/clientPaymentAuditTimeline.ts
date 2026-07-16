@@ -3,6 +3,7 @@ import {
   getDisputeReasonLabel,
   getOpenDisputes,
 } from '../services/clientInvoiceActions'
+import { getPaymentReceiptDisputeLabel } from '../services/paymentReceiptConfirmationService'
 import type { AuditLog } from '../types/audit'
 import type { Invoice, InvoiceNote } from '../types/invoice'
 import type { Payment } from '../types/payment'
@@ -71,6 +72,8 @@ export function getPaymentNoteCategoryTitle(note: string): string {
 
   if (/receipt dispute resolved/.test(text)) return 'Dispute Resolved'
   if (/receipt dispute|funds on hold/.test(text)) return 'Payment Dispute'
+  // Combined write-off close note — confirmation half is handled by expandClosedUncollectableNote.
+  if (/closed as uncollectable/.test(text)) return 'Write-off'
   if (/payment confirmed by client|paid in full|confirmed receiving/.test(text)) {
     return 'Payment Confirmation'
   }
@@ -80,12 +83,107 @@ export function getPaymentNoteCategoryTitle(note: string): string {
   if (/invoice closed pending|payment of .+ posted/.test(text)) return 'Payment Posted'
   if (/was not confirmed|payment rejected|force.?confirm/.test(text)) return 'Payment Rejected'
   if (/funds moved/.test(text)) return 'Funds Moved'
-  if (/closed as uncollectable|write-off/.test(text)) return 'Write-off'
+  if (/write-off/.test(text)) return 'Write-off'
   if (/overpayment accepted|overpay|over by/.test(text)) return 'Overpayment'
   if (/short by|short pay|shortfall|short payment/.test(text)) return 'Short Payment'
   if (/remittance|wire|ach\b|check #|chargeback/.test(text)) return 'Remittance'
 
   return 'Payment'
+}
+
+/** Legacy combined close note: "Closed as uncollectable — received $X, write-off $Y. reason" */
+const CLOSED_UNCOLLECTABLE_RE =
+  /^Closed as uncollectable\s*[—\-]\s*received\s+(\$[\d,]+(?:\.\d{2})?)\s*[,;]\s*write-off\s+(\$[\d,]+(?:\.\d{2})?)\s*[,;.]?\s*(.*)$/i
+
+export function isClosedUncollectableNote(note: string): boolean {
+  return /^Closed as uncollectable/i.test(note.trim())
+}
+
+/**
+ * Split a combined uncollectable-close note into Payment Confirmation + Write-off rows.
+ * Returns null when the note is not that combined form.
+ */
+export function expandClosedUncollectableNote(
+  note: InvoiceNote
+): PaymentAuditTimelineEntry[] | null {
+  const raw = note.note.trim()
+  if (!isClosedUncollectableNote(raw)) return null
+
+  const match = raw.match(CLOSED_UNCOLLECTABLE_RE)
+  if (!match) {
+    const soft = raw.match(
+      /received\s+(\$[\d,]+(?:\.\d{2})?).*?write-off\s+(\$[\d,]+(?:\.\d{2})?)\s*[,;.]?\s*(.*)$/i
+    )
+    if (!soft) return null
+    return buildClosedUncollectableEntries(note, soft[1], soft[2], soft[3] ?? '')
+  }
+
+  return buildClosedUncollectableEntries(note, match[1], match[2], match[3] ?? '')
+}
+
+function buildClosedUncollectableEntries(
+  note: InvoiceNote,
+  receivedLabel: string,
+  writeOffLabel: string,
+  reason: string,
+  source: PaymentAuditSource = 'carrier'
+): PaymentAuditTimelineEntry[] {
+  const meta = note.created_by?.trim() || undefined
+  const baseMs = new Date(note.created_at).getTime()
+  // Confirmation first (older), write-off second (newer) when sorted newest-first.
+  const confirmAt = new Date(Number.isFinite(baseMs) ? baseMs : Date.now()).toISOString()
+  const writeOffAt = new Date(
+    (Number.isFinite(baseMs) ? baseMs : Date.now()) + 1000
+  ).toISOString()
+  const reasonPart = reason.trim().replace(/^[,;.]\s*/, '')
+
+  return [
+    {
+      id: `note-${note.id}-confirm`,
+      timestamp: confirmAt,
+      title: 'Payment Confirmation',
+      detail: `${receivedLabel} received`,
+      tone: 'success',
+      kind: 'activity',
+      noteKind: 'payment',
+      source,
+      meta,
+    },
+    {
+      id: `note-${note.id}-writeoff`,
+      timestamp: writeOffAt,
+      title: 'Write-off',
+      detail: reasonPart
+        ? `${writeOffLabel} — ${reasonPart}`
+        : `${writeOffLabel} written off`,
+      tone: 'warning',
+      kind: 'activity',
+      noteKind: 'payment',
+      source,
+      meta,
+    },
+  ]
+}
+
+/**
+ * System-generated notes that mirror payment / dispute lifecycle events.
+ * Prefer the structured payment activity entry so the timeline shows one row, not two.
+ */
+export function isRedundantPaymentLifecycleNote(note: string, type?: InvoiceNote['type']): boolean {
+  const text = note.toLowerCase()
+
+  // Typed dispute note written alongside payment.dispute on open.
+  if (type === 'dispute' && /payment receipt dispute/.test(text)) return true
+
+  return (
+    /payment receipt dispute resolved/.test(text) ||
+    /payment receipt dispute:/.test(text) ||
+    /credyx posted .+ — please confirm/.test(text) ||
+    /credyx posted short payment correction/.test(text) ||
+    /please confirm receipt within \d+ days/.test(text) ||
+    /invoice closed pending confirmation/.test(text) ||
+    /payment of .+ posted(?:\.|$)/.test(text)
+  )
 }
 
 /**
@@ -155,16 +253,41 @@ function noteSource(note: InvoiceNote): PaymentAuditSource {
 
 /** Push invoice note using the same Notes vs Activity split as InvoiceDetailPanel. */
 function pushInvoiceNote(entries: PaymentAuditTimelineEntry[], note: InvoiceNote) {
+  // Lifecycle notes are already represented by payment / dispute activity rows.
+  if (isRedundantPaymentLifecycleNote(note.note, note.type)) return
+
+  // Combined write-off close → Payment Confirmation + Write-off (not one merged row).
+  const expanded = expandClosedUncollectableNote(note)
+  if (expanded) {
+    const source = noteSource(note)
+    for (const entry of expanded) {
+      entries.push({ ...entry, source })
+    }
+    return
+  }
+
   const typeKey = note.type ?? 'note'
   const paymentRelated =
     isFreeTextNote(note.type) && isPaymentRelatedInvoiceNote(note.note, note.type)
 
+  const title = paymentRelated
+    ? getPaymentNoteCategoryTitle(note.note)
+    : (NOTE_TITLES[typeKey] ?? 'Update')
+
+  let detail = note.note
+  if (title === 'Payment Confirmation') {
+    const receivedMatch =
+      note.note.match(/(\$[\d,]+(?:\.\d{2})?)\s+received/i) ||
+      note.note.match(/received\s+(\$[\d,]+(?:\.\d{2})?)/i)
+    if (receivedMatch) detail = `${receivedMatch[1]} received`
+  }
+
   entries.push({
     id: `note-${note.id}`,
     timestamp: note.created_at,
-    title: paymentRelated ? getPaymentNoteCategoryTitle(note.note) : (NOTE_TITLES[typeKey] ?? 'Update'),
-    detail: note.note,
-    tone: paymentRelated ? 'info' : noteTone(note.type),
+    title,
+    detail,
+    tone: paymentRelated ? (title === 'Payment Confirmation' ? 'success' : 'info') : noteTone(note.type),
     // Payment-related free text → payments tab; typed status → activity; else notes.
     kind: paymentRelated ? 'activity' : isFreeTextNote(note.type) ? 'note' : 'activity',
     noteKind: paymentRelated ? 'payment' : typeKey,
@@ -283,11 +406,18 @@ function pushPaymentActivity(entries: PaymentAuditTimelineEntry[], payment: Paym
   }
 
   if (payment.dispute) {
+    const reasonLabel = payment.dispute.reason
+      ? getPaymentReceiptDisputeLabel(payment.dispute.reason)
+      : undefined
+    const openDetail = reasonLabel
+      ? `${reasonLabel} — ${payment.dispute.description}`
+      : payment.dispute.description
+
     entries.push({
       id: `dispute-open-${payment.id}`,
       timestamp: payment.dispute.created_at,
-      title: 'Receipt dispute opened',
-      detail: payment.dispute.description,
+      title: 'Payment Dispute',
+      detail: openDetail,
       tone: 'warning',
       kind: 'activity',
       noteKind: 'dispute',
@@ -298,7 +428,7 @@ function pushPaymentActivity(entries: PaymentAuditTimelineEntry[], payment: Paym
       entries.push({
         id: `dispute-resolved-${payment.id}`,
         timestamp: payment.dispute.resolved_at || payment.dispute.created_at,
-        title: 'Credyx dispute response',
+        title: 'Dispute Resolved',
         detail: payment.dispute.response,
         tone: 'info',
         kind: 'activity',
@@ -324,6 +454,35 @@ function pushPaymentActivity(entries: PaymentAuditTimelineEntry[], payment: Paym
 }
 
 function pushAuditLog(entries: PaymentAuditTimelineEntry[], log: AuditLog) {
+  const closeType = log.metadata?.close_type
+  const isWriteOffRequest = closeType === 'write_off_requested'
+  const isWriteOffResolved =
+    closeType === 'written_off' || closeType === 'write_off_denied'
+
+  // Prefer dedicated Write-off title over author name for write-off audit rows.
+  if (isWriteOffRequest || isWriteOffResolved) {
+    const shortfall =
+      typeof log.metadata?.shortfall === 'number'
+        ? formatCurrency(log.metadata.shortfall)
+        : null
+    entries.push({
+      id: `audit-${log.id}`,
+      timestamp: log.timestamp,
+      title: isWriteOffRequest ? 'Write-off' : closeType === 'write_off_denied' ? 'Write-off Denied' : 'Write-off Approved',
+      detail: isWriteOffRequest
+        ? shortfall
+          ? `${shortfall} balance written off`
+          : log.description
+        : log.description,
+      tone: closeType === 'write_off_denied' ? 'error' : 'warning',
+      kind: 'activity',
+      noteKind: 'payment',
+      source: isWriteOffRequest ? 'carrier' : 'credyx',
+      meta: log.user_name?.trim() || undefined,
+    })
+    return
+  }
+
   entries.push({
     id: `audit-${log.id}`,
     timestamp: log.timestamp,
@@ -373,6 +532,19 @@ export function buildClientPaymentAuditTimeline(
   const paymentIds = new Set(invoicePayments.map((p) => p.id))
   if (focusPaymentId) paymentIds.add(focusPaymentId)
 
+  // Skip audit rows that restate payment receipt / dispute lifecycle (already on payment).
+  const redundantAuditActions = new Set([
+    'receipt_disputed',
+    'receipt_confirmed',
+    'receipt_dispute_requeued',
+    'receipt_dispute_rejected',
+  ])
+
+  // When a write-off note already exists, skip the duplicate "requested write-off" audit.
+  const hasWriteOffNote = entries.some(
+    (e) => e.title === 'Write-off' || e.id.endsWith('-writeoff')
+  )
+
   getAllAuditLogs()
     .filter(
       (log) =>
@@ -380,6 +552,12 @@ export function buildClientPaymentAuditTimeline(
         (typeof log.metadata?.payment_id === 'string' &&
           paymentIds.has(log.metadata.payment_id))
     )
+    .filter((log) => {
+      const action = log.metadata?.action
+      if (typeof action === 'string' && redundantAuditActions.has(action)) return false
+      if (hasWriteOffNote && log.metadata?.close_type === 'write_off_requested') return false
+      return true
+    })
     .forEach((log) => pushAuditLog(entries, log))
 
   const seen = new Set<string>()

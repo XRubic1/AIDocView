@@ -3,6 +3,7 @@ import { getAllBatches, updateBatchStatus } from '../../data/mockBatches'
 import { PendingBatch } from '../../types/admin'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
 
 interface AllBatchesTabProps {
   onBatchSelect: (batchId: string, tab?: 'ready_to_post' | 'verification' | 'approval') => void
@@ -19,8 +20,9 @@ interface Batch extends PendingBatch {
 
 export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
   const c = useClientTheme()
+  const tenantRevision = useTenantDataRevision()
   const [listVersion, setListVersion] = useState(0)
-  const batches = useMemo(() => getAllBatches() as Batch[], [listVersion])
+  const batches = useMemo(() => getAllBatches() as Batch[], [listVersion, tenantRevision])
   const [showNavigationModal, setShowNavigationModal] = useState(false)
   const [selectedBatchForNavigation, setSelectedBatchForNavigation] = useState<Batch | null>(null)
 

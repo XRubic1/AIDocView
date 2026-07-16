@@ -8,11 +8,13 @@ import ApprovalTab from '../components/batches/ApprovalTab'
 import AllBatchesTab from '../components/batches/AllBatchesTab'
 import { getAllBatches, updateBatchStatus } from '../data/mockBatches'
 import { useClientTheme } from '../theme/ThemeContext'
+import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 
 type TabType = 'ready_to_post' | 'verification' | 'approval' | 'all'
 
 export default function Batches() {
   const c = useClientTheme()
+  const tenantRevision = useTenantDataRevision()
   const [activeTab, setActiveTab] = useState<TabType>('ready_to_post')
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -33,7 +35,7 @@ export default function Batches() {
       approval: allBatches.filter((b) => b.status === 'approval').length,
       all: allBatches.length,
     }
-  }, [refreshKey])
+  }, [refreshKey, tenantRevision])
 
   const tabs = [
     { id: 'ready_to_post' as TabType, label: 'Ready to Post', count: batchCounts.ready_to_post },

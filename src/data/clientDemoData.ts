@@ -91,6 +91,20 @@ export function clearClientTenantCache(clientId?: string): void {
   else tenantCache.clear()
 }
 
+/** Refresh one client's cache from in-memory stores after realtime merge. */
+export function refreshClientTenantCacheFromStores(
+  clientId: string,
+  clientName?: string
+): void {
+  if (!clientId) return
+  tenantCache.set(clientId, {
+    clientId,
+    invoices: mockInvoicesForClient(clientId, clientName),
+    payments: mockPaymentsForClient(clientId, clientName),
+    batches: mockBatchesForClient(clientId),
+  })
+}
+
 /** Confirmed payment total for an invoice within cached tenant data. */
 export function getConfirmedPaymentTotalForClient(
   clientId: string,

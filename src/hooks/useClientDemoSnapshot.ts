@@ -2,15 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildClientDashboardData,
   loadClientTenantData,
+  refreshClientTenantCacheFromStores,
 } from '../data/clientDemoData'
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
 import type { Batch } from '../data/mockBatches'
 import { useClientSession } from './useClientSession'
+import { useTenantDataRevision } from './useTenantDataRevision'
+import { mockInvoices } from '../data/mockInvoices'
+import { mockPayments } from '../data/mockPayments'
+import { getAllBatches } from '../data/mockBatches'
 
 /** Client-scoped invoices, payments, batches, and dashboard — one client at a time. */
 export function useClientDemoSnapshot(refreshKey = 0) {
   const { clientId, clientName } = useClientSession()
+  const tenantRevision = useTenantDataRevision()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
   const [batches, setBatches] = useState<Batch[]>([])
@@ -73,6 +79,34 @@ export function useClientDemoSnapshot(refreshKey = 0) {
       cancelled = true
     }
   }, [clientId, clientName, refreshKey, focusRefresh])
+
+  /** Push realtime merges into React state without a full refetch. */
+  useEffect(() => {
+    if (!clientId || tenantRevision === 0) return
+    refreshClientTenantCacheFromStores(clientId, clientName)
+    setInvoices(
+      mockInvoices.filter(
+        (inv) =>
+          inv.client_id === clientId ||
+          (clientName != null && inv.client_name === clientName)
+      )
+    )
+    const invoiceIds = new Set(
+      mockInvoices
+        .filter(
+          (inv) =>
+            inv.client_id === clientId ||
+            (clientName != null && inv.client_name === clientName)
+        )
+        .map((inv) => inv.id)
+    )
+    setPayments(
+      mockPayments
+        .filter((p) => invoiceIds.has(p.invoice_id))
+        .sort((a, b) => b.received_date.localeCompare(a.received_date))
+    )
+    setBatches(getAllBatches().filter((b) => b.client_id === clientId))
+  }, [clientId, clientName, tenantRevision])
 
   const dashboard = useMemo(
     () => buildClientDashboardData(clientId, clientName, invoices, payments),
