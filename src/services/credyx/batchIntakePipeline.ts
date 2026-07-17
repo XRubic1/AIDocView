@@ -182,9 +182,31 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
 
   clearClientTenantCache(clientId)
 
+  // Optional happy path: clean intake → PPW → verification (Credyx can override anytime).
+  let happyPath:
+    | {
+        ppwSent: number
+        ppwFailed: number
+        movedToVerification: boolean
+        intakeErrorEmailed: boolean
+      }
+    | undefined
+  try {
+    const { runHappyPathAfterIntake } = await import('./batchHappyPath')
+    happyPath = await runHappyPathAfterIntake({
+      batchId: batch.id,
+      batchNumber,
+      clientName,
+      unmatchedCount: unmatchedIds.length,
+    })
+  } catch (err) {
+    console.error('[submitAiBatch] happy path failed:', err)
+  }
+
   return {
     batchId: batch.id,
     batchNumber,
     invoices,
+    happyPath,
   }
 }

@@ -18,6 +18,7 @@ import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { useClientSession } from '../../hooks/useClientSession'
 import { PAYMENT_STATUS_LABELS } from '../../utils/paymentStatus'
+import { getPaymentTimingInfo } from '../../utils/paymentTiming'
 import { getInvoiceReceivedAmount } from '../../utils/paymentVariance'
 import { buildClientPaymentAuditTimeline } from '../../utils/clientPaymentAuditTimeline'
 import { toClientVisibleInvoice } from '../../utils/clientInvoiceView'
@@ -382,6 +383,11 @@ export default function PaymentConfirmationPanel({
               Awaiting Credyx confirmation before it applies to the invoice.
             </p>
           ) : null}
+          {(payment.status === 'awaiting_receipt' || payment.status === 'confirmed') && (
+            <p className="payment-confirmation-panel__summary-meta">
+              {getPaymentTimingInfo(payment.payment_method).summary}
+            </p>
+          )}
         </section>
 
         <section className="payment-confirmation-panel__notes">

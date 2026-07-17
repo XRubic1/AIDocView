@@ -3,7 +3,7 @@ export function getAdminBatchStatusBadge(status: string) {
   const map: Record<string, { label: string; className: string }> = {
     ready_to_post: { label: 'Ready to Post', className: 'status-pill--pending-batch' },
     verification: { label: 'Verification', className: 'status-pill--review' },
-    approval: { label: 'Approval', className: 'status-pill--review' },
+    approval: { label: 'Verification (legacy)', className: 'status-pill--review' },
     submitted: { label: 'Submitted', className: 'status-pill--submitted' },
     processing: { label: 'Processing', className: 'status-pill--approved' },
     approved: { label: 'Approved', className: 'status-pill--approved' },

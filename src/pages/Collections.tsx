@@ -8,6 +8,7 @@ import { ArrowLeft } from 'lucide-react'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
+import CollectionsChasePanel from '../components/collections/CollectionsChasePanel'
 
 export default function Collections() {
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null)
@@ -73,6 +74,19 @@ export default function Collections() {
           <h1 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>Collections</h1>
           <p style={{ color: '#819291' }}>Manage broker invoices and collections</p>
         </div>
+
+        {!selectedBroker && (
+          <CollectionsChasePanel
+            onOpenInvoice={(invoiceId) => {
+              const inv = mockInvoices.find((i) => i.id === invoiceId)
+              if (inv) {
+                const broker = mockBrokers.find((b) => b.id === inv.broker_id)
+                if (broker) setSelectedBroker(broker)
+                setSelectedInvoice(inv)
+              }
+            }}
+          />
+        )}
 
         {!selectedBroker ? (
           // Broker List View

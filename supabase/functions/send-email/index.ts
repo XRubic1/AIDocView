@@ -5,13 +5,24 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-type EmailTemplate = 'client_invite' | 'broker_packet' | 'admin_enrollment_alert'
+type EmailTemplate =
+  | 'client_invite'
+  | 'broker_packet'
+  | 'admin_enrollment_alert'
+  | 'credyx_batch_error'
+  | 'carrier_batch_verified'
+  | 'carrier_batch_holds'
+  | 'broker_payment_status_inquiry'
+  | 'broker_payment_status_followup'
 
 interface SendEmailPayload {
   template: EmailTemplate
   to: string
   data: Record<string, string>
 }
+
+/** Templates that may be invoked without an admin session (system / ops). */
+const PUBLIC_TEMPLATES = new Set<EmailTemplate>(['admin_enrollment_alert'])
 
 function buildEmail(template: EmailTemplate, data: Record<string, string>) {
   switch (template) {
@@ -27,6 +38,8 @@ function buildEmail(template: EmailTemplate, data: Record<string, string>) {
       return {
         subject: `Document packet — ${data.invoiceNumber ?? 'Invoice'}`,
         html: `<p>Please find attached documents for invoice ${data.invoiceNumber ?? ''}.</p>
+<p>Broker: ${data.brokerName ?? ''} · Carrier: ${data.clientName ?? ''}</p>
+<p>${data.documentList ? `Documents: ${data.documentList}` : ''}</p>
 <p>${data.message ?? ''}</p>`,
       }
     case 'admin_enrollment_alert':
@@ -34,6 +47,44 @@ function buildEmail(template: EmailTemplate, data: Record<string, string>) {
         subject: `New enrollment — ${data.clientName ?? 'Client'}`,
         html: `<p>A new client enrolled: <strong>${data.clientName}</strong> (${data.email}).</p>
 <p>Review in the admin portal.</p>`,
+      }
+    case 'credyx_batch_error':
+      return {
+        subject: `Batch error — ${data.batchNumber ?? 'unknown'} (${data.scope ?? 'process'})`,
+        html: `<p>There was an error with batch <strong>${data.batchNumber ?? ''}</strong>${data.clientName ? ` for ${data.clientName}` : ''}.</p>
+<p><strong>Scope:</strong> ${data.scope ?? 'process'}</p>
+<pre style="white-space:pre-wrap;font-family:sans-serif">${data.issueMessage ?? 'No details'}</pre>
+<p>Please review in the Credyx admin portal (Batches → AI / Ready to Post / Verification).</p>`,
+      }
+    case 'carrier_batch_verified':
+      return {
+        subject: `Batch ${data.batchNumber ?? ''} verified — no issues found`,
+        html: `<p>All invoices in batch <strong>${data.batchNumber ?? ''}</strong> were verified successfully (${data.invoiceCount ?? ''} invoices). No issues were detected.</p>
+<p><strong>Paperwork sent to brokers:</strong></p>
+<pre style="white-space:pre-wrap;font-family:sans-serif">${data.ppwSummary ?? 'See portal for details.'}</pre>
+<p>This is an automatic email. Full details are available in your client portal.</p>`,
+      }
+    case 'carrier_batch_holds':
+      return {
+        subject: `Batch ${data.batchNumber ?? ''} — ${data.holdCount ?? ''} invoice(s) on hold`,
+        html: `<p>One or more invoices in batch <strong>${data.batchNumber ?? ''}</strong> were placed on hold after verification.</p>
+<pre style="white-space:pre-wrap;font-family:sans-serif">${data.holdList ?? ''}</pre>
+<p>This is an automatic email. Full details and next steps are available in your client portal.</p>`,
+      }
+    case 'broker_payment_status_inquiry':
+      return {
+        subject: `Payment status inquiry — Invoice ${data.invoiceNumber ?? ''}`,
+        html: `<p>Hello${data.brokerName ? ` ${data.brokerName}` : ''},</p>
+<p>Please provide the payment status for invoice <strong>${data.invoiceNumber ?? ''}</strong> (Load ${data.loadNumber ?? 'N/A'}, Amount ${data.amount ?? ''}).</p>
+<p>Reply to this email with the expected payment date or status.</p>
+<p>— Credyx Collections</p>`,
+      }
+    case 'broker_payment_status_followup':
+      return {
+        subject: `Follow-up: Payment status — Invoice ${data.invoiceNumber ?? ''}`,
+        html: `<p>Hello${data.brokerName ? ` ${data.brokerName}` : ''},</p>
+<p>We have not received a response regarding invoice <strong>${data.invoiceNumber ?? ''}</strong>. Please reply with payment status.</p>
+<p>— Credyx Collections</p>`,
       }
     default:
       throw new Error('Unknown template')
@@ -62,14 +113,20 @@ Deno.serve(async (req) => {
     const isAdmin = role === 'admin'
     const payload = (await req.json()) as SendEmailPayload
 
-    if (payload.template === 'admin_enrollment_alert') {
-      // Enrollment form runs without admin session — allow this template for anon invokes.
+    if (PUBLIC_TEMPLATES.has(payload.template)) {
+      // allowed without admin
     } else if (userError || !userData.user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders })
-    } else if (payload.template === 'broker_packet' && !isAdmin) {
-      return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: corsHeaders })
-    } else if (!isAdmin && payload.template === 'client_invite') {
-      return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: corsHeaders })
+    } else if (
+      !isAdmin &&
+      payload.template !== 'client_invite' &&
+      !payload.template.startsWith('carrier_')
+    ) {
+      // Carrier outcome emails may be triggered in client session context in future;
+      // for now require admin for most templates except invite.
+      if (payload.template === 'broker_packet' || payload.template.startsWith('broker_') || payload.template.startsWith('credyx_')) {
+        return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: corsHeaders })
+      }
     }
 
     const resendKey = Deno.env.get('RESEND_API_KEY')

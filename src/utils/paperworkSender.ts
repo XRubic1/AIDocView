@@ -4,11 +4,25 @@ import { mockBrokers } from '../data/mockBrokers'
 import { updateInvoiceAsync } from '../data/mockInvoices'
 import { logAuditEvent } from './auditLogger'
 import { sendTransactionalEmail } from '../services/emailService'
+import { hasPpwBeenSent } from './ppwSent'
+import type { Broker } from '../types/broker'
+
+/** Prefer paperwork category, then accounting, then legacy email. */
+export function resolveBrokerPaperworkEmail(broker: Broker | undefined): string | null {
+  if (!broker) return null
+  const paperwork = broker.emails?.find((e) => e.category === 'paperwork')?.email?.trim()
+  if (paperwork) return paperwork
+  const accounting = broker.emails?.find((e) => e.category === 'accounting')?.email?.trim()
+  if (accounting) return accounting
+  const legacy = broker.email?.trim()
+  return legacy || null
+}
 
 export interface BrokerPacketSendResult {
   success: boolean
   error?: string
   sendRecord?: DocumentSendRecord
+  skipped?: boolean
 }
 
 /** Send broker paperwork email and persist document_send_history on the invoice. */
@@ -21,8 +35,14 @@ export async function sendBrokerPacketForInvoice(
     userId?: string
     automatic?: boolean
     batchNumber?: string
+    /** Skip when PPW already logged successfully. */
+    skipIfAlreadySent?: boolean
   }
 ): Promise<BrokerPacketSendResult> {
+  if (opts.skipIfAlreadySent && hasPpwBeenSent(invoice)) {
+    return { success: true, skipped: true }
+  }
+
   const broker = mockBrokers.find((b) => b.id === invoice.broker_id)
   if (!opts.recipientEmail.trim()) {
     return { success: false, error: 'Recipient email required' }
@@ -91,43 +111,62 @@ export async function sendBrokerPacketForInvoice(
 }
 
 /**
- * Automatically send paperwork for all invoices in a batch.
- * Called when a batch is approved.
+ * Send paperwork for invoices in a batch.
+ * Prefer paperwork-category emails; skip invoices that already have successful PPW
+ * unless skipAlreadySent is false.
  */
 export async function sendPaperworkForBatch(
   invoices: Invoice[],
   batchNumber: string,
   userId: string = 'system',
   userName: string = 'System',
-  userRole: string = 'System'
+  userRole: string = 'System',
+  options: { skipAlreadySent?: boolean } = {}
 ): Promise<{
   success: number
   failed: number
-  details: Array<{ invoiceId: string; invoiceNumber: string; brokerEmail: string; success: boolean; error?: string }>
+  skipped: number
+  details: Array<{ invoiceId: string; invoiceNumber: string; brokerEmail: string; success: boolean; error?: string; skipped?: boolean }>
 }> {
+  const skipAlreadySent = options.skipAlreadySent ?? true
   const results = {
     success: 0,
     failed: 0,
+    skipped: 0,
     details: [] as Array<{
       invoiceId: string
       invoiceNumber: string
       brokerEmail: string
       success: boolean
       error?: string
+      skipped?: boolean
     }>,
   }
 
   for (const invoice of invoices) {
-    const broker = mockBrokers.find((b) => b.id === invoice.broker_id)
+    if (skipAlreadySent && hasPpwBeenSent(invoice)) {
+      results.skipped++
+      results.details.push({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        brokerEmail: '—',
+        success: true,
+        skipped: true,
+      })
+      continue
+    }
 
-    if (!broker?.email) {
+    const broker = mockBrokers.find((b) => b.id === invoice.broker_id)
+    const brokerEmail = resolveBrokerPaperworkEmail(broker)
+
+    if (!brokerEmail) {
       results.failed++
       results.details.push({
         invoiceId: invoice.id,
         invoiceNumber: invoice.invoice_number,
         brokerEmail: 'N/A',
         success: false,
-        error: broker ? 'Broker email not available' : 'Broker not found',
+        error: broker ? 'Broker paperwork email not available' : 'Broker not found',
       })
       continue
     }
@@ -142,20 +181,30 @@ export async function sendPaperworkForBatch(
     }
 
     const sent = await sendBrokerPacketForInvoice(invoice, {
-      recipientEmail: broker.email,
+      recipientEmail: brokerEmail,
       documentNames,
       sentBy: userName,
       userId,
       automatic: true,
       batchNumber,
+      skipIfAlreadySent: skipAlreadySent,
     })
 
-    if (sent.success) {
+    if (sent.skipped) {
+      results.skipped++
+      results.details.push({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        brokerEmail,
+        success: true,
+        skipped: true,
+      })
+    } else if (sent.success) {
       results.success++
       results.details.push({
         invoiceId: invoice.id,
         invoiceNumber: invoice.invoice_number,
-        brokerEmail: broker.email,
+        brokerEmail,
         success: true,
       })
     } else {
@@ -163,20 +212,20 @@ export async function sendPaperworkForBatch(
       results.details.push({
         invoiceId: invoice.id,
         invoiceNumber: invoice.invoice_number,
-        brokerEmail: broker.email,
+        brokerEmail,
         success: false,
         error: sent.error,
       })
     }
   }
 
-  if (results.success > 0 || results.failed > 0) {
+  if (results.success > 0 || results.failed > 0 || results.skipped > 0) {
     logAuditEvent(
       'document_sent',
       'batch',
       null,
       batchNumber,
-      `Automatic paperwork sending for batch ${batchNumber}: ${results.success} successful, ${results.failed} failed`,
+      `Paperwork sending for batch ${batchNumber}: ${results.success} sent, ${results.failed} failed, ${results.skipped} skipped`,
       userId,
       userName,
       userRole,
@@ -186,6 +235,7 @@ export async function sendPaperworkForBatch(
         total_invoices: invoices.length,
         successful: results.success,
         failed: results.failed,
+        skipped: results.skipped,
         details: results.details,
       },
       results.failed > 0 ? 'warning' : 'info',

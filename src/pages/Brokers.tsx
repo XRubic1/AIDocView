@@ -4,6 +4,7 @@ import { mockBrokers, addBroker } from '../data/mockBrokers'
 import { Broker, BrokerEmail, BrokerPhone } from '../types/broker'
 import { Phone, Mail, MapPin, Search, X, Plus, Trash2 } from 'lucide-react'
 import { useToast } from '../components/ui/ToastProvider'
+import BrokerPaymentHistoryPanel from '../components/brokers/BrokerPaymentHistoryPanel'
 
 export default function Brokers() {
   const { showToast } = useToast()
@@ -24,6 +25,9 @@ export default function Brokers() {
     mc_number: '',
     dot_number: '',
     notes: '',
+    payment_terms_days: 30,
+    payment_status_inquiry_days: 15,
+    preferred_contact: 'either',
   })
   const [emails, setEmails] = useState<BrokerEmail[]>([])
   const [phones, setPhones] = useState<BrokerPhone[]>([])
@@ -53,47 +57,39 @@ export default function Brokers() {
     setSelectedBroker(null)
   }
 
+  const emptyBrokerForm = (): Partial<Broker> => ({
+    name: '',
+    contact_person: '',
+    email: '',
+    phone: '',
+    fax: '',
+    address: '',
+    city: '',
+    state: '',
+    zip: '',
+    mc_number: '',
+    dot_number: '',
+    notes: '',
+    payment_terms_days: 30,
+    payment_status_inquiry_days: 15,
+    preferred_contact: 'either',
+  })
+
   const handleOpenAddModal = () => {
     setShowAddModal(true)
-    setFormData({
-      name: '',
-      contact_person: '',
-      email: '',
-      phone: '',
-      fax: '',
-      address: '',
-      city: '',
-      state: '',
-      zip: '',
-      mc_number: '',
-      dot_number: '',
-      notes: '',
-    })
+    setFormData(emptyBrokerForm())
     setEmails([])
     setPhones([])
   }
 
   const handleCloseAddModal = () => {
     setShowAddModal(false)
-    setFormData({
-      name: '',
-      contact_person: '',
-      email: '',
-      phone: '',
-      fax: '',
-      address: '',
-      city: '',
-      state: '',
-      zip: '',
-      mc_number: '',
-      dot_number: '',
-      notes: '',
-    })
+    setFormData(emptyBrokerForm())
     setEmails([])
     setPhones([])
   }
 
-  const handleInputChange = (field: keyof Broker, value: string) => {
+  const handleInputChange = (field: keyof Broker, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
@@ -161,6 +157,9 @@ export default function Brokers() {
       mc_number: formData.mc_number || undefined,
       dot_number: formData.dot_number || undefined,
       notes: formData.notes || undefined,
+      payment_terms_days: formData.payment_terms_days,
+      payment_status_inquiry_days: formData.payment_status_inquiry_days ?? 15,
+      preferred_contact: formData.preferred_contact ?? 'either',
     }
 
     addBroker(newBroker)
@@ -519,6 +518,30 @@ export default function Brokers() {
                   </div>
                 )}
 
+                <div>
+                  <h3 className="text-lg font-semibold text-black mb-4">Collections preferences</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                    <div className="bg-gray-50 p-3 rounded">
+                      <label className="text-gray-600">Payment terms</label>
+                      <p className="font-medium">Net {selectedBroker.payment_terms_days ?? 30}</p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded">
+                      <label className="text-gray-600">Status inquiry age</label>
+                      <p className="font-medium">
+                        {selectedBroker.payment_status_inquiry_days ?? 15} days after PPW
+                      </p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded">
+                      <label className="text-gray-600">Preferred contact</label>
+                      <p className="font-medium capitalize">
+                        {selectedBroker.preferred_contact ?? 'either'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <BrokerPaymentHistoryPanel broker={selectedBroker} />
+
                 {/* Notes */}
                 {selectedBroker.notes && (
                   <div>
@@ -781,6 +804,66 @@ export default function Brokers() {
                         onChange={(e) => handleInputChange('dot_number', e.target.value)}
                         className="w-full px-3 py-2 text-sm border border-gray-300 rounded text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
                       />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Collections chase prefs */}
+                <div>
+                  <h3 className="text-lg font-semibold text-black mb-4">Collections preferences</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Payment terms (days)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={formData.payment_terms_days ?? 30}
+                        onChange={(e) =>
+                          handleInputChange('payment_terms_days', parseInt(e.target.value, 10) || 0)
+                        }
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Status inquiry age (days after PPW)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={formData.payment_status_inquiry_days ?? 15}
+                        onChange={(e) =>
+                          handleInputChange(
+                            'payment_status_inquiry_days',
+                            parseInt(e.target.value, 10) || 0
+                          )
+                        }
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        When Credyx asks for payment status (clock starts when PPW was sent).
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Preferred contact
+                      </label>
+                      <select
+                        value={formData.preferred_contact ?? 'either'}
+                        onChange={(e) =>
+                          handleInputChange(
+                            'preferred_contact',
+                            e.target.value as 'email' | 'phone' | 'either'
+                          )
+                        }
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                      >
+                        <option value="either">Email or phone</option>
+                        <option value="email">Email only</option>
+                        <option value="phone">Phone only</option>
+                      </select>
                     </div>
                   </div>
                 </div>

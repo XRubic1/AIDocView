@@ -104,7 +104,7 @@ function buildCredyxForceConfirmClientNote(amount: number, kind: 'payment' | 'sh
   }
 }
 
-/** Invoices eligible for payment posting (approved, paid, or short — not written off). */
+/** Invoices eligible for payment posting (approved, paid, short, or written-off — posting reopens). */
 export function listPostableInvoices(invoices: Invoice[]): Invoice[] {
   return invoices
     .filter((inv) => isPostableForPayment(inv))
@@ -128,8 +128,12 @@ function applyPaymentToInvoice(
 ): Invoice | undefined {
   const isShort = totalReceived < invoice.amount - 0.01
   const isOver = totalReceived > invoice.amount + 0.01
+  const wasWrittenOff =
+    invoice.status === 'written_off' || invoice.status === 'write_off_pending'
 
-  const noteText = buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)
+  const noteText = wasWrittenOff
+    ? `${buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)} Invoice reopened from write-off.`
+    : buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)
 
   const paidNote: InvoiceNote = {
     id: `note-posted-${Date.now()}`,
@@ -145,6 +149,7 @@ function applyPaymentToInvoice(
     notes_history: [...(invoice.notes_history || []), paidNote],
     days_since_expected: isShort ? invoice.days_since_expected : 0,
     overpayment_accepted_at: isOver ? undefined : invoice.overpayment_accepted_at,
+    write_off_request: wasWrittenOff ? undefined : invoice.write_off_request,
     updated_at: new Date().toISOString(),
   })
 }
@@ -157,8 +162,12 @@ async function applyPaymentToInvoiceAsync(
 ): Promise<Invoice | undefined> {
   const isShort = totalReceived < invoice.amount - 0.01
   const isOver = totalReceived > invoice.amount + 0.01
+  const wasWrittenOff =
+    invoice.status === 'written_off' || invoice.status === 'write_off_pending'
 
-  const noteText = buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)
+  const noteText = wasWrittenOff
+    ? `${buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)} Invoice reopened from write-off.`
+    : buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)
 
   const paidNote: InvoiceNote = {
     id: `note-posted-${Date.now()}`,
@@ -174,6 +183,7 @@ async function applyPaymentToInvoiceAsync(
     notes_history: [...(invoice.notes_history || []), paidNote],
     days_since_expected: isShort ? invoice.days_since_expected : 0,
     overpayment_accepted_at: isOver ? undefined : invoice.overpayment_accepted_at,
+    write_off_request: wasWrittenOff ? undefined : invoice.write_off_request,
     updated_at: new Date().toISOString(),
   })
 }

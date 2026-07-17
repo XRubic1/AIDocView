@@ -6,7 +6,7 @@ import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
-import { FileText, Search, Filter, DollarSign, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react'
+import { FileText, Search, Filter, DollarSign, ChevronLeft, ChevronRight, AlertCircle, Check } from 'lucide-react'
 import DocumentViewer from '../components/DocumentViewer'
 import {
   getInvoiceRowStatusBadge,
@@ -41,6 +41,7 @@ import {
   getInvoiceReceivedAmount,
   type InvoiceBalanceState,
 } from '../utils/paymentVariance'
+import { hasPpwBeenSent } from '../utils/ppwSent'
 
 type InvoiceSortField =
   | 'invoice_number'
@@ -51,6 +52,7 @@ type InvoiceSortField =
   | 'balance'
   | 'invoice_date'
   | 'days_outstanding'
+  | 'ppw_sent'
   | 'status'
 
 /** Open balance display — remaining due, $0 when settled, +overage when overpaid. */
@@ -218,6 +220,9 @@ export default function ClientInvoices() {
           break
         case 'days_outstanding':
           cmp = getSortableInvoiceAge(a) - getSortableInvoiceAge(b)
+          break
+        case 'ppw_sent':
+          cmp = Number(hasPpwBeenSent(a)) - Number(hasPpwBeenSent(b))
           break
         case 'status':
           cmp = a.status.localeCompare(b.status)
@@ -663,6 +668,15 @@ export default function ClientInvoices() {
                             align="right"
                           />
                           <ClientSortableHeader
+                            field="ppw_sent"
+                            label="PPW sent"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                            className="text-center"
+                            align="center"
+                          />
+                          <ClientSortableHeader
                             field="status"
                             label="Status"
                             sortField={sortField}
@@ -766,6 +780,22 @@ export default function ClientInvoices() {
                                     </span>
                                   )}
                                 </span>
+                              </ClientListTd>
+                              <ClientListTd variant="desktop" label="PPW sent" className="text-center">
+                                {hasPpwBeenSent(invoice) ? (
+                                  <span
+                                    className="inline-flex items-center justify-center"
+                                    title="Paperwork sent to broker"
+                                    style={{ color: '#16a34a' }}
+                                    aria-label="PPW sent"
+                                  >
+                                    <Check className="w-4 h-4" strokeWidth={2.5} />
+                                  </span>
+                                ) : (
+                                  <span style={{ color: c.mutedLight }} aria-label="PPW not sent">
+                                    —
+                                  </span>
+                                )}
                               </ClientListTd>
                               <ClientListTd variant="status" className="client-list-td--status-col">
                                 <div className="inline-flex items-center gap-1 flex-nowrap min-w-0">

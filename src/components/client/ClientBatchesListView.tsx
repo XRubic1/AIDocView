@@ -64,7 +64,7 @@ function getBatchStatusBadge(status: string) {
     ready_to_post: { label: 'Queued', className: 'status-pill--pending-batch' },
     documents_uploaded: { label: 'Docs received', className: 'status-pill--pending-batch' },
     verification: { label: 'Verifying', className: 'status-pill--review' },
-    approval: { label: 'In approval', className: 'status-pill--review' },
+    approval: { label: 'In review', className: 'status-pill--review' },
     submitted: { label: 'Posted', className: 'status-pill--submitted' },
     processing: { label: 'Processing', className: 'status-pill--approved' },
   }

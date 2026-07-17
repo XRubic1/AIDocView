@@ -63,6 +63,10 @@ export interface Invoice {
   verification_status?: 'Email' | 'Phone' | 'Web' // How the invoice was verified
   contact_persons?: string[] // List of contact persons
   selected_contact_person?: string // Selected contact person
+  /** Broker did not respond to status inquiry — Credyx should call. */
+  collections_needs_attention?: boolean
+  collections_last_inquiry_at?: string
+  collections_followup_at?: string
   /** Client confirmed AI-extracted fields before batch submit */
   ai_confirmed_at?: string
   ai_confirmed_by?: string

@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useAuth } from '../../context/AuthContext'
+import { getAdminUserDisplayName } from '../../config/adminNav'
 import { formatCurrency } from '../../utils/format'
 import { ArrowLeft, Check, AlertCircle, CheckCircle } from 'lucide-react'
 import { getAllBatches } from '../../data/mockBatches'
@@ -8,36 +10,43 @@ import { Invoice } from '../../types/invoice'
 import AdminInvoiceDetailView from './AdminInvoiceDetailView'
 import AccountingModal from './AccountingModal'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
+import { processVerifiedBatch } from '../../services/credyx/processBatch'
 import { useToast } from '../ui/ToastProvider'
+import Spinner from '../ui/Spinner'
 
 interface VerificationTabProps {
   batchId: string | null
   onBatchSelect: (batchId: string) => void
-  onMoveToApproval: (batchId: string) => void
   onBack: () => void
+  onProcessed?: () => void
 }
 
 export default function VerificationTab({
   batchId,
   onBatchSelect,
-  onMoveToApproval,
   onBack,
+  onProcessed,
 }: VerificationTabProps) {
+  const { resolved, session } = useAuth()
   const { showToast } = useToast()
+  const authUser = resolved.user ?? session?.user ?? null
+  const adminUserId = authUser?.id ?? 'unknown'
+  const adminUserName = getAdminUserDisplayName(authUser?.email ?? null)
+
   const [batches] = useState(() => {
     const allBatches = getAllBatches()
-    return allBatches.filter((b) => b.status === 'verification')
+    // Legacy "approval" batches are treated as verification after pipeline reshape.
+    return allBatches.filter((b) => b.status === 'verification' || b.status === 'approval')
   })
   const [selectedInvoices, setSelectedInvoices] = useState<Set<string>>(new Set())
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [verificationNotes, setVerificationNotes] = useState('')
   const [showAccountingModal, setShowAccountingModal] = useState(false)
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false)
 
-  // Find the batch - search in all batches, not just filtered ones
   const allBatches = getAllBatches()
   const batch = batchId ? allBatches.find((b) => b.id === batchId) : null
 
-  // If no batch selected, show batch list
   if (!batchId || !batch) {
     const listItems: AdminBatchListItem[] = batches.map((b) => ({
       id: b.id,
@@ -46,7 +55,7 @@ export default function VerificationTab({
       total_invoices: b.total_invoices,
       total_amount: b.total_amount,
       submitted_at: b.submitted_at,
-      status: b.status,
+      status: b.status === 'approval' ? 'verification' : b.status,
     }))
 
     return (
@@ -65,14 +74,15 @@ export default function VerificationTab({
     )
   }
 
-  // Batch detail view
   const batchInvoices = mockInvoices.filter((inv) => inv.batch_id === batchId)
   const verifiedInvoices = batchInvoices.filter(
     (inv) => inv.status === 'approved' || inv.status === 'hold'
   )
   const allVerified = batchInvoices.length > 0 && verifiedInvoices.length === batchInvoices.length
+  const allApproved = batchInvoices.length > 0 && batchInvoices.every((inv) => inv.status === 'approved')
   const verifiedCount = verifiedInvoices.length
   const totalCount = batchInvoices.length
+  const holdCount = batchInvoices.filter((inv) => inv.status === 'hold').length
 
   const handleSelectAll = () => {
     if (selectedInvoices.size === batchInvoices.length) {
@@ -106,14 +116,59 @@ export default function VerificationTab({
     }
   }
 
+  const handleProcessBatch = async () => {
+    if (isProcessingBatch) return
+    if (!allVerified) {
+      showToast(
+        `Cannot process batch. All invoices must be approved or on hold (${verifiedCount}/${totalCount}).`,
+        'error'
+      )
+      return
+    }
 
-  const handleContactBrokerInvoice = () => {
-    // Handled by modal
+    setIsProcessingBatch(true)
+    try {
+      const result = await processVerifiedBatch({
+        batchId,
+        batchNumber: batch.batch_number,
+        clientId: batch.client_id,
+        totalAmount: batch.total_amount,
+        adminUserId,
+        adminUserName,
+      })
+
+      if (!result.ok) {
+        showToast(result.error ?? 'Batch processing failed', 'error')
+        return
+      }
+
+      const ppwMsg =
+        result.paperwork.success > 0 || result.paperwork.failed > 0
+          ? ` Paperwork: ${result.paperwork.success} sent, ${result.paperwork.failed} failed, ${result.paperwork.skipped} already sent.`
+          : result.paperwork.skipped > 0
+            ? ` Paperwork already sent for ${result.paperwork.skipped} invoice(s).`
+            : ''
+
+      if (holdCount > 0) {
+        showToast(
+          `Batch processed with ${holdCount} on hold. Carrier notified.${ppwMsg}`,
+          'info'
+        )
+      } else {
+        showToast(`Batch processed — all invoices approved.${ppwMsg}`, 'success')
+      }
+
+      onProcessed?.()
+      onBack()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Batch processing failed', 'error')
+    } finally {
+      setIsProcessingBatch(false)
+    }
   }
 
   return (
     <div className="p-6">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">
           <button
@@ -153,47 +208,47 @@ export default function VerificationTab({
           </button>
           <div className="flex flex-col items-end">
             <button
-              onClick={() => {
-                if (!allVerified) {
-                  showToast(
-                    `Cannot move batch to approval. All invoices must be verified (${verifiedCount}/${totalCount}).`,
-                    'error'
-                  )
-                  return
-                }
-                onMoveToApproval(batchId)
-              }}
-              disabled={!allVerified}
+              onClick={() => void handleProcessBatch()}
+              disabled={!allVerified || isProcessingBatch}
               className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white transition-colors"
               style={{
-                backgroundColor: allVerified ? '#819291' : '#cccccc',
-                cursor: allVerified ? 'pointer' : 'not-allowed',
-                opacity: allVerified ? 1 : 0.6,
+                backgroundColor: allVerified && !isProcessingBatch ? '#819291' : '#cccccc',
+                cursor: allVerified && !isProcessingBatch ? 'pointer' : 'not-allowed',
+                opacity: allVerified && !isProcessingBatch ? 1 : 0.6,
               }}
               onMouseEnter={(e) => {
-                if (allVerified) {
+                if (allVerified && !isProcessingBatch) {
                   e.currentTarget.style.backgroundColor = '#6b7a7a'
                 }
               }}
               onMouseLeave={(e) => {
-                if (allVerified) {
+                if (allVerified && !isProcessingBatch) {
                   e.currentTarget.style.backgroundColor = '#819291'
                 }
-            }}
-          >
-            <CheckCircle className="w-4 h-4" />
-            <span>Move to Approval</span>
-          </button>
+              }}
+            >
+              {isProcessingBatch ? <Spinner className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+              <span>{isProcessingBatch ? 'Processing…' : 'Process batch'}</span>
+            </button>
             {!allVerified && (
               <div className="text-xs mt-1 text-right" style={{ color: '#C2A558' }}>
-                Verified: {verifiedCount}/{totalCount} invoices - Verify all invoices before moving to approval
+                Verified: {verifiedCount}/{totalCount} — approve or hold all invoices before processing
               </div>
-        )}
+            )}
+            {allVerified && holdCount > 0 && (
+              <div className="text-xs mt-1 text-right" style={{ color: '#C2A558' }}>
+                {holdCount} on hold — carrier will be emailed when you process
+              </div>
+            )}
+            {allVerified && allApproved && (
+              <div className="text-xs mt-1 text-right" style={{ color: '#819291' }}>
+                All approved — ready to process
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
           <div className="text-sm mb-1" style={{ color: '#819291' }}>Total Invoices</div>
@@ -210,7 +265,7 @@ export default function VerificationTab({
         <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
           <div className="text-sm mb-1" style={{ color: '#819291' }}>On Hold</div>
           <div className="text-2xl font-bold" style={{ color: '#113543' }}>
-            {batchInvoices.filter((inv) => inv.status === 'hold').length}
+            {holdCount}
           </div>
         </div>
         <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
@@ -221,7 +276,6 @@ export default function VerificationTab({
         </div>
       </div>
 
-      {/* Verification Notes */}
       <div className="mb-6">
         <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
           Verification Notes
@@ -236,19 +290,10 @@ export default function VerificationTab({
             color: '#113543',
             backgroundColor: '#FFFFFF',
           }}
-          onFocus={(e) => {
-            e.currentTarget.style.borderColor = '#C2A558'
-            e.currentTarget.style.boxShadow = '0 0 0 2px rgba(194, 165, 88, 0.2)'
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.borderColor = '#819291'
-            e.currentTarget.style.boxShadow = 'none'
-          }}
           rows={3}
         />
       </div>
 
-      {/* Invoices Table */}
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -256,7 +301,7 @@ export default function VerificationTab({
               <th className="text-left py-3 px-4">
                 <input
                   type="checkbox"
-                  checked={selectedInvoices.size === batchInvoices.length}
+                  checked={selectedInvoices.size === batchInvoices.length && batchInvoices.length > 0}
                   onChange={handleSelectAll}
                   className="w-4 h-4 rounded"
                   style={{ borderColor: '#819291' }}
@@ -289,12 +334,6 @@ export default function VerificationTab({
                   backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
                 }}
                 onClick={() => setSelectedInvoice(invoice)}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#f0f0f0'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#f8f9fa' : '#FFFFFF'
-                }}
               >
                 <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                   <input
@@ -345,12 +384,6 @@ export default function VerificationTab({
                     onClick={() => setSelectedInvoice(invoice)}
                     className="text-sm transition-colors"
                     style={{ color: '#819291' }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = '#113543'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = '#819291'
-                    }}
                   >
                     Verify
                   </button>
@@ -361,7 +394,6 @@ export default function VerificationTab({
         </table>
       </div>
 
-      {/* Invoice Detail View with Three-Panel Layout */}
       {selectedInvoice && (
         <AdminInvoiceDetailView
           invoice={selectedInvoice}
@@ -370,12 +402,11 @@ export default function VerificationTab({
           onClose={() => setSelectedInvoice(null)}
           onApprove={handleApproveInvoice}
           onHold={handleHoldInvoice}
-          onContactBroker={handleContactBrokerInvoice}
+          onContactBroker={() => undefined}
           stage="verification"
         />
       )}
 
-      {/* Accounting Modal */}
       {showAccountingModal && batch && (
         <AccountingModal
           batch={batch}
@@ -385,4 +416,3 @@ export default function VerificationTab({
     </div>
   )
 }
-

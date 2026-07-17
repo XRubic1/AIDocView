@@ -13,6 +13,9 @@ export interface BrokerPhone {
   category: PhoneCategory
 }
 
+/** Preferred way Credyx contacts this broker for collections. */
+export type BrokerPreferredContact = 'email' | 'phone' | 'either'
+
 export interface Broker {
   id: string
   name: string
@@ -30,6 +33,13 @@ export interface Broker {
   dot_number?: string
   notes?: string
   payment_terms_days?: number // Payment terms in days (e.g., 30 for Net 30)
+  /**
+   * Days after PPW was sent before Credyx asks the broker for payment status.
+   * Distinct from Net terms (when payment is due).
+   */
+  payment_status_inquiry_days?: number
+  /** How Credyx should chase payment status. */
+  preferred_contact?: BrokerPreferredContact
 }
 
 

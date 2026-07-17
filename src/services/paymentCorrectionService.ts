@@ -16,22 +16,23 @@ import type { ClientCapabilities } from '../utils/clientCapabilities'
 import { assertCapability } from '../utils/clientCapabilities'
 import { notifyAdminPaymentReported } from './adminNotificationService'
 
+/** Source invoices that may have payments reversed / moved. Written-off allowed so mistakes can be fixed. */
 function isCorrectableSourceInvoice(invoice: Invoice): boolean {
-  return (
-    invoice.status !== 'written_off' &&
-    invoice.status !== 'force_closed' &&
-    invoice.status !== 'write_off_pending'
-  )
+  return invoice.status !== 'force_closed'
 }
 
 function recomputeInvoiceFromConfirmed(invoice: Invoice, authorName: string, noteSuffix: string): Invoice | undefined {
   const totalReceived = getConfirmedPaymentTotal(invoice.id)
   const isShort = totalReceived < invoice.amount - 0.01
   const isOver = totalReceived > invoice.amount + 0.01
+  const wasWrittenOff =
+    invoice.status === 'written_off' || invoice.status === 'write_off_pending'
 
   const paidNote: InvoiceNote = {
     id: `note-recompute-${Date.now()}`,
-    note: buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix),
+    note: wasWrittenOff
+      ? `${noteSuffix} (invoice reopened from write-off)`
+      : buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix),
     created_by: authorName,
     created_at: new Date().toISOString(),
     type: 'note',
@@ -43,6 +44,8 @@ function recomputeInvoiceFromConfirmed(invoice: Invoice, authorName: string, not
     paid_amount: totalReceived > 0 ? totalReceived : undefined,
     days_since_expected: isShort ? getDaysOutstanding(invoice) : 0,
     overpayment_accepted_at: isOver ? invoice.overpayment_accepted_at : undefined,
+    // Clear write-off when a correction reopens the invoice.
+    write_off_request: wasWrittenOff ? undefined : invoice.write_off_request,
     notes_history: [...(invoice.notes_history || []), paidNote],
     updated_at: new Date().toISOString(),
   })

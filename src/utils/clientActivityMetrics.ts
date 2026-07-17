@@ -47,7 +47,6 @@ const DAY_MS = 1000 * 60 * 60 * 24
 const BATCH_PROCESSED_STATUSES = new Set<Batch['status']>([
   'ready_to_post',
   'verification',
-  'approval',
   'submitted',
   'processing',
   'documents_uploaded',
@@ -167,7 +166,14 @@ export function computeActivityMetrics(
       key: 'held',
       label: 'Held invoices',
       count: heldInvoices,
-      detail: heldInvoices > 0 ? 'Awaiting action · all time' : 'None on hold',
+      detail:
+        heldInvoices > 0
+          ? invoices
+              .filter((inv) => inv.status === 'hold')
+              .slice(0, 2)
+              .map((inv) => inv.hold_reason?.trim() || inv.invoice_number)
+              .join(' · ')
+          : 'None on hold',
       tone: heldInvoices > 0 ? 'amber' : 'slate',
       navigateTo: '/client/invoices?status=hold',
       ids: heldInvoiceIds,
@@ -231,11 +237,14 @@ export function computeRequiredActions(
   }
 
   for (const invoice of invoices.filter((inv) => inv.status === 'hold')) {
+    const reason = invoice.hold_reason?.trim()
     actions.push({
       id: `held-${invoice.id}`,
       type: 'held_invoice',
       label: `Held invoice · ${invoice.invoice_number}`,
-      detail: `${formatCompactAmount(invoice.amount)} · ${invoice.broker_name}`,
+      detail: reason
+        ? `${formatCompactAmount(invoice.amount)} · ${invoice.broker_name} · ${reason}`
+        : `${formatCompactAmount(invoice.amount)} · ${invoice.broker_name}`,
       tone: 'amber',
       navigateTo: `/client/invoices?status=hold&highlight_invoice=${encodeURIComponent(invoice.id)}`,
     })

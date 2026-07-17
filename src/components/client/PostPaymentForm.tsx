@@ -107,7 +107,7 @@ export default function PostPaymentForm({
   const selectInvoice = useCallback((invoice: Invoice) => {
     if (!isPostableForPayment(invoice)) {
       setError(
-        `Invoice ${invoice.invoice_number} cannot receive payments (written off or not approved).`
+        `Invoice ${invoice.invoice_number} cannot receive payments (force closed or write-off pending).`
       )
       return
     }
@@ -197,7 +197,7 @@ export default function PostPaymentForm({
         )
         if (!result) {
           setError(
-            'Could not post payment. Invoice may be written off or not yet approved for payment.'
+            'Could not post payment. Invoice may be force-closed or still awaiting write-off approval.'
           )
           return
         }
@@ -438,14 +438,30 @@ export default function PostPaymentForm({
             )}
 
             {selectionMode === 'existing' && selected && (
-              <InvoiceBalanceSummary
-                invoiceNumber={selected.invoice_number}
-                brokerName={selected.broker_name}
-                loadNumber={selected.load_number}
-                invoiceAmount={selected.amount}
-                receivedToDate={priorReceived}
-                amountApplying={Number.isFinite(amountNum) ? amountNum : 0}
-              />
+              <>
+                {selected.status === 'written_off' && (
+                  <p
+                    className="text-xs mb-2 px-2.5 py-2 rounded border"
+                    style={{
+                      color: c.primary,
+                      borderColor: c.border,
+                      backgroundColor: c.stat?.amber ?? '#fef3c7',
+                    }}
+                  >
+                    This invoice is written off. Posting a payment or short correction will reopen it
+                    and clear the write-off.
+                  </p>
+                )}
+                <InvoiceBalanceSummary
+                  invoiceNumber={selected.invoice_number}
+                  brokerName={selected.broker_name}
+                  loadNumber={selected.load_number}
+                  invoiceAmount={selected.amount}
+                  receivedToDate={priorReceived}
+                  amountApplying={Number.isFinite(amountNum) ? amountNum : 0}
+                  writtenOff={selected.status === 'written_off'}
+                />
+              </>
             )}
 
             {selectionMode === 'new' && (

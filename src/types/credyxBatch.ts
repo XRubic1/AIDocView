@@ -52,4 +52,11 @@ export interface SubmitAiBatchResult {
   batchId: string
   batchNumber: string
   invoices: Invoice[]
+  /** Present when optional post-submit automation ran. */
+  happyPath?: {
+    ppwSent: number
+    ppwFailed: number
+    movedToVerification: boolean
+    intakeErrorEmailed: boolean
+  }
 }

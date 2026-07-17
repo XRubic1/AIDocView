@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, CheckCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle, Mail } from 'lucide-react'
 import { getAllBatches } from '../../data/mockBatches'
 import { mockInvoices } from '../../data/mockInvoices'
 import { Invoice } from '../../types/invoice'
@@ -10,6 +10,9 @@ import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesLis
 import HandoffBatchWorkspace from './HandoffBatchWorkspace'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { useToast } from '../ui/ToastProvider'
+import { useAuth } from '../../context/AuthContext'
+import { getAdminUserDisplayName } from '../../config/adminNav'
+import { sendPaperworkForBatch } from '../../utils/paperworkSender'
 
 interface ReadyToPostTabProps {
   batchId: string | null
@@ -26,11 +29,16 @@ export default function ReadyToPostTab({
 }: ReadyToPostTabProps) {
   const { showToast } = useToast()
   const c = useClientTheme()
+  const { resolved, session } = useAuth()
+  const authUser = resolved.user ?? session?.user ?? null
+  const adminUserId = authUser?.id ?? 'unknown'
+  const adminUserName = getAdminUserDisplayName(authUser?.email ?? null)
   const batches = getAllBatches().filter((b) => b.status === 'ready_to_post')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [showAccountingModal, setShowAccountingModal] = useState(false)
   const [, setReviewRefresh] = useState(0)
   const [batchRefresh, setBatchRefresh] = useState(0)
+  const [sendingPpw, setSendingPpw] = useState(false)
 
   // Find the batch - search in all batches, not just filtered ones
   const allBatches = getAllBatches()
@@ -124,6 +132,38 @@ export default function ReadyToPostTab({
         <div className="flex items-center gap-2 flex-wrap">
           {!isHandoffAwaitingInvoices && (
             <BatchAiReviewPanel batchId={batchId} onComplete={() => setReviewRefresh((k) => k + 1)} />
+          )}
+          {!isHandoffAwaitingInvoices && batchInvoices.length > 0 && (
+            <button
+              type="button"
+              disabled={sendingPpw}
+              onClick={async () => {
+                setSendingPpw(true)
+                try {
+                  const result = await sendPaperworkForBatch(
+                    batchInvoices.filter((inv) => inv.broker_id),
+                    batch.batch_number,
+                    adminUserId,
+                    adminUserName,
+                    'Admin',
+                    { skipAlreadySent: true }
+                  )
+                  showToast(
+                    `PPW: ${result.success} sent, ${result.failed} failed, ${result.skipped} already sent.`,
+                    result.failed > 0 ? 'info' : 'success'
+                  )
+                  setBatchRefresh((k) => k + 1)
+                } catch (err) {
+                  showToast(err instanceof Error ? err.message : 'PPW send failed', 'error')
+                } finally {
+                  setSendingPpw(false)
+                }
+              }}
+              className="dashboard-btn-secondary inline-flex items-center gap-1.5"
+            >
+              <Mail className="w-4 h-4" />
+              {sendingPpw ? 'Sending…' : 'Send PPW'}
+            </button>
           )}
           <button
             type="button"

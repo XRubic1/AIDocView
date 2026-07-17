@@ -196,7 +196,6 @@ export default function AdminBatchesListView({
     { id: 'all', label: 'All' },
     { id: 'ready_to_post', label: 'Ready' },
     { id: 'verification', label: 'Verification' },
-    { id: 'approval', label: 'Approval' },
     { id: 'submitted', label: 'Submitted' },
     { id: 'processing', label: 'Processing' },
     { id: 'approved', label: 'Approved' },
@@ -498,10 +497,10 @@ export default function AdminBatchesListView({
                             type="button"
                             onClick={(e) => onReturnToApproval(batch, e)}
                             className="dashboard-btn-secondary !h-7 !px-2 !text-xs inline-flex items-center gap-1"
-                            title="Return batch to Approval stage"
+                            title="Return batch to Verification stage"
                           >
                             <RotateCcw className="w-3 h-3" />
-                            Approval
+                            Verification
                           </button>
                         )}
                         <button

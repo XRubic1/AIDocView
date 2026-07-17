@@ -4,13 +4,13 @@ import AdminLayout from '../components/AdminLayout'
 import AdminCreateBatchPanel from '../components/batches/AdminCreateBatchPanel'
 import ReadyToPostTab from '../components/batches/ReadyToPostTab'
 import VerificationTab from '../components/batches/VerificationTab'
-import ApprovalTab from '../components/batches/ApprovalTab'
+import AiBatchTab from '../components/batches/AiBatchTab'
 import AllBatchesTab from '../components/batches/AllBatchesTab'
 import { getAllBatches, updateBatchStatus } from '../data/mockBatches'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 
-type TabType = 'ready_to_post' | 'verification' | 'approval' | 'all'
+type TabType = 'ready_to_post' | 'verification' | 'ai' | 'all'
 
 export default function Batches() {
   const c = useClientTheme()
@@ -29,10 +29,19 @@ export default function Batches() {
 
   const batchCounts = useMemo(() => {
     const allBatches = getAllBatches()
+    // Migrate legacy approval → verification for display counts
     return {
       ready_to_post: allBatches.filter((b) => b.status === 'ready_to_post').length,
-      verification: allBatches.filter((b) => b.status === 'verification').length,
-      approval: allBatches.filter((b) => b.status === 'approval').length,
+      verification: allBatches.filter(
+        (b) => b.status === 'verification' || b.status === 'approval'
+      ).length,
+      ai: allBatches.filter(
+        (b) =>
+          b.upload_mode === 'ai' ||
+          b.sort_status === 'sorting' ||
+          b.sort_status === 'failed' ||
+          (b.unmatched_doc_ids && b.unmatched_doc_ids.length > 0)
+      ).length,
       all: allBatches.length,
     }
   }, [refreshKey, tenantRevision])
@@ -40,7 +49,7 @@ export default function Batches() {
   const tabs = [
     { id: 'ready_to_post' as TabType, label: 'Ready to Post', count: batchCounts.ready_to_post },
     { id: 'verification' as TabType, label: 'Verification', count: batchCounts.verification },
-    { id: 'approval' as TabType, label: 'Approval', count: batchCounts.approval },
+    { id: 'ai' as TabType, label: 'AI', count: batchCounts.ai },
     { id: 'all' as TabType, label: 'All batches', count: batchCounts.all },
   ]
 
@@ -58,16 +67,9 @@ export default function Batches() {
     setSelectedBatchId(batchId)
   }
 
-  const handleMoveToApproval = (batchId: string) => {
-    updateBatchStatus(batchId, 'approval')
-    setRefreshKey((prev) => prev + 1)
-    setActiveTab('approval')
-    setSelectedBatchId(batchId)
-  }
-
   const handleAllBatchesSelect = (
     batchId: string,
-    tab?: 'ready_to_post' | 'verification' | 'approval'
+    tab?: 'ready_to_post' | 'verification' | 'ai'
   ) => {
     setSelectedBatchId(batchId)
     if (tab) {
@@ -75,7 +77,7 @@ export default function Batches() {
     }
   }
 
-  const inDetailView = Boolean(selectedBatchId)
+  const inDetailView = Boolean(selectedBatchId) && activeTab !== 'ai'
 
   return (
     <AdminLayout userName="Admin User" userRole="Administrator" flushMain>
@@ -109,7 +111,7 @@ export default function Batches() {
                   </button>
                 ))}
               </div>
-              {!inDetailView && (
+              {!inDetailView && activeTab !== 'ai' && (
                 <button
                   type="button"
                   onClick={() => {
@@ -137,15 +139,20 @@ export default function Batches() {
                 <VerificationTab
                   batchId={selectedBatchId}
                   onBatchSelect={(batchId) => handleBatchSelect(batchId)}
-                  onMoveToApproval={handleMoveToApproval}
                   onBack={() => setSelectedBatchId(null)}
+                  onProcessed={() => setRefreshKey((k) => k + 1)}
                 />
               )}
-              {activeTab === 'approval' && (
-                <ApprovalTab
+              {activeTab === 'ai' && (
+                <AiBatchTab
                   batchId={selectedBatchId}
-                  onBatchSelect={(batchId) => handleBatchSelect(batchId)}
+                  onBatchSelect={(batchId) => handleBatchSelect(batchId, 'ai')}
+                  onOpenReadyToPost={(batchId) => handleBatchSelect(batchId, 'ready_to_post')}
+                  onOpenVerification={(batchId) => handleBatchSelect(batchId, 'verification')}
+                  onMoveToVerification={handleMoveToVerification}
                   onBack={() => setSelectedBatchId(null)}
+                  refreshKey={refreshKey}
+                  onRefresh={() => setRefreshKey((k) => k + 1)}
                 />
               )}
               {activeTab === 'all' && (

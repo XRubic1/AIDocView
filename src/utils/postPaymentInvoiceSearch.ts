@@ -21,7 +21,13 @@ export function getInvoicePickerCategory(
   invoice: Invoice,
   receivedAmount: number
 ): InvoicePickerCategory {
-  if (invoice.status === 'force_closed' || invoice.status === 'written_off') return 'closed'
+  // Written-off stays selectable for corrections / reopen posts (not "closed" forever).
+  if (invoice.status === 'force_closed') return 'closed'
+  if (invoice.status === 'written_off') {
+    if (receivedAmount > invoice.amount + AMOUNT_EPSILON) return 'over'
+    if (receivedAmount > 0 && receivedAmount < invoice.amount - AMOUNT_EPSILON) return 'short'
+    return 'short'
+  }
   if (receivedAmount > invoice.amount + AMOUNT_EPSILON) return 'over'
   if (receivedAmount > 0 && receivedAmount < invoice.amount - AMOUNT_EPSILON) return 'short'
   if (!isPostableForPayment(invoice)) return 'other'
@@ -34,20 +40,26 @@ export function isDefaultPickerVisible(
   receivedAmount: number,
   pendingAmount = 0
 ): boolean {
-  if (invoice.status === 'paid') return false
+  if (invoice.status === 'paid' || invoice.status === 'written_off') return false
   // Hide invoices that already have a payment awaiting confirmation / under dispute.
   if (pendingAmount > 0) return false
   return getInvoicePickerCategory(invoice, receivedAmount) === 'open'
 }
 
-/** Admin picker — includes paid / force-closed invoices for overpayment posting. */
+/** Admin picker — includes paid / force-closed / written-off for corrections and remittance. */
 export function isAdminDefaultPickerVisible(
   invoice: Invoice,
   receivedAmount: number,
   _pendingAmount = 0
 ): boolean {
-  if (invoice.status === 'written_off' || invoice.status === 'write_off_pending') return false
-  if (invoice.status === 'paid' || invoice.status === 'force_closed') return true
+  if (invoice.status === 'write_off_pending') return false
+  if (
+    invoice.status === 'paid' ||
+    invoice.status === 'force_closed' ||
+    invoice.status === 'written_off'
+  ) {
+    return true
+  }
   const category = getInvoicePickerCategory(invoice, receivedAmount)
   return category === 'open' || category === 'short' || category === 'over'
 }
@@ -93,7 +105,7 @@ export function listDefaultPickerInvoices(
     .filter((invoice) => {
       if (showAll) {
         if (mode === 'admin') {
-          return invoice.status !== 'written_off' && invoice.status !== 'write_off_pending'
+          return invoice.status !== 'write_off_pending'
         }
         return true
       }
@@ -185,7 +197,7 @@ export function getDefaultPostPaymentSuggestions(
   limit = 6
 ): PostPaymentSearchHit[] {
   return invoices
-    .filter((inv) => isPostableForPayment(inv))
+    .filter((inv) => isPostableForPayment(inv) && inv.status !== 'written_off')
     .sort((a, b) => b.invoice_date.localeCompare(a.invoice_date))
     .slice(0, limit)
     .map((invoice) => ({
@@ -200,7 +212,7 @@ export function getInvoicePostStatusLabel(
   receivedAmount?: number,
   pendingAmount?: number
 ): string {
-  if (invoice.status === 'written_off') return 'Written off'
+  if (invoice.status === 'written_off') return 'Written off — can reopen'
   if (invoice.status === 'force_closed') return 'Force closed'
   if (receivedAmount !== undefined && receivedAmount > 0) {
     if (receivedAmount < invoice.amount - 0.01) return 'Short'

@@ -43,6 +43,7 @@ import {
   buildOverpaymentRecord,
   canAcceptOverpayment,
 } from '../../utils/overPayments'
+import { getPaymentTimingInfo, isPaymentInFloatWindow } from '../../utils/paymentTiming'
 import ShortPaymentCloseModal from './ShortPaymentCloseModal'
 import OverpaymentAcceptModal from './OverpaymentAcceptModal'
 import {
@@ -50,6 +51,7 @@ import {
   getDaysOutstandingColor,
   getDisplayInvoiceAgeDays,
   isOpenArInvoice,
+  isPostableForPayment,
 } from '../../utils/invoiceAging'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { useClientCapabilities } from '../../hooks/useClientCapabilities'
@@ -274,6 +276,12 @@ export default function InvoiceDetailPanel({
         : undefined,
     [capabilities.canConfirmPaymentReceipt, invoice.id, payments]
   )
+  const floatPayment = useMemo(() => {
+    const candidates = invoicePayments.filter(
+      (p) => p.status === 'awaiting_receipt' || p.status === 'confirmed' || p.status === 'pending'
+    )
+    return candidates.find((p) => isPaymentInFloatWindow(p))
+  }, [invoicePayments])
   const receiptDaysLeft = awaitingReceiptPayment
     ? getReceiptConfirmationDaysLeft(awaitingReceiptPayment)
     : null
@@ -296,6 +304,7 @@ export default function InvoiceDetailPanel({
   const [disputeDescription, setDisputeDescription] = useState('')
   const [isOpeningDispute, setIsOpeningDispute] = useState(false)
   const [disputeError, setDisputeError] = useState<string | null>(null)
+  const [disputeUnderstandFloat, setDisputeUnderstandFloat] = useState(false)
   const [showPaidModal, setShowPaidModal] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState('')
   const [paymentNote, setPaymentNote] = useState('')
@@ -324,7 +333,7 @@ export default function InvoiceDetailPanel({
   )
   const canPostPaymentAction =
     capabilities.canPostPayment &&
-    isOpenArInvoice(visibleInvoice) &&
+    isPostableForPayment(visibleInvoice) &&
     pendingClientPosted <= 0
   const canViewDocuments = documentCount > 0 && !!onViewDocuments
 
@@ -700,6 +709,10 @@ export default function InvoiceDetailPanel({
 
   const handleOpenDispute = async () => {
     if (!disputeDescription.trim() || isOpeningDispute) return
+    if (floatPayment && !disputeUnderstandFloat) {
+      setDisputeError('Confirm that you understand payment may still be in transit before submitting.')
+      return
+    }
     setIsOpeningDispute(true)
     setDisputeError(null)
     try {
@@ -720,6 +733,7 @@ export default function InvoiceDetailPanel({
       setShowDisputeModal(false)
       setDisputeDescription('')
       setDisputeReason(DISPUTE_REASON_OPTIONS[0].value)
+      setDisputeUnderstandFloat(false)
       onInvoiceUpdated?.()
     } catch (error) {
       console.error('Failed to open dispute:', error)
@@ -1432,6 +1446,26 @@ export default function InvoiceDetailPanel({
                 Tell us what is wrong with this invoice. Credyx will review and follow up with the
                 broker if needed.
               </p>
+              {floatPayment && (
+                <div
+                  className="mb-4 p-3 rounded border text-sm"
+                  style={{ borderColor: c.border, backgroundColor: c.stat?.amber ?? '#fef3c7', color: c.primary }}
+                >
+                  <p className="font-medium mb-1">Payment may still be in transit</p>
+                  <p className="text-xs mb-2" style={{ color: c.secondary }}>
+                    {getPaymentTimingInfo(floatPayment.payment_method).disputeWarning}
+                  </p>
+                  <label className="inline-flex items-start gap-2 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={disputeUnderstandFloat}
+                      onChange={(e) => setDisputeUnderstandFloat(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>I understand and still want to submit this dispute</span>
+                  </label>
+                </div>
+              )}
               <label className="client-label">Reason</label>
               <select
                 value={disputeReason}
@@ -1470,7 +1504,11 @@ export default function InvoiceDetailPanel({
               <button
                 type="button"
                 onClick={handleOpenDispute}
-                disabled={!disputeDescription.trim() || isOpeningDispute}
+                disabled={
+                  !disputeDescription.trim() ||
+                  isOpeningDispute ||
+                  (Boolean(floatPayment) && !disputeUnderstandFloat)
+                }
                 className="dashboard-btn-primary"
                 style={{ height: 36, fontSize: 13 }}
               >

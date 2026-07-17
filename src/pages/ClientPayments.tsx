@@ -51,6 +51,7 @@ import {
   processExpiredReceiptConfirmations,
 } from '../services/paymentReceiptConfirmationService'
 import { AMOUNT_EPSILON, getInvoiceReceivedAmount } from '../utils/paymentVariance'
+import { getPaymentTimingInfo, isPaymentInFloatWindow } from '../utils/paymentTiming'
 import {
   buildPaymentTableGroups,
   isShortPaymentChild,
@@ -285,6 +286,7 @@ export default function ClientPayments() {
     PAYMENT_RECEIPT_DISPUTE_REASONS[0].value
   )
   const [receiptDisputeDescription, setReceiptDisputeDescription] = useState('')
+  const [receiptDisputeUnderstand, setReceiptDisputeUnderstand] = useState(false)
   const historyTableRef = useRef<HTMLDivElement>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [showPaymentDetail, setShowPaymentDetail] = useState(false)
@@ -757,6 +759,10 @@ export default function ClientPayments() {
 
   const handleSubmitReceiptDispute = useCallback(async () => {
     if (!selectedPayment || !receiptDisputeDescription.trim() || receiptActionLoading) return
+    if (isPaymentInFloatWindow(selectedPayment) && !receiptDisputeUnderstand) {
+      showToast('Confirm you understand funds may still be in transit', 'error')
+      return
+    }
 
     const disputeTarget =
       selectedPayment.status === 'awaiting_receipt'
@@ -784,6 +790,7 @@ export default function ClientPayments() {
         setShowReceiptDisputeModal(false)
         if (useFullPageDetail) handleClosePaymentDetail()
         setReceiptDisputeDescription('')
+        setReceiptDisputeUnderstand(false)
         refreshPayments()
       } else {
         showToast('Could not submit dispute', 'error')
@@ -796,6 +803,7 @@ export default function ClientPayments() {
     payments,
     receiptDisputeReason,
     receiptDisputeDescription,
+    receiptDisputeUnderstand,
     receiptActionLoading,
     authorName,
     showToast,
@@ -1094,6 +1102,7 @@ export default function ClientPayments() {
             onOpenDispute={() => {
               setReceiptDisputeReason(PAYMENT_RECEIPT_DISPUTE_REASONS[0].value)
               setReceiptDisputeDescription('')
+              setReceiptDisputeUnderstand(false)
               setShowReceiptDisputeModal(true)
             }}
             onInvoiceUpdated={refreshPayments}
@@ -1547,6 +1556,7 @@ export default function ClientPayments() {
                       onOpenDispute={() => {
                         setReceiptDisputeReason(PAYMENT_RECEIPT_DISPUTE_REASONS[0].value)
                         setReceiptDisputeDescription('')
+                        setReceiptDisputeUnderstand(false)
                         setShowReceiptDisputeModal(true)
                       }}
                       onInvoiceUpdated={refreshPayments}
@@ -1577,6 +1587,28 @@ export default function ClientPayments() {
               </p>
             </div>
             <div className="p-5 space-y-3">
+              {isPaymentInFloatWindow(selectedPayment) && (
+                <div
+                  className="p-3 rounded border text-sm"
+                  style={{ borderColor: c.border, backgroundColor: c.stat?.amber ?? '#fef3c7' }}
+                >
+                  <p className="font-medium mb-1" style={{ color: c.primary }}>
+                    Payment may still be clearing
+                  </p>
+                  <p className="text-xs mb-2" style={{ color: c.secondary }}>
+                    {getPaymentTimingInfo(selectedPayment.payment_method).disputeWarning}
+                  </p>
+                  <label className="inline-flex items-start gap-2 text-xs cursor-pointer" style={{ color: c.primary }}>
+                    <input
+                      type="checkbox"
+                      checked={receiptDisputeUnderstand}
+                      onChange={(e) => setReceiptDisputeUnderstand(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span>I understand and still want to submit this dispute</span>
+                  </label>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium mb-1" style={{ color: c.secondary }}>
                   Reason
@@ -1618,7 +1650,11 @@ export default function ClientPayments() {
               <button
                 type="button"
                 onClick={handleSubmitReceiptDispute}
-                disabled={!receiptDisputeDescription.trim() || receiptActionLoading}
+                disabled={
+                  !receiptDisputeDescription.trim() ||
+                  receiptActionLoading ||
+                  (isPaymentInFloatWindow(selectedPayment) && !receiptDisputeUnderstand)
+                }
                 className="dashboard-btn-primary inline-flex items-center gap-1.5 disabled:opacity-50"
               >
                 {receiptActionLoading ? (

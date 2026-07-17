@@ -103,6 +103,7 @@ export default function AdminInvoiceDetailView({
     invoice_number: invoice?.invoice_number || '',
     load_number: invoice?.load_number || '',
     invoice_date: invoice?.invoice_date || '',
+    expected_payment_date: invoice?.expected_payment_date || '',
     amount: invoice?.amount || 0,
     broker_id: invoice?.broker_id || '',
     broker_name: invoice?.broker_name || '',
@@ -515,6 +516,7 @@ export default function AdminInvoiceDetailView({
       invoice_number: editedInvoice.invoice_number,
       load_number: editedInvoice.load_number,
       invoice_date: editedInvoice.invoice_date,
+      expected_payment_date: editedInvoice.expected_payment_date || currentInvoice.expected_payment_date,
       amount: editedInvoice.amount,
       broker_id: editedInvoice.broker_id,
       broker_name: editedInvoice.broker_name,
@@ -533,6 +535,7 @@ export default function AdminInvoiceDetailView({
       invoice_number: currentInvoice.invoice_number || '',
       load_number: currentInvoice.load_number || '',
       invoice_date: currentInvoice.invoice_date || '',
+      expected_payment_date: currentInvoice.expected_payment_date || '',
       amount: currentInvoice.amount || 0,
       broker_id: currentInvoice.broker_id || '',
       broker_name: currentInvoice.broker_name || '',
@@ -2004,9 +2007,44 @@ export default function AdminInvoiceDetailView({
                   <label className="block text-[10px] font-medium mb-0.5" style={{ color: '#819291' }}>
                     Expected Payment
                   </label>
-                  <div className="text-xs font-medium" style={{ color: '#113543' }}>
-                    {formatDate(currentInvoice.expected_payment_date)}
-                  </div>
+                  {isEditing || isCollectionsView ? (
+                    <input
+                      type="date"
+                      value={
+                        (isEditing ? editedInvoice.expected_payment_date : currentInvoice.expected_payment_date)?.slice(0, 10) ||
+                        ''
+                      }
+                      onChange={(e) => {
+                        const value = e.target.value
+                        if (isEditing) {
+                          setEditedInvoice({ ...editedInvoice, expected_payment_date: value })
+                        } else {
+                          void import('../../utils/collectionsChase').then(({ setExpectedPaymentFromBrokerStatus }) =>
+                            setExpectedPaymentFromBrokerStatus(
+                              currentInvoice.id,
+                              value,
+                              'Expected payment updated from collections'
+                            ).then((updated) => {
+                              if (updated) {
+                                // Trigger parent refresh via local state if available
+                                Object.assign(currentInvoice, updated)
+                              }
+                            })
+                          )
+                        }
+                      }}
+                      className="w-full px-2 py-1 border rounded text-xs focus:outline-none"
+                      style={{
+                        borderColor: '#819291',
+                        color: '#113543',
+                        backgroundColor: '#FFFFFF',
+                      }}
+                    />
+                  ) : (
+                    <div className="text-xs font-medium" style={{ color: '#113543' }}>
+                      {formatDate(currentInvoice.expected_payment_date)}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-[10px] font-medium mb-0.5" style={{ color: '#819291' }}>

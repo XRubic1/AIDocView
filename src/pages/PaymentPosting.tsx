@@ -1536,7 +1536,9 @@ function AdminRemittancePostForm({
 
   const selectInvoice = useCallback((invoice: Invoice) => {
     if (!isAdminPostableForPayment(invoice)) {
-      onError(`Invoice ${invoice.invoice_number} cannot receive payments.`)
+      onError(
+        `Invoice ${invoice.invoice_number} cannot receive payments (write-off still pending approval).`
+      )
       return
     }
     const already = getConfirmedPaymentTotal(invoice.id)
@@ -2136,7 +2138,9 @@ function AdminShortPaymentPostForm({
   const selectInvoice = useCallback(
     (invoice: Invoice) => {
       if (!isAdminPostableForPayment(invoice)) {
-        onError(`Invoice ${invoice.invoice_number} cannot receive payment corrections.`)
+        onError(
+          `Invoice ${invoice.invoice_number} cannot receive payment corrections (write-off still pending approval).`
+        )
         return
       }
       const parents = listParentPaymentCandidates(invoice.id)

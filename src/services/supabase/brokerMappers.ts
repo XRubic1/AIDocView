@@ -1,4 +1,4 @@
-import type { Broker } from '../../types/broker'
+import type { Broker, BrokerPreferredContact } from '../../types/broker'
 
 export interface BrokerRow {
   id: string
@@ -17,8 +17,15 @@ export interface BrokerRow {
   dot_number: string | null
   notes: string | null
   payment_terms_days: number | null
+  payment_status_inquiry_days?: number | null
+  preferred_contact?: string | null
   created_at?: string
   updated_at?: string
+}
+
+function asPreferredContact(v: string | null | undefined): BrokerPreferredContact | undefined {
+  if (v === 'email' || v === 'phone' || v === 'either') return v
+  return undefined
 }
 
 export function brokerRowToBroker(row: BrokerRow): Broker {
@@ -39,6 +46,8 @@ export function brokerRowToBroker(row: BrokerRow): Broker {
     dot_number: row.dot_number ?? undefined,
     notes: row.notes ?? undefined,
     payment_terms_days: row.payment_terms_days ?? undefined,
+    payment_status_inquiry_days: row.payment_status_inquiry_days ?? undefined,
+    preferred_contact: asPreferredContact(row.preferred_contact),
   }
 }
 
@@ -60,5 +69,7 @@ export function brokerToRow(broker: Broker): BrokerRow {
     dot_number: broker.dot_number ?? null,
     notes: broker.notes ?? null,
     payment_terms_days: broker.payment_terms_days ?? null,
+    payment_status_inquiry_days: broker.payment_status_inquiry_days ?? null,
+    preferred_contact: broker.preferred_contact ?? null,
   }
 }

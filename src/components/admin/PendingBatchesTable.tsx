@@ -18,15 +18,17 @@ export function PendingBatchesTable({
   }
 
   const getStatusBadge = (status: string) => {
-    const statusConfig = {
+    const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
       ready_to_post: { bg: '#C2A558', text: '#FFFFFF', label: 'Ready to Post' },
       verification: { bg: '#819291', text: '#FFFFFF', label: 'Verification' },
-      approval: { bg: '#113543', text: '#FFFFFF', label: 'Approval' },
+      approval: { bg: '#113543', text: '#FFFFFF', label: 'Verification' },
       submitted: { bg: '#C2A558', text: '#FFFFFF', label: 'Submitted' },
       processing: { bg: '#C2A558', text: '#FFFFFF', label: 'Processing' },
+      documents_uploaded: { bg: '#819291', text: '#FFFFFF', label: 'Docs received' },
+      draft: { bg: '#cccccc', text: '#113543', label: 'Draft' },
       pending: { bg: '#819291', text: '#FFFFFF', label: 'Pending' },
     }
-    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending
+    const config = statusConfig[status] || statusConfig.pending
 
     return (
       <span

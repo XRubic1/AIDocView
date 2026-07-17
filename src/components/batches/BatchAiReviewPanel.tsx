@@ -33,6 +33,13 @@ export default function BatchAiReviewPanel({ batchId, onComplete }: BatchAiRevie
     try {
       const results = await runBatchAiReview(batchId, setProgress)
       setOutcomes(results)
+      // Optional happy path: all clean → auto-approve + process (Credyx can still override before this runs by not clicking AI Review).
+      try {
+        const { runHappyPathAfterAiReview } = await import('../../services/credyx/batchHappyPath')
+        await runHappyPathAfterAiReview({ batchId, outcomes: results })
+      } catch (happyErr) {
+        console.error('[BatchAiReviewPanel] happy path failed:', happyErr)
+      }
       onComplete?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI review failed')

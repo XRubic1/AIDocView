@@ -6,7 +6,7 @@ import { useClientTheme } from '../../theme/ThemeContext'
 import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
 
 interface AllBatchesTabProps {
-  onBatchSelect: (batchId: string, tab?: 'ready_to_post' | 'verification' | 'approval') => void
+  onBatchSelect: (batchId: string, tab?: 'ready_to_post' | 'verification' | 'ai') => void
 }
 
 interface Batch extends PendingBatch {
@@ -33,7 +33,7 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
     total_invoices: batch.total_invoices,
     total_amount: batch.total_amount,
     submitted_at: batch.submitted_at,
-    status: batch.status,
+    status: batch.status === 'approval' ? 'verification' : batch.status,
     upload_mode: batch.upload_mode,
     in_use: batch.in_use,
     in_use_by: batch.in_use_by,
@@ -51,28 +51,31 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
     } else if (full.status === 'verification' || full.status === 'approval') {
       setSelectedBatchForNavigation(full)
       setShowNavigationModal(true)
+    } else if (full.upload_mode === 'ai' || full.sort_status) {
+      onBatchSelect(full.id, 'ai')
     } else {
       onBatchSelect(full.id)
     }
   }
 
-  const handleReturnToApproval = (batch: AdminBatchListItem, e: React.MouseEvent) => {
+  const handleReturnToVerification = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
     const full = batches.find((b) => b.id === batch.id)
-    if (!full || full.status === 'approval' || full.status === 'draft') return
+    if (!full || full.status === 'verification' || full.status === 'draft') return
 
     const confirmed = window.confirm(
-      `Return batch ${full.batch_number} to Approval? It will reappear in the Approval workflow.`
+      `Return batch ${full.batch_number} to Verification? It will reappear in the Verification workflow.`
     )
     if (!confirmed) return
 
-    updateBatchStatus(full.id, 'approval')
+    updateBatchStatus(full.id, 'verification')
     setListVersion((v) => v + 1)
   }
 
-  const canReturnToApproval = (status: string) => status !== 'approval' && status !== 'draft'
+  const canReturnToVerification = (status: string) =>
+    status !== 'verification' && status !== 'draft' && status !== 'ready_to_post'
 
-  const handleNavigateToTab = (tab: 'ready_to_post' | 'verification' | 'approval') => {
+  const handleNavigateToTab = (tab: 'ready_to_post' | 'verification' | 'ai') => {
     if (selectedBatchForNavigation) {
       onBatchSelect(selectedBatchForNavigation.id, tab)
       setShowNavigationModal(false)
@@ -87,8 +90,8 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
         variant="all"
         onSelectBatch={(batchId) => onBatchSelect(batchId)}
         onViewClick={handleViewClick}
-        onReturnToApproval={handleReturnToApproval}
-        canReturnToApproval={canReturnToApproval}
+        onReturnToApproval={handleReturnToVerification}
+        canReturnToApproval={canReturnToVerification}
         actionLabel="View"
         emptyTitle="No batches found"
         emptyHint="Try adjusting your search or filters"
@@ -135,37 +138,32 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
               </div>
 
               <div className="p-4 space-y-2">
-                {selectedBatchForNavigation.status === 'approval' && (
-                  <button
-                    type="button"
-                    onClick={() => handleNavigateToTab('approval')}
-                    className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
-                    style={{ borderColor: c.border, backgroundColor: c.card }}
-                  >
-                    <div className="font-medium text-sm" style={{ color: c.primary }}>
-                      Approval
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
-                      Final approval and processing
-                    </div>
-                  </button>
-                )}
-                {(selectedBatchForNavigation.status === 'verification' ||
-                  selectedBatchForNavigation.status === 'approval') && (
-                  <button
-                    type="button"
-                    onClick={() => handleNavigateToTab('verification')}
-                    className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
-                    style={{ borderColor: c.border, backgroundColor: c.card }}
-                  >
-                    <div className="font-medium text-sm" style={{ color: c.primary }}>
-                      Verification
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
-                      Verify and approve invoices
-                    </div>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => handleNavigateToTab('verification')}
+                  className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
+                  style={{ borderColor: c.border, backgroundColor: c.card }}
+                >
+                  <div className="font-medium text-sm" style={{ color: c.primary }}>
+                    Verification
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
+                    Verify, hold/approve, and process batch
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNavigateToTab('ai')}
+                  className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
+                  style={{ borderColor: c.border, backgroundColor: c.card }}
+                >
+                  <div className="font-medium text-sm" style={{ color: c.primary }}>
+                    AI
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
+                    DocSort mismatches and AI review status
+                  </div>
+                </button>
                 <button
                   type="button"
                   onClick={() => handleNavigateToTab('ready_to_post')}
