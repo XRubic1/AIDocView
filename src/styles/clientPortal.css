@@ -1920,6 +1920,105 @@
   gap: 8px;
 }
 
+.client-portal .invoice-detail-note-compose__visibility {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.client-portal .invoice-detail-note-compose__vis-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--cp-border);
+  background: var(--cp-card);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--cp-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.client-portal .invoice-detail-note-compose__vis-btn:hover {
+  border-color: var(--cp-border-hover, #cbd5e1);
+  color: var(--cp-text);
+}
+
+.client-portal .invoice-detail-note-compose__vis-btn--active {
+  background: var(--cp-accent-light, #eff6ff);
+  border-color: var(--cp-accent, #3b82f6);
+  color: var(--cp-accent, #3b82f6);
+}
+
+.client-portal .invoice-admin-status-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 8px;
+  border: 1px solid var(--cp-border);
+  border-radius: 8px;
+}
+
+.client-portal .invoice-admin-status-actions__head {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.client-portal .invoice-admin-status-actions__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.client-portal .invoice-admin-status-actions__date {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--cp-secondary);
+}
+
+.client-portal .invoice-admin-status-actions__date .client-input {
+  min-height: 28px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.client-portal .invoice-admin-status-actions__extra {
+  flex: 1;
+  min-width: 140px;
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.client-portal .invoice-admin-status-actions__btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.client-portal .payment-confirmation-panel__note-internal {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
 .client-portal .invoice-detail-note-compose-row .invoice-detail-note-input {
   flex: 1;
   min-width: 0;

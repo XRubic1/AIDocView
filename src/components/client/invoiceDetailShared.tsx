@@ -20,13 +20,19 @@ export const NOTE_TYPE_LABELS: Record<string, string> = {
   approval: 'Approved',
   rejection: 'Rejected',
   dispute: 'Dispute',
+  status_update: 'Status',
 }
 
-/** Sorted client-visible notes, with hold/notes fallbacks when history is empty. */
-export function getInvoiceNoteEntries(invoice: Invoice): InvoiceNote[] {
-  const visible = clientVisibleNotes(invoice.notes_history)
-  if (visible.length) {
-    return [...visible].sort(
+/** Sorted notes for the timeline. Pass `includeInternal` for Credyx admin views. */
+export function getInvoiceNoteEntries(
+  invoice: Invoice,
+  options?: { includeInternal?: boolean }
+): InvoiceNote[] {
+  const raw = options?.includeInternal
+    ? [...(invoice.notes_history ?? [])]
+    : clientVisibleNotes(invoice.notes_history)
+  if (raw.length) {
+    return raw.sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
   }

@@ -332,7 +332,7 @@ export default function ArRecalcPanel({
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <Link
-                  to={`/invoice-search?invoice=${encodeURIComponent(inspection.invoice.invoice_number)}`}
+                  to={`/invoices?invoice=${encodeURIComponent(inspection.invoice.id)}`}
                   className="text-base font-semibold text-teal-700 hover:underline"
                 >
                   {inspection.invoice.invoice_number}

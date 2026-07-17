@@ -44,6 +44,7 @@ const NOTE_TITLES: Record<string, string> = {
   approval: 'Approved',
   rejection: 'Rejected',
   note: 'Note',
+  status_update: 'Status',
 }
 
 function isFreeTextNote(type?: InvoiceNote['type']): boolean {
@@ -55,10 +56,18 @@ function isFreeTextNote(type?: InvoiceNote['type']): boolean {
  * These belong under the Payments tab, not Notes.
  */
 export function isPaymentRelatedInvoiceNote(note: string, type?: InvoiceNote['type']): boolean {
-  if (type === 'dispute' || type === 'hold_reason' || type === 'approval' || type === 'rejection') {
+  if (
+    type === 'dispute' ||
+    type === 'hold_reason' ||
+    type === 'approval' ||
+    type === 'rejection' ||
+    type === 'status_update'
+  ) {
     return false
   }
   const text = note.toLowerCase()
+  // Status labels like "Payment status confirmed" are Activity, not Payments.
+  if (text.startsWith('status:')) return false
   return (
     /payment confirmed by client|paid in full|invoice closed pending|payment of \$|posted —|short by|over by|receipt dispute|confirmed receiving|force.?confirm|remittance|short pay|shortfall|overpay|overpayment|chargeback|wire|ach\b|check #|credyx posted|funds moved|write-off|closed as uncollectable|was not confirmed/.test(
       text
@@ -561,11 +570,44 @@ export function buildClientPaymentAuditTimeline(
     .forEach((log) => pushAuditLog(entries, log))
 
   const seen = new Set<string>()
-  return entries
+  const deduped = entries
     .filter((entry) => {
       if (seen.has(entry.id)) return false
       seen.add(entry.id)
       return true
     })
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+  // One Payment Confirmation / Write-off per amount — legacy combined close notes
+  // plus newer split notes otherwise both appear.
+  return dedupeSameLifecycleEvents(deduped)
+}
+
+/** Keep a single confirmation / write-off row when the same amount was recorded twice. */
+function dedupeSameLifecycleEvents(
+  entries: PaymentAuditTimelineEntry[]
+): PaymentAuditTimelineEntry[] {
+  const seenConfirm = new Set<string>()
+  const seenWriteOff = new Set<string>()
+
+  return entries.filter((entry) => {
+    if (entry.title === 'Payment Confirmation') {
+      const key = normalizeMoneyKey(entry.detail)
+      if (seenConfirm.has(key)) return false
+      seenConfirm.add(key)
+      return true
+    }
+    if (entry.title === 'Write-off' || entry.title === 'Write-off Approved') {
+      const key = normalizeMoneyKey(entry.detail)
+      if (seenWriteOff.has(key)) return false
+      seenWriteOff.add(key)
+      return true
+    }
+    return true
+  })
+}
+
+function normalizeMoneyKey(text: string): string {
+  const match = text.match(/\$[\d,]+(?:\.\d{2})?/)
+  return match ? match[0].replace(/,/g, '') : text.trim().toLowerCase()
 }

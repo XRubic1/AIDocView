@@ -40,7 +40,7 @@ export function Header({ userName, userRole = 'Admin' }: HeaderProps) {
     { label: 'Dashboard', path: '/admin/dashboard' },
     { label: 'Batches', path: '/batches' },
     { label: 'Aging A/R', path: '/aging-ar' },
-    { label: 'Invoice Search', path: '/invoice-search' },
+    { label: 'Invoices', path: '/invoices' },
     { label: 'Collections', path: '/collections' },
     { label: 'Accounting', path: '/accounting' },
     { label: 'Audit Logs', path: '/Audit/dashboard' },

@@ -12,6 +12,7 @@ import {
   Ban,
   DollarSign,
   Boxes,
+  PanelRightOpen,
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
@@ -26,6 +27,12 @@ import {
   DISPUTE_REASON_OPTIONS,
   type ClientMarkPaidOptions,
 } from '../../services/clientInvoiceActions'
+import {
+  addAdminInvoiceNote,
+  collectionStatusLabel,
+  postInvoiceStatusNote,
+  type InvoiceStatusNoteKind,
+} from '../../services/adminInvoiceNoteActions'
 import { getInvoiceDocuments } from '../../services/invoiceDocumentStore'
 import InvoiceDocumentUploadModal from './InvoiceDocumentUploadModal'
 import {
@@ -85,6 +92,8 @@ interface TimelineEntry {
   /** Who authored the entry — carrier (client) or Credyx. */
   source?: NoteSource
   meta?: string
+  /** Credyx-only note (admin timeline). */
+  internal?: boolean
 }
 
 const SUMMARY_TONE_BY_STATUS: Record<string, string> = {
@@ -101,6 +110,7 @@ const SUMMARY_TONE_BY_STATUS: Record<string, string> = {
 function noteTone(type?: string): TimelineTone {
   switch (type) {
     case 'approval':
+    case 'status_update':
       return 'success'
     case 'client_note':
       return 'info'
@@ -147,6 +157,8 @@ function noteTitle(type?: string): string {
       return 'Rejected'
     case 'dispute':
       return 'Dispute'
+    case 'status_update':
+      return 'Status'
     default:
       return NOTE_TYPE_LABELS[type || 'note'] || 'Update'
   }
@@ -166,7 +178,11 @@ export interface InvoiceDetailPanelProps {
   onNavigateInvoice: (invoice: Invoice) => void
   onViewDocuments?: () => void
   onInvoiceUpdated?: () => void
-  onAddNote?: (invoiceId: string, note: string) => void | Promise<void>
+  onAddNote?: (
+    invoiceId: string,
+    note: string,
+    options?: { visibility?: 'client' | 'internal' }
+  ) => void | Promise<void>
   onOpenDispute?: (invoiceId: string, reason: string, description: string) => void | Promise<void>
   onMarkAsPaid?: (invoiceId: string, options: ClientMarkPaidOptions) => void | Promise<void>
   onCloseAsUncollectable?: (invoiceId: string, note: string) => void | Promise<void>
@@ -174,6 +190,17 @@ export interface InvoiceDetailPanelProps {
   payments?: Payment[]
   onViewPayment?: (paymentId: string) => void
   enableClientActions?: boolean
+  /**
+   * `admin` keeps Credyx-facing status/notes and routes batch links to /batches.
+   * Default `client` masks write-off pending and uses the client portal paths.
+   */
+  portalMode?: 'client' | 'admin'
+  /** When set, overrides note compose visibility (defaults to enableClientActions). */
+  enableNotes?: boolean
+  /** Author name for notes / uploads (defaults to clientName). */
+  noteAuthorName?: string
+  /** Opens invoice detail + documents in a separate browser window. */
+  onPopOut?: () => void
 }
 
 /** Invoice detail — Payment Details layout (sidebar desktop / full page mobile). */
@@ -194,15 +221,25 @@ export default function InvoiceDetailPanel({
   payments = [],
   onViewPayment,
   enableClientActions = true,
+  portalMode = 'client',
+  enableNotes,
+  noteAuthorName,
+  onPopOut,
 }: InvoiceDetailPanelProps) {
   const c = useClientTheme()
   const navigate = useNavigate()
   const { capabilities } = useClientCapabilities()
   const isSidebar = variant === 'sidebar'
   const isMobile = variant === 'mobile'
+  const isAdminPortal = portalMode === 'admin'
+  const notesEnabled = enableNotes ?? enableClientActions
+  const authorName = noteAuthorName?.trim() || clientName
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all')
 
-  const visibleInvoice = useMemo(() => toClientVisibleInvoice(invoice), [invoice])
+  const visibleInvoice = useMemo(
+    () => (isAdminPortal ? invoice : toClientVisibleInvoice(invoice)),
+    [invoice, isAdminPortal]
+  )
   const enriched = useMemo(() => enrichInvoice(visibleInvoice), [visibleInvoice])
 
   useEffect(() => {
@@ -241,11 +278,19 @@ export default function InvoiceDetailPanel({
     ? getReceiptConfirmationDaysLeft(awaitingReceiptPayment)
     : null
 
-  const noteEntries = getInvoiceNoteEntries(visibleInvoice)
+  const noteEntries = getInvoiceNoteEntries(visibleInvoice, {
+    includeInternal: isAdminPortal,
+  })
   const openDisputes = getOpenDisputes(visibleInvoice)
+  const collectionLabel = collectionStatusLabel(invoice.collection_status)
 
   const [newNote, setNewNote] = useState('')
+  const [noteVisibility, setNoteVisibility] = useState<'client' | 'internal'>('client')
   const [isAddingNote, setIsAddingNote] = useState(false)
+  const [statusExtraNote, setStatusExtraNote] = useState('')
+  const [statusDate, setStatusDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [statusBusy, setStatusBusy] = useState<InvoiceStatusNoteKind | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
   const [showDisputeModal, setShowDisputeModal] = useState(false)
   const [disputeReason, setDisputeReason] = useState<string>(DISPUTE_REASON_OPTIONS[0].value)
   const [disputeDescription, setDisputeDescription] = useState('')
@@ -263,6 +308,13 @@ export default function InvoiceDetailPanel({
   const [showAcceptOverModal, setShowAcceptOverModal] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const [isAcceptingOver, setIsAcceptingOver] = useState(false)
+
+  useEffect(() => {
+    setNoteVisibility('client')
+    setStatusExtraNote('')
+    setStatusError(null)
+    setStatusDate(new Date().toISOString().slice(0, 10))
+  }, [invoice.id])
 
   const invoiceDocuments = getInvoiceDocuments(invoice.id)
   const documentCount = Math.max(invoice.documents_count || 0, invoiceDocuments.length)
@@ -341,6 +393,7 @@ export default function InvoiceDetailPanel({
         kind: typeKey,
         source,
         meta: formatNoteMeta(entry.created_by),
+        internal: entry.visibility === 'internal',
       })
     }
     return entries.sort(
@@ -370,6 +423,7 @@ export default function InvoiceDetailPanel({
         kind: 'payment',
         source,
         meta: formatNoteMeta(entry.created_by),
+        internal: entry.visibility === 'internal',
       })
     }
 
@@ -392,8 +446,13 @@ export default function InvoiceDetailPanel({
         ) {
           continue
         }
-        // Free-text payment notes already mapped above with stable ids.
-        if (entry.noteKind === 'payment' && entry.id.startsWith('note-')) {
+        // Free-text payment notes already mapped above — keep split close-note rows.
+        if (
+          entry.noteKind === 'payment' &&
+          entry.id.startsWith('note-') &&
+          !entry.id.endsWith('-confirm') &&
+          !entry.id.endsWith('-writeoff')
+        ) {
           continue
         }
         if (
@@ -419,9 +478,26 @@ export default function InvoiceDetailPanel({
       }
     }
 
-    return entries.sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    )
+    return entries
+      .filter((entry, index, all) => {
+        // Drop duplicate Payment Confirmation / Write-off rows (same amount).
+        if (entry.title !== 'Payment Confirmation' && entry.title !== 'Write-off') {
+          return true
+        }
+        const money = (entry.detail.match(/\$[\d,]+(?:\.\d{2})?/)?.[0] ?? entry.detail)
+          .replace(/,/g, '')
+        return (
+          all.findIndex(
+            (other) =>
+              other.title === entry.title &&
+              (other.detail.match(/\$[\d,]+(?:\.\d{2})?/)?.[0] ?? other.detail).replace(
+                /,/g,
+                ''
+              ) === money
+          ) === index
+        )
+      })
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
   }, [noteEntries, invoicePayments, visibleInvoice])
 
   const noteTimelineEntries = useMemo((): TimelineEntry[] => {
@@ -444,6 +520,7 @@ export default function InvoiceDetailPanel({
           kind: typeKey,
           source,
           meta: formatNoteMeta(entry.created_by),
+          internal: entry.visibility === 'internal',
         }
       })
   }, [noteEntries])
@@ -533,6 +610,7 @@ export default function InvoiceDetailPanel({
     canAcceptOver ||
     canWriteOff ||
     enableClientActions ||
+    notesEnabled ||
     canViewDocuments ||
     Boolean(visibleInvoice.batch_id)
 
@@ -542,14 +620,18 @@ export default function InvoiceDetailPanel({
       tab: 'view',
       batch: visibleInvoice.batch_id,
     })
-    navigate(`/client/batches?${params.toString()}`)
+    navigate(
+      isAdminPortal
+        ? `/batches?batch=${encodeURIComponent(visibleInvoice.batch_id)}`
+        : `/client/batches?${params.toString()}`
+    )
   }
 
   const handleUploadDocuments = async (files: File[]) => {
     if (isUploadingDocs || files.length === 0) return
     setIsUploadingDocs(true)
     try {
-      const updated = await uploadClientInvoiceDocuments(invoice.id, files, clientName)
+      const updated = await uploadClientInvoiceDocuments(invoice.id, files, authorName)
       if (!updated) throw new Error('Upload failed')
       setUploadSuccess(
         `${files.length} file${files.length > 1 ? 's' : ''} uploaded — Credyx has been notified.`
@@ -568,9 +650,15 @@ export default function InvoiceDetailPanel({
     setIsAddingNote(true)
     try {
       if (onAddNote) {
-        await onAddNote(invoice.id, newNote.trim())
+        await onAddNote(invoice.id, newNote.trim(), {
+          visibility: isAdminPortal ? noteVisibility : 'client',
+        })
+      } else if (isAdminPortal) {
+        addAdminInvoiceNote(invoice.id, newNote.trim(), authorName, {
+          visibility: noteVisibility,
+        })
       } else {
-        addClientInvoiceNote(invoice.id, newNote.trim(), clientName)
+        addClientInvoiceNote(invoice.id, newNote.trim(), authorName)
       }
       setNewNote('')
       onInvoiceUpdated?.()
@@ -578,6 +666,35 @@ export default function InvoiceDetailPanel({
       console.error('Failed to add note:', error)
     } finally {
       setIsAddingNote(false)
+    }
+  }
+
+  const handlePostStatus = async (kind: InvoiceStatusNoteKind) => {
+    if (statusBusy) return
+    setStatusError(null)
+    if ((kind === 'will_pay' || kind === 'call_back') && !statusDate) {
+      setStatusError('Pick a date for Will Pay / Call Back')
+      return
+    }
+    setStatusBusy(kind)
+    try {
+      const updated = postInvoiceStatusNote(invoice.id, {
+        kind,
+        authorName,
+        collectionDate: statusDate,
+        extraNote: statusExtraNote,
+      })
+      if (!updated) {
+        setStatusError('Could not post status. Check the date and try again.')
+        return
+      }
+      setStatusExtraNote('')
+      onInvoiceUpdated?.()
+    } catch (error) {
+      console.error('Failed to post status note:', error)
+      setStatusError('Could not post status. Please try again.')
+    } finally {
+      setStatusBusy(null)
     }
   }
 
@@ -758,6 +875,17 @@ export default function InvoiceDetailPanel({
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
+          {onPopOut ? (
+            <button
+              type="button"
+              onClick={onPopOut}
+              className="payment-confirmation-panel__icon-btn"
+              aria-label="Pop out invoice and documents"
+              title="Pop out with documents"
+            >
+              <PanelRightOpen className="w-4 h-4" />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}
@@ -840,6 +968,22 @@ export default function InvoiceDetailPanel({
             </div>
           </dl>
 
+          {isAdminPortal && collectionLabel && (
+            <p className="payment-confirmation-panel__summary-meta mt-1">
+              <span
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                style={{
+                  backgroundColor:
+                    invoice.collection_status === 'W/P' ? c.stat.blue : c.stat.amber,
+                  color: c.primary,
+                }}
+              >
+                {collectionLabel}
+                {invoice.collection_date ? ` · ${formatDate(invoice.collection_date)}` : ''}
+              </span>
+            </p>
+          )}
+
           {(notice || awaitingReceiptPayment || uploadSuccess) && (
             <p className="payment-confirmation-panel__summary-meta">
               {notice?.message}
@@ -900,7 +1044,72 @@ export default function InvoiceDetailPanel({
             </div>
           </div>
 
-          {enableClientActions && (
+          {isAdminPortal && notesEnabled && (
+            <div
+              className="invoice-admin-status-actions"
+              style={{ borderColor: c.border, backgroundColor: c.card }}
+            >
+              <div className="invoice-admin-status-actions__head">
+                <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
+                  Status notes
+                </p>
+                <p className="text-[10px]" style={{ color: c.mutedLight }}>
+                  Carrier can see these · updates Will Pay / Call Back internally
+                </p>
+              </div>
+              <div className="invoice-admin-status-actions__row">
+                <label className="invoice-admin-status-actions__date">
+                  <span>Date</span>
+                  <input
+                    type="date"
+                    value={statusDate}
+                    onChange={(e) => setStatusDate(e.target.value)}
+                    className="client-input"
+                  />
+                </label>
+                <input
+                  type="text"
+                  value={statusExtraNote}
+                  onChange={(e) => setStatusExtraNote(e.target.value)}
+                  placeholder="Optional note for carrier…"
+                  className="client-input invoice-admin-status-actions__extra"
+                />
+              </div>
+              <div className="invoice-admin-status-actions__btns">
+                <button
+                  type="button"
+                  className="dashboard-btn-secondary !py-1 !px-2 !text-xs"
+                  disabled={statusBusy !== null}
+                  onClick={() => void handlePostStatus('will_pay')}
+                >
+                  {statusBusy === 'will_pay' ? 'Saving…' : 'Will Pay'}
+                </button>
+                <button
+                  type="button"
+                  className="dashboard-btn-secondary !py-1 !px-2 !text-xs"
+                  disabled={statusBusy !== null}
+                  onClick={() => void handlePostStatus('call_back')}
+                >
+                  {statusBusy === 'call_back' ? 'Saving…' : 'Call Back'}
+                </button>
+                <button
+                  type="button"
+                  className="dashboard-btn-secondary !py-1 !px-2 !text-xs"
+                  disabled={statusBusy !== null}
+                  onClick={() => void handlePostStatus('payment_confirmed')}
+                >
+                  {statusBusy === 'payment_confirmed' ? 'Saving…' : 'Payment confirmed'}
+                </button>
+              </div>
+              {statusError && (
+                <p className="text-[11px]" style={{ color: c.error }}>
+                  {statusError}
+                </p>
+              )}
+            </div>
+          )}
+
+          {notesEnabled && (
             <InvoiceNoteCompose
               newNote={newNote}
               isAddingNote={isAddingNote}
@@ -908,6 +1117,9 @@ export default function InvoiceDetailPanel({
               onSubmit={handleAddNote}
               compact
               collapsible
+              allowInternal={isAdminPortal}
+              visibility={noteVisibility}
+              onVisibilityChange={setNoteVisibility}
             />
           )}
 
@@ -941,6 +1153,14 @@ export default function InvoiceDetailPanel({
                         <span className="payment-confirmation-panel__note-title">
                           {entry.title}
                         </span>
+                        {entry.internal && (
+                          <span
+                            className="payment-confirmation-panel__note-internal"
+                            title="Visible to Credyx only"
+                          >
+                            Internal
+                          </span>
+                        )}
                       </div>
                       <time
                         className="payment-confirmation-panel__note-date tabular-nums"

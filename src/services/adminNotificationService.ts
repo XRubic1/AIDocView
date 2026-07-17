@@ -277,7 +277,7 @@ export function notifyAdminClientDocumentUpload(
     message: `${input.clientName} uploaded ${input.fileCount} file${input.fileCount > 1 ? 's' : ''} to ${input.invoiceNumber}: ${fileList}`,
     timestamp: new Date().toISOString(),
     read: false,
-    link: `/invoice-search?invoice=${input.invoiceId}`,
+    link: `/invoices?invoice=${input.invoiceId}`,
     link_label: 'Review invoice',
     invoice_id: input.invoiceId,
     invoice_number: input.invoiceNumber,

@@ -27,6 +27,8 @@ interface DocumentViewerProps {
   onMoveDocument?: (docId: string, toDraftId: string | null) => void
   lockedDocIds?: string[]
   moveDisabled?: boolean
+  /** `pane` fills the parent (split layouts); default is a centered modal. */
+  layout?: 'modal' | 'pane'
 }
 
 export default function DocumentViewer({
@@ -39,14 +41,16 @@ export default function DocumentViewer({
   onMoveDocument,
   lockedDocIds = [],
   moveDisabled = false,
+  layout = 'modal',
 }: DocumentViewerProps) {
   const { showToast } = useToast()
   const [currentIndex, setCurrentIndex] = useState(0)
   const [documentUrls, setDocumentUrls] = useState<string[]>([])
+  const isPane = layout === 'pane'
 
   // Generate URLs for documents
   useEffect(() => {
-    if (!isOpen || documents.length === 0) return
+    if ((!isOpen && !isPane) || documents.length === 0) return
 
     const urls: string[] = []
     documents.forEach((doc) => {
@@ -72,7 +76,7 @@ export default function DocumentViewer({
         }
       })
     }
-  }, [isOpen, documents])
+  }, [isOpen, isPane, documents])
 
   useEffect(() => {
     if (currentIndex >= documents.length) {
@@ -251,21 +255,26 @@ export default function DocumentViewer({
     !lockedDocIds.includes(currentDocument.id) &&
     !moveDisabled
 
-  if (!isOpen) return null
+  if (!isOpen && !isPane) return null
+
+  const shellClass = isPane
+    ? 'h-full w-full min-h-0 overflow-hidden flex flex-col bg-white'
+    : 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50'
+
+  const panelClass = isPane
+    ? 'bg-white h-full w-full overflow-hidden flex flex-col'
+    : 'bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[95vh] overflow-hidden flex flex-col'
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div
-        className="bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[95vh] overflow-hidden flex flex-col"
-        style={{ backgroundColor: '#FFFFFF' }}
-      >
+    <div className={shellClass}>
+      <div className={panelClass} style={{ backgroundColor: '#FFFFFF' }}>
         {/* Header */}
         <div
-          className="flex items-center justify-between p-6 border-b"
+          className={`flex items-center justify-between border-b ${isPane ? 'px-4 py-3' : 'p-6'}`}
           style={{ borderColor: '#819291' }}
         >
-          <div className="flex-1">
-            <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-lg font-semibold truncate" style={{ color: '#113543' }}>
               {title}
             </h3>
             {invoiceNumber && (
@@ -274,17 +283,19 @@ export default function DocumentViewer({
               </p>
             )}
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 shrink-0">
             <div className="text-sm" style={{ color: '#819291' }}>
-              {currentIndex + 1} of {documents.length}
+              {documents.length === 0 ? '0 of 0' : `${currentIndex + 1} of ${documents.length}`}
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-gray-100 rounded transition-colors"
-              style={{ color: '#113543' }}
-            >
-              <X className="w-5 h-5" />
-            </button>
+            {!isPane && (
+              <button
+                onClick={onClose}
+                className="p-2 hover:bg-gray-100 rounded transition-colors"
+                style={{ color: '#113543' }}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -375,13 +386,20 @@ export default function DocumentViewer({
         )}
 
         {/* Document Viewer */}
-        <div className="flex-1 overflow-auto p-6" style={{ backgroundColor: '#f8f9fa' }}>
+        <div
+          className={`flex-1 min-h-0 overflow-auto ${isPane ? 'p-3' : 'p-6'}`}
+          style={{ backgroundColor: '#f8f9fa' }}
+        >
           {currentDocument && currentUrl ? (
-            <div className="flex items-center justify-center h-full">
+            <div className={`flex items-center justify-center ${isPane ? 'h-full min-h-0' : 'h-full'}`}>
               {getFileType(currentDocument.name) === 'pdf' ? (
                 <iframe
                   src={currentUrl}
-                  className="w-full h-full min-h-[600px] border rounded"
+                  className={
+                    isPane
+                      ? 'w-full h-full min-h-0 border rounded'
+                      : 'w-full h-full min-h-[600px] border rounded'
+                  }
                   style={{ borderColor: '#819291' }}
                   title={currentDocument.name}
                 />
@@ -395,7 +413,7 @@ export default function DocumentViewer({
                   <img
                     src={currentUrl}
                     alt={currentDocument.name}
-                    className="max-w-full max-h-[60vh] object-contain rounded shadow-lg"
+                    className={`max-w-full object-contain rounded shadow-lg ${isPane ? 'max-h-full' : 'max-h-[60vh]'}`}
                   />
                 </div>
               ) : getFileType(currentDocument.name) === 'document' ? (
@@ -453,7 +471,7 @@ export default function DocumentViewer({
 
         {/* Footer with Actions */}
         <div
-          className="flex items-center justify-between p-6 border-t"
+          className={`flex items-center justify-between border-t ${isPane ? 'px-4 py-3' : 'p-6'}`}
           style={{ borderColor: '#819291' }}
         >
           <div className="flex items-center space-x-3">
@@ -548,22 +566,24 @@ export default function DocumentViewer({
               <Printer className="w-4 h-4" />
               <span>Print</span>
             </button>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium transition-colors"
-              style={{
-                backgroundColor: '#113543',
-                color: '#FFFFFF',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#0d2a35'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#113543'
-              }}
-            >
-              Close
-            </button>
+            {!isPane && (
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium transition-colors"
+                style={{
+                  backgroundColor: '#113543',
+                  color: '#FFFFFF',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#0d2a35'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#113543'
+                }}
+              >
+                Close
+              </button>
+            )}
           </div>
         </div>
       </div>

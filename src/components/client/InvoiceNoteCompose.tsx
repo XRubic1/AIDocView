@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { MessageSquarePlus, ChevronDown, ChevronRight } from 'lucide-react'
+import { MessageSquarePlus, ChevronDown, ChevronRight, Lock } from 'lucide-react'
+
+export type NoteComposeVisibility = 'client' | 'internal'
 
 interface InvoiceNoteComposeProps {
   newNote: string
@@ -9,6 +11,12 @@ interface InvoiceNoteComposeProps {
   compact?: boolean
   /** Start collapsed; expands when the user opens it or types a note. */
   collapsible?: boolean
+  /** When true, show Credyx-only vs carrier-visible toggle. */
+  allowInternal?: boolean
+  visibility?: NoteComposeVisibility
+  onVisibilityChange?: (visibility: NoteComposeVisibility) => void
+  /** Override placeholder (defaults based on visibility). */
+  placeholder?: string
 }
 
 /** Compact note composer for detail panels and modals. */
@@ -19,6 +27,10 @@ export function InvoiceNoteCompose({
   onSubmit,
   compact = false,
   collapsible = false,
+  allowInternal = false,
+  visibility = 'client',
+  onVisibilityChange,
+  placeholder,
 }: InvoiceNoteComposeProps) {
   const [expanded, setExpanded] = useState(() => Boolean(newNote.trim()) || !collapsible)
   const hadContentRef = useRef(Boolean(newNote.trim()))
@@ -35,6 +47,14 @@ export function InvoiceNoteCompose({
       setExpanded(false)
     }
   }, [newNote, collapsible, isAddingNote])
+
+  const resolvedPlaceholder =
+    placeholder ||
+    (allowInternal && visibility === 'internal'
+      ? 'Internal note (Credyx only)…'
+      : allowInternal
+        ? 'Note visible to carrier…'
+        : 'Add a note for Credyx...')
 
   if (collapsible && !expanded) {
     return (
@@ -71,11 +91,38 @@ export function InvoiceNoteCompose({
           <span>Add note</span>
         </button>
       ) : null}
+
+      {allowInternal && onVisibilityChange ? (
+        <div className="invoice-detail-note-compose__visibility" role="group" aria-label="Note visibility">
+          <button
+            type="button"
+            className={`invoice-detail-note-compose__vis-btn ${
+              visibility === 'client' ? 'invoice-detail-note-compose__vis-btn--active' : ''
+            }`}
+            onClick={() => onVisibilityChange('client')}
+            aria-pressed={visibility === 'client'}
+          >
+            Visible to carrier
+          </button>
+          <button
+            type="button"
+            className={`invoice-detail-note-compose__vis-btn ${
+              visibility === 'internal' ? 'invoice-detail-note-compose__vis-btn--active' : ''
+            }`}
+            onClick={() => onVisibilityChange('internal')}
+            aria-pressed={visibility === 'internal'}
+          >
+            <Lock className="w-3 h-3" aria-hidden />
+            Internal only
+          </button>
+        </div>
+      ) : null}
+
       <div className="invoice-detail-note-compose-row">
         <textarea
           value={newNote}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Add a note for Credyx..."
+          placeholder={resolvedPlaceholder}
           rows={compact ? 1 : 2}
           className="client-input invoice-detail-note-input"
           autoFocus={collapsible}

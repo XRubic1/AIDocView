@@ -326,7 +326,7 @@ export default function AdminDashboard() {
         navigate('/batches')
         break
       case 'invoices':
-        navigate('/invoice-search')
+        navigate('/invoices')
         break
       case 'ar':
         navigate('/aging-ar')
@@ -344,7 +344,7 @@ export default function AdminDashboard() {
   }
 
   const handleInvoiceClick = (invoiceId: string) => {
-    navigate(`/invoice-search?invoice=${invoiceId}`)
+    navigate(`/invoices?invoice=${invoiceId}`)
   }
 
   const handleCallBroker = (invoiceId: string) => {
@@ -362,7 +362,7 @@ export default function AdminDashboard() {
     if (alert.relatedType === 'batch' && alert.relatedId) {
       navigate(`/batches?batch=${alert.relatedId}`)
     } else if (alert.relatedType === 'invoice' && alert.relatedId) {
-      navigate(`/invoice-search?invoice=${alert.relatedId}`)
+      navigate(`/invoices?invoice=${alert.relatedId}`)
     }
   }
 
@@ -376,7 +376,7 @@ export default function AdminDashboard() {
     } else if (action.type === 'broker_call' && action.relatedId) {
       navigate(`/collections?invoice=${action.relatedId}`)
     } else if (action.type === 'document_upload' && action.relatedId) {
-      navigate(`/invoice-search?invoice=${action.relatedId}`)
+      navigate(`/invoices?invoice=${action.relatedId}`)
     }
   }
 
@@ -407,10 +407,10 @@ export default function AdminDashboard() {
               }
             }}
             onCollectionsQueue={() => navigate('/collections')}
-            onUnattachedDocuments={() => navigate('/invoice-search')}
+            onUnattachedDocuments={() => navigate('/invoices')}
             onCreateBroker={() => navigate('/brokers')}
             onCreateClient={() => navigate('/clients')}
-            onUploadDocuments={() => navigate('/invoice-search')}
+            onUploadDocuments={() => navigate('/invoices')}
           />
 
           {/* Main Content Grid - 2 Column Layout */}

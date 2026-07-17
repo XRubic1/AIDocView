@@ -609,7 +609,7 @@ export default function PaymentPosting() {
                           <td>
                             {invoice ? (
                               <Link
-                                to={`/invoice-search?invoice=${encodeURIComponent(invoice.invoice_number)}`}
+                                to={`/invoices?invoice=${encodeURIComponent(invoice.id)}`}
                                 className="font-medium text-teal-700 hover:underline"
                               >
                                 {p.invoice_number}
@@ -711,7 +711,7 @@ export default function PaymentPosting() {
                           <td>
                             {inv ? (
                               <Link
-                                to={`/invoice-search?invoice=${encodeURIComponent(inv.invoice_number)}`}
+                                to={`/invoices?invoice=${encodeURIComponent(inv.id)}`}
                                 className="font-medium text-teal-700 hover:underline"
                               >
                                 {p.invoice_number}

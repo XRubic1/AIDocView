@@ -5,7 +5,8 @@ export interface InvoiceNote {
   note: string
   created_by: string
   created_at: string
-  type?: 'note' | 'client_note' | 'hold_reason' | 'approval' | 'rejection' | 'dispute'
+  type?: 'note' | 'client_note' | 'hold_reason' | 'approval' | 'rejection' | 'dispute' | 'status_update'
+  /** Omit or `client` = carrier-visible; `internal` = Credyx only. */
   visibility?: 'client' | 'internal'
 }
 

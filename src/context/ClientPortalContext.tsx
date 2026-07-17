@@ -93,3 +93,8 @@ export function useClientPortal(): ClientPortalContextValue {
   }
   return ctx
 }
+
+/** Safe outside ClientPortalProvider (e.g. Credyx admin reusing client panels). */
+export function useOptionalClientPortal(): ClientPortalContextValue | null {
+  return useContext(ClientPortalContext)
+}

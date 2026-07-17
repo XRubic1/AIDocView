@@ -1,7 +1,7 @@
 import {
   LayoutDashboard,
   Boxes,
-  Search,
+  FileText,
   BarChart3,
   Phone,
   Calculator,
@@ -38,7 +38,7 @@ export const adminNavSections: AdminNavSection[] = [
     items: [
       { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
       { label: 'Batches', path: '/batches', icon: Boxes, badgeKey: 'pendingBatches' },
-      { label: 'Invoice Search', path: '/invoice-search', icon: Search },
+      { label: 'Invoices', path: '/invoices', icon: FileText, badgeKeys: ['pendingPayments', 'pendingWriteOffs'] },
       { label: 'Aging A/R', path: '/aging-ar', icon: BarChart3 },
       { label: 'Collections', path: '/collections', icon: Phone },
     ],
