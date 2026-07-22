@@ -242,7 +242,7 @@ export function getInvoicePostStatusClass(
   receivedAmount?: number,
   pendingAmount?: number
 ): string {
-  if (invoice.status === 'written_off') return 'status-pill status-pill--hold'
+  if (invoice.status === 'written_off') return 'status-pill status-pill--warn'
   if (invoice.status === 'force_closed') return 'status-pill status-pill--overdue'
   if (receivedAmount !== undefined && receivedAmount > 0) {
     if (receivedAmount < invoice.amount - 0.01) return 'status-pill status-pill--pending'
@@ -258,7 +258,7 @@ export function getInvoicePostStatusClass(
     case 'hold':
       return 'status-pill status-pill--hold'
     case 'write_off_pending':
-      return 'status-pill status-pill--hold'
+      return 'status-pill status-pill--warn'
     case 'rejected':
       return 'status-pill status-pill--overdue'
     default:

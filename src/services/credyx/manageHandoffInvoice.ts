@@ -6,6 +6,7 @@ import { persistBroker, persistInvoice } from '../../services/supabase/tenantPer
 import { mockBrokers } from '../../data/mockBrokers'
 import { clearClientTenantCache } from '../../data/clientDemoData'
 import type { Invoice } from '../../types/invoice'
+import { assertInvoiceNumberAvailable } from '../../utils/invoiceDuplicateChecks'
 
 /** Resolve a broker by name and persist it when Supabase is configured. */
 async function resolveAndPersistBroker(
@@ -44,6 +45,14 @@ export async function updateHandoffInvoice(
   const existing = getInvoiceById(input.invoiceId)
   if (!existing) throw new Error('Invoice not found')
 
+  // Block invoice # collisions with other invoices for this carrier (allow keeping own #).
+  const invoiceNumber = assertInvoiceNumberAvailable(
+    existing.client_id,
+    input.invoice_number,
+    [],
+    [existing.id]
+  )
+
   const broker = await resolveAndPersistBroker(input.broker_name)
 
   // Keep storage paths only for the documents still attached to this invoice.
@@ -54,7 +63,7 @@ export async function updateHandoffInvoice(
   }
 
   const updated = updateInvoice(input.invoiceId, {
-    invoice_number: input.invoice_number,
+    invoice_number: invoiceNumber,
     broker_id: broker.broker_id,
     broker_name: broker.broker_name,
     amount: parseFloat(input.amount || '0'),

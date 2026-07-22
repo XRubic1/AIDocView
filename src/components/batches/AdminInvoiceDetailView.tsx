@@ -14,6 +14,7 @@ import { sendBrokerPacketForInvoice } from '../../utils/paperworkSender'
 import { useAuth } from '../../context/AuthContext'
 import { getAdminUserDisplayName } from '../../config/adminNav'
 import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
+import { addAdminInvoiceNote } from '../../services/adminInvoiceNoteActions'
 import {
   saveInvoiceDocuments,
   updateInvoiceDocumentMetadata,
@@ -598,12 +599,12 @@ export default function AdminInvoiceDetailView({
       // Add note to invoice notes history
       const updatedNotesHistory = [...(updatedInvoice.notes_history || [])]
       updatedNotesHistory.push({
-      id: `note-${Date.now()}`,
+        id: `note-${Date.now()}`,
         note: noteText,
         created_by: 'Admin User',
-      created_at: new Date().toISOString(),
-      type: 'note',
-    })
+        created_at: new Date().toISOString(),
+        type: 'note',
+      })
     
     // Update notes field
       const updatedNotes = updatedInvoice.notes
@@ -640,44 +641,19 @@ export default function AdminInvoiceDetailView({
         showToast('Please enter a note', 'error')
         return
       }
-      noteText = newNote.trim()
-      
-      // Add note to invoice notes history
-      const updatedNotesHistory = [...(currentInvoice.notes_history || [])]
-      updatedNotesHistory.push({
-        id: `note-${Date.now()}`,
-        note: noteText,
-        created_by: 'Admin User',
-        created_at: new Date().toISOString(),
-        type: 'note',
-      })
-      
-      // Update notes field
-      const updatedNotes = currentInvoice.notes
-        ? `${currentInvoice.notes}\n${noteText}`
-        : noteText
-      
-      // Update the invoice
-      const finalInvoice = {
-        ...currentInvoice,
-        notes_history: updatedNotesHistory,
-        notes: updatedNotes,
-      }
 
-      const saved = updateInvoice(currentInvoice.id, {
-        notes_history: finalInvoice.notes_history,
-        notes: finalInvoice.notes,
+      const authorName = getAdminUserDisplayName(resolved.user?.email ?? null) || 'Admin User'
+      const saved = addAdminInvoiceNote(currentInvoice.id, newNote.trim(), authorName, {
+        visibility: 'client',
       })
 
-      setCurrentInvoice(saved ?? finalInvoice)
-      if (invoice && saved) {
-        Object.assign(invoice, saved)
+      if (saved) {
+        setCurrentInvoice(saved)
+        if (invoice) Object.assign(invoice, saved)
       }
 
       setRefreshKey((prev) => prev + 1)
       setNewNote('')
-
-      console.log('Note added to invoice:', currentInvoice.id)
     }
   }
 

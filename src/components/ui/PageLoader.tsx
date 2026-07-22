@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import Spinner from './Spinner'
+import CredyxWordmark from '../CredyxWordmark'
+import './pageLoader.css'
 
 interface PageLoaderProps {
   message?: string
@@ -21,37 +22,53 @@ function usePrefersReducedMotion(): boolean {
   return reduced
 }
 
-/** Branded full-area loader for boot, guards, and Suspense fallbacks. */
+/** Calm branded loader for boot, guards, and Suspense fallbacks. */
 export default function PageLoader({
   message = 'Loading your workspace…',
   fullScreen = true,
 }: PageLoaderProps) {
   const reducedMotion = usePrefersReducedMotion()
+  const [logoFailed, setLogoFailed] = useState(false)
 
   return (
     <div
-      className={
-        fullScreen
-          ? 'min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-zinc-950 px-6'
-          : 'flex flex-col items-center justify-center py-16 px-6'
-      }
+      className={[
+        'page-loader',
+        fullScreen ? 'page-loader--fullscreen' : 'page-loader--inline',
+        reducedMotion ? 'page-loader--reduced' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      <p
-        className="text-xl font-semibold tracking-tight text-[#113543] dark:text-slate-100 mb-6"
-        style={{ fontFamily: "'Barlow Condensed', sans-serif" }}
-      >
-        Credyx
-      </p>
-      <Spinner size="lg" className="text-[#113543] dark:text-cyan-400 mb-4" />
-      <p className="text-sm text-slate-500 dark:text-slate-400 text-center max-w-xs">{message}</p>
-      {!reducedMotion && (
-        <div className="mt-6 h-0.5 w-24 overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-800">
-          <div className="h-full w-1/2 rounded-full bg-[#0891b2] animate-pulse" />
+      <div className="page-loader__stage" aria-hidden>
+        <div className="page-loader__glow" />
+      </div>
+
+      <div className="page-loader__content">
+        {!logoFailed ? (
+          <img
+            src="/Logo.png"
+            alt="Credyx"
+            className="page-loader__logo"
+            width={168}
+            height={48}
+            onError={() => setLogoFailed(true)}
+          />
+        ) : (
+          <div className="page-loader__wordmark">
+            <CredyxWordmark variant="full" theme="admin" />
+          </div>
+        )}
+
+        <div className="page-loader__track" aria-hidden>
+          <span className="page-loader__bar" />
         </div>
-      )}
+
+        <p className="page-loader__message">{message}</p>
+      </div>
     </div>
   )
 }

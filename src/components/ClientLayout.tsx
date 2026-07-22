@@ -17,7 +17,10 @@ import {
   markNotificationRead,
   subscribeClientNotifications,
 } from '../data/mockNotifications'
+import { subscribeClientNotificationPreferences } from '../utils/clientNotificationPreferences'
 import { getAllBatches } from '../data/mockBatches'
+import { mockInvoices } from '../data/mockInvoices'
+import { isClientVisibleHold } from '../utils/clientInvoiceView'
 import { clearClientTenantCache } from '../data/clientDemoData'
 import { clearClientSession } from '../utils/clearClientSession'
 import {
@@ -70,7 +73,14 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     }
     const refresh = () => setNotifications(getNotificationsForClient(resolvedClientId))
     refresh()
-    return subscribeClientNotifications(refresh, resolvedClientId)
+    const unsubNotifs = subscribeClientNotifications(refresh, resolvedClientId)
+    const unsubPrefs = subscribeClientNotificationPreferences((clientId) => {
+      if (clientId === resolvedClientId) refresh()
+    })
+    return () => {
+      unsubNotifs()
+      unsubPrefs()
+    }
   }, [resolvedClientId])
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -170,8 +180,17 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     ).length
   }, [resolvedClientId, tenantRevision])
 
+  const heldInvoiceCount = useMemo(() => {
+    return mockInvoices.filter(
+      (inv) =>
+        (!resolvedClientId || inv.client_id === resolvedClientId) &&
+        isClientVisibleHold(inv)
+    ).length
+  }, [resolvedClientId, tenantRevision, notifications])
+
   const badges: Record<string, number> = {
     pendingBatches: pendingBatchCount,
+    heldInvoices: heldInvoiceCount,
   }
 
   const isNavActive = (path: string) => {
@@ -316,6 +335,8 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                 const active = isNavActive(item.path)
                 const Icon = item.icon
                 const badge = item.badgeKey ? badges[item.badgeKey] : 0
+                const badgeColor =
+                  item.badgeTone === 'danger' ? t.error : t.sidebar.badge
                 const showLabels = sidebarExpanded || isMobile
                 // Icon column matches rail width minus the shared 8px inset on each side,
                 // so left offset stays identical while collapsed ↔ expanded.
@@ -353,7 +374,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                         {badge > 0 && !showLabels && (
                           <span
                             className="client-sidebar-nav-item__badge"
-                            style={{ backgroundColor: t.sidebar.badge }}
+                            style={{ backgroundColor: badgeColor }}
                           >
                             {badge > 9 ? '9+' : badge}
                           </span>
@@ -365,7 +386,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                       {badge > 0 && showLabels && (
                         <span
                           className="mr-3 min-w-[18px] h-4 px-1 flex items-center justify-center rounded-full text-[9px] font-bold text-white shrink-0"
-                          style={{ backgroundColor: t.sidebar.badge }}
+                          style={{ backgroundColor: badgeColor }}
                         >
                           {badge}
                         </span>

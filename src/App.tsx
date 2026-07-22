@@ -14,7 +14,6 @@ import {
   AgingAR,
   AuditDashboard,
   Batches,
-  Billing,
   Brokers,
   ClientBatches,
   ClientBrokers,
@@ -28,6 +27,7 @@ import {
   ClientShortPayments,
   Clients,
   Collections,
+  AdminDocs,
   CreateBatch,
   DocSortLandingPage,
   DocumentReviewTest,
@@ -35,6 +35,8 @@ import {
   HowItWorks,
   AdminInvoices,
   AdminInvoiceWorkspace,
+  Billing,
+  BillingInvoiceWorkspace,
   LoadHistoryPage,
   LoadReviewWorkbench,
   PaymentPosting,
@@ -102,9 +104,15 @@ function App() {
                 <Route path="/brokers" element={withRouteSuspense(Brokers)} />
                 <Route path="/clients" element={withRouteSuspense(Clients)} />
                 <Route path="/collections" element={withRouteSuspense(Collections)} />
+                <Route path="/docs" element={withRouteSuspense(AdminDocs)} />
+                <Route path="/force-close" element={withRouteSuspense(AdminDocs)} />
                 <Route path="/accounting" element={withRouteSuspense(Accounting)} />
                 <Route path="/payment-posting" element={withRouteSuspense(PaymentPosting)} />
                 <Route path="/billing" element={withRouteSuspense(Billing)} />
+                <Route
+                  path="/billing/workspace"
+                  element={withRouteSuspense(BillingInvoiceWorkspace)}
+                />
                 <Route path="/Audit/dashboard" element={withRouteSuspense(AuditDashboard)} />
                 <Route path="/users" element={withRouteSuspense(Users)} />
                 <Route path="/settings" element={withRouteSuspense(Settings)} />

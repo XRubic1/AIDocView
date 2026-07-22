@@ -3,6 +3,12 @@ import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { persistNotification } from '../services/supabase/tenantPersist'
 import { notificationRowToNotification, type NotificationRow } from '../services/supabase/platformMappers'
 import { formatCurrency } from '../utils/format'
+import {
+  filterNotificationsByClientPreferences,
+  getClientNotificationCategory,
+  isClientNotificationCategoryEnabled,
+  type ClientNotificationCategory,
+} from '../utils/clientNotificationPreferences'
 
 const CLIENT_NOTIFICATIONS_EVENT = 'client-notifications-updated'
 const CLIENT_NOTIFICATIONS_CHANNEL = 'credyx-client-notifications'
@@ -178,15 +184,26 @@ export function subscribeClientNotifications(
   return () => window.removeEventListener(CLIENT_NOTIFICATIONS_EVENT, handler)
 }
 
-/** Add a client notification and persist when Supabase is configured. */
+/** Add a client notification and persist when Supabase is configured.
+ * Respects client notification preferences — returns null when the category is disabled.
+ */
 export function addNotification(
   clientId: string,
   data: Omit<Notification, 'id' | 'timestamp' | 'read'> & {
     id?: string
     timestamp?: string
     read?: boolean
+  },
+  options?: { category?: ClientNotificationCategory; skipPreferenceCheck?: boolean }
+): Notification | null {
+  if (!options?.skipPreferenceCheck) {
+    const category =
+      options?.category ?? getClientNotificationCategory({ type: data.type, metadata: data.metadata })
+    if (category && !isClientNotificationCategoryEnabled(clientId, category)) {
+      return null
+    }
   }
-): Notification {
+
   const notification: Notification = {
     ...data,
     id: data.id ?? `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -230,9 +247,10 @@ export function markAllClientNotificationsRead(clientId: string): void {
 }
 
 export function getNotificationsForClient(clientId: string): Notification[] {
-  return mockNotifications.filter(
+  const all = mockNotifications.filter(
     (n) => (n.metadata?.client_id as string | undefined) === clientId
   )
+  return filterNotificationsByClientPreferences(clientId, all)
 }
 
 export type ClientPaymentNotifyKind = 'payment' | 'over' | 'short'
@@ -251,13 +269,15 @@ export interface ClientPaymentPostedNotificationInput {
 /** Credyx posted a payment / overpayment / short correction — client bell. */
 export function notifyClientPaymentPosted(
   input: ClientPaymentPostedNotificationInput
-): Notification {
+): Notification | null {
   const amountLabel = formatCurrency(input.amount)
   const awaiting = input.awaitingConfirmation === true
 
   let title: string
   let message: string
   let type: Notification['type']
+  const category: ClientNotificationCategory =
+    input.kind === 'short' || input.kind === 'over' ? 'shortOver' : 'payment'
 
   if (input.kind === 'short') {
     title = awaiting ? 'Short payment to confirm' : 'Short payment posted'
@@ -279,21 +299,25 @@ export function notifyClientPaymentPosted(
     type = awaiting ? 'payment_pending' : 'payment_received'
   }
 
-  return addNotification(input.clientId, {
-    type,
-    title,
-    message,
-    link: '/client/payments',
-    link_label: awaiting ? 'Confirm payment' : 'View payment',
-    invoice_id: input.invoiceId,
-    invoice_number: input.invoiceNumber,
-    payment_id: input.paymentId,
-    metadata: {
-      amount: input.amount,
-      kind: input.kind,
-      awaiting_confirmation: awaiting,
+  return addNotification(
+    input.clientId,
+    {
+      type,
+      title,
+      message,
+      link: '/client/payments',
+      link_label: awaiting ? 'Confirm payment' : 'View payment',
+      invoice_id: input.invoiceId,
+      invoice_number: input.invoiceNumber,
+      payment_id: input.paymentId,
+      metadata: {
+        amount: input.amount,
+        kind: input.kind,
+        awaiting_confirmation: awaiting,
+      },
     },
-  })
+    { category }
+  )
 }
 
 export interface ClientDisputeResolvedNotificationInput {
@@ -310,40 +334,130 @@ export interface ClientDisputeResolvedNotificationInput {
 /** Credyx resolved a receipt dispute — client bell. */
 export function notifyClientDisputeResolved(
   input: ClientDisputeResolvedNotificationInput
-): Notification {
+): Notification | null {
   const amountLabel = formatCurrency(input.amount)
   const responseNote = input.response?.trim() ? ` ${input.response.trim()}` : ''
 
   if (input.outcome === 'rejected') {
-    return addNotification(input.clientId, {
+    return addNotification(
+      input.clientId,
+      {
+        type: 'payment_pending',
+        title: 'Dispute resolved — payment reversed',
+        message: `Credyx resolved your dispute on ${input.invoiceNumber} and reversed ${amountLabel}.${responseNote}`,
+        link: '/client/payments',
+        link_label: 'View payment',
+        invoice_id: input.invoiceId,
+        invoice_number: input.invoiceNumber,
+        payment_id: input.paymentId,
+        metadata: {
+          amount: input.amount,
+          outcome: 'rejected',
+        },
+      },
+      { category: 'dispute' }
+    )
+  }
+
+  return addNotification(
+    input.clientId,
+    {
       type: 'payment_pending',
-      title: 'Dispute resolved — payment reversed',
-      message: `Credyx resolved your dispute on ${input.invoiceNumber} and reversed ${amountLabel}.${responseNote}`,
+      title: 'Dispute resolved — confirm payment',
+      message: `Credyx resolved your dispute on ${input.invoiceNumber}. Please confirm receipt of ${amountLabel} within 30 days.${responseNote}`,
       link: '/client/payments',
-      link_label: 'View payment',
+      link_label: 'Confirm payment',
       invoice_id: input.invoiceId,
       invoice_number: input.invoiceNumber,
       payment_id: input.paymentId,
       metadata: {
         amount: input.amount,
-        outcome: 'rejected',
+        outcome: 'requeued',
+        awaiting_confirmation: true,
       },
-    })
-  }
-
-  return addNotification(input.clientId, {
-    type: 'payment_pending',
-    title: 'Dispute resolved — confirm payment',
-    message: `Credyx resolved your dispute on ${input.invoiceNumber}. Please confirm receipt of ${amountLabel} within 30 days.${responseNote}`,
-    link: '/client/payments',
-    link_label: 'Confirm payment',
-    invoice_id: input.invoiceId,
-    invoice_number: input.invoiceNumber,
-    payment_id: input.paymentId,
-    metadata: {
-      amount: input.amount,
-      outcome: 'requeued',
-      awaiting_confirmation: true,
     },
-  })
+    { category: 'dispute' }
+  )
+}
+
+export interface ClientInvoiceOnHoldNotificationInput {
+  clientId: string
+  invoiceId: string
+  invoiceNumber: string
+  holdReason?: string
+  batchId?: string
+  batchNumber?: string
+}
+
+/** Credyx placed an invoice on hold — client bell. */
+export function notifyClientInvoiceOnHold(
+  input: ClientInvoiceOnHoldNotificationInput
+): Notification | null {
+  const reason = input.holdReason?.trim()
+  return addNotification(
+    input.clientId,
+    {
+      type: 'invoice_on_hold',
+      title: 'Invoice on hold',
+      message: reason
+        ? `Invoice ${input.invoiceNumber} was placed on hold — ${reason}`
+        : `Invoice ${input.invoiceNumber} was placed on hold. Credyx will follow up when it is released.`,
+      link: `/client/invoices?status=hold`,
+      link_label: 'View held invoices',
+      invoice_id: input.invoiceId,
+      invoice_number: input.invoiceNumber,
+      batch_id: input.batchId,
+      batch_number: input.batchNumber,
+    },
+    { category: 'hold' }
+  )
+}
+
+export interface ClientInvoiceNoteNotificationInput {
+  clientId: string
+  invoiceId: string
+  invoiceNumber: string
+  authorName: string
+  noteText: string
+  /** Who wrote the note — affects title wording. */
+  source: 'credyx' | 'client'
+  batchId?: string
+  batchNumber?: string
+}
+
+/** Free-text note added on an invoice — client bell (Credyx notes, or multi-user client notes). */
+export function notifyClientInvoiceNote(
+  input: ClientInvoiceNoteNotificationInput
+): Notification | null {
+  const excerpt =
+    input.noteText.trim().length > 120
+      ? `${input.noteText.trim().slice(0, 117)}…`
+      : input.noteText.trim()
+
+  const title =
+    input.source === 'credyx' ? 'New note from Credyx' : 'New note on invoice'
+  const message =
+    input.source === 'credyx'
+      ? `${input.authorName} left a note on ${input.invoiceNumber}: ${excerpt}`
+      : `${input.authorName} added a note on ${input.invoiceNumber}: ${excerpt}`
+
+  return addNotification(
+    input.clientId,
+    {
+      type: 'invoice_note',
+      title,
+      message,
+      link: '/client/invoices',
+      link_label: 'View invoice',
+      invoice_id: input.invoiceId,
+      invoice_number: input.invoiceNumber,
+      batch_id: input.batchId,
+      batch_number: input.batchNumber,
+      metadata: {
+        source: input.source,
+        author_name: input.authorName,
+      },
+    },
+    { category: 'notes' }
+  )
 }

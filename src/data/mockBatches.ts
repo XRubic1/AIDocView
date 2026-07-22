@@ -2,6 +2,7 @@ import { PendingBatch } from '../types/admin'
 import type { Invoice } from '../types/invoice'
 import { addInvoice, getInvoicesByBatchId } from './mockInvoices'
 import { deleteBatchFromDb, persistBatch } from '../services/supabase/tenantPersist'
+import { notifyTenantDataUpdated } from '../services/supabase/tenantDataLiveSync'
 import { ensureClientBatchCode } from '../services/clientRegistry'
 import { buildBatchNumber, getMaxBatchSequence } from '../utils/clientBatchNumbers'
 import { syncBatchFees } from '../services/batchFeeSync'
@@ -110,6 +111,8 @@ export const updateBatchStatus = (batchId: string, newStatus: Batch['status']): 
   if (batch) {
     batch.status = newStatus
     void persistBatch(batch).catch(console.error)
+    // Client portal remaps invoice visibility from batch status — bump live UIs now.
+    notifyTenantDataUpdated(['batches'], batch.client_id)
   }
 }
 

@@ -42,8 +42,16 @@ import { resolveInvoiceDocumentsAsync } from '../utils/resolveInvoiceDocuments'
 import type { BatchIntakeDraft } from '../types/credyxBatch'
 import {
   getNextClientInvoiceNumber,
-  ensureUniqueClientInvoiceNumber,
+  isInvoiceNumberTaken,
 } from '../utils/clientInvoiceNumbers'
+import {
+  formatLoadNumberWarning,
+  formatLoadNumberWarningsSummary,
+  getBatchLoadNumberWarnings,
+  getLoadNumberWarnings,
+  getWithinBatchLoadWarnings,
+  validateBatchInvoiceNumbers,
+} from '../utils/invoiceDuplicateChecks'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import ClientReturnBanner from '../components/client/ClientReturnBanner'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
@@ -502,6 +510,26 @@ export default function ClientBatches() {
     [currentBatchInvoices]
   )
 
+  // Live field validation while typing (client-scoped only).
+  const manualInvoiceNumberError = useMemo(() => {
+    const num = invoiceFormData.invoice_number.trim()
+    if (!num || !clientId) return null
+    if (isInvoiceNumberTaken(clientId, num, pendingInvoiceNumbers())) {
+      return `Invoice number ${num} is already used for your account`
+    }
+    return null
+  }, [clientId, invoiceFormData.invoice_number, pendingInvoiceNumbers, tenantRevision])
+
+  const manualLoadNumberWarning = useMemo(() => {
+    if (!clientId) return null
+    const warnings = getLoadNumberWarnings(invoiceFormData.load_number, {
+      forClientId: clientId,
+      crossCarrier: false,
+    })
+    if (warnings.length === 0) return null
+    return formatLoadNumberWarning(warnings[0], 'client')
+  }, [clientId, invoiceFormData.load_number, tenantRevision])
+
   const generateNextInvoiceNumber = useCallback(() => {
     if (!clientId) return '001'
     return getNextClientInvoiceNumber(clientId, pendingInvoiceNumbers())
@@ -544,15 +572,24 @@ export default function ClientBatches() {
       return
     }
 
+    const invoiceNumber =
+      invoiceFormData.invoice_number.trim() || generateNextInvoiceNumber()
+
+    if (!invoiceNumber) {
+      showToast('Invoice number is required', 'error')
+      return
+    }
+
+    if (isInvoiceNumberTaken(clientId, invoiceNumber, pendingInvoiceNumbers())) {
+      showToast(
+        `Invoice number ${invoiceNumber} is already used for your account. Enter a different number.`,
+        'error'
+      )
+      return
+    }
+
     documentUploadInFlightRef.current = false
     setDocumentUploadSaving(false)
-
-    const reserved = pendingInvoiceNumbers()
-    const invoiceNumber = ensureUniqueClientInvoiceNumber(
-      clientId,
-      invoiceFormData.invoice_number || generateNextInvoiceNumber(),
-      reserved
-    )
 
     // Store the invoice data temporarily to show in upload modal
     const invoiceToAdd: InvoiceFormData = {
@@ -1115,6 +1152,31 @@ export default function ClientBatches() {
   }
 
   const handleCreateBatch = async () => {
+    const numberIssues = validateBatchInvoiceNumbers(
+      clientId,
+      currentBatchInvoices.map((inv) => inv.invoice_number)
+    )
+    if (numberIssues.length > 0) {
+      showToast(numberIssues[0].message, 'error')
+      return
+    }
+
+    const loadWarnings = getBatchLoadNumberWarnings(
+      clientId,
+      currentBatchInvoices.map((inv) => inv.load_number),
+      { crossCarrier: false }
+    )
+    const withinBatchLoad = getWithinBatchLoadWarnings(
+      currentBatchInvoices.map((inv) => inv.load_number)
+    )
+    if (loadWarnings.length > 0 || withinBatchLoad.length > 0) {
+      const summary =
+        loadWarnings.length > 0
+          ? formatLoadNumberWarningsSummary(loadWarnings, 'client')
+          : `${withinBatchLoad.join('\n')}\n\nSubmit anyway?`
+      if (!window.confirm(summary)) return
+    }
+
     try {
       const { batch } = await submitManualBatch({
         clientId: clientId,
@@ -1387,6 +1449,8 @@ export default function ClientBatches() {
                   resetManualEditorState()
                 }}
                 onSubmit={handleCreateBatch}
+                invoiceNumberError={manualInvoiceNumberError}
+                loadNumberWarning={manualLoadNumberWarning}
               />
             )}
           </ClientSubmitDocsView>

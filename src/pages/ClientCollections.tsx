@@ -1,6 +1,5 @@
 ﻿import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { getClientInvoices } from '../data/clientDemoData'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
@@ -103,13 +102,13 @@ export default function ClientCollections() {
   const useFullPageDetail = useCompactDetailViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
   const [refreshKey, setRefreshKey] = useState(0)
-  const { dashboard: data, payments } = useClientDemoSnapshot(refreshKey)
+  const { dashboard: data, payments, invoices: rawInvoices } = useClientDemoSnapshot(refreshKey)
   const [searchParams, setSearchParams] = useSearchParams()
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
   const clientInvoices = useMemo(
-    () => mapClientVisibleInvoices(getClientInvoices(clientId, clientName)),
-    [clientId, clientName, refreshKey]
+    () => mapClientVisibleInvoices(rawInvoices),
+    [rawInvoices]
   )
 
   const openBalanceById = useMemo(() => {

@@ -1,20 +1,23 @@
 import {
-  AR_RATE_TIERS,
   BILL_LOCK_AFTER_DAYS,
   BILL_PAYMENT_TERMS_DAYS,
   BILL_REMINDER_DAYS,
   BILL_WARNING_DAYS,
-  lookupArRatePct,
   PLATFORM_APP_FEE_MONTHLY,
 } from '../config/arBillingRates'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
 import { getEffectivePaymentAmount } from '../utils/paymentVariance'
-import { getShortPaymentFeeCreditsForPeriod } from './reimbursementAccountService'
+import {
+  getShortPaymentFeeCreditsForPeriod,
+  markCreditsAppliedToBill,
+} from './reimbursementAccountService'
 import { getSupabase, isSupabaseConfigured, requireSupabase } from '../lib/supabase'
 import { updateClient, getClientById } from './clientRegistry'
 import { persistOrThrow } from './persistHelper'
 import type {
+  BillHistoryEvent,
+  BillingFeeTermsSnapshot,
   BillingLineItem,
   BillingPeriod,
   BillingStanding,
@@ -38,6 +41,7 @@ interface ClientBillRow {
   paid_at: string | null
   payoneer_reference: string | null
   line_items: BillingLineItem[]
+  fee_terms_snapshot?: BillingFeeTermsSnapshot | null
 }
 
 export function hydrateClientBills(bills: ClientBill[]): void {
@@ -112,6 +116,17 @@ function daysSince(isoDate: string): number {
   return Math.floor((now - then) / (1000 * 60 * 60 * 24))
 }
 
+/** Snapshot current client fee terms for locking onto an issued bill. */
+export function snapshotClientFeeTerms(client: Client | undefined): BillingFeeTermsSnapshot | undefined {
+  const terms = client?.fee_terms
+  if (!terms?.fee_type) return undefined
+  return {
+    fee_type: terms.fee_type,
+    fee_percentage: terms.fee_percentage,
+    flat_fee_amount: terms.flat_fee_amount,
+  }
+}
+
 function billRowToClientBill(row: ClientBillRow): ClientBill {
   return {
     id: row.id,
@@ -124,6 +139,7 @@ function billRowToClientBill(row: ClientBillRow): ClientBill {
     paid_at: row.paid_at ?? undefined,
     payoneer_reference: row.payoneer_reference ?? undefined,
     line_items: Array.isArray(row.line_items) ? row.line_items : [],
+    fee_terms_snapshot: row.fee_terms_snapshot ?? undefined,
   }
 }
 
@@ -139,6 +155,7 @@ function clientBillToRow(bill: ClientBill): ClientBillRow {
     paid_at: bill.paid_at ?? null,
     payoneer_reference: bill.payoneer_reference ?? null,
     line_items: bill.line_items,
+    fee_terms_snapshot: bill.fee_terms_snapshot ?? null,
   }
 }
 
@@ -188,9 +205,80 @@ export function getClientCollectedVolume(clientId: string, period: BillingPeriod
     .reduce((sum, p) => sum + getEffectivePaymentAmount(p), 0)
 }
 
-/** Resolve A/R rate % from client flags and collected volume. */
-export function resolveArRate(client: Client, collectedVolume: number): number {
-  return lookupArRatePct(collectedVolume, client.factoring ?? false, client.ar_rate_override)
+/** Count distinct invoices with confirmed payments in the billing period. */
+export function countInvoicesCollectedInPeriod(clientId: string, period: BillingPeriod): number {
+  const invoiceIds = invoiceIdsForClient(clientId)
+  const collected = new Set<string>()
+  for (const p of mockPayments) {
+    if (!invoiceIds.has(p.invoice_id) || p.status !== 'confirmed') continue
+    if (!isDateInPeriod(p.confirmed_at ?? p.received_date, period)) continue
+    collected.add(p.invoice_id)
+  }
+  return collected.size
+}
+
+export interface ResolvedClientFee {
+  feeType: 'percentage' | 'flat'
+  /** Percentage rate when fee_type is percentage; 0 for flat. */
+  ratePct: number
+  /** Collection fee for the period (before trial waiver / credits). */
+  fee: number
+  /** Short label for tables (e.g. "2.5%" or "$50 flat"). */
+  displayRate: string
+  /** Line-item description fragment. */
+  feeDescription: string
+}
+
+/**
+ * Resolve the period collection fee from the client's fee_terms.
+ * Percentage → rate × confirmed collections; flat → flat × invoices collected in period.
+ */
+export function resolveClientCollectionFee(
+  client: Client,
+  collectedVolume: number,
+  period: BillingPeriod
+): ResolvedClientFee {
+  const terms = client.fee_terms
+  if (!terms?.fee_type) {
+    throw new Error(`Fee terms not configured for ${client.name}`)
+  }
+
+  if (terms.fee_type === 'flat') {
+    const flat = terms.flat_fee_amount ?? 0
+    if (!Number.isFinite(flat) || flat <= 0) {
+      throw new Error(`Flat fee amount not configured for ${client.name}`)
+    }
+    const invoiceCount = countInvoicesCollectedInPeriod(client.id, period)
+    const fee = Math.round(flat * invoiceCount * 100) / 100
+    return {
+      feeType: 'flat',
+      ratePct: 0,
+      fee,
+      displayRate: `$${flat.toFixed(2)} flat`,
+      feeDescription: `Collection fee — $${flat.toFixed(2)} × ${invoiceCount} invoice(s) collected`,
+    }
+  }
+
+  const ratePct = terms.fee_percentage ?? 0
+  if (!Number.isFinite(ratePct) || ratePct <= 0) {
+    throw new Error(`Fee percentage not configured for ${client.name}`)
+  }
+  const fee = Math.round(((ratePct / 100) * collectedVolume) * 100) / 100
+  return {
+    feeType: 'percentage',
+    ratePct,
+    fee,
+    displayRate: `${ratePct}%`,
+    feeDescription: `Collection fee — ${ratePct}% of ${formatVolume(collectedVolume)} collected`,
+  }
+}
+
+/** @deprecated Use resolveClientCollectionFee — kept for call-site migration. */
+export function resolveArRate(client: Client, _collectedVolume?: number): number {
+  const terms = client.fee_terms
+  if (terms?.fee_type === 'percentage' && terms.fee_percentage) return terms.fee_percentage
+  if (terms?.fee_type === 'flat') return 0
+  throw new Error(`Fee terms not configured for ${client.name}`)
 }
 
 function isTrialClient(client: Client): boolean {
@@ -200,34 +288,32 @@ function isTrialClient(client: Client): boolean {
 function getForceCloseAdjustments(
   clientId: string,
   period: BillingPeriod,
-  ratePct: number
+  client: Client
 ): BillingLineItem[] {
   const periodLabel = formatBillingPeriod(period)
+  const terms = client.fee_terms
   return mockInvoices
     .filter((inv) => inv.client_id === clientId && inv.status === 'force_closed')
     .filter((inv) => isDateInPeriod(inv.updated_at, period))
-    .map((inv) => ({
-      id: `fc-${inv.id}`,
-      date: inv.updated_at?.split('T')[0] ?? periodLabel,
-      description: `Force-close fee — ${inv.invoice_number} (${ratePct}% of invoice)`,
-      amount: (ratePct / 100) * inv.amount,
-      status: 'pending' as const,
-    }))
-}
-
-function getReversalCredits(clientId: string, period: BillingPeriod): BillingLineItem[] {
-  const invoiceIds = invoiceIdsForClient(clientId)
-  return mockPayments
-    .filter((p) => invoiceIds.has(p.invoice_id) && p.status === 'reversed')
-    .filter((p) => isDateInPeriod(p.reversed_at, period))
-    .filter((p) => p.confirmed_at && !isDateInPeriod(p.confirmed_at, period))
-    .map((p) => ({
-      id: `rev-${p.id}`,
-      date: p.reversed_at?.split('T')[0] ?? formatBillingPeriod(period),
-      description: `Reversal credit — ${p.invoice_number}`,
-      amount: -p.amount,
-      status: 'pending' as const,
-    }))
+    .map((inv) => {
+      let amount = 0
+      let detail = ''
+      if (terms?.fee_type === 'flat' && terms.flat_fee_amount) {
+        amount = terms.flat_fee_amount
+        detail = `$${terms.flat_fee_amount} flat`
+      } else {
+        const ratePct = terms?.fee_percentage ?? 0
+        amount = (ratePct / 100) * inv.amount
+        detail = `${ratePct}% of invoice`
+      }
+      return {
+        id: `fc-${inv.id}`,
+        date: inv.updated_at?.split('T')[0] ?? periodLabel,
+        description: `Force-close fee — ${inv.invoice_number} (${detail})`,
+        amount,
+        status: 'pending' as const,
+      }
+    })
 }
 
 /** Compute monthly bill breakdown for a client and period. */
@@ -238,60 +324,74 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
   }
 
   const collectedVolume = getClientCollectedVolume(clientId, period)
-  const ratePct = resolveArRate(client, collectedVolume)
+  const resolved = resolveClientCollectionFee(client, collectedVolume, period)
   const trial = isTrialClient(client)
 
-  const appFee = trial ? 0 : PLATFORM_APP_FEE_MONTHLY
-  const arFee = trial ? 0 : (ratePct / 100) * collectedVolume
-  const adjustments = trial
-    ? []
-    : [...getForceCloseAdjustments(clientId, period, ratePct), ...getReversalCredits(clientId, period)]
+  // Always compute gross fees so the UI can show what would be charged.
+  const grossAppFee = PLATFORM_APP_FEE_MONTHLY
+  const grossArFee = resolved.fee
+  const adjustments = [
+    ...getForceCloseAdjustments(clientId, period, client),
+  ]
+  const adjustmentTotal = adjustments.reduce((sum, a) => sum + a.amount, 0)
+  const grossSubtotal = grossAppFee + grossArFee + adjustmentTotal
 
-  const reimbursementCredits = trial
-    ? []
-    : getShortPaymentFeeCreditsForPeriod(clientId, period)
+  // Trial clients are not charged; active clients pay the full gross.
+  const appFee = trial ? 0 : grossAppFee
+  const arFee = trial ? 0 : grossArFee
+  const chargedAdjustments = trial ? [] : adjustments
+  const chargedAdjustmentTotal = trial ? 0 : adjustmentTotal
+
+  const reimbursementCredits = getShortPaymentFeeCreditsForPeriod(clientId, period)
   const reimbursementBalance = client.reimbursement_balance ?? 0
 
-  const adjustmentTotal = adjustments.reduce((sum, a) => sum + a.amount, 0)
   const periodLabel = formatBillingPeriod(period)
-
   const lineItems: BillingLineItem[] = []
 
-  if (appFee > 0) {
+  lineItems.push({
+    id: `app-${periodLabel}`,
+    date: periodLabel,
+    description: 'Platform subscription',
+    amount: grossAppFee,
+    status: 'pending',
+  })
+
+  if (grossArFee > 0 || collectedVolume > 0 || resolved.feeType === 'flat') {
     lineItems.push({
-      id: `app-${periodLabel}`,
+      id: `fee-${periodLabel}`,
       date: periodLabel,
-      description: 'Platform subscription',
-      amount: appFee,
+      description: resolved.feeDescription,
+      amount: Math.round(grossArFee * 100) / 100,
       status: 'pending',
     })
   }
 
-  if (arFee > 0 || collectedVolume > 0) {
-    lineItems.push({
-      id: `ar-${periodLabel}`,
-      date: periodLabel,
-      description: `A/R service fee — ${ratePct}% of ${formatVolume(collectedVolume)} collected`,
-      amount: arFee,
-      status: 'pending',
-    })
-  }
-
-  for (const adj of adjustments) {
+  for (const adj of chargedAdjustments) {
     lineItems.push(adj)
   }
 
-  const subtotal = appFee + arFee + adjustmentTotal
-  const total = Math.max(0, subtotal - reimbursementBalance)
+  if (trial && grossSubtotal > 0) {
+    lineItems.push({
+      id: `trial-waiver-${periodLabel}`,
+      date: periodLabel,
+      description: 'Trial — fees waived (not charged while on trial)',
+      amount: -Math.round(grossSubtotal * 100) / 100,
+      status: 'pending',
+    })
+  }
+
+  const chargedSubtotal = appFee + arFee + chargedAdjustmentTotal
+  const total = Math.max(0, chargedSubtotal - reimbursementBalance)
+
   if (reimbursementCredits.length > 0) {
     lineItems.push(...reimbursementCredits)
   }
-  if (reimbursementBalance > 0 && subtotal > 0) {
+  if (reimbursementBalance > 0 && chargedSubtotal > 0) {
     lineItems.push({
       id: `reimb-acct-${clientId}-${periodLabel}`,
       date: periodLabel,
-      description: `Reimbursement account credit applied (${formatVolume(reimbursementBalance)} available)`,
-      amount: -Math.min(reimbursementBalance, subtotal),
+      description: `Credit on account applied (${formatVolume(reimbursementBalance)} available)`,
+      amount: -Math.min(reimbursementBalance, chargedSubtotal),
       status: 'pending',
     })
   }
@@ -299,13 +399,17 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
   return {
     appFee,
     collectedVolume,
-    ratePct,
+    ratePct: resolved.ratePct,
     arFee,
-    adjustments,
+    adjustments: chargedAdjustments,
     total,
     lineItems,
     reimbursementCredits,
     reimbursementBalance,
+    isTrial: trial,
+    grossSubtotal: Math.round(grossSubtotal * 100) / 100,
+    feeDisplay: resolved.displayRate,
+    feeType: resolved.feeType,
   }
 }
 
@@ -367,11 +471,63 @@ export async function issueClientBill(clientId: string, period: BillingPeriod): 
     amount: computed.total,
     status: 'open',
     line_items: computed.lineItems,
+    // Lock rate at issue so later Fee Terms edits do not change clawbacks.
+    fee_terms_snapshot: snapshotClientFeeTerms(client),
   }
 
   await persistOrThrow('Issue client bill', () => persistClientBill(bill))
   upsertBillInCache(bill)
+
+  if (appliedFromAccount > 0) {
+    await markCreditsAppliedToBill(clientId, bill.id, appliedFromAccount)
+  }
+
   return bill
+}
+
+/** Build a readable payment / lifecycle timeline for a bill. */
+export function getBillHistoryEvents(bill: ClientBill): BillHistoryEvent[] {
+  const events: BillHistoryEvent[] = [
+    {
+      id: `${bill.id}-issued`,
+      type: 'issued',
+      label: 'Invoice issued',
+      at: bill.issued_at,
+      amount: bill.amount,
+      detail: `Period ${bill.period} · due ${bill.due_at.slice(0, 10)}`,
+    },
+  ]
+
+  if (bill.payoneer_reference) {
+    events.push({
+      id: `${bill.id}-payoneer`,
+      type: 'payoneer_sent',
+      label: 'Payoneer payment request',
+      at: bill.issued_at,
+      detail: bill.payoneer_reference,
+    })
+  }
+
+  if (bill.status === 'overdue') {
+    events.push({
+      id: `${bill.id}-overdue`,
+      type: 'overdue',
+      label: 'Marked overdue',
+      at: bill.due_at,
+    })
+  }
+
+  if (bill.paid_at) {
+    events.push({
+      id: `${bill.id}-paid`,
+      type: 'paid',
+      label: 'Payment received',
+      at: bill.paid_at,
+      amount: bill.amount,
+    })
+  }
+
+  return events.sort((a, b) => a.at.localeCompare(b.at))
 }
 
 /** Send Payoneer payment request via Edge Function; stores reference on the bill. */
@@ -438,13 +594,4 @@ export function refreshOverdueBillStatuses(): void {
   })
 }
 
-/** Return the A/R tier label for display. */
-export function getArTierLabel(collectedVolume: number, factoring: boolean): string {
-  const tier =
-    AR_RATE_TIERS.find((t) => t.maxVolume == null || collectedVolume <= t.maxVolume) ??
-    AR_RATE_TIERS[AR_RATE_TIERS.length - 1]
-  const rate = factoring ? tier.factoringPct : tier.standardPct
-  if (!Number.isFinite(rate)) return 'Custom (negotiated)'
-  const maxLabel = tier.maxVolume == null ? '+' : `≤ $${(tier.maxVolume / 1000).toFixed(0)}k`
-  return `${maxLabel} — ${rate}%`
-}
+

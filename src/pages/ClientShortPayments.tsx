@@ -63,7 +63,7 @@ type SortField =
 
 function getShortResolutionPill(resolution: ShortPaymentResolution) {
   if (resolution === 'written_off') {
-    return <span className="status-pill status-pill--hold">Written off</span>
+    return <span className="status-pill status-pill--warn">Written off</span>
   }
   return <span className="status-pill status-pill--review">Open</span>
 }

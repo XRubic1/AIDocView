@@ -3,7 +3,6 @@ import { AlertTriangle, Info } from 'lucide-react'
 import { formatCurrency } from '../../utils/format'
 import { formatStorage } from '../../config/servicePlans'
 import { getClientBillingSummary } from '../../services/billingService'
-import { getArTierLabel } from '../../services/arBillingService'
 import { getTierLabel } from '../../utils/clientCapabilities'
 import { useClientTheme } from '../../theme/ThemeContext'
 import type { ServiceTier } from '../../types/client'
@@ -14,7 +13,7 @@ interface PlanBillingPanelProps {
   fillHeight?: boolean
 }
 
-/** Plan, A/R rate, period volume, and bill history for Settings. */
+/** Plan, fee terms, period volume, and bill history for Settings. */
 export default function PlanBillingPanel({ clientId, tier, fillHeight = false }: PlanBillingPanelProps) {
   const c = useClientTheme()
   const summary = useMemo(() => getClientBillingSummary(clientId), [clientId])
@@ -35,7 +34,6 @@ export default function PlanBillingPanel({ clientId, tier, fillHeight = false }:
   }
 
   const standing = summary.billing_standing ?? 'ok'
-  const tierLabel = getArTierLabel(summary.collected_volume ?? 0, summary.factoring ?? false)
 
   const rootClass = fillHeight
     ? 'client-settings-billing flex flex-col flex-1 min-h-0 h-full gap-3 overflow-hidden'
@@ -82,13 +80,13 @@ export default function PlanBillingPanel({ clientId, tier, fillHeight = false }:
 
         <div className="p-3 rounded-xl border" style={{ borderColor: c.border, backgroundColor: c.stat.blue }}>
           <p className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: c.mutedLight }}>
-            A/R rate
+            Fee terms
           </p>
           <p className="text-base font-bold tabular-nums" style={{ color: c.primary }}>
-            {summary.rate_pct != null ? `${summary.rate_pct}%` : '—'}
+            {summary.fee_display ?? (summary.rate_pct != null ? `${summary.rate_pct}%` : '—')}
           </p>
           <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
-            Tier: {tierLabel}
+            From client terms
             {summary.factoring ? ' · Factoring' : ''}
           </p>
         </div>
@@ -114,7 +112,7 @@ export default function PlanBillingPanel({ clientId, tier, fillHeight = false }:
           </p>
           <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
             App {formatCurrency(summary.app_fee_monthly)}
-            {summary.service_fee_monthly > 0 && ` + A/R ${formatCurrency(summary.service_fee_monthly)}`}
+            {summary.service_fee_monthly > 0 && ` + fee ${formatCurrency(summary.service_fee_monthly)}`}
           </p>
         </div>
       </div>
@@ -122,7 +120,7 @@ export default function PlanBillingPanel({ clientId, tier, fillHeight = false }:
       <div className="p-3 rounded-xl border shrink-0 flex items-start gap-2" style={{ borderColor: c.border }}>
         <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: c.info }} />
         <p className="text-xs leading-relaxed" style={{ color: c.secondary }}>
-          Monthly bill = {formatCurrency(summary.app_fee_monthly)} platform fee + your A/R rate ×
+          Monthly bill = {formatCurrency(summary.app_fee_monthly)} platform fee + your fee terms on
           confirmed collections for the period. Pending and reversed payments are excluded.
         </p>
       </div>

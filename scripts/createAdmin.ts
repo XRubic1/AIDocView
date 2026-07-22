@@ -68,7 +68,7 @@ async function main(): Promise<void> {
       email,
       password,
       email_confirm: true,
-      app_metadata: { role: 'admin' },
+      app_metadata: { role: 'admin', admin_role: 'super_admin' },
     }),
   })
 
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
       },
       body: JSON.stringify({
         email_confirm: true,
-        app_metadata: { role: 'admin' },
+        app_metadata: { role: 'admin', admin_role: 'super_admin' },
         password,
       }),
     })

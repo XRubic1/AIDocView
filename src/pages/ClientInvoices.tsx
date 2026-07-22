@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
-import { getClientInvoices } from '../data/clientDemoData'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
@@ -91,11 +90,12 @@ export default function ClientInvoices() {
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
   const [invoicesRefreshKey, setInvoicesRefreshKey] = useState(0)
-  const { dashboard: data, payments } = useClientDemoSnapshot(invoicesRefreshKey)
+  const { dashboard: data, payments, invoices: rawInvoices } =
+    useClientDemoSnapshot(invoicesRefreshKey)
 
   const invoices = useMemo(
-    () => mapClientVisibleInvoices(getClientInvoices(clientId, clientName)),
-    [clientId, clientName, invoicesRefreshKey]
+    () => mapClientVisibleInvoices(rawInvoices),
+    [rawInvoices]
   )
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')

@@ -34,6 +34,10 @@ interface ClientManualBatchFormProps {
   onClearAll: () => void
   onSubmit: () => void
   draftBatchNumber?: string
+  /** Hard-block message when invoice # is already used. */
+  invoiceNumberError?: string | null
+  /** Soft warning when load # was already submitted by this carrier. */
+  loadNumberWarning?: string | null
 }
 
 /** Manual batch entry — form + live invoice list with sticky submit bar. */
@@ -53,6 +57,8 @@ export default function ClientManualBatchForm({
   onClearAll,
   onSubmit,
   draftBatchNumber,
+  invoiceNumberError,
+  loadNumberWarning,
 }: ClientManualBatchFormProps) {
   const c = useClientTheme()
   const batchTotal = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0)
@@ -83,9 +89,16 @@ export default function ClientManualBatchForm({
                 value={formData.invoice_number}
                 onChange={(e) => onFormChange('invoice_number', e.target.value)}
                 placeholder="INV-2025-001"
-                className="client-input"
+                className={`client-input${invoiceNumberError ? ' client-input--error' : ''}`}
+                aria-invalid={Boolean(invoiceNumberError)}
               />
-              <p className="client-label-hint">Auto-generated, editable</p>
+              {invoiceNumberError ? (
+                <p className="client-field-error" role="alert">
+                  {invoiceNumberError}
+                </p>
+              ) : (
+                <p className="client-label-hint">Auto-generated, editable — must be unique for your account</p>
+              )}
             </div>
 
             <div className="client-manual-batch__field">
@@ -95,8 +108,13 @@ export default function ClientManualBatchForm({
                 value={formData.load_number}
                 onChange={(e) => onFormChange('load_number', e.target.value)}
                 placeholder="LD12345"
-                className="client-input"
+                className={`client-input${loadNumberWarning ? ' client-input--warn' : ''}`}
               />
+              {loadNumberWarning && (
+                <p className="client-field-warn" role="status">
+                  {loadNumberWarning}
+                </p>
+              )}
             </div>
 
             <div className="client-manual-batch__field client-manual-batch__field--full relative">

@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  CreditCard,
-  FileText,
+  ExternalLink,
   RefreshCw,
-  Send,
 } from 'lucide-react'
 import AdminLayout from '../components/AdminLayout'
 import { getAllClients } from '../services/clientRegistry'
@@ -16,20 +13,21 @@ import {
   getBillForPeriod,
   getBillingStanding,
   hydrateClientBillsFromSupabase,
-  issueClientBill,
-  markBillPaid,
   previousBillingPeriod,
   refreshOverdueBillStatuses,
-  resolveArRate,
   getClientCollectedVolume,
-  sendPayoneerRequest,
 } from '../services/arBillingService'
-import { getReimbursementReportForPeriod } from '../services/reimbursementAccountService'
+import {
+  getReimbursementReportForPeriod,
+  hydrateReimbursementLedgerFromSupabase,
+} from '../services/reimbursementAccountService'
+import { openBillingInvoiceWorkspace } from '../utils/openBillingInvoiceWorkspace'
 import { formatCurrency } from '../utils/format'
 import { useToast } from '../components/ui/ToastProvider'
 import { SkeletonRows } from '../components/ui/Skeleton'
 import type { BillingPeriod } from '../types/billing'
 import type { Client } from '../types/client'
+import '../styles/clientPortal.css'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -39,13 +37,13 @@ const MONTH_NAMES = [
 interface ClientBillRow {
   client: Client
   collectedVolume: number
-  ratePct: number
+  feeDisplay: string
   computedTotal: number
-  feeCreditsThisPeriod: number
+  grossSubtotal: number
+  isTrial: boolean
   reimbursementBalance: number
   standing: ReturnType<typeof getBillingStanding>
   billStatus: string
-  billId?: string
   payoneerRef?: string
 }
 
@@ -54,13 +52,15 @@ export default function Billing() {
   const clients = getAllClients()
   const [period, setPeriod] = useState<BillingPeriod>(previousBillingPeriod())
   const [loading, setLoading] = useState(true)
-  const [busyId, setBusyId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   const loadBills = useCallback(async () => {
     setLoading(true)
     try {
-      await hydrateClientBillsFromSupabase()
+      await Promise.all([
+        hydrateClientBillsFromSupabase(),
+        hydrateReimbursementLedgerFromSupabase().catch(() => undefined),
+      ])
       refreshOverdueBillStatuses()
     } catch (err) {
       console.error(err)
@@ -74,6 +74,13 @@ export default function Billing() {
     void loadBills()
   }, [loadBills, refreshKey])
 
+  // Refresh list when a popup workspace may have changed data.
+  useEffect(() => {
+    const onFocus = () => setRefreshKey((k) => k + 1)
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
+
   const rows: ClientBillRow[] = useMemo(() => {
     return clients
       .filter((c) => c.status !== 'pending' && c.status !== 'inactive')
@@ -82,33 +89,34 @@ export default function Billing() {
         try {
           computed = computeMonthlyBill(client.id, period)
         } catch {
-          computed = { total: NaN, collectedVolume: 0, ratePct: 0 }
+          computed = {
+            total: NaN,
+            collectedVolume: 0,
+            ratePct: 0,
+            isTrial: client.billing?.subscription_status === 'trial',
+            grossSubtotal: NaN,
+            feeDisplay: client.fee_terms
+              ? client.fee_terms.fee_type === 'flat'
+                ? `$${client.fee_terms.flat_fee_amount ?? 0} flat`
+                : `${client.fee_terms.fee_percentage ?? 0}%`
+              : 'No fee terms',
+          }
         }
 
         const bill = getBillForPeriod(client.id, period)
         const collectedVolume = getClientCollectedVolume(client.id, period)
         const reimbReport = getReimbursementReportForPeriod(client.id, period)
-        const feeCreditsThisPeriod = reimbReport.feeCredits.reduce(
-          (sum, e) => sum + e.fee_credit_amount,
-          0
-        )
-        let ratePct = 0
-        try {
-          ratePct = resolveArRate(client, collectedVolume)
-        } catch {
-          ratePct = NaN
-        }
 
         return {
           client,
           collectedVolume,
-          ratePct,
+          feeDisplay: computed.feeDisplay ?? '—',
           computedTotal: computed.total,
-          feeCreditsThisPeriod,
+          grossSubtotal: computed.grossSubtotal ?? NaN,
+          isTrial: Boolean(computed.isTrial),
           reimbursementBalance: reimbReport.pendingOnAccount,
           standing: getBillingStanding(client),
           billStatus: bill?.status ?? '—',
-          billId: bill?.id,
           payoneerRef: bill?.payoneer_reference,
         }
       })
@@ -122,98 +130,45 @@ export default function Billing() {
     setPeriod({ year: d.getFullYear(), month: d.getMonth() + 1 })
   }
 
-  const handleIssue = async (clientId: string) => {
-    setBusyId(clientId)
-    try {
-      const bill = await issueClientBill(clientId, period)
-      showToast(`Issued bill for ${periodKey} — ${formatCurrency(bill.amount)}`, 'success')
-      setRefreshKey((k) => k + 1)
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Issue failed', 'error')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const handlePayoneer = async (billId: string) => {
-    setBusyId(billId)
-    try {
-      const result = await sendPayoneerRequest(billId)
-      if (result.ok) {
-        showToast(`Payoneer request sent — ${result.reference}`, 'success')
-        setRefreshKey((k) => k + 1)
-      } else {
-        showToast(result.error ?? 'Payoneer request failed', 'error')
-      }
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Payoneer request failed', 'error')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const handleMarkPaid = async (billId: string) => {
-    setBusyId(billId)
-    try {
-      await markBillPaid(billId)
-      showToast('Bill marked paid', 'success')
-      setRefreshKey((k) => k + 1)
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Update failed', 'error')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const handleIssueAll = async () => {
-    const eligible = rows.filter((r) => r.billStatus === '—' && Number.isFinite(r.computedTotal))
-    if (eligible.length === 0) {
-      showToast('No clients to issue', 'info')
-      return
-    }
-    for (const row of eligible) {
-      await handleIssue(row.client.id)
+  const openInvoice = (clientId: string) => {
+    const win = openBillingInvoiceWorkspace(clientId, periodKey)
+    if (!win) {
+      showToast('Popup blocked. Allow popups to open the invoice window.', 'error')
     }
   }
 
   const standingBadge = (standing: ClientBillRow['standing']) => {
     const styles: Record<string, string> = {
-      ok: 'bg-emerald-100 text-emerald-800',
-      overdue: 'bg-amber-100 text-amber-800',
-      warning: 'bg-orange-100 text-orange-800',
-      locked: 'bg-red-100 text-red-800',
+      ok: 'status-pill status-pill--paid',
+      overdue: 'status-pill status-pill--pending',
+      warning: 'status-pill status-pill--hold',
+      locked: 'status-pill status-pill--overdue',
     }
     return (
-      <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${styles[standing]}`}>
-        {standing}
-      </span>
+      <span className={`${styles[standing] ?? 'status-pill'} capitalize`}>{standing}</span>
     )
   }
 
   return (
     <AdminLayout flushMain>
-      <div className="p-4 md:p-6 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-slate-600" />
-            <h1 className="text-lg font-semibold text-slate-900">Monthly Billing</h1>
-          </div>
+      <div className="flex flex-col min-h-0 h-full overflow-hidden">
+        <div className="client-page-toolbar shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => shiftPeriod(-1)}
-              className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+              className="p-1.5 rounded-md border border-slate-200 hover:bg-slate-50"
               aria-label="Previous period"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-sm font-medium text-slate-700 min-w-[140px] text-center">
+            <span className="text-sm font-medium text-slate-800 min-w-[120px] text-center">
               {periodLabel}
             </span>
             <button
               type="button"
               onClick={() => shiftPeriod(1)}
-              className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+              className="p-1.5 rounded-md border border-slate-200 hover:bg-slate-50"
               aria-label="Next period"
             >
               <ChevronRight className="w-4 h-4" />
@@ -221,137 +176,104 @@ export default function Billing() {
             <button
               type="button"
               onClick={() => setRefreshKey((k) => k + 1)}
-              className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+              className="p-1.5 rounded-md border border-slate-200 hover:bg-slate-50"
               aria-label="Refresh"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
+          <p className="text-xs text-slate-500">$99 + fee terms × collected · {periodKey}</p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => void handleIssueAll()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors"
-          >
-            <CreditCard className="w-4 h-4" />
-            Issue all computed bills
-          </button>
-        </div>
-
-        <div className="border border-slate-200 rounded-xl overflow-hidden bg-white relative">
+        <div className="client-table-scroll flex-1 min-h-0 overflow-auto relative">
           {loading && (
             <div className="absolute inset-0 z-10 bg-white/80 p-6">
               <SkeletonRows rows={8} rowClassName="h-12" />
             </div>
           )}
-          <div className="overflow-x-auto">
-            <table className="dashboard-table dashboard-table--compact w-full min-w-[900px]">
-              <thead>
-                <tr>
-                  <th>Client</th>
-                  <th className="text-right">Collected</th>
-                  <th className="text-right">Rate</th>
-                  <th className="text-right">Fee credits</th>
-                  <th className="text-right">Reimb. acct</th>
-                  <th className="text-right">Bill</th>
-                  <th>Status</th>
-                  <th>Standing</th>
-                  <th>Payoneer</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => {
-                  const id = row.client.id
-                  const isBusy = busyId === id || busyId === row.billId
-                  const hasBill = row.billStatus !== '—'
-                  const canIssue = !hasBill && Number.isFinite(row.computedTotal)
-
-                  return (
-                    <tr key={id}>
-                      <td>
-                        <p className="font-medium text-slate-900">{row.client.name}</p>
+          <table className="dashboard-table dashboard-table--compact w-full min-w-[860px]">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th className="text-right">Collected</th>
+                <th className="text-right">Fee terms</th>
+                <th className="text-right">On account</th>
+                <th className="text-right">Amount due</th>
+                <th>Status</th>
+                <th>Standing</th>
+                <th>Payoneer</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const id = row.client.id
+                return (
+                  <tr
+                    key={id}
+                    className="dashboard-table-row--clickable"
+                    onClick={() => openInvoice(id)}
+                  >
+                    <td>
+                      <p className="font-medium text-slate-900">{row.client.name}</p>
+                      <div className="flex flex-wrap gap-1 mt-0.5">
                         {row.client.factoring && (
                           <span className="text-[10px] text-blue-600 font-medium">Factoring</span>
                         )}
-                      </td>
-                      <td className="text-right tabular-nums">
-                        {formatCurrency(row.collectedVolume)}
-                      </td>
-                      <td className="text-right tabular-nums">
-                        {Number.isFinite(row.ratePct) ? `${row.ratePct}%` : 'Override needed'}
-                      </td>
-                      <td className="text-right tabular-nums text-emerald-700">
-                        {row.feeCreditsThisPeriod > 0
-                          ? `−${formatCurrency(row.feeCreditsThisPeriod)}`
-                          : '—'}
-                      </td>
-                      <td className="text-right tabular-nums text-slate-600">
-                        {row.reimbursementBalance > 0
-                          ? formatCurrency(row.reimbursementBalance)
-                          : '—'}
-                      </td>
-                      <td className="text-right tabular-nums font-medium">
-                        {Number.isFinite(row.computedTotal)
-                          ? formatCurrency(row.computedTotal)
-                          : '—'}
-                      </td>
-                      <td className="capitalize text-sm">{row.billStatus}</td>
-                      <td>{standingBadge(row.standing)}</td>
-                      <td className="text-xs font-mono text-slate-500">
-                        {row.payoneerRef ?? '—'}
-                      </td>
-                      <td>
-                        <div className="flex flex-wrap gap-1">
-                          {canIssue && (
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => void handleIssue(id)}
-                              className="text-xs px-2 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
-                            >
-                              Issue
-                            </button>
-                          )}
-                          {hasBill && row.billStatus !== 'paid' && row.billId && (
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => void handlePayoneer(row.billId!)}
-                              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-                            >
-                              <Send className="w-3 h-3" />
-                              Payoneer
-                            </button>
-                          )}
-                          {hasBill && row.billStatus !== 'paid' && row.billId && (
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => void handleMarkPaid(row.billId!)}
-                              className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
-                            >
-                              <CheckCircle2 className="w-3 h-3" />
-                              Paid
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                        {row.isTrial && (
+                          <span className="text-[10px] text-indigo-600 font-medium">Trial</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="text-right tabular-nums">
+                      {formatCurrency(row.collectedVolume)}
+                    </td>
+                    <td className="text-right tabular-nums">{row.feeDisplay}</td>
+                    <td className="text-right tabular-nums text-slate-600">
+                      {row.reimbursementBalance > 0
+                        ? formatCurrency(row.reimbursementBalance)
+                        : '—'}
+                    </td>
+                    <td className="text-right tabular-nums font-medium">
+                      {Number.isFinite(row.computedTotal) ? (
+                        <span className="inline-flex flex-col items-end">
+                          <span>{formatCurrency(row.computedTotal)}</span>
+                          {row.isTrial &&
+                            Number.isFinite(row.grossSubtotal) &&
+                            row.grossSubtotal > 0 && (
+                              <span className="text-[10px] font-normal text-slate-500">
+                                waived {formatCurrency(row.grossSubtotal)}
+                              </span>
+                            )}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="capitalize text-sm">{row.billStatus}</td>
+                    <td>{standingBadge(row.standing)}</td>
+                    <td className="text-xs font-mono text-slate-500">
+                      {row.payoneerRef ?? '—'}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openInvoice(id)
+                        }}
+                        className="dashboard-btn-secondary dashboard-btn-compact inline-flex items-center gap-1"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Open
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
-
-        <p className="text-xs text-slate-500">
-          Bill = $99 platform fee + A/R rate × confirmed collections for {periodKey}. Issue bills
-          at period close, send Payoneer requests, and mark paid when received. Accounts lock after
-          90 days unpaid.
-        </p>
       </div>
     </AdminLayout>
   )

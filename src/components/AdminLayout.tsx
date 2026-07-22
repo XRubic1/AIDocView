@@ -17,7 +17,12 @@ import {
   subscribeAdminNotifications,
 } from '../services/adminNotificationService'
 import { getAllBatches } from '../data/mockBatches'
-import { adminNavSections, getInitials, getAdminUserDisplayName } from '../config/adminNav'
+import { getInitials, getAdminUserDisplayName } from '../config/adminNav'
+import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
+import {
+  filterAdminNavSections,
+  getAdminStaffRoleLabel,
+} from '../utils/adminRoles'
 import { listPendingPayments } from '../services/clientPaymentService'
 import { listPendingWriteOffs } from '../services/writeOffApprovalService'
 import { syncAdminNotificationsForOpenReceiptDisputes } from '../services/paymentReceiptConfirmationService'
@@ -66,7 +71,12 @@ export default function AdminLayout({
 
   const userEmail = resolved.user?.email ?? undefined
   const userName = userNameProp || getAdminUserDisplayName(userEmail ?? null)
-  const userRole = userRoleProp || 'Administrator'
+  const { capabilities } = useAdminCapabilities()
+  const navSections = useMemo(
+    () => filterAdminNavSections(capabilities.staffRole),
+    [capabilities.staffRole]
+  )
+  const userRole = userRoleProp || getAdminStaffRoleLabel(capabilities.staffRole)
 
   useEffect(() => {
     syncAdminNotificationsForOpenReceiptDisputes()
@@ -176,7 +186,7 @@ export default function AdminLayout({
       )}
 
       <nav className={`flex-1 overflow-y-auto py-4 space-y-5 ${collapsed && !isMobile ? 'px-2' : 'px-3'}`}>
-        {adminNavSections.map((section) => (
+        {navSections.map((section) => (
           <div key={section.title}>
             {!collapsed || isMobile ? (
               <div

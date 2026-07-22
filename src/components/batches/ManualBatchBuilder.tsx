@@ -1,12 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { mockBrokers } from '../../data/mockBrokers'
 import { submitManualBatch } from '../../services/credyx/submitManualBatch'
 import { formatCurrency } from '../../utils/format'
 import {
-  ensureUniqueClientInvoiceNumber,
   getNextClientInvoiceNumber,
+  isInvoiceNumberTaken,
 } from '../../utils/clientInvoiceNumbers'
-import { Trash2 } from 'lucide-react'
+import {
+  formatLoadNumberWarning,
+  formatLoadNumberWarningsSummary,
+  getBatchLoadNumberWarnings,
+  getLoadNumberWarnings,
+  getWithinBatchLoadWarnings,
+  validateBatchInvoiceNumbers,
+} from '../../utils/invoiceDuplicateChecks'
+import { Pencil, Trash2 } from 'lucide-react'
 import { useToast } from '../ui/ToastProvider'
 
 interface InvoiceDocument {
@@ -61,6 +69,7 @@ export default function ManualBatchBuilder({
 }: ManualBatchBuilderProps) {
   const { showToast } = useToast()
   const [invoices, setInvoices] = useState<ManualInvoiceRow[]>([])
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [form, setForm] = useState<ManualInvoiceRow>(() => ({
     ...emptyForm(),
     invoice_number: nextFormInvoiceNumber(clientId, []),
@@ -68,11 +77,33 @@ export default function ManualBatchBuilder({
   const [brokerSuggestions, setBrokerSuggestions] = useState<typeof mockBrokers>([])
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
 
   const totalAmount = useMemo(
     () => invoices.reduce((s, inv) => s + parseFloat(inv.amount || '0'), 0),
     [invoices]
   )
+
+  const invoiceNumberError = useMemo(() => {
+    const num = form.invoice_number.trim()
+    if (!num) return null
+    const reserved = invoices
+      .filter((_, i) => i !== editingIndex)
+      .map((inv) => inv.invoice_number)
+    if (isInvoiceNumberTaken(clientId, num, reserved)) {
+      return `Invoice number ${num} is already used for this carrier`
+    }
+    return null
+  }, [clientId, form.invoice_number, invoices, editingIndex])
+
+  const loadNumberWarning = useMemo(() => {
+    const warnings = getLoadNumberWarnings(form.load_number, {
+      forClientId: clientId,
+      crossCarrier: true,
+    })
+    if (warnings.length === 0) return null
+    return formatLoadNumberWarning(warnings[0], 'admin')
+  }, [clientId, form.load_number])
 
   const handleField = (field: keyof ManualInvoiceRow, value: string) => {
     setForm((prev) => {
@@ -118,26 +149,84 @@ export default function ManualBatchBuilder({
       showToast('Broker name, broker address, and amount are required.', 'error')
       return
     }
-    const reserved = invoices.map((inv) => inv.invoice_number)
-    const invoiceNumber = ensureUniqueClientInvoiceNumber(
-      clientId,
-      form.invoice_number || nextFormInvoiceNumber(clientId, invoices),
-      reserved
-    )
+    const reserved = invoices
+      .filter((_, i) => i !== editingIndex)
+      .map((inv) => inv.invoice_number)
+    const invoiceNumber =
+      form.invoice_number.trim() || nextFormInvoiceNumber(clientId, invoices)
+
+    // Keep the user's exact custom number — do not rewrite to the next system #.
+    if (isInvoiceNumberTaken(clientId, invoiceNumber, reserved)) {
+      showToast(
+        `Invoice number ${invoiceNumber} is already used for this carrier. Enter a different number.`,
+        'error'
+      )
+      return
+    }
+
     const added = { ...form, invoice_number: invoiceNumber }
-    setInvoices((prev) => [...prev, added])
+    const nextInvoices =
+      editingIndex != null
+        ? invoices.map((inv, i) => (i === editingIndex ? added : inv))
+        : [...invoices, added]
+
+    setInvoices(nextInvoices)
+    setEditingIndex(null)
     setForm({
       ...emptyForm(),
-      invoice_number: nextFormInvoiceNumber(clientId, [...invoices, added]),
+      invoice_number: nextFormInvoiceNumber(clientId, nextInvoices),
+    })
+    setShowBrokerSuggestions(false)
+  }
+
+  const startEditInvoice = (index: number) => {
+    const inv = invoices[index]
+    if (!inv) return
+    setEditingIndex(index)
+    setForm({ ...inv })
+    setShowBrokerSuggestions(false)
+  }
+
+  const cancelEdit = () => {
+    setEditingIndex(null)
+    setForm({
+      ...emptyForm(),
+      invoice_number: nextFormInvoiceNumber(clientId, invoices),
     })
     setShowBrokerSuggestions(false)
   }
 
   const handleSubmit = async () => {
+    if (submittingRef.current || submitting) return
     if (invoices.length === 0) {
       showToast('Add at least one invoice before creating the batch.', 'error')
       return
     }
+
+    const numberIssues = validateBatchInvoiceNumbers(
+      clientId,
+      invoices.map((inv) => inv.invoice_number)
+    )
+    if (numberIssues.length > 0) {
+      showToast(numberIssues[0].message, 'error')
+      return
+    }
+
+    const loadWarnings = getBatchLoadNumberWarnings(
+      clientId,
+      invoices.map((inv) => inv.load_number),
+      { crossCarrier: true }
+    )
+    const withinBatchLoad = getWithinBatchLoadWarnings(invoices.map((inv) => inv.load_number))
+    if (loadWarnings.length > 0 || withinBatchLoad.length > 0) {
+      const summary =
+        loadWarnings.length > 0
+          ? formatLoadNumberWarningsSummary(loadWarnings, 'admin')
+          : `${withinBatchLoad.join('\n')}\n\nSubmit anyway?`
+      if (!window.confirm(summary)) return
+    }
+
+    submittingRef.current = true
     setSubmitting(true)
     try {
       const { batch } = await submitManualBatch({
@@ -157,6 +246,7 @@ export default function ManualBatchBuilder({
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Could not create batch', 'error')
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -186,7 +276,7 @@ export default function ManualBatchBuilder({
 
       <div className="border rounded p-6" style={{ borderColor: '#819291' }}>
         <h4 className="text-md font-semibold mb-4" style={{ color: '#113543' }}>
-          Add invoice
+          {editingIndex != null ? `Edit invoice ${form.invoice_number}` : 'Add invoice'}
         </h4>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -198,8 +288,20 @@ export default function ManualBatchBuilder({
               value={form.invoice_number}
               onChange={(e) => handleField('invoice_number', e.target.value)}
               className="w-full px-3 py-2 text-sm border rounded"
-              style={inputStyle}
+              style={{
+                ...inputStyle,
+                ...(invoiceNumberError ? { borderColor: '#f87171' } : {}),
+              }}
             />
+            {invoiceNumberError ? (
+              <p className="text-xs mt-1" style={{ color: '#b91c1c' }}>
+                {invoiceNumberError}
+              </p>
+            ) : (
+              <p className="text-xs mt-1" style={{ color: '#819291' }}>
+                Must be unique for this carrier
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: '#113543' }}>
@@ -210,8 +312,16 @@ export default function ManualBatchBuilder({
               value={form.load_number}
               onChange={(e) => handleField('load_number', e.target.value)}
               className="w-full px-3 py-2 text-sm border rounded"
-              style={inputStyle}
+              style={{
+                ...inputStyle,
+                ...(loadNumberWarning ? { borderColor: '#fbbf24' } : {}),
+              }}
             />
+            {loadNumberWarning && (
+              <p className="text-xs mt-1" style={{ color: '#b45309' }}>
+                {loadNumberWarning}
+              </p>
+            )}
           </div>
           <div className="relative">
             <label className="block text-sm font-medium mb-1" style={{ color: '#113543' }}>
@@ -297,14 +407,26 @@ export default function ManualBatchBuilder({
             )}
           </div>
         </div>
-        <button
-          type="button"
-          className="mt-4 px-4 py-2 text-sm font-medium rounded"
-          style={{ backgroundColor: '#819291', color: '#FFFFFF' }}
-          onClick={handleAddInvoice}
-        >
-          Add invoice to batch
-        </button>
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            type="button"
+            className="px-4 py-2 text-sm font-medium rounded"
+            style={{ backgroundColor: '#819291', color: '#FFFFFF' }}
+            onClick={handleAddInvoice}
+          >
+            {editingIndex != null ? 'Update invoice' : 'Add invoice to batch'}
+          </button>
+          {editingIndex != null && (
+            <button
+              type="button"
+              className="px-4 py-2 text-sm font-medium rounded border"
+              style={{ borderColor: '#819291', color: '#819291' }}
+              onClick={cancelEdit}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
 
       {invoices.length > 0 && (
@@ -349,13 +471,30 @@ export default function ManualBatchBuilder({
                     {inv.documents.length}
                   </td>
                   <td className="py-2 px-3 text-center">
-                    <button
-                      type="button"
-                      onClick={() => setInvoices((prev) => prev.filter((_, i) => i !== index))}
-                      aria-label="Remove invoice"
-                    >
-                      <Trash2 className="w-4 h-4" style={{ color: '#819291' }} />
-                    </button>
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditInvoice(index)}
+                        aria-label="Edit invoice"
+                        title="Edit"
+                      >
+                        <Pencil className="w-4 h-4" style={{ color: '#819291' }} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInvoices((prev) => prev.filter((_, i) => i !== index))
+                          if (editingIndex === index) cancelEdit()
+                          else if (editingIndex != null && editingIndex > index) {
+                            setEditingIndex(editingIndex - 1)
+                          }
+                        }}
+                        aria-label="Remove invoice"
+                        title="Remove"
+                      >
+                        <Trash2 className="w-4 h-4" style={{ color: '#819291' }} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

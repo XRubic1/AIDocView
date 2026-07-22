@@ -10,12 +10,12 @@ import {
   fetchClientById,
 } from '../services/clientRegistry'
 import { provisionClientAuthAccount } from '../services/clientAuthService'
-import { getPlanForTier } from '../config/servicePlans'
+import { getPlanForTier, createDefaultBilling } from '../config/servicePlans'
 import { getTierShortLabel } from '../utils/clientCapabilities'
 import { isSupabaseConfigured } from '../lib/supabase'
 import { SkeletonRows } from '../components/ui/Skeleton'
 import { loadClientTenantData, getClientInvoices, getClientBatches } from '../data/clientDemoData'
-import { Phone, Mail, MapPin, Search, Building2, CreditCard, X, ArrowLeft } from 'lucide-react'
+import { Phone, Mail, MapPin, Search, Building2, CreditCard, X, ArrowLeft, Plus } from 'lucide-react'
 import { mockBrokers } from '../data/mockBrokers'
 import { Broker } from '../types/broker'
 import { Invoice } from '../types/invoice'
@@ -23,6 +23,7 @@ import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
 import { useToast } from '../components/ui/ToastProvider'
+import '../styles/clientPortal.css'
 
 type ClientTab = 'ar' | 'batches' | 'collections' | 'terms' | 'plan'
 
@@ -312,466 +313,363 @@ export default function Clients() {
   }
 
   const getStatusBadge = (status?: string) => {
-    const statusConfig = {
-      active: { color: 'bg-green-100 text-green-800', label: 'Active' },
-      inactive: { color: 'bg-gray-100 text-gray-800', label: 'Inactive' },
-      pending: { color: 'bg-yellow-100 text-yellow-800', label: 'Pending' },
+    const styles: Record<string, string> = {
+      active: 'status-pill status-pill--paid',
+      inactive: 'status-pill',
+      pending: 'status-pill status-pill--pending',
+      suspended: 'status-pill status-pill--hold',
     }
-    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.active
+    const label =
+      status === 'inactive'
+        ? 'Inactive'
+        : status === 'pending'
+          ? 'Pending'
+          : status === 'suspended'
+            ? 'Suspended'
+            : 'Active'
+    return <span className={`${styles[status ?? 'active'] ?? 'status-pill'} capitalize`}>{label}</span>
+  }
 
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium ${config.color}`}>
-        {config.label}
-      </span>
-    )
+  /** Persist fee terms immediately (Terms tab edits). */
+  const persistFeeTerms = async (next: Client['fee_terms']) => {
+    if (!selectedClient) return
+    const updated = await updateClient(selectedClient.id, { fee_terms: next })
+    if (updated) {
+      setSelectedClient(updated)
+      refreshClients()
+    }
   }
 
   return (
-    <AdminLayout userName="Admin User" userRole="Administrator">
-      <div className="max-w-[1400px] mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-black mb-2">Clients</h1>
-          <p className="text-gray-600">Manage client (carrier) information and payment details</p>
-        </div>
-
-        {/* Search and Actions */}
-        <div className="bg-white border border-gray-200 p-4 mb-6 rounded">
-          <div className="flex items-center justify-between">
-            <div className="flex-1 max-w-md">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search clients..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
-                />
-              </div>
-            </div>
+    <AdminLayout flushMain>
+      <div className="flex flex-col min-h-0 h-full overflow-hidden">
+        <div className="client-page-toolbar shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search clients…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="client-input w-full pl-8 pr-3 py-1.5 text-sm"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-slate-500 tabular-nums">
+              {filteredClients.length} client{filteredClients.length !== 1 ? 's' : ''}
+            </p>
             <button
+              type="button"
               onClick={handleOpenAddModal}
-              className="px-4 py-2 text-sm font-medium text-white bg-black hover:bg-gray-800 transition-colors"
+              className="dashboard-btn-primary dashboard-btn-compact inline-flex items-center gap-1.5"
             >
-              Add Client
+              <Plus className="w-3.5 h-3.5" />
+              Add client
             </button>
           </div>
         </div>
 
-        {/* Clients Table */}
-        <div className="bg-white border border-gray-200">
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-bold text-black">All Clients</h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  {filteredClients.length} client{filteredClients.length !== 1 ? 's' : ''} found
-                </p>
-              </div>
+        <div className="client-table-scroll flex-1 min-h-0 overflow-auto">
+          {filteredClients.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+              <p className="text-sm font-medium">No clients found</p>
+              <p className="text-xs mt-1">Try adjusting your search</p>
             </div>
-
-            {filteredClients.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <p className="text-lg font-medium mb-2">No clients found</p>
-                <p className="text-sm">Try adjusting your search criteria</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                        Client Name
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                        Plan
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                        Contact Person
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                        Email
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                        Phone
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                        Location
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                        MC Number
-                      </th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                        Status
-                      </th>
-                      <th className="text-center py-3 px-4 text-sm font-semibold text-gray-700">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredClients.map((client, index) => (
-                      <tr
-                        key={client.id}
-                        className={`border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer ${
-                          index % 2 === 0 ? 'bg-gray-50' : 'bg-white'
-                        }`}
-                        onClick={() => handleClientClick(client)}
-                      >
-                        <td className="py-3 px-4 text-sm font-medium text-gray-900">
-                          {client.name}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-700">
-                          <span
-                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
-                              client.service_tier === 'managed'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-blue-100 text-blue-800'
-                            }`}
+          ) : (
+            <table className="dashboard-table dashboard-table--compact w-full min-w-[920px]">
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Plan</th>
+                  <th>Billing</th>
+                  <th>Contact</th>
+                  <th>Email</th>
+                  <th>Phone</th>
+                  <th>Location</th>
+                  <th>MC</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredClients.map((client) => {
+                  const billing = client.billing?.subscription_status ?? 'trial'
+                  return (
+                    <tr
+                      key={client.id}
+                      className="dashboard-table-row--clickable"
+                      onClick={() => handleClientClick(client)}
+                    >
+                      <td>
+                        <p className="font-medium text-slate-900">{client.name}</p>
+                        {client.factoring ? (
+                          <span className="text-[10px] text-slate-500 font-medium">Factoring</span>
+                        ) : null}
+                      </td>
+                      <td>
+                        <span className="text-xs font-medium text-slate-700">
+                          {getTierShortLabel(client.service_tier ?? 'self_service')}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`text-xs font-medium capitalize ${
+                            billing === 'trial' ? 'text-sky-700' : 'text-slate-700'
+                          }`}
+                        >
+                          {billing.replace('_', ' ')}
+                        </span>
+                      </td>
+                      <td className="text-slate-600">{client.contact_person || '—'}</td>
+                      <td>
+                        {client.email ? (
+                          <a
+                            href={`mailto:${client.email}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900"
                           >
-                            {getTierShortLabel(client.service_tier ?? 'self_service')}
+                            <Mail className="w-3 h-3 shrink-0" />
+                            <span className="truncate max-w-[160px]">{client.email}</span>
+                          </a>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td>
+                        {client.phone ? (
+                          <a
+                            href={`tel:${client.phone}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900"
+                          >
+                            <Phone className="w-3 h-3 shrink-0" />
+                            {client.phone}
+                          </a>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="text-slate-600">
+                        {formatAddress(client) !== '-' ? (
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="truncate max-w-[140px]">{formatAddress(client)}</span>
                           </span>
-                          {client.status === 'pending' && (
-                            <span className="ml-1 text-xs text-yellow-700">· Pending</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-700">
-                          {client.contact_person || '-'}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-700">
-                          {client.email ? (
-                            <a
-                              href={`mailto:${client.email}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-blue-600 hover:text-blue-800 flex items-center space-x-1"
-                            >
-                              <Mail className="w-3 h-3" />
-                              <span>{client.email}</span>
-                            </a>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-700">
-                          {client.phone ? (
-                            <a
-                              href={`tel:${client.phone}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-blue-600 hover:text-blue-800 flex items-center space-x-1"
-                            >
-                              <Phone className="w-3 h-3" />
-                              <span>{client.phone}</span>
-                            </a>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-700">
-                          {formatAddress(client) !== '-' ? (
-                            <div className="flex items-center space-x-1">
-                              <MapPin className="w-3 h-3 text-gray-400" />
-                              <span>{formatAddress(client)}</span>
-                            </div>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-gray-700">
-                          {client.mc_number || '-'}
-                        </td>
-                        <td className="py-3 px-4 text-sm">{getStatusBadge(client.status)}</td>
-                        <td className="py-3 px-4 text-center">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleClientClick(client)
-                            }}
-                            className="px-3 py-1 text-sm font-medium text-white bg-black hover:bg-gray-800 transition-colors"
-                          >
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="tabular-nums text-slate-600">{client.mc_number || '—'}</td>
+                      <td>{getStatusBadge(client.status)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleClientClick(client)
+                          }}
+                          className="dashboard-btn-secondary dashboard-btn-compact"
+                        >
+                          Open
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
-      {/* Client Detail Modal with Tabs */}
+      {/* Client detail workspace */}
       {selectedClient && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            {/* Header */}
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center space-x-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-stretch justify-center p-3 sm:p-4">
+          <div className="bg-white w-full max-w-6xl h-full max-h-[calc(100vh-1.5rem)] rounded-lg border border-slate-200 shadow-xl overflow-hidden flex flex-col">
+            <div className="shrink-0 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between gap-3">
+              <div className="min-w-0 flex items-center gap-2.5">
                 <button
+                  type="button"
                   onClick={handleCloseModal}
-                  className="p-2 hover:bg-gray-100 rounded transition-colors"
-                  style={{ color: '#819291' }}
+                  className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
+                  aria-label="Back to list"
                 >
-                  <ArrowLeft className="w-5 h-5" />
+                  <ArrowLeft className="w-4 h-4" />
                 </button>
-                <div>
-                  <h2 className="text-2xl font-bold" style={{ color: '#113543' }}>
-                    {selectedClient.name}
-                  </h2>
-                  <div className="mt-1">{getStatusBadge(selectedClient.status)}</div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-semibold text-slate-900 truncate">
+                      {selectedClient.name}
+                    </h2>
+                    {getStatusBadge(selectedClient.status)}
+                    {selectedClient.billing?.subscription_status === 'trial' ? (
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-700">
+                        Trial
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-slate-500 truncate mt-0.5">
+                    {getTierShortLabel(selectedClient.service_tier ?? 'self_service')}
+                    {selectedClient.email ? ` · ${selectedClient.email}` : ''}
+                  </p>
                 </div>
               </div>
-                <button
-                  onClick={handleCloseModal}
-                  className="text-gray-400 hover:text-black transition-colors"
-                >
-                <X className="w-5 h-5" />
-                </button>
-              </div>
-
-            {/* Tabs */}
-            <div className="border-b border-gray-200 flex-shrink-0">
-              <nav className="flex space-x-1 px-6">
-                {[
-                  { id: 'ar' as ClientTab, label: 'A/R' },
-                  { id: 'batches' as ClientTab, label: 'Batches' },
-                  { id: 'collections' as ClientTab, label: 'Collections' },
-                  { id: 'terms' as ClientTab, label: 'Terms' },
-                  { id: 'plan' as ClientTab, label: 'Plan' },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id)
-                      // Reset broker selection when switching tabs
-                      if (tab.id !== 'collections') {
-                        setSelectedBroker(null)
-                        setSelectedInvoice(null)
-                      }
-                    }}
-                    className="px-6 py-3 text-sm font-medium transition-colors relative"
-                    style={{
-                      color: activeTab === tab.id ? '#113543' : '#819291',
-                      borderBottom: activeTab === tab.id ? '2px solid #C2A558' : '2px solid transparent',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (activeTab !== tab.id) {
-                        e.currentTarget.style.color = '#113543'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (activeTab !== tab.id) {
-                        e.currentTarget.style.color = '#819291'
-                      }
-                    }}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </nav>
+              <button
+                type="button"
+                onClick={handleCloseModal}
+                className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* Tab Content */}
-            <div className="flex-1 overflow-y-auto p-6 relative">
+            <div className="shrink-0 border-b border-slate-200 px-3 py-1.5 flex items-center gap-1 overflow-x-auto">
+              {(
+                [
+                  ['ar', 'A/R'],
+                  ['batches', 'Batches'],
+                  ['collections', 'Collections'],
+                  ['terms', 'Terms'],
+                  ['plan', 'Plan'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(id)
+                    if (id !== 'collections') {
+                      setSelectedBroker(null)
+                      setSelectedInvoice(null)
+                    }
+                  }}
+                  className={`px-2.5 py-1 text-xs font-medium rounded border transition-colors shrink-0 ${
+                    activeTab === id
+                      ? 'border-slate-900 bg-white text-slate-900'
+                      : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 relative text-sm text-slate-800">
               {tenantLoading && (
                 <div className="absolute inset-0 z-10 bg-white/90 p-4">
                   <SkeletonRows rows={6} rowClassName="h-14" />
                 </div>
               )}
               {activeTab === 'ar' && (
-              <div className="space-y-6">
-                  {/* Filter Buttons */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
+              <div className="space-y-3">
+                  <div className="flex items-center gap-1">
+                    {(
+                      [
+                        ['all', 'All'],
+                        ['open', 'Open'],
+                        ['paid', 'Paid'],
+                      ] as const
+                    ).map(([id, label]) => (
                       <button
-                        onClick={() => setArFilter('all')}
-                        className="px-4 py-2 text-sm font-medium transition-colors"
-                        style={{
-                          backgroundColor: arFilter === 'all' ? '#C2A558' : '#f8f9fa',
-                          color: arFilter === 'all' ? '#FFFFFF' : '#113543',
-                          border: arFilter === 'all' ? 'none' : '1px solid #819291',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (arFilter !== 'all') {
-                            e.currentTarget.style.backgroundColor = '#f0f0f0'
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (arFilter !== 'all') {
-                            e.currentTarget.style.backgroundColor = '#f8f9fa'
-                          }
-                        }}
+                        key={id}
+                        type="button"
+                        onClick={() => setArFilter(id)}
+                        className={`px-2.5 py-1 text-xs font-medium rounded border transition-colors ${
+                          arFilter === id
+                            ? 'border-slate-900 bg-slate-900 text-white'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
                       >
-                        All
+                        {label}
                       </button>
-                      <button
-                        onClick={() => setArFilter('open')}
-                        className="px-4 py-2 text-sm font-medium transition-colors"
-                        style={{
-                          backgroundColor: arFilter === 'open' ? '#C2A558' : '#f8f9fa',
-                          color: arFilter === 'open' ? '#FFFFFF' : '#113543',
-                          border: arFilter === 'open' ? 'none' : '1px solid #819291',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (arFilter !== 'open') {
-                            e.currentTarget.style.backgroundColor = '#f0f0f0'
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (arFilter !== 'open') {
-                            e.currentTarget.style.backgroundColor = '#f8f9fa'
-                          }
-                        }}
-                      >
-                        Open Only
-                      </button>
-                      <button
-                        onClick={() => setArFilter('paid')}
-                        className="px-4 py-2 text-sm font-medium transition-colors"
-                        style={{
-                          backgroundColor: arFilter === 'paid' ? '#C2A558' : '#f8f9fa',
-                          color: arFilter === 'paid' ? '#FFFFFF' : '#113543',
-                          border: arFilter === 'paid' ? 'none' : '1px solid #819291',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (arFilter !== 'paid') {
-                            e.currentTarget.style.backgroundColor = '#f0f0f0'
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (arFilter !== 'paid') {
-                            e.currentTarget.style.backgroundColor = '#f8f9fa'
-                          }
-                        }}
-                      >
-                        Paid Only
-                      </button>
-                    </div>
+                    ))}
                   </div>
 
-                  {/* A/R Summary Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                      <div className="text-sm mb-1" style={{ color: '#819291' }}>
-                        Total {arFilter === 'paid' ? 'Paid' : arFilter === 'open' ? 'Open A/R' : 'A/R'}
-                      </div>
-                      <div className="text-2xl font-bold" style={{ color: '#113543' }}>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-px rounded-lg border border-slate-200 overflow-hidden bg-slate-200">
+                    <div className="bg-white px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                        Total {arFilter === 'paid' ? 'paid' : arFilter === 'open' ? 'open' : 'A/R'}
+                      </p>
+                      <p className="text-base font-semibold tabular-nums text-slate-900 mt-0.5">
                         {formatCurrency(arTotals.total)}
-                      </div>
+                      </p>
                     </div>
-                    {arFilter !== 'paid' && (
+                    {arFilter !== 'paid' ? (
                       <>
-                        <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                          <div className="text-sm mb-1" style={{ color: '#819291' }}>1-15 Days</div>
-                          <div className="text-2xl font-bold" style={{ color: '#113543' }}>
-                            {formatCurrency(arTotals['1_15'])}
+                        {(
+                          [
+                            ['1-15', arTotals['1_15']],
+                            ['16-30', arTotals['16_30']],
+                            ['31-45', arTotals['31_45']],
+                          ] as const
+                        ).map(([label, value]) => (
+                          <div key={label} className="bg-white px-3 py-2">
+                            <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                              {label} days
+                            </p>
+                            <p className="text-base font-semibold tabular-nums text-slate-900 mt-0.5">
+                              {formatCurrency(value)}
+                            </p>
                           </div>
-                        </div>
-                        <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                          <div className="text-sm mb-1" style={{ color: '#819291' }}>16-30 Days</div>
-                          <div className="text-2xl font-bold" style={{ color: '#113543' }}>
-                            {formatCurrency(arTotals['16_30'])}
-                          </div>
-                        </div>
-                        <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                          <div className="text-sm mb-1" style={{ color: '#819291' }}>31-45 Days</div>
-                          <div className="text-2xl font-bold" style={{ color: '#113543' }}>
-                            {formatCurrency(arTotals['31_45'])}
-                          </div>
-                        </div>
+                        ))}
                       </>
-                    )}
-                    {arFilter === 'paid' && (
+                    ) : (
                       <>
-                        <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                          <div className="text-sm mb-1" style={{ color: '#819291' }}>Total Paid</div>
-                          <div className="text-2xl font-bold" style={{ color: '#113543' }}>
-                            {formatCurrency(arTotals.total)}
-                          </div>
-                        </div>
-                        <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                          <div className="text-sm mb-1" style={{ color: '#819291' }}>Invoices</div>
-                          <div className="text-2xl font-bold" style={{ color: '#113543' }}>
+                        <div className="bg-white px-3 py-2">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                            Invoices
+                          </p>
+                          <p className="text-base font-semibold tabular-nums text-slate-900 mt-0.5">
                             {filteredArInvoices.length}
-                          </div>
+                          </p>
                         </div>
-                        <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                          <div className="text-sm mb-1" style={{ color: '#819291' }}>Status</div>
-                          <div className="text-2xl font-bold" style={{ color: '#819291' }}>
-                            Paid
-                          </div>
+                        <div className="bg-white px-3 py-2 col-span-2">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                            Status
+                          </p>
+                          <p className="text-base font-semibold text-slate-700 mt-0.5">Paid</p>
                         </div>
                       </>
                     )}
                   </div>
 
                   {/* A/R Table */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="dashboard-table dashboard-table--compact w-full">
                       <thead>
-                        <tr className="border-b" style={{ borderColor: '#819291' }}>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Invoice#
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Broker
-                          </th>
-                          <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Amount
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Invoice Date
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Due Date
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Days Overdue
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Status
-                          </th>
+                        <tr>
+                          <th>Invoice#</th>
+                          <th>Broker</th>
+                          <th className="text-right">Amount</th>
+                          <th>Invoice date</th>
+                          <th>Due date</th>
+                          <th>Days overdue</th>
+                          <th>Status</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredArInvoices.map((inv, index) => (
-                            <tr
-                              key={inv.id}
-                              className="border-b"
-                              style={{
-                                borderColor: '#819291',
-                                backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
-                              }}
-                            >
-                              <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
-                                {inv.invoice_number}
-                              </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                                {inv.broker_name || '-'}
-                              </td>
-                              <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
+                        {filteredArInvoices.map((inv) => (
+                            <tr key={inv.id}>
+                              <td className="font-medium">{inv.invoice_number}</td>
+                              <td className="text-slate-600">{inv.broker_name || '—'}</td>
+                              <td className="text-right tabular-nums font-medium">
                                 {formatCurrency(inv.amount)}
                               </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                                {formatDate(inv.invoice_date)}
+                              <td className="text-slate-600">{formatDate(inv.invoice_date)}</td>
+                              <td className="text-slate-600">{formatDate(inv.due_date)}</td>
+                              <td className="text-slate-600">
+                                {inv.status === 'paid' ? '—' : `${inv.days_since_expected || 0} days`}
                               </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                                {formatDate(inv.due_date)}
-                              </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                                {inv.status === 'paid' ? '-' : `${inv.days_since_expected || 0} days`}
-                              </td>
-                              <td className="py-3 px-4 text-sm">
+                              <td>
                                 <span
-                                  className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
-                                  style={{
-                                    backgroundColor: 
-                                      inv.status === 'paid' ? '#819291' :
-                                      inv.status === 'hold' ? '#C2A558' :
-                                      '#819291',
-                                    color: '#FFFFFF',
-                                  }}
+                                  className={`status-pill capitalize ${
+                                    inv.status === 'paid'
+                                      ? 'status-pill--paid'
+                                      : inv.status === 'hold'
+                                        ? 'status-pill--hold'
+                                        : 'status-pill--pending'
+                                  }`}
                                 >
                                   {inv.status === 'paid' ? 'Paid' : inv.status}
                                 </span>
@@ -785,78 +683,58 @@ export default function Clients() {
                     )}
 
               {activeTab === 'batches' && (
-                <div className="space-y-6">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="dashboard-table dashboard-table--compact w-full">
                       <thead>
-                        <tr className="border-b" style={{ borderColor: '#819291' }}>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Batch#
-                          </th>
-                          <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Total Invoices
-                          </th>
-                          <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Total Amount
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Status
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Submitted
-                          </th>
+                        <tr>
+                          <th>Batch#</th>
+                          <th className="text-right">Invoices</th>
+                          <th className="text-right">Amount</th>
+                          <th>Status</th>
+                          <th>Submitted</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {clientBatches.map((batch, index) => (
-                          <tr
-                            key={batch.id}
-                            className="border-b"
-                            style={{
-                              borderColor: '#819291',
-                              backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
-                            }}
-                          >
-                            <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
-                              {batch.batch_number}
-                            </td>
-                            <td className="py-3 px-4 text-sm text-right" style={{ color: '#819291' }}>
-                              {batch.total_invoices}
-                            </td>
-                            <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
+                        {clientBatches.map((batch) => (
+                          <tr key={batch.id}>
+                            <td className="font-medium">{batch.batch_number}</td>
+                            <td className="text-right tabular-nums">{batch.total_invoices}</td>
+                            <td className="text-right tabular-nums font-medium">
                               {formatCurrency(batch.total_amount)}
                             </td>
-                            <td className="py-3 px-4 text-sm">
+                            <td>
                               <span
-                                className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
-                                style={{
-                                  backgroundColor: batch.status === 'ready_to_post' ? '#C2A558' : '#819291',
-                                  color: '#FFFFFF',
-                                }}
+                                className={`status-pill capitalize ${
+                                  batch.status === 'ready_to_post'
+                                    ? 'status-pill--pending'
+                                    : 'status-pill'
+                                }`}
                               >
-                                {batch.status.replace('_', ' ')}
+                                {batch.status.replace(/_/g, ' ')}
                               </span>
                             </td>
-                            <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                              {formatDate(batch.submitted_at)}
-                            </td>
+                            <td className="text-slate-600">{formatDate(batch.submitted_at)}</td>
                           </tr>
                         ))}
+                        {clientBatches.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="text-center text-slate-500 py-6">
+                              No batches for this client.
+                            </td>
+                          </tr>
+                        ) : null}
                       </tbody>
                     </table>
                   </div>
-                      </div>
                     )}
 
               {activeTab === 'collections' && (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {!selectedBroker ? (
-                    // Broker List View
-                    <div className="space-y-6">
+                    <div className="space-y-3">
                       {brokersWithCounts.length === 0 ? (
-                        <div className="text-center py-12" style={{ color: '#819291' }}>
-                          <div className="text-4xl mb-2">📋</div>
-                          <div className="font-medium">No brokers found for this client</div>
+                        <div className="text-center py-10 text-slate-500">
+                          <p className="text-sm font-medium">No brokers found for this client</p>
                         </div>
                       ) : (
                         <div className="overflow-x-auto">
@@ -1091,362 +969,314 @@ export default function Clients() {
               )}
 
               {activeTab === 'plan' && selectedClient && (
-                <div className="space-y-6">
+                <div className="max-w-3xl space-y-4">
                   <div>
-                    <h3 className="text-lg font-semibold mb-4" style={{ color: '#113543' }}>
+                    <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
                       Service plan
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-xl">
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
-                          Service tier
-                        </label>
-                        <select
-                          value={selectedClient.service_tier ?? 'self_service'}
-                          onChange={(e) => {
-                            void (async () => {
-                              const tier = e.target.value as ServiceTier
-                              const updated = await updateClientTier(selectedClient.id, tier)
-                              if (updated) {
-                                setSelectedClient(updated)
-                                refreshClients()
-                              }
-                            })()
-                          }}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
-                        >
-                          <option value="self_service">Self-Service</option>
-                          <option value="managed">Managed</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
-                          Account status
-                        </label>
-                        <select
-                          value={selectedClient.status ?? 'active'}
-                          onChange={(e) => {
-                            void (async () => {
-                              const newStatus = e.target.value as Client['status']
-                              const updated = await updateClient(selectedClient.id, {
-                                status: newStatus,
-                              })
-                              if (updated && newStatus === 'active' && selectedClient.email) {
-                                const prev = selectedClient.status
-                                if (prev !== 'active') {
-                                  const auth = await provisionClientAuthAccount(
-                                    updated.id,
-                                    updated.email!
-                                  )
-                                  if (!auth.ok) {
-                                    console.error('[Clients] Auth provision failed:', auth.error)
-                                  }
-                                }
-                              }
-                              if (updated) {
-                                setSelectedClient(await fetchClientById(updated.id) ?? updated)
-                                refreshClients()
-                              }
-                            })()
-                          }}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
-                        >
-                          <option value="active">Active</option>
-                          <option value="pending">Pending</option>
-                          <option value="inactive">Inactive</option>
-                          <option value="suspended">Suspended</option>
-                        </select>
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className="flex items-center gap-2 text-sm font-medium" style={{ color: '#113543' }}>
-                          <input
-                            type="checkbox"
-                            checked={selectedClient.factoring ?? false}
-                            onChange={(e) => {
-                              void (async () => {
-                                const updated = await updateClient(selectedClient.id, {
-                                  factoring: e.target.checked,
-                                })
-                                if (updated) {
-                                  setSelectedClient(updated)
-                                  refreshClients()
-                                }
-                              })()
-                            }}
-                          />
-                          Factoring client (discounted A/R rate tier)
-                        </label>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
-                          A/R rate override (%)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          placeholder="Negotiated rate"
-                          value={selectedClient.ar_rate_override ?? ''}
-                          onChange={(e) => {
-                            const val = e.target.value
-                            void (async () => {
-                              const updated = await updateClient(selectedClient.id, {
-                                ar_rate_override: val ? Number.parseFloat(val) : undefined,
-                              })
-                              if (updated) {
-                                setSelectedClient(updated)
-                                refreshClients()
-                              }
-                            })()
-                          }}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded"
-                        />
-                      </div>
-                    </div>
-                    {(() => {
-                      const plan = getPlanForTier(selectedClient.service_tier ?? 'self_service')
-                      return (
-                        <div className="mt-6 p-4 border rounded-lg" style={{ borderColor: '#e2e8f0' }}>
-                          <p className="font-semibold" style={{ color: '#113543' }}>
-                            {plan.name}
-                          </p>
-                          <p className="text-sm mt-1" style={{ color: '#819291' }}>
-                            App {formatCurrency(plan.app_fee_monthly)}/mo + A/R fee on collected volume
-                          </p>
-                        </div>
-                      )
-                    })()}
+                    <p className="text-xs text-slate-600 mb-3">
+                      Tier, account status, and whether monthly Credyx fees are charged.
+                    </p>
                   </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block text-xs">
+                      <span className="font-medium text-slate-600 uppercase tracking-wide">
+                        Service tier
+                      </span>
+                      <select
+                        value={selectedClient.service_tier ?? 'self_service'}
+                        onChange={(e) => {
+                          void (async () => {
+                            const tier = e.target.value as ServiceTier
+                            const updated = await updateClientTier(selectedClient.id, tier)
+                            if (updated) {
+                              setSelectedClient(updated)
+                              refreshClients()
+                            }
+                          })()
+                        }}
+                        className="client-input mt-1 w-full text-sm"
+                      >
+                        <option value="self_service">Self-Service</option>
+                        <option value="managed">Managed</option>
+                      </select>
+                    </label>
+
+                    <label className="block text-xs">
+                      <span className="font-medium text-slate-600 uppercase tracking-wide">
+                        Account status
+                      </span>
+                      <select
+                        value={selectedClient.status ?? 'active'}
+                        onChange={(e) => {
+                          void (async () => {
+                            const newStatus = e.target.value as Client['status']
+                            const updated = await updateClient(selectedClient.id, {
+                              status: newStatus,
+                            })
+                            if (updated && newStatus === 'active' && selectedClient.email) {
+                              const prev = selectedClient.status
+                              if (prev !== 'active') {
+                                const auth = await provisionClientAuthAccount(
+                                  updated.id,
+                                  updated.email!
+                                )
+                                if (!auth.ok) {
+                                  console.error('[Clients] Auth provision failed:', auth.error)
+                                }
+                              }
+                            }
+                            if (updated) {
+                              setSelectedClient((await fetchClientById(updated.id)) ?? updated)
+                              refreshClients()
+                            }
+                          })()
+                        }}
+                        className="client-input mt-1 w-full text-sm"
+                      >
+                        <option value="active">Active</option>
+                        <option value="pending">Pending</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="suspended">Suspended</option>
+                      </select>
+                    </label>
+
+                    <label className="block text-xs sm:col-span-2">
+                      <span className="font-medium text-slate-600 uppercase tracking-wide">
+                        Billing subscription
+                      </span>
+                      <select
+                        value={selectedClient.billing?.subscription_status ?? 'trial'}
+                        onChange={(e) => {
+                          void (async () => {
+                            const subscription_status = e.target.value as NonNullable<
+                              Client['billing']
+                            >['subscription_status']
+                            const planBilling =
+                              selectedClient.billing ??
+                              createDefaultBilling(selectedClient.service_tier ?? 'self_service')
+                            const updated = await updateClient(selectedClient.id, {
+                              billing: { ...planBilling, subscription_status },
+                            })
+                            if (updated) {
+                              setSelectedClient(updated)
+                              refreshClients()
+                              showToast(
+                                subscription_status === 'active'
+                                  ? 'Trial ended — monthly fees will be charged'
+                                  : `Billing set to ${subscription_status.replace('_', ' ')}`,
+                                'success'
+                              )
+                            }
+                          })()
+                        }}
+                        className="client-input mt-1 w-full text-sm max-w-md"
+                      >
+                        <option value="trial">Trial (fees waived)</option>
+                        <option value="active">Active (charge fees)</option>
+                        <option value="past_due">Past due</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                      <span className="block text-xs text-slate-500 mt-1.5">
+                        Trial waives Credyx monthly invoice fees. Switch to Active to start billing.
+                      </span>
+                    </label>
+
+                    <label className="flex items-center gap-2 text-sm text-slate-800 sm:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedClient.factoring ?? false}
+                        onChange={(e) => {
+                          void (async () => {
+                            const updated = await updateClient(selectedClient.id, {
+                              factoring: e.target.checked,
+                            })
+                            if (updated) {
+                              setSelectedClient(updated)
+                              refreshClients()
+                            }
+                          })()
+                        }}
+                      />
+                      Factoring client
+                    </label>
+                  </div>
+
+                  {(() => {
+                    const plan = getPlanForTier(selectedClient.service_tier ?? 'self_service')
+                    return (
+                      <div className="rounded-lg border border-slate-200 px-3 py-2.5 bg-slate-50">
+                        <p className="text-sm font-medium text-slate-900">{plan.name}</p>
+                        <p className="text-xs text-slate-600 mt-0.5">
+                          App {formatCurrency(plan.app_fee_monthly)}/mo + collection fee from Fee
+                          Terms
+                        </p>
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
 
-              {activeTab === 'terms' && (
-                <div className="space-y-6">
-                  {/* Fee Terms */}
+              {activeTab === 'terms' && selectedClient && (
+                <div className="max-w-3xl space-y-4">
                   <div>
-                    <h3 className="text-lg font-semibold mb-4" style={{ color: '#113543' }}>
-                      Fee Terms
+                    <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
+                      Fee terms
                     </h3>
-                    <p className="text-sm mb-4" style={{ color: '#819291' }}>
-                      Set the fee structure for this client. Fees will be automatically calculated when batches are submitted.
+                    <p className="text-xs text-slate-600">
+                      Used for batch estimates and monthly Credyx billing. Changes save immediately.
                     </p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
-                          Fee Type
-                        </label>
-                        <select
-                          value={selectedClient.fee_terms?.fee_type || 'percentage'}
-                          onChange={(e) => {
-                            const newFeeType = e.target.value as 'percentage' | 'flat'
-                            setClients((prev) =>
-                              prev.map((c) =>
-                                c.id === selectedClient.id
-                                  ? {
-                                      ...c,
-                                      fee_terms: {
-                                        ...c.fee_terms,
-                                        fee_type: newFeeType,
-                                        fee_percentage: newFeeType === 'percentage' ? c.fee_terms?.fee_percentage : undefined,
-                                        flat_fee_amount: newFeeType === 'flat' ? c.fee_terms?.flat_fee_amount : undefined,
-                                      },
-                                    }
-                                  : c
-                              )
-                            )
-                            setSelectedClient((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    fee_terms: {
-                                      ...prev.fee_terms,
-                                      fee_type: newFeeType,
-                                      fee_percentage: newFeeType === 'percentage' ? prev.fee_terms?.fee_percentage : undefined,
-                                      flat_fee_amount: newFeeType === 'flat' ? prev.fee_terms?.flat_fee_amount : undefined,
-                                    },
-                                  }
-                                : null
-                            )
-                          }}
-                          className="w-full px-3 py-2 text-sm border rounded"
-                          style={{
-                            borderColor: '#819291',
-                            color: '#113543',
-                            backgroundColor: '#FFFFFF',
-                          }}
-                        >
-                          <option value="percentage">Percentage</option>
-                          <option value="flat">Flat Fee</option>
-                        </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block text-xs">
+                      <span className="font-medium text-slate-600 uppercase tracking-wide">
+                        Fee type
+                      </span>
+                      <select
+                        value={selectedClient.fee_terms?.fee_type || 'percentage'}
+                        onChange={(e) => {
+                          const newFeeType = e.target.value as 'percentage' | 'flat'
+                          void persistFeeTerms({
+                            fee_type: newFeeType,
+                            fee_percentage:
+                              newFeeType === 'percentage'
+                                ? selectedClient.fee_terms?.fee_percentage
+                                : undefined,
+                            flat_fee_amount:
+                              newFeeType === 'flat'
+                                ? selectedClient.fee_terms?.flat_fee_amount
+                                : undefined,
+                          })
+                        }}
+                        className="client-input mt-1 w-full text-sm"
+                      >
+                        <option value="percentage">Percentage</option>
+                        <option value="flat">Flat fee</option>
+                      </select>
+                    </label>
+
+                    {(selectedClient.fee_terms?.fee_type || 'percentage') === 'percentage' ? (
+                      <label className="block text-xs">
+                        <span className="font-medium text-slate-600 uppercase tracking-wide">
+                          Fee percentage (%)
+                        </span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            value={selectedClient.fee_terms?.fee_percentage ?? ''}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value) || 0
+                              void persistFeeTerms({
+                                fee_type: 'percentage',
+                                fee_percentage: value,
+                              })
+                            }}
+                            className="client-input flex-1 text-sm tabular-nums"
+                            placeholder="1.00"
+                          />
+                          <span className="text-xs text-slate-500">%</span>
+                        </div>
+                      </label>
+                    ) : (
+                      <label className="block text-xs">
+                        <span className="font-medium text-slate-600 uppercase tracking-wide">
+                          Flat fee ($)
+                        </span>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-slate-500">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={selectedClient.fee_terms?.flat_fee_amount ?? ''}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value) || 0
+                              void persistFeeTerms({
+                                fee_type: 'flat',
+                                flat_fee_amount: value,
+                              })
+                            }}
+                            className="client-input flex-1 text-sm tabular-nums"
+                            placeholder="50.00"
+                          />
+                        </div>
+                      </label>
+                    )}
+                  </div>
+
+                  {selectedClient.fee_terms?.fee_type === 'percentage' &&
+                  selectedClient.fee_terms?.fee_percentage ? (
+                    <p className="text-xs text-slate-600 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                      Example on $10,000 collected:{' '}
+                      <span className="font-medium text-slate-900 tabular-nums">
+                        {formatCurrency(
+                          (10000 * (selectedClient.fee_terms.fee_percentage || 0)) / 100
+                        )}
+                      </span>
+                    </p>
+                  ) : null}
+
+                  {selectedClient.remittance_info ? (
+                    <div>
+                      <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5">
+                        <CreditCard className="w-3.5 h-3.5" />
+                        Remittance
+                      </h3>
+                      <p className="text-sm text-slate-800 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                        {selectedClient.remittance_info}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {(selectedClient.bank_name ||
+                    selectedClient.account_number ||
+                    selectedClient.routing_number) && (
+                    <div>
+                      <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5" />
+                        Banking
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-px rounded-lg border border-slate-200 overflow-hidden bg-slate-200">
+                        {selectedClient.bank_name ? (
+                          <div className="bg-white px-3 py-2">
+                            <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                              Bank
+                            </p>
+                            <p className="text-sm font-medium text-slate-900 mt-0.5">
+                              {selectedClient.bank_name}
+                            </p>
+                          </div>
+                        ) : null}
+                        {selectedClient.account_number ? (
+                          <div className="bg-white px-3 py-2">
+                            <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                              Account
+                            </p>
+                            <p className="text-sm font-medium text-slate-900 mt-0.5 tabular-nums">
+                              {selectedClient.account_number}
+                            </p>
+                          </div>
+                        ) : null}
+                        {selectedClient.routing_number ? (
+                          <div className="bg-white px-3 py-2">
+                            <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                              Routing
+                            </p>
+                            <p className="text-sm font-medium text-slate-900 mt-0.5 tabular-nums">
+                              {selectedClient.routing_number}
+                            </p>
+                          </div>
+                        ) : null}
                       </div>
-                      {selectedClient.fee_terms?.fee_type === 'percentage' ? (
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
-                            Fee Percentage (%)
-                          </label>
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              max="100"
-                              value={selectedClient.fee_terms?.fee_percentage || ''}
-                              onChange={(e) => {
-                                const value = parseFloat(e.target.value) || 0
-                                setClients((prev) =>
-                                  prev.map((c) =>
-                                    c.id === selectedClient.id
-                                      ? {
-                                          ...c,
-                                          fee_terms: {
-                                            ...c.fee_terms,
-                                            fee_type: 'percentage',
-                                            fee_percentage: value,
-                                          },
-                                        }
-                                      : c
-                                  )
-                                )
-                                setSelectedClient((prev) =>
-                                  prev
-                                    ? {
-                                        ...prev,
-                                        fee_terms: {
-                                          ...prev.fee_terms,
-                                          fee_type: 'percentage',
-                                          fee_percentage: value,
-                                        },
-                                      }
-                                    : null
-                                )
-                              }}
-                              className="flex-1 px-3 py-2 text-sm border rounded"
-                              style={{
-                                borderColor: '#819291',
-                                color: '#113543',
-                                backgroundColor: '#FFFFFF',
-                              }}
-                              placeholder="e.g., 2.5 for 2.5%"
-                            />
-                            <span className="text-sm" style={{ color: '#819291' }}>%</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div>
-                          <label className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
-                            Flat Fee Amount ($)
-                          </label>
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm" style={{ color: '#819291' }}>$</span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={selectedClient.fee_terms?.flat_fee_amount || ''}
-                              onChange={(e) => {
-                                const value = parseFloat(e.target.value) || 0
-                                setClients((prev) =>
-                                  prev.map((c) =>
-                                    c.id === selectedClient.id
-                                      ? {
-                                          ...c,
-                                          fee_terms: {
-                                            ...c.fee_terms,
-                                            fee_type: 'flat',
-                                            flat_fee_amount: value,
-                                          },
-                                        }
-                                      : c
-                                  )
-                                )
-                                setSelectedClient((prev) =>
-                                  prev
-                                    ? {
-                                        ...prev,
-                                        fee_terms: {
-                                          ...prev.fee_terms,
-                                          fee_type: 'flat',
-                                          flat_fee_amount: value,
-                                        },
-                                      }
-                                    : null
-                                )
-                              }}
-                              className="flex-1 px-3 py-2 text-sm border rounded"
-                              style={{
-                                borderColor: '#819291',
-                                color: '#113543',
-                                backgroundColor: '#FFFFFF',
-                              }}
-                              placeholder="e.g., 50.00"
-                            />
-                          </div>
-                        </div>
-                      )}
                     </div>
-                    {selectedClient.fee_terms?.fee_type === 'percentage' && selectedClient.fee_terms?.fee_percentage && (
-                      <div className="mt-4 p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                        <p className="text-sm" style={{ color: '#819291' }}>
-                          Example: For a batch with $10,000 total amount, the fee would be{' '}
-                          <span className="font-medium" style={{ color: '#113543' }}>
-                            {formatCurrency((10000 * (selectedClient.fee_terms.fee_percentage || 0)) / 100)}
-                          </span>
-                        </p>
-                  </div>
-                )}
-                  </div>
-
-                {/* Remittance Information */}
-                {selectedClient.remittance_info && (
-                  <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2" style={{ color: '#113543' }}>
-                      <CreditCard className="w-5 h-5" />
-                      <span>Remittance Information</span>
-                    </h3>
-                      <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                        <p className="text-sm" style={{ color: '#113543' }}>
-                          {selectedClient.remittance_info}
-                        </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Banking Information */}
-                {(selectedClient.bank_name || selectedClient.account_number || selectedClient.routing_number) && (
-                  <div>
-                      <h3 className="text-lg font-semibold mb-4 flex items-center space-x-2" style={{ color: '#113543' }}>
-                      <Building2 className="w-5 h-5" />
-                      <span>Banking Information</span>
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {selectedClient.bank_name && (
-                          <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                            <label className="text-sm mb-1" style={{ color: '#819291' }}>Bank Name</label>
-                            <p className="text-sm font-medium" style={{ color: '#113543' }}>
-                            {selectedClient.bank_name}
-                          </p>
-                        </div>
-                      )}
-                      {selectedClient.account_number && (
-                          <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                            <label className="text-sm mb-1" style={{ color: '#819291' }}>Account Number</label>
-                            <p className="text-sm font-medium" style={{ color: '#113543' }}>
-                            {selectedClient.account_number}
-                          </p>
-                        </div>
-                      )}
-                      {selectedClient.routing_number && (
-                          <div className="p-4 border rounded" style={{ backgroundColor: '#f8f9fa', borderColor: '#819291' }}>
-                            <label className="text-sm mb-1" style={{ color: '#819291' }}>Routing Number</label>
-                            <p className="text-sm font-medium" style={{ color: '#113543' }}>
-                            {selectedClient.routing_number}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                  </div>
-                )}
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1454,16 +1284,18 @@ export default function Clients() {
 
       {/* Add Client Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-black">Add New Client</h2>
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-slate-900">Add client</h2>
                 <button
+                  type="button"
                   onClick={handleCloseAddModal}
-                  className="text-gray-400 hover:text-black transition-colors"
+                  className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
+                  aria-label="Close"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
@@ -1702,19 +1534,16 @@ export default function Clients() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex items-center justify-end space-x-3 pt-4 border-t border-gray-200">
+                <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
                   <button
                     type="button"
                     onClick={handleCloseAddModal}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 transition-colors"
+                    className="dashboard-btn-secondary"
                   >
                     Cancel
                   </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-sm font-medium text-white bg-black hover:bg-gray-800 transition-colors"
-                  >
-                    Add Client
+                  <button type="submit" className="dashboard-btn-primary">
+                    Add client
                   </button>
                 </div>
               </form>

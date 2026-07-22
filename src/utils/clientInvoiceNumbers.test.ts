@@ -4,6 +4,7 @@ import {
   formatClientInvoiceNumber,
   getMaxInvoiceSequence,
   getNextClientInvoiceNumber,
+  isInvoiceNumberTaken,
   parseInvoiceNumberSequence,
 } from './clientInvoiceNumbers'
 import { hydrateInvoices } from '../data/mockInvoices'
@@ -40,6 +41,7 @@ describe('clientInvoiceNumbers', () => {
 
     expect(getMaxInvoiceSequence('client-a')).toBe(3)
     expect(getNextClientInvoiceNumber('client-a')).toBe('004')
+    expect(isInvoiceNumberTaken('client-a', '003')).toBe(true)
     expect(ensureUniqueClientInvoiceNumber('client-a', '003')).toBe('004')
     expect(ensureUniqueClientInvoiceNumber('client-a', '4401')).toBe('4401')
     hydrateInvoices([])

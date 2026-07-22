@@ -69,7 +69,7 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     rejected: 'status-pill status-pill--overdue',
     overdue: 'status-pill status-pill--overdue',
     force_closed: 'status-pill status-pill--overdue',
-    written_off: 'status-pill status-pill--hold',
+    written_off: 'status-pill status-pill--warn',
   }
   const labels: Record<string, string> = {
     pending: 'Pending',
@@ -97,9 +97,9 @@ export function getInvoiceVarianceBadge(
   if (!variance) return null
   const className =
     variance === 'short_paid'
-      ? 'status-pill status-pill--overdue'
+      ? 'status-pill status-pill--warn'
       : variance === 'awaiting_credyx'
-        ? 'status-pill status-pill--hold'
+        ? 'status-pill status-pill--warn'
         : 'status-pill status-pill--approved'
   const label =
     variance === 'short_paid'

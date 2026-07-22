@@ -21,6 +21,12 @@ import {
 import type { AiDraftStep } from '../../types/clientBatchDraft'
 
 import { useClientTheme } from '../../theme/ThemeContext'
+import {
+  formatLoadNumberWarningsSummary,
+  getBatchLoadNumberWarnings,
+  getWithinBatchLoadWarnings,
+  validateBatchInvoiceNumbers,
+} from '../../utils/invoiceDuplicateChecks'
 
 const INVOICE_PDF_FIELDS: (keyof CredyxInvoiceDraft)[] = [
   'amount',
@@ -59,6 +65,8 @@ interface BatchAiUploadFlowProps {
     files: File[]
     intake: BatchIntakeDraft | null
   }) => void
+  /** Credyx admin: also warn when other carriers reused a load number. */
+  crossCarrierLoadWarnings?: boolean
 }
 
 const STEPS: { id: Step; label: string }[] = [
@@ -119,6 +127,7 @@ export default function BatchAiUploadFlow({
   restoredDraft,
   draftReady = true,
   onPersistDraft,
+  crossCarrierLoadWarnings = false,
 }: BatchAiUploadFlowProps) {
   const c = useClientTheme()
   const confirmedByName = confirmedBy ?? clientName
@@ -364,6 +373,33 @@ export default function BatchAiUploadFlow({
 
   const handleSubmit = async () => {
     if (!draft) return
+
+    const numberIssues = validateBatchInvoiceNumbers(
+      clientId,
+      draft.invoices.map((inv) => inv.invoice_number?.trim() || '')
+    )
+    if (numberIssues.length > 0) {
+      setError(numberIssues[0].message)
+      return
+    }
+
+    const loadWarnings = getBatchLoadNumberWarnings(
+      clientId,
+      draft.invoices.map((inv) => inv.load_number),
+      { crossCarrier: crossCarrierLoadWarnings }
+    )
+    const withinBatchLoad = getWithinBatchLoadWarnings(
+      draft.invoices.map((inv) => inv.load_number)
+    )
+    if (loadWarnings.length > 0 || withinBatchLoad.length > 0) {
+      const mode = crossCarrierLoadWarnings ? 'admin' : 'client'
+      const summary =
+        loadWarnings.length > 0
+          ? formatLoadNumberWarningsSummary(loadWarnings, mode)
+          : `${withinBatchLoad.join('\n')}\n\nSubmit anyway?`
+      if (!window.confirm(summary)) return
+    }
+
     setSubmitting(true)
     setError(null)
     try {
@@ -416,6 +452,8 @@ export default function BatchAiUploadFlow({
         {error && <p className="client-ai-upload__error-banner">{error}</p>}
         <BatchAiConfirmPanel
           draft={draft}
+          clientId={clientId}
+          crossCarrierLoadWarnings={crossCarrierLoadWarnings}
           onUpdateDraft={updateDraft}
           onConfirmDraft={confirmDraft}
           onUnconfirmDraft={unconfirmDraft}

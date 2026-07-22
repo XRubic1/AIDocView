@@ -41,6 +41,18 @@ function touchClientCache(clientId: string | null | undefined): void {
   if (clientId) refreshClientTenantCacheFromStores(clientId)
 }
 
+/**
+ * Notify open client/admin UIs after a local store mutation (e.g. Process batch).
+ * Realtime handlers already emit; call this for same-session / mock writes.
+ */
+export function notifyTenantDataUpdated(
+  tables: TenantDataTable[],
+  clientId?: string | null
+): void {
+  emitTenantDataUpdated(tables, clientId)
+  touchClientCache(clientId)
+}
+
 function handleBatchChange(
   eventType: string,
   row: BatchRow | null,

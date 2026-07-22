@@ -43,6 +43,36 @@ export interface ClientBill {
   paid_at?: string
   payoneer_reference?: string
   line_items: BillingLineItem[]
+  /**
+   * Fee terms locked at issue time — used for reversal reimbursements if terms
+   * change later (e.g. 1% → 1.25%).
+   */
+  fee_terms_snapshot?: BillingFeeTermsSnapshot
+}
+
+/** Fee terms frozen onto an issued Credyx bill. */
+export interface BillingFeeTermsSnapshot {
+  fee_type: 'percentage' | 'flat'
+  fee_percentage?: number
+  flat_fee_amount?: number
+}
+
+/** Synthesized timeline event for bill payment / lifecycle history. */
+export type BillHistoryEventType =
+  | 'issued'
+  | 'payoneer_sent'
+  | 'paid'
+  | 'overdue'
+  | 'credit_applied'
+  | 'credit_added'
+
+export interface BillHistoryEvent {
+  id: string
+  type: BillHistoryEventType
+  label: string
+  at: string
+  amount?: number
+  detail?: string
 }
 
 export interface ComputedMonthlyBill {
@@ -57,6 +87,13 @@ export interface ComputedMonthlyBill {
   reimbursementCredits: BillingLineItem[]
   /** Client reimbursement account balance before bill issue. */
   reimbursementBalance: number
+  /** Trial clients are not charged; line items still show waived gross fees. */
+  isTrial: boolean
+  /** Gross fees before trial waiver (platform + collection fee + adjustments). */
+  grossSubtotal: number
+  /** Display label from client fee_terms (e.g. "2.5%" or "$50 flat"). */
+  feeDisplay: string
+  feeType: 'percentage' | 'flat'
 }
 
 export interface UsageSnapshot {
@@ -76,9 +113,11 @@ export interface BillingSummary {
   line_items: BillingLineItem[]
   /** Current period collected volume (A/R billing). */
   collected_volume?: number
-  /** Current A/R rate %. */
+  /** Current collection fee % from client fee_terms (0 when flat). */
   rate_pct?: number
-  /** Whether factoring discount applies. */
+  /** Fee terms display (e.g. "2.5%" or "$50 flat"). */
+  fee_display?: string
+  /** Whether factoring flag is set on the client. */
   factoring?: boolean
   /** Escalation state from unpaid bills. */
   billing_standing?: BillingStanding

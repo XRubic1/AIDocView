@@ -27,6 +27,10 @@ import {
 import { hydrateClientRegistry, resetClientRegistryCache, getClientById } from '../clientRegistry'
 import { restoreClientDraftBatches } from '../clientBatchDraftService'
 import { clearClientBills, hydrateClientBillsFromSupabase, refreshOverdueBillStatuses } from '../arBillingService'
+import {
+  clearReimbursementLedger,
+  hydrateReimbursementLedgerFromSupabase,
+} from '../reimbursementAccountService'
 import { hydrateAdminNotifications } from '../adminNotificationService'
 import { loadArPolicy, applyArPolicy } from '../platformSettingsService'
 import { resolveSession } from '../sessionService'
@@ -57,6 +61,7 @@ export function clearTenantStores(): void {
   clearNotifications()
   clearClientDocuments()
   clearClientBills()
+  clearReimbursementLedger()
   resetClientRegistryCache()
   lastHydratedPrincipal = null
   lastHydratedClientId = null
@@ -153,6 +158,12 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
     }
 
     try {
+      await hydrateReimbursementLedgerFromSupabase()
+    } catch (err) {
+      errors.push(`reimbursement_ledger: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
       await hydrateAdminNotifications()
     } catch (err) {
       errors.push(`admin_notifications: ${err instanceof Error ? err.message : String(err)}`)
@@ -224,6 +235,12 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
       refreshOverdueBillStatuses()
     } catch (err) {
       errors.push(`client_bills: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      await hydrateReimbursementLedgerFromSupabase(clientId)
+    } catch (err) {
+      errors.push(`reimbursement_ledger: ${err instanceof Error ? err.message : String(err)}`)
     }
 
     try {

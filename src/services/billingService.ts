@@ -6,7 +6,6 @@ import {
   currentBillingPeriod,
   getClientBills,
   getBillingStanding,
-  resolveArRate,
   getClientCollectedVolume,
 } from './arBillingService'
 import type { BillingLineItem, BillingSummary } from '../types/billing'
@@ -14,7 +13,7 @@ import type { ServiceTier } from '../types/client'
 
 const GB = 1024 * 1024 * 1024
 
-/** Billing summary for client Settings → Plan & Billing (A/R model). */
+/** Billing summary for client Settings → Plan & Billing. */
 export function getClientBillingSummary(clientId: string): BillingSummary | null {
   const client = getClientById(clientId)
   if (!client) return null
@@ -27,18 +26,23 @@ export function getClientBillingSummary(clientId: string): BillingSummary | null
   const trial = billing?.subscription_status === 'trial'
   const period = currentBillingPeriod()
   const collectedVolume = getClientCollectedVolume(clientId, period)
-  const ratePct = resolveArRate(client, collectedVolume)
-  const computed = computeMonthlyBill(clientId, period)
+
+  let computed
+  try {
+    computed = computeMonthlyBill(clientId, period)
+  } catch {
+    computed = null
+  }
 
   const appFee = trial ? 0 : PLATFORM_APP_FEE_MONTHLY
-  const arFee = computed.arFee
+  const collectionFee = computed?.arFee ?? 0
 
   return {
     plan,
     subscription_status: billing?.subscription_status ?? 'active',
     app_fee_monthly: appFee,
-    service_fee_monthly: arFee,
-    total_monthly: appFee + arFee,
+    service_fee_monthly: collectionFee,
+    total_monthly: appFee + collectionFee,
     usage: {
       storage_used_bytes: storageUsed,
       storage_quota_bytes: storageQuota,
@@ -47,7 +51,8 @@ export function getClientBillingSummary(clientId: string): BillingSummary | null
     },
     line_items: billsToLineItems(getClientBills(clientId)),
     collected_volume: collectedVolume,
-    rate_pct: ratePct,
+    rate_pct: computed?.ratePct,
+    fee_display: computed?.feeDisplay,
     factoring: client.factoring ?? false,
     billing_standing: getBillingStanding(client),
   }

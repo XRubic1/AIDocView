@@ -103,7 +103,7 @@ function statusPillClass(status: string): string {
       return 'status-pill status-pill--approved'
     case 'written_off':
     case 'write_off_pending':
-      return 'status-pill status-pill--pending'
+      return 'status-pill status-pill--warn'
     case 'force_closed':
       return 'status-pill status-pill--overdue'
     case 'rejected':

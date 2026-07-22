@@ -4,6 +4,7 @@ export type NotificationType =
   | 'invoice_approved'
   | 'invoice_on_hold'
   | 'invoice_rejected'
+  | 'invoice_note'
   | 'payment_received'
   | 'batch_submitted'
   | 'batch_reviewed'

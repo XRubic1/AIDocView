@@ -1,6 +1,7 @@
 import { getInvoiceById, updateInvoice } from '../data/mockInvoices'
 import type { Invoice, InvoiceNote } from '../types/invoice'
 import { formatDate } from '../utils/format'
+import { notifyClientInvoiceNote } from '../data/mockNotifications'
 
 export type AdminNoteVisibility = 'client' | 'internal'
 
@@ -60,7 +61,20 @@ export function addAdminInvoiceNote(
     visibility,
   }
 
-  return updateInvoice(invoiceId, appendNote(invoice, newNote))
+  const updated = updateInvoice(invoiceId, appendNote(invoice, newNote))
+  if (updated && visibility === 'client' && updated.client_id) {
+    notifyClientInvoiceNote({
+      clientId: updated.client_id,
+      invoiceId: updated.id,
+      invoiceNumber: updated.invoice_number,
+      authorName,
+      noteText: newNote.note,
+      source: 'credyx',
+      batchId: updated.batch_id,
+      batchNumber: updated.batch_number,
+    })
+  }
+  return updated
 }
 
 export interface PostInvoiceStatusNoteInput {

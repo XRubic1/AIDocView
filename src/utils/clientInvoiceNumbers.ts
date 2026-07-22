@@ -12,6 +12,16 @@ export function parseInvoiceNumberSequence(invoiceNumber: string): number | null
   return null
 }
 
+/**
+ * Sequence equivalence only applies to system-style numbers (digits / INV-YYYY-NNN).
+ * Custom labels like `ABC-12` are compared by exact string only so they are never
+ * silently remapped to the next system sequence.
+ */
+export function isSystemStyleInvoiceNumber(invoiceNumber: string): boolean {
+  const trimmed = invoiceNumber.trim()
+  return /^\d+$/.test(trimmed) || /^INV-\d{4}-\d+$/i.test(trimmed)
+}
+
 /** Format sequence as client invoice number (`001` … `999`, then `1000`, `4402`, etc.). */
 export function formatClientInvoiceNumber(sequence: number): string {
   if (!Number.isFinite(sequence) || sequence < 1) return '001'
@@ -26,22 +36,39 @@ function numbersForClient(clientId: string, extra: string[] = []): string[] {
   return [...fromStore, ...extra]
 }
 
-function isInvoiceNumberTaken(
+function invoiceNumberExactMatch(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase()
+}
+
+/** True if `candidate` is already used by this client (store + optional reserved pending list). */
+export function isInvoiceNumberTaken(
   clientId: string,
   candidate: string,
   reserved: string[] = []
 ): boolean {
+  const normalized = candidate.trim()
+  if (!normalized) return false
   const all = numbersForClient(clientId, reserved)
-  if (all.includes(candidate)) return true
-  const candidateSeq = parseInvoiceNumberSequence(candidate)
+
+  if (all.some((num) => invoiceNumberExactMatch(num, normalized))) return true
+
+  // Custom / alphanumeric numbers: exact match only (never rewrite via sequence).
+  if (!isSystemStyleInvoiceNumber(normalized)) return false
+
+  const candidateSeq = parseInvoiceNumberSequence(normalized)
   if (candidateSeq == null) return false
-  return all.some((num) => parseInvoiceNumberSequence(num) === candidateSeq)
+  return all.some((num) => {
+    if (!isSystemStyleInvoiceNumber(num)) return false
+    return parseInvoiceNumberSequence(num) === candidateSeq
+  })
 }
 
 /** Highest numeric sequence already used by this client (memory + optional pending list). */
 export function getMaxInvoiceSequence(clientId: string, additionalNumbers: string[] = []): number {
   let max = 0
   for (const num of numbersForClient(clientId, additionalNumbers)) {
+    // Only system-style numbers feed the auto-increment sequence.
+    if (!isSystemStyleInvoiceNumber(num)) continue
     const seq = parseInvoiceNumberSequence(num)
     if (seq != null && seq > max) max = seq
   }
@@ -68,8 +95,9 @@ export function ensureUniqueClientInvoiceNumber(
   }
 
   let seq =
-    parseInvoiceNumberSequence(normalized) ??
-    getMaxInvoiceSequence(clientId, reserved)
+    (isSystemStyleInvoiceNumber(normalized)
+      ? parseInvoiceNumberSequence(normalized)
+      : null) ?? getMaxInvoiceSequence(clientId, reserved)
 
   for (let i = 0; i < 10_000; i++) {
     seq += 1

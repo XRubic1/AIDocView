@@ -1,10 +1,10 @@
-
 import {
   FileText,
   Phone,
   Paperclip,
   PlusCircle,
   Upload,
+  UserPlus,
 } from 'lucide-react'
 import DashboardPanel from '../client/dashboard/DashboardPanel'
 import { useClientTheme } from '../../theme/ThemeContext'
@@ -19,6 +19,9 @@ interface QuickActionsProps {
   onCreateBroker?: () => void
   onCreateClient?: () => void
   onUploadDocuments?: () => void
+  /** Super Admin only — create backoffice user. */
+  onCreateUser?: () => void
+  canCreateUser?: boolean
 }
 
 export function QuickActions({
@@ -31,6 +34,8 @@ export function QuickActions({
   onCreateBroker,
   onCreateClient,
   onUploadDocuments,
+  onCreateUser,
+  canCreateUser = false,
 }: QuickActionsProps) {
   const c = useClientTheme()
 
@@ -68,11 +73,24 @@ export function QuickActions({
       icon: Upload,
       onClick: onUploadDocuments,
     },
+    ...(canCreateUser
+      ? [
+          {
+            label: 'Create User',
+            icon: UserPlus,
+            onClick: onCreateUser,
+          },
+        ]
+      : []),
   ]
 
   return (
     <DashboardPanel title="Quick Actions" compact interactive={false}>
-      <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div
+        className={`p-4 grid grid-cols-2 sm:grid-cols-3 gap-3 ${
+          canCreateUser ? 'lg:grid-cols-4 xl:grid-cols-7' : 'lg:grid-cols-6'
+        }`}
+      >
         {actions.map((action) => {
           const Icon = action.icon
           return (

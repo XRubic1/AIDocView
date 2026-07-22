@@ -1,4 +1,4 @@
-import type { Client, ClientBilling, ServiceTier } from '../../types/client'
+import type { Client, ClientBilling, ClientNotificationPreferences, ServiceTier } from '../../types/client'
 
 /** Row shape for public.clients */
 export interface ClientRow {
@@ -28,6 +28,7 @@ export interface ClientRow {
   reimbursement_balance: number | null
   billing: ClientBilling | null
   fee_terms: Client['fee_terms'] | null
+  notification_prefs: ClientNotificationPreferences | null
   created_at?: string
   updated_at?: string
 }
@@ -60,6 +61,7 @@ export function clientRowToClient(row: ClientRow): Client {
     reimbursement_balance: row.reimbursement_balance != null ? Number(row.reimbursement_balance) : undefined,
     billing: row.billing ?? undefined,
     fee_terms: row.fee_terms ?? undefined,
+    notification_prefs: row.notification_prefs ?? undefined,
   }
 }
 
@@ -91,5 +93,6 @@ export function clientToRow(client: Client): ClientRow {
     reimbursement_balance: client.reimbursement_balance ?? 0,
     billing: client.billing ?? null,
     fee_terms: client.fee_terms ?? null,
+    notification_prefs: client.notification_prefs ?? null,
   }
 }

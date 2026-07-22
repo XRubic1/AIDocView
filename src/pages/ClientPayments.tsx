@@ -155,7 +155,7 @@ function getPaymentVarianceBadges(
 
   if (isShort) {
     badges.push(
-      <span key="short" className="status-pill status-pill--hold status-pill--compact">
+      <span key="short" className="status-pill status-pill--warn status-pill--compact">
         Short paid
       </span>
     )
@@ -1056,7 +1056,7 @@ export default function ClientPayments() {
               eventMeta.kind === 'short' || eventMeta.kind === 'over' ? (
                 <span
                   className={`status-pill status-pill--compact ${
-                    eventMeta.kind === 'short' ? 'status-pill--hold' : 'status-pill--approved'
+                    eventMeta.kind === 'short' ? 'status-pill--warn' : 'status-pill--approved'
                   }`}
                 >
                   {eventMeta.kind === 'short' ? 'Short paid' : 'Overpaid'}

@@ -16,10 +16,12 @@ import { mockInvoices, updateInvoice } from '../data/mockInvoices'
 import { PendingBatch, CollectionsAlert, AgingAR } from '../types/admin'
 import { formatCurrency } from '../utils/format'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
+import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
   const tenantRevision = useTenantDataRevision()
+  const { capabilities } = useAdminCapabilities()
   
   // Get all real data (re-read when realtime updates land)
   const allBatches = useMemo(() => getAllBatches(), [tenantRevision])
@@ -411,6 +413,8 @@ export default function AdminDashboard() {
             onCreateBroker={() => navigate('/brokers')}
             onCreateClient={() => navigate('/clients')}
             onUploadDocuments={() => navigate('/invoices')}
+            canCreateUser={capabilities.canManageUsers}
+            onCreateUser={() => navigate('/users?add=1')}
           />
 
           {/* Main Content Grid - 2 Column Layout */}

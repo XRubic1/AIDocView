@@ -2,6 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { LogIn, Eye, EyeOff } from 'lucide-react'
 import { signInAdmin, getCurrentSession } from '../services/adminAuthService'
+import {
+  getAdminDefaultPath,
+  getAdminStaffRole,
+  isAdminPathAllowed,
+} from '../utils/adminRoles'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -40,7 +45,11 @@ export default function Login() {
         setError(result.error ?? 'Invalid email or password')
         return
       }
-      navigate(from)
+      const session = await getCurrentSession()
+      const role = getAdminStaffRole(session.user)
+      const dest =
+        from && isAdminPathAllowed(from, role) ? from : getAdminDefaultPath(role)
+      navigate(dest)
     } catch {
       setError('An error occurred during login. Please try again.')
     } finally {

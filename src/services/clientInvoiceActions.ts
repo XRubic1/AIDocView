@@ -13,7 +13,11 @@ import {
 } from '../utils/overPayments'
 import { getOverageAmount } from '../utils/paymentVariance'
 import { addInvoiceDocuments } from './invoiceDocumentStore'
-import { notifyAdminClientDocumentUpload, notifyAdminWriteOffRequested } from './adminNotificationService'
+import {
+  notifyAdminClientDocumentUpload,
+  notifyAdminClientInvoiceNote,
+  notifyAdminWriteOffRequested,
+} from './adminNotificationService'
 import type { ClientCapabilities } from '../utils/clientCapabilities'
 import { getClientCapabilities } from '../utils/clientCapabilities'
 import { getClientById } from './clientRegistry'
@@ -48,21 +52,36 @@ export function addClientInvoiceNote(
   const invoice = getInvoiceById(invoiceId)
   if (!invoice || !noteText.trim()) return undefined
 
+  const trimmed = noteText.trim()
   const newNote: InvoiceNote = {
     id: `note-${Date.now()}`,
-    note: noteText.trim(),
+    note: trimmed,
     created_by: authorName,
     created_at: new Date().toISOString(),
     type: 'client_note',
   }
 
   const notesHistory = [...(invoice.notes_history || []), newNote]
-  const notes = invoice.notes ? `${invoice.notes}\n${noteText.trim()}` : noteText.trim()
+  const notes = invoice.notes ? `${invoice.notes}\n${trimmed}` : trimmed
 
-  return updateInvoice(invoiceId, {
+  const updated = updateInvoice(invoiceId, {
     notes_history: notesHistory,
     notes,
   })
+
+  if (updated) {
+    // Credyx ops get a bell when the carrier leaves a written note.
+    notifyAdminClientInvoiceNote({
+      clientId: updated.client_id,
+      clientName: updated.client_name,
+      invoiceId: updated.id,
+      invoiceNumber: updated.invoice_number,
+      authorName,
+      noteText: trimmed,
+    })
+  }
+
+  return updated
 }
 
 /** Open a new dispute on an invoice and log it in notes history. */

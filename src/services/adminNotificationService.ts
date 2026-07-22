@@ -465,3 +465,40 @@ export function notifyAdminPaymentReceiptConfirmed(
     },
   })
 }
+
+export interface ClientInvoiceNoteAdminNotificationInput {
+  clientId?: string
+  clientName: string
+  invoiceId: string
+  invoiceNumber: string
+  authorName: string
+  noteText: string
+}
+
+/** Carrier left a free-text note on an invoice — admin bell. */
+export function notifyAdminClientInvoiceNote(
+  input: ClientInvoiceNoteAdminNotificationInput
+): Notification {
+  const excerpt =
+    input.noteText.trim().length > 120
+      ? `${input.noteText.trim().slice(0, 117)}…`
+      : input.noteText.trim()
+
+  return pushNotification({
+    id: `admin-notif-note-${Date.now()}`,
+    type: 'system_alert',
+    title: 'Client note on invoice',
+    message: `${input.clientName}: ${input.authorName} noted on ${input.invoiceNumber} — ${excerpt}`,
+    timestamp: new Date().toISOString(),
+    read: false,
+    link: `/invoices?invoice=${input.invoiceId}`,
+    link_label: 'View invoice',
+    invoice_id: input.invoiceId,
+    invoice_number: input.invoiceNumber,
+    metadata: {
+      client_id: input.clientId,
+      client_name: input.clientName,
+      author_name: input.authorName,
+    },
+  })
+}

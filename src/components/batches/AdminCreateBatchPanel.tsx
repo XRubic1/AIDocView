@@ -168,6 +168,7 @@ export default function AdminCreateBatchPanel({
           clientId={selectedClient.id}
           clientName={selectedClient.name}
           confirmedBy={adminName}
+          crossCarrierLoadWarnings
           onCancel={() => setStep('choose')}
           onComplete={handleComplete}
         />

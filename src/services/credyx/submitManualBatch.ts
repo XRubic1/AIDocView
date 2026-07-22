@@ -11,10 +11,11 @@ import {
 } from '../../services/supabase/tenantPersist'
 import { mockBrokers } from '../../data/mockBrokers'
 import { clearClientTenantCache } from '../../data/clientDemoData'
+import { getNextClientInvoiceNumber } from '../../utils/clientInvoiceNumbers'
 import {
-  ensureUniqueClientInvoiceNumber,
-  getNextClientInvoiceNumber,
-} from '../../utils/clientInvoiceNumbers'
+  assertInvoiceNumberAvailable,
+  validateBatchInvoiceNumbers,
+} from '../../utils/invoiceDuplicateChecks'
 
 async function resolveAndPersistBroker(
   brokerName: string
@@ -109,6 +110,23 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
         fee_calculation: feeCalculation,
       })
 
+  // Resolve invoice numbers (auto-fill blanks), then hard-block duplicates.
+  const reservedForNext: string[] = []
+  const resolvedNumbers: string[] = invoices.map((inv) => {
+    const preferred = inv.invoice_number?.trim()
+    if (preferred) {
+      reservedForNext.push(preferred)
+      return preferred
+    }
+    const next = getNextClientInvoiceNumber(clientId, reservedForNext)
+    reservedForNext.push(next)
+    return next
+  })
+  const numberIssues = validateBatchInvoiceNumbers(clientId, resolvedNumbers)
+  if (numberIssues.length > 0) {
+    throw new Error(numberIssues[0].message)
+  }
+
   const fileMap = new Map<string, File>()
   const docsByInvoiceIndex: Map<string, File>[] = invoices.map(() => new Map())
   const reservedNumbers: string[] = []
@@ -117,12 +135,9 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
   for (let index = 0; index < invoices.length; index++) {
     const inv = invoices[index]
     const broker = await resolveAndPersistBroker(inv.broker_name)
-    const preferred =
-      inv.invoice_number?.trim() ||
-      getNextClientInvoiceNumber(clientId, reservedNumbers)
-    const invoiceNumber = ensureUniqueClientInvoiceNumber(
+    const invoiceNumber = assertInvoiceNumberAvailable(
       clientId,
-      preferred,
+      resolvedNumbers[index],
       reservedNumbers
     )
     reservedNumbers.push(invoiceNumber)

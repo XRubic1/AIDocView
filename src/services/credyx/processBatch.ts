@@ -7,6 +7,7 @@ import { mockInvoices } from '../../data/mockInvoices'
 import { logAuditEvent } from '../../utils/auditLogger'
 import { sendPaperworkForBatch } from '../../utils/paperworkSender'
 import { hasPpwBeenSent } from '../../utils/ppwSent'
+import { notifyClientHoldsAfterBatchProcess } from '../adminInvoiceActions'
 import {
   emailCarrierBatchHolds,
   emailCarrierBatchVerified,
@@ -95,6 +96,9 @@ export async function processVerifiedBatch(opts: {
       : { success: 0, failed: 0, skipped: 0, details: [] }
 
   updateBatchStatus(opts.batchId, 'submitted')
+
+  // Reveal hold outcomes to the client now that the batch is processed.
+  notifyClientHoldsAfterBatchProcess(opts.batchId)
 
   // Carrier outcome email: holds take precedence when any invoice is held.
   let carrierEmail: ProcessBatchResult['carrierEmail'] = { ok: true, kind: 'none' }

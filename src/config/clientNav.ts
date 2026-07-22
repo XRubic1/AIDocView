@@ -19,7 +19,9 @@ export interface ClientNavItem {
   label: string
   path: string
   icon: LucideIcon
-  badgeKey?: 'pendingBatches'
+  badgeKey?: 'pendingBatches' | 'heldInvoices'
+  /** Danger badges (e.g. held invoices) render in red. */
+  badgeTone?: 'default' | 'danger'
   /** When set, item is hidden unless this returns true. */
   showWhen?: (capabilities: ClientCapabilities) => boolean
 }
@@ -35,7 +37,13 @@ export const clientNavSections: ClientNavSection[] = [
     items: [
       { label: 'Dashboard', path: '/client/dashboard', icon: LayoutDashboard },
       { label: 'Batches', path: '/client/batches', icon: Boxes, badgeKey: 'pendingBatches' },
-      { label: 'Invoices', path: '/client/invoices', icon: FileText },
+      {
+        label: 'Invoices',
+        path: '/client/invoices',
+        icon: FileText,
+        badgeKey: 'heldInvoices',
+        badgeTone: 'danger',
+      },
       { label: 'Document Vault', path: '/client/documents', icon: FolderOpen },
       {
         label: 'Submit docs',

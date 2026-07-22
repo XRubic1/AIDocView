@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Bell, X, Check, FileText, DollarSign, AlertCircle, Clock } from 'lucide-react'
+import { Bell, X, Check, FileText, DollarSign, AlertCircle, Clock, MessageSquare } from 'lucide-react'
 import { Notification } from '../types/notification'
 import { formatRelativeTime } from '../utils/format'
 import { useClientTheme } from '../theme/ThemeContext'
@@ -46,6 +46,8 @@ export default function NotificationBell({
       case 'invoice_on_hold':
       case 'invoice_rejected':
         return <FileText className="w-4 h-4" />
+      case 'invoice_note':
+        return <MessageSquare className="w-4 h-4" />
       case 'payment_received':
       case 'payment_pending':
         return <DollarSign className="w-4 h-4" />
@@ -67,9 +69,10 @@ export default function NotificationBell({
       case 'payment_received':
       case 'batch_reviewed':
         return t.success
-      case 'invoice_on_hold':
       case 'payment_pending':
+      case 'invoice_note':
         return t.warning
+      case 'invoice_on_hold':
       case 'invoice_rejected':
       case 'overdue_alert':
         return t.error

@@ -4,6 +4,17 @@ export type ServiceTier = 'self_service' | 'managed'
 
 export type SubscriptionStatus = 'active' | 'trial' | 'past_due' | 'cancelled'
 
+/** In-app bell notification toggles for the client portal. */
+export interface ClientNotificationPreferences {
+  /** Master switch for in-app bell notifications. */
+  bellEnabled: boolean
+  payment: boolean
+  shortOver: boolean
+  hold: boolean
+  notes: boolean
+  dispute: boolean
+}
+
 export interface ClientBilling {
   plan_id: string
   subscription_status: SubscriptionStatus
@@ -34,9 +45,9 @@ export interface Client {
   notes?: string
   status?: 'active' | 'inactive' | 'pending' | 'suspended'
   service_tier?: ServiceTier
-  /** Admin-set; applies discounted A/R rate tier. */
+  /** Admin-set factoring flag (informational; fee comes from fee_terms). */
   factoring?: boolean
-  /** Negotiated rate % for high-volume clients (e.g. >$500k/mo). */
+  /** @deprecated Unused — collection fee comes from fee_terms. */
   ar_rate_override?: number
   /** Unapplied short-payment fee credits (reimbursement account). */
   reimbursement_balance?: number
@@ -44,11 +55,14 @@ export interface Client {
   fleet_size?: string
   /** 4-letter code used in batch numbers, e.g. ABCL for ABC LOGISTICS INC */
   batch_code?: string
+  /** Negotiated collection fee — source of truth for monthly Credyx billing. */
   fee_terms?: {
     fee_percentage?: number // Percentage fee (e.g., 2.5 for 2.5%)
     fee_type?: 'percentage' | 'flat' // Type of fee calculation
     flat_fee_amount?: number // Flat fee amount if fee_type is 'flat'
   }
+  /** In-app bell notification toggles (also cached in localStorage). */
+  notification_prefs?: ClientNotificationPreferences
 }
 
 

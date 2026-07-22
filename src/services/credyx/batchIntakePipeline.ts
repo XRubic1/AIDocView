@@ -20,6 +20,7 @@ import type {
   SubmitAiBatchInput,
   SubmitAiBatchResult,
 } from '../../types/credyxBatch'
+import { validateBatchInvoiceNumbers } from '../../utils/invoiceDuplicateChecks'
 
 function filesToUploads(files: File[]): DocSortUpload[] {
   return files.map((file) => ({
@@ -82,6 +83,15 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
   }
   if (drafts.length === 0) {
     throw new Error('No invoices to submit. Match at least one load from your paperwork.')
+  }
+
+  // Hard-block duplicate invoice numbers (no silent renumbering).
+  const numberIssues = validateBatchInvoiceNumbers(
+    clientId,
+    drafts.map((d) => d.invoice_number?.trim() || '')
+  )
+  if (numberIssues.length > 0) {
+    throw new Error(numberIssues[0].message)
   }
 
   const totalAmount = drafts.reduce((s, d) => s + d.amount, 0)

@@ -11,9 +11,19 @@ import { formatCurrency } from '../../utils/format'
 import { getDraftViewDocuments } from '../../utils/aiDraftDocuments'
 import { isGeneratedInvoicePdfDoc } from '../../utils/aiDraftDocOps'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { isInvoiceNumberTaken } from '../../utils/clientInvoiceNumbers'
+import {
+  formatLoadNumberWarning,
+  getLoadNumberWarnings,
+  invoiceNumbersConflict,
+} from '../../utils/invoiceDuplicateChecks'
 
 interface BatchAiConfirmPanelProps {
   draft: BatchIntakeDraft
+  /** Carrier being billed — used for duplicate invoice/load checks. */
+  clientId: string
+  /** When true (Credyx admin), warn if other carriers reused the load #. */
+  crossCarrierLoadWarnings?: boolean
   onUpdateDraft: (draftId: string, patch: Partial<CredyxInvoiceDraft>) => void
   onConfirmDraft: (draftId: string) => void
   onUnconfirmDraft: (draftId: string) => void
@@ -59,6 +69,8 @@ function shortFileName(name: string, max = 28) {
 /** Review table for AI-drafted invoices before batch submit. */
 export default function BatchAiConfirmPanel({
   draft,
+  clientId,
+  crossCarrierLoadWarnings = false,
   onUpdateDraft,
   onConfirmDraft,
   onUnconfirmDraft,
@@ -184,10 +196,66 @@ export default function BatchAiConfirmPanel({
     [draft.invoices]
   )
 
+  const warnMode = crossCarrierLoadWarnings ? 'admin' : 'client'
+
+  /** Per-draft invoice # / load # feedback for the confirm table. */
+  const fieldFeedback = useMemo(() => {
+    const map = new Map<string, { invoiceError?: string; loadWarning?: string }>()
+
+    draft.invoices.forEach((inv, index) => {
+      const otherNumbers = draft.invoices
+        .filter((_, i) => i !== index)
+        .map((o) => o.invoice_number)
+      const num = inv.invoice_number?.trim() ?? ''
+      let invoiceError: string | undefined
+      if (num) {
+        const inBatchDup = otherNumbers.some((n) => invoiceNumbersConflict(n, num))
+        if (inBatchDup) {
+          invoiceError = `Invoice number ${num} is duplicated in this batch`
+        } else if (isInvoiceNumberTaken(clientId, num)) {
+          invoiceError = crossCarrierLoadWarnings
+            ? `Invoice number ${num} is already used for this carrier`
+            : `Invoice number ${num} is already used for your account`
+        }
+      }
+
+      const loadWarnings = getLoadNumberWarnings(inv.load_number, {
+        forClientId: clientId,
+        crossCarrier: crossCarrierLoadWarnings,
+      })
+      const loadWarning =
+        loadWarnings.length > 0
+          ? formatLoadNumberWarning(loadWarnings[0], warnMode)
+          : undefined
+
+      if (invoiceError || loadWarning) {
+        map.set(inv.draftId, { invoiceError, loadWarning })
+      }
+    })
+
+    return map
+  }, [draft.invoices, clientId, crossCarrierLoadWarnings, warnMode])
+
+  /** Block confirm when invoice # is taken; load warnings are informational only. */
+  const tryConfirmDraft = (inv: CredyxInvoiceDraft): boolean => {
+    const feedback = fieldFeedback.get(inv.draftId)
+    if (feedback?.invoiceError) {
+      window.alert(feedback.invoiceError)
+      return false
+    }
+    const num = inv.invoice_number?.trim()
+    if (!num) {
+      window.alert('Invoice number is required before confirming')
+      return false
+    }
+    onConfirmDraft(inv.draftId)
+    return true
+  }
+
   const handleConfirmAll = () => {
     draft.invoices.forEach((inv) => {
       if (!inv.confirmed && inv.amount > 0) {
-        onConfirmDraft(inv.draftId)
+        tryConfirmDraft(inv)
       }
     })
   }
@@ -197,7 +265,7 @@ export default function BatchAiConfirmPanel({
       onUnconfirmDraft(inv.draftId)
       return
     }
-    onConfirmDraft(inv.draftId)
+    tryConfirmDraft(inv)
   }
 
   const openDocUpload = (draftId: string) => {
@@ -429,6 +497,7 @@ export default function BatchAiConfirmPanel({
                 const docCount = getDraftViewDocuments(inv, draft.fileById).length
                 const manual = isManualCredyxDraft(inv)
                 const docsDisabled = docCount === 0 && (!manual || inv.confirmed)
+                const feedback = fieldFeedback.get(inv.draftId)
                 return (
                   <tr
                     key={inv.draftId}
@@ -473,8 +542,14 @@ export default function BatchAiConfirmPanel({
                         onChange={(e) =>
                           onUpdateDraft(inv.draftId, { invoice_number: e.target.value })
                         }
-                        className="client-ai-confirm__input"
+                        className={`client-ai-confirm__input${feedback?.invoiceError ? ' client-ai-confirm__input--error' : ''}`}
+                        aria-invalid={Boolean(feedback?.invoiceError)}
                       />
+                      {feedback?.invoiceError && (
+                        <p className="client-ai-confirm__field-msg client-ai-confirm__field-msg--error">
+                          {feedback.invoiceError}
+                        </p>
+                      )}
                     </td>
                     <td>
                       <input
@@ -482,8 +557,13 @@ export default function BatchAiConfirmPanel({
                         value={inv.load_number}
                         disabled={inv.confirmed}
                         onChange={(e) => onUpdateDraft(inv.draftId, { load_number: e.target.value })}
-                        className="client-ai-confirm__input"
+                        className={`client-ai-confirm__input${feedback?.loadWarning ? ' client-ai-confirm__input--warn' : ''}`}
                       />
+                      {feedback?.loadWarning && (
+                        <p className="client-ai-confirm__field-msg client-ai-confirm__field-msg--warn">
+                          {feedback.loadWarning}
+                        </p>
+                      )}
                     </td>
                     <td>
                       <input
@@ -516,8 +596,16 @@ export default function BatchAiConfirmPanel({
                           type="button"
                           className={`client-ai-confirm__action-btn${inv.confirmed ? ' client-ai-confirm__action-btn--confirmed' : ''}`}
                           onClick={() => toggleConfirm(inv)}
-                          disabled={!inv.confirmed && inv.amount <= 0}
-                          title={inv.confirmed ? 'Click to edit' : 'Confirm invoice'}
+                          disabled={
+                            !inv.confirmed && (inv.amount <= 0 || Boolean(feedback?.invoiceError))
+                          }
+                          title={
+                            feedback?.invoiceError
+                              ? feedback.invoiceError
+                              : inv.confirmed
+                                ? 'Click to edit'
+                                : 'Confirm invoice'
+                          }
                         >
                           {inv.confirmed ? <Check className="w-3.5 h-3.5" /> : 'Confirm'}
                         </button>

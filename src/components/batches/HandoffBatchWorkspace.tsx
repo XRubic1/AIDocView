@@ -18,9 +18,18 @@ import {
 } from '../../services/credyx/manageHandoffInvoice'
 import { formatCurrency } from '../../utils/format'
 import {
-  ensureUniqueClientInvoiceNumber,
   getNextClientInvoiceNumber,
+  isInvoiceNumberTaken,
 } from '../../utils/clientInvoiceNumbers'
+import {
+  formatLoadNumberWarning,
+  formatLoadNumberWarningsSummary,
+  getBatchLoadNumberWarnings,
+  getLoadNumberWarnings,
+  getWithinBatchLoadWarnings,
+  isInvoiceNumberTakenExcluding,
+  validateBatchInvoiceNumbers,
+} from '../../utils/invoiceDuplicateChecks'
 import {
   resolveHandoffDocuments,
   type HandoffDocument,
@@ -93,8 +102,11 @@ export default function HandoffBatchWorkspace({
   const [brokerSuggestions, setBrokerSuggestions] = useState<typeof mockBrokers>([])
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
   // Id of the existing invoice being edited inline (null when creating new).
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null)
+  /** Index of a queued (not yet saved) invoice being edited. */
+  const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
 
   const loadDocuments = useCallback(async () => {
@@ -138,11 +150,19 @@ export default function HandoffBatchWorkspace({
     void loadDocuments()
   }, [loadDocuments])
 
-  useEffect(() => {
-    if (!activeDocId && documents.length > 0) {
-      setActiveDocId(documents[0].id)
-    }
-  }, [activeDocId, documents])
+  /** Pick the next document that is not yet attached to a queued/existing invoice. */
+  const selectNextUnassignedDocument = useCallback(
+    (occupiedIds: Set<string>) => {
+      const next = documents.find((d) => !occupiedIds.has(d.id))
+      if (!next) {
+        setSelectedDocIds([])
+        return
+      }
+      setActiveDocId(next.id)
+      setSelectedDocIds([next.id])
+    },
+    [documents]
+  )
 
   // Create object URLs for every document (used by the standalone review window).
   useEffect(() => {
@@ -177,6 +197,17 @@ export default function HandoffBatchWorkspace({
     }
     return ids
   }, [queue, existingInvoices])
+
+  // Seed active + selected document to the first unassigned file on first load.
+  useEffect(() => {
+    if (documents.length === 0 || activeDocId) return
+    if (editingInvoiceId != null || editingQueueIndex != null) return
+
+    const firstUnassigned = documents.find((d) => !queuedDocIds.has(d.id))
+    const seed = firstUnassigned ?? documents[0]
+    setActiveDocId(seed.id)
+    if (firstUnassigned) setSelectedDocIds([firstUnassigned.id])
+  }, [documents, queuedDocIds, activeDocId, editingInvoiceId, editingQueueIndex])
 
   // Queued documents plus the ones selected for the invoice being built.
   const assignedDocIds = useMemo(() => {
@@ -279,6 +310,34 @@ export default function HandoffBatchWorkspace({
     return () => window.removeEventListener('message', handleMessage)
   }, [queuedDocIds])
 
+  const invoiceNumberError = useMemo(() => {
+    const num = form.invoice_number.trim()
+    if (!num) return null
+    const reserved = queue
+      .filter((_, i) => i !== editingQueueIndex)
+      .map((inv) => inv.invoice_number)
+    if (editingInvoiceId) {
+      if (isInvoiceNumberTakenExcluding(clientId, num, reserved, [editingInvoiceId])) {
+        return `Invoice number ${num} is already used for this carrier`
+      }
+      return null
+    }
+    if (isInvoiceNumberTaken(clientId, num, reserved)) {
+      return `Invoice number ${num} is already used for this carrier`
+    }
+    return null
+  }, [clientId, form.invoice_number, queue, editingInvoiceId, editingQueueIndex])
+
+  const loadNumberWarning = useMemo(() => {
+    const warnings = getLoadNumberWarnings(form.load_number, {
+      forClientId: clientId,
+      crossCarrier: true,
+      excludeInvoiceIds: editingInvoiceId ? [editingInvoiceId] : undefined,
+    })
+    if (warnings.length === 0) return null
+    return formatLoadNumberWarning(warnings[0], 'admin')
+  }, [clientId, form.load_number, editingInvoiceId])
+
   const handleField = (field: keyof HandoffInvoiceDraft, value: string) => {
     setForm((prev) => {
       const next = { ...prev, [field]: value }
@@ -307,14 +366,16 @@ export default function HandoffBatchWorkspace({
   /** Reset the form back to "create new invoice" mode. */
   const resetForm = useCallback(() => {
     setEditingInvoiceId(null)
-    setSelectedDocIds([])
+    setEditingQueueIndex(null)
     setShowBrokerSuggestions(false)
     setForm(emptyDraft(clientId, queue.map((inv) => inv.invoice_number)))
-  }, [clientId, queue])
+    selectNextUnassignedDocument(queuedDocIds)
+  }, [clientId, queue, queuedDocIds, selectNextUnassignedDocument])
 
   /** Load an existing invoice into the form for inline editing. */
   const startEditInvoice = (invoice: Invoice) => {
     setEditingInvoiceId(invoice.id)
+    setEditingQueueIndex(null)
     setForm({
       invoice_number: invoice.invoice_number,
       load_number: invoice.load_number ?? '',
@@ -328,6 +389,17 @@ export default function HandoffBatchWorkspace({
     setShowBrokerSuggestions(false)
   }
 
+  /** Load a queued (unsaved) invoice into the form for editing. */
+  const startEditQueueInvoice = (index: number) => {
+    const inv = queue[index]
+    if (!inv) return
+    setEditingInvoiceId(null)
+    setEditingQueueIndex(index)
+    setForm({ ...inv })
+    setSelectedDocIds([...inv.document_doc_ids])
+    setShowBrokerSuggestions(false)
+  }
+
   const handleAddInvoice = () => {
     if (!form.broker_name.trim() || !form.amount.trim()) {
       showToast('Broker name and amount are required.', 'error')
@@ -338,12 +410,20 @@ export default function HandoffBatchWorkspace({
       return
     }
 
-    const reserved = queue.map((inv) => inv.invoice_number)
-    const invoiceNumber = ensureUniqueClientInvoiceNumber(
-      clientId,
-      form.invoice_number || getNextClientInvoiceNumber(clientId, reserved),
-      reserved
-    )
+    const reserved = queue
+      .filter((_, i) => i !== editingQueueIndex)
+      .map((inv) => inv.invoice_number)
+    const invoiceNumber =
+      form.invoice_number.trim() || getNextClientInvoiceNumber(clientId, reserved)
+
+    // Keep the user's exact custom number — do not rewrite to the next system #.
+    if (isInvoiceNumberTaken(clientId, invoiceNumber, reserved)) {
+      showToast(
+        `Invoice number ${invoiceNumber} is already used for this carrier. Enter a different number.`,
+        'error'
+      )
+      return
+    }
 
     const added: HandoffInvoiceDraft = {
       ...form,
@@ -351,11 +431,28 @@ export default function HandoffBatchWorkspace({
       document_doc_ids: [...selectedDocIds],
     }
 
-    const nextQueue = [...queue, added]
-    setQueue(nextQueue)
+    let nextQueue: HandoffInvoiceDraft[]
+    if (editingQueueIndex != null) {
+      nextQueue = queue.map((inv, i) => (i === editingQueueIndex ? added : inv))
+      setQueue(nextQueue)
+      setEditingQueueIndex(null)
+      showToast(`Invoice ${invoiceNumber} updated in queue`, 'success')
+    } else {
+      nextQueue = [...queue, added]
+      setQueue(nextQueue)
+    }
+
+    const occupied = new Set<string>()
+    for (const inv of nextQueue) {
+      for (const docId of inv.document_doc_ids) occupied.add(docId)
+    }
+    for (const inv of existingInvoices) {
+      for (const docId of inv.document_doc_ids ?? []) occupied.add(docId)
+    }
+
     setForm(emptyDraft(clientId, nextQueue.map((inv) => inv.invoice_number)))
-    setSelectedDocIds([])
     setShowBrokerSuggestions(false)
+    selectNextUnassignedDocument(occupied)
   }
 
   /** Save edits to the currently selected existing invoice. */
@@ -365,6 +462,32 @@ export default function HandoffBatchWorkspace({
       showToast('Broker name and amount are required.', 'error')
       return
     }
+
+    if (
+      isInvoiceNumberTakenExcluding(
+        clientId,
+        form.invoice_number,
+        queue.map((inv) => inv.invoice_number),
+        [editingInvoiceId]
+      )
+    ) {
+      showToast(
+        `Invoice number ${form.invoice_number.trim()} is already used for this carrier.`,
+        'error'
+      )
+      return
+    }
+
+    const editLoadWarnings = getLoadNumberWarnings(form.load_number, {
+      forClientId: clientId,
+      crossCarrier: true,
+      excludeInvoiceIds: [editingInvoiceId],
+    })
+    if (editLoadWarnings.length > 0) {
+      const summary = formatLoadNumberWarningsSummary(editLoadWarnings, 'admin')
+      if (!window.confirm(summary)) return
+    }
+
     setSavingEdit(true)
     try {
       await updateHandoffInvoice({
@@ -406,27 +529,60 @@ export default function HandoffBatchWorkspace({
   }
 
   const handleSubmit = async () => {
+    if (submittingRef.current || submitting) return
     if (queue.length === 0) {
       showToast('Add at least one invoice before saving.', 'error')
       return
     }
+
+    const numberIssues = validateBatchInvoiceNumbers(
+      clientId,
+      queue.map((inv) => inv.invoice_number)
+    )
+    if (numberIssues.length > 0) {
+      showToast(numberIssues[0].message, 'error')
+      return
+    }
+
+    const loadWarnings = getBatchLoadNumberWarnings(
+      clientId,
+      queue.map((inv) => inv.load_number),
+      { crossCarrier: true }
+    )
+    const withinBatchLoad = getWithinBatchLoadWarnings(queue.map((inv) => inv.load_number))
+    if (loadWarnings.length > 0 || withinBatchLoad.length > 0) {
+      const summary =
+        loadWarnings.length > 0
+          ? formatLoadNumberWarningsSummary(loadWarnings, 'admin')
+          : `${withinBatchLoad.join('\n')}\n\nSubmit anyway?`
+      if (!window.confirm(summary)) return
+    }
+
+    submittingRef.current = true
     setSubmitting(true)
+    const queuedSnapshot = [...queue]
     try {
       await submitHandoffInvoices({
         batchId,
         clientId,
         clientName,
-        invoices: queue,
+        invoices: queuedSnapshot,
         storagePathsByDocId,
       })
+      // Clear queue immediately so remount/refresh cannot double-render the same invoices.
+      setQueue([])
+      setEditingQueueIndex(null)
+      setForm(emptyDraft(clientId, []))
+      setSelectedDocIds([])
       showToast(
-        `${queue.length} invoice${queue.length !== 1 ? 's' : ''} created for ${clientName}`,
+        `${queuedSnapshot.length} invoice${queuedSnapshot.length !== 1 ? 's' : ''} created for ${clientName}`,
         'success'
       )
       onInvoicesCreated()
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Could not create invoices', 'error')
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -477,14 +633,11 @@ export default function HandoffBatchWorkspace({
                 return (
                   <li
                     key={inv.id}
-                    className="rounded-lg border px-3 py-2 cursor-pointer transition-colors hover:border-slate-400"
+                    className="rounded-lg border px-3 py-2 transition-colors"
                     style={{
                       borderColor: isEditing ? c.info : c.border,
                       backgroundColor: isEditing ? c.stat.blue : 'transparent',
                     }}
-                    onClick={() => startEditInvoice(inv)}
-                    role="button"
-                    tabIndex={0}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold truncate" style={{ color: c.primary }}>
@@ -507,65 +660,119 @@ export default function HandoffBatchWorkspace({
                       <span className="tabular-nums font-medium" style={{ color: c.primary }}>
                         {formatCurrency(inv.amount)}
                       </span>
-                      <div className="flex items-center gap-2">
-                        <span>
-                          {inv.documents_count ?? 0} doc{(inv.documents_count ?? 0) !== 1 ? 's' : ''}
-                        </span>
-                        {onSelectInvoice && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onSelectInvoice(inv)
-                            }}
-                            className="underline"
-                            style={{ color: c.info }}
-                          >
-                            Details
-                          </button>
-                        )}
-                      </div>
+                      <span>
+                        {inv.documents_count ?? 0} doc{(inv.documents_count ?? 0) !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditInvoice(inv)}
+                        className="text-xs underline"
+                        style={{ color: c.info }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (
+                            !window.confirm(
+                              `Delete invoice ${inv.invoice_number}? This cannot be undone.`
+                            )
+                          ) {
+                            return
+                          }
+                          try {
+                            await deleteHandoffInvoice(inv.id)
+                            if (editingInvoiceId === inv.id) resetForm()
+                            showToast(`Invoice ${inv.invoice_number} deleted`, 'success')
+                            onInvoicesCreated()
+                          } catch (err) {
+                            showToast(
+                              err instanceof Error ? err.message : 'Could not delete invoice',
+                              'error'
+                            )
+                          }
+                        }}
+                        className="text-xs underline"
+                        style={{ color: c.error }}
+                      >
+                        Remove
+                      </button>
+                      {onSelectInvoice && (
+                        <button
+                          type="button"
+                          onClick={() => onSelectInvoice(inv)}
+                          className="text-xs underline ml-auto"
+                          style={{ color: c.secondary }}
+                        >
+                          Details
+                        </button>
+                      )}
                     </div>
                   </li>
                 )
               })}
 
               {/* New invoices queued for creation */}
-              {queue.map((inv, index) => (
-                <li
-                  key={`queue-${inv.invoice_number}-${index}`}
-                  className="rounded-lg border px-3 py-2"
-                  style={{ borderColor: c.info, backgroundColor: c.stat.blue }}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold truncate" style={{ color: c.primary }}>
-                      {inv.invoice_number}
-                      <span className="ml-1.5 text-[10px] font-normal" style={{ color: c.secondary }}>
-                        (new)
+              {queue.map((inv, index) => {
+                const isEditing = editingQueueIndex === index
+                return (
+                  <li
+                    key={`queue-${inv.invoice_number}-${index}`}
+                    className="rounded-lg border px-3 py-2"
+                    style={{
+                      borderColor: isEditing ? c.info : c.info,
+                      backgroundColor: c.stat.blue,
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold truncate" style={{ color: c.primary }}>
+                        {inv.invoice_number}
+                        <span className="ml-1.5 text-[10px] font-normal" style={{ color: c.secondary }}>
+                          (new)
+                        </span>
                       </span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setQueue((prev) => prev.filter((_, i) => i !== index))}
-                      className="dashboard-btn-secondary !h-6 !w-6 !p-0 shrink-0"
-                      aria-label="Remove invoice"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div className="mt-1 text-xs truncate" style={{ color: c.secondary }}>
-                    {inv.broker_name || 'No broker'}
-                  </div>
-                  <div className="mt-1 flex items-center justify-between text-xs" style={{ color: c.secondary }}>
-                    <span className="tabular-nums font-medium" style={{ color: c.primary }}>
-                      {formatCurrency(parseFloat(inv.amount || '0'))}
-                    </span>
-                    <span>
-                      {inv.document_doc_ids.length} doc{inv.document_doc_ids.length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                </li>
-              ))}
+                    </div>
+                    <div className="mt-1 text-xs truncate" style={{ color: c.secondary }}>
+                      {inv.broker_name || 'No broker'}
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-xs" style={{ color: c.secondary }}>
+                      <span className="tabular-nums font-medium" style={{ color: c.primary }}>
+                        {formatCurrency(parseFloat(inv.amount || '0'))}
+                      </span>
+                      <span>
+                        {inv.document_doc_ids.length} doc{inv.document_doc_ids.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditQueueInvoice(index)}
+                        className="text-xs underline"
+                        style={{ color: c.info }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQueue((prev) => prev.filter((_, i) => i !== index))
+                          if (editingQueueIndex === index) resetForm()
+                          else if (editingQueueIndex != null && editingQueueIndex > index) {
+                            setEditingQueueIndex(editingQueueIndex - 1)
+                          }
+                        }}
+                        className="text-xs underline"
+                        style={{ color: c.error }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           )}
 
@@ -713,7 +920,11 @@ export default function HandoffBatchWorkspace({
         {/* Invoice builder */}
         <section className="dashboard-card p-4">
           <h3 className="text-sm font-semibold mb-3" style={{ color: c.primary }}>
-            {editingInvoiceId ? `Edit invoice ${form.invoice_number}` : 'Create invoice'}
+            {editingInvoiceId
+              ? `Edit invoice ${form.invoice_number}`
+              : editingQueueIndex != null
+                ? `Edit queued invoice ${form.invoice_number}`
+                : 'Create invoice'}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -725,8 +936,16 @@ export default function HandoffBatchWorkspace({
                 value={form.invoice_number}
                 onChange={(e) => handleField('invoice_number', e.target.value)}
                 className="w-full text-sm px-3 py-2 rounded-lg border"
-                style={{ borderColor: c.border, color: c.primary }}
+                style={{
+                  borderColor: invoiceNumberError ? '#f87171' : c.border,
+                  color: c.primary,
+                }}
               />
+              {invoiceNumberError && (
+                <p className="text-xs mt-1" style={{ color: '#b91c1c' }}>
+                  {invoiceNumberError}
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: c.secondary }}>
@@ -737,8 +956,16 @@ export default function HandoffBatchWorkspace({
                 value={form.load_number}
                 onChange={(e) => handleField('load_number', e.target.value)}
                 className="w-full text-sm px-3 py-2 rounded-lg border"
-                style={{ borderColor: c.border, color: c.primary }}
+                style={{
+                  borderColor: loadNumberWarning ? '#fbbf24' : c.border,
+                  color: c.primary,
+                }}
               />
+              {loadNumberWarning && (
+                <p className="text-xs mt-1" style={{ color: '#b45309' }}>
+                  {loadNumberWarning}
+                </p>
+              )}
             </div>
             <div className="relative sm:col-span-2">
               <label className="block text-xs font-medium mb-1" style={{ color: c.secondary }}>
@@ -834,7 +1061,7 @@ export default function HandoffBatchWorkspace({
                 ) : (
                   <>
                     <CheckCircle className="w-4 h-4" />
-                    Edit
+                    Save changes
                   </>
                 )}
               </button>
@@ -859,14 +1086,35 @@ export default function HandoffBatchWorkspace({
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={handleAddInvoice}
-              className="dashboard-btn-secondary mt-3 inline-flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              Add to queue
-            </button>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAddInvoice}
+                className="dashboard-btn-secondary inline-flex items-center gap-1.5"
+              >
+                {editingQueueIndex != null ? (
+                  <>
+                    <CheckCircle className="w-4 h-4" />
+                    Update queue
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    Add to queue
+                  </>
+                )}
+              </button>
+              {editingQueueIndex != null && (
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="dashboard-btn-secondary inline-flex items-center gap-1.5"
+                >
+                  <X className="w-4 h-4" />
+                  Cancel
+                </button>
+              )}
+            </div>
           )}
         </section>
         </div>

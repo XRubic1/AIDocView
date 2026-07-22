@@ -25,44 +25,50 @@ import {
   LIST_PAGE_SIZE_KEY,
   PAGE_SIZE_OPTIONS,
 } from '../utils/clientListPage'
+import {
+  DEFAULT_CLIENT_NOTIFICATION_PREFERENCES,
+  getClientNotificationPreferences,
+  saveClientNotificationPreferences,
+  type ClientNotificationPreferences,
+} from '../utils/clientNotificationPreferences'
 
 type SettingsTab = 'profile' | 'notifications' | 'preferences' | 'security' | 'remittance' | 'billing'
 
-type NotificationSettings = {
-  emailNotifications: boolean
-  invoiceApproved: boolean
-  invoiceOnHold: boolean
-  paymentReceived: boolean
-  batchSubmitted: boolean
-  overdueAlerts: boolean
-  weeklySummary: boolean
-  dailyDigest: boolean
-}
-
-const defaultNotifications: NotificationSettings = {
-  emailNotifications: true,
-  invoiceApproved: true,
-  invoiceOnHold: true,
-  paymentReceived: true,
-  batchSubmitted: true,
-  overdueAlerts: true,
-  weeklySummary: false,
-  dailyDigest: false,
-}
-
 const NOTIFICATION_OPTIONS: Array<{
-  key: keyof NotificationSettings
+  key: keyof ClientNotificationPreferences
   label: string
   hint: string
 }> = [
-  { key: 'emailNotifications', label: 'Email notifications', hint: 'Master switch for all email alerts' },
-  { key: 'invoiceApproved', label: 'Invoice approved', hint: 'When an invoice clears approval' },
-  { key: 'invoiceOnHold', label: 'Invoice on hold', hint: 'When an invoice is placed on hold' },
-  { key: 'paymentReceived', label: 'Payment received', hint: 'When a payment is confirmed' },
-  { key: 'batchSubmitted', label: 'Batch submitted', hint: 'When a batch is sent for processing' },
-  { key: 'overdueAlerts', label: 'Overdue alerts', hint: 'Invoices past expected pay date' },
-  { key: 'weeklySummary', label: 'Weekly summary', hint: 'End-of-week collections digest' },
-  { key: 'dailyDigest', label: 'Daily digest', hint: 'Morning activity summary' },
+  {
+    key: 'bellEnabled',
+    label: 'Bell notifications',
+    hint: 'Master switch for all in-app bell alerts',
+  },
+  {
+    key: 'payment',
+    label: 'Payment notifications',
+    hint: 'When Credyx posts a full payment on an invoice',
+  },
+  {
+    key: 'shortOver',
+    label: 'Short / overpaid notifications',
+    hint: 'When Credyx posts a short payment or overpayment',
+  },
+  {
+    key: 'hold',
+    label: 'Hold notifications',
+    hint: 'When an invoice is placed on hold',
+  },
+  {
+    key: 'notes',
+    label: 'Notes notifications',
+    hint: 'When Credyx adds a written note on one of your invoices',
+  },
+  {
+    key: 'dispute',
+    label: 'Dispute notifications',
+    hint: 'When Credyx resolves a payment receipt dispute',
+  },
 ]
 
 function SettingsTabPanel({
@@ -149,17 +155,19 @@ function SettingsToggleRow({
   hint,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string
   hint: string
   checked: boolean
   onChange: (value: boolean) => void
+  disabled?: boolean
 }) {
   const c = useClientTheme()
   return (
     <div
       className="client-settings-toggle-row flex items-center justify-between gap-3 py-2 border-b last:border-b-0"
-      style={{ borderColor: c.border }}
+      style={{ borderColor: c.border, opacity: disabled ? 0.55 : 1 }}
     >
       <div className="min-w-0">
         <p className="text-sm font-medium leading-tight" style={{ color: c.primary }}>
@@ -170,8 +178,16 @@ function SettingsToggleRow({
         </p>
       </div>
       <label className="client-toggle shrink-0">
-        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-        <span className="client-toggle__track" style={{ backgroundColor: checked ? c.info : c.mutedLight }} />
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span
+          className="client-toggle__track"
+          style={{ backgroundColor: checked && !disabled ? c.info : c.mutedLight }}
+        />
       </label>
     </div>
   )
@@ -204,7 +220,13 @@ export default function ClientSettings() {
     dot_number: currentClient?.dot_number || '',
   })
 
-  const [notificationSettings, setNotificationSettings] = useState(defaultNotifications)
+  const [notificationSettings, setNotificationSettings] = useState<ClientNotificationPreferences>(
+    () =>
+      getClientNotificationPreferences(
+        clientId,
+        currentClient?.notification_prefs ?? DEFAULT_CLIENT_NOTIFICATION_PREFERENCES
+      )
+  )
 
   const [preferences, setPreferences] = useState({
     dateFormat: 'MM/DD/YYYY',
@@ -250,6 +272,9 @@ export default function ClientSettings() {
         account_number: currentClient.account_number || '',
         routing_number: currentClient.routing_number || '',
       })
+      setNotificationSettings(
+        getClientNotificationPreferences(clientId, currentClient.notification_prefs)
+      )
     }
   }, [clientId, currentClient, clientName])
 
@@ -271,23 +296,54 @@ export default function ClientSettings() {
         localStorage.setItem(LIST_PAGE_SIZE_KEY, String(size))
       }
 
-      await updateClient(clientId, {
-        name: profileData.company_name,
-        contact_person: profileData.contact_person,
-        email: profileData.email,
-        phone: profileData.phone,
-        fax: profileData.fax,
-        address: profileData.address,
-        city: profileData.city,
-        state: profileData.state,
-        zip: profileData.zip,
-        mc_number: profileData.mc_number,
-        dot_number: profileData.dot_number,
-        remittance_info: remittanceData.remittance_info,
-        bank_name: remittanceData.bank_name,
-        account_number: remittanceData.account_number,
-        routing_number: remittanceData.routing_number,
-      })
+      const savedPrefs = saveClientNotificationPreferences(clientId, notificationSettings)
+
+      try {
+        await updateClient(clientId, {
+          name: profileData.company_name,
+          contact_person: profileData.contact_person,
+          email: profileData.email,
+          phone: profileData.phone,
+          fax: profileData.fax,
+          address: profileData.address,
+          city: profileData.city,
+          state: profileData.state,
+          zip: profileData.zip,
+          mc_number: profileData.mc_number,
+          dot_number: profileData.dot_number,
+          remittance_info: remittanceData.remittance_info,
+          bank_name: remittanceData.bank_name,
+          account_number: remittanceData.account_number,
+          routing_number: remittanceData.routing_number,
+          notification_prefs: savedPrefs,
+        })
+      } catch (err) {
+        // Older DBs may lack notification_prefs — still save profile without it.
+        const message = err instanceof Error ? err.message : String(err)
+        if (/notification_prefs/i.test(message)) {
+          await updateClient(clientId, {
+            name: profileData.company_name,
+            contact_person: profileData.contact_person,
+            email: profileData.email,
+            phone: profileData.phone,
+            fax: profileData.fax,
+            address: profileData.address,
+            city: profileData.city,
+            state: profileData.state,
+            zip: profileData.zip,
+            mc_number: profileData.mc_number,
+            dot_number: profileData.dot_number,
+            remittance_info: remittanceData.remittance_info,
+            bank_name: remittanceData.bank_name,
+            account_number: remittanceData.account_number,
+            routing_number: remittanceData.routing_number,
+          })
+        } else {
+          throw err
+        }
+      }
+
+      setNotificationSettings(savedPrefs)
 
       setSaved(true)
       showToast('Settings saved', 'success')
@@ -527,17 +583,22 @@ export default function ClientSettings() {
             {activeTab === 'notifications' && (
               <SettingsTabPanel className="client-settings-tab-panel--notifications" footer={saveFooter}>
                 <div className="client-settings-grid client-settings-grid--notifications">
-                  {NOTIFICATION_OPTIONS.map((opt) => (
-                    <SettingsToggleRow
-                      key={opt.key}
-                      label={opt.label}
-                      hint={opt.hint}
-                      checked={notificationSettings[opt.key]}
-                      onChange={(value) =>
-                        setNotificationSettings((prev) => ({ ...prev, [opt.key]: value }))
-                      }
-                    />
-                  ))}
+                  {NOTIFICATION_OPTIONS.map((opt) => {
+                    const disabled =
+                      opt.key !== 'bellEnabled' && !notificationSettings.bellEnabled
+                    return (
+                      <SettingsToggleRow
+                        key={opt.key}
+                        label={opt.label}
+                        hint={opt.hint}
+                        checked={notificationSettings[opt.key]}
+                        onChange={(value) =>
+                          setNotificationSettings((prev) => ({ ...prev, [opt.key]: value }))
+                        }
+                        disabled={disabled}
+                      />
+                    )
+                  })}
                 </div>
               </SettingsTabPanel>
             )}
