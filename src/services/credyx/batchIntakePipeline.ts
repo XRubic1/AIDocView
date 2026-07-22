@@ -21,6 +21,9 @@ import type {
   SubmitAiBatchResult,
 } from '../../types/credyxBatch'
 import { validateBatchInvoiceNumbers } from '../../utils/invoiceDuplicateChecks'
+import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
+import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
+import { getClientById } from '../clientRegistry'
 
 function filesToUploads(files: File[]): DocSortUpload[] {
   return files.map((file) => ({
@@ -101,7 +104,14 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
     ...fingerprintDocIds(sortResult.otherDocuments),
   ]
 
+  const client = getClientById(clientId)
   const existing = existingBatchId ? updateBatch(existingBatchId, {}) : undefined
+  // Existing batches keep locked terms; new batches snapshot from client (incl. trial).
+  const feeTerms = existing?.fee_terms ?? snapshotFeeTermsFromClient(client)
+  const feeCalculation = calculateBatchFeeCalculation(
+    drafts.map((d) => ({ amount: d.amount, status: 'pending' as const })),
+    feeTerms
+  )
   const batchNumber = existing?.batch_number ?? generateBatchNumber(clientId)
 
   const batch = existing
@@ -118,6 +128,8 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
           groupCount: sortResult.groups.length,
         }),
         unmatched_doc_ids: unmatchedIds,
+        fee_terms: feeTerms,
+        fee_calculation: feeCalculation,
       })!
     : addBatch({
         batch_number: batchNumber,
@@ -135,11 +147,14 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
           groupCount: sortResult.groups.length,
         }),
         unmatched_doc_ids: unmatchedIds,
+        fee_terms: feeTerms,
+        fee_calculation: feeCalculation,
       })
 
   const invoiceFields = drafts.map((draft) => {
     const fields = draftToInvoiceFields(draft, clientId, confirmedBy)
     fields.ai_confirmed_by = confirmedBy
+    fields.fee_terms = feeTerms
     return fields
   })
 

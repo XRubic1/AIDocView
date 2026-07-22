@@ -43,6 +43,11 @@ export interface Invoice {
   load_number?: string
   batch_id?: string
   batch_number?: string
+  /**
+   * Locked fee terms inherited from the batch (trial / % / flat at create or batch edit).
+   * Credyx monthly collection fees use this — not the client's live Fee Terms.
+   */
+  fee_terms?: import('./feeTerms').FeeTermsSnapshot
   created_at: string
   updated_at?: string
   reviewed_at?: string

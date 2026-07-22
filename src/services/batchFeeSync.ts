@@ -1,17 +1,6 @@
-import { getBatchById, updateBatch } from '../data/mockBatches'
-import { getInvoicesByBatchId } from '../data/mockInvoices'
-import { calculateBatchFeeCalculation } from '../utils/invoiceFees'
-import { getClientById } from './clientRegistry'
+import { syncBatchFeesFromLockedTerms } from '../utils/feeTermsLock'
 
-/** Recompute batch fee_calculation (write-offs excluded from billable totals). */
+/** Recompute batch fee_calculation from locked batch fee_terms (not live client). */
 export function syncBatchFees(batchId: string): void {
-  const batch = getBatchById(batchId)
-  if (!batch) return
-
-  const invoices = getInvoicesByBatchId(batchId)
-  const feeCalculation = calculateBatchFeeCalculation(invoices, getClientById(batch.client_id)?.fee_terms)
-
-  if (feeCalculation) {
-    updateBatch(batchId, { fee_calculation: feeCalculation })
-  }
+  syncBatchFeesFromLockedTerms(batchId)
 }

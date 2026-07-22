@@ -5,9 +5,15 @@ import {
   BILL_WARNING_DAYS,
   PLATFORM_APP_FEE_MONTHLY,
 } from '../config/arBillingRates'
-import { mockInvoices } from '../data/mockInvoices'
+import { mockInvoices, getInvoiceById } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
+import { getBatchById } from '../data/mockBatches'
 import { getEffectivePaymentAmount } from '../utils/paymentVariance'
+import {
+  feeAmountForPayment,
+  formatFeeTermsLabel,
+  resolveInvoiceFeeTerms,
+} from '../utils/feeTermsLock'
 import {
   getShortPaymentFeeCreditsForPeriod,
   markCreditsAppliedToBill,
@@ -230,46 +236,82 @@ export interface ResolvedClientFee {
 }
 
 /**
- * Resolve the period collection fee from the client's fee_terms.
- * Percentage → rate × confirmed collections; flat → flat × invoices collected in period.
+ * Resolve period collection fee from locked invoice/batch fee terms.
+ * Trial-locked invoices contribute $0; live client Fee Terms are only a fallback
+ * for legacy invoices without a snapshot.
  */
 export function resolveClientCollectionFee(
   client: Client,
   collectedVolume: number,
   period: BillingPeriod
 ): ResolvedClientFee {
-  const terms = client.fee_terms
-  if (!terms?.fee_type) {
-    throw new Error(`Fee terms not configured for ${client.name}`)
+  const invoiceIds = invoiceIdsForClient(client.id)
+  let fee = 0
+  let trialVolume = 0
+  const rateLabels = new Set<string>()
+  const flatChargedInvoiceIds = new Set<string>()
+
+  for (const p of mockPayments) {
+    if (!invoiceIds.has(p.invoice_id) || p.status !== 'confirmed') continue
+    if (!isDateInPeriod(p.confirmed_at ?? p.received_date, period)) continue
+
+    const inv = getInvoiceById(p.invoice_id)
+    if (!inv) continue
+    const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
+    const terms = resolveInvoiceFeeTerms(inv, batch, client)
+    const paymentAmt = getEffectivePaymentAmount(p)
+
+    if (!terms) {
+      throw new Error(`Fee terms not found for invoice ${inv.invoice_number} (${client.name})`)
+    }
+
+    if (terms.billing_mode === 'trial') {
+      trialVolume += paymentAmt
+      rateLabels.add('Trial')
+      continue
+    }
+
+    rateLabels.add(formatFeeTermsLabel(terms))
+
+    if (terms.fee_type === 'flat') {
+      if (flatChargedInvoiceIds.has(inv.id)) continue
+      flatChargedInvoiceIds.add(inv.id)
+      fee += feeAmountForPayment(paymentAmt, terms)
+    } else {
+      fee += feeAmountForPayment(paymentAmt, terms)
+    }
   }
 
-  if (terms.fee_type === 'flat') {
-    const flat = terms.flat_fee_amount ?? 0
-    if (!Number.isFinite(flat) || flat <= 0) {
-      throw new Error(`Flat fee amount not configured for ${client.name}`)
-    }
-    const invoiceCount = countInvoicesCollectedInPeriod(client.id, period)
-    const fee = Math.round(flat * invoiceCount * 100) / 100
-    return {
-      feeType: 'flat',
-      ratePct: 0,
-      fee,
-      displayRate: `$${flat.toFixed(2)} flat`,
-      feeDescription: `Collection fee — $${flat.toFixed(2)} × ${invoiceCount} invoice(s) collected`,
-    }
+  fee = Math.round(fee * 100) / 100
+  const displayRate =
+    rateLabels.size === 0 ? '—' : rateLabels.size === 1 ? [...rateLabels][0]! : 'Mixed'
+  const feeType: 'percentage' | 'flat' =
+    [...rateLabels].every((l) => l.includes('flat')) && rateLabels.size > 0
+      ? 'flat'
+      : 'percentage'
+
+  // Representative % for older UI fields (0 when mixed / flat / trial-only).
+  let ratePct = 0
+  if (rateLabels.size === 1) {
+    const only = [...rateLabels][0]!
+    const m = only.match(/^([\d.]+)%$/)
+    if (m) ratePct = Number(m[1])
   }
 
-  const ratePct = terms.fee_percentage ?? 0
-  if (!Number.isFinite(ratePct) || ratePct <= 0) {
-    throw new Error(`Fee percentage not configured for ${client.name}`)
-  }
-  const fee = Math.round(((ratePct / 100) * collectedVolume) * 100) / 100
+  const trialNote =
+    trialVolume > 0
+      ? ` (${formatVolume(trialVolume)} collected under trial — not charged)`
+      : ''
+
   return {
-    feeType: 'percentage',
+    feeType,
     ratePct,
     fee,
-    displayRate: `${ratePct}%`,
-    feeDescription: `Collection fee — ${ratePct}% of ${formatVolume(collectedVolume)} collected`,
+    displayRate,
+    feeDescription:
+      feeType === 'flat' && rateLabels.size === 1
+        ? `Collection fee — ${displayRate} × ${flatChargedInvoiceIds.size} invoice(s) collected${trialNote}`
+        : `Collection fee — ${displayRate} of ${formatVolume(collectedVolume)} collected${trialNote}`,
   }
 }
 
@@ -291,20 +333,23 @@ function getForceCloseAdjustments(
   client: Client
 ): BillingLineItem[] {
   const periodLabel = formatBillingPeriod(period)
-  const terms = client.fee_terms
   return mockInvoices
     .filter((inv) => inv.client_id === clientId && inv.status === 'force_closed')
     .filter((inv) => isDateInPeriod(inv.updated_at, period))
     .map((inv) => {
+      const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
+      const terms = resolveInvoiceFeeTerms(inv, batch, client)
       let amount = 0
-      let detail = ''
-      if (terms?.fee_type === 'flat' && terms.flat_fee_amount) {
+      let detail = 'no fee terms'
+      if (terms?.billing_mode === 'trial') {
+        amount = 0
+        detail = 'trial — waived'
+      } else if (terms?.fee_type === 'flat' && terms.flat_fee_amount) {
         amount = terms.flat_fee_amount
         detail = `$${terms.flat_fee_amount} flat`
-      } else {
-        const ratePct = terms?.fee_percentage ?? 0
-        amount = (ratePct / 100) * inv.amount
-        detail = `${ratePct}% of invoice`
+      } else if (terms?.fee_percentage) {
+        amount = (terms.fee_percentage / 100) * inv.amount
+        detail = `${terms.fee_percentage}% of invoice`
       }
       return {
         id: `fc-${inv.id}`,
@@ -314,6 +359,7 @@ function getForceCloseAdjustments(
         status: 'pending' as const,
       }
     })
+    .filter((li) => li.amount > 0)
 }
 
 /** Compute monthly bill breakdown for a client and period. */
@@ -325,22 +371,21 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
 
   const collectedVolume = getClientCollectedVolume(clientId, period)
   const resolved = resolveClientCollectionFee(client, collectedVolume, period)
+  // Platform fee follows current subscription; collection fees follow locked invoice terms.
   const trial = isTrialClient(client)
 
-  // Always compute gross fees so the UI can show what would be charged.
   const grossAppFee = PLATFORM_APP_FEE_MONTHLY
   const grossArFee = resolved.fee
-  const adjustments = [
-    ...getForceCloseAdjustments(clientId, period, client),
-  ]
+  const adjustments = [...getForceCloseAdjustments(clientId, period, client)]
   const adjustmentTotal = adjustments.reduce((sum, a) => sum + a.amount, 0)
   const grossSubtotal = grossAppFee + grossArFee + adjustmentTotal
 
-  // Trial clients are not charged; active clients pay the full gross.
+  // Only the platform subscription is waived while the client is currently on trial.
+  // Collection fees for trial-locked invoices are already $0 via resolveClientCollectionFee.
   const appFee = trial ? 0 : grossAppFee
-  const arFee = trial ? 0 : grossArFee
-  const chargedAdjustments = trial ? [] : adjustments
-  const chargedAdjustmentTotal = trial ? 0 : adjustmentTotal
+  const arFee = grossArFee
+  const chargedAdjustments = adjustments
+  const chargedAdjustmentTotal = adjustmentTotal
 
   const reimbursementCredits = getShortPaymentFeeCreditsForPeriod(clientId, period)
   const reimbursementBalance = client.reimbursement_balance ?? 0
@@ -370,12 +415,12 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
     lineItems.push(adj)
   }
 
-  if (trial && grossSubtotal > 0) {
+  if (trial && grossAppFee > 0) {
     lineItems.push({
       id: `trial-waiver-${periodLabel}`,
       date: periodLabel,
-      description: 'Trial — fees waived (not charged while on trial)',
-      amount: -Math.round(grossSubtotal * 100) / 100,
+      description: 'Trial — platform fee waived (invoice collection fees use locked batch terms)',
+      amount: -Math.round(grossAppFee * 100) / 100,
       status: 'pending',
     })
   }

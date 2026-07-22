@@ -347,18 +347,18 @@ function pageForTopic(id: DocTopicId): DocPageContent {
       return {
         title: 'Monthly billing',
         lede:
-          'Credyx bills carriers monthly for the platform fee plus a collection fee from client Fee Terms — based on confirmed collections, not open A/R.',
+          'Credyx bills carriers monthly for the platform fee plus collection fees from locked invoice/batch terms — based on confirmed collections, not open A/R.',
         callout: (
           <>
-            Fee source of truth is <strong>Clients → Fee Terms</strong> (percentage of collected, or
-            flat per invoice). Trial clients are not charged until subscription status is{' '}
-            <strong>active</strong>.
+            <strong>Clients → Fee Terms</strong> and Billing subscription apply to{' '}
+            <strong>new batches only</strong>. Each batch locks terms (including trial); invoices
+            inherit them. Change a batch in Accounting to update all invoices in that batch.
           </>
         ),
         steps: [
           {
             title: 'What gets billed',
-            body: 'Each calendar month: $99 platform subscription + collection fee. Percentage terms → fee % × confirmed payment amounts in that month. Flat terms → flat amount × invoices that had confirmed collections that month. Pending and reversed payments do not count toward volume.',
+            body: 'Each calendar month: $99 platform subscription (waived while the client is currently on trial) + collection fees from each invoice’s locked terms. Trial-locked invoices are not charged. Percentage → fee % × payment; flat → flat per invoice collected. Pending and reversed payments do not count.',
           },
           {
             title: 'Issue → Payoneer → Paid',
@@ -370,7 +370,7 @@ function pageForTopic(id: DocTopicId): DocPageContent {
           },
           {
             title: 'Reversal reimbursements',
-            body: 'If a payment is unprocessed or reversed after the Credyx bill for that collection month was already issued, it appears under Discount / credit → Reversal reimbursements with a system note (invoice, billed period, fee rate at bill time, reason, suggested fee). Select the row(s) and choose Reimburse selected. Fee amount uses the fee terms locked on that Credyx bill (e.g. 1% × payment), so later Fee Terms changes (1% → 1.25%) do not change the clawback. Reimbursed items hide behind Show reimbursed invoices.',
+            body: 'If a payment is unprocessed or reversed after the Credyx bill for that collection month was already issued, it appears under Discount / credit → Reversal reimbursements with a system note (invoice, billed period, fee rate at bill time, reason, suggested fee). Select the row(s) and choose Reimburse selected. Fee amount prefers the invoice’s locked batch terms. Reimbursed items hide behind Show reimbursed invoices.',
           },
           {
             title: 'When a clawback does not appear',
@@ -378,17 +378,17 @@ function pageForTopic(id: DocTopicId): DocPageContent {
           },
           {
             title: 'Where to work',
-            body: 'Admin → Billing (list + Open popup). Fee Terms and trial/active status on Clients. Payment unprocess/move on Payment Posting.',
+            body: 'Admin → Billing (list + Open popup). Client Fee Terms / trial on Clients (new batches). Batch Accounting to override terms for invoices in a batch. Payment unprocess/move on Payment Posting.',
           },
         ],
         facts: [
-          { label: 'Fee source', value: 'Client Fee Terms' },
-          { label: 'Bill base', value: 'Confirmed collections in the month' },
+          { label: 'New batch source', value: 'Client Fee Terms + trial/active' },
+          { label: 'Bill base', value: 'Locked invoice terms × collections' },
           { label: 'Credits', value: 'Next invoice · floor $0' },
           { label: 'Reversal clawback', value: 'Manual select after bill issued' },
         ],
         footnote:
-          'Opened Credyx billing invoices store a snapshot of line items. Changing Fee Terms later does not rewrite already-issued bills.',
+          'June trial batches stay trial even if the client goes active in July. July 1% only applies to batches created after that change.',
       }
   }
 }

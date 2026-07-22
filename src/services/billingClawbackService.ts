@@ -1,5 +1,6 @@
 import { mockPayments, getPaymentById } from '../data/mockPayments'
 import { getInvoiceById } from '../data/mockInvoices'
+import { getBatchById } from '../data/mockBatches'
 import { getClientById } from './clientRegistry'
 import {
   formatBillingPeriod,
@@ -9,6 +10,7 @@ import {
 import { getReimbursementLedger, recordManualBillingCredit } from './reimbursementAccountService'
 import { getPaymentAttributedFee } from '../utils/shortPaymentFeeCredit'
 import { formatCurrency } from '../utils/format'
+import { resolveInvoiceFeeTerms } from '../utils/feeTermsLock'
 import type { Payment } from '../types/payment'
 import type { BillingFeeTermsSnapshot, ClientBill } from '../types/billing'
 import type { ReimbursementLedgerEntry } from '../types/reimbursement'
@@ -94,37 +96,51 @@ export function resolveBilledFeeTerms(
 }
 
 /**
- * Fee charged on a collected payment under the bill's locked fee terms.
- * Percentage → rate × payment; flat → flat amount when this was the invoice's
- * only billed collection in that period.
+ * Fee charged on a collected payment under the bill's locked fee terms,
+ * preferring the invoice's locked batch terms when present.
  */
 export function estimateBilledFeeForPayment(
   payment: Payment,
   bill: ClientBill
 ): number {
+  const invoice = getInvoiceById(payment.invoice_id)
+  if (invoice) {
+    const batch = invoice.batch_id ? getBatchById(invoice.batch_id) : undefined
+    const locked = resolveInvoiceFeeTerms(invoice, batch)
+    if (locked) {
+      if (locked.billing_mode === 'trial') return 0
+      if (locked.fee_type === 'flat') {
+        return estimateFlatClawback(payment, bill.period, locked.flat_fee_amount ?? 0)
+      }
+      return getPaymentAttributedFee(payment.amount, locked.fee_percentage ?? 0)
+    }
+  }
+
   const terms = resolveBilledFeeTerms(bill, bill.client_id)
   if (!terms?.fee_type) return 0
 
   if (terms.fee_type === 'flat') {
-    const flat = terms.flat_fee_amount ?? 0
-    if (flat <= 0) return 0
-    const period = parseBillingPeriod(bill.period)
-    const siblings = mockPayments.filter((p) => {
-      if (p.invoice_id !== payment.invoice_id) return false
-      if (p.id === payment.id) return false
-      if (p.status !== 'confirmed' && p.status !== 'reversed') return false
-      const at = p.confirmed_at ?? p.received_date
-      if (!at) return false
-      const pp = periodFromIso(at)
-      return pp.year === period.year && pp.month === period.month
-    })
-    // Other collections still count for the flat fee → no clawback.
-    const otherStillBillable = siblings.some((p) => p.status === 'confirmed')
-    return otherStillBillable ? 0 : roundMoney(flat)
+    return estimateFlatClawback(payment, bill.period, terms.flat_fee_amount ?? 0)
   }
 
   const ratePct = terms.fee_percentage ?? 0
   return getPaymentAttributedFee(payment.amount, ratePct)
+}
+
+function estimateFlatClawback(payment: Payment, billedPeriod: string, flat: number): number {
+  if (flat <= 0) return 0
+  const period = parseBillingPeriod(billedPeriod)
+  const siblings = mockPayments.filter((p) => {
+    if (p.invoice_id !== payment.invoice_id) return false
+    if (p.id === payment.id) return false
+    if (p.status !== 'confirmed' && p.status !== 'reversed') return false
+    const at = p.confirmed_at ?? p.received_date
+    if (!at) return false
+    const pp = periodFromIso(at)
+    return pp.year === period.year && pp.month === period.month
+  })
+  const otherStillBillable = siblings.some((p) => p.status === 'confirmed')
+  return otherStillBillable ? 0 : roundMoney(flat)
 }
 
 function buildSystemNote(

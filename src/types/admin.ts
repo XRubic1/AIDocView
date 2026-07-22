@@ -25,6 +25,11 @@ export interface PendingBatch {
     total_fee?: number
     net_amount?: number // total_amount - total_fee
   }
+  /**
+   * Locked fee terms for this batch (from client at create, or manual edit).
+   * Invoices inherit these; monthly billing reads invoice/batch locks — not live client terms.
+   */
+  fee_terms?: import('./feeTerms').FeeTermsSnapshot
   /** How the client created this batch */
   upload_mode?: 'ai' | 'manual' | 'handoff'
   /** DocSort pipeline status for AI uploads */

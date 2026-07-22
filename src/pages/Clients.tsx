@@ -1125,7 +1125,9 @@ export default function Clients() {
                       Fee terms
                     </h3>
                     <p className="text-xs text-slate-600">
-                      Used for batch estimates and monthly Credyx billing. Changes save immediately.
+                      Used for new batches only (they lock a copy, including trial). Existing
+                      batches/invoices keep their locked terms until edited on the batch Accounting
+                      screen. Changes save immediately.
                     </p>
                   </div>
 

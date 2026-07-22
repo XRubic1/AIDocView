@@ -15,6 +15,8 @@ import {
   assertInvoiceNumberAvailable,
   validateBatchInvoiceNumbers,
 } from '../../utils/invoiceDuplicateChecks'
+import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
+import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
 
 async function resolveAndPersistBroker(
   brokerName: string
@@ -64,30 +66,13 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
 
   const totalAmount = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0)
   const client = getClientById(clientId)
-  let feeCalculation: {
-    fee_type?: 'percentage' | 'flat'
-    fee_percentage?: number
-    flat_fee_amount?: number
-    total_fee?: number
-    net_amount?: number
-  } | undefined
-
-  if (client?.fee_terms) {
-    const { fee_type, fee_percentage, flat_fee_amount } = client.fee_terms
-    let totalFee = 0
-    if (fee_type === 'percentage' && fee_percentage) {
-      totalFee = (totalAmount * fee_percentage) / 100
-    } else if (fee_type === 'flat' && flat_fee_amount) {
-      totalFee = flat_fee_amount
-    }
-    feeCalculation = {
-      fee_type,
-      fee_percentage,
-      flat_fee_amount,
-      total_fee: totalFee,
-      net_amount: totalAmount - totalFee,
-    }
-  }
+  // Keep existing locked batch terms; otherwise snapshot from current client settings.
+  const feeTerms = existingBatch.fee_terms ?? snapshotFeeTermsFromClient(client)
+  const draftForCalc = invoices.map((inv) => ({
+    amount: parseFloat(inv.amount || '0'),
+    status: 'pending' as const,
+  }))
+  const feeCalculation = calculateBatchFeeCalculation(draftForCalc, feeTerms)
 
   const batch = updateBatch(batchId, {
     total_invoices: invoices.length,
@@ -97,6 +82,7 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
     upload_mode: 'manual',
     sort_status: 'ready',
     fee_calculation: feeCalculation,
+    fee_terms: feeTerms,
   })!
 
   // Resolve invoice numbers (auto-fill blanks), then hard-block duplicates.
@@ -157,6 +143,7 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
       document_storage_paths:
         Object.keys(documentStoragePaths).length > 0 ? documentStoragePaths : undefined,
       ai_review_status: 'not_run' as const,
+      fee_terms: feeTerms,
     })
   }
 

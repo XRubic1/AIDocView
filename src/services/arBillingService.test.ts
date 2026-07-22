@@ -61,6 +61,12 @@ describe('arBillingService', () => {
         expected_payment_date: '2026-07-01',
         status: 'paid',
         created_at: '2026-06-01T00:00:00Z',
+        fee_terms: {
+          fee_type: 'percentage',
+          fee_percentage: FEE_PCT,
+          billing_mode: 'billable',
+          locked_at: '2026-06-01T00:00:00Z',
+        },
       },
     ])
     hydratePayments([
@@ -86,7 +92,7 @@ describe('arBillingService', () => {
     expect(volume).toBe(5000)
   })
 
-  it('computes monthly bill from client fee_terms', () => {
+  it('computes monthly bill from locked invoice fee terms', () => {
     const bill = computeMonthlyBill(clientId, { year: 2026, month: 6 })
     const expectedFee = (FEE_PCT / 100) * 5000
     expect(bill.collectedVolume).toBe(5000)
@@ -99,7 +105,7 @@ describe('arBillingService', () => {
     expect(formatBillingPeriod({ year: 2026, month: 6 })).toBe('2026-06')
   })
 
-  it('shows waived gross fees for trial clients but charges $0', async () => {
+  it('waives platform fee while client is on trial but still charges billable locked invoices', async () => {
     await updateClient(clientId, {
       billing: {
         ...(getClientById(clientId)?.billing as NonNullable<ReturnType<typeof getClientById>>['billing']),
@@ -109,10 +115,40 @@ describe('arBillingService', () => {
 
     const bill = computeMonthlyBill(clientId, { year: 2026, month: 6 })
     expect(bill.isTrial).toBe(true)
-    expect(bill.total).toBe(0)
-    expect(bill.grossSubtotal).toBeGreaterThan(0)
-    expect(bill.lineItems.some((li) => li.description.includes('Trial'))).toBe(true)
-    expect(bill.lineItems.find((li) => li.id.startsWith('fee-'))?.amount).toBeGreaterThan(0)
+    // Collection fee still due — invoice was locked as billable.
+    expect(bill.arFee).toBeCloseTo((FEE_PCT / 100) * 5000, 2)
+    expect(bill.total).toBeCloseTo(bill.arFee, 2)
+    expect(bill.lineItems.some((li) => li.description.includes('platform fee waived'))).toBe(true)
+  })
+
+  it('does not charge collection fees for trial-locked invoices', () => {
+    hydrateInvoices([
+      {
+        id: 'inv-1',
+        invoice_number: 'INV-1',
+        client_id: clientId,
+        client_name: 'Test Carrier',
+        broker_id: 'b1',
+        broker_name: 'Broker',
+        amount: 5000,
+        invoice_date: '2026-06-01',
+        due_date: '2026-07-01',
+        expected_payment_date: '2026-07-01',
+        status: 'paid',
+        created_at: '2026-06-01T00:00:00Z',
+        fee_terms: {
+          fee_type: 'percentage',
+          fee_percentage: FEE_PCT,
+          billing_mode: 'trial',
+          locked_at: '2026-06-01T00:00:00Z',
+        },
+      },
+    ])
+
+    const bill = computeMonthlyBill(clientId, { year: 2026, month: 6 })
+    expect(bill.arFee).toBe(0)
+    expect(bill.feeDisplay).toBe('Trial')
+    expect(bill.total).toBe(PLATFORM_APP_FEE_MONTHLY)
   })
 
   it('applies reimbursement credit on next bill and never goes negative', async () => {
@@ -162,8 +198,24 @@ describe('arBillingService', () => {
     expect(getClientById(clientId)?.reimbursement_balance).toBe(0)
   })
 
-  it('requires fee_terms to compute a bill', async () => {
+  it('requires fee terms on collected invoices when client has none', async () => {
     await updateClient(clientId, { fee_terms: undefined })
+    hydrateInvoices([
+      {
+        id: 'inv-1',
+        invoice_number: 'INV-1',
+        client_id: clientId,
+        client_name: 'Test Carrier',
+        broker_id: 'b1',
+        broker_name: 'Broker',
+        amount: 5000,
+        invoice_date: '2026-06-01',
+        due_date: '2026-07-01',
+        expected_payment_date: '2026-07-01',
+        status: 'paid',
+        created_at: '2026-06-01T00:00:00Z',
+      },
+    ])
     expect(() => computeMonthlyBill(clientId, { year: 2026, month: 6 })).toThrow(/Fee terms/)
   })
 })
