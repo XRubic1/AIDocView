@@ -15,20 +15,39 @@ import { getTierShortLabel } from '../utils/clientCapabilities'
 import { isSupabaseConfigured } from '../lib/supabase'
 import { SkeletonRows } from '../components/ui/Skeleton'
 import { loadClientTenantData, getClientInvoices, getClientBatches } from '../data/clientDemoData'
-import { Phone, Mail, MapPin, Search, Building2, CreditCard, X, ArrowLeft, Plus } from 'lucide-react'
+import { Phone, Mail, MapPin, Search, Building2, CreditCard, X, ArrowLeft, Plus, FolderOpen } from 'lucide-react'
 import { mockBrokers } from '../data/mockBrokers'
 import { Broker } from '../types/broker'
 import { Invoice } from '../types/invoice'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
+import AdminClientVaultPanel from '../components/admin/AdminClientVaultPanel'
 import { useToast } from '../components/ui/ToastProvider'
+import { syncClientBatchFees } from '../services/batchFeeSync'
+import { getClientDocuments } from '../services/clientDocumentService'
+import {
+  defaultRemittanceBlastVaultIds,
+  listRemittanceBlastRecipients,
+  sendRemittanceUpdatedToBrokers,
+} from '../services/remittanceBlastService'
+import {
+  formatVaultDocPickerLabel,
+  selectionHasBankProof,
+} from '../utils/carrierRemittance'
+import {
+  countClientsWithPendingVaultDocs,
+  isClientSetupComplete,
+} from '../utils/clientSetupDocuments'
+import { useAuth } from '../context/AuthContext'
+import { getAdminUserDisplayName } from '../config/adminNav'
 import '../styles/clientPortal.css'
 
-type ClientTab = 'ar' | 'batches' | 'collections' | 'terms' | 'plan'
+type ClientTab = 'ar' | 'batches' | 'collections' | 'terms' | 'plan' | 'vault'
 
 export default function Clients() {
   const { showToast } = useToast()
+  const { resolved } = useAuth()
   const [clients, setClients] = useState<Client[]>(() => getAllClients())
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
@@ -37,6 +56,10 @@ export default function Clients() {
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null)
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showRemittanceBlastModal, setShowRemittanceBlastModal] = useState(false)
+  const [remittanceBlastVaultIds, setRemittanceBlastVaultIds] = useState<string[]>([])
+  const [remittanceBlastMessage, setRemittanceBlastMessage] = useState('')
+  const [remittanceBlastBusy, setRemittanceBlastBusy] = useState(false)
   const [formData, setFormData] = useState<Partial<Client>>({
     name: '',
     contact_person: '',
@@ -89,6 +112,14 @@ export default function Clients() {
       client.state?.toLowerCase().includes(searchLower)
     )
   })
+
+  const pendingVaultClientCount = useMemo(
+    () => countClientsWithPendingVaultDocs(clients.map((c) => c.id)),
+    [clients, tenantVersion]
+  )
+
+  const adminDisplayName =
+    getAdminUserDisplayName(resolved.user?.email ?? null) || 'Admin'
 
   const handleClientClick = (client: Client) => {
     setSelectedClient(getAllClients().find((c) => c.id === client.id) ?? client)
@@ -337,6 +368,8 @@ export default function Clients() {
     if (updated) {
       setSelectedClient(updated)
       refreshClients()
+      // Batches pull live from client terms — refresh fee totals everywhere.
+      syncClientBatchFees(selectedClient.id)
     }
   }
 
@@ -358,6 +391,12 @@ export default function Clients() {
             <p className="text-xs text-slate-500 tabular-nums">
               {filteredClients.length} client{filteredClients.length !== 1 ? 's' : ''}
             </p>
+            {pendingVaultClientCount > 0 ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                <FolderOpen className="w-3 h-3" />
+                {pendingVaultClientCount} pending docs
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={handleOpenAddModal}
@@ -402,9 +441,21 @@ export default function Clients() {
                     >
                       <td>
                         <p className="font-medium text-slate-900">{client.name}</p>
-                        {client.factoring ? (
-                          <span className="text-[10px] text-slate-500 font-medium">Factoring</span>
-                        ) : null}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                          {client.factoring ? (
+                            <span className="text-[10px] text-slate-500 font-medium">Factoring</span>
+                          ) : null}
+                          {!isClientSetupComplete(client.id, client) ? (
+                            <span className="text-[10px] font-semibold text-amber-700">
+                              Setup incomplete
+                            </span>
+                          ) : null}
+                          {getClientDocuments(client.id).some((d) => d.approval_status === 'pending') ? (
+                            <span className="text-[10px] font-semibold text-amber-800">
+                              Docs pending
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td>
                         <span className="text-xs font-medium text-slate-700">
@@ -532,8 +583,16 @@ export default function Clients() {
                   ['collections', 'Collections'],
                   ['terms', 'Terms'],
                   ['plan', 'Plan'],
+                  ['vault', 'Vault'],
                 ] as const
-              ).map(([id, label]) => (
+              ).map(([id, label]) => {
+                const pendingCount =
+                  id === 'vault' && selectedClient
+                    ? getClientDocuments(selectedClient.id).filter(
+                        (d) => d.approval_status === 'pending'
+                      ).length
+                    : 0
+                return (
                 <button
                   key={id}
                   type="button"
@@ -551,8 +610,13 @@ export default function Clients() {
                   }`}
                 >
                   {label}
+                  {pendingCount > 0 ? (
+                    <span className="ml-1 inline-flex min-w-[1.1rem] justify-center rounded-full bg-amber-500 text-white text-[10px] px-1">
+                      {pendingCount}
+                    </span>
+                  ) : null}
                 </button>
-              ))}
+              )})}
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto p-4 relative text-sm text-slate-800">
@@ -1062,6 +1126,7 @@ export default function Clients() {
                             if (updated) {
                               setSelectedClient(updated)
                               refreshClients()
+                              syncClientBatchFees(selectedClient.id)
                               showToast(
                                 subscription_status === 'active'
                                   ? 'Trial ended — monthly fees will be charged'
@@ -1118,6 +1183,14 @@ export default function Clients() {
                 </div>
               )}
 
+              {activeTab === 'vault' && selectedClient && (
+                <AdminClientVaultPanel
+                  client={selectedClient}
+                  adminName={adminDisplayName}
+                  onChanged={() => setTenantVersion((v) => v + 1)}
+                />
+              )}
+
               {activeTab === 'terms' && selectedClient && (
                 <div className="max-w-3xl space-y-4">
                   <div>
@@ -1125,9 +1198,9 @@ export default function Clients() {
                       Fee terms
                     </h3>
                     <p className="text-xs text-slate-600">
-                      Used for new batches only (they lock a copy, including trial). Existing
-                      batches/invoices keep their locked terms until edited on the batch Accounting
-                      screen. Changes save immediately.
+                      Open batches pull these rates live. When a batch is processed, its rates lock
+                      and stop following later changes. You can still edit locked batches in
+                      Accounting. Saves immediately.
                     </p>
                   </div>
 
@@ -1277,6 +1350,27 @@ export default function Clients() {
                       </div>
                     </div>
                   )}
+
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      className="dashboard-btn-secondary dashboard-btn-compact inline-flex items-center gap-1.5"
+                      onClick={() => {
+                        setRemittanceBlastVaultIds(
+                          defaultRemittanceBlastVaultIds(selectedClient.id)
+                        )
+                        setRemittanceBlastMessage('')
+                        setShowRemittanceBlastModal(true)
+                      }}
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      Notify brokers of remittance change
+                    </button>
+                    <p className="text-[11px] text-slate-500 mt-1.5">
+                      Emails all brokers this carrier has invoiced with. Does not send
+                      automatically when remittance is saved.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -1549,6 +1643,166 @@ export default function Clients() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRemittanceBlastModal && selectedClient && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+          onClick={() => !remittanceBlastBusy && setShowRemittanceBlastModal(false)}
+          role="presentation"
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="remittance-blast-title"
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <h3 id="remittance-blast-title" className="text-base font-semibold text-slate-900">
+                Notify brokers — {selectedClient.name}
+              </h3>
+              <button
+                type="button"
+                className="p-1.5 rounded-lg hover:bg-slate-100"
+                disabled={remittanceBlastBusy}
+                onClick={() => setShowRemittanceBlastModal(false)}
+                aria-label="Close"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="px-4 py-3 space-y-3">
+              {(() => {
+                const recipients = listRemittanceBlastRecipients(selectedClient.id)
+                const withEmail = recipients.filter((r) => r.email)
+                const withoutEmail = recipients.filter((r) => !r.email)
+                return (
+                  <>
+                    <p className="text-sm text-slate-600">
+                      Will email <strong>{withEmail.length}</strong> broker
+                      {withEmail.length === 1 ? '' : 's'} this carrier has worked with
+                      {withoutEmail.length > 0
+                        ? ` (${withoutEmail.length} skipped — no email)`
+                        : ''}
+                      .
+                    </p>
+                    <ul className="text-xs text-slate-700 max-h-28 overflow-y-auto rounded border border-slate-200 bg-slate-50 px-2 py-1.5 space-y-0.5">
+                      {recipients.length === 0 ? (
+                        <li>No brokers found on invoices for this carrier.</li>
+                      ) : (
+                        recipients.map((r) => (
+                          <li key={r.broker_id}>
+                            {r.broker_name}
+                            {r.email ? ` — ${r.email}` : ' — (no email)'}
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </>
+                )
+              })()}
+
+              <label className="block text-xs">
+                <span className="font-medium text-slate-600 uppercase tracking-wide">
+                  Extra message (optional)
+                </span>
+                <textarea
+                  className="client-input w-full mt-1 text-sm"
+                  rows={2}
+                  value={remittanceBlastMessage}
+                  onChange={(e) => setRemittanceBlastMessage(e.target.value)}
+                  placeholder="Optional note…"
+                />
+              </label>
+
+              <div>
+                <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+                  Attach vault docs
+                </span>
+                <div className="mt-1.5 max-h-36 overflow-y-auto rounded border border-slate-200 px-2 py-1.5 space-y-1">
+                  {getClientDocuments(selectedClient.id)
+                    .filter((d) => d.category === 'broker' && d.approval_status === 'approved')
+                    .map((doc) => (
+                      <label
+                        key={doc.id}
+                        className="flex items-start gap-2 text-sm text-slate-800 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={remittanceBlastVaultIds.includes(doc.id)}
+                          onChange={(e) => {
+                            setRemittanceBlastVaultIds((prev) =>
+                              e.target.checked
+                                ? [...prev, doc.id]
+                                : prev.filter((id) => id !== doc.id)
+                            )
+                          }}
+                        />
+                        <span>{formatVaultDocPickerLabel(doc)}</span>
+                      </label>
+                    ))}
+                  {getClientDocuments(selectedClient.id).filter(
+                    (d) => d.category === 'broker' && d.approval_status === 'approved'
+                  ).length === 0 ? (
+                    <p className="text-xs text-slate-500 py-1">No approved broker vault documents</p>
+                  ) : null}
+                </div>
+                {!selectionHasBankProof(remittanceBlastVaultIds, selectedClient.id) ? (
+                  <p className="text-xs text-amber-700 mt-1.5">
+                    No voided check or bank letter selected.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-slate-200">
+              <button
+                type="button"
+                className="dashboard-btn-secondary"
+                disabled={remittanceBlastBusy}
+                onClick={() => setShowRemittanceBlastModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="dashboard-btn-primary"
+                disabled={
+                  remittanceBlastBusy ||
+                  listRemittanceBlastRecipients(selectedClient.id).every((r) => !r.email)
+                }
+                onClick={() => {
+                  void (async () => {
+                    setRemittanceBlastBusy(true)
+                    try {
+                      const result = await sendRemittanceUpdatedToBrokers({
+                        clientId: selectedClient.id,
+                        selectedVaultDocIds: remittanceBlastVaultIds,
+                        message: remittanceBlastMessage,
+                        sentBy: getAdminUserDisplayName(resolved.user?.email ?? null) || 'Admin',
+                        userId: resolved.user?.id,
+                      })
+                      showToast(
+                        `Remittance notice: ${result.success} sent, ${result.failed} failed, ${result.skipped} skipped`,
+                        result.failed > 0 ? 'error' : 'success'
+                      )
+                      setShowRemittanceBlastModal(false)
+                    } catch (err) {
+                      showToast(
+                        err instanceof Error ? err.message : 'Could not send notices',
+                        'error'
+                      )
+                    } finally {
+                      setRemittanceBlastBusy(false)
+                    }
+                  })()
+                }}
+              >
+                {remittanceBlastBusy ? 'Sending…' : 'Send to all brokers'}
+              </button>
             </div>
           </div>
         </div>

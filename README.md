@@ -78,8 +78,34 @@ Or set `"can_force_confirm_payments": true` on any admin account.
 Deploy functions under `supabase/functions/`:
 
 - `openai-proxy` — server-side OpenAI (requires `OPENAI_API_KEY`)
-- `send-email` — Resend transactional email (`RESEND_API_KEY`)
+- `send-email` — Resend transactional email (requires `RESEND_API_KEY`, recommended `RESEND_FROM_EMAIL`)
 - `provision-client-auth` — client invite on approval (`SUPABASE_SERVICE_ROLE_KEY`)
+
+#### Email (`send-email`)
+
+Set secrets on the Supabase project, then redeploy:
+
+```bash
+supabase secrets set RESEND_API_KEY=re_xxx \
+  RESEND_FROM_EMAIL="Credyx <notifications@credyx.net>" \
+  RESEND_FROM_BROKER="Credyx Billing <billing@credyx.net>" \
+  RESEND_FROM_CARRIER="Credyx Ops <ops@credyx.net>"
+# Optional: where replies should land (otherwise replies go to the From address)
+# RESEND_REPLY_TO_BROKER=billing@credyx.net
+# RESEND_REPLY_TO_CARRIER=ops@credyx.net
+supabase functions deploy send-email
+```
+
+Use a **verified** Resend domain for From addresses. Broker templates use `RESEND_FROM_BROKER` when set; carrier templates use `RESEND_FROM_CARRIER`; both fall back to `RESEND_FROM_EMAIL`. Without `RESEND_API_KEY`, the function returns “Email not configured” and callers do not mark paperwork as delivered.
+
+**Replies:** Credyx does not ingest reply email into the app. Point each From (or `RESEND_REPLY_TO_*`) at a real inbox or forwarder if you want to read responses.
+
+On **Process batch**, Credyx:
+
+1. Emails each approved invoice’s broker a packet with real attachments (invoice files + Document Vault **broker** docs such as NOAs).
+2. Emails the carrier that the batch was processed, including any holds and a paperwork send summary.
+
+Edit subject/body copy in the admin portal: **Settings → Email templates** (stored in `email_templates`; `send-email` loads them at send time). See **Admin Docs → Paperwork email** for limits and From routing.
 
 ## Project structure
 

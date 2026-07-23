@@ -63,6 +63,11 @@ export interface Invoice {
   last_broker_contact?: string
   days_since_expected?: number
   document_send_history?: DocumentSendRecord[]
+  /**
+   * Normalized remittance fingerprint snapshotted when the invoice PDF was created
+   * or paperwork was sent — used to detect remit-to changes vs prior invoices.
+   */
+  remittance_snapshot?: string
   collection_date?: string // Date for collection (payment date or callback date)
   collection_status?: 'C/B' | 'W/P' // Call Back or Will Pay
   verification_status?: 'Email' | 'Phone' | 'Web' // How the invoice was verified
@@ -104,6 +109,12 @@ export interface DocumentSendRecord {
   sent_by?: string
   status?: 'sent' | 'delivered' | 'failed'
   documents_sent?: string[]
+  /** Human-readable note (e.g. multi-part split). */
+  note?: string
+  /** 1-based part index when the packet was split across emails. */
+  part_number?: number
+  /** Total parts when the packet was split across emails. */
+  part_total?: number
 }
 
 export interface InvoiceFilter {

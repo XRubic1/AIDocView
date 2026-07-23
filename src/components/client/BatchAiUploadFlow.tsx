@@ -67,6 +67,8 @@ interface BatchAiUploadFlowProps {
   }) => void
   /** Credyx admin: also warn when other carriers reused a load number. */
   crossCarrierLoadWarnings?: boolean
+  /** Admin create-batch skips vault onboarding gate. */
+  skipSetupGate?: boolean
 }
 
 const STEPS: { id: Step; label: string }[] = [
@@ -128,6 +130,7 @@ export default function BatchAiUploadFlow({
   draftReady = true,
   onPersistDraft,
   crossCarrierLoadWarnings = false,
+  skipSetupGate = false,
 }: BatchAiUploadFlowProps) {
   const c = useClientTheme()
   const confirmedByName = confirmedBy ?? clientName
@@ -411,6 +414,7 @@ export default function BatchAiUploadFlow({
         fileById: draft.fileById,
         confirmedBy: confirmedByName,
         existingBatchId: draftBatchId,
+        skipSetupGate,
       })
       onComplete(batchId)
     } catch (err) {

@@ -23,12 +23,18 @@ import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import {
   addClientDocument,
+  CLIENT_DOCUMENT_TYPE_OPTIONS,
   getClientDocumentFile,
+  getClientDocumentTypeLabel,
   getClientDocuments,
   removeClientDocument,
   updateClientDocument,
 } from '../services/clientDocumentService'
-import { ClientDocument, ClientDocumentCategory } from '../types/clientDocument'
+import {
+  ClientDocument,
+  ClientDocumentApprovalStatus,
+  ClientDocumentCategory,
+} from '../types/clientDocument'
 import { formatDate, formatFileSize } from '../utils/format'
 import { useClientTheme } from '../theme/ThemeContext'
 import {
@@ -36,6 +42,10 @@ import {
   PAGE_SIZE_OPTIONS,
   type SortDir,
 } from '../utils/clientListPage'
+import {
+  getSetupChecklist,
+  isClientSetupComplete,
+} from '../utils/clientSetupDocuments'
 
 type CategoryFilter = 'all' | ClientDocumentCategory
 
@@ -76,9 +86,29 @@ function getExpiresSortValue(expiresAt?: string): number {
   return new Date(expiresAt).getTime()
 }
 
+/** Status pill for vault approval state. */
+function approvalStatusPillClass(status: ClientDocumentApprovalStatus): string {
+  if (status === 'approved') return 'status-pill status-pill--approved'
+  if (status === 'rejected') return 'status-pill status-pill--hold'
+  return 'status-pill status-pill--pending'
+}
+
+function approvalStatusLabel(status: ClientDocumentApprovalStatus): string {
+  if (status === 'approved') return 'Approved'
+  if (status === 'rejected') return 'Rejected'
+  return 'Awaiting Credyx approval'
+}
+
+function checklistStatusClass(status: string): string {
+  if (status === 'approved') return 'status-pill status-pill--approved'
+  if (status === 'pending') return 'status-pill status-pill--pending'
+  if (status === 'rejected') return 'status-pill status-pill--hold'
+  return 'status-pill'
+}
+
 export default function ClientDocuments() {
   const c = useClientTheme()
-  const { clientId, clientName } = useClientSession()
+  const { clientId, clientName, client } = useClientSession()
   const { capabilities } = useClientCapabilities()
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -108,7 +138,10 @@ export default function ClientDocuments() {
   const [sortField, setSortField] = useState<DocumentSortField>('uploaded_at')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
-  const [uploadCategory, setUploadCategory] = useState<ClientDocumentCategory>('broker')
+  const [uploadCategory, setUploadCategory] = useState<ClientDocumentCategory>('compliance')
+  const [uploadDocumentType, setUploadDocumentType] = useState(
+    CLIENT_DOCUMENT_TYPE_OPTIONS.compliance[0].value
+  )
   const [uploadName, setUploadName] = useState('')
   const [uploadReminder, setUploadReminder] = useState('')
   const [pendingFiles, setPendingFiles] = useState<PendingUpload[]>([])
@@ -120,6 +153,18 @@ export default function ClientDocuments() {
     () => getClientDocuments(clientId),
     [clientId, refreshKey]
   )
+
+  const setupChecklist = useMemo(
+    () => getSetupChecklist(clientId, client),
+    [clientId, client, refreshKey]
+  )
+
+  const setupComplete = useMemo(
+    () => isClientSetupComplete(clientId, client),
+    [clientId, client, refreshKey]
+  )
+
+  const typeOptionsForCategory = CLIENT_DOCUMENT_TYPE_OPTIONS[uploadCategory]
 
   const counts = useMemo(
     () => ({
@@ -216,8 +261,15 @@ export default function ClientDocuments() {
     setPendingFiles([])
     setUploadName('')
     setUploadReminder('')
-    setUploadCategory('broker')
+    setUploadCategory('compliance')
+    setUploadDocumentType(CLIENT_DOCUMENT_TYPE_OPTIONS.compliance[0].value)
     setUploadError(null)
+  }
+
+  const handleCategoryChange = (category: ClientDocumentCategory) => {
+    setUploadCategory(category)
+    const first = CLIENT_DOCUMENT_TYPE_OPTIONS[category][0]?.value
+    if (first) setUploadDocumentType(first)
   }
 
   const openUploadModal = () => {
@@ -247,6 +299,10 @@ export default function ClientDocuments() {
       setUploadError('Add at least one file.')
       return
     }
+    if (!uploadDocumentType) {
+      setUploadError('Select a document type.')
+      return
+    }
 
     setIsUploading(true)
     setUploadError(null)
@@ -263,9 +319,10 @@ export default function ClientDocuments() {
           name: pendingFiles.length === 1 ? name : `${name} ${index + 1}`,
           file: pending.file,
           category: uploadCategory,
-          document_type: 'general',
+          document_type: uploadDocumentType,
           expires_at: uploadReminder || undefined,
           uploaded_by: clientName,
+          uploaded_by_role: 'client',
         })
       }
 
@@ -395,6 +452,61 @@ export default function ClientDocuments() {
               </div>
             </section>
 
+            {!setupComplete && (
+              <section
+                className="shrink-0 px-4 py-3 border-b"
+                style={{ borderColor: c.border, backgroundColor: c.stat.amber }}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
+                  <div>
+                    <p className="text-sm font-semibold" style={{ color: c.primary }}>
+                      Setup documents required
+                    </p>
+                    <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
+                      Upload the packet below. Credyx must approve each file before you can send invoices.
+                    </p>
+                  </div>
+                  <span className="text-xs font-medium shrink-0" style={{ color: c.warning }}>
+                    Invoices locked until approved
+                  </span>
+                </div>
+                <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+                  {setupChecklist.map((item) => (
+                    <li
+                      key={item.key}
+                      className="flex items-center justify-between gap-2 text-xs px-2 py-1.5 rounded"
+                      style={{ backgroundColor: c.card, border: `1px solid ${c.border}` }}
+                    >
+                      <span className="truncate font-medium" style={{ color: c.primary }}>
+                        {item.label}
+                      </span>
+                      <span className={checklistStatusClass(item.status)}>
+                        {item.status === 'missing'
+                          ? 'Missing'
+                          : item.status === 'pending'
+                            ? 'Pending'
+                            : item.status === 'rejected'
+                              ? 'Rejected'
+                              : 'Approved'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {setupComplete && (
+              <section
+                className="shrink-0 px-4 py-2 border-b flex items-center gap-2"
+                style={{ borderColor: c.border, backgroundColor: c.stat.green }}
+              >
+                <Shield className="w-3.5 h-3.5 shrink-0" style={{ color: c.success }} />
+                <p className="text-xs font-medium" style={{ color: c.primary }}>
+                  Setup complete — you can send invoices.
+                </p>
+              </section>
+            )}
+
             <div
               className="client-page-toolbar px-4 py-2 border-b shrink-0"
               style={{ borderColor: c.border, backgroundColor: c.card }}
@@ -485,6 +597,7 @@ export default function ClientDocuments() {
                           sortDir={sortDir}
                           onSort={handleSort}
                         />
+                        <th>Type / Status</th>
                         <ClientSortableHeader
                           field="file_name"
                           label="File"
@@ -542,6 +655,23 @@ export default function ClientDocuments() {
                               <span className="client-list-meta-full">
                                 {CATEGORY_LABELS[doc.category]}
                               </span>
+                            </ClientListTd>
+                            <ClientListTd variant="desktop" label="Type">
+                              <div className="flex flex-col gap-1 min-w-0">
+                                <span className="text-xs truncate" style={{ color: c.secondary }}>
+                                  {getClientDocumentTypeLabel(doc.category, doc.document_type)}
+                                </span>
+                                <span
+                                  className={approvalStatusPillClass(doc.approval_status)}
+                                  title={
+                                    doc.approval_status === 'rejected' && doc.rejection_reason
+                                      ? doc.rejection_reason
+                                      : undefined
+                                  }
+                                >
+                                  {approvalStatusLabel(doc.approval_status)}
+                                </span>
+                              </div>
                             </ClientListTd>
                             <ClientListTd variant="desktop" label="File" className="truncate max-w-[200px]" style={{ color: c.secondary }}>
                               {doc.file_name}
@@ -776,7 +906,9 @@ export default function ClientDocuments() {
                   <label className="client-label">Folder</label>
                   <select
                     value={uploadCategory}
-                    onChange={(e) => setUploadCategory(e.target.value as ClientDocumentCategory)}
+                    onChange={(e) =>
+                      handleCategoryChange(e.target.value as ClientDocumentCategory)
+                    }
                     className="client-input w-full"
                   >
                     {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
@@ -786,6 +918,24 @@ export default function ClientDocuments() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="client-label">Document type</label>
+                <select
+                  value={uploadDocumentType}
+                  onChange={(e) => setUploadDocumentType(e.target.value)}
+                  className="client-input w-full"
+                >
+                  {typeOptionsForCategory.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs mt-1" style={{ color: c.secondary }}>
+                  Client uploads await Credyx approval before counting toward setup.
+                </p>
               </div>
 
               <div>

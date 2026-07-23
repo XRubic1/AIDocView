@@ -18,6 +18,8 @@ import {
 } from '../../utils/invoiceDuplicateChecks'
 import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
 import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
+import { assertClientSetupComplete } from '../../utils/clientSetupDocuments'
+
 
 async function resolveAndPersistBroker(
   brokerName: string
@@ -50,20 +52,26 @@ export interface SubmitManualBatchInput {
   clientName: string
   invoices: ManualInvoiceInput[]
   existingBatchId?: string
+  /** Admin create-batch paths skip the vault setup gate. */
+  skipSetupGate?: boolean
 }
 
 /** Create or finalize a manual batch with invoices and uploaded paperwork. */
 export async function submitManualBatch(input: SubmitManualBatchInput) {
-  const { clientId, clientName, invoices, existingBatchId } = input
+  const { clientId, clientName, invoices, existingBatchId, skipSetupGate } = input
   if (invoices.length === 0) {
     throw new Error('Please add at least one invoice to the batch')
   }
 
-  const totalAmount = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0)
   const client = getClientById(clientId)
+  if (!skipSetupGate) {
+    assertClientSetupComplete(clientId, client)
+  }
+
+  const totalAmount = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0)
   const existing = existingBatchId ? updateBatch(existingBatchId, {}) : undefined
-  // Existing batches keep locked terms; brand-new batches snapshot from client (incl. trial).
-  const feeTerms = existing?.fee_terms ?? snapshotFeeTermsFromClient(client)
+  // Fee calc pulls live from the carrier account (trial/active included).
+  const feeTerms = snapshotFeeTermsFromClient(client) ?? client?.fee_terms
   const draftForCalc = invoices.map((inv) => ({
     amount: parseFloat(inv.amount || '0'),
     status: 'pending' as const,
@@ -80,7 +88,6 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
         upload_mode: 'manual',
         sort_status: 'ready',
         fee_calculation: feeCalculation,
-        fee_terms: feeTerms,
       })!
     : addBatch({
         batch_number: batchNumber,
@@ -93,7 +100,6 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
         upload_mode: 'manual',
         sort_status: 'ready',
         fee_calculation: feeCalculation,
-        fee_terms: feeTerms,
       })
 
   // Resolve invoice numbers (auto-fill blanks), then hard-block duplicates.
@@ -151,7 +157,6 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
       documents_count: docIds.length,
       document_doc_ids: docIds,
       ai_review_status: 'not_run' as const,
-      fee_terms: feeTerms,
     })
   }
 

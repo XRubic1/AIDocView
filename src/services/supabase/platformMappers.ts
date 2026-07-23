@@ -53,6 +53,11 @@ export interface ClientDocumentRow {
   uploaded_at: string
   uploaded_by: string
   expires_at: string | null
+  approval_status?: string | null
+  approved_by?: string | null
+  approved_at?: string | null
+  rejection_reason?: string | null
+  uploaded_by_role?: string | null
 }
 
 export function notificationRowToNotification(row: NotificationRow): Notification {
@@ -140,6 +145,12 @@ export function auditLogToRow(log: AuditLog): AuditLogRow {
 }
 
 export function clientDocumentRowToClientDocument(row: ClientDocumentRow): ClientDocument {
+  const role = row.uploaded_by_role === 'client' ? 'client' : 'admin'
+  const status =
+    row.approval_status === 'pending' || row.approval_status === 'rejected'
+      ? row.approval_status
+      : 'approved'
+
   return {
     id: row.id,
     client_id: row.client_id,
@@ -153,6 +164,11 @@ export function clientDocumentRowToClientDocument(row: ClientDocumentRow): Clien
     uploaded_at: row.uploaded_at,
     uploaded_by: row.uploaded_by,
     expires_at: row.expires_at ?? undefined,
+    approval_status: status,
+    approved_by: row.approved_by ?? undefined,
+    approved_at: row.approved_at ?? undefined,
+    rejection_reason: row.rejection_reason ?? undefined,
+    uploaded_by_role: role,
   }
 }
 
@@ -174,5 +190,10 @@ export function clientDocumentToRow(
     uploaded_at: doc.uploaded_at,
     uploaded_by: doc.uploaded_by,
     expires_at: doc.expires_at ?? null,
+    approval_status: doc.approval_status,
+    approved_by: doc.approved_by ?? null,
+    approved_at: doc.approved_at ?? null,
+    rejection_reason: doc.rejection_reason ?? null,
+    uploaded_by_role: doc.uploaded_by_role,
   }
 }

@@ -1,6 +1,6 @@
 ---
 description: Simple, elegant client portal UI — match Dashboard & Invoices (light mode) when theming or redesigning
-globs: src/pages/Client*.tsx,src/components/client/**,src/components/ClientLayout.tsx,src/styles/clientPortal.css,src/theme/**
+globs: src/pages/Client*.tsx,src/pages/Settings.tsx,src/components/client/**,src/components/admin/EmailTemplatesPanel.tsx,src/components/ClientLayout.tsx,src/styles/clientPortal.css,src/theme/**
 alwaysApply: false
 ---
 
@@ -23,6 +23,16 @@ When theming, restyling, or building client portal pages, **match the look and s
 4. **Middle**: `client-page-toolbar` (search + filters, single row) when needed
 5. **Body**: `dashboard-table` or `dashboard-card` panels — no third container wrapper
 6. **Actions first, analytics second** on dashboard-style pages
+
+## Settings pages — flush shell, padded content
+
+Admin `Settings` and Client `ClientSettings` share the same shell (`client-settings-page` / `client-settings-tab-panel`).
+
+- **Shell flush:** no padding on `client-settings-panel` or `client-settings-tab-panel` — the card sits edge-to-edge under the tabs/stat strip
+- **Content padding:** `client-settings-tab-panel__content` keeps inner padding (`16px 20px`) so fields are not flush against the card border
+- Footer (`client-settings-tab-panel__footer`) may keep its own padding for the Save row
+- Do not add extra wrapper padding (`p-4` / `p-6`) around the panel shell; put spacing on `__content` / footer only
+- **Corners:** square **top-left**, **top-right**, and **bottom-left** on `client-settings-tab-panel` (`border-radius: 0 0 16px 0`). Do not restore full `16px` radius on all corners
 
 ## No page title blocks
 

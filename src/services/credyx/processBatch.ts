@@ -7,17 +7,21 @@ import { mockInvoices } from '../../data/mockInvoices'
 import { logAuditEvent } from '../../utils/auditLogger'
 import { sendPaperworkForBatch } from '../../utils/paperworkSender'
 import { hasPpwBeenSent } from '../../utils/ppwSent'
+import { lockBatchFeeTermsFromClient } from '../../utils/feeTermsLock'
+import { getClientById } from '../clientRegistry'
 import { notifyClientHoldsAfterBatchProcess } from '../adminInvoiceActions'
-import {
-  emailCarrierBatchHolds,
-  emailCarrierBatchVerified,
-} from './batchLifecycleEmails'
+import { emailCarrierBatchProcessed } from './batchLifecycleEmails'
 
 export interface ProcessBatchResult {
   ok: boolean
   error?: string
   paperwork: { success: number; failed: number; skipped: number }
-  carrierEmail?: { ok: boolean; kind: 'verified' | 'holds' | 'none'; error?: string }
+  carrierEmail?: {
+    ok: boolean
+    kind: 'processed' | 'none'
+    error?: string
+    skipped?: boolean
+  }
 }
 
 /**
@@ -61,7 +65,7 @@ export async function processVerifiedBatch(opts: {
   const toSend = opts.forceResendPpw
     ? approved
     : approved.filter((inv) => !hasPpwBeenSent(inv))
-  const skipped = approved.length - toSend.length
+  const alreadySentSkipped = approved.length - toSend.length
 
   logAuditEvent(
     'batch_status_changed',
@@ -95,34 +99,43 @@ export async function processVerifiedBatch(opts: {
         )
       : { success: 0, failed: 0, skipped: 0, details: [] }
 
+  // Include already-sent approved invoices in the carrier PPW summary.
+  const preSkippedDetails = approved
+    .filter((inv) => !toSend.some((s) => s.id === inv.id))
+    .map((inv) => ({
+      invoiceId: inv.id,
+      invoiceNumber: inv.invoice_number,
+      brokerEmail: '—',
+      success: true,
+      skipped: true,
+    }))
+
+  const ppwDetails = [...preSkippedDetails, ...paperworkResults.details]
+  const totalSkipped = alreadySentSkipped + paperworkResults.skipped
+
   updateBatchStatus(opts.batchId, 'submitted')
+
+  // Freeze fee terms at process time so later client rate changes do not rewrite this batch.
+  await lockBatchFeeTermsFromClient(opts.batchId, getClientById(opts.clientId))
 
   // Reveal hold outcomes to the client now that the batch is processed.
   notifyClientHoldsAfterBatchProcess(opts.batchId)
 
-  // Carrier outcome email: holds take precedence when any invoice is held.
+  // One carrier email: processed + holds (if any) + broker paperwork summary.
   let carrierEmail: ProcessBatchResult['carrierEmail'] = { ok: true, kind: 'none' }
-  if (held.length > 0) {
-    const res = await emailCarrierBatchHolds({
-      clientId: opts.clientId,
-      batchNumber: opts.batchNumber,
-      heldInvoices: held,
-    })
-    carrierEmail = {
-      ok: res.ok,
-      kind: 'holds',
-      error: res.error,
-    }
-  } else if (approved.length > 0) {
-    const res = await emailCarrierBatchVerified({
+  if (batchInvoices.length > 0) {
+    const res = await emailCarrierBatchProcessed({
       clientId: opts.clientId,
       batchNumber: opts.batchNumber,
       invoices: batchInvoices,
+      heldInvoices: held,
+      ppwDetails,
     })
     carrierEmail = {
       ok: res.ok || Boolean(res.skipped),
-      kind: 'verified',
+      kind: 'processed',
       error: res.error,
+      skipped: res.skipped,
     }
   }
 
@@ -131,7 +144,7 @@ export async function processVerifiedBatch(opts: {
     'batch',
     opts.batchId,
     opts.batchNumber,
-    `Batch ${opts.batchNumber} processed. PPW sent: ${paperworkResults.success}, failed: ${paperworkResults.failed}, skipped: ${skipped}`,
+    `Batch ${opts.batchNumber} processed. PPW sent: ${paperworkResults.success}, failed: ${paperworkResults.failed}, skipped: ${totalSkipped}`,
     opts.adminUserId,
     opts.adminUserName,
     'Admin',
@@ -139,10 +152,11 @@ export async function processVerifiedBatch(opts: {
     {
       paperwork_sent: paperworkResults.success,
       paperwork_failed: paperworkResults.failed,
-      paperwork_skipped: skipped,
+      paperwork_skipped: totalSkipped,
       carrier_email_kind: carrierEmail.kind,
+      carrier_email_ok: carrierEmail.ok,
     },
-    paperworkResults.failed > 0 ? 'warning' : 'info',
+    paperworkResults.failed > 0 || !carrierEmail.ok ? 'warning' : 'info',
     true
   )
 
@@ -151,7 +165,7 @@ export async function processVerifiedBatch(opts: {
     paperwork: {
       success: paperworkResults.success,
       failed: paperworkResults.failed,
-      skipped,
+      skipped: totalSkipped,
     },
     carrierEmail,
   }

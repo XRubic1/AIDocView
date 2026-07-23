@@ -40,6 +40,8 @@ export interface InvoiceOptions {
   clientAddress?: string;
   clientAddressLines?: string;
   remittanceInfo?: string;
+  /** HTML banner shown near remit-to when remittance recently changed. */
+  remittanceUpdatedBannerHtml?: string;
   bankName?: string;
   accountNumber?: string;
   routingNumber?: string;
@@ -1032,6 +1034,7 @@ export const generateInvoice = (options: InvoiceOptions): string => {
     clientAddress = '',
     clientAddressLines,
     remittanceInfo,
+    remittanceUpdatedBannerHtml,
     bankName,
     accountNumber,
     routingNumber,
@@ -1079,9 +1082,10 @@ export const generateInvoice = (options: InvoiceOptions): string => {
 
       <div class="inv-payment-box">
         <div class="inv-eyebrow">Payment Information</div>
+        ${remittanceUpdatedBannerHtml || ''}
         <div class="inv-payment-instructions">
           <p><strong>Checks:</strong> Remit to the address above.</p>
-          <p><strong>All remittance:</strong> <span class="inv-payment-email">remittance@credyxar.com</span></p>
+          <p><strong>Remittance advice:</strong> <span class="inv-payment-email">billing@credyx.net</span> / <span class="inv-payment-email">ops@credyx.net</span></p>
         </div>
         ${remittanceInfo ? `<div class="inv-payment-text">${remittanceInfo}</div>` : ''}
         ${bankName || accountNumber || routingNumber ? `

@@ -5,6 +5,7 @@ import type { PendingBatch } from '../types/admin'
 import { getBatchById, updateBatch } from '../data/mockBatches'
 import { getInvoicesByBatchId, updateInvoice } from '../data/mockInvoices'
 import { calculateBatchFeeCalculation } from './invoiceFees'
+import { isBatchProcessedForClient } from './clientInvoiceView'
 import { persistInvoice } from '../services/supabase/tenantPersist'
 import { isSupabaseConfigured } from '../lib/supabase'
 
@@ -12,7 +13,10 @@ function roundMoney(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-/** Build locked terms from the client's current Fee Terms + subscription status. */
+/**
+ * Build fee terms from the client's live Fee Terms + subscription.
+ * Used for open-batch calcs and for locking at process time.
+ */
 export function snapshotFeeTermsFromClient(client: Client | undefined | null): FeeTermsSnapshot | undefined {
   const terms = client?.fee_terms
   if (!terms?.fee_type) return undefined
@@ -27,6 +31,11 @@ export function snapshotFeeTermsFromClient(client: Client | undefined | null): F
     billing_mode,
     locked_at: new Date().toISOString(),
   }
+}
+
+/** True when the batch is processed — fee terms stay locked, not live. */
+export function isBatchFeeLocked(batch: Pick<PendingBatch, 'status'> | null | undefined): boolean {
+  return isBatchProcessedForClient(batch?.status)
 }
 
 /** True when locked terms waive collection fees. */
@@ -44,7 +53,7 @@ export function formatFeeTermsLabel(terms: FeeTermsSnapshot | undefined | null):
   return `${terms.fee_percentage ?? 0}%`
 }
 
-/** Fee charged on an amount under locked terms (0 when trial). */
+/** Fee charged on an amount under terms (0 when trial). */
 export function feeAmountForPayment(
   paymentAmount: number,
   terms: FeeTermsSnapshot | undefined | null
@@ -57,32 +66,37 @@ export function feeAmountForPayment(
   return roundMoney((rate / 100) * paymentAmount)
 }
 
-/** Resolve invoice locked terms, falling back to batch then optional client live terms. */
+/**
+ * Resolve terms for an invoice: locked invoice → locked batch → live client.
+ * Open batches without a lock fall through to the carrier's current Fee Terms.
+ */
 export function resolveInvoiceFeeTerms(
   invoice: Pick<Invoice, 'fee_terms' | 'batch_id'>,
-  batch?: Pick<PendingBatch, 'fee_terms' | 'fee_calculation'> | null,
+  batch?: Pick<PendingBatch, 'fee_terms' | 'fee_calculation' | 'status'> | null,
   client?: Client | null
 ): FeeTermsSnapshot | undefined {
   if (invoice.fee_terms?.fee_type) return invoice.fee_terms
 
   if (batch?.fee_terms?.fee_type) return batch.fee_terms
 
-  // Legacy batches only stored fee_calculation — treat as billable snapshot.
-  const calc = batch?.fee_calculation
-  if (calc?.fee_type) {
-    return {
-      fee_type: calc.fee_type,
-      fee_percentage: calc.fee_percentage,
-      flat_fee_amount: calc.flat_fee_amount,
-      billing_mode: 'billable',
-      locked_at: new Date(0).toISOString(),
+  // Processed legacy batches may only have fee_calculation — treat as billable lock.
+  if (batch && isBatchFeeLocked(batch)) {
+    const calc = batch.fee_calculation
+    if (calc?.fee_type) {
+      return {
+        fee_type: calc.fee_type,
+        fee_percentage: calc.fee_percentage,
+        flat_fee_amount: calc.flat_fee_amount,
+        billing_mode: 'billable',
+        locked_at: new Date(0).toISOString(),
+      }
     }
   }
 
   return snapshotFeeTermsFromClient(client ?? undefined)
 }
 
-/** Convert locked / client terms into the shape calculateBatchFeeCalculation expects. */
+/** Convert terms into the shape calculateBatchFeeCalculation expects. */
 export function toClientFeeTermsShape(
   terms: FeeTermsSnapshot | ClientFeeTerms | undefined | null
 ): ClientFeeTerms | undefined {
@@ -95,7 +109,7 @@ export function toClientFeeTermsShape(
 }
 
 /**
- * Persist new fee terms on a batch and cascade to every invoice in the batch.
+ * Persist fee terms on a processed batch and cascade to its invoices.
  * Does not change the client's live Fee Terms.
  */
 export async function applyBatchFeeTerms(
@@ -136,14 +150,26 @@ export async function applyBatchFeeTerms(
   return { batch: updatedBatch, invoiceCount: invoices.length }
 }
 
-/** Recompute fee_calculation from the batch's locked fee_terms (not live client). */
-export function syncBatchFeesFromLockedTerms(batchId: string): void {
+/**
+ * Lock the carrier's current Fee Terms onto a batch at process time
+ * (and stamp the same snapshot on every invoice in the batch).
+ */
+export async function lockBatchFeeTermsFromClient(
+  batchId: string,
+  client: Client | undefined | null
+): Promise<PendingBatch | undefined> {
   const batch = getBatchById(batchId)
-  if (!batch) return
-
-  const invoices = getInvoicesByBatchId(batchId)
-  const fee_calculation = calculateBatchFeeCalculation(invoices, batch.fee_terms)
-  if (fee_calculation) {
-    updateBatch(batchId, { fee_calculation })
+  if (!batch) return undefined
+  if (batch.fee_terms?.fee_type) {
+    // Already locked — refresh fee_calculation only.
+    const invoices = getInvoicesByBatchId(batchId)
+    const fee_calculation = calculateBatchFeeCalculation(invoices, batch.fee_terms)
+    return updateBatch(batchId, { fee_calculation }) ?? batch
   }
+
+  const snapshot = snapshotFeeTermsFromClient(client)
+  if (!snapshot) return batch
+
+  const { batch: updated } = await applyBatchFeeTerms(batchId, snapshot)
+  return updated
 }

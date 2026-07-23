@@ -169,6 +169,7 @@ export default function AdminCreateBatchPanel({
           clientName={selectedClient.name}
           confirmedBy={adminName}
           crossCarrierLoadWarnings
+          skipSetupGate
           onCancel={() => setStep('choose')}
           onComplete={handleComplete}
         />

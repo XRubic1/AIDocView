@@ -66,8 +66,8 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
 
   const totalAmount = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0)
   const client = getClientById(clientId)
-  // Keep existing locked batch terms; otherwise snapshot from current client settings.
-  const feeTerms = existingBatch.fee_terms ?? snapshotFeeTermsFromClient(client)
+  // Fee calc pulls live from the carrier account (trial/active included).
+  const feeTerms = snapshotFeeTermsFromClient(client) ?? client?.fee_terms
   const draftForCalc = invoices.map((inv) => ({
     amount: parseFloat(inv.amount || '0'),
     status: 'pending' as const,
@@ -82,7 +82,6 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
     upload_mode: 'manual',
     sort_status: 'ready',
     fee_calculation: feeCalculation,
-    fee_terms: feeTerms,
   })!
 
   // Resolve invoice numbers (auto-fill blanks), then hard-block duplicates.
@@ -143,7 +142,6 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
       document_storage_paths:
         Object.keys(documentStoragePaths).length > 0 ? documentStoragePaths : undefined,
       ai_review_status: 'not_run' as const,
-      fee_terms: feeTerms,
     })
   }
 

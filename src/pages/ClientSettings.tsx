@@ -20,6 +20,7 @@ import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { getTierLabel } from '../utils/clientCapabilities'
 import { updateClientPassword } from '../services/clientAuthService'
 import { useToast } from '../components/ui/ToastProvider'
+import { remittanceFieldsChanged } from '../utils/carrierRemittance'
 import {
   getInitialListPageSize,
   LIST_PAGE_SIZE_KEY,
@@ -298,6 +299,12 @@ export default function ClientSettings() {
 
       const savedPrefs = saveClientNotificationPreferences(clientId, notificationSettings)
 
+      const remittanceChanged =
+        remittanceFieldsChanged(currentClient, remittanceData)
+      const remittancePatch = remittanceChanged
+        ? { remittance_updated_at: new Date().toISOString() }
+        : {}
+
       try {
         await updateClient(clientId, {
           name: profileData.company_name,
@@ -316,6 +323,7 @@ export default function ClientSettings() {
           account_number: remittanceData.account_number,
           routing_number: remittanceData.routing_number,
           notification_prefs: savedPrefs,
+          ...remittancePatch,
         })
       } catch (err) {
         // Older DBs may lack notification_prefs — still save profile without it.
@@ -337,6 +345,7 @@ export default function ClientSettings() {
             bank_name: remittanceData.bank_name,
             account_number: remittanceData.account_number,
             routing_number: remittanceData.routing_number,
+            ...remittancePatch,
           })
         } else {
           throw err
@@ -346,7 +355,12 @@ export default function ClientSettings() {
       setNotificationSettings(savedPrefs)
 
       setSaved(true)
-      showToast('Settings saved', 'success')
+      showToast(
+        remittanceChanged
+          ? 'Settings saved. Remittance changed — ask Credyx to notify brokers if needed.'
+          : 'Settings saved',
+        'success'
+      )
       setTimeout(() => setSaved(false), 3000)
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Could not save settings', 'error')

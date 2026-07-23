@@ -236,9 +236,8 @@ export interface ResolvedClientFee {
 }
 
 /**
- * Resolve period collection fee from locked invoice/batch fee terms.
- * Trial-locked invoices contribute $0; live client Fee Terms are only a fallback
- * for legacy invoices without a snapshot.
+ * Resolve period collection fee from each payment's invoice/batch lock when present
+ * (processed batches), otherwise the carrier's live Fee Terms.
  */
 export function resolveClientCollectionFee(
   client: Client,
@@ -250,6 +249,7 @@ export function resolveClientCollectionFee(
   let trialVolume = 0
   const rateLabels = new Set<string>()
   const flatChargedInvoiceIds = new Set<string>()
+  let sawPayment = false
 
   for (const p of mockPayments) {
     if (!invoiceIds.has(p.invoice_id) || p.status !== 'confirmed') continue
@@ -257,6 +257,7 @@ export function resolveClientCollectionFee(
 
     const inv = getInvoiceById(p.invoice_id)
     if (!inv) continue
+    sawPayment = true
     const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
     const terms = resolveInvoiceFeeTerms(inv, batch, client)
     const paymentAmt = getEffectivePaymentAmount(p)
@@ -282,6 +283,30 @@ export function resolveClientCollectionFee(
     }
   }
 
+  // No collections in period — still validate live client terms exist for the UI.
+  if (!sawPayment) {
+    if (!client.fee_terms?.fee_type) {
+      throw new Error(`Fee terms not configured for ${client.name}`)
+    }
+    const terms = client.fee_terms
+    if (terms.fee_type === 'flat') {
+      return {
+        feeType: 'flat',
+        ratePct: 0,
+        fee: 0,
+        displayRate: `$${Number(terms.flat_fee_amount ?? 0).toFixed(2)} flat`,
+        feeDescription: `Collection fee — $0 (no invoices collected)`,
+      }
+    }
+    return {
+      feeType: 'percentage',
+      ratePct: terms.fee_percentage ?? 0,
+      fee: 0,
+      displayRate: `${terms.fee_percentage ?? 0}%`,
+      feeDescription: `Collection fee — ${terms.fee_percentage ?? 0}% of $0 collected`,
+    }
+  }
+
   fee = Math.round(fee * 100) / 100
   const displayRate =
     rateLabels.size === 0 ? '—' : rateLabels.size === 1 ? [...rateLabels][0]! : 'Mixed'
@@ -290,7 +315,6 @@ export function resolveClientCollectionFee(
       ? 'flat'
       : 'percentage'
 
-  // Representative % for older UI fields (0 when mixed / flat / trial-only).
   let ratePct = 0
   if (rateLabels.size === 1) {
     const only = [...rateLabels][0]!
@@ -371,21 +395,20 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
 
   const collectedVolume = getClientCollectedVolume(clientId, period)
   const resolved = resolveClientCollectionFee(client, collectedVolume, period)
-  // Platform fee follows current subscription; collection fees follow locked invoice terms.
   const trial = isTrialClient(client)
 
+  // Always compute gross fees so the UI can show what would be charged.
   const grossAppFee = PLATFORM_APP_FEE_MONTHLY
   const grossArFee = resolved.fee
   const adjustments = [...getForceCloseAdjustments(clientId, period, client)]
   const adjustmentTotal = adjustments.reduce((sum, a) => sum + a.amount, 0)
   const grossSubtotal = grossAppFee + grossArFee + adjustmentTotal
 
-  // Only the platform subscription is waived while the client is currently on trial.
-  // Collection fees for trial-locked invoices are already $0 via resolveClientCollectionFee.
+  // Trial clients are not charged; active clients pay the full gross.
   const appFee = trial ? 0 : grossAppFee
-  const arFee = grossArFee
-  const chargedAdjustments = adjustments
-  const chargedAdjustmentTotal = adjustmentTotal
+  const arFee = trial ? 0 : grossArFee
+  const chargedAdjustments = trial ? [] : adjustments
+  const chargedAdjustmentTotal = trial ? 0 : adjustmentTotal
 
   const reimbursementCredits = getShortPaymentFeeCreditsForPeriod(clientId, period)
   const reimbursementBalance = client.reimbursement_balance ?? 0
@@ -415,12 +438,12 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
     lineItems.push(adj)
   }
 
-  if (trial && grossAppFee > 0) {
+  if (trial && grossSubtotal > 0) {
     lineItems.push({
       id: `trial-waiver-${periodLabel}`,
       date: periodLabel,
-      description: 'Trial — platform fee waived (invoice collection fees use locked batch terms)',
-      amount: -Math.round(grossAppFee * 100) / 100,
+      description: 'Trial — fees waived (not charged while on trial)',
+      amount: -Math.round(grossSubtotal * 100) / 100,
       status: 'pending',
     })
   }

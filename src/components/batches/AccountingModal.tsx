@@ -5,11 +5,16 @@ import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
 import {
   applyBatchFeeTerms,
   formatFeeTermsLabel,
+  isBatchFeeLocked,
+  snapshotFeeTermsFromClient,
 } from '../../utils/feeTermsLock'
 import { PendingBatch } from '../../types/admin'
-import { getClientById } from '../../services/clientRegistry'
+import { getClientById, updateClient } from '../../services/clientRegistry'
+import { syncClientBatchFees } from '../../services/batchFeeSync'
+import { getBatchById } from '../../data/mockBatches'
 import { formatCurrency } from '../../utils/format'
 import { useToast } from '../ui/ToastProvider'
+import type { Client } from '../../types/client'
 import type { FeeBillingMode } from '../../types/feeTerms'
 
 interface AccountingModalProps {
@@ -18,12 +23,13 @@ interface AccountingModalProps {
 }
 
 /**
- * Batch accounting — fee terms are locked on the batch (and cascade to invoices).
- * Editing here does not change the client's live Fee Terms.
+ * Batch accounting.
+ * Open batches pull live client Fee Terms (edit updates the carrier account).
+ * Processed batches use locked terms (edit updates this batch only).
  */
 export default function AccountingModal({ batch, onClose }: AccountingModalProps) {
   const { showToast } = useToast()
-  const client = getClientById(batch.client_id)
+  const [client, setClient] = useState<Client | undefined>(getClientById(batch.client_id))
   const [isEditingTerms, setIsEditingTerms] = useState(false)
   const [editedFeeType, setEditedFeeType] = useState<'percentage' | 'flat'>('percentage')
   const [editedFeePercentage, setEditedFeePercentage] = useState(0)
@@ -33,54 +39,92 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
   const [feeCalculation, setFeeCalculation] = useState(batch.fee_calculation)
   const [busy, setBusy] = useState(false)
 
-  const locked = currentBatch.fee_terms
+  const locked = isBatchFeeLocked(currentBatch)
+  const liveTerms = snapshotFeeTermsFromClient(client)
+  const displayTerms = locked
+    ? currentBatch.fee_terms ?? liveTerms
+    : liveTerms ?? currentBatch.fee_terms
 
   useEffect(() => {
     const invoices = getInvoicesByBatchId(currentBatch.id)
-    const calc = calculateBatchFeeCalculation(invoices, currentBatch.fee_terms)
+    const terms = locked
+      ? currentBatch.fee_terms ?? liveTerms
+      : snapshotFeeTermsFromClient(client) ?? client?.fee_terms
+    const calc = calculateBatchFeeCalculation(invoices, terms)
     if (calc) setFeeCalculation(calc)
-  }, [currentBatch.id, currentBatch.fee_terms])
+  }, [
+    currentBatch.id,
+    currentBatch.fee_terms,
+    currentBatch.status,
+    locked,
+    client?.fee_terms?.fee_type,
+    client?.fee_terms?.fee_percentage,
+    client?.fee_terms?.flat_fee_amount,
+    client?.billing?.subscription_status,
+  ])
 
   useEffect(() => {
     if (!isEditingTerms) return
-    if (locked) {
-      setEditedFeeType(locked.fee_type)
-      setEditedFeePercentage(locked.fee_percentage || 0)
-      setEditedFlatFeeAmount(locked.flat_fee_amount || 0)
-      setEditedBillingMode(locked.billing_mode)
-    } else if (client?.fee_terms) {
-      setEditedFeeType(client.fee_terms.fee_type || 'percentage')
-      setEditedFeePercentage(client.fee_terms.fee_percentage || 0)
-      setEditedFlatFeeAmount(client.fee_terms.flat_fee_amount || 0)
-      setEditedBillingMode(
-        client.billing?.subscription_status === 'trial' ? 'trial' : 'billable'
-      )
+    const source = locked ? currentBatch.fee_terms : client?.fee_terms
+    if (source) {
+      setEditedFeeType(source.fee_type || 'percentage')
+      setEditedFeePercentage(source.fee_percentage || 0)
+      setEditedFlatFeeAmount(source.flat_fee_amount || 0)
     } else {
       setEditedFeeType('percentage')
       setEditedFeePercentage(0)
       setEditedFlatFeeAmount(0)
-      setEditedBillingMode('billable')
     }
-  }, [isEditingTerms, locked, client])
+    if (locked) {
+      setEditedBillingMode(currentBatch.fee_terms?.billing_mode ?? 'billable')
+    } else {
+      setEditedBillingMode(
+        client?.billing?.subscription_status === 'trial' ? 'trial' : 'billable'
+      )
+    }
+  }, [isEditingTerms, locked, currentBatch.fee_terms, client])
 
   const handleSaveTerms = async () => {
+    if (!client) return
     setBusy(true)
     try {
-      const { batch: updated, invoiceCount } = await applyBatchFeeTerms(currentBatch.id, {
+      if (locked) {
+        const { batch: updated, invoiceCount } = await applyBatchFeeTerms(currentBatch.id, {
+          fee_type: editedFeeType,
+          fee_percentage: editedFeeType === 'percentage' ? editedFeePercentage : undefined,
+          flat_fee_amount: editedFeeType === 'flat' ? editedFlatFeeAmount : undefined,
+          billing_mode: editedBillingMode,
+        })
+        setCurrentBatch(updated)
+        setFeeCalculation(updated.fee_calculation)
+        setIsEditingTerms(false)
+        showToast(
+          `Locked batch terms updated — applied to ${invoiceCount} invoice${invoiceCount === 1 ? '' : 's'}`,
+          'success'
+        )
+        return
+      }
+
+      const updatedFeeTerms = {
         fee_type: editedFeeType,
         fee_percentage: editedFeeType === 'percentage' ? editedFeePercentage : undefined,
         flat_fee_amount: editedFeeType === 'flat' ? editedFlatFeeAmount : undefined,
-        billing_mode: editedBillingMode,
-      })
-      setCurrentBatch(updated)
-      setFeeCalculation(updated.fee_calculation)
+      }
+
+      const updatedClient = await updateClient(client.id, { fee_terms: updatedFeeTerms })
+      if (updatedClient) setClient(updatedClient)
+
+      syncClientBatchFees(client.id)
+      const refreshed = getBatchById(currentBatch.id)
+      if (refreshed) {
+        setCurrentBatch(refreshed)
+        setFeeCalculation(refreshed.fee_calculation)
+      }
+
       setIsEditingTerms(false)
-      showToast(
-        `Batch terms updated — applied to ${invoiceCount} invoice${invoiceCount === 1 ? '' : 's'}`,
-        'success'
-      )
+      showToast('Client fee terms updated — open batches now use the new rates', 'success')
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Could not update batch terms', 'error')
+      showToast(err instanceof Error ? err.message : 'Could not update fee terms', 'error')
     } finally {
       setBusy(false)
     }
@@ -110,7 +154,7 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
           <section className="mb-4">
             <div className="flex items-center justify-between gap-2 mb-2">
               <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                Batch fee terms
+                {locked ? 'Locked batch fee terms' : 'Client fee terms'}
               </h3>
               {!isEditingTerms ? (
                 <button
@@ -124,25 +168,28 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
               ) : null}
             </div>
             <p className="text-xs text-slate-600 mb-2">
-              Locked on this batch and all of its invoices. Does not change the client&apos;s live
-              Fee Terms (used only for new batches).
+              {locked
+                ? 'This batch is processed — rates were frozen at process time and no longer follow client Fee Terms changes.'
+                : 'Open batch — pulls live from the carrier account. Editing updates the client and all other open batches.'}
             </p>
 
             {isEditingTerms ? (
               <div className="space-y-3 rounded-lg border border-slate-200 p-3">
-                <label className="block text-xs">
-                  <span className="font-medium text-slate-600 uppercase tracking-wide">
-                    Billing mode
-                  </span>
-                  <select
-                    value={editedBillingMode}
-                    onChange={(e) => setEditedBillingMode(e.target.value as FeeBillingMode)}
-                    className="client-input mt-1 w-full text-sm"
-                  >
-                    <option value="billable">Billable</option>
-                    <option value="trial">Trial (waive collection fees)</option>
-                  </select>
-                </label>
+                {locked ? (
+                  <label className="block text-xs">
+                    <span className="font-medium text-slate-600 uppercase tracking-wide">
+                      Billing mode
+                    </span>
+                    <select
+                      value={editedBillingMode}
+                      onChange={(e) => setEditedBillingMode(e.target.value as FeeBillingMode)}
+                      className="client-input mt-1 w-full text-sm"
+                    >
+                      <option value="billable">Billable</option>
+                      <option value="trial">Trial (waive collection fees)</option>
+                    </select>
+                  </label>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2.5">
                   <label className="block text-xs">
                     <span className="font-medium text-slate-600 uppercase tracking-wide">
@@ -152,7 +199,7 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
                       value={editedFeeType}
                       onChange={(e) => setEditedFeeType(e.target.value as 'percentage' | 'flat')}
                       className="client-input mt-1 w-full text-sm"
-                      disabled={editedBillingMode === 'trial'}
+                      disabled={locked && editedBillingMode === 'trial'}
                     >
                       <option value="percentage">Percentage</option>
                       <option value="flat">Flat fee</option>
@@ -171,7 +218,7 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
                         value={editedFeePercentage}
                         onChange={(e) => setEditedFeePercentage(parseFloat(e.target.value) || 0)}
                         className="client-input mt-1 w-full text-sm tabular-nums"
-                        disabled={editedBillingMode === 'trial'}
+                        disabled={locked && editedBillingMode === 'trial'}
                       />
                     </label>
                   ) : (
@@ -186,7 +233,7 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
                         value={editedFlatFeeAmount}
                         onChange={(e) => setEditedFlatFeeAmount(parseFloat(e.target.value) || 0)}
                         className="client-input mt-1 w-full text-sm tabular-nums"
-                        disabled={editedBillingMode === 'trial'}
+                        disabled={locked && editedBillingMode === 'trial'}
                       />
                     </label>
                   )}
@@ -208,18 +255,19 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
                     disabled={busy}
                   >
                     <Save className="w-3.5 h-3.5" />
-                    Save to batch + invoices
+                    {locked ? 'Save locked terms' : 'Save client terms'}
                   </button>
                 </div>
               </div>
-            ) : locked ? (
+            ) : displayTerms || client?.fee_terms ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-px rounded-lg border border-slate-200 overflow-hidden bg-slate-200">
                 <div className="bg-white px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
                     Mode
                   </p>
                   <p className="text-sm font-medium text-slate-900 mt-0.5 capitalize">
-                    {locked.billing_mode}
+                    {displayTerms?.billing_mode ??
+                      (client?.billing?.subscription_status === 'trial' ? 'trial' : 'billable')}
                   </p>
                 </div>
                 <div className="bg-white px-3 py-2">
@@ -227,27 +275,31 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
                     Terms
                   </p>
                   <p className="text-sm font-medium text-slate-900 mt-0.5">
-                    {formatFeeTermsLabel(locked)}
+                    {formatFeeTermsLabel(displayTerms)}
                   </p>
                 </div>
                 <div className="bg-white px-3 py-2 col-span-2 sm:col-span-1">
                   <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
-                    Locked
+                    Source
                   </p>
-                  <p className="text-sm font-medium text-slate-900 mt-0.5 tabular-nums">
-                    {locked.locked_at.slice(0, 10)}
+                  <p className="text-sm font-medium text-slate-900 mt-0.5">
+                    {locked
+                      ? currentBatch.fee_terms?.locked_at
+                        ? `Locked ${currentBatch.fee_terms.locked_at.slice(0, 10)}`
+                        : 'Locked at process'
+                      : 'Live client account'}
                   </p>
                 </div>
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-slate-200 px-3 py-3">
-                <p className="text-sm text-slate-500 mb-2">No fee terms locked on this batch yet.</p>
+                <p className="text-sm text-slate-500 mb-2">No fee terms available yet.</p>
                 <button
                   type="button"
                   onClick={() => setIsEditingTerms(true)}
                   className="dashboard-btn-primary dashboard-btn-compact"
                 >
-                  Set batch terms
+                  Set fee terms
                 </button>
               </div>
             )}
@@ -266,7 +318,7 @@ export default function AccountingModal({ batch, onClose }: AccountingModalProps
               </div>
               <div className="flex justify-between text-sm px-3 py-2 rounded border border-slate-200">
                 <span className="text-slate-600">
-                  {locked?.billing_mode === 'trial'
+                  {displayTerms?.billing_mode === 'trial'
                     ? 'Fee (trial — waived)'
                     : feeCalculation.fee_type === 'percentage'
                       ? `Fee (${feeCalculation.fee_percentage}%)`

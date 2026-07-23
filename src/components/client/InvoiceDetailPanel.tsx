@@ -13,6 +13,7 @@ import {
   DollarSign,
   Boxes,
   PanelRightOpen,
+  Mail,
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
@@ -78,6 +79,21 @@ import {
   getInvoiceRowStatusBadge,
   InvoiceNoteCompose,
 } from './invoiceDetailShared'
+import { useAuth } from '../../context/AuthContext'
+import { useToast } from '../ui/ToastProvider'
+import { mockBrokers } from '../../data/mockBrokers'
+import {
+  resolveBrokerPaperworkEmail,
+  sendBrokerPacketForInvoice,
+} from '../../utils/paperworkSender'
+import { getClientDocuments } from '../../services/clientDocumentService'
+import { resolveInvoiceDocumentsAsync } from '../../utils/resolveInvoiceDocuments'
+import {
+  defaultSelectedVaultDocIds,
+  formatVaultDocPickerLabel,
+  selectionHasBankProof,
+} from '../../utils/carrierRemittance'
+import type { ClientDocument } from '../../types/clientDocument'
 
 type TimelineFilter = 'all' | 'activity' | 'notes' | 'payments' | 'send'
 type TimelineTone = 'neutral' | 'success' | 'warning' | 'error' | 'info'
@@ -231,12 +247,26 @@ export default function InvoiceDetailPanel({
   const c = useClientTheme()
   const navigate = useNavigate()
   const { capabilities } = useClientCapabilities()
+  const { showToast } = useToast()
+  const { resolved } = useAuth()
   const isSidebar = variant === 'sidebar'
   const isMobile = variant === 'mobile'
   const isAdminPortal = portalMode === 'admin'
   const notesEnabled = enableNotes ?? enableClientActions
   const authorName = noteAuthorName?.trim() || clientName
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all')
+  const [showSendDocsModal, setShowSendDocsModal] = useState(false)
+  const [sendRecipient, setSendRecipient] = useState('')
+  const [sendMessage, setSendMessage] = useState('')
+  const [sendBusy, setSendBusy] = useState(false)
+  const [selectedBrokerEmailIndex, setSelectedBrokerEmailIndex] = useState<number | null>(null)
+  const [sendInvoiceDocOptions, setSendInvoiceDocOptions] = useState<
+    Array<{ id: string; name: string }>
+  >([])
+  const [sendVaultDocOptions, setSendVaultDocOptions] = useState<ClientDocument[]>([])
+  const [selectedInvoiceDocIds, setSelectedInvoiceDocIds] = useState<string[]>([])
+  const [selectedVaultDocIds, setSelectedVaultDocIds] = useState<string[]>([])
+  const [sendError, setSendError] = useState<string | null>(null)
 
   const visibleInvoice = useMemo(
     () => (isAdminPortal ? invoice : toClientVisibleInvoice(invoice)),
@@ -336,6 +366,12 @@ export default function InvoiceDetailPanel({
     isPostableForPayment(visibleInvoice) &&
     pendingClientPosted <= 0
   const canViewDocuments = documentCount > 0 && !!onViewDocuments
+  const broker = useMemo(
+    () => mockBrokers.find((b) => b.id === invoice.broker_id),
+    [invoice.broker_id]
+  )
+  const brokerEmails = broker?.emails ?? []
+  const canSendDocuments = isAdminPortal
 
   const notice = getInvoiceNotice(
     visibleInvoice,
@@ -543,9 +579,17 @@ export default function InvoiceDetailPanel({
           : send.status === 'failed'
             ? 'error'
             : 'info'
+      const partLabel =
+        send.part_number && send.part_total && send.part_total > 1
+          ? `Part ${send.part_number} of ${send.part_total}`
+          : null
+      const docs =
+        send.documents_sent && send.documents_sent.length > 0
+          ? send.documents_sent.join(', ')
+          : null
       return {
         id: `send-${idx}-${send.sent_at}`,
-        title: 'Document sent',
+        title: partLabel ? `Document sent · ${partLabel}` : 'Document sent',
         detail: send.status
           ? `${send.email_address} · ${send.status}`
           : send.email_address,
@@ -553,6 +597,7 @@ export default function InvoiceDetailPanel({
         tone: sendTone,
         kind: send.status === 'failed' ? 'send_failed' : 'send',
         source: 'credyx' as NoteSource,
+        meta: [send.note, docs ? `Files: ${docs}` : null].filter(Boolean).join(' · ') || undefined,
       }
     })
   }, [invoice.document_send_history])
@@ -621,7 +666,76 @@ export default function InvoiceDetailPanel({
     enableClientActions ||
     notesEnabled ||
     canViewDocuments ||
+    canSendDocuments ||
     Boolean(visibleInvoice.batch_id)
+
+  const openSendDocumentsModal = async () => {
+    setSendError(null)
+    const paperwork = resolveBrokerPaperworkEmail(broker)
+    if (paperwork) {
+      setSendRecipient(paperwork)
+      const idx = brokerEmails.findIndex((e) => e.email === paperwork)
+      setSelectedBrokerEmailIndex(idx >= 0 ? idx : null)
+    } else if (brokerEmails.length > 0) {
+      setSendRecipient(brokerEmails[0].email)
+      setSelectedBrokerEmailIndex(0)
+    } else {
+      setSendRecipient(broker?.email?.trim() || '')
+      setSelectedBrokerEmailIndex(null)
+    }
+    setSendMessage('')
+
+    const invoiceDocs = await resolveInvoiceDocumentsAsync(invoice)
+    setSendInvoiceDocOptions(invoiceDocs.map((d) => ({ id: d.id, name: d.name })))
+    setSelectedInvoiceDocIds(invoiceDocs.map((d) => d.id))
+
+    const vaultDocs = getClientDocuments(invoice.client_id).filter(
+      (d) => d.category === 'broker' && d.approval_status === 'approved'
+    )
+    setSendVaultDocOptions(vaultDocs)
+    setSelectedVaultDocIds(defaultSelectedVaultDocIds(invoice.client_id))
+
+    setShowSendDocsModal(true)
+  }
+
+  const handleSendDocuments = async () => {
+    if (!sendRecipient.trim()) {
+      setSendError('Enter a recipient email')
+      return
+    }
+    if (selectedInvoiceDocIds.length === 0 && selectedVaultDocIds.length === 0) {
+      setSendError('Select at least one document to attach')
+      return
+    }
+    setSendBusy(true)
+    setSendError(null)
+    try {
+      const result = await sendBrokerPacketForInvoice(invoice, {
+        recipientEmail: sendRecipient.trim(),
+        sentBy: authorName || resolved.user?.email || 'Admin',
+        userId: resolved.user?.id,
+        automatic: false,
+        message: sendMessage,
+        collectMode: 'selected',
+        selectedInvoiceDocIds,
+        selectedVaultDocIds,
+      })
+      if (!result.success) {
+        setSendError(result.error ?? 'Could not send documents')
+        return
+      }
+      const parts = result.partCount && result.partCount > 1 ? ` (${result.partCount} emails)` : ''
+      const changeNote = result.remittanceChanged ? ' (remittance change flagged)' : ''
+      showToast(`Documents sent to ${sendRecipient.trim()}${parts}${changeNote}`, 'success')
+      setShowSendDocsModal(false)
+      setTimelineFilter('send')
+      onInvoiceUpdated?.()
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Could not send documents')
+    } finally {
+      setSendBusy(false)
+    }
+  }
 
   const handleGoToBatch = () => {
     if (!visibleInvoice.batch_id) return
@@ -1260,6 +1374,16 @@ export default function InvoiceDetailPanel({
                 Upload
               </button>
             )}
+            {canSendDocuments && (
+              <button
+                type="button"
+                onClick={() => void openSendDocumentsModal()}
+                className="dashboard-btn-primary flex-1 min-w-[110px] inline-flex items-center justify-center gap-1.5"
+              >
+                <Mail className="w-4 h-4" />
+                Send docs
+              </button>
+            )}
             {canViewDocuments && (
               <button
                 type="button"
@@ -1283,6 +1407,211 @@ export default function InvoiceDetailPanel({
           </div>
         </footer>
       ) : null}
+
+      {showSendDocsModal && (
+        <div
+          className="invoice-dispute-modal-overlay"
+          onClick={() => !sendBusy && setShowSendDocsModal(false)}
+          role="presentation"
+        >
+          <div
+            className="invoice-dispute-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="send-docs-modal-title"
+          >
+            <div className="invoice-dispute-modal-header">
+              <h3 id="send-docs-modal-title" className="text-base font-semibold" style={{ color: c.primary }}>
+                Send documents
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSendDocsModal(false)}
+                disabled={sendBusy}
+                className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                style={{ color: c.secondary }}
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="invoice-dispute-modal-body space-y-3">
+              <p className="text-sm" style={{ color: c.secondary }}>
+                Invoice {visibleInvoice.invoice_number}
+                {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
+                {documentCount > 0 ? ` · ${documentCount} file(s)` : ''}
+              </p>
+              <p className="text-[11px]" style={{ color: c.mutedLight }}>
+                Sends the broker packet template with invoice docs and broker vault attachments.
+              </p>
+
+              {brokerEmails.length > 0 ? (
+                <label className="block">
+                  <span className="client-label" style={{ color: c.secondary }}>
+                    Broker email
+                  </span>
+                  <select
+                    className="client-input w-full"
+                    value={selectedBrokerEmailIndex !== null ? String(selectedBrokerEmailIndex) : ''}
+                    onChange={(e) => {
+                      const idx = Number(e.target.value)
+                      if (Number.isNaN(idx) || !brokerEmails[idx]) return
+                      setSelectedBrokerEmailIndex(idx)
+                      setSendRecipient(brokerEmails[idx].email)
+                    }}
+                  >
+                    {brokerEmails.map((entry, idx) => (
+                      <option key={`${entry.email}-${idx}`} value={idx}>
+                        {entry.email}
+                        {entry.category ? ` (${entry.category})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+
+              <label className="block">
+                <span className="client-label" style={{ color: c.secondary }}>
+                  Recipient
+                </span>
+                <input
+                  type="email"
+                  value={sendRecipient}
+                  onChange={(e) => {
+                    setSendRecipient(e.target.value)
+                    setSelectedBrokerEmailIndex(null)
+                  }}
+                  className="client-input w-full"
+                  placeholder="broker@example.com"
+                  autoComplete="email"
+                />
+              </label>
+
+              <label className="block">
+                <span className="client-label" style={{ color: c.secondary }}>
+                  Extra message (optional)
+                </span>
+                <textarea
+                  value={sendMessage}
+                  onChange={(e) => setSendMessage(e.target.value)}
+                  rows={3}
+                  className="client-input w-full"
+                  placeholder="Optional note for the broker…"
+                />
+              </label>
+
+              <div className="block">
+                <span className="client-label" style={{ color: c.secondary }}>
+                  Invoice documents
+                </span>
+                <div
+                  className="mt-1.5 max-h-36 overflow-y-auto rounded-lg border px-2 py-1.5 space-y-1"
+                  style={{ borderColor: c.border }}
+                >
+                  {sendInvoiceDocOptions.length === 0 ? (
+                    <p className="text-xs py-1" style={{ color: c.secondary }}>
+                      No invoice documents found
+                    </p>
+                  ) : (
+                    sendInvoiceDocOptions.map((doc) => (
+                      <label
+                        key={doc.id}
+                        className="flex items-start gap-2 text-sm cursor-pointer py-0.5"
+                        style={{ color: c.primary }}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={selectedInvoiceDocIds.includes(doc.id)}
+                          onChange={(e) => {
+                            setSelectedInvoiceDocIds((prev) =>
+                              e.target.checked
+                                ? [...prev, doc.id]
+                                : prev.filter((id) => id !== doc.id)
+                            )
+                          }}
+                        />
+                        <span className="leading-snug">{doc.name}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="block">
+                <span className="client-label" style={{ color: c.secondary }}>
+                  Vault documents (broker)
+                </span>
+                <div
+                  className="mt-1.5 max-h-40 overflow-y-auto rounded-lg border px-2 py-1.5 space-y-1"
+                  style={{ borderColor: c.border }}
+                >
+                  {sendVaultDocOptions.length === 0 ? (
+                    <p className="text-xs py-1" style={{ color: c.secondary }}>
+                      No broker vault docs — upload a voided check or bank letter in Documents
+                    </p>
+                  ) : (
+                    sendVaultDocOptions.map((doc) => (
+                      <label
+                        key={doc.id}
+                        className="flex items-start gap-2 text-sm cursor-pointer py-0.5"
+                        style={{ color: c.primary }}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={selectedVaultDocIds.includes(doc.id)}
+                          onChange={(e) => {
+                            setSelectedVaultDocIds((prev) =>
+                              e.target.checked
+                                ? [...prev, doc.id]
+                                : prev.filter((id) => id !== doc.id)
+                            )
+                          }}
+                        />
+                        <span className="leading-snug">{formatVaultDocPickerLabel(doc)}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                {!selectionHasBankProof(selectedVaultDocIds, invoice.client_id) ? (
+                  <p className="text-xs mt-1.5" style={{ color: c.warning ?? '#b45309' }}>
+                    No voided check or bank letter selected — broker won’t get bank verification with
+                    this send.
+                  </p>
+                ) : null}
+              </div>
+
+              {sendError ? (
+                <p className="text-sm" style={{ color: c.error }}>
+                  {sendError}
+                </p>
+              ) : null}
+            </div>
+            <div className="invoice-dispute-modal-footer">
+              <button
+                type="button"
+                onClick={() => setShowSendDocsModal(false)}
+                disabled={sendBusy}
+                className="dashboard-btn-secondary"
+                style={{ height: 36, fontSize: 13 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSendDocuments()}
+                disabled={sendBusy}
+                className="dashboard-btn-primary inline-flex items-center gap-1.5"
+                style={{ height: 36, fontSize: 13 }}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                {sendBusy ? 'Sending…' : 'Send documents'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showUploadModal && (
         <InvoiceDocumentUploadModal

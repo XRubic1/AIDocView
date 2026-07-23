@@ -46,6 +46,8 @@ export interface SubmitAiBatchInput {
   confirmedBy: string
   /** When submitting a saved client draft batch, reuse this batch id. */
   existingBatchId?: string
+  /** Admin create-batch paths skip the vault setup gate. */
+  skipSetupGate?: boolean
 }
 
 export interface SubmitAiBatchResult {

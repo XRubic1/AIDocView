@@ -24,6 +24,7 @@ import { validateBatchInvoiceNumbers } from '../../utils/invoiceDuplicateChecks'
 import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
 import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
 import { getClientById } from '../clientRegistry'
+import { assertClientSetupComplete } from '../../utils/clientSetupDocuments'
 
 function filesToUploads(files: File[]): DocSortUpload[] {
   return files.map((file) => ({
@@ -78,7 +79,16 @@ export async function runBatchIntakePipeline(
 
 /** Persist confirmed AI batch into mockBatches + mockInvoices. */
 export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAiBatchResult> {
-  const { clientId, clientName, drafts, sortResult, fileById, confirmedBy, existingBatchId } = input
+  const {
+    clientId,
+    clientName,
+    drafts,
+    sortResult,
+    fileById,
+    confirmedBy,
+    existingBatchId,
+    skipSetupGate,
+  } = input
 
   const allConfirmed = drafts.every((d) => d.confirmed)
   if (!allConfirmed) {
@@ -86,6 +96,11 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
   }
   if (drafts.length === 0) {
     throw new Error('No invoices to submit. Match at least one load from your paperwork.')
+  }
+
+  const client = getClientById(clientId)
+  if (!skipSetupGate) {
+    assertClientSetupComplete(clientId, client)
   }
 
   // Hard-block duplicate invoice numbers (no silent renumbering).
@@ -104,10 +119,9 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
     ...fingerprintDocIds(sortResult.otherDocuments),
   ]
 
-  const client = getClientById(clientId)
   const existing = existingBatchId ? updateBatch(existingBatchId, {}) : undefined
-  // Existing batches keep locked terms; new batches snapshot from client (incl. trial).
-  const feeTerms = existing?.fee_terms ?? snapshotFeeTermsFromClient(client)
+  // Fee calc pulls live from the carrier account (trial/active included).
+  const feeTerms = snapshotFeeTermsFromClient(client) ?? client?.fee_terms
   const feeCalculation = calculateBatchFeeCalculation(
     drafts.map((d) => ({ amount: d.amount, status: 'pending' as const })),
     feeTerms
@@ -128,7 +142,6 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
           groupCount: sortResult.groups.length,
         }),
         unmatched_doc_ids: unmatchedIds,
-        fee_terms: feeTerms,
         fee_calculation: feeCalculation,
       })!
     : addBatch({
@@ -147,14 +160,12 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
           groupCount: sortResult.groups.length,
         }),
         unmatched_doc_ids: unmatchedIds,
-        fee_terms: feeTerms,
         fee_calculation: feeCalculation,
       })
 
   const invoiceFields = drafts.map((draft) => {
     const fields = draftToInvoiceFields(draft, clientId, confirmedBy)
     fields.ai_confirmed_by = confirmedBy
-    fields.fee_terms = feeTerms
     return fields
   })
 

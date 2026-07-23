@@ -149,13 +149,17 @@ export default function VerificationTab({
             ? ` Paperwork already sent for ${result.paperwork.skipped} invoice(s).`
             : ''
 
+      const carrierMsg =
+        result.carrierEmail && !result.carrierEmail.ok && !result.carrierEmail.skipped
+          ? ` Carrier email failed: ${result.carrierEmail.error ?? 'unknown'}.`
+          : result.carrierEmail?.skipped
+            ? ' Carrier email skipped (no client email on file).'
+            : ' Carrier notified.'
+
       if (holdCount > 0) {
-        showToast(
-          `Batch processed with ${holdCount} on hold. Carrier notified.${ppwMsg}`,
-          'info'
-        )
+        showToast(`Batch processed with ${holdCount} on hold.${carrierMsg}${ppwMsg}`, 'info')
       } else {
-        showToast(`Batch processed — all invoices approved.${ppwMsg}`, 'success')
+        showToast(`Batch processed — all invoices approved.${carrierMsg}${ppwMsg}`, 'success')
       }
 
       onProcessed?.()

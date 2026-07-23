@@ -8,7 +8,9 @@ import {
   FileWarning,
   Hash,
   Lock,
+  Mail,
   ShieldAlert,
+  FolderOpen,
   Wallet,
   Workflow,
 } from 'lucide-react'
@@ -25,6 +27,8 @@ type DocTopicId =
   | 'invoice-load-guards'
   | 'managed-vs-self'
   | 'monthly-billing'
+  | 'paperwork-sending'
+  | 'vault-onboarding'
 
 interface DocTopic {
   id: DocTopicId
@@ -80,7 +84,17 @@ const TOPICS: DocTopic[] = [
   {
     id: 'monthly-billing',
     label: 'Monthly billing',
-    summary: 'Fee terms, Payoneer, credits & reversals.',
+    summary: 'Fee terms, batch locks, Payoneer & credits.',
+  },
+  {
+    id: 'paperwork-sending',
+    label: 'Paperwork email',
+    summary: 'Broker packets, limits, From addresses.',
+  },
+  {
+    id: 'vault-onboarding',
+    label: 'Vault onboarding',
+    summary: 'Required setup docs and Credyx approval.',
   },
 ]
 
@@ -215,19 +229,23 @@ function pageForTopic(id: DocTopicId): DocPageContent {
           },
           {
             title: 'Process batch',
-            body: 'When every invoice is approved or on hold, Process moves the batch to submitted, sends PPW where needed, and emails the carrier.',
+            body: 'When every invoice is approved or on hold, Process moves the batch to submitted, locks Fee Terms, emails brokers a paperwork packet (invoice documents + Document Vault broker docs such as NOAs), and emails the carrier that the batch was processed.',
           },
           {
             title: 'After Process',
-            body: 'Real statuses appear (Open / On Hold). Verification notes become visible. Deferred hold notifications fire for held invoices.',
+            body: 'Real statuses appear (Open / On Hold). Verification notes become visible. Deferred hold notifications fire for held invoices. Fee rates stay frozen. The carrier email includes any holds and a per-invoice summary of broker paperwork sends (sent / skipped / failed).',
           },
         ],
         facts: [
           { label: 'During verify', value: 'Client still sees Open' },
           { label: 'Notes', value: 'Admin notes reveal on Process' },
           { label: 'Holds', value: 'Bell + red status after Process' },
+          { label: 'Fee terms', value: 'Lock on Process' },
+          { label: 'Broker email', value: 'Invoice docs + vault broker/NOA' },
+          { label: 'Carrier email', value: 'Processed + holds + PPW summary' },
         ],
-        footnote: 'Admin status in Credyx is real during verify; only the client portal is gated.',
+        footnote:
+          'Requires Resend secrets on the send-email Edge Function (RESEND_API_KEY, RESEND_FROM_EMAIL). See Docs → Paperwork email for limits, templates, and From-address setup. Without secrets, sends fail as “Email not configured” and are not marked delivered. Fee terms lock when the batch is processed.',
       }
     case 'payment-posting':
       return {
@@ -330,35 +348,42 @@ function pageForTopic(id: DocTopicId): DocPageContent {
           },
           {
             title: 'Batch creation',
-            body: 'Self-service: canCreateBatch / AI / manual. Managed: handoff docs only until Credyx creates invoices on Ready to Post.',
+            body: 'Self-service: canCreateBatch / AI / manual. Managed: handoff docs only until Credyx creates invoices on Ready to Post. Both tiers upload Document Vault setup docs; invoice intake is locked until Credyx approves the required packet.',
           },
           {
             title: 'Where to look',
-            body: 'Clients directory → service tier. Client portal nav and actions hide what the plan does not allow.',
+            body: 'Clients directory → service tier. Client portal nav and actions hide what the plan does not allow. Vault review lives on Clients → Vault.',
           },
         ],
         facts: [
           { label: 'Force close', value: 'Managed yes · Self-service no' },
           { label: 'Create batches', value: 'Self-service yes · Managed handoff' },
           { label: 'Collections owner', value: 'Managed = Credyx · Self = carrier' },
+          { label: 'Vault upload', value: 'Both tiers (client + admin)' },
+          { label: 'Invoice gate', value: 'Until setup docs approved' },
         ],
       }
     case 'monthly-billing':
       return {
         title: 'Monthly billing',
         lede:
-          'Credyx bills carriers monthly for the platform fee plus collection fees from locked invoice/batch terms — based on confirmed collections, not open A/R.',
+          'Credyx bills carriers monthly for the platform fee plus collection fees — based on confirmed collections, not open A/R.',
         callout: (
           <>
-            <strong>Clients → Fee Terms</strong> and Billing subscription apply to{' '}
-            <strong>new batches only</strong>. Each batch locks terms (including trial); invoices
-            inherit them. Change a batch in Accounting to update all invoices in that batch.
+            Batch fees come from <strong>Clients → Fee Terms</strong>. Open batches follow live
+            rates; when Credyx <strong>Processes</strong> a batch, those rates lock onto the batch
+            and its invoices. Later Fee Terms changes do not rewrite processed history. Issued
+            Credyx bills also keep a fee snapshot for clawbacks.
           </>
         ),
         steps: [
           {
+            title: 'Batch fee terms (intended behavior)',
+            body: 'When a client submits a batch or Credyx creates one, fee totals use that carrier’s current Fee Terms (including trial/active). While the batch is still open (ready to post, verification, etc.), changing the client’s Fee Terms updates those open batches. When the batch is Processed, Credyx freezes the then-current rates onto the batch and every invoice in it. If Fee Terms change later, processed batches and invoices keep the previous locked fee; only open batches pick up the new rates.',
+          },
+          {
             title: 'What gets billed',
-            body: 'Each calendar month: $99 platform subscription (waived while the client is currently on trial) + collection fees from each invoice’s locked terms. Trial-locked invoices are not charged. Percentage → fee % × payment; flat → flat per invoice collected. Pending and reversed payments do not count.',
+            body: 'Each calendar month: $99 platform subscription + collection fees. Trial subscription waives fees while the client is on trial. Percentage → fee % × collected volume; flat → flat × invoices collected. Collections on processed invoices prefer their locked rates. Pending and reversed payments do not count.',
           },
           {
             title: 'Issue → Payoneer → Paid',
@@ -370,25 +395,133 @@ function pageForTopic(id: DocTopicId): DocPageContent {
           },
           {
             title: 'Reversal reimbursements',
-            body: 'If a payment is unprocessed or reversed after the Credyx bill for that collection month was already issued, it appears under Discount / credit → Reversal reimbursements with a system note (invoice, billed period, fee rate at bill time, reason, suggested fee). Select the row(s) and choose Reimburse selected. Fee amount prefers the invoice’s locked batch terms. Reimbursed items hide behind Show reimbursed invoices.',
+            body: 'If a payment is unprocessed or reversed after the Credyx bill for that collection month was already issued, it appears under Discount / credit → Reversal reimbursements with a system note (invoice, billed period, fee rate at bill time, reason, suggested fee). Select the row(s) and choose Reimburse selected. Fee amount prefers locked invoice/batch terms, else the rate on that issued bill. Reimbursed items hide behind Show reimbursed invoices.',
           },
           {
             title: 'When a clawback does not appear',
-            body: 'If the payment is reversed before that month’s Credyx invoice is issued, July volume simply drops — there is nothing to claw back. Same-month reverse after issue still qualifies because the bill was already sent.',
+            body: 'If the payment is reversed before that month’s Credyx invoice is issued, volume simply drops — there is nothing to claw back. Same-month reverse after issue still qualifies because the bill was already sent.',
           },
           {
             title: 'Where to work',
-            body: 'Admin → Billing (list + Open popup). Client Fee Terms / trial on Clients (new batches). Batch Accounting to override terms for invoices in a batch. Payment unprocess/move on Payment Posting.',
+            body: 'Admin → Billing (list + Open popup). Set Fee Terms / trial on Clients. Batch Accounting edits live client terms for open batches, or locked override for processed batches. Payment unprocess/move on Payment Posting.',
           },
         ],
         facts: [
-          { label: 'New batch source', value: 'Client Fee Terms + trial/active' },
-          { label: 'Bill base', value: 'Locked invoice terms × collections' },
-          { label: 'Credits', value: 'Next invoice · floor $0' },
-          { label: 'Reversal clawback', value: 'Manual select after bill issued' },
+          { label: 'Create / open batch', value: 'Live client Fee Terms' },
+          { label: 'On Process', value: 'Lock rates → batch + invoices' },
+          { label: 'Later Fee Terms change', value: 'Processed keep old rate' },
+          { label: 'Credits / clawback', value: 'Next bill · after issue' },
         ],
         footnote:
-          'June trial batches stay trial even if the client goes active in July. July 1% only applies to batches created after that change.',
+          'Open batches always pull from the carrier account. Processed batches and already-issued Credyx bills keep their locked rates so history is not rewritten.',
+      }
+    case 'paperwork-sending':
+      return {
+        title: 'Paperwork email',
+        lede: 'How Credyx sends broker packets and carrier notices — limits, templates, and From addresses.',
+        callout: (
+          <>
+            Broker packets go out on <strong>Process</strong> (batch) or manually from{' '}
+            <strong>Invoices → Send docs</strong>. Copy is edited under{' '}
+            <strong>Settings → Email templates</strong>.
+          </>
+        ),
+        steps: [
+          {
+            title: 'What gets sent to brokers',
+            body: 'Template broker_packet: invoice #, load #, broker, carrier, and a fixed payment pointer (pay carrier per invoice remit-to; remittance advice to billing@ / ops@). Bank numbers are not in the email body. Remit-to lives on the invoice PDF. When remittance changed vs the carrier’s prior invoice, the email and PDF include a verify-before-paying note.',
+          },
+          {
+            title: 'Attachments (manual Send docs)',
+            body: 'Invoices → Send docs opens a checklist: pick which invoice documents and Document Vault broker docs to attach. Voided check and bank letter types default-checked when present. Warns (does not block) if neither bank-proof type is selected. Batch Process uses the same defaults automatically (invoice docs + bank proof) without a per-invoice picker.',
+          },
+          {
+            title: 'What gets sent to carriers',
+            body: 'After Process, one carrier email (carrier_batch_processed) summarizes holds (if any) and per-invoice paperwork results (sent / skipped / failed). No large document attachments on that notice.',
+          },
+          {
+            title: 'Manual send from Invoices',
+            body: 'Admin Invoices detail → Send docs. Pick a broker email or type any recipient, select attachments, optional message. History appears on the Send timeline filter.',
+          },
+          {
+            title: 'Notify all brokers of remittance change',
+            body: 'Clients → carrier Terms/remittance section → Notify brokers of remittance change. Template broker_remittance_updated emails every distinct broker on that carrier’s invoices. Attach vault bank proof; do not put account numbers in the body. Saving remittance does not auto-send — you click the button.',
+          },
+          {
+            title: 'Attachment size & multi-part',
+            body: 'Each email stays under ~35MB base64 (~25–26MB of files), including the logo. If the packet is larger, Credyx automatically splits it into Part 1 / Part 2 / … emails. Subject and body note the part; Send history records each part with a “sent separately” note. A single file that alone exceeds the budget cannot be split — compress it first.',
+          },
+          {
+            title: 'Resend setup (domain + secrets)',
+            body: 'Verify the domain in Resend (DKIM + SPF/MX on send). Set Edge secrets: RESEND_API_KEY, RESEND_FROM_EMAIL (fallback), RESEND_FROM_BROKER (e.g. Credyx Billing <billing@credyx.net>), RESEND_FROM_CARRIER (e.g. Credyx Ops <ops@credyx.net>). Optional Reply-To: RESEND_REPLY_TO / RESEND_REPLY_TO_BROKER / RESEND_REPLY_TO_CARRIER. Without RESEND_API_KEY, sends fail as “Email not configured”.',
+          },
+          {
+            title: 'From address by audience',
+            body: 'Broker templates (paperwork packet, remittance update, collections chase) use RESEND_FROM_BROKER when set. Carrier templates (batch processed, invite) use RESEND_FROM_CARRIER. Admin/system alerts use RESEND_FROM_ADMIN when set. Each falls back to RESEND_FROM_EMAIL. Same verified domain — no extra Resend fee.',
+          },
+          {
+            title: 'If they reply',
+            body: 'Replies go to the Reply-To address when configured, otherwise to the From mailbox (billing@ / ops@ / etc.). Credyx does not auto-ingest replies into the app. You need a real inbox or forwarder on that address (Google Workspace, Microsoft 365, or Namecheap email forwarding). Resend “Enable Receiving” is optional and separate — it is for inbound parsing, not required for simple reply inboxes.',
+          },
+          {
+            title: 'Edit templates in Credyx',
+            body: 'Settings → Email → pick a template → edit subject/HTML → Save. Use {{placeholders}} listed in the editor. Reset restores the built-in layout. send-email loads the DB row at send time.',
+          },
+        ],
+        facts: [
+          { label: 'Total attach cap', value: '~35MB base64 / email (~26MB files)' },
+          { label: 'Oversize packet', value: 'Auto Part 1 / Part 2…' },
+          { label: 'Manual attachments', value: 'Send docs checklist' },
+          { label: 'Bank proof types', value: 'voided_check · bank_letter' },
+          { label: 'Remittance blast', value: 'Clients → Notify brokers' },
+          { label: 'Manual send', value: 'Invoices → Send docs' },
+          { label: 'Templates', value: 'Settings → Email' },
+          { label: 'Broker From', value: 'RESEND_FROM_BROKER → billing@' },
+          { label: 'Carrier From', value: 'RESEND_FROM_CARRIER → ops@' },
+          { label: 'Replies', value: 'Inbox/forwarder — not in-app' },
+        ],
+        footnote:
+          'Resend free tier is fine for early volume; watch monthly send quotas. Multiple From addresses on the same verified domain do not require a separate paid plan. Replies only land if that mailbox (or Reply-To) actually receives mail. Remittance change notices never auto-send on save.',
+      }
+    case 'vault-onboarding':
+      return {
+        title: 'Vault onboarding',
+        lede: 'Carriers must upload a broker-style setup packet to the Document Vault and get Credyx approval before sending invoices.',
+        callout: (
+          <>
+            Client uploads stay <strong>pending</strong> until Credyx approves.&nbsp;
+            Admin uploads are <strong>auto-approved</strong>.
+          </>
+        ),
+        steps: [
+          {
+            title: 'Required packet',
+            body: 'Always: W-9, COI, MC Authority, DOT Registration, plus voided check or bank letter. If the carrier is marked Factoring, also require Notice of Assignment (NOA).',
+          },
+          {
+            title: 'Client Document Vault',
+            body: 'Portal → Document Vault. Carrier picks folder + document type, uploads files. Each client upload shows “Awaiting Credyx approval” until reviewed.',
+          },
+          {
+            title: 'Credyx review',
+            body: 'Clients → open carrier → Vault tab. Approve or reject pending docs, or Upload on behalf (auto-approved). The list header shows how many carriers have pending docs.',
+          },
+          {
+            title: 'Invoice gate',
+            body: 'Until every required type is approved, client AI/manual batch submit and managed doc handoff are blocked. Admin create-batch for a carrier is not blocked by this gate.',
+          },
+          {
+            title: 'Rejected docs',
+            body: 'Rejected files do not count. The carrier re-uploads a replacement (new pending row) for Credyx to review again.',
+          },
+        ],
+        facts: [
+          { label: 'Always required', value: 'W-9 · COI · MC · DOT · bank proof' },
+          { label: 'If factoring', value: 'NOA also required' },
+          { label: 'Client upload', value: 'pending → approve/reject' },
+          { label: 'Admin upload', value: 'approved immediately' },
+          { label: 'Review UI', value: 'Clients → Vault' },
+        ],
       }
   }
 }
@@ -402,6 +535,8 @@ const TOPIC_ICONS: Record<DocTopicId, typeof ShieldAlert> = {
   'invoice-load-guards': Hash,
   'managed-vs-self': Building2,
   'monthly-billing': FileText,
+  'paperwork-sending': Mail,
+  'vault-onboarding': FolderOpen,
 }
 
 /** Admin Docs — book-style reference for how Credyx features work. */

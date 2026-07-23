@@ -33,6 +33,7 @@ export interface InvoiceRow {
   last_broker_contact: string | null
   days_since_expected: number | null
   document_send_history: DocumentSendRecord[] | null
+  remittance_snapshot: string | null
   collection_date: string | null
   collection_status: string | null
   verification_status: string | null
@@ -154,6 +155,7 @@ export function invoiceRowToInvoice(row: InvoiceRow): Invoice {
     last_broker_contact: row.last_broker_contact ?? undefined,
     days_since_expected: row.days_since_expected ?? undefined,
     document_send_history: row.document_send_history ?? undefined,
+    remittance_snapshot: row.remittance_snapshot ?? undefined,
     collection_date: row.collection_date ?? undefined,
     collection_status: (row.collection_status as Invoice['collection_status']) ?? undefined,
     verification_status: (row.verification_status as Invoice['verification_status']) ?? undefined,
@@ -266,6 +268,7 @@ export function invoiceToRow(invoice: Invoice): InvoiceRow {
     last_broker_contact: invoice.last_broker_contact ?? null,
     days_since_expected: invoice.days_since_expected ?? null,
     document_send_history: invoice.document_send_history ?? [],
+    remittance_snapshot: invoice.remittance_snapshot ?? null,
     collection_date: invoice.collection_date ?? null,
     collection_status: invoice.collection_status ?? null,
     verification_status: invoice.verification_status ?? null,

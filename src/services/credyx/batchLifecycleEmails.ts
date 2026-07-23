@@ -48,7 +48,7 @@ export async function emailCredyxVerificationError(opts: {
   })
 }
 
-/** Build PPW destination summary lines for carrier emails. */
+/** Build PPW destination summary lines for carrier emails (from invoice history). */
 export function buildPpwSummaryLines(invoices: Invoice[]): string {
   return invoices
     .filter(hasPpwBeenSent)
@@ -61,42 +61,93 @@ export function buildPpwSummaryLines(invoices: Invoice[]): string {
     .join('\n')
 }
 
-/** Email carrier that all invoices verified cleanly (and PPW destinations). */
-export async function emailCarrierBatchVerified(opts: {
-  clientId: string
-  batchNumber: string
-  invoices: Invoice[]
-}): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
-  const to = getClientContactEmail(opts.clientId)
-  if (!to) return { ok: false, error: 'Client email not on file', skipped: true }
-
-  const ppwSummary = buildPpwSummaryLines(opts.invoices)
-  return sendTransactionalEmail('carrier_batch_verified', to, {
-    batchNumber: opts.batchNumber,
-    invoiceCount: String(opts.invoices.length),
-    ppwSummary: ppwSummary || 'No paperwork sends were logged for this batch.',
-  })
+export interface PpwSendDetail {
+  invoiceId: string
+  invoiceNumber: string
+  brokerEmail: string
+  success: boolean
+  error?: string
+  skipped?: boolean
 }
 
-/** Email carrier listing held invoices + reasons (one email for the batch). */
-export async function emailCarrierBatchHolds(opts: {
-  clientId: string
-  batchNumber: string
-  heldInvoices: Invoice[]
-}): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
-  const to = getClientContactEmail(opts.clientId)
-  if (!to) return { ok: false, error: 'Client email not on file', skipped: true }
+/** Format PPW batch send results for the carrier process email. */
+export function buildPpwResultsSummary(details: PpwSendDetail[]): string {
+  if (details.length === 0) {
+    return 'No paperwork sends were attempted for this batch.'
+  }
+  return details
+    .map((d) => {
+      if (d.skipped) return `${d.invoiceNumber}: already sent (skipped)`
+      if (d.success) return `${d.invoiceNumber}: sent to ${d.brokerEmail}`
+      return `${d.invoiceNumber}: failed (${d.error ?? 'unknown error'}) → ${d.brokerEmail}`
+    })
+    .join('\n')
+}
 
-  const holdList = opts.heldInvoices
+/** Format hold list for carrier emails. */
+export function buildHoldList(heldInvoices: Invoice[]): string {
+  return heldInvoices
     .map(
       (inv) =>
         `• ${inv.invoice_number}${inv.load_number ? ` (Load ${inv.load_number})` : ''}: ${inv.hold_reason?.trim() || 'On hold — see portal for details'}`
     )
     .join('\n')
+}
 
-  return sendTransactionalEmail('carrier_batch_holds', to, {
+/**
+ * Email carrier that the batch was processed: includes holds (if any) and
+ * broker paperwork send summary.
+ */
+export async function emailCarrierBatchProcessed(opts: {
+  clientId: string
+  batchNumber: string
+  invoices: Invoice[]
+  heldInvoices: Invoice[]
+  ppwDetails?: PpwSendDetail[]
+}): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+  const to = getClientContactEmail(opts.clientId)
+  if (!to) return { ok: false, error: 'Client email not on file', skipped: true }
+
+  const ppwSummary =
+    opts.ppwDetails && opts.ppwDetails.length > 0
+      ? buildPpwResultsSummary(opts.ppwDetails)
+      : buildPpwSummaryLines(opts.invoices) || 'No paperwork sends were logged for this batch.'
+
+  const holdList = buildHoldList(opts.heldInvoices)
+
+  return sendTransactionalEmail('carrier_batch_processed', to, {
     batchNumber: opts.batchNumber,
+    invoiceCount: String(opts.invoices.length),
     holdCount: String(opts.heldInvoices.length),
-    holdList,
+    holdList: holdList || 'None',
+    ppwSummary,
+  })
+}
+
+/** @deprecated Prefer emailCarrierBatchProcessed — kept for older call sites. */
+export async function emailCarrierBatchVerified(opts: {
+  clientId: string
+  batchNumber: string
+  invoices: Invoice[]
+}): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+  return emailCarrierBatchProcessed({
+    clientId: opts.clientId,
+    batchNumber: opts.batchNumber,
+    invoices: opts.invoices,
+    heldInvoices: [],
+  })
+}
+
+/** @deprecated Prefer emailCarrierBatchProcessed — kept for older call sites. */
+export async function emailCarrierBatchHolds(opts: {
+  clientId: string
+  batchNumber: string
+  heldInvoices: Invoice[]
+}): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+  return emailCarrierBatchProcessed({
+    clientId: opts.clientId,
+    batchNumber: opts.batchNumber,
+    invoices: opts.heldInvoices,
+    heldInvoices: opts.heldInvoices,
   })
 }

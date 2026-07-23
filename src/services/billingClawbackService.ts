@@ -96,8 +96,8 @@ export function resolveBilledFeeTerms(
 }
 
 /**
- * Fee charged on a collected payment under the bill's locked fee terms,
- * preferring the invoice's locked batch terms when present.
+ * Fee charged on a collected payment under locked invoice/batch terms when present,
+ * otherwise the fee terms snapshot from the issued Credyx bill.
  */
 export function estimateBilledFeeForPayment(
   payment: Payment,
@@ -107,7 +107,7 @@ export function estimateBilledFeeForPayment(
   if (invoice) {
     const batch = invoice.batch_id ? getBatchById(invoice.batch_id) : undefined
     const locked = resolveInvoiceFeeTerms(invoice, batch)
-    if (locked) {
+    if (locked?.fee_type && (invoice.fee_terms || batch?.fee_terms || isProcessedLock(batch))) {
       if (locked.billing_mode === 'trial') return 0
       if (locked.fee_type === 'flat') {
         return estimateFlatClawback(payment, bill.period, locked.flat_fee_amount ?? 0)
@@ -125,6 +125,13 @@ export function estimateBilledFeeForPayment(
 
   const ratePct = terms.fee_percentage ?? 0
   return getPaymentAttributedFee(payment.amount, ratePct)
+}
+
+function isProcessedLock(
+  batch?: { status?: string; fee_terms?: unknown; fee_calculation?: { fee_type?: string } } | null
+): boolean {
+  if (!batch) return false
+  return batch.status === 'submitted' || batch.status === 'processing'
 }
 
 function estimateFlatClawback(payment: Payment, billedPeriod: string, flat: number): number {

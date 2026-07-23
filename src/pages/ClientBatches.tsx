@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useSearchParams, useLocation } from 'react-router-dom'
+import { Link, useSearchParams, useLocation } from 'react-router-dom'
+import { AlertCircle } from 'lucide-react'
 import { useClientSession } from '../hooks/useClientSession'
 import { getAllBatches, getBatchById, getClientDraftBatch } from '../data/mockBatches'
 import { mockBrokers } from '../data/mockBrokers'
@@ -18,6 +19,12 @@ import {
 } from '../services/clientBatchDraftService'
 import { generateInvoice } from '../../pdfTemplate'
 import jsPDF from 'jspdf'
+import {
+  buildInvoiceRemittanceInfo,
+  buildRemittanceUpdatedBannerHtml,
+  detectRemittanceChanged,
+} from '../utils/carrierRemittance'
+import { getClientById } from '../services/clientRegistry'
 import DocumentViewer from '../components/DocumentViewer'
 import ClientBatchesListView from '../components/client/ClientBatchesListView'
 import ClientBatchDetailView from '../components/client/ClientBatchDetailView'
@@ -55,6 +62,11 @@ import {
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import ClientReturnBanner from '../components/client/ClientReturnBanner'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
+import { useClientTheme } from '../theme/ThemeContext'
+import {
+  getSetupChecklist,
+  isClientSetupComplete,
+} from '../utils/clientSetupDocuments'
 
 type ClientBatchRow = {
   id: string
@@ -120,8 +132,17 @@ function mergeInvoiceExtras(invoice: Invoice, extras?: Partial<Invoice>): Invoic
 
 export default function ClientBatches() {
   const { showToast } = useToast()
-  const { clientId, clientName } = useClientSession()
+  const { clientId, clientName, client } = useClientSession()
+  const c = useClientTheme()
   const tenantRevision = useTenantDataRevision()
+  const setupComplete = useMemo(
+    () => isClientSetupComplete(clientId, client),
+    [clientId, client, tenantRevision]
+  )
+  const setupChecklist = useMemo(
+    () => getSetupChecklist(clientId, client),
+    [clientId, client, tenantRevision]
+  )
   const { capabilities } = useClientCapabilities()
   const [batches, setBatches] = useState<ClientBatchRow[]>([])
   const [createSubMode, setCreateSubMode] = useState<'choose' | 'ai' | 'manual'>('choose')
@@ -922,6 +943,20 @@ export default function ClientBatches() {
     }
     
     // Generate invoice HTML
+    const carrierClient = getClientById(clientId)
+    const previewInvoiceId =
+      'id' in invoice && typeof (invoice as { id?: string }).id === 'string'
+        ? (invoice as { id: string }).id
+        : `preview-${invoice.invoice_number}`
+    const previewSnapshot =
+      'remittance_snapshot' in invoice
+        ? (invoice as { remittance_snapshot?: string }).remittance_snapshot
+        : undefined
+    const { changed: remittanceChanged } = detectRemittanceChanged(carrierClient, {
+      id: previewInvoiceId,
+      client_id: clientId,
+      remittance_snapshot: previewSnapshot,
+    })
     const invoiceHTML = generateInvoice({
       invoiceNumber: invoice.invoice_number,
       invoiceDate: invoice.invoice_date || new Date().toISOString().split('T')[0],
@@ -932,10 +967,13 @@ export default function ClientBatches() {
       carrierName: clientName,
       clientName: clientName,
       clientAddress: clientAddress,
-      remittanceInfo: 'All payments should be sent to the carrier listed above. Please include invoice number on all payments.',
-      bankName: 'Bank Name', // You can get this from client data
-      accountNumber: '****1234', // You can get this from client data
-      routingNumber: '123456789', // You can get this from client data
+      remittanceInfo: buildInvoiceRemittanceInfo(carrierClient),
+      remittanceUpdatedBannerHtml: remittanceChanged
+        ? buildRemittanceUpdatedBannerHtml(carrierClient?.remittance_updated_at)
+        : undefined,
+      bankName: carrierClient?.bank_name,
+      accountNumber: carrierClient?.account_number,
+      routingNumber: carrierClient?.routing_number,
       charges: [
         {
           description: 'Linehaul',
@@ -1382,7 +1420,43 @@ export default function ClientBatches() {
     <>
       <div className="client-flush-shell flex flex-col min-h-0 flex-1 overflow-hidden">
         <ClientReturnBanner />
-        {activeTab === 'create' && !capabilities.canCreateBatch ? (
+        {activeTab === 'create' && !setupComplete ? (
+          <div className="p-6 max-w-xl mx-auto">
+            <div
+              className="rounded-lg border px-4 py-4"
+              style={{ borderColor: `${c.warning}66`, backgroundColor: c.stat.amber }}
+            >
+              <div className="flex items-start gap-2 mb-3">
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: c.warning }} />
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: c.primary }}>
+                    Complete Document Vault setup first
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: c.secondary }}>
+                    Credyx must approve your required setup documents before you can send invoices.
+                  </p>
+                </div>
+              </div>
+              <ul className="space-y-1.5 mb-4">
+                {setupChecklist.map((item) => (
+                  <li
+                    key={item.key}
+                    className="flex items-center justify-between gap-2 text-xs px-2 py-1.5 rounded"
+                    style={{ backgroundColor: c.card, border: `1px solid ${c.border}` }}
+                  >
+                    <span style={{ color: c.primary }}>{item.label}</span>
+                    <span className="font-medium capitalize" style={{ color: c.secondary }}>
+                      {item.status}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <Link to="/client/documents" className="dashboard-btn-primary inline-flex">
+                Open Document Vault
+              </Link>
+            </div>
+          </div>
+        ) : activeTab === 'create' && !capabilities.canCreateBatch ? (
           <ManagedDocHandoffView clientId={clientId} clientName={clientName} />
         ) : activeTab === 'create' ? (
           <ClientSubmitDocsView

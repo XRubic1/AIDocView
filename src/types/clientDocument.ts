@@ -2,6 +2,11 @@
 
 export type ClientDocumentCategory = 'broker' | 'compliance' | 'other'
 
+/** Credyx review state for client-uploaded setup docs. */
+export type ClientDocumentApprovalStatus = 'pending' | 'approved' | 'rejected'
+
+export type ClientDocumentUploaderRole = 'client' | 'admin'
+
 export interface ClientDocument {
   id: string
   client_id: string
@@ -16,6 +21,11 @@ export interface ClientDocument {
   uploaded_at: string
   uploaded_by: string
   expires_at?: string
+  approval_status: ClientDocumentApprovalStatus
+  approved_by?: string
+  approved_at?: string
+  rejection_reason?: string
+  uploaded_by_role: ClientDocumentUploaderRole
 }
 
 export interface ClientDocumentUploadInput {
@@ -26,4 +36,6 @@ export interface ClientDocumentUploadInput {
   notes?: string
   expires_at?: string
   uploaded_by: string
+  /** Who is uploading — client uploads start pending; admin uploads auto-approve. */
+  uploaded_by_role: ClientDocumentUploaderRole
 }

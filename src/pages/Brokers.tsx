@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import AdminLayout from '../components/AdminLayout'
-import { mockBrokers, addBroker } from '../data/mockBrokers'
+import { mockBrokers, addBroker, updateBroker } from '../data/mockBrokers'
 import { Broker, BrokerEmail, BrokerPhone } from '../types/broker'
 import { Phone, Mail, MapPin, Search, X, Plus, Trash2, ArrowLeft } from 'lucide-react'
 import { useToast } from '../components/ui/ToastProvider'
@@ -34,7 +34,9 @@ export default function Brokers() {
   const [brokers, setBrokers] = useState<Broker[]>(mockBrokers)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null)
-  const [showAddModal, setShowAddModal] = useState(false)
+  const [showFormModal, setShowFormModal] = useState(false)
+  /** When set, the form saves via updateBroker instead of addBroker. */
+  const [editingBrokerId, setEditingBrokerId] = useState<string | null>(null)
   const [formData, setFormData] = useState<Partial<Broker>>({
     name: '',
     contact_person: '',
@@ -54,6 +56,7 @@ export default function Brokers() {
   })
   const [emails, setEmails] = useState<BrokerEmail[]>([])
   const [phones, setPhones] = useState<BrokerPhone[]>([])
+  const [isSaving, setIsSaving] = useState(false)
 
   const filteredBrokers = brokers.filter((broker) => {
     if (searchTerm === '') return true
@@ -98,15 +101,59 @@ export default function Brokers() {
     preferred_contact: 'either',
   })
 
+  /** Prefill form fields from an existing broker (edit mode). */
+  const populateFormFromBroker = (broker: Broker) => {
+    setFormData({
+      name: broker.name,
+      contact_person: broker.contact_person || '',
+      email: broker.email || '',
+      phone: broker.phone || '',
+      fax: broker.fax || '',
+      address: broker.address || '',
+      city: broker.city || '',
+      state: broker.state || '',
+      zip: broker.zip || '',
+      mc_number: broker.mc_number || '',
+      dot_number: broker.dot_number || '',
+      notes: broker.notes || '',
+      payment_terms_days: broker.payment_terms_days ?? 30,
+      payment_status_inquiry_days: broker.payment_status_inquiry_days ?? 15,
+      preferred_contact: broker.preferred_contact ?? 'either',
+    })
+    setEmails(
+      broker.emails?.length
+        ? broker.emails.map((e) => ({ ...e }))
+        : broker.email
+          ? [{ email: broker.email, category: 'accounting' }]
+          : []
+    )
+    setPhones(
+      broker.phones?.length
+        ? broker.phones.map((p) => ({ ...p }))
+        : broker.phone
+          ? [{ phone: broker.phone, category: 'accounts_payable' }]
+          : []
+    )
+  }
+
   const handleOpenAddModal = () => {
-    setShowAddModal(true)
+    setEditingBrokerId(null)
     setFormData(emptyBrokerForm())
     setEmails([])
     setPhones([])
+    setShowFormModal(true)
   }
 
-  const handleCloseAddModal = () => {
-    setShowAddModal(false)
+  const handleOpenEditModal = () => {
+    if (!selectedBroker) return
+    setEditingBrokerId(selectedBroker.id)
+    populateFormFromBroker(selectedBroker)
+    setShowFormModal(true)
+  }
+
+  const handleCloseFormModal = () => {
+    setShowFormModal(false)
+    setEditingBrokerId(null)
     setFormData(emptyBrokerForm())
     setEmails([])
     setPhones([])
@@ -144,42 +191,75 @@ export default function Brokers() {
     setPhones(updated)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-
-    if (!formData.name) {
+  const buildBrokerPayload = (): Omit<Broker, 'id'> | null => {
+    if (!formData.name?.trim()) {
       showToast('Broker name is required', 'error')
-      return
+      return null
     }
 
     const validEmails = emails.filter((em) => em.email.trim() !== '')
     const validPhones = phones.filter((p) => p.phone.trim() !== '')
 
-    const newBroker: Broker = {
-      id: `broker-${Date.now()}`,
-      name: formData.name,
-      contact_person: formData.contact_person || undefined,
-      email: formData.email || undefined,
+    return {
+      name: formData.name.trim(),
+      contact_person: formData.contact_person?.trim() || undefined,
+      email: validEmails[0]?.email || formData.email?.trim() || undefined,
       emails: validEmails.length > 0 ? validEmails : undefined,
-      phone: formData.phone || undefined,
+      phone: validPhones[0]?.phone || formData.phone?.trim() || undefined,
       phones: validPhones.length > 0 ? validPhones : undefined,
-      fax: formData.fax || undefined,
-      address: formData.address || undefined,
-      city: formData.city || undefined,
-      state: formData.state || undefined,
-      zip: formData.zip || undefined,
-      mc_number: formData.mc_number || undefined,
-      dot_number: formData.dot_number || undefined,
-      notes: formData.notes || undefined,
+      fax: formData.fax?.trim() || undefined,
+      address: formData.address?.trim() || undefined,
+      city: formData.city?.trim() || undefined,
+      state: formData.state?.trim() || undefined,
+      zip: formData.zip?.trim() || undefined,
+      mc_number: formData.mc_number?.trim() || undefined,
+      dot_number: formData.dot_number?.trim() || undefined,
+      notes: formData.notes?.trim() || undefined,
       payment_terms_days: formData.payment_terms_days,
       payment_status_inquiry_days: formData.payment_status_inquiry_days ?? 15,
       preferred_contact: formData.preferred_contact ?? 'either',
     }
+  }
 
-    addBroker(newBroker)
-    setBrokers([...mockBrokers])
-    handleCloseAddModal()
-    showToast('Broker added', 'success')
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isSaving) return
+
+    const payload = buildBrokerPayload()
+    if (!payload) return
+
+    setIsSaving(true)
+    try {
+      if (editingBrokerId) {
+        const updated = updateBroker(editingBrokerId, {
+          ...payload,
+          // Clear arrays when emptied so UI does not keep stale contacts.
+          emails: payload.emails,
+          phones: payload.phones,
+        })
+        if (!updated) {
+          showToast('Broker not found', 'error')
+          return
+        }
+        setBrokers([...mockBrokers])
+        setSelectedBroker({ ...updated })
+        handleCloseFormModal()
+        showToast('Broker updated', 'success')
+      } else {
+        const newBroker: Broker = {
+          id: `broker-${Date.now()}`,
+          ...payload,
+        }
+        addBroker(newBroker)
+        setBrokers([...mockBrokers])
+        handleCloseFormModal()
+        showToast('Broker added', 'success')
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not save broker', 'error')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const formatAddress = (broker: Broker) => {
@@ -542,7 +622,7 @@ export default function Brokers() {
               <button type="button" onClick={handleCloseModal} className="dashboard-btn-secondary">
                 Close
               </button>
-              <button type="button" className="dashboard-btn-primary">
+              <button type="button" onClick={handleOpenEditModal} className="dashboard-btn-primary">
                 Edit broker
               </button>
             </div>
@@ -550,14 +630,16 @@ export default function Brokers() {
         </div>
       )}
 
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4">
+      {showFormModal && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/40 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             <div className="shrink-0 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">Add broker</h2>
+              <h2 className="text-sm font-semibold text-slate-900">
+                {editingBrokerId ? 'Edit broker' : 'Add broker'}
+              </h2>
               <button
                 type="button"
-                onClick={handleCloseAddModal}
+                onClick={handleCloseFormModal}
                 className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
                 aria-label="Close"
               >
@@ -565,7 +647,7 @@ export default function Brokers() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
+            <form onSubmit={(e) => void handleSubmit(e)} className="flex-1 min-h-0 flex flex-col">
               <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 text-sm">
                 <section className="space-y-2.5">
                   <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
@@ -861,11 +943,20 @@ export default function Brokers() {
               </div>
 
               <div className="shrink-0 px-4 py-2.5 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button type="button" onClick={handleCloseAddModal} className="dashboard-btn-secondary">
+                <button
+                  type="button"
+                  onClick={handleCloseFormModal}
+                  disabled={isSaving}
+                  className="dashboard-btn-secondary"
+                >
                   Cancel
                 </button>
-                <button type="submit" className="dashboard-btn-primary">
-                  Add broker
+                <button type="submit" disabled={isSaving} className="dashboard-btn-primary">
+                  {isSaving
+                    ? 'Saving…'
+                    : editingBrokerId
+                      ? 'Save changes'
+                      : 'Add broker'}
                 </button>
               </div>
             </form>

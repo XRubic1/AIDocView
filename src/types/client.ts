@@ -42,6 +42,8 @@ export interface Client {
   bank_name?: string
   account_number?: string
   routing_number?: string
+  /** ISO timestamp when remittance/bank fields last changed. */
+  remittance_updated_at?: string
   notes?: string
   status?: 'active' | 'inactive' | 'pending' | 'suspended'
   service_tier?: ServiceTier

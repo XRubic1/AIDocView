@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   formatFeeTermsLabel,
   feeAmountForPayment,
+  isBatchFeeLocked,
   snapshotFeeTermsFromClient,
 } from './feeTermsLock'
 import type { Client } from '../types/client'
@@ -45,5 +46,12 @@ describe('feeTermsLock', () => {
     } as Client)
     expect(feeAmountForPayment(1000, snap)).toBe(12.5)
     expect(formatFeeTermsLabel(snap)).toBe('1.25%')
+  })
+
+  it('locks fees only after the batch is processed', () => {
+    expect(isBatchFeeLocked({ status: 'ready_to_post' })).toBe(false)
+    expect(isBatchFeeLocked({ status: 'verification' })).toBe(false)
+    expect(isBatchFeeLocked({ status: 'submitted' })).toBe(true)
+    expect(isBatchFeeLocked({ status: 'processing' })).toBe(true)
   })
 })

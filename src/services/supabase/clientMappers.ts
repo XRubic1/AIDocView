@@ -18,6 +18,7 @@ export interface ClientRow {
   bank_name: string | null
   account_number: string | null
   routing_number: string | null
+  remittance_updated_at: string | null
   notes: string | null
   status: 'active' | 'inactive' | 'pending' | 'suspended'
   service_tier: ServiceTier
@@ -51,6 +52,7 @@ export function clientRowToClient(row: ClientRow): Client {
     bank_name: row.bank_name ?? undefined,
     account_number: row.account_number ?? undefined,
     routing_number: row.routing_number ?? undefined,
+    remittance_updated_at: row.remittance_updated_at ?? undefined,
     notes: row.notes ?? undefined,
     status: row.status,
     service_tier: row.service_tier,
@@ -83,6 +85,7 @@ export function clientToRow(client: Client): ClientRow {
     bank_name: client.bank_name ?? null,
     account_number: client.account_number ?? null,
     routing_number: client.routing_number ?? null,
+    remittance_updated_at: client.remittance_updated_at ?? null,
     notes: client.notes ?? null,
     status: client.status ?? 'pending',
     service_tier: client.service_tier ?? 'self_service',

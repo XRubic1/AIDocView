@@ -24,6 +24,11 @@ import {
   resolveInvoiceDocumentsAsync,
 } from '../../utils/resolveInvoiceDocuments'
 import { useToast } from '../ui/ToastProvider'
+import {
+  buildInvoiceRemittanceInfo,
+  buildRemittanceUpdatedBannerHtml,
+  detectRemittanceChanged,
+} from '../../utils/carrierRemittance'
 
 function docIdsFromDocuments(docs: Document[]): string[] {
   return docs.map((d) => d.id).filter((id) => !id.startsWith('invoice-pdf-'))
@@ -469,10 +474,10 @@ export default function AdminInvoiceDetailView({
 
     const result = await sendBrokerPacketForInvoice(currentInvoice, {
       recipientEmail: emailRecipient,
-      documentNames: documents.map((d) => d.name),
       sentBy: adminActor,
       userId: authUser?.id,
       automatic: false,
+      message: emailMessage,
     })
 
     if (!result.success) {
@@ -483,7 +488,9 @@ export default function AdminInvoiceDetailView({
     const refreshed = getInvoiceById(currentInvoice.id)
     if (refreshed) setCurrentInvoice({ ...refreshed })
 
-    showToast(`Email sent successfully to ${emailRecipient}`, 'success')
+    const parts =
+      result.partCount && result.partCount > 1 ? ` (${result.partCount} emails)` : ''
+    showToast(`Email sent successfully to ${emailRecipient}${parts}`, 'success')
     setShowEmailModal(false)
     setEmailRecipient('')
     setSelectedEmailIndex(null)
@@ -975,11 +982,23 @@ export default function AdminInvoiceDetailView({
         carrierName: clientName,
         clientName,
         clientAddressLines: clientData ? formatAddressOnly(clientData) : undefined,
+        remittanceInfo: buildInvoiceRemittanceInfo(clientData),
+        remittanceUpdatedBannerHtml: (() => {
+          const { changed } = detectRemittanceChanged(clientData, currentInvoice)
+          if (!changed) return undefined
+          return buildRemittanceUpdatedBannerHtml(clientData?.remittance_updated_at)
+        })(),
         routingType: 'ACH',
         bankName: clientData?.bank_name,
         accountNumber: clientData?.account_number,
         routingNumber: clientData?.routing_number,
       })
+
+      // Snapshot remittance for change detection on later invoices.
+      {
+        const { fingerprint } = detectRemittanceChanged(clientData, currentInvoice)
+        void updateInvoiceAsync(currentInvoice.id, { remittance_snapshot: fingerprint })
+      }
 
       const newDocument: Document = {
         id: `doc-invoice-${Date.now()}`,

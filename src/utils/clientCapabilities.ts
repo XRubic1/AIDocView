@@ -48,7 +48,8 @@ const MANAGED: ClientCapabilities = {
   canUseAiUpload: false,
   canUseManualBatch: false,
   canSubmitDocHandoff: true,
-  canUploadVault: false,
+  // Managed carriers upload setup docs; Credyx approves before invoice handoff.
+  canUploadVault: true,
   canEditRemittance: false,
   canRunInvoiceOps: false,
   canEditProfile: true,

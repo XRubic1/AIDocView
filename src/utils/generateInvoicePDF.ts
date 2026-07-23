@@ -13,6 +13,8 @@ export interface InvoicePDFInput {
   clientAddress?: string
   clientAddressLines?: string
   remittanceInfo?: string
+  /** HTML banner when remittance changed vs prior invoice. */
+  remittanceUpdatedBannerHtml?: string
   bankName?: string
   accountNumber?: string
   routingNumber?: string
@@ -126,6 +128,7 @@ export async function generateInvoicePDFFile(input: InvoicePDFInput): Promise<Fi
     clientAddress: input.clientAddress,
     clientAddressLines: input.clientAddressLines,
     remittanceInfo: input.remittanceInfo,
+    remittanceUpdatedBannerHtml: input.remittanceUpdatedBannerHtml,
     bankName: input.bankName,
     accountNumber: input.accountNumber,
     routingNumber: input.routingNumber,

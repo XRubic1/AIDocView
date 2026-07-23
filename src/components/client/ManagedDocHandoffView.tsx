@@ -1,12 +1,20 @@
-import { useCallback, useState } from 'react'
-import { Upload, FileText, CheckCircle, Loader2 } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import { Upload, FileText, CheckCircle, Loader2, AlertCircle } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { addBatch, generateBatchNumber } from '../../data/mockBatches'
 import { HANDOFF_PLACEHOLDER_INVOICE_ID, setBatchFiles } from '../../data/batchFileStore'
 import { isSupabaseConfigured } from '../../lib/supabase'
 import { notifyAdminDocHandoff } from '../../services/adminNotificationService'
 import { uploadBatchInvoiceDocuments } from '../../services/supabase/tenantPersist'
+import { getClientById } from '../../services/clientRegistry'
 import { useToast } from '../ui/ToastProvider'
 import { useClientTheme } from '../../theme/ThemeContext'
+import {
+  assertClientSetupComplete,
+  ClientSetupIncompleteError,
+  getSetupChecklist,
+  isClientSetupComplete,
+} from '../../utils/clientSetupDocuments'
 
 interface ManagedDocHandoffViewProps {
   clientId: string
@@ -28,6 +36,16 @@ export default function ManagedDocHandoffView({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
+  const client = useMemo(() => getClientById(clientId), [clientId])
+  const setupComplete = useMemo(
+    () => isClientSetupComplete(clientId, client),
+    [clientId, client]
+  )
+  const checklist = useMemo(
+    () => getSetupChecklist(clientId, client),
+    [clientId, client]
+  )
+
   const addFiles = useCallback((incoming: FileList | File[]) => {
     const next = Array.from(incoming).filter((f) => f.size > 0)
     if (next.length === 0) return
@@ -38,6 +56,8 @@ export default function ManagedDocHandoffView({
     if (files.length === 0 || isSubmitting) return
     setIsSubmitting(true)
     try {
+      assertClientSetupComplete(clientId, client)
+
       const batchNumber = generateBatchNumber(clientId)
       const submittedAt = new Date().toISOString()
       const batch = addBatch({
@@ -80,10 +100,13 @@ export default function ManagedDocHandoffView({
       setSubmitted(true)
       onSubmitted?.()
     } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : 'Could not send documents to Credyx',
-        'error'
-      )
+      const message =
+        err instanceof ClientSetupIncompleteError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Could not send documents to Credyx'
+      showToast(message, 'error')
     } finally {
       setIsSubmitting(false)
     }
@@ -99,6 +122,46 @@ export default function ManagedDocHandoffView({
         <p className="text-sm" style={{ color: c.secondary }}>
           Your team will process these files and update your batches shortly.
         </p>
+      </div>
+    )
+  }
+
+  if (!setupComplete) {
+    return (
+      <div className="p-6 max-w-xl mx-auto">
+        <div
+          className="rounded-lg border px-4 py-4"
+          style={{ borderColor: `${c.warning}66`, backgroundColor: c.stat.amber }}
+        >
+          <div className="flex items-start gap-2 mb-3">
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: c.warning }} />
+            <div>
+              <p className="text-sm font-semibold" style={{ color: c.primary }}>
+                Complete Document Vault setup first
+              </p>
+              <p className="text-xs mt-1" style={{ color: c.secondary }}>
+                Credyx must approve your required setup documents before you can send invoices.
+              </p>
+            </div>
+          </div>
+          <ul className="space-y-1.5 mb-4">
+            {checklist.map((item) => (
+              <li
+                key={item.key}
+                className="flex items-center justify-between gap-2 text-xs px-2 py-1.5 rounded"
+                style={{ backgroundColor: c.card, border: `1px solid ${c.border}` }}
+              >
+                <span style={{ color: c.primary }}>{item.label}</span>
+                <span className="font-medium capitalize" style={{ color: c.secondary }}>
+                  {item.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <Link to="/client/documents" className="dashboard-btn-primary inline-flex">
+            Open Document Vault
+          </Link>
+        </div>
       </div>
     )
   }

@@ -232,6 +232,7 @@ export default function ManualBatchBuilder({
       const { batch } = await submitManualBatch({
         clientId,
         clientName,
+        skipSetupGate: true,
         invoices: invoices.map((inv) => ({
           invoice_number: inv.invoice_number,
           load_number: inv.load_number,
