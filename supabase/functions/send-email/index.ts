@@ -19,6 +19,7 @@ type EmailTemplate =
   | 'carrier_batch_processed'
   | 'broker_payment_status_inquiry'
   | 'broker_payment_status_followup'
+  | 'calendar_event_notice'
 
 interface EmailAttachment {
   filename: string
@@ -43,6 +44,7 @@ function audienceForTemplate(template: EmailTemplate): FromAudience {
   if (template === 'broker_packet' || template.startsWith('broker_')) return 'broker'
   if (template.startsWith('carrier_') || template === 'client_invite') return 'carrier'
   if (template === 'admin_enrollment_alert' || template.startsWith('credyx_')) return 'admin'
+  if (template === 'calendar_event_notice') return 'default'
   return 'default'
 }
 
@@ -253,6 +255,21 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
           `<p>Hello{{brokerName}},</p>
 <p>We have not received a response regarding invoice <strong>{{invoiceNumber}}</strong>.</p>
 <p>— Credyx Collections</p>`,
+          d
+        ),
+      }
+    case 'calendar_event_notice':
+      return {
+        subject: renderTemplateString('Calendar: {{eventTitle}} — {{whenLabel}}', d),
+        html: renderTemplateString(
+          `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#0f172a;">
+  <h1 style="font-size:18px;margin:0 0 8px;">{{eventTitle}}</h1>
+  <p style="color:#475569;font-size:14px;">{{eventType}} · {{whenLabel}} · {{clientName}}</p>
+  <p style="font-size:14px;">Broker: {{brokerName}} · Invoice: {{invoiceNumber}}</p>
+  {{meetingBlock}}
+  <p style="font-size:14px;white-space:pre-wrap;color:#334155;">{{message}}</p>
+  <p style="margin-top:20px;"><a href="{{portalLink}}" style="display:inline-block;background:#0f172a;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none;font-size:13px;">Open in Credyx</a></p>
+</div>`,
           d
         ),
       }

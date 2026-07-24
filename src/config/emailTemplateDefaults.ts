@@ -15,6 +15,7 @@ export type EmailTemplateId =
   | 'carrier_batch_processed'
   | 'broker_payment_status_inquiry'
   | 'broker_payment_status_followup'
+  | 'calendar_event_notice'
 
 export interface EmailTemplateDefinition {
   id: EmailTemplateId
@@ -141,6 +142,24 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
     body_html: `<p>Hello {{brokerName}},</p>
 <p>We have not received a response regarding invoice <strong>{{invoiceNumber}}</strong>. Please reply with payment status.</p>
 <p>— Credyx Collections</p>`,
+  },
+  {
+    id: 'calendar_event_notice',
+    name: 'Calendar event notice',
+    description:
+      'Sent to client and admin when a shared calendar event (meeting, reminder, etc.) is created.',
+    audience: 'system',
+    placeholders:
+      'clientName, eventTitle, eventType, whenLabel, brokerName, invoiceNumber, message, meetingUrl, meetingBlock, portalLink, recipientRole',
+    subject: 'Calendar: {{eventTitle}} — {{whenLabel}}',
+    body_html: `<p>Hi{{recipientRole}},</p>
+<p>A calendar event was added for <strong>{{clientName}}</strong>.</p>
+<p><strong>{{eventTitle}}</strong><br/>
+Type: {{eventType}} · When: {{whenLabel}}<br/>
+Broker: {{brokerName}} · Invoice: {{invoiceNumber}}</p>
+{{meetingBlock}}
+<p style="white-space:pre-wrap">{{message}}</p>
+<p><a href="{{portalLink}}">Open in Credyx</a></p>`,
   },
 ]
 

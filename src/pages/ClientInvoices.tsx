@@ -88,6 +88,8 @@ export default function ClientInvoices() {
   const location = useLocation()
   const openedHighlightRef = useRef<string | null>(null)
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
+  /** Open document upload once after Assistant deep-link (`open_upload=1`). */
+  const [autoOpenUpload, setAutoOpenUpload] = useState(false)
 
   const [invoicesRefreshKey, setInvoicesRefreshKey] = useState(0)
   const { dashboard: data, payments, invoices: rawInvoices } =
@@ -317,10 +319,12 @@ export default function ClientInvoices() {
   const handleCloseInvoiceDetail = useCallback(() => {
     openedHighlightRef.current = null
     clearInvoiceRestoreTarget()
+    setAutoOpenUpload(false)
 
-    if (searchParams.get('highlight_invoice')) {
+    if (searchParams.get('highlight_invoice') || searchParams.get('open_upload')) {
       const next = new URLSearchParams(searchParams)
       next.delete('highlight_invoice')
+      next.delete('open_upload')
       setSearchParams(next, { replace: true })
     }
 
@@ -355,30 +359,46 @@ export default function ClientInvoices() {
   const forceCloseEligible = enrichedInvoices.filter((inv) => inv.isForceCloseEligible)
 
   useEffect(() => {
-    const highlightInvoiceId = searchParams.get('highlight_invoice')
-    if (!highlightInvoiceId) return
-    if (openedHighlightRef.current === highlightInvoiceId) return
+    const highlightRef = searchParams.get('highlight_invoice')
+    if (!highlightRef) return
+    if (openedHighlightRef.current === highlightRef) return
 
-    const highlightIndex = enrichedInvoices.findIndex((inv) => inv.id === highlightInvoiceId)
-    // Wait until the invoice list includes the target (async tenant load).
-    if (highlightIndex < 0 && enrichedInvoices.length === 0) return
+    // Wait until tenant invoices have loaded.
+    if (enrichedInvoices.length === 0) return
 
-    openedHighlightRef.current = highlightInvoiceId
+    const needle = highlightRef.trim().replace(/^#/, '')
+    const highlightIndex = enrichedInvoices.findIndex(
+      (inv) =>
+        inv.id === highlightRef ||
+        String(inv.invoice_number).trim().replace(/^#/, '') === needle
+    )
+    // Unknown invoice — stop retrying this ref.
+    if (highlightIndex < 0) {
+      openedHighlightRef.current = highlightRef
+      const next = new URLSearchParams(searchParams)
+      next.delete('highlight_invoice')
+      next.delete('open_upload')
+      setSearchParams(next, { replace: true, state: location.state })
+      return
+    }
+
+    const target = enrichedInvoices[highlightIndex]
+    openedHighlightRef.current = highlightRef
     setStatusFilter('all')
     setSearchTerm('')
-    setHighlightedInvoiceId(highlightInvoiceId)
-    setSelectedInvoiceId(highlightInvoiceId)
-    stashInvoiceRestoreTarget(highlightInvoiceId)
+    setHighlightedInvoiceId(target.id)
+    setSelectedInvoiceId(target.id)
+    stashInvoiceRestoreTarget(target.id)
     setDetailPanelClosing(false)
-    if (useFullPageDetail) setShowInvoiceDetail(true)
-
-    if (highlightIndex >= 0) {
-      setCurrentPage(Math.floor(highlightIndex / pageSize) + 1)
-    }
+    // Always open detail (sidebar on desktop, full page on compact viewports).
+    setShowInvoiceDetail(true)
+    setCurrentPage(Math.floor(highlightIndex / pageSize) + 1)
+    setAutoOpenUpload(searchParams.get('open_upload') === '1')
 
     // Strip the highlight param but keep returnTo / other location state.
     const next = new URLSearchParams(searchParams)
     next.delete('highlight_invoice')
+    next.delete('open_upload')
     setSearchParams(next, { replace: true, state: location.state })
 
     const timer = setTimeout(() => {
@@ -392,7 +412,6 @@ export default function ClientInvoices() {
     pageSize,
     setSearchParams,
     location.state,
-    useFullPageDetail,
   ])
 
   // Restore last-open invoice when returning from another tab (Batches, Payments, etc.).
@@ -427,12 +446,17 @@ export default function ClientInvoices() {
         clientName: data.client_name,
         navigationInvoices: sortedInvoices,
         onClose: handleCloseInvoiceDetail,
-        onNavigateInvoice: (invoice: Invoice) => handleViewInvoiceDetail(invoice as EnrichedInvoice),
+        onNavigateInvoice: (invoice: Invoice) => {
+          setAutoOpenUpload(false)
+          handleViewInvoiceDetail(invoice as EnrichedInvoice)
+        },
         onViewDocuments: () => handleViewDocuments(selectedInvoice),
         onInvoiceUpdated: () => setInvoicesRefreshKey((key) => key + 1),
         enableClientActions: capabilities.canOpenDispute,
         payments,
         onViewPayment: handleViewPaymentForInvoice,
+        autoOpenUpload,
+        onAutoOpenUploadConsumed: () => setAutoOpenUpload(false),
       }
     : null
 

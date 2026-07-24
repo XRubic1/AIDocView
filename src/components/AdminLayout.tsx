@@ -29,6 +29,7 @@ import { syncAdminNotificationsForOpenReceiptDisputes } from '../services/paymen
 import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
+import AssistantFab from './client/assistant/AssistantFab'
 import { signOutAdmin } from '../services/adminAuthService'
 import { useAuth } from '../context/AuthContext'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
@@ -401,13 +402,13 @@ export default function AdminLayout({
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-all duration-200 lg:ml-[var(--sidebar-width)]">
         <header
-          className="sticky top-0 z-30 flex items-center justify-between gap-3 px-5 h-12 border-b"
+          className="client-topbar sticky top-0 z-30 border-b"
           style={{ borderColor: t.border, backgroundColor: t.card }}
         >
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="lg:hidden p-2 -ml-1 rounded-lg client-header-icon-btn"
+            className="lg:hidden p-2 -ml-1 rounded-lg client-header-icon-btn shrink-0"
             style={{ color: t.primary }}
             aria-label="Open menu"
           >
@@ -420,8 +421,8 @@ export default function AdminLayout({
             </p>
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
-            <div className="hidden lg:block">
+          <div className="client-topbar__actions">
+            <div className="hidden lg:block shrink-0">
               <ThemeToggle compact />
             </div>
             <NotificationBell
@@ -436,13 +437,17 @@ export default function AdminLayout({
         </header>
 
         <main
-          className={`flex-1 w-full min-h-0 ${
-            flushMain ? 'client-main--flush overflow-hidden' : 'p-5 overflow-y-auto'
+          className={`flex-1 w-full min-h-0 min-w-0 ${
+            flushMain
+              ? 'client-main--flush overflow-hidden'
+              : 'client-shell-scroll p-5 overflow-y-auto'
           }`}
         >
           {children}
         </main>
       </div>
+
+      <AssistantFab mode="admin" />
     </div>
   )
 }

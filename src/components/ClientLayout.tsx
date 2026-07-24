@@ -33,6 +33,7 @@ import { getTierLabel } from '../utils/clientCapabilities'
 import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
+import AssistantFab from './client/assistant/AssistantFab'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import '../styles/clientPortal.css'
 import '../styles/clientPortalDark.css'
@@ -313,7 +314,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-1.5 space-y-1">
+      <nav className="client-sidebar-nav-scroll space-y-1">
         {navSections.map((section, sectionIndex) => (
           <div key={section.title || `section-${sectionIndex}`}>
             {section.title ? (
@@ -513,9 +514,9 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     >
       {/* Desktop sidebar — hover expands over content when in rail mode */}
       <aside
-        className={`client-sidebar-rail hidden lg:flex flex-col shrink-0 fixed inset-y-0 left-0 z-40 border-r ${
-          railMode && hoverExpanded ? 'client-sidebar-rail--flyout' : ''
-        }`}
+        className={`client-sidebar-rail hidden lg:flex flex-col shrink-0 fixed inset-y-0 left-0 z-40 border-r${
+          railMode ? ' client-sidebar-rail--collapsed' : ''
+        }${railMode && hoverExpanded ? ' client-sidebar-rail--flyout' : ''}`}
         style={{
           width: sidebarWidth,
           backgroundColor: t.sidebar.bg,
@@ -562,13 +563,13 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-[margin] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] lg:ml-[var(--sidebar-width)]">
         <header
-          className="sticky top-0 z-30 flex items-center justify-between gap-3 px-5 mt-1 h-12 border-b"
+          className="client-topbar sticky top-0 z-30 border-b"
           style={{ borderColor: t.border, backgroundColor: t.card }}
         >
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="lg:hidden p-2 -ml-1 rounded-lg client-header-icon-btn"
+            className="lg:hidden p-2 -ml-1 rounded-lg client-header-icon-btn shrink-0"
             style={{ color: t.primary }}
             aria-label="Open menu"
           >
@@ -581,15 +582,15 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             </p>
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
-            <div className="hidden lg:block">
+          <div className="client-topbar__actions">
+            <div className="hidden lg:block shrink-0">
               <ThemeToggle compact />
             </div>
             {(capabilities.canCreateBatch || capabilities.canSubmitDocHandoff) && (
               <button
                 type="button"
                 onClick={() => navigate('/client/batches?tab=create')}
-                className="lg:hidden inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary"
+                className="lg:hidden inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary shrink-0"
                 aria-label="Submit documents"
               >
                 <Upload className="w-4 h-4" />
@@ -606,13 +607,17 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
         </header>
 
         <main
-          className={`flex-1 w-full min-h-0 ${
-            flushMain ? 'client-main--flush overflow-hidden' : 'p-5 overflow-y-auto'
+          className={`flex-1 w-full min-h-0 min-w-0 ${
+            flushMain
+              ? 'client-main--flush overflow-hidden'
+              : 'client-shell-scroll p-5 overflow-y-auto'
           }`}
         >
           {children}
         </main>
       </div>
+
+      <AssistantFab />
     </div>
   )
 }

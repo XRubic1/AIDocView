@@ -502,3 +502,35 @@ export function notifyAdminClientInvoiceNote(
     },
   })
 }
+
+export type CalendarEventAdminNotificationInput = {
+  clientId: string
+  clientName: string
+  eventTitle: string
+  whenLabel: string
+  createdBy: 'admin' | 'client'
+  meetingUrl?: string
+}
+
+/** Shared calendar event created — admin bell. */
+export function notifyAdminCalendarEvent(
+  input: CalendarEventAdminNotificationInput
+): Notification {
+  const who = input.createdBy === 'admin' ? 'Credyx' : input.clientName
+  const meeting = input.meetingUrl ? ' · Meeting link' : ''
+  return pushNotification({
+    id: `admin-notif-cal-${Date.now()}`,
+    type: 'system_alert',
+    title: 'Calendar event',
+    message: `${who}: ${input.eventTitle} — ${input.whenLabel}${meeting}`,
+    timestamp: new Date().toISOString(),
+    read: false,
+    link: '/clients',
+    link_label: 'Open clients',
+    metadata: {
+      client_id: input.clientId,
+      client_name: input.clientName,
+      calendar: true,
+    },
+  })
+}

@@ -10,6 +10,7 @@ import {
   Scale,
   ClipboardList,
   Building2,
+  MessageCircle,
   Settings,
   HelpCircle,
   type LucideIcon,
@@ -58,6 +59,7 @@ export const clientNavSections: ClientNavSection[] = [
     items: [
       { label: 'Aging A/R', path: '/client/collections', icon: BarChart3 },
       { label: 'Brokers', path: '/client/brokers', icon: Building2 },
+      { label: 'Assistant', path: '/client/assistant', icon: MessageCircle },
       { label: 'Payments', path: '/client/payments', icon: CreditCard },
       { label: 'Pay variances', path: '/client/short-payments', icon: Scale },
       { label: 'Reports', path: '/client/reports', icon: ClipboardList },

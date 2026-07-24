@@ -23,6 +23,7 @@ import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
 import AdminClientVaultPanel from '../components/admin/AdminClientVaultPanel'
+import ClientCalendarPanel from '../components/admin/ClientCalendarPanel'
 import { useToast } from '../components/ui/ToastProvider'
 import { syncClientBatchFees } from '../services/batchFeeSync'
 import { getClientDocuments } from '../services/clientDocumentService'
@@ -43,7 +44,7 @@ import { useAuth } from '../context/AuthContext'
 import { getAdminUserDisplayName } from '../config/adminNav'
 import '../styles/clientPortal.css'
 
-type ClientTab = 'ar' | 'batches' | 'collections' | 'terms' | 'plan' | 'vault'
+type ClientTab = 'ar' | 'batches' | 'collections' | 'terms' | 'plan' | 'vault' | 'calendar'
 
 export default function Clients() {
   const { showToast } = useToast()
@@ -581,6 +582,7 @@ export default function Clients() {
                   ['ar', 'A/R'],
                   ['batches', 'Batches'],
                   ['collections', 'Collections'],
+                  ['calendar', 'Calendar'],
                   ['terms', 'Terms'],
                   ['plan', 'Plan'],
                   ['vault', 'Vault'],
@@ -1030,6 +1032,10 @@ export default function Clients() {
                         </div>
                       )}
                 </div>
+              )}
+
+              {activeTab === 'calendar' && selectedClient && (
+                <ClientCalendarPanel client={selectedClient} />
               )}
 
               {activeTab === 'plan' && selectedClient && (

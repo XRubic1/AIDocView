@@ -5,6 +5,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+/** Admin staff or authenticated carrier portal user. */
+function isAllowedUser(user: {
+  app_metadata?: Record<string, unknown>
+}): boolean {
+  const meta = user.app_metadata ?? {}
+  if (meta.role === 'admin') return true
+  const clientId = meta.client_id
+  return typeof clientId === 'string' && clientId.length > 0
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -33,8 +43,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    const role = userData.user.app_metadata?.role
-    if (role !== 'admin') {
+    if (!isAllowedUser(userData.user)) {
       return new Response(JSON.stringify({ error: 'Forbidden' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

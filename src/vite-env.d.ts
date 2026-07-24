@@ -44,6 +44,13 @@ interface ImportMetaEnv {
   readonly VITE_AI_PARALLEL_STAGGER_MS?: string
   /** Model for review explainability chat (default gpt-4o) */
   readonly VITE_AI_CHAT_MODEL?: string
+  /** true = show Assistant token/cost meter outside local DEV (testing only) */
+  readonly VITE_ASSISTANT_SHOW_USAGE?: string
+  /** Assistant chat model (default gpt-4o-mini) */
+  readonly VITE_ASSISTANT_CHAT_MODEL?: string
+  /** Credyx ops inbox for Assistant email drafts (default ops@credyx.net) */
+  readonly VITE_CREDYX_OPS_EMAIL?: string
+  readonly VITE_ADMIN_ALERT_EMAIL?: string
   readonly VITE_SUPABASE_URL?: string
   readonly VITE_SUPABASE_PUBLISHABLE_KEY?: string
   readonly VITE_SUPABASE_ANON_KEY?: string

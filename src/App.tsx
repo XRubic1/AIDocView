@@ -13,8 +13,11 @@ import {
   AdminDashboard,
   AgingAR,
   AuditDashboard,
+  AdminCalendar,
+  AdminAssistant,
   Batches,
   Brokers,
+  ClientAssistant,
   ClientBatches,
   ClientBrokers,
   ClientCollections,
@@ -85,6 +88,7 @@ function App() {
                 />
                 <Route path="/client/collections" element={withRouteSuspense(ClientCollections)} />
                 <Route path="/client/brokers" element={withRouteSuspense(ClientBrokers)} />
+                <Route path="/client/assistant" element={withRouteSuspense(ClientAssistant)} />
                 <Route path="/client/reports" element={withRouteSuspense(ClientReports)} />
                 <Route path="/client/documents" element={withRouteSuspense(ClientDocuments)} />
                 <Route path="/client/settings" element={withRouteSuspense(ClientSettings)} />
@@ -103,6 +107,8 @@ function App() {
                 <Route path="/invoice-search" element={withRouteSuspense(AdminInvoices)} />
                 <Route path="/brokers" element={withRouteSuspense(Brokers)} />
                 <Route path="/clients" element={withRouteSuspense(Clients)} />
+                <Route path="/admin/calendar" element={withRouteSuspense(AdminCalendar)} />
+                <Route path="/admin/assistant" element={withRouteSuspense(AdminAssistant)} />
                 <Route path="/collections" element={withRouteSuspense(Collections)} />
                 <Route path="/docs" element={withRouteSuspense(AdminDocs)} />
                 <Route path="/force-close" element={withRouteSuspense(AdminDocs)} />

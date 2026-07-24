@@ -11,6 +11,7 @@ export type EmailTemplate =
   | 'carrier_batch_processed'
   | 'broker_payment_status_inquiry'
   | 'broker_payment_status_followup'
+  | 'calendar_event_notice'
 
 /** Attachment for Resend (base64 content). */
 export interface EmailAttachment {

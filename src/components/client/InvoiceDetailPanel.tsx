@@ -36,6 +36,7 @@ import {
 } from '../../services/adminInvoiceNoteActions'
 import { getInvoiceDocuments } from '../../services/invoiceDocumentStore'
 import InvoiceDocumentUploadModal from './InvoiceDocumentUploadModal'
+import { markAssistantInvoiceDocsUploaded } from '../../utils/assistantTaskStore'
 import {
   buildShortPaymentRecord,
   canCloseShortPaymentAsUncollectable,
@@ -219,6 +220,10 @@ export interface InvoiceDetailPanelProps {
   noteAuthorName?: string
   /** Opens invoice detail + documents in a separate browser window. */
   onPopOut?: () => void
+  /** When true, open the document upload modal once (Assistant deep-link). */
+  autoOpenUpload?: boolean
+  /** Called after auto-open has been applied so the parent can clear the flag. */
+  onAutoOpenUploadConsumed?: () => void
 }
 
 /** Invoice detail — Payment Details layout (sidebar desktop / full page mobile). */
@@ -243,6 +248,8 @@ export default function InvoiceDetailPanel({
   enableNotes,
   noteAuthorName,
   onPopOut,
+  autoOpenUpload = false,
+  onAutoOpenUploadConsumed,
 }: InvoiceDetailPanelProps) {
   const c = useClientTheme()
   const navigate = useNavigate()
@@ -354,6 +361,13 @@ export default function InvoiceDetailPanel({
     setStatusError(null)
     setStatusDate(new Date().toISOString().slice(0, 10))
   }, [invoice.id])
+
+  // Assistant deep-link: open upload modal once for this invoice.
+  useEffect(() => {
+    if (!autoOpenUpload || !enableClientActions) return
+    setShowUploadModal(true)
+    onAutoOpenUploadConsumed?.()
+  }, [autoOpenUpload, enableClientActions, invoice.id, onAutoOpenUploadConsumed])
 
   const invoiceDocuments = getInvoiceDocuments(invoice.id)
   const documentCount = Math.max(invoice.documents_count || 0, invoiceDocuments.length)
@@ -756,6 +770,8 @@ export default function InvoiceDetailPanel({
     try {
       const updated = await uploadClientInvoiceDocuments(invoice.id, files, authorName)
       if (!updated) throw new Error('Upload failed')
+      // Complete Assistant "Upload POD / missing docs" tasks for this invoice.
+      markAssistantInvoiceDocsUploaded(invoice.id)
       setUploadSuccess(
         `${files.length} file${files.length > 1 ? 's' : ''} uploaded — Credyx has been notified.`
       )

@@ -13,6 +13,8 @@ import {
   Wallet,
   Receipt,
   BookOpen,
+  CalendarDays,
+  MessageCircle,
   type LucideIcon,
 } from 'lucide-react'
 import { getInitials, getClientUserDisplayName } from './clientNav'
@@ -42,6 +44,8 @@ export const adminNavSections: AdminNavSection[] = [
       { label: 'Invoices', path: '/invoices', icon: FileText, badgeKeys: ['pendingPayments', 'pendingWriteOffs'] },
       { label: 'Aging A/R', path: '/aging-ar', icon: BarChart3 },
       { label: 'Collections', path: '/collections', icon: Phone },
+      { label: 'Calendar', path: '/admin/calendar', icon: CalendarDays },
+      { label: 'Assistant', path: '/admin/assistant', icon: MessageCircle },
       { label: 'Docs', path: '/docs', icon: BookOpen },
     ],
   },
