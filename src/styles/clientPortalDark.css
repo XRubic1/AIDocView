@@ -448,6 +448,37 @@
   border-bottom-color: rgba(47, 169, 140, 0.35);
 }
 
+/* Invoice details panel — graphite surfaces + accent timeline */
+.client-portal[data-theme='dark'] .payment-confirmation-panel,
+.client-portal[data-theme='dark'] .payment-confirmation-panel__footer {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__header--sidebar {
+  background: var(--cp-surface);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__notes {
+  background: var(--cp-surface);
+}
+
+.client-portal[data-theme='dark'] .invoice-balance-summary__fig,
+.client-portal[data-theme='dark'] .invoice-balance-summary__projected {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .invoice-balance-summary__fig--written-off {
+  border-color: color-mix(in srgb, var(--cp-warning) 65%, var(--cp-border));
+}
+
+.client-portal[data-theme='dark'] .invoice-balance-summary__fig--short,
+.client-portal[data-theme='dark'] .invoice-balance-summary__fig--open {
+  border-color: color-mix(in srgb, var(--cp-error) 55%, var(--cp-border));
+}
+
 .client-portal[data-theme='dark'] .dashboard-table__severity-dot--hold {
   background: #d14343;
 }

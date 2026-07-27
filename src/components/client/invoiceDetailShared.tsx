@@ -219,7 +219,7 @@ export function InvoiceNotesTimeline({ noteEntries, openDisputes }: InvoiceNotes
           {openDisputes.map((dispute) => (
             <div key={dispute.id} className="invoice-detail-dispute-entry">
               <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="text-xs font-semibold" style={{ color: '#991b1b' }}>
+                <span className="text-xs font-semibold" style={{ color: c.error }}>
                   {getDisputeReasonLabel(dispute.reason)}
                 </span>
                 <span className="text-[11px]" style={{ color: c.secondary }}>

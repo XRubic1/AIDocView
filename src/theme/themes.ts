@@ -6,7 +6,7 @@ export const lightClientTheme = {
   muted: '#64748B',
   mutedLight: '#94A3B8',
   border: '#E2E8F0',
-  surface: '#F8FAFC',
+  surface: '#EEF1F5',
   card: '#FFFFFF',
   success: '#10B981',
   warning: '#F59E0B',
