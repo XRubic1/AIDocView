@@ -8740,6 +8740,42 @@
   margin-bottom: 16px;
 }
 
+.client-portal .broker-risk-block__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+}
+
+.client-portal .broker-risk-block__confidence {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.client-portal .broker-risk-block__freshness {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.client-portal .broker-risk-block__bullets {
+  margin: 8px 0 0;
+  padding-left: 1.1rem;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.client-portal .broker-risk-block__rec {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.client-portal .broker-risk-block__meta {
+  margin-top: 6px;
+  font-size: 10px;
+}
+
 .client-portal .broker-detail-stat {
   padding: 10px 12px;
   border-radius: 10px;

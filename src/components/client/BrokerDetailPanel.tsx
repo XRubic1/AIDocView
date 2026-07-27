@@ -13,7 +13,18 @@ interface BrokerDetailPanelProps {
   onNotesChange: () => void
 }
 
-/** Side panel — AI summary, pay stats, and client notes. */
+function riskLevelLabel(level: string): string {
+  if (level === 'low') return 'Low'
+  if (level === 'high') return 'High'
+  if (level === 'unrated') return 'Unrated'
+  return 'Medium'
+}
+
+function confidenceLabel(level: string): string {
+  return level.charAt(0).toUpperCase() + level.slice(1)
+}
+
+/** Side panel — Broker Risk cache, pay stats, and client notes. */
 export default function BrokerDetailPanel({
   broker,
   clientId,
@@ -77,12 +88,46 @@ export default function BrokerDetailPanel({
           <div className="flex items-center gap-1.5 mb-2">
             <Sparkles className="w-3.5 h-3.5" style={{ color: c.info }} />
             <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
-              AI summary
+              Broker Risk
             </h3>
           </div>
-          <p className="text-sm leading-relaxed" style={{ color: c.primary }}>
-            {broker.ai_summary}
-          </p>
+
+          {broker.risk ? (
+            <div className="broker-risk-block">
+              <div className="broker-risk-block__head">
+                <span className={`assistant-risk-chip assistant-risk-chip--${broker.risk.risk_level}`}>
+                  Risk: {riskLevelLabel(broker.risk.risk_level)}
+                </span>
+                <span className="broker-risk-block__confidence" style={{ color: c.secondary }}>
+                  Confidence: {confidenceLabel(broker.risk.confidence)}
+                </span>
+              </div>
+              <p className="broker-risk-block__freshness" style={{ color: c.secondary }}>
+                Analyzed {broker.risk.analyzed_at_label} · {broker.risk.invoice_count} invoices ·
+                notes as recent as {broker.risk.notes_recency_label}
+              </p>
+              <p className="text-sm leading-relaxed mt-2" style={{ color: c.primary }}>
+                {broker.ai_summary}
+              </p>
+              {broker.risk.bullets.length > 0 && (
+                <ul className="broker-risk-block__bullets" style={{ color: c.primary }}>
+                  {broker.risk.bullets.map((bullet) => (
+                    <li key={bullet}>{bullet}</li>
+                  ))}
+                </ul>
+              )}
+              <p className="broker-risk-block__rec" style={{ color: c.secondary }}>
+                {broker.risk.recommendation}
+              </p>
+              <p className="broker-risk-block__meta" style={{ color: c.mutedLight }}>
+                Pay rating stays separate from Broker Risk · {broker.risk.model_version}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm leading-relaxed" style={{ color: c.primary }}>
+              {broker.ai_summary}
+            </p>
+          )}
         </section>
 
         {broker.score && (

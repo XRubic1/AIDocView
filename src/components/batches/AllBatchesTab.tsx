@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { getAllBatches, updateBatchStatus } from '../../data/mockBatches'
 import { PendingBatch } from '../../types/admin'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
-import { useClientTheme } from '../../theme/ThemeContext'
+import { useClientTheme, useTheme } from '../../theme/ThemeContext'
 import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
 
 interface AllBatchesTabProps {
@@ -20,6 +20,7 @@ interface Batch extends PendingBatch {
 
 export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
   const c = useClientTheme()
+  const { resolvedTheme } = useTheme()
   const tenantRevision = useTenantDataRevision()
   const [listVersion, setListVersion] = useState(0)
   const batches = useMemo(() => getAllBatches() as Batch[], [listVersion, tenantRevision])
@@ -103,7 +104,10 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
             <button
               type="button"
               className="absolute inset-0"
-              style={{ backgroundColor: c.surface === '#F8FAFC' ? 'rgba(15,23,42,0.2)' : 'rgba(0,0,0,0.5)' }}
+              style={{
+                backgroundColor:
+                  resolvedTheme === 'dark' ? 'rgba(0,0,0,0.5)' : 'rgba(15,23,42,0.2)',
+              }}
               onClick={() => {
                 setShowNavigationModal(false)
                 setSelectedBatchForNavigation(null)

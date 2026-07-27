@@ -7,7 +7,10 @@ import type {
   ClientBrokerNote,
   ClientBrokerProfile,
 } from '../types/clientBroker'
+import { toClientBrokerRiskView } from '../types/clientBroker'
 import { computeBrokerScores, type BrokerScoreRow } from './clientReports'
+import { ensureBrokerRiskProfile } from '../services/brokerRiskService'
+import { formatRiskFreshness } from './computeBrokerRiskProfile'
 
 const NOTES_STORAGE_PREFIX = 'credyx_client_broker_notes_'
 
@@ -205,6 +208,18 @@ export function buildClientBrokerDirectory(
       const hasWorked = score !== null && (score.open_invoices > 0 || score.invoiced_in_range > 0)
       const notes = getBrokerNotes(clientId, broker.id)
       const rating = getBrokerPayRating(score)
+      const riskProfile = ensureBrokerRiskProfile({
+        clientId,
+        brokerId: broker.id,
+        brokerName: broker.name,
+        mcNumber: fullBroker?.mc_number ?? null,
+        score,
+        rating,
+        notes,
+        hasWorked,
+        trigger: 'backfill',
+      })
+      const freshness = formatRiskFreshness(riskProfile, notes)
 
       return {
         broker_id: broker.id,
@@ -218,12 +233,11 @@ export function buildClientBrokerDirectory(
         in_credyx_network: Boolean(fullBroker),
         score,
         rating,
-        ai_summary: generateBrokerAiSummary(
-          broker.name,
-          score,
-          rating,
-          notes,
-          hasWorked
+        ai_summary: riskProfile.summary_text,
+        risk: toClientBrokerRiskView(
+          riskProfile,
+          freshness.analyzedAtLabel,
+          freshness.notesRecencyLabel
         ),
         notes,
       }
