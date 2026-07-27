@@ -227,6 +227,7 @@
   --cp-stat-slate-bg: #1a1d24;
   --cp-scrollbar-thumb: #2a2e38;
   --cp-scrollbar-thumb-hover: #3a4050;
+  --cp-scrollbar-track: #12141a;
   background-color: var(--cp-surface);
   background-image: radial-gradient(
     ellipse 100% 55% at 50% -25%,
@@ -2563,7 +2564,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #ffffff;
+  background: var(--cp-card);
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -2725,7 +2726,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #ffffff;
+  background: var(--cp-card);
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -2747,7 +2748,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #ffffff;
+  background: var(--cp-card);
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -2769,7 +2770,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #ffffff;
+  background: var(--cp-card);
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -4009,7 +4010,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #ffffff;
+  background: var(--cp-card);
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -6615,10 +6616,10 @@
   display: flex;
   flex: 1;
   min-height: 0;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--cp-card);
+  border: 1px solid var(--cp-border);
   border-radius: 16px;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--cp-shadow-card);
   overflow: hidden;
 }
 
@@ -6627,8 +6628,8 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #e2e8f0;
-  background: #ffffff;
+  border-right: 1px solid var(--cp-border);
+  background: var(--cp-card);
 }
 
 .client-portal .invoice-list-toolbar {
@@ -7456,7 +7457,7 @@
   flex-direction: column;
   min-height: 0;
   width: 100%;
-  background: #ffffff;
+  background: var(--cp-card);
 }
 
 .client-portal .client-reports-chrome {
@@ -8627,7 +8628,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #ffffff;
+  background: var(--cp-card);
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -8745,7 +8746,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #ffffff;
+  background: var(--cp-card);
 }
 
 .client-portal .client-settings-scroll {
@@ -10542,8 +10543,8 @@
   margin: 6px 14px 0;
   padding: 6px 8px;
   border-radius: 8px;
-  border: 1px dashed #cbd5e1;
-  background: #f8fafc;
+  border: 1px dashed var(--cp-border);
+  background: var(--cp-surface);
 }
 
 .client-portal .assistant-thread__usage-label {
@@ -10934,9 +10935,9 @@
 }
 
 .client-portal .assistant-msg--quiet .assistant-msg__bubble--assistant {
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  background: linear-gradient(180deg, var(--cp-surface) 0%, var(--cp-card) 100%);
   color: var(--cp-text);
-  border-color: #e2e8f0;
+  border-color: var(--cp-border);
   max-width: 100%;
 }
 

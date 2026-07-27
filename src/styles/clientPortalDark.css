@@ -382,3 +382,148 @@
   background: var(--cp-card);
   color: var(--cp-text);
 }
+
+/* ── Tables / list pages ── */
+.client-portal[data-theme='dark'] .dashboard-table {
+  color: var(--cp-text);
+  background: var(--cp-card);
+}
+
+.client-portal[data-theme='dark'] .dashboard-table th {
+  background: var(--cp-surface);
+  color: var(--cp-secondary);
+  border-bottom-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .dashboard-table td {
+  color: var(--cp-text);
+  border-bottom-color: var(--cp-border);
+  background: transparent;
+}
+
+.client-portal[data-theme='dark'] .dashboard-table tbody tr:hover,
+.client-portal[data-theme='dark'] .dashboard-table tbody tr:hover td {
+  background: var(--cp-table-hover);
+}
+
+.client-portal[data-theme='dark'] .client-table-scroll {
+  background: var(--cp-card);
+  scrollbar-color: var(--cp-scrollbar-thumb) var(--cp-surface);
+}
+
+/* ── Status pills (Held, aging buckets, etc.) ── */
+.client-portal[data-theme='dark'] .status-pill--pending,
+.client-portal[data-theme='dark'] .status-pill--review {
+  background: rgba(22, 132, 254, 0.16);
+  color: #4da3ff;
+}
+
+.client-portal[data-theme='dark'] .status-pill--approved,
+.client-portal[data-theme='dark'] .status-pill--submitted {
+  background: rgba(47, 169, 140, 0.16);
+  color: #3fbf9f;
+}
+
+.client-portal[data-theme='dark'] .status-pill--hold,
+.client-portal[data-theme='dark'] .status-pill--overdue {
+  background: rgba(209, 67, 67, 0.18);
+  color: #f07171;
+}
+
+.client-portal[data-theme='dark'] .status-pill--warn,
+.client-portal[data-theme='dark'] .status-pill--pending-batch {
+  background: rgba(212, 168, 83, 0.16);
+  color: #e0c078;
+}
+
+.client-portal[data-theme='dark'] .invoice-detail-notice--hold {
+  background: rgba(209, 67, 67, 0.14);
+  color: #f07171;
+  border-bottom-color: rgba(209, 67, 67, 0.35);
+}
+
+.client-portal[data-theme='dark'] .invoice-detail-notice--paid {
+  background: rgba(47, 169, 140, 0.14);
+  color: #3fbf9f;
+  border-bottom-color: rgba(47, 169, 140, 0.35);
+}
+
+.client-portal[data-theme='dark'] .dashboard-table__severity-dot--hold {
+  background: #d14343;
+}
+
+/* ── AI assistant chat window ── */
+.client-portal[data-theme='dark'] .assistant-drawer,
+.client-portal[data-theme='dark'] .assistant-drawer--float {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.45),
+    0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+.client-portal[data-theme='dark'] .assistant-drawer__header {
+  background: var(--cp-nav);
+  border-bottom-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .assistant-drawer__title {
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .assistant-drawer__subtitle {
+  color: var(--cp-secondary);
+}
+
+.client-portal[data-theme='dark'] .assistant-thread,
+.client-portal[data-theme='dark'] .assistant-thread__scroll {
+  background: var(--cp-card);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .assistant-msg__bubble--assistant {
+  background: var(--cp-surface);
+  color: var(--cp-text);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .assistant-msg--quiet .assistant-msg__bubble--assistant {
+  background: linear-gradient(180deg, var(--cp-surface) 0%, #161920 100%);
+  color: var(--cp-text);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .assistant-thread__composer {
+  background: var(--cp-nav);
+  border-top-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .assistant-thread__input,
+.client-portal[data-theme='dark'] .assistant-chip,
+.client-portal[data-theme='dark'] .assistant-followups__chip {
+  background: var(--cp-surface);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .assistant-md,
+.client-portal[data-theme='dark'] .assistant-md p,
+.client-portal[data-theme='dark'] .assistant-md li {
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .assistant-email-card,
+.client-portal[data-theme='dark'] .assistant-action-card__item,
+.client-portal[data-theme='dark'] .assistant-ar,
+.client-portal[data-theme='dark'] .assistant-pay-status,
+.client-portal[data-theme='dark'] .assistant-dispute-card {
+  background: var(--cp-surface);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+/* Aging strip cells on collections */
+.client-portal[data-theme='dark'] .aging-bucket-cell {
+  border-color: var(--cp-border);
+}

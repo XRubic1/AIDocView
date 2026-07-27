@@ -15,6 +15,32 @@ html {
 [data-theme='dark'] {
   --background: #12141a;
   --foreground: #e8e9ed;
+  color-scheme: dark;
+  scrollbar-color: #2a2e38 #12141a;
+}
+
+[data-theme='dark']::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+[data-theme='dark']::-webkit-scrollbar-track {
+  background: #12141a;
+}
+
+[data-theme='dark']::-webkit-scrollbar-thumb {
+  background-color: #2a2e38;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+[data-theme='dark']::-webkit-scrollbar-thumb:hover {
+  background-color: #3a4050;
+}
+
+[data-theme='dark']::-webkit-scrollbar-corner {
+  background: #12141a;
 }
 
 body {
