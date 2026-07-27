@@ -96,12 +96,12 @@
 
 .client-portal[data-theme='dark'] .client-submit-docs__option--featured {
   border-color: var(--cp-accent);
-  box-shadow: 0 0 0 1px rgba(23, 132, 254, 0.14), var(--cp-shadow-card);
+  box-shadow: 0 0 0 1px rgba(47, 169, 140, 0.16), var(--cp-shadow-card);
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option--featured:hover {
   border-color: var(--cp-accent-hover);
-  box-shadow: 0 0 0 1px rgba(77, 163, 255, 0.2), var(--cp-shadow-hover);
+  box-shadow: 0 0 0 1px rgba(63, 191, 159, 0.22), var(--cp-shadow-hover);
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option:focus-visible {
@@ -113,7 +113,7 @@
 }
 
 .client-portal[data-theme='dark'] .client-ai-upload__progress-bar {
-  background: linear-gradient(90deg, #0f5fc4, #1784fe, #4da3ff);
+  background: linear-gradient(90deg, #248a72, #2fa98c, #3fbf9f);
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option-title,
@@ -318,16 +318,16 @@
 
 .client-portal[data-theme='dark'] .dashboard-card {
   border-color: var(--cp-border);
-  box-shadow: var(--cp-shadow-card), inset 0 1px 0 rgba(23, 132, 254, 0.06);
+  box-shadow: var(--cp-shadow-card), inset 0 1px 0 rgba(47, 169, 140, 0.06);
 }
 
 .client-portal[data-theme='dark'] .dashboard-card-interactive:hover {
-  border-color: rgba(23, 132, 254, 0.35);
-  box-shadow: var(--cp-shadow-hover), 0 0 0 1px rgba(23, 132, 254, 0.14);
+  border-color: rgba(47, 169, 140, 0.35);
+  box-shadow: var(--cp-shadow-hover), 0 0 0 1px rgba(47, 169, 140, 0.14);
 }
 
 .client-portal[data-theme='dark'] .dashboard-metric-primary {
-  background: linear-gradient(155deg, #131c30 0%, #0d1526 55%, #050810 100%);
+  background: linear-gradient(155deg, #1a1d24 0%, #161920 55%, #12141a 100%);
 }
 
 .client-portal[data-theme='dark'] .dashboard-metric-secondary {
@@ -335,8 +335,8 @@
 }
 
 .client-portal[data-theme='dark'] .client-manual-batch__doc-badge {
-  background: #0d1526;
-  color: #ffffff;
+  background: #1a1d24;
+  color: #e8e9ed;
 }
 
 .client-portal[data-theme='dark'] .client-manual-batch__doc-badge:hover {

@@ -190,47 +190,47 @@
 
 .client-portal[data-theme='dark'] {
   color-scheme: dark;
-  /* Credyx dark palette — near-black cool base + logo blue accent */
-  --cp-primary: #ffffff;
-  --cp-primary-hover: #a9b4c7;
-  --cp-secondary: #a9b4c7;
-  --cp-muted-light: #6b7688;
-  --cp-border: #1f2a42;
-  --cp-border-hover: #2a3856;
-  --cp-surface: #050810;
-  --cp-card: #131c30;
-  --cp-text: #ffffff;
-  --cp-success: #4ade80;
-  --cp-warning: #fbbf24;
-  --cp-error: #f87171;
-  --cp-info: #1784fe;
-  --cp-accent: #1784fe;
-  --cp-accent-hover: #4da3ff;
-  --cp-accent-pressed: #0f5fc4;
-  --cp-accent-light: #0a1f3a;
-  --cp-nav: #0d1526;
-  --cp-shadow-card: 0 2px 12px rgba(0, 0, 0, 0.45);
-  --cp-shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.55);
-  --cp-input-bg: #0d1526;
-  --cp-input-border: #1f2a42;
-  --cp-table-hover: #131c30;
-  --cp-overlay: rgba(5, 8, 16, 0.72);
-  --cp-btn-primary-bg: #1784fe;
-  --cp-btn-primary-hover: #4da3ff;
-  --cp-btn-primary-text: #ffffff;
-  --cp-btn-secondary-bg: #0d1526;
-  --cp-btn-secondary-text: #ffffff;
-  --cp-btn-secondary-hover: #131c30;
-  --cp-stat-blue-bg: #0a1f3a;
-  --cp-stat-amber-bg: #1f1508;
-  --cp-stat-green-bg: #0a1f16;
-  --cp-stat-slate-bg: #0d1526;
-  --cp-scrollbar-thumb: #1f2a42;
-  --cp-scrollbar-thumb-hover: #2a3856;
+  /* Graphite ledger + muted teal — institutional A/R dark mode */
+  --cp-primary: #e8e9ed;
+  --cp-primary-hover: #ffffff;
+  --cp-secondary: #8e93a1;
+  --cp-muted-light: #6b7080;
+  --cp-border: #2a2e38;
+  --cp-border-hover: #3a4050;
+  --cp-surface: #12141a;
+  --cp-card: #1a1d24;
+  --cp-text: #e8e9ed;
+  --cp-success: #2fa98c;
+  --cp-warning: #d4a853;
+  --cp-error: #d14343;
+  --cp-info: #5c8fe0;
+  --cp-accent: #2fa98c;
+  --cp-accent-hover: #3fbf9f;
+  --cp-accent-pressed: #248a72;
+  --cp-accent-light: #152822;
+  --cp-nav: #1a1d24;
+  --cp-shadow-card: 0 2px 12px rgba(0, 0, 0, 0.4);
+  --cp-shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --cp-input-bg: #1a1d24;
+  --cp-input-border: #2a2e38;
+  --cp-table-hover: #22262f;
+  --cp-overlay: rgba(18, 20, 26, 0.72);
+  --cp-btn-primary-bg: #2fa98c;
+  --cp-btn-primary-hover: #3fbf9f;
+  --cp-btn-primary-text: #12141a;
+  --cp-btn-secondary-bg: #1a1d24;
+  --cp-btn-secondary-text: #e8e9ed;
+  --cp-btn-secondary-hover: #22262f;
+  --cp-stat-blue-bg: #152033;
+  --cp-stat-amber-bg: #2a2110;
+  --cp-stat-green-bg: #152822;
+  --cp-stat-slate-bg: #1a1d24;
+  --cp-scrollbar-thumb: #2a2e38;
+  --cp-scrollbar-thumb-hover: #3a4050;
   background-color: var(--cp-surface);
   background-image: radial-gradient(
     ellipse 100% 55% at 50% -25%,
-    rgba(23, 132, 254, 0.1),
+    rgba(47, 169, 140, 0.08),
     transparent 58%
   );
 }
