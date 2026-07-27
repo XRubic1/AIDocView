@@ -62,7 +62,7 @@ export const lightClientTheme = {
   },
 } as const
 
-/** Credyx dark — cool graphite ledger base, muted teal accent (#2FA98C). */
+/** Credyx dark — cool graphite ledger base, brand blue accent (#1684FE). */
 export const darkClientTheme = {
   primary: '#E8E9ED',
   primaryHover: '#FFFFFF',
@@ -75,13 +75,13 @@ export const darkClientTheme = {
   success: '#2FA98C',
   warning: '#D4A853',
   error: '#D14343',
-  info: '#5C8FE0',
-  accent: '#2FA98C',
-  accentHover: '#3FBF9F',
-  accentLight: '#152822',
+  info: '#1684FE',
+  accent: '#1684FE',
+  accentHover: '#4DA3FF',
+  accentLight: '#0F1E33',
   chart: {
-    blue: '#5C8FE0',
-    cyan: '#2FA98C',
+    blue: '#1684FE',
+    cyan: '#4DA3FF',
     purple: '#A78BFA',
     amber: '#D4A853',
     orange: '#E08A5C',
@@ -98,12 +98,12 @@ export const darkClientTheme = {
     text: '#E8E9ED',
     muted: '#8E93A1',
     hover: '#22262F',
-    active: '#152822',
-    activeBorder: '#2FA98C',
+    active: '#0F1E33',
+    activeBorder: '#1684FE',
     activeText: '#E8E9ED',
-    badge: '#2FA98C',
-    avatarBg: '#152822',
-    avatarText: '#2FA98C',
+    badge: '#1684FE',
+    avatarBg: '#0F1E33',
+    avatarText: '#1684FE',
     collapsedWidth: 64,
     expandedWidth: 208,
   },
@@ -117,7 +117,7 @@ export const darkClientTheme = {
     button: '10px',
   },
   stat: {
-    blue: '#152033',
+    blue: '#0F1E33',
     amber: '#2A2110',
     green: '#152822',
     slate: '#1A1D24',

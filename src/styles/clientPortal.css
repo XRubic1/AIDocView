@@ -190,7 +190,7 @@
 
 .client-portal[data-theme='dark'] {
   color-scheme: dark;
-  /* Graphite ledger + muted teal — institutional A/R dark mode */
+  /* Graphite ledger + brand blue accent (#1684FE) */
   --cp-primary: #e8e9ed;
   --cp-primary-hover: #ffffff;
   --cp-secondary: #8e93a1;
@@ -203,11 +203,11 @@
   --cp-success: #2fa98c;
   --cp-warning: #d4a853;
   --cp-error: #d14343;
-  --cp-info: #5c8fe0;
-  --cp-accent: #2fa98c;
-  --cp-accent-hover: #3fbf9f;
-  --cp-accent-pressed: #248a72;
-  --cp-accent-light: #152822;
+  --cp-info: #1684fe;
+  --cp-accent: #1684fe;
+  --cp-accent-hover: #4da3ff;
+  --cp-accent-pressed: #0f5fc4;
+  --cp-accent-light: #0f1e33;
   --cp-nav: #1a1d24;
   --cp-shadow-card: 0 2px 12px rgba(0, 0, 0, 0.4);
   --cp-shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.5);
@@ -215,13 +215,13 @@
   --cp-input-border: #2a2e38;
   --cp-table-hover: #22262f;
   --cp-overlay: rgba(18, 20, 26, 0.72);
-  --cp-btn-primary-bg: #2fa98c;
-  --cp-btn-primary-hover: #3fbf9f;
-  --cp-btn-primary-text: #12141a;
+  --cp-btn-primary-bg: #1684fe;
+  --cp-btn-primary-hover: #4da3ff;
+  --cp-btn-primary-text: #ffffff;
   --cp-btn-secondary-bg: #1a1d24;
   --cp-btn-secondary-text: #e8e9ed;
   --cp-btn-secondary-hover: #22262f;
-  --cp-stat-blue-bg: #152033;
+  --cp-stat-blue-bg: #0f1e33;
   --cp-stat-amber-bg: #2a2110;
   --cp-stat-green-bg: #152822;
   --cp-stat-slate-bg: #1a1d24;
@@ -230,7 +230,7 @@
   background-color: var(--cp-surface);
   background-image: radial-gradient(
     ellipse 100% 55% at 50% -25%,
-    rgba(47, 169, 140, 0.08),
+    rgba(22, 132, 254, 0.1),
     transparent 58%
   );
 }

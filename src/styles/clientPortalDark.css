@@ -96,12 +96,12 @@
 
 .client-portal[data-theme='dark'] .client-submit-docs__option--featured {
   border-color: var(--cp-accent);
-  box-shadow: 0 0 0 1px rgba(47, 169, 140, 0.16), var(--cp-shadow-card);
+  box-shadow: 0 0 0 1px rgba(22, 132, 254, 0.16), var(--cp-shadow-card);
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option--featured:hover {
   border-color: var(--cp-accent-hover);
-  box-shadow: 0 0 0 1px rgba(63, 191, 159, 0.22), var(--cp-shadow-hover);
+  box-shadow: 0 0 0 1px rgba(77, 163, 255, 0.22), var(--cp-shadow-hover);
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option:focus-visible {
@@ -113,7 +113,7 @@
 }
 
 .client-portal[data-theme='dark'] .client-ai-upload__progress-bar {
-  background: linear-gradient(90deg, #248a72, #2fa98c, #3fbf9f);
+  background: linear-gradient(90deg, #0f5fc4, #1684fe, #4da3ff);
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option-title,
@@ -318,12 +318,12 @@
 
 .client-portal[data-theme='dark'] .dashboard-card {
   border-color: var(--cp-border);
-  box-shadow: var(--cp-shadow-card), inset 0 1px 0 rgba(47, 169, 140, 0.06);
+  box-shadow: var(--cp-shadow-card), inset 0 1px 0 rgba(22, 132, 254, 0.06);
 }
 
 .client-portal[data-theme='dark'] .dashboard-card-interactive:hover {
-  border-color: rgba(47, 169, 140, 0.35);
-  box-shadow: var(--cp-shadow-hover), 0 0 0 1px rgba(47, 169, 140, 0.14);
+  border-color: rgba(22, 132, 254, 0.35);
+  box-shadow: var(--cp-shadow-hover), 0 0 0 1px rgba(22, 132, 254, 0.14);
 }
 
 .client-portal[data-theme='dark'] .dashboard-metric-primary {
