@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import type { AssistantPageHelp } from '../../../utils/assistantPageContext'
@@ -13,9 +14,13 @@ interface AssistantNudgeBubbleProps {
   onDismiss: () => void
 }
 
+const NUDGE_WIDTH = 260
+const GAP = 10
+const EDGE = 8
+
 /**
- * Speech bubble beside the floating buddy offering help for the current page.
- * Anchored to the FAB so it moves with a dragged bubble.
+ * Speech bubble beside the floating buddy. Anchored to the FAB and clamped
+ * inside the viewport so it never clips through the bottom of the screen.
  */
 export default function AssistantNudgeBubble({
   help,
@@ -25,26 +30,54 @@ export default function AssistantNudgeBubble({
   onDismiss,
 }: AssistantNudgeBubbleProps) {
   const starters = help.chips.slice(0, 2)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState(140)
 
-  // Prefer opening to the left of the FAB; flip right if near the left edge.
-  const nudgeWidth = 260
-  const gap = 10
+  useLayoutEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    setHeight(el.getBoundingClientRect().height)
+  }, [help.nudge, starters.length])
+
   const preferLeft = fabPosition.left + fabSize / 2 > window.innerWidth / 2
-  const left = preferLeft
-    ? Math.max(8, fabPosition.left - nudgeWidth - gap)
-    : fabPosition.left + fabSize + gap
-  const top = Math.max(8, fabPosition.top - 8)
+  let left = preferLeft
+    ? fabPosition.left - NUDGE_WIDTH - GAP
+    : fabPosition.left + fabSize + GAP
+  left = Math.min(
+    Math.max(EDGE, left),
+    Math.max(EDGE, window.innerWidth - NUDGE_WIDTH - EDGE)
+  )
+
+  // Prefer above the FAB when near the bottom so chips stay on-screen.
+  const spaceBelow = window.innerHeight - (fabPosition.top + fabSize) - EDGE
+  const placeAbove = spaceBelow < height + GAP
+  let top = placeAbove
+    ? fabPosition.top - height - GAP
+    : fabPosition.top - 8
+  top = Math.min(
+    Math.max(EDGE, top),
+    Math.max(EDGE, window.innerHeight - height - EDGE)
+  )
 
   const style: CSSProperties = {
     left,
     top,
     right: 'auto',
     bottom: 'auto',
+    width: NUDGE_WIDTH,
   }
+
+  const arrowClass = [
+    preferLeft ? '' : 'assistant-nudge--right',
+    placeAbove ? 'assistant-nudge--above' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <div
-      className={`assistant-nudge${preferLeft ? '' : ' assistant-nudge--right'}`}
+      ref={rootRef}
+      className={`assistant-nudge ${arrowClass}`.trim()}
       role="status"
       style={style}
     >

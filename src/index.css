@@ -13,8 +13,8 @@ html {
 }
 
 [data-theme='dark'] {
-  --background: #09090b;
-  --foreground: #fafaf9;
+  --background: #050810;
+  --foreground: #ffffff;
 }
 
 body {

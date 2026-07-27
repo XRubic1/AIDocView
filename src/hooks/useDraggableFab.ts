@@ -5,6 +5,7 @@ import {
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from 'react'
 
 export type FabPosition = { left: number; top: number }
@@ -22,19 +23,35 @@ interface UseDraggableFabOptions {
   margin?: number
   /** Pixels of movement before a press counts as a drag (not a click). */
   dragThreshold?: number
+  /** Trash drop target — releasing over it docks the bubble into the top nav. */
+  trashRef?: RefObject<HTMLElement | null>
+  /** Called when the user drops the bubble on the trash zone. */
+  onDock?: () => void
+  /** When false, skip restoring/persisting (e.g. while docked). */
+  enabled?: boolean
+}
+
+function pointInRect(x: number, y: number, el: HTMLElement | null): boolean {
+  if (!el) return false
+  const r = el.getBoundingClientRect()
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
 }
 
 /**
  * Pointer-drag for a fixed floating bubble. Distinguishes click vs drag so
  * opening the chat still works on a tap. Position is restored from sessionStorage.
+ * Dropping on a trash target docks the bubble into the top nav.
  */
 export function useDraggableFab({
   storageKey,
   defaultRight = 16,
-  defaultBottom = 72,
+  defaultBottom = 96,
   size = 44,
   margin = 8,
   dragThreshold = 6,
+  trashRef,
+  onDock,
+  enabled = true,
 }: UseDraggableFabOptions) {
   const fabRef = useRef<HTMLButtonElement>(null)
   const dragRef = useRef<{
@@ -47,9 +64,12 @@ export function useDraggableFab({
   } | null>(null)
   const positionRef = useRef<FabPosition | null>(null)
   const suppressClickRef = useRef(false)
+  const onDockRef = useRef(onDock)
+  onDockRef.current = onDock
 
   const [position, setPosition] = useState<FabPosition | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [overTrash, setOverTrash] = useState(false)
 
   const clamp = useCallback(
     (left: number, top: number): FabPosition => {
@@ -75,8 +95,17 @@ export function useDraggableFab({
     setPosition(next)
   }, [])
 
-  // Place once on mount (restore or default).
+  /** Place at an explicit point (e.g. undock from header). */
+  const placeAt = useCallback(
+    (left: number, top: number) => {
+      updatePosition(clamp(left, top))
+    },
+    [clamp, updatePosition]
+  )
+
+  // Place once when enabled (restore or default).
   useEffect(() => {
+    if (!enabled) return
     let placed: FabPosition | null = null
     try {
       const raw = sessionStorage.getItem(storageKey)
@@ -95,19 +124,20 @@ export function useDraggableFab({
       // ignore corrupt storage
     }
     updatePosition(placed ?? defaultPosition())
-  }, [clamp, defaultPosition, storageKey, updatePosition])
+  }, [clamp, defaultPosition, enabled, storageKey, updatePosition])
 
   // Persist + keep in viewport on resize.
   useEffect(() => {
-    if (!position) return
+    if (!enabled || !position) return
     try {
       sessionStorage.setItem(storageKey, JSON.stringify(position))
     } catch {
       // private mode / quota
     }
-  }, [position, storageKey])
+  }, [enabled, position, storageKey])
 
   useEffect(() => {
+    if (!enabled) return
     const onResize = () => {
       const cur = positionRef.current
       if (!cur) return
@@ -115,11 +145,10 @@ export function useDraggableFab({
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [clamp, updatePosition])
+  }, [clamp, enabled, updatePosition])
 
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLButtonElement>) => {
-      // Only primary button / touch.
       if (e.button !== 0) return
       const cur = positionRef.current ?? defaultPosition()
       dragRef.current = {
@@ -150,27 +179,40 @@ export function useDraggableFab({
         setIsDragging(true)
       }
 
+      // Follow the pointer freely while dragging (still softly clamped).
       updatePosition(clamp(drag.originLeft + dx, drag.originTop + dy))
+      setOverTrash(pointInRect(e.clientX, e.clientY, trashRef?.current ?? null))
       e.preventDefault()
     },
-    [clamp, dragThreshold, updatePosition]
+    [clamp, dragThreshold, trashRef, updatePosition]
   )
 
-  const endDrag = useCallback((e: ReactPointerEvent<HTMLButtonElement>) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== e.pointerId) return
-    if (drag.moved) {
-      // Swallow the synthetic click that follows a drag.
-      suppressClickRef.current = true
-    }
-    dragRef.current = null
-    setIsDragging(false)
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId)
-    } catch {
-      // already released
-    }
-  }, [])
+  const endDrag = useCallback(
+    (e: ReactPointerEvent<HTMLButtonElement>) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+
+      const droppedOnTrash =
+        drag.moved && pointInRect(e.clientX, e.clientY, trashRef?.current ?? null)
+
+      if (drag.moved) {
+        suppressClickRef.current = true
+      }
+      dragRef.current = null
+      setIsDragging(false)
+      setOverTrash(false)
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId)
+      } catch {
+        // already released
+      }
+
+      if (droppedOnTrash) {
+        onDockRef.current?.()
+      }
+    },
+    [trashRef]
+  )
 
   /** Call from onClick — returns false when the press was a drag. */
   const shouldOpenOnClick = useCallback(() => {
@@ -195,7 +237,9 @@ export function useDraggableFab({
     style,
     position,
     isDragging,
+    overTrash,
     shouldOpenOnClick,
+    placeAt,
     dragHandlers: {
       onPointerDown,
       onPointerMove,

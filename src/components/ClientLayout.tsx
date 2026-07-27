@@ -34,6 +34,7 @@ import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
 import AssistantFab from './client/assistant/AssistantFab'
+import AssistantHeaderBuddy from './client/assistant/AssistantHeaderBuddy'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import '../styles/clientPortal.css'
 import '../styles/clientPortalDark.css'
@@ -564,7 +565,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-[margin] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] lg:ml-[var(--sidebar-width)]">
         <header
           className="client-topbar sticky top-0 z-30 border-b"
-          style={{ borderColor: t.border, backgroundColor: t.card }}
+          style={{ borderColor: t.border, backgroundColor: t.sidebar.bg }}
         >
           <button
             type="button"
@@ -583,6 +584,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
           </div>
 
           <div className="client-topbar__actions">
+            <AssistantHeaderBuddy mode="client" />
             <div className="hidden lg:block shrink-0">
               <ThemeToggle compact />
             </div>

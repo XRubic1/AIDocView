@@ -96,12 +96,12 @@
 
 .client-portal[data-theme='dark'] .client-submit-docs__option--featured {
   border-color: var(--cp-accent);
-  box-shadow: 0 0 0 1px rgba(212, 168, 83, 0.12), var(--cp-shadow-card);
+  box-shadow: 0 0 0 1px rgba(23, 132, 254, 0.14), var(--cp-shadow-card);
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option--featured:hover {
   border-color: var(--cp-accent-hover);
-  box-shadow: 0 0 0 1px rgba(232, 192, 104, 0.18), var(--cp-shadow-hover);
+  box-shadow: 0 0 0 1px rgba(77, 163, 255, 0.2), var(--cp-shadow-hover);
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option:focus-visible {
@@ -113,7 +113,7 @@
 }
 
 .client-portal[data-theme='dark'] .client-ai-upload__progress-bar {
-  background: linear-gradient(90deg, #b8923f, #d4a853, #e8c068);
+  background: linear-gradient(90deg, #0f5fc4, #1784fe, #4da3ff);
 }
 
 .client-portal[data-theme='dark'] .client-submit-docs__option-title,
@@ -318,16 +318,16 @@
 
 .client-portal[data-theme='dark'] .dashboard-card {
   border-color: var(--cp-border);
-  box-shadow: var(--cp-shadow-card), inset 0 1px 0 rgba(212, 168, 83, 0.05);
+  box-shadow: var(--cp-shadow-card), inset 0 1px 0 rgba(23, 132, 254, 0.06);
 }
 
 .client-portal[data-theme='dark'] .dashboard-card-interactive:hover {
-  border-color: rgba(212, 168, 83, 0.3);
-  box-shadow: var(--cp-shadow-hover), 0 0 0 1px rgba(212, 168, 83, 0.12);
+  border-color: rgba(23, 132, 254, 0.35);
+  box-shadow: var(--cp-shadow-hover), 0 0 0 1px rgba(23, 132, 254, 0.14);
 }
 
 .client-portal[data-theme='dark'] .dashboard-metric-primary {
-  background: linear-gradient(155deg, #17171a 0%, #131316 55%, #111113 100%);
+  background: linear-gradient(155deg, #131c30 0%, #0d1526 55%, #050810 100%);
 }
 
 .client-portal[data-theme='dark'] .dashboard-metric-secondary {
@@ -335,13 +335,13 @@
 }
 
 .client-portal[data-theme='dark'] .client-manual-batch__doc-badge {
-  background: #27272a;
-  color: #fafaf9;
+  background: #0d1526;
+  color: #ffffff;
 }
 
 .client-portal[data-theme='dark'] .client-manual-batch__doc-badge:hover {
-  background: #1c1810;
-  color: #d4a853;
+  background: var(--cp-accent-light);
+  color: var(--cp-accent);
 }
 
 /* Documents vault */

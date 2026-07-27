@@ -30,6 +30,7 @@ import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
 import AssistantFab from './client/assistant/AssistantFab'
+import AssistantHeaderBuddy from './client/assistant/AssistantHeaderBuddy'
 import { signOutAdmin } from '../services/adminAuthService'
 import { useAuth } from '../context/AuthContext'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
@@ -403,7 +404,7 @@ export default function AdminLayout({
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-all duration-200 lg:ml-[var(--sidebar-width)]">
         <header
           className="client-topbar sticky top-0 z-30 border-b"
-          style={{ borderColor: t.border, backgroundColor: t.card }}
+          style={{ borderColor: t.border, backgroundColor: t.sidebar.bg }}
         >
           <button
             type="button"
@@ -422,6 +423,7 @@ export default function AdminLayout({
           </div>
 
           <div className="client-topbar__actions">
+            <AssistantHeaderBuddy mode="admin" />
             <div className="hidden lg:block shrink-0">
               <ThemeToggle compact />
             </div>
