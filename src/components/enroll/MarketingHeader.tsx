@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 
+const isMarketingOnly = import.meta.env.VITE_MARKETING_ONLY === 'true'
+
+/** True when the current page is the waitlist marketing surface. */
+function isWaitlistPath(pathname: string) {
+  return pathname === '/' || pathname === '/waitlist'
+}
+
 /** Sticky marketing nav for the Credyx waitlist page (mobile hamburger + waitlist CTA). */
 export function MarketingHeader() {
   const navigate = useNavigate()
@@ -13,40 +20,24 @@ export function MarketingHeader() {
     setMenuOpen(false)
   }, [location.pathname])
 
+  const onWaitlist = isWaitlistPath(location.pathname)
+
   const goWaitlistCta = () => {
     setMenuOpen(false)
-    if (location.pathname === '/waitlist') {
+    if (onWaitlist) {
       document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
       return
     }
-    navigate('/waitlist')
+    navigate(isMarketingOnly ? '/#waitlist-form' : '/waitlist')
   }
 
-  const goPricing = () => {
+  const goSection = (id: string) => {
     setMenuOpen(false)
-    if (location.pathname === '/waitlist') {
-      document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
+    if (onWaitlist) {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
       return
     }
-    navigate('/waitlist#pricing')
-  }
-
-  const goBuddy = () => {
-    setMenuOpen(false)
-    if (location.pathname === '/waitlist') {
-      document.getElementById('buddy')?.scrollIntoView({ behavior: 'smooth' })
-      return
-    }
-    navigate('/waitlist#buddy')
-  }
-
-  const goFeatures = () => {
-    setMenuOpen(false)
-    if (location.pathname === '/waitlist') {
-      document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })
-      return
-    }
-    navigate('/waitlist#features')
+    navigate(isMarketingOnly ? `/#${id}` : `/waitlist#${id}`)
   }
 
   const go = (path: string) => {
@@ -61,7 +52,11 @@ export function MarketingHeader() {
         className="cx-nav-brand"
         onClick={() => {
           setMenuOpen(false)
-          window.scrollTo({ top: 0, behavior: 'smooth' })
+          if (onWaitlist) {
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+            return
+          }
+          navigate(isMarketingOnly ? '/' : '/waitlist')
         }}
         aria-label="Credyx A/R Solutions — back to top"
       >
@@ -90,24 +85,28 @@ export function MarketingHeader() {
         className={`cx-nav-links${menuOpen ? ' open' : ''}`}
         aria-label="Marketing"
       >
-        <button type="button" className="cx-nav-link" onClick={goPricing}>
+        <button type="button" className="cx-nav-link" onClick={() => goSection('pricing')}>
           Pricing
         </button>
-        <button type="button" className="cx-nav-link" onClick={goBuddy}>
+        <button type="button" className="cx-nav-link" onClick={() => goSection('buddy')}>
           Buddy
         </button>
-        <button type="button" className="cx-nav-link" onClick={goFeatures}>
+        <button type="button" className="cx-nav-link" onClick={() => goSection('features')}>
           Features
         </button>
-        <button type="button" className="cx-nav-link" onClick={() => go('/how-it-works')}>
-          How it works
-        </button>
-        <button type="button" className="cx-nav-link" onClick={() => go('/tour')}>
-          Product tour
-        </button>
-        <button type="button" className="cx-nav-link" onClick={() => go('/client/login')}>
-          Client login
-        </button>
+        {!isMarketingOnly && (
+          <>
+            <button type="button" className="cx-nav-link" onClick={() => go('/how-it-works')}>
+              How it works
+            </button>
+            <button type="button" className="cx-nav-link" onClick={() => go('/tour')}>
+              Product tour
+            </button>
+            <button type="button" className="cx-nav-link" onClick={() => go('/client/login')}>
+              Client login
+            </button>
+          </>
+        )}
         <button type="button" className="cx-nav-cta" onClick={goWaitlistCta}>
           Join the waitlist
         </button>

@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:waitlist": "vite --config vite.waitlist.config.ts",
     "build": "tsc && vite build",
+    "build:waitlist": "vite build --config vite.waitlist.config.ts",
     "test": "vitest run",
     "eval": "tsx scripts/eval/run.ts",
     "eval:mock": "tsx scripts/eval/run.ts --mode mock",

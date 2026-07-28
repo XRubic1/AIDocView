@@ -283,6 +283,8 @@ const BUDDY_EXAMPLES = [
   },
 ] as const
 
+const isMarketingOnly = import.meta.env.VITE_MARKETING_ONLY === 'true'
+
 /** Public Credyx waitlist marketing page — separate from the product app shell. */
 export default function Waitlist() {
   const navigate = useNavigate()
@@ -507,12 +509,14 @@ export default function Waitlist() {
             </div>
           </div>
 
-          <div className="cx-proof-cta reveal reveal-grow">
-            <button type="button" className="cx-btn-secondary" onClick={() => navigate('/tour')}>
-              Take the product tour
-              <ArrowRight size={17} />
-            </button>
-          </div>
+          {!isMarketingOnly && (
+            <div className="cx-proof-cta reveal reveal-grow">
+              <button type="button" className="cx-btn-secondary" onClick={() => navigate('/tour')}>
+                Take the product tour
+                <ArrowRight size={17} />
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -816,18 +820,20 @@ export default function Waitlist() {
             height={32}
           />
         </div>
-        <div className="cx-footer-links">
-          <button type="button" className="cx-footer-link" onClick={() => navigate('/tour')}>
-            Product tour
-          </button>
-          <button
-            type="button"
-            className="cx-footer-link"
-            onClick={() => navigate('/client/login')}
-          >
-            Client login
-          </button>
-        </div>
+        {!isMarketingOnly && (
+          <div className="cx-footer-links">
+            <button type="button" className="cx-footer-link" onClick={() => navigate('/tour')}>
+              Product tour
+            </button>
+            <button
+              type="button"
+              className="cx-footer-link"
+              onClick={() => navigate('/client/login')}
+            >
+              Client login
+            </button>
+          </div>
+        )}
         <div className="cx-footer-copy">
           © {new Date().getFullYear()} Credyx A/R Solutions. All rights reserved.
         </div>

@@ -54,6 +54,8 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string
   readonly VITE_SUPABASE_PUBLISHABLE_KEY?: string
   readonly VITE_SUPABASE_ANON_KEY?: string
+  /** true when building the public waitlist-only Vercel site */
+  readonly VITE_MARKETING_ONLY?: string
 }
 
 interface ImportMeta {
