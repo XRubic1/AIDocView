@@ -1,14 +1,17 @@
 interface EnrollFieldProps {
   label: string
   children: React.ReactNode
+  /** When false, shows an optional hint instead of a required asterisk. */
+  required?: boolean
 }
 
-/** Labeled wrapper for enrollment form inputs (clean light theme). */
-export function EnrollField({ label, children }: EnrollFieldProps) {
+/** Labeled wrapper for enrollment / waitlist form inputs (clean light theme). */
+export function EnrollField({ label, children, required = true }: EnrollFieldProps) {
   return (
     <div>
       <label className="cx-field-label">
-        {label} <span className="req">*</span>
+        {label}{' '}
+        {required ? <span className="req">*</span> : <span className="opt">(optional)</span>}
       </label>
       {children}
     </div>

@@ -1,0 +1,62 @@
+---
+description: Credyx Instagram image generation formula — logo, truck, clean UI, hand underline
+alwaysApply: true
+---
+
+# Credyx Instagram image generator
+
+Use whenever generating or prompting ChatGPT/Cursor images for Credyx Instagram posts.
+Voice/copy rules: `.cursor/rules/credyx-marketing-prompts.mdc`  
+Inventory: `docs/marketing/CREATIVE_INVENTORY.md`
+
+## Always include (non-negotiable)
+
+### 1. Credyx logo
+- Top-left (or clear brand placement): **Credyx** wordmark
+- **Cred** white · **yx** `#1684FE` with upward arrow in the **x**
+- Small tagline under logo: **A/R SOLUTIONS**
+- Prefer attaching a real Credyx logo / prior post as a **reference image**
+
+### 2. Clean truck photo
+- Always include a **clean, realistic** semi-truck (dusk highway, headlights OK)
+- Truck is **secondary** — muted/darkened, not the hero, not overwhelming
+- Preferred layout: **left navy text/UI (~55%)** · **right truck (~45%)** · thick curved blue `#1684FE` divider
+- NO glossy hyperreal AI truck · NO neon trails · NO plastic “corporate AI” look
+
+### 3. Clean looking UI
+- Dark navy `#0F172A` + blue `#1684FE` + white
+- Status cards, steppers, icons: flat, spaced, rounded, thin borders — product-ad polish
+- One clear message; mobile-readable; lots of empty space
+- Square **1080×1080** unless asked otherwise
+- Demo data only; no real emails/names
+
+### 4. Hand-painted underline
+- Always emphasize **one key word or short phrase** in the headline
+- That phrase: **bold** + color `#1684FE`
+- Under it: **hand-painted** underline — imperfect brush/marker stroke, slightly wavy, NOT a perfect straight rule
+- Only underline the emphasized phrase (not the whole headline)
+
+## Always footer / CTA
+
+```
+Credyx · Paid on time
+```
+
+Never: get paid faster / factoring / instant cash.
+
+## Prompt block (paste into every image prompt)
+
+```
+Credyx IG formula (must follow):
+1) Credyx logo top-left (white Cred + blue yx arrow) + A/R SOLUTIONS
+2) Clean realistic dusk truck on RIGHT behind curved blue #1684FE divider — secondary, muted, not overwhelming
+3) Clean dark-navy UI / typography on LEFT — spacious, mobile-readable
+4) One headline key phrase: BOLD + #1684FE + HAND-PAINTED underline (wavy brush stroke)
+5) Footer: Credyx · Paid on time
+NO neon AI glow. NOT factoring. Square format.
+```
+
+## After generating
+
+- Add/update entry in `docs/marketing/CREATIVE_INVENTORY.md`
+- Do not clone an existing IG-* hook without a new angle

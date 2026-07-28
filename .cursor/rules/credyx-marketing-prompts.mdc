@@ -1,0 +1,88 @@
+---
+description: Credyx Instagram/marketing prompt rules — positioning, workflow, banned phrases, visuals
+alwaysApply: true
+---
+
+# Credyx marketing prompt rules
+
+Use for Instagram captions, ChatGPT/image prompts, and creative review.
+Also check `docs/marketing/CREATIVE_INVENTORY.md` before proposing a new post — do not duplicate existing creatives.
+
+## What Credyx is
+
+- **A/R + back-office for trucking carriers** — not factoring, not cash advances.
+- Carriers submit docs; Credyx verifies, invoices brokers, follows up, tracks to **paid on time**.
+- Value: visibility, less chasing, back office without hiring a full A/R team.
+
+## Real workflow (use ONLY this)
+
+Credyx does **not** confirm load delivery or capture POD in the field.
+
+| Step | Label | What Credyx does |
+| --- | --- | --- |
+| 01 | Docs received | Carrier submits paperwork / invoice packet to Credyx |
+| 02 | Paperwork verified | We verify documents so nothing gets missed |
+| 03 | Invoice submitted | We submit invoice (PPW) to the broker and track acceptance |
+| 04 | Broker follow-up | We follow up, resolve holds/disputes, keep carrier informed |
+| 05 | Payment received | We confirm payment when it arrives — **on time** |
+
+### Invoice progress stepper (UI on creatives)
+
+Never use: Delivered → Verified → Submitted → Paid.
+
+**Correct order:**
+
+1. **Submitted** — invoice/packet submitted to Credyx  
+2. **Verified** — paperwork verified, good to go  
+3. **Invoiced** — PPW sent to broker  
+4. **Paid** — invoice paid  
+
+## Mission & preferred lines
+
+- Mission: *Empowering truckers. Simplifying payments. Driving success.*
+- Product: *Your back office, in one portal.*
+- OK: *Focus on the road. We’ll handle the rest.* · *Paid on time.* · *We keep you updated.*
+
+## Banned
+
+- get paid faster / paid faster / faster payments (cash promise)
+- instant cash, same-day pay, advance, factoring, buy your invoices
+- “We confirm delivery / capture POD” / Load Delivered as a Credyx step
+- Glossy hyperreal AI truck heroes / neon truck trails (clean muted truck OK — see image-generator rule)
+
+```
+❌ “DM us · Get paid faster”
+✅ “DM us · Paid on time”
+✅ “DM us · See your A/R clearly”
+```
+
+## Visual rules (anti–“AI scream”)
+
+For **generated Instagram images**, follow `.cursor/rules/credyx-image-generator.mdc` (logo + truck + clean UI + hand underline every time).
+
+General:
+- Dark navy + `#1684FE` + white; one clear message; mobile-readable
+- Truck: clean/realistic, **secondary** behind curved blue divider — never glossy AI hyperreal
+- No giant glowing arrows, neon haze, plastic “corporate AI” look
+- Product UI cards preferred on the text side when showing features/process
+
+## Prompt checklist
+
+1. Brand: Credyx A/R Solutions + **logo on image**  
+2. Image formula: logo · truck · clean UI · hand underline (see image-generator rule)  
+3. Correct workflow / stepper if process UI is shown  
+4. One pillar only (pain / proof / process / offer)  
+5. Not factoring; on-time language only  
+6. Approved CTA: Credyx · Paid on time  
+7. UI mocks: demo data; blur real names/emails; status colors when count > 0  
+8. Check inventory — don’t clone an existing post  
+9. Website copy: see `docs/marketing/WAITLIST_MARKETING_SITE.md` when building public pages
+
+## Content pillars
+
+| Pillar | Example |
+| --- | --- |
+| Pain | Still chasing invoices / missing docs / holds |
+| Proof | Real dashboard or mobile invoice status |
+| Process | Docs → verified → invoiced → follow-up → paid on time |
+| Offer | Back office without hiring a whole team |

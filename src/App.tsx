@@ -1,10 +1,11 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import ClientProtectedLayout from './components/client/ClientProtectedLayout'
 import AdminProtectedLayout from './components/admin/AdminProtectedLayout'
 import { ThemeProvider } from './theme/ThemeContext'
 import Login from './pages/Login'
 import ClientLogin from './pages/ClientLogin'
 import Enroll from './pages/Enroll'
+import Waitlist from './pages/Waitlist'
 import LandingPage from './pages/LandingPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import { ToastProvider } from './components/ui/ToastProvider'
@@ -66,6 +67,8 @@ function App() {
           <ToastProvider>
             <Routes>
               <Route path="/enroll" element={<Enroll />} />
+              <Route path="/waitlist" element={<Waitlist />} />
+              <Route path="/join" element={<Navigate to="/waitlist" replace />} />
               <Route path="/tour" element={withRouteSuspense(Tour, 'Loading tour…')} />
               <Route path="/how-it-works" element={withRouteSuspense(HowItWorks)} />
               <Route path="/login" element={<Login />} />
