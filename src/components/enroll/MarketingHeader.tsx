@@ -31,6 +31,24 @@ export function MarketingHeader() {
     navigate('/waitlist#pricing')
   }
 
+  const goBuddy = () => {
+    setMenuOpen(false)
+    if (location.pathname === '/waitlist') {
+      document.getElementById('buddy')?.scrollIntoView({ behavior: 'smooth' })
+      return
+    }
+    navigate('/waitlist#buddy')
+  }
+
+  const goFeatures = () => {
+    setMenuOpen(false)
+    if (location.pathname === '/waitlist') {
+      document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })
+      return
+    }
+    navigate('/waitlist#features')
+  }
+
   const go = (path: string) => {
     setMenuOpen(false)
     navigate(path)
@@ -74,6 +92,12 @@ export function MarketingHeader() {
       >
         <button type="button" className="cx-nav-link" onClick={goPricing}>
           Pricing
+        </button>
+        <button type="button" className="cx-nav-link" onClick={goBuddy}>
+          Buddy
+        </button>
+        <button type="button" className="cx-nav-link" onClick={goFeatures}>
+          Features
         </button>
         <button type="button" className="cx-nav-link" onClick={() => go('/how-it-works')}>
           How it works

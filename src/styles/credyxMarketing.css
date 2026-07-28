@@ -1079,6 +1079,33 @@
   opacity: 0.95;
 }
 
+/* Super-subtle intermittent wiggle on key phrase */
+.credyx-page--waitlist .cx-soft-wiggle {
+  display: inline-block;
+  transform-origin: 50% 70%;
+  animation: cx-soft-wiggle 5.5s ease-in-out infinite;
+}
+
+@keyframes cx-soft-wiggle {
+  0%,
+  82%,
+  100% {
+    transform: rotate(0deg) translateX(0);
+  }
+  86% {
+    transform: rotate(-1.1deg) translateX(-0.5px);
+  }
+  90% {
+    transform: rotate(1deg) translateX(0.5px);
+  }
+  94% {
+    transform: rotate(-0.6deg) translateX(-0.25px);
+  }
+  97% {
+    transform: rotate(0.35deg) translateX(0.15px);
+  }
+}
+
 .credyx-page--waitlist .cx-mesh {
   background:
     radial-gradient(600px 420px at 12% 8%, rgba(22, 132, 254, 0.12), transparent 60%),
@@ -1138,26 +1165,30 @@
   margin-bottom: clamp(18px, 3vh, 28px);
 }
 
-/* ── Split hero ── */
+/* ── Hero (copy + full-bleed truck) ── */
 .credyx-page--waitlist .cx-hero--waitlist {
-  padding: clamp(40px, 7vh, 88px) var(--cx-pad-x) clamp(48px, 8vh, 96px);
+  padding: clamp(48px, 8vh, 100px) var(--cx-pad-x) clamp(56px, 9vh, 110px);
+  min-height: min(78vh, 720px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .credyx-page--waitlist .cx-hero--waitlist .cx-hero-photo img {
-  opacity: 0.2;
-  filter: saturate(0.75) contrast(1.02);
-  object-position: 70% 55%;
+  opacity: 0.42;
+  filter: saturate(0.8) contrast(1.04);
+  object-position: 78% 50%;
   transform: scale(1.04);
-  animation: cx-photo- ken 28s ease-in-out infinite alternate;
+  animation: cx-photo-ken 28s ease-in-out infinite alternate;
 }
 
 .credyx-page--waitlist .cx-hero--waitlist .cx-hero-photo::after {
   background: linear-gradient(
-    105deg,
+    100deg,
     #ffffff 0%,
-    rgba(255, 255, 255, 0.94) 38%,
-    rgba(255, 255, 255, 0.55) 62%,
-    rgba(255, 255, 255, 0.2) 100%
+    rgba(255, 255, 255, 0.96) 42%,
+    rgba(255, 255, 255, 0.62) 68%,
+    rgba(255, 255, 255, 0.28) 100%
   );
 }
 
@@ -1166,15 +1197,13 @@
   z-index: 2;
   max-width: var(--cx-max);
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-  gap: clamp(28px, 5vw, 56px);
-  align-items: center;
+  width: 100%;
 }
 
 .credyx-page--waitlist .cx-hero-copy {
   text-align: left;
   min-width: 0;
+  max-width: 36rem;
 }
 
 .credyx-page--waitlist .cx-hero-stats {
@@ -1911,11 +1940,11 @@
 
 /* Form / footer helpers */
 .credyx-page--waitlist .cx-form-privacy {
-  margin: 14px 0 0;
-  font-size: 13px;
+  margin: 8px 0 0;
+  font-size: 12px;
   color: var(--cx-muted);
   text-align: center;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .credyx-page--waitlist .cx-field-label .opt {
@@ -1925,182 +1954,1028 @@
 
 .credyx-page--waitlist .cx-enroll-shell {
   max-width: min(640px, 100%);
+  margin: 0 auto;
 }
 
-.credyx-page--waitlist .cx-spots-banner {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  border-radius: 14px;
-  border: 1px solid rgba(22, 132, 254, 0.28);
-  background: linear-gradient(135deg, var(--cx-blue-soft) 0%, #ffffff 70%);
+/* Join waitlist — polished */
+.credyx-page--waitlist .cx-section--join {
+  padding: clamp(36px, 6vh, 72px) var(--cx-pad-x);
+  scroll-margin-top: 72px;
 }
 
-.credyx-page--waitlist .cx-spots-count {
-  flex-shrink: 0;
-  min-width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
-  font-size: 1.45rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #ffffff;
-  background: var(--cx-blue);
-  box-shadow: 0 8px 20px rgba(22, 132, 254, 0.28);
-}
-
-.credyx-page--waitlist .cx-spots-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--cx-navy);
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-}
-
-.credyx-page--waitlist .cx-spots-copy small {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--cx-body);
-}
-
-/* ── Pricing section ── */
-.credyx-page--waitlist .cx-pricing {
-  display: flex;
-  flex-direction: column;
-  gap: clamp(20px, 3vh, 28px);
-}
-
-.credyx-page--waitlist .cx-pricing-hero {
-  background: #ffffff;
-  border: 1px solid var(--cx-border);
-  border-radius: var(--cx-radius);
-  padding: clamp(22px, 3vw, 32px);
-  box-shadow: 0 16px 44px rgba(15, 23, 42, 0.06);
-}
-
-.credyx-page--waitlist .cx-pricing-plain {
-  margin: 0 0 22px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  background: var(--cx-blue-soft);
-  border: 1px solid rgba(22, 132, 254, 0.18);
-  font-size: clamp(0.95rem, 0.9rem + 0.25vw, 1.05rem);
-  line-height: 1.55;
-  color: var(--cx-ink);
-}
-
-.credyx-page--waitlist .cx-pricing-plain strong {
-  color: var(--cx-navy);
-  font-weight: 750;
-}
-
-.credyx-page--waitlist .cx-pricing-flow {
-  display: grid;
-  grid-template-columns: 1fr minmax(48px, 88px) 1fr minmax(48px, 88px) 1fr;
-  align-items: start;
-  gap: 0 8px;
-  margin-bottom: 22px;
-}
-
-.credyx-page--waitlist .cx-pricing-step {
+.credyx-page--waitlist .cx-join-head {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 0 6px;
+  gap: 0;
+  margin: 0 auto 22px;
+  max-width: 34rem;
 }
 
-.credyx-page--waitlist .cx-pricing-step-num {
+.credyx-page--waitlist .cx-join-head .cx-section-title {
+  font-size: clamp(1.4rem, 1.2rem + 0.9vw, 1.95rem);
+  margin: 0 0 8px;
+}
+
+.credyx-page--waitlist .cx-join-head .cx-section-sub {
+  margin: 0 auto 16px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--cx-body);
+  max-width: 30rem;
+}
+
+.credyx-page--waitlist .cx-spots-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(22, 132, 254, 0.2);
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(22, 132, 254, 0.08);
+}
+
+.credyx-page--waitlist .cx-spots-count {
   flex-shrink: 0;
-  width: 36px;
+  min-width: 36px;
   height: 36px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  font-size: 1rem;
   font-weight: 800;
+  letter-spacing: -0.03em;
   color: #ffffff;
-  background: var(--cx-navy);
-  box-shadow: 0 0 0 6px var(--cx-blue-soft);
+  background: var(--cx-blue);
 }
 
-.credyx-page--waitlist .cx-pricing-step strong {
+.credyx-page--waitlist .cx-spots-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  align-items: flex-start;
+  font-size: 0.82rem;
+  font-weight: 750;
+  color: var(--cx-navy);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  padding-right: 4px;
+}
+
+.credyx-page--waitlist .cx-spots-copy small {
+  font-size: 0.68rem;
+  font-weight: 550;
+  color: var(--cx-muted);
+  white-space: nowrap;
+}
+
+.credyx-page--waitlist .cx-form-card--join {
+  padding: clamp(20px, 3vw, 28px);
+  border-radius: 20px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.06);
+  background: #ffffff;
+}
+
+.credyx-page--waitlist .cx-waitlist-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.credyx-page--waitlist .cx-waitlist-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+
+.credyx-page--waitlist .cx-form-card--join .cx-field-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--cx-navy);
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+}
+
+.credyx-page--waitlist .cx-form-card--join .cx-input {
+  font-size: 0.9rem;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1.5px solid rgba(15, 23, 42, 0.1);
+  background: var(--cx-surface);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.credyx-page--waitlist .cx-form-card--join .cx-input:hover {
+  border-color: rgba(22, 132, 254, 0.28);
+  background: #ffffff;
+}
+
+.credyx-page--waitlist .cx-form-card--join .cx-input:focus {
+  outline: none;
+  background: #ffffff;
+  border-color: var(--cx-blue);
+  box-shadow: 0 0 0 4px rgba(22, 132, 254, 0.12);
+}
+
+.credyx-page--waitlist .cx-form-card--join textarea.cx-input {
+  min-height: 64px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.credyx-page--waitlist .cx-waitlist-submit {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+  padding-top: 13px;
+  padding-bottom: 13px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.credyx-page--waitlist .cx-waitlist-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.18);
+}
+
+.credyx-page--waitlist .cx-form-card--join .cx-form-error {
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  margin: 0;
+  border-radius: 12px;
+}
+
+.credyx-page--waitlist .cx-success--waitlist {
+  text-align: center;
+  padding: clamp(28px, 4vw, 40px) 24px;
+  border-radius: 20px;
+  border: 1px solid rgba(47, 169, 140, 0.22);
+  background: linear-gradient(180deg, #f3fbf8 0%, #ffffff 70%);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.05);
+}
+
+.credyx-page--waitlist .cx-success--waitlist .cx-success-icon {
+  color: var(--cx-success);
+  margin-bottom: 10px;
+}
+
+@media (max-width: 700px) {
+  .credyx-page--waitlist .cx-join-head {
+    margin-bottom: 18px;
+  }
+
+  .credyx-page--waitlist .cx-spots-banner {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .credyx-page--waitlist .cx-waitlist-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .credyx-page--waitlist .cx-section--join {
+    padding: 28px var(--cx-pad-x) 36px;
+  }
+
+  .credyx-page--waitlist .cx-waitlist-fields {
+    gap: 12px;
+  }
+
+  .credyx-page--waitlist .cx-form-card--join {
+    padding: 16px;
+  }
+}
+
+/* ── Trucking Buddy section (polished) ── */
+.credyx-page--waitlist .cx-section--buddy {
+  padding: clamp(36px, 6vh, 72px) var(--cx-pad-x);
+  scroll-margin-top: 72px;
+}
+
+.credyx-page--waitlist .cx-buddy-head {
+  text-align: center;
+  margin: 0 auto 28px;
+  max-width: 34rem;
+}
+
+.credyx-page--waitlist .cx-buddy-head .cx-eyebrow {
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.credyx-page--waitlist .cx-buddy-head .cx-section-title {
+  font-size: clamp(1.4rem, 1.2rem + 0.9vw, 1.95rem);
+  margin: 0 0 10px;
+}
+
+.credyx-page--waitlist .cx-buddy-head .cx-section-sub {
+  margin: 0 auto;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--cx-body);
+}
+
+/* ── App features tabs (airy / polished) ── */
+.credyx-page--waitlist .cx-section--features {
+  padding: clamp(36px, 6vh, 72px) var(--cx-pad-x);
+  scroll-margin-top: 72px;
+}
+
+.credyx-page--waitlist .cx-features-head {
+  text-align: center;
+  margin: 0 auto 24px;
+  max-width: 28rem;
+}
+
+.credyx-page--waitlist .cx-features-head .cx-eyebrow {
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.credyx-page--waitlist .cx-features-head .cx-section-title {
+  font-size: clamp(1.4rem, 1.2rem + 0.9vw, 1.95rem);
+  margin: 0 0 8px;
+}
+
+.credyx-page--waitlist .cx-features-head .cx-section-sub {
+  margin: 0 auto;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--cx-body);
+}
+
+.credyx-page--waitlist .cx-features-shell {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 20px;
+  padding: clamp(18px, 2.5vw, 28px);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.05);
+}
+
+.credyx-page--waitlist .cx-features-tabs {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 22px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.credyx-page--waitlist .cx-features-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 80px;
+  padding: 12px 8px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: var(--cx-surface);
+  color: var(--cx-body);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.credyx-page--waitlist .cx-features-tab-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  color: var(--cx-blue);
+  border: 1px solid rgba(22, 132, 254, 0.12);
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.credyx-page--waitlist .cx-features-tab-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.credyx-page--waitlist .cx-features-tab:hover {
+  border-color: rgba(22, 132, 254, 0.2);
+  color: var(--cx-navy);
+  transform: translateY(-1px);
+}
+
+.credyx-page--waitlist .cx-features-tab.active {
+  background: #ffffff;
+  border-color: rgba(22, 132, 254, 0.35);
+  color: var(--cx-navy);
+  box-shadow: 0 10px 28px rgba(22, 132, 254, 0.12);
+}
+
+.credyx-page--waitlist .cx-features-tab.active .cx-features-tab-icon {
+  background: var(--cx-blue);
+  border-color: var(--cx-blue);
+  color: #ffffff;
+}
+
+.credyx-page--waitlist .cx-features-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 4px 2px 2px;
+  animation: cx-features-panel-in 0.28s ease;
+}
+
+@keyframes cx-features-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.credyx-page--waitlist .cx-features-panel-intro {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.credyx-page--waitlist .cx-features-panel-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: linear-gradient(160deg, #eff6ff 0%, #dbeafe 100%);
+  color: var(--cx-blue);
+  border: 1px solid rgba(22, 132, 254, 0.14);
+}
+
+.credyx-page--waitlist .cx-features-panel-copy {
+  min-width: 0;
+}
+
+.credyx-page--waitlist .cx-features-panel-copy h3 {
+  margin: 0 0 4px;
+  font-size: clamp(1.05rem, 1rem + 0.3vw, 1.2rem);
+  font-weight: 800;
+  color: var(--cx-navy);
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+
+.credyx-page--waitlist .cx-features-panel-copy > p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--cx-body);
+  max-width: 36rem;
+}
+
+.credyx-page--waitlist .cx-features-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.credyx-page--waitlist .cx-features-points li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.025);
+  border: none;
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--cx-navy);
+  letter-spacing: -0.01em;
+}
+
+.credyx-page--waitlist .cx-features-point-dot {
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: var(--cx-blue);
+}
+
+@media (max-width: 980px) {
+  .credyx-page--waitlist .cx-features-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .credyx-page--waitlist .cx-section--features {
+    padding: 28px var(--cx-pad-x) 36px;
+  }
+
+  .credyx-page--waitlist .cx-features-head {
+    margin-bottom: 20px;
+  }
+
+  .credyx-page--waitlist .cx-features-tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+  }
+
+  .credyx-page--waitlist .cx-features-tab {
+    flex: 0 0 auto;
+    min-width: 92px;
+    min-height: 82px;
+    padding: 12px 14px;
+  }
+
+  .credyx-page--waitlist .cx-features-panel-intro {
+    gap: 12px;
+  }
+
+  .credyx-page--waitlist .cx-features-panel-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+  }
+
+  .credyx-page--waitlist .cx-features-points {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+
+.credyx-page--waitlist .cx-buddy-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: clamp(18px, 3vw, 28px);
+  align-items: stretch;
+}
+
+.credyx-page--waitlist .cx-buddy-demo {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 20px;
+  padding: clamp(16px, 2vw, 22px);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+}
+
+.credyx-page--waitlist .cx-buddy-demo-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.credyx-page--waitlist .cx-buddy-avatar {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  flex-shrink: 0;
+  background: #ffffff;
+  animation: cx-buddy-float 3.4s ease-in-out infinite;
+}
+
+.credyx-page--waitlist .cx-buddy-demo-top strong {
   display: block;
-  font-size: 0.98rem;
+  font-size: 1rem;
   font-weight: 800;
   color: var(--cx-navy);
   letter-spacing: -0.02em;
-  line-height: 1.3;
+  line-height: 1.25;
 }
 
-.credyx-page--waitlist .cx-pricing-step p {
-  margin: 0;
-  font-size: 0.84rem;
-  color: var(--cx-body);
-  line-height: 1.45;
-  max-width: 11.5rem;
+.credyx-page--waitlist .cx-buddy-demo-top span {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--cx-muted);
 }
 
-/* Align connectors with the step titles (below the numbered badges) */
-.credyx-page--waitlist .cx-pricing-connector {
+.credyx-page--waitlist .cx-buddy-example-bar {
   display: flex;
   align-items: center;
-  /* badge 36px + step gap 10px → sits on the title row */
-  margin-top: 46px;
-  height: 1.3em;
-  color: var(--cx-blue);
-  min-width: 0;
-  width: 100%;
-  opacity: 0.9;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
 }
 
-.credyx-page--waitlist .cx-pricing-connector-line {
-  display: block;
-  flex: 1;
-  height: 2px;
-  min-width: 12px;
-  background: linear-gradient(90deg, rgba(22, 132, 254, 0.2), var(--cx-blue));
+.credyx-page--waitlist .cx-buddy-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
   border-radius: 999px;
+  border: 1px solid rgba(22, 132, 254, 0.2);
+  background: var(--cx-surface);
+  color: var(--cx-blue);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
-.credyx-page--waitlist .cx-pricing-connector svg {
+.credyx-page--waitlist .cx-buddy-nav-btn:hover {
+  background: #ffffff;
+  border-color: var(--cx-blue);
+  box-shadow: 0 8px 18px rgba(22, 132, 254, 0.12);
+  transform: translateY(-1px);
+}
+
+.credyx-page--waitlist .cx-buddy-nav-btn:active {
+  transform: scale(0.96);
+}
+
+.credyx-page--waitlist .cx-buddy-example-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
+}
+
+.credyx-page--waitlist .cx-buddy-example-title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--cx-navy);
+  letter-spacing: -0.02em;
+}
+
+.credyx-page--waitlist .cx-buddy-example-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--cx-muted);
+}
+
+.credyx-page--waitlist .cx-buddy-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+  height: 260px;
+  min-height: 260px;
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 0 0 auto;
+  scrollbar-width: thin;
+  padding-right: 2px;
+}
+
+.credyx-page--waitlist .cx-buddy-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  opacity: 0;
+  animation: cx-buddy-bubble-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.credyx-page--waitlist .cx-buddy-bubble {
+  max-width: 88%;
+  padding: 11px 14px;
+  border-radius: 16px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--cx-ink);
+  position: relative;
+}
+
+.credyx-page--waitlist .cx-buddy-bubble--user {
+  align-self: flex-end;
+  background: var(--cx-navy);
+  color: #ffffff;
+  border-bottom-right-radius: 6px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+  opacity: 0;
+  animation: cx-buddy-bubble-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.credyx-page--waitlist .cx-buddy-bubble--bot {
+  max-width: none;
+  flex: 1;
+  min-width: 0;
+  background: linear-gradient(160deg, #eff6ff 0%, #f8fbff 100%);
+  border: 1px solid rgba(22, 132, 254, 0.14);
+  border-bottom-left-radius: 6px;
+}
+
+.credyx-page--waitlist .cx-buddy-bubble--bot::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  bottom: 12px;
+  width: 12px;
+  height: 12px;
+  background: #eff6ff;
+  border-left: 1px solid rgba(22, 132, 254, 0.14);
+  border-bottom: 1px solid rgba(22, 132, 254, 0.14);
+  transform: rotate(45deg);
+}
+
+.credyx-page--waitlist .cx-buddy-bubble--bot p {
+  margin: 0;
+  min-width: 0;
+}
+
+.credyx-page--waitlist .cx-buddy-bubble strong {
+  color: var(--cx-navy);
+  font-weight: 700;
+}
+
+.credyx-page--waitlist .cx-buddy-bubble-face {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
   flex-shrink: 0;
-  margin-left: -1px;
+  background: #ffffff;
+  border-radius: 10px;
+}
+
+.credyx-page--waitlist .cx-buddy-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow: visible;
+}
+
+.credyx-page--waitlist .cx-buddy-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(22, 132, 254, 0.16);
+  background: var(--cx-surface);
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--cx-blue);
+  white-space: nowrap;
+  flex-shrink: 1;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.credyx-page--waitlist .cx-buddy-chip:hover {
+  background: #ffffff;
+  border-color: rgba(22, 132, 254, 0.35);
+  transform: translateY(-1px);
+}
+
+.credyx-page--waitlist .cx-buddy-chip.active {
+  background: var(--cx-blue);
+  border-color: var(--cx-blue);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(22, 132, 254, 0.2);
+}
+
+.credyx-page--waitlist .cx-buddy-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: clamp(4px, 0.5vw, 8px) 0;
+}
+
+.credyx-page--waitlist .cx-buddy-aside-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cx-muted);
+}
+
+.credyx-page--waitlist .cx-buddy-features {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.credyx-page--waitlist .cx-buddy-feature {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  border-radius: 16px;
+  padding: 14px 14px;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.credyx-page--waitlist .cx-buddy-feature:hover {
+  transform: translateY(-2px);
+  border-color: rgba(22, 132, 254, 0.2);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+}
+
+.credyx-page--waitlist .cx-buddy-feature-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: linear-gradient(160deg, #eff6ff 0%, #dbeafe 100%);
+  color: var(--cx-blue);
+  border: 1px solid rgba(22, 132, 254, 0.12);
+}
+
+.credyx-page--waitlist .cx-buddy-feature h3 {
+  margin: 0 0 2px;
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--cx-navy);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.credyx-page--waitlist .cx-buddy-feature p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--cx-muted);
+}
+
+.credyx-page--waitlist .cx-buddy-aside-note {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--cx-muted);
+  padding-left: 2px;
+}
+
+@keyframes cx-buddy-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes cx-buddy-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 900px) {
+  .credyx-page--waitlist .cx-buddy-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .credyx-page--waitlist .cx-buddy-features {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .credyx-page--waitlist .cx-section--buddy {
+    padding: 28px var(--cx-pad-x) 36px;
+  }
+
+  .credyx-page--waitlist .cx-buddy-head {
+    margin-bottom: 20px;
+  }
+
+  .credyx-page--waitlist .cx-buddy-chat {
+    height: 240px;
+    min-height: 240px;
+    max-height: 240px;
+  }
+
+  .credyx-page--waitlist .cx-buddy-features {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .credyx-page--waitlist .cx-buddy-avatar,
+  .credyx-page--waitlist .cx-buddy-bubble,
+  .credyx-page--waitlist .cx-buddy-row {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Buddy face on waitlist (styles live under .client-portal in the app) */
+.credyx-page--waitlist .assistant-buddy {
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.credyx-page--waitlist .assistant-buddy__svg {
+  display: block;
+  overflow: visible;
+}
+
+.credyx-page--waitlist .assistant-buddy__blush {
+  fill: #fda4af;
+  opacity: 0.55;
+}
+
+.credyx-page--waitlist .assistant-buddy--happy .assistant-buddy__blush {
+  opacity: 0.75;
+}
+
+.credyx-page--waitlist .assistant-buddy--happy .assistant-buddy__smile {
+  d: path('M28 47c3.5 7.2 10.5 10.5 12 10.5s8.5-3.3 12-10.5');
+}
+
+.credyx-page--waitlist .assistant-buddy--animated.assistant-buddy--idle,
+.credyx-page--waitlist .assistant-buddy--animated.assistant-buddy--happy {
+  animation: cx-buddy-bob 3.2s ease-in-out infinite;
+}
+
+.credyx-page--waitlist .assistant-buddy--animated .assistant-buddy__glow-fill {
+  animation: cx-buddy-glow 2.8s ease-in-out infinite;
+}
+
+.credyx-page--waitlist .assistant-buddy--animated .assistant-buddy__sparkle--a {
+  animation: cx-buddy-sparkle 2.4s ease-in-out infinite;
+  transform-origin: 64px 22px;
+}
+
+.credyx-page--waitlist .assistant-buddy--animated .assistant-buddy__sparkle--b {
+  animation: cx-buddy-sparkle 2.8s ease-in-out 0.4s infinite;
+  transform-origin: 14px 24px;
+}
+
+@keyframes cx-buddy-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes cx-buddy-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes cx-buddy-sparkle {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@media (max-width: 900px) {
+  .credyx-page--waitlist .cx-buddy-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .credyx-page--waitlist .cx-section--buddy {
+    padding: 18px var(--cx-pad-x) 22px;
+  }
+}
+
+/* ── Pricing section (simple / scannable) ── */
+.credyx-page--waitlist .cx-section--pricing {
+  padding: clamp(28px, 5vh, 56px) var(--cx-pad-x);
+  scroll-margin-top: 72px;
+}
+
+.credyx-page--waitlist .cx-pricing-head {
+  text-align: center;
+  margin: 0 auto 22px;
+  max-width: 34rem;
+}
+
+.credyx-page--waitlist .cx-pricing-head .cx-eyebrow {
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.credyx-page--waitlist .cx-pricing-head .cx-section-title {
+  font-size: clamp(1.4rem, 1.2rem + 0.9vw, 1.95rem);
+  margin: 0 0 8px;
+}
+
+.credyx-page--waitlist .cx-pricing-head .cx-section-sub {
+  margin: 0 auto;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--cx-body);
+}
+
+.credyx-page--waitlist .cx-pricing {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.credyx-page--waitlist .cx-pricing-hero {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 20px;
+  padding: clamp(20px, 3vw, 28px);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.05);
 }
 
 .credyx-page--waitlist .cx-pricing-zeros {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
-  padding-top: 18px;
-  border-top: 1px solid var(--cx-border);
+  margin-bottom: 20px;
+  padding: 0;
+  border: none;
 }
 
 .credyx-page--waitlist .cx-pricing-zeros > div {
   text-align: center;
   background: var(--cx-surface);
-  border: 1px solid var(--cx-border);
-  border-radius: 12px;
-  padding: 16px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  border-radius: 16px;
+  padding: 18px 12px;
 }
 
 .credyx-page--waitlist .cx-pricing-zeros span {
   display: block;
   font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
-  font-size: clamp(1.6rem, 1.2rem + 1.2vw, 2rem);
+  font-size: clamp(1.6rem, 1.3rem + 1vw, 2.1rem);
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   color: var(--cx-blue);
   line-height: 1;
 }
@@ -2109,29 +2984,87 @@
   display: block;
   margin-top: 8px;
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--cx-body);
 }
 
-.credyx-page--waitlist .cx-pricing-points {
+.credyx-page--waitlist .cx-pricing-steps {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: clamp(12px, 1.8vw, 18px);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.credyx-page--waitlist .cx-pricing-point {
-  background: #ffffff;
-  border: 1px solid var(--cx-border);
-  border-radius: var(--cx-radius);
-  padding: clamp(18px, 2.2vw, 26px);
+.credyx-page--waitlist .cx-pricing-steps li {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: left;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--cx-navy);
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  padding: 0 4px;
+}
+
+.credyx-page--waitlist .cx-pricing-steps li span {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #ffffff;
+  background: var(--cx-navy);
+}
+
+.credyx-page--waitlist .cx-pricing-example {
+  margin: 0;
+  text-align: center;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--cx-body);
+  padding-top: 14px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.credyx-page--waitlist .cx-pricing-example strong {
+  color: var(--cx-navy);
+  font-weight: 750;
+}
+
+@media (max-width: 700px) {
+  .credyx-page--waitlist .cx-pricing-steps {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .credyx-page--waitlist .cx-pricing-steps li {
+    justify-content: flex-start;
+  }
+
+  .credyx-page--waitlist .cx-pricing-zeros {
+    gap: 8px;
+  }
+
+  .credyx-page--waitlist .cx-pricing-zeros > div {
+    padding: 14px 8px;
+  }
 }
 
 .credyx-page--waitlist .cx-founding-card {
   position: relative;
   overflow: hidden;
-  border-radius: var(--cx-radius);
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.35);
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.1);
 }
 
 .credyx-page--waitlist .cx-founding-bg {
@@ -2159,19 +3092,19 @@
 .credyx-page--waitlist .cx-founding-bg::after {
   content: '';
   position: absolute;
-  width: 220px;
-  height: 220px;
+  width: 160px;
+  height: 160px;
   right: -40px;
-  bottom: -60px;
+  bottom: -50px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 0 0 28px rgba(22, 132, 254, 0.08);
+  box-shadow: 0 0 0 20px rgba(22, 132, 254, 0.08);
 }
 
 .credyx-page--waitlist .cx-founding-inner {
   position: relative;
   z-index: 1;
-  padding: clamp(22px, 3vw, 34px);
+  padding: clamp(14px, 2vw, 20px);
   background: rgba(15, 23, 42, 0.35);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -2180,15 +3113,15 @@
 
 .credyx-page--waitlist .cx-founding-top {
   display: grid;
-  grid-template-columns: 1.4fr 0.9fr;
-  gap: clamp(18px, 3vw, 32px);
-  align-items: start;
-  margin-bottom: 22px;
+  grid-template-columns: 1.5fr 0.85fr;
+  gap: 14px 20px;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
 .credyx-page--waitlist .cx-founding-eyebrow {
-  margin: 0 0 8px;
-  font-size: 0.75rem;
+  margin: 0 0 4px;
+  font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2196,9 +3129,9 @@
 }
 
 .credyx-page--waitlist .cx-founding-card h3 {
-  margin: 0 0 10px;
+  margin: 0 0 6px;
   font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
-  font-size: clamp(1.25rem, 1rem + 1vw, 1.55rem);
+  font-size: clamp(1.05rem, 0.95rem + 0.6vw, 1.3rem);
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.25;
@@ -2206,8 +3139,8 @@
 
 .credyx-page--waitlist .cx-founding-card p {
   margin: 0;
-  font-size: 0.95rem;
-  line-height: 1.6;
+  font-size: 0.84rem;
+  line-height: 1.45;
   color: rgba(255, 255, 255, 0.8);
 }
 
@@ -2221,14 +3154,14 @@
   border: 1px solid rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-radius: 14px;
-  padding: 18px 16px;
+  border-radius: 12px;
+  padding: 12px 12px 10px;
   text-align: center;
 }
 
 .credyx-page--waitlist .cx-founding-spots-num {
   font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
-  font-size: 2.6rem;
+  font-size: 2rem;
   font-weight: 800;
   letter-spacing: -0.04em;
   color: #93c5fd;
@@ -2236,15 +3169,15 @@
 }
 
 .credyx-page--waitlist .cx-founding-spots-label {
-  margin-top: 4px;
-  font-size: 0.9rem;
+  margin-top: 2px;
+  font-size: 0.78rem;
   font-weight: 700;
   color: #ffffff;
 }
 
 .credyx-page--waitlist .cx-founding-meter {
-  margin-top: 14px;
-  height: 8px;
+  margin-top: 8px;
+  height: 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.14);
   overflow: hidden;
@@ -2258,8 +3191,8 @@
 }
 
 .credyx-page--waitlist .cx-founding-meter-copy {
-  margin-top: 8px;
-  font-size: 0.75rem;
+  margin-top: 6px;
+  font-size: 0.68rem;
   color: rgba(255, 255, 255, 0.65);
 }
 
@@ -2267,6 +3200,10 @@
   background: rgba(255, 255, 255, 0.95);
   color: var(--cx-navy);
   backdrop-filter: blur(8px);
+  padding-top: 10px;
+  padding-bottom: 10px;
+  width: 100%;
+  justify-content: center;
 }
 
 .credyx-page--waitlist .cx-founding-card .cx-btn-primary:hover:not(:disabled) {
@@ -2274,8 +3211,18 @@
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
 }
 
-.credyx-page--waitlist .cx-form-card {
-  padding: clamp(22px, 3vw, 36px);
+@media (max-width: 700px) {
+  .credyx-page--waitlist .cx-pricing-step p {
+    display: none;
+  }
+
+  .credyx-page--waitlist .cx-pricing-points {
+    grid-template-columns: 1fr;
+  }
+
+  .credyx-page--waitlist .cx-section--pricing {
+    padding: 16px var(--cx-pad-x) 20px;
+  }
 }
 
 .credyx-page--waitlist .cx-footer-links {
@@ -2331,6 +3278,8 @@
 }
 
 .credyx-page--waitlist .reveal-stagger > .cx-card--grow,
+.credyx-page--waitlist .reveal-stagger > .cx-pricing-point,
+.credyx-page--waitlist .reveal-stagger > .cx-buddy-feature,
 .credyx-page--waitlist .reveal-stagger > .cx-coverage-item,
 .credyx-page--waitlist .reveal-stagger > .cx-proof-shot,
 .credyx-page--waitlist .reveal-stagger > .cx-proof-side > .cx-card--grow,
@@ -2343,6 +3292,8 @@
 }
 
 .credyx-page--waitlist .reveal-stagger.visible > .cx-card--grow,
+.credyx-page--waitlist .reveal-stagger.visible > .cx-pricing-point,
+.credyx-page--waitlist .reveal-stagger.visible > .cx-buddy-feature,
 .credyx-page--waitlist .reveal-stagger.visible > .cx-coverage-item,
 .credyx-page--waitlist .reveal-stagger.visible > .cx-proof-shot,
 .credyx-page--waitlist .reveal-stagger.visible > .cx-proof-side {
@@ -2471,13 +3422,11 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .credyx-page--waitlist .cx-hero-layout {
-    grid-template-columns: 1fr;
-    gap: clamp(32px, 5vh, 48px);
-  }
-
   .credyx-page--waitlist .cx-hero-copy {
     text-align: center;
+    max-width: 34rem;
+    margin-left: auto;
+    margin-right: auto;
   }
 
   .credyx-page--waitlist .cx-hero-headline,
@@ -2491,18 +3440,18 @@
     justify-content: center;
   }
 
-  .credyx-page--waitlist .cx-hero-visual-frame {
-    max-width: 620px;
-    margin: 0 auto;
-    min-height: 360px;
+  .credyx-page--waitlist .cx-hero--waitlist .cx-hero-photo img {
+    opacity: 0.28;
+    object-position: 60% 40%;
   }
 
-  .credyx-page--waitlist .cx-hero-dash {
-    inset: 0 16% 10% 0;
-  }
-
-  .credyx-page--waitlist .cx-hero-dash img {
-    max-height: 340px;
+  .credyx-page--waitlist .cx-hero--waitlist .cx-hero-photo::after {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.92) 0%,
+      rgba(255, 255, 255, 0.78) 55%,
+      rgba(255, 255, 255, 0.88) 100%
+    );
   }
 
   .credyx-page--waitlist .cx-proof {
@@ -2693,7 +3642,8 @@
   .credyx-page--waitlist .cx-mesh,
   .credyx-page--waitlist .cx-hero-dash,
   .credyx-page--waitlist .cx-hero-phone-wrap,
-  .credyx-page--waitlist .cx-hero--waitlist .cx-hero-photo img {
+  .credyx-page--waitlist .cx-hero--waitlist .cx-hero-photo img,
+  .credyx-page--waitlist .cx-soft-wiggle {
     animation: none;
   }
 

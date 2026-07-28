@@ -1,21 +1,26 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  ArrowLeft,
   ArrowRight,
-  Check,
   CheckCircle2,
   Eye,
   FileCheck,
   Headphones,
-  Percent,
-  ShieldCheck,
+  MessageSquare,
+  CalendarDays,
+  Navigation,
+  FilePenLine,
+  AlertCircle,
   Truck,
+  Building2,
+  BarChart3,
+  FolderOpen,
 } from 'lucide-react'
 import '../styles/credyxMarketing.css'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
 import { MarketingHeader } from '../components/enroll/MarketingHeader'
 import { WaitlistForm } from '../components/enroll/WaitlistForm'
-import { WaitlistInvoicePhone } from '../components/enroll/WaitlistInvoicePhone'
 
 // ── Static content (aligned with WAITLIST_MARKETING_SITE.md) ──
 
@@ -71,15 +76,56 @@ const BENEFITS = [
   },
 ]
 
-const COVERAGE = [
-  'Invoice creation and broker submission (PPW)',
-  'Paperwork verification (BOL, POD, rate con)',
-  'Collections and A/R follow-up',
-  'Payment status tracking and reconciliation',
-  'Held / disputed invoice visibility',
-  'Secure document storage',
-  'A/R aging and reporting',
-]
+const APP_FEATURE_TABS = [
+  {
+    id: 'invoices',
+    label: 'Invoices',
+    icon: FileCheck,
+    title: 'Invoices',
+    description: 'Track every invoice from paperwork to paid.',
+    points: ['Open A/R & holds at a glance', 'Status progress on every load', 'Details, activity, and docs together'],
+  },
+  {
+    id: 'calendar',
+    label: 'Calendar',
+    icon: CalendarDays,
+    title: 'A/R calendar',
+    description: 'Know what is due — paperwork, pay dates, and reminders.',
+    points: ['Paperwork & upload checks', 'Expected payment dates', 'Jump straight to the invoice'],
+  },
+  {
+    id: 'assistant',
+    label: 'Assistant',
+    icon: MessageSquare,
+    title: 'Trucking Buddy',
+    description: 'Ask about your A/R — Buddy answers from live invoices.',
+    points: ['Holds, aging & payments', 'Drafts you confirm first', 'Opens the right screen'],
+  },
+  {
+    id: 'brokers',
+    label: 'Brokers',
+    icon: Building2,
+    title: 'Brokers',
+    description: 'Broker context when you need it.',
+    points: ['Directory & notes', 'Quick MC lookup', 'Tied to your A/R'],
+  },
+  {
+    id: 'docvault',
+    label: 'DocVault',
+    icon: FolderOpen,
+    title: 'Document Vault',
+    description: 'Setup and broker docs, approved and ready.',
+    points: ['Company setup packets', 'NOAs & bank proof on file', 'Load docs with each invoice'],
+  },
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: BarChart3,
+    title: 'Reports',
+    description: 'See open, aging, and paid A/R clearly.',
+    points: ['Aging views', 'Payment tracking', 'Built for 1–50 trucks'],
+  },
+] as const
 
 const INVOICE_STEPS = [
   { label: 'Submitted', state: 'done' as const },
@@ -92,17 +138,148 @@ const WAITLIST_CAP = 100
 const WAITLIST_SPOTS_LEFT = 68
 const WAITLIST_TAKEN = WAITLIST_CAP - WAITLIST_SPOTS_LEFT
 
-const PRICING_POINTS = [
+const BUDDY_FEATURES = [
+  { icon: MessageSquare, title: 'Live A/R answers', hint: 'Holds, aging, payments' },
+  { icon: AlertCircle, title: 'Missing docs', hint: 'What is blocked & why' },
+  { icon: FilePenLine, title: 'Drafts for you', hint: 'Notes & emails — you confirm' },
+  { icon: Navigation, title: 'Takes you there', hint: 'Opens the right screen' },
+] as const
+
+const BUDDY_EXAMPLES = [
   {
-    icon: ShieldCheck,
-    title: 'You pay $0 to start',
-    description: 'No signup fee. No monthly bill. Opening an account costs nothing.',
+    title: 'Holds',
+    chip: 'On hold?',
+    messages: [
+      { role: 'user' as const, text: "What's on hold?" },
+      {
+        role: 'bot' as const,
+        face: '/credyx-buddy-thinking.png',
+        text: (
+          <>
+            Two invoices need attention: <strong>INV-1256</strong> is missing a POD, and{' '}
+            <strong>INV-1241</strong> is waiting on broker paperwork. Want me to draft a follow-up?
+          </>
+        ),
+      },
+      { role: 'user' as const, text: 'Draft an email to Credyx about my holds' },
+      {
+        role: 'bot' as const,
+        face: '/credyx-buddy-done.png',
+        text: (
+          <>
+            Draft ready — review it, then confirm before it&apos;s sent. I never post without you.
+          </>
+        ),
+      },
+    ],
   },
   {
-    icon: Percent,
-    title: 'We get paid last',
-    description:
-      'First the broker pays you. Only after that money is yours do we take a small percent. Not before.',
+    title: 'Payments',
+    chip: 'Payments',
+    messages: [
+      { role: 'user' as const, text: 'Payment status' },
+      {
+        role: 'bot' as const,
+        face: '/credyx-buddy-thinking.png',
+        text: (
+          <>
+            <strong>3 open invoices</strong> · <strong>$12,480</strong>. INV-1250 expected this week;
+            INV-1248 is 6 days past due.
+          </>
+        ),
+      },
+      { role: 'user' as const, text: 'Show me what is past due' },
+      {
+        role: 'bot' as const,
+        face: '/credyx-buddy-done.png',
+        text: (
+          <>
+            <strong>INV-1248</strong> ($4,200) — open it, or I can draft a broker follow-up.
+          </>
+        ),
+      },
+    ],
+  },
+  {
+    title: 'Attention',
+    chip: 'Needs attention?',
+    messages: [
+      { role: 'user' as const, text: 'What needs my attention today?' },
+      {
+        role: 'bot' as const,
+        face: '/credyx-buddy-thinking.png',
+        text: (
+          <>
+            Today: upload POD for <strong>INV-1256</strong>, confirm expected pay on{' '}
+            <strong>INV-1250</strong>, and review one broker note on <strong>INV-1241</strong>.
+          </>
+        ),
+      },
+      { role: 'user' as const, text: 'Open INV-1256 for me' },
+      {
+        role: 'bot' as const,
+        face: '/credyx-buddy-done.png',
+        text: (
+          <>
+            Opening <strong>INV-1256</strong> now — docs tab is ready so you can upload the POD.
+          </>
+        ),
+      },
+    ],
+  },
+  {
+    title: 'Drafts',
+    chip: 'Draft note',
+    messages: [
+      { role: 'user' as const, text: 'Draft a note on INV-1241 — missing rate con' },
+      {
+        role: 'bot' as const,
+        face: '/credyx-buddy-thinking.png',
+        text: (
+          <>
+            Draft: &ldquo;Waiting on rate confirmation before we resubmit.&rdquo; Want a short email
+            too?
+          </>
+        ),
+      },
+      { role: 'user' as const, text: 'Yes — keep it short' },
+      {
+        role: 'bot' as const,
+        face: '/credyx-buddy-done.png',
+        text: (
+          <>
+            Both drafts are ready. Confirm and I&apos;ll post — email only sends after you approve.
+          </>
+        ),
+      },
+    ],
+  },
+  {
+    title: 'Navigate',
+    chip: 'Navigate',
+    messages: [
+      { role: 'user' as const, text: 'Take me to batches' },
+      {
+        role: 'bot' as const,
+        face: '/credyx-buddy-done.png',
+        text: (
+          <>
+            Heading to <strong>Batches</strong>. You have 1 packet ready to submit and 2 waiting on
+            review.
+          </>
+        ),
+      },
+      { role: 'user' as const, text: 'What about brokers?' },
+      {
+        role: 'bot' as const,
+        face: '/credyx-buddy-thinking.png',
+        text: (
+          <>
+            I can open Brokers or look up an MC#. Say the MC number and I&apos;ll pull what we have.
+          </>
+        ),
+      },
+    ],
   },
 ] as const
 
@@ -110,7 +287,24 @@ const PRICING_POINTS = [
 export default function Waitlist() {
   const navigate = useNavigate()
   const rootRef = useRef<HTMLDivElement>(null)
+  const [buddyExampleIndex, setBuddyExampleIndex] = useState(0)
+  const [featureTabId, setFeatureTabId] = useState<(typeof APP_FEATURE_TABS)[number]['id']>(
+    'calendar'
+  )
   useRevealOnScroll(rootRef)
+
+  const buddyExample = BUDDY_EXAMPLES[buddyExampleIndex]
+  const buddyExampleCount = BUDDY_EXAMPLES.length
+  const activeFeatureTab =
+    APP_FEATURE_TABS.find((tab) => tab.id === featureTabId) ?? APP_FEATURE_TABS[0]
+
+  const showPrevBuddyExample = () => {
+    setBuddyExampleIndex((index) => (index - 1 + buddyExampleCount) % buddyExampleCount)
+  }
+
+  const showNextBuddyExample = () => {
+    setBuddyExampleIndex((index) => (index + 1) % buddyExampleCount)
+  }
 
   const scrollToForm = () => {
     document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
@@ -120,11 +314,13 @@ export default function Waitlist() {
     document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  // Support /waitlist#pricing deep links from nav
+  // Support deep links from nav (/waitlist#pricing, #buddy, #features)
   useEffect(() => {
-    if (window.location.hash !== '#pricing') return
+    const hash = window.location.hash
+    if (hash !== '#pricing' && hash !== '#buddy' && hash !== '#features') return
+    const id = hash.slice(1)
     const timer = window.setTimeout(() => {
-      document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
     }, 80)
     return () => window.clearTimeout(timer)
   }, [])
@@ -145,7 +341,7 @@ export default function Waitlist() {
             <p className="cx-badge hero-enter hero-enter-1">A/R back office for carriers</p>
             <h1 className="cx-hero-headline hero-enter hero-enter-2">
               Your back office,{' '}
-              <span className="accent cx-hand-underline">in one portal.</span>
+              <span className="accent cx-hand-underline cx-soft-wiggle">in one portal.</span>
             </h1>
             <p className="cx-hero-sub hero-enter hero-enter-3">
               Submit paperwork, track invoices, and follow broker payments — without hiring a
@@ -168,35 +364,6 @@ export default function Waitlist() {
                   <div className="cx-hero-stat-label">{stat.label}</div>
                 </div>
               ))}
-            </div>
-          </div>
-
-          <div className="cx-hero-visual hero-enter hero-enter-6">
-            <div className="cx-hero-visual-frame">
-              <div className="cx-browser cx-hero-dash">
-                <div className="cx-browser-bar" aria-hidden>
-                  <span />
-                  <span />
-                  <span />
-                  <div className="cx-browser-url">app.credyx.com / invoices</div>
-                </div>
-                <img
-                  src="/credyx-waitlist-dashboard.jpg"
-                  alt="Credyx invoices dashboard with summary cards, status table, and invoice details"
-                  width={1440}
-                  height={900}
-                  loading="eager"
-                />
-              </div>
-
-              <div className="cx-hero-phone-wrap">
-                <WaitlistInvoicePhone />
-              </div>
-
-              <div className="cx-hero-float-chip">
-                <CheckCircle2 size={16} />
-                Paid on time
-              </div>
             </div>
           </div>
         </div>
@@ -349,78 +516,201 @@ export default function Waitlist() {
         </div>
       </section>
 
-      {/* ── Scope of service ── */}
-      <section className="cx-section surface bordered">
+      {/* ── Trucking Buddy ── */}
+      <section id="buddy" className="cx-section cx-section--buddy surface bordered">
         <div className="cx-section-inner">
-          <div className="cx-section-head centered reveal reveal-grow">
-            <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
-              Scope of service
+          <div className="cx-buddy-head reveal reveal-grow">
+            <p className="cx-eyebrow">Assistant</p>
+            <h2 className="cx-section-title">
+              Meet your{' '}
+              <span className="accent cx-hand-underline">trucking buddy</span>
+            </h2>
+            <p className="cx-section-sub">
+              Ask about your A/R. Buddy answers from your live invoices — you stay in control.
             </p>
-            <h2 className="cx-section-title">What we handle for you</h2>
-            <p className="cx-section-sub">Focus on the road. We&apos;ll handle the rest.</p>
           </div>
-          <div className="cx-coverage reveal-stagger reveal">
-            {COVERAGE.map((item) => (
-              <div key={item} className="cx-coverage-item cx-card--grow">
-                <Check size={16} />
-                {item}
+
+          <div className="cx-buddy-layout">
+            <div className="cx-buddy-demo reveal reveal-grow" aria-label="Buddy chat examples">
+              <div className="cx-buddy-demo-top">
+                <img
+                  src="/credyx-buddy-waving.png"
+                  alt=""
+                  className="cx-buddy-avatar"
+                  width={64}
+                  height={64}
+                />
+                <div>
+                  <strong>Hey — I&apos;m your trucking buddy</strong>
+                  <span>Ask me anything about your company</span>
+                </div>
               </div>
-            ))}
+
+              <div className="cx-buddy-example-bar">
+                <button
+                  type="button"
+                  className="cx-buddy-nav-btn"
+                  onClick={showPrevBuddyExample}
+                  aria-label="Previous chat example"
+                >
+                  <ArrowLeft size={18} strokeWidth={2.5} />
+                </button>
+                <div className="cx-buddy-example-label" aria-live="polite">
+                  <span className="cx-buddy-example-title">{buddyExample.title}</span>
+                  <span className="cx-buddy-example-count">
+                    {buddyExampleIndex + 1} / {buddyExampleCount}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="cx-buddy-nav-btn"
+                  onClick={showNextBuddyExample}
+                  aria-label="Next chat example"
+                >
+                  <ArrowRight size={18} strokeWidth={2.5} />
+                </button>
+              </div>
+
+              <div className="cx-buddy-chat" key={buddyExample.title}>
+                {buddyExample.messages.map((message, index) =>
+                  message.role === 'user' ? (
+                    <div
+                      key={`${buddyExample.title}-u-${index}`}
+                      className="cx-buddy-bubble cx-buddy-bubble--user"
+                      style={{ animationDelay: `${index * 0.08}s` }}
+                    >
+                      {message.text}
+                    </div>
+                  ) : (
+                    <div
+                      key={`${buddyExample.title}-b-${index}`}
+                      className="cx-buddy-row"
+                      style={{ animationDelay: `${index * 0.08}s` }}
+                    >
+                      <img
+                        src={message.face}
+                        alt=""
+                        className="cx-buddy-bubble-face"
+                        width={40}
+                        height={40}
+                      />
+                      <div className="cx-buddy-bubble cx-buddy-bubble--bot">
+                        <p>{message.text}</p>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+
+              <div className="cx-buddy-chips" aria-label="Jump to example">
+                {BUDDY_EXAMPLES.map((example, index) => (
+                  <button
+                    key={example.chip}
+                    type="button"
+                    className={`cx-buddy-chip${index === buddyExampleIndex ? ' active' : ''}`}
+                    onClick={() => setBuddyExampleIndex(index)}
+                  >
+                    {example.chip}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="cx-buddy-aside reveal reveal-grow">
+              <p className="cx-buddy-aside-label">What Buddy can do</p>
+              <div className="cx-buddy-features reveal-stagger reveal">
+                {BUDDY_FEATURES.map((feature) => (
+                  <div key={feature.title} className="cx-buddy-feature">
+                    <div className="cx-buddy-feature-icon">
+                      <feature.icon size={18} strokeWidth={2} />
+                    </div>
+                    <div>
+                      <h3>{feature.title}</h3>
+                      <p>{feature.hint}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="cx-buddy-aside-note">You confirm before anything is sent or posted.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── App features ── */}
+      <section id="features" className="cx-section cx-section--features surface bordered">
+        <div className="cx-section-inner">
+          <div className="cx-features-head reveal reveal-grow">
+            <p className="cx-eyebrow">Product</p>
+            <h2 className="cx-section-title">
+              See all{' '}
+              <span className="accent cx-hand-underline">app features</span>
+            </h2>
+            <p className="cx-section-sub">
+              Your back office,{' '}
+              <span className="cx-soft-wiggle">in one portal</span>
+            </p>
+          </div>
+
+          <div className="cx-features-shell reveal reveal-grow">
+            <div className="cx-features-tabs" role="tablist" aria-label="App features">
+              {APP_FEATURE_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={featureTabId === tab.id}
+                  className={`cx-features-tab${featureTabId === tab.id ? ' active' : ''}`}
+                  onClick={() => setFeatureTabId(tab.id)}
+                >
+                  <span className="cx-features-tab-icon" aria-hidden>
+                    <tab.icon size={18} strokeWidth={2} />
+                  </span>
+                  <span className="cx-features-tab-label">{tab.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="cx-features-panel" role="tabpanel" key={activeFeatureTab.id}>
+              <div className="cx-features-panel-intro">
+                <div className="cx-features-panel-icon" aria-hidden>
+                  <activeFeatureTab.icon size={24} strokeWidth={1.75} />
+                </div>
+                <div className="cx-features-panel-copy">
+                  <h3>{activeFeatureTab.title}</h3>
+                  <p>{activeFeatureTab.description}</p>
+                </div>
+              </div>
+
+              <ul className="cx-features-points">
+                {activeFeatureTab.points.map((point) => (
+                  <li key={point}>
+                    <span className="cx-features-point-dot" aria-hidden />
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       </section>
 
       {/* ── Pricing ── */}
-      <section id="pricing" className="cx-section bordered">
+      <section id="pricing" className="cx-section cx-section--pricing bordered">
         <div className="cx-section-inner">
-          <div className="cx-section-head centered reveal reveal-grow">
-            <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
-              Pricing
-            </p>
+          <div className="cx-pricing-head reveal reveal-grow">
+            <p className="cx-eyebrow">Pricing</p>
             <h2 className="cx-section-title">
               How we get paid{' '}
               <span className="accent cx-hand-underline">explained simply</span>
             </h2>
             <p className="cx-section-sub">
-              Think of it like this: you get the money first. We only take a small cut after that.
+              You get paid first. We only take a small cut after that.
             </p>
           </div>
 
           <div className="cx-pricing">
             <div className="cx-pricing-hero reveal reveal-grow">
-              <p className="cx-pricing-plain">
-                Example: a broker pays you <strong>$4,000</strong>. That money goes to{' '}
-                <strong>you</strong>. Then Credyx takes a small percent.
-                <br />
-                If the invoice is not paid yet — <strong>you owe us nothing</strong>.
-              </p>
-
-              <div className="cx-pricing-flow" aria-label="How Credyx pricing works">
-                <div className="cx-pricing-step">
-                  <span className="cx-pricing-step-num">1</span>
-                  <strong>You send paperwork</strong>
-                  <p>We handle the invoice work</p>
-                </div>
-                <div className="cx-pricing-connector" aria-hidden>
-                  <span className="cx-pricing-connector-line" />
-                  <ArrowRight size={16} strokeWidth={2.25} />
-                </div>
-                <div className="cx-pricing-step">
-                  <span className="cx-pricing-step-num">2</span>
-                  <strong>You get paid</strong>
-                  <p>Broker pays your company</p>
-                </div>
-                <div className="cx-pricing-connector" aria-hidden>
-                  <span className="cx-pricing-connector-line" />
-                  <ArrowRight size={16} strokeWidth={2.25} />
-                </div>
-                <div className="cx-pricing-step">
-                  <span className="cx-pricing-step-num">3</span>
-                  <strong>Then we get a small %</strong>
-                  <p>Only from that paid invoice</p>
-                </div>
-              </div>
-
               <div className="cx-pricing-zeros">
                 <div>
                   <span>$0</span>
@@ -435,18 +725,26 @@ export default function Waitlist() {
                   <small>Only after you&apos;re paid</small>
                 </div>
               </div>
-            </div>
 
-            <div className="cx-pricing-points reveal-stagger reveal">
-              {PRICING_POINTS.map((point) => (
-                <div key={point.title} className="cx-pricing-point cx-card--grow">
-                  <div className="cx-card-icon">
-                    <point.icon size={20} />
-                  </div>
-                  <h3 className="cx-card-title">{point.title}</h3>
-                  <p className="cx-card-desc">{point.description}</p>
-                </div>
-              ))}
+              <ol className="cx-pricing-steps" aria-label="How Credyx pricing works">
+                <li>
+                  <span>1</span>
+                  You send paperwork
+                </li>
+                <li>
+                  <span>2</span>
+                  You get paid
+                </li>
+                <li>
+                  <span>3</span>
+                  Then we take a small %
+                </li>
+              </ol>
+
+              <p className="cx-pricing-example">
+                Example: broker pays you <strong>$4,000</strong> — yours first. Not paid yet?{' '}
+                <strong>You owe us nothing.</strong>
+              </p>
             </div>
 
             <div className="cx-founding-card reveal reveal-grow">
@@ -455,12 +753,8 @@ export default function Waitlist() {
                 <div className="cx-founding-top">
                   <div>
                     <p className="cx-founding-eyebrow">Founding waitlist offer</p>
-                    <h3>First 100 carriers · 1 month free on fees</h3>
-                    <p>
-                      Get in early and use Credyx for <strong>one full month</strong> with{' '}
-                      <strong>no fee</strong> on invoices you submit in that first month. After
-                      that, normal pricing kicks in — still only a small % after you&apos;re paid.
-                    </p>
+                    <h3>First 100 · 1 month free on fees</h3>
+                    <p>No fee on invoices you submit in your first month.</p>
                   </div>
                   <div className="cx-founding-spots" role="status">
                     <div className="cx-founding-spots-num">{WAITLIST_SPOTS_LEFT}</div>
@@ -469,13 +763,13 @@ export default function Waitlist() {
                       <span style={{ width: `${(WAITLIST_TAKEN / WAITLIST_CAP) * 100}%` }} />
                     </div>
                     <div className="cx-founding-meter-copy">
-                      {WAITLIST_TAKEN} of {WAITLIST_CAP} founding spots claimed
+                      {WAITLIST_TAKEN} of {WAITLIST_CAP} claimed
                     </div>
                   </div>
                 </div>
                 <button type="button" className="cx-btn-primary" onClick={scrollToForm}>
                   Claim a founding spot
-                  <ArrowRight size={17} />
+                  <ArrowRight size={16} />
                 </button>
               </div>
             </div>
@@ -484,29 +778,27 @@ export default function Waitlist() {
       </section>
 
       {/* ── Waitlist form ── */}
-      <section id="waitlist-form" className="cx-section surface bordered">
+      <section id="waitlist-form" className="cx-section cx-section--join surface bordered">
         <div className="cx-section-inner">
           <div className="cx-enroll-shell">
-            <div className="cx-section-head centered reveal reveal-grow" style={{ margin: '0 auto 28px' }}>
-              <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
-                Waitlist
-              </p>
-              <h2 className="cx-section-title">Join the waitlist</h2>
+            <div className="cx-join-head reveal reveal-grow">
+              <h2 className="cx-section-title">
+                Join the{' '}
+                <span className="accent cx-hand-underline">waitlist</span>
+              </h2>
               <p className="cx-section-sub">
-                {WAITLIST_SPOTS_LEFT} founding positions left. Tell us about your fleet — we&apos;ll
-                reach out when onboarding opens.
+                Tell us about your fleet — we&apos;ll reach out when onboarding opens.
               </p>
+              <div className="cx-spots-banner" role="status">
+                <span className="cx-spots-count">{WAITLIST_SPOTS_LEFT}</span>
+                <span className="cx-spots-copy">
+                  positions left
+                  <small>First 100 · 1 month fee-free</small>
+                </span>
+              </div>
             </div>
 
-            <div className="cx-spots-banner reveal reveal-grow" role="status">
-              <span className="cx-spots-count">{WAITLIST_SPOTS_LEFT}</span>
-              <span className="cx-spots-copy">
-                more positions left
-                <small>First 100 carriers · 1-month fee-free trial included</small>
-              </span>
-            </div>
-
-            <div className="reveal reveal-grow" style={{ marginTop: 16 }}>
+            <div className="reveal reveal-grow">
               <WaitlistForm />
             </div>
           </div>

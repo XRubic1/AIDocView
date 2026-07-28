@@ -62,33 +62,31 @@ export function WaitlistForm() {
 
   if (submitted) {
     return (
-      <div className="cx-success success-pop">
-        <CheckCircle2 size={52} className="cx-success-icon" />
+      <div className="cx-success cx-success--waitlist success-pop">
+        <CheckCircle2 size={44} className="cx-success-icon" />
         <h3 className="cx-success-title">You&apos;re on the list</h3>
         <p className="cx-success-body">
-          You&apos;re in line for founding access — including the first-month trial when
-          onboarding opens. We&apos;ll reach out soon.
+          Founding access is reserved — we&apos;ll reach out when onboarding opens.
         </p>
       </div>
     )
   }
 
   return (
-    <form onSubmit={handleSubmit} className="cx-form-card" noValidate>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-        <EnrollField label="Company name">
-          <input
-            type="text"
-            required
-            autoComplete="organization"
-            value={formData.companyName}
-            onChange={(e) => updateField('companyName', e.target.value)}
-            className={enrollInputClass}
-            placeholder="Acme Trucking LLC"
-          />
-        </EnrollField>
-
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+    <form onSubmit={handleSubmit} className="cx-form-card cx-form-card--join" noValidate>
+      <div className="cx-waitlist-fields">
+        <div className="cx-waitlist-grid">
+          <EnrollField label="Company name">
+            <input
+              type="text"
+              required
+              autoComplete="organization"
+              value={formData.companyName}
+              onChange={(e) => updateField('companyName', e.target.value)}
+              className={enrollInputClass}
+              placeholder="Acme Trucking LLC"
+            />
+          </EnrollField>
           <EnrollField label="Contact name">
             <input
               type="text"
@@ -111,9 +109,6 @@ export function WaitlistForm() {
               placeholder="you@company.com"
             />
           </EnrollField>
-        </div>
-
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <EnrollField label="Phone" required={false}>
             <input
               type="tel"
@@ -139,43 +134,37 @@ export function WaitlistForm() {
               ))}
             </select>
           </EnrollField>
+          <EnrollField label="How did you hear about us?" required={false}>
+            <select
+              value={formData.hearAbout}
+              onChange={(e) => updateField('hearAbout', e.target.value)}
+              className={enrollInputClass}
+            >
+              <option value="">Select an option</option>
+              {HEAR_ABOUT_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </EnrollField>
         </div>
-
-        <EnrollField label="How did you hear about us?" required={false}>
-          <select
-            value={formData.hearAbout}
-            onChange={(e) => updateField('hearAbout', e.target.value)}
-            className={enrollInputClass}
-          >
-            <option value="">Select an option</option>
-            {HEAR_ABOUT_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </EnrollField>
 
         <EnrollField label="Notes" required={false}>
           <textarea
-            rows={3}
+            rows={2}
             value={formData.notes}
             onChange={(e) => updateField('notes', e.target.value)}
             className={enrollInputClass}
-            placeholder="Anything we should know about your fleet or A/R setup?"
-            style={{ resize: 'vertical', minHeight: 88 }}
+            placeholder="Anything we should know?"
           />
         </EnrollField>
 
         {error && <p className="cx-form-error">{error}</p>}
 
-        <button
-          type="submit"
-          className="cx-btn-primary"
-          style={{ width: '100%', justifyContent: 'center' }}
-        >
+        <button type="submit" className="cx-btn-primary cx-waitlist-submit">
           Join the waitlist
-          <ArrowRight size={17} />
+          <ArrowRight size={16} />
         </button>
 
         <p className="cx-form-privacy">
