@@ -3,8 +3,8 @@
  * Requires SUPABASE_SERVICE_ROLE_KEY in .env (never commit this key).
  *
  * Usage:
- *   npx tsx scripts/createAdmin.ts
  *   npx tsx scripts/createAdmin.ts --email you@example.com --password 'secret'
+ *   npm run create-admin -- admin@credyx.net 'your-password'
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -33,13 +33,22 @@ function readArg(flag: string): string | undefined {
   return process.argv[idx + 1]
 }
 
+/** Positional args after script path (npm on Windows often strips --flags). */
+function readPositionalArgs(): { email?: string; password?: string } {
+  const args = process.argv.slice(2).filter((a) => !a.startsWith('--'))
+  return { email: args[0], password: args[1] }
+}
+
 async function main(): Promise<void> {
   loadEnvFile()
 
+  const positional = readPositionalArgs()
   const url = process.env.VITE_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const email = readArg('--email') ?? process.env.ADMIN_EMAIL ?? 'admin@credyx.net'
-  const password = readArg('--password') ?? process.env.ADMIN_PASSWORD
+  const email =
+    readArg('--email') ?? positional.email ?? process.env.ADMIN_EMAIL ?? 'admin@credyx.net'
+  const password =
+    readArg('--password') ?? positional.password ?? process.env.ADMIN_PASSWORD
 
   if (!url) {
     console.error('Missing VITE_SUPABASE_URL in .env')

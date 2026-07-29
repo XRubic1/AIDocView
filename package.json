@@ -15,6 +15,7 @@
     "eval:record": "tsx scripts/eval/run.ts --record",
     "test:supabase": "tsx scripts/testSupabaseConnection.ts",
     "create-admin": "tsx scripts/createAdmin.ts",
+    "seed-demo": "tsx scripts/seedDemoClient.ts",
     "preview": "vite preview",
     "lint": "tsc --noEmit"
   },
