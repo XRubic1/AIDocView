@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { LogIn, Eye, EyeOff } from 'lucide-react'
 import { signInClientAuth, getCurrentSession, requestClientPasswordReset } from '../services/clientAuthService'
 import { fetchClientById } from '../services/clientRegistry'
@@ -23,6 +23,7 @@ export default function ClientLogin() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -36,6 +37,12 @@ export default function ClientLogin() {
 
     if (!email || !password) {
       setError('Please enter both email and password')
+      setIsLoading(false)
+      return
+    }
+
+    if (!acceptedTerms) {
+      setError('Please agree to the Terms of Use and Privacy Policy to continue.')
       setIsLoading(false)
       return
     }
@@ -94,7 +101,15 @@ export default function ClientLogin() {
     <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F5F5F5' }}>
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-8">
-          <img src="/Logo.png" alt="CREDYX A/R SOLUTIONS" className="h-12 w-auto" style={{ maxHeight: '48px' }} />
+          <img
+            src="/credyx-nav-logo.png"
+            alt="Credyx A/R Solutions"
+            className="h-14 w-auto"
+            style={{ maxHeight: '56px' }}
+            width={360}
+            height={96}
+            decoding="async"
+          />
         </div>
 
         <div className="border rounded-lg shadow-lg" style={{ backgroundColor: '#FFFFFF', borderColor: '#e2e8f0' }}>
@@ -164,6 +179,48 @@ export default function ClientLogin() {
               )}
 
               {!showForgot && (
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={acceptedTerms}
+                    onChange={(e) => {
+                      setAcceptedTerms(e.target.checked)
+                      setError('')
+                    }}
+                    disabled={isLoading}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border"
+                    style={{ borderColor: '#64748b', accentColor: '#113543' }}
+                    required
+                  />
+                  <span className="text-xs leading-relaxed" style={{ color: '#64748b' }}>
+                    I agree to the{' '}
+                    <Link
+                      to="/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline font-medium"
+                      style={{ color: '#113543' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Terms of Use
+                    </Link>{' '}
+                    and{' '}
+                    <Link
+                      to="/privacy"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline font-medium"
+                      style={{ color: '#113543' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Privacy Policy
+                    </Link>
+                    .
+                  </span>
+                </label>
+              )}
+
+              {!showForgot && (
                 <button
                   type="button"
                   onClick={() => {
@@ -191,7 +248,7 @@ export default function ClientLogin() {
 
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || (!showForgot && !acceptedTerms)}
                 className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 text-sm font-medium text-white rounded disabled:opacity-50"
                 style={{ backgroundColor: '#113543' }}
               >

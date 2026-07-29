@@ -134,7 +134,7 @@ export default function PaymentReceiptConfirmationPanel({
                       {overdue
                         ? 'Confirmation overdue — will auto-confirm soon'
                         : daysLeft != null
-                          ? `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left to confirm`
+                          ? `${daysLeft} day${daysLeft !== 1 ? 's' : ''} until auto-confirm payment`
                           : 'Awaiting your confirmation'}
                     </p>
                   </button>

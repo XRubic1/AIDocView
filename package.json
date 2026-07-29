@@ -16,6 +16,7 @@
     "test:supabase": "tsx scripts/testSupabaseConnection.ts",
     "create-admin": "tsx scripts/createAdmin.ts",
     "seed-demo": "tsx scripts/seedDemoClient.ts",
+    "legal:pdf": "tsx scripts/generateLegalPdfs.ts",
     "preview": "vite preview",
     "lint": "tsc --noEmit"
   },

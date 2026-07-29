@@ -884,11 +884,6 @@ export default function AdminInvoices() {
           bump()
         },
         payments,
-        onViewPayment: (paymentId: string) => {
-          window.location.assign(
-            `/payment-posting?paymentId=${encodeURIComponent(paymentId)}`
-          )
-        },
         enableClientActions: false,
         enableNotes: true,
         portalMode: 'admin' as const,

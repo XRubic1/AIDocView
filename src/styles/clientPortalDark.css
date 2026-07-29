@@ -430,6 +430,44 @@
   color: #f07171;
 }
 
+.client-portal[data-theme='dark'] .status-pill--confirm-payment {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+/* Overdue / force-close rows — keep dark surfaces (light #fffbfb is unreadable in dark mode) */
+.client-portal[data-theme='dark'] .invoice-row--overdue,
+.client-portal[data-theme='dark'] .invoice-row--overdue td {
+  background: rgba(209, 67, 67, 0.12);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .invoice-row--overdue:hover,
+.client-portal[data-theme='dark'] .invoice-row--overdue:hover td {
+  background: rgba(209, 67, 67, 0.18);
+}
+
+.client-portal[data-theme='dark'] .invoice-list-item--overdue {
+  border-left-color: #f07171;
+  background: rgba(209, 67, 67, 0.1);
+}
+
+.client-portal[data-theme='dark'] .invoice-row--force-close,
+.client-portal[data-theme='dark'] .invoice-row--force-close td {
+  background: rgba(167, 139, 250, 0.12);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .invoice-row--force-close:hover,
+.client-portal[data-theme='dark'] .invoice-row--force-close:hover td {
+  background: rgba(167, 139, 250, 0.18);
+}
+
+.client-portal[data-theme='dark'] .invoice-list-item--force-close {
+  border-left-color: #a78bfa;
+  background: rgba(167, 139, 250, 0.1);
+}
+
 .client-portal[data-theme='dark'] .status-pill--warn,
 .client-portal[data-theme='dark'] .status-pill--pending-batch {
   background: rgba(212, 168, 83, 0.16);
@@ -468,6 +506,296 @@
 .client-portal[data-theme='dark'] .invoice-balance-summary__projected {
   background: var(--cp-card);
   border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__header--mobile-topbar {
+  background: var(--cp-card);
+  border-bottom-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__mobile-heading {
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__mobile-broker,
+.client-portal[data-theme='dark'] .payment-confirmation-panel__mobile-top-title {
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__mobile-surface-tabs {
+  background: rgba(15, 23, 42, 0.55);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__mobile-surface-tab--active {
+  background: rgba(22, 132, 254, 0.18);
+  color: #60a5fa;
+  box-shadow: inset 0 0 0 1px rgba(22, 132, 254, 0.4);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__hero {
+  background:
+    linear-gradient(160deg, rgba(22, 132, 254, 0.14) 0%, transparent 48%),
+    color-mix(in srgb, var(--cp-card) 92%, #0b1220);
+  border-color: color-mix(in srgb, #1684fe 22%, var(--cp-border));
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__amount {
+  color: #f8fafc;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__insight {
+  background: color-mix(in srgb, var(--cp-card) 88%, #0b1220);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__insight.is-interactive:active {
+  background: rgba(22, 132, 254, 0.1);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__insight-sub.is-alert {
+  color: #fb7185;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__insight.is-success {
+  border-color: color-mix(in srgb, #22c55e 35%, var(--cp-border));
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__insight-icon.is-success {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__insight-icon.is-confirm {
+  border-color: color-mix(in srgb, #f59e0b 50%, var(--cp-border));
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoices-toolbar__search-input {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoices-toolbar__pill {
+  border-color: var(--cp-border);
+  color: var(--cp-text-muted);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoices-toolbar__pill.is-active {
+  background: rgba(22, 132, 254, 0.18);
+  border-color: rgba(22, 132, 254, 0.4);
+  color: #60a5fa;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoices-toolbar__pill.is-alert:not(.is-active) {
+  border-color: color-mix(in srgb, #ef4444 35%, var(--cp-border));
+  color: #fb7185;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-hold .mobile-invoice-overview__lifecycle-dot {
+  background: #ef4444;
+  border-color: #ef4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.35);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-hold .mobile-invoice-overview__lifecycle-label {
+  color: #fb7185;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-complete .mobile-invoice-overview__lifecycle-dot {
+  background: #22c55e;
+  border-color: #22c55e;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-complete .mobile-invoice-overview__lifecycle-label,
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-paid-flash .mobile-invoice-overview__lifecycle-label {
+  color: #4ade80;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-paid-flash .mobile-invoice-overview__lifecycle-dot {
+  background: #22c55e;
+  border-color: #22c55e;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-confirm .mobile-invoice-overview__lifecycle-dot,
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-confirm-flash .mobile-invoice-overview__lifecycle-dot {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  animation: mobile-invoice-confirm-faint-pulse 2.8s ease-in-out infinite;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-confirm .mobile-invoice-overview__lifecycle-label,
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-confirm-flash .mobile-invoice-overview__lifecycle-label {
+  color: #fbbf24;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle.is-awaiting-confirm .mobile-invoice-overview__lifecycle-line.is-done {
+  background: #f59e0b;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle.is-awaiting-confirm .mobile-invoice-overview__lifecycle-step.is-done .mobile-invoice-overview__lifecycle-dot {
+  background: #f59e0b;
+  border-color: #f59e0b;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle.is-awaiting-confirm .mobile-invoice-overview__lifecycle-step.is-done .mobile-invoice-overview__lifecycle-label {
+  color: #fbbf24;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__status--confirm-payment {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.14);
+  border-color: color-mix(in srgb, #f59e0b 45%, var(--cp-border));
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__status--confirm-payment .mobile-invoice-overview__status-dot {
+  background: #f59e0b;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-current .mobile-invoice-overview__lifecycle-label {
+  color: #60a5fa;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-done .mobile-invoice-overview__lifecycle-label {
+  color: #94a3b8;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-list {
+  background: var(--cp-surface);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-list-card {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-list-card__amount {
+  color: #f8fafc;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-list-card__status--paid,
+.client-portal[data-theme='dark'] .mobile-invoice-list-card__status--approved {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-list-card__status--overdue,
+.client-portal[data-theme='dark'] .mobile-invoice-list-card__status--rejected,
+.client-portal[data-theme='dark'] .mobile-invoice-list-card__status--force-closed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fb7185;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-list-card__status--hold,
+.client-portal[data-theme='dark'] .mobile-invoice-list-card__status--on-hold {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.client-portal[data-theme='dark'] .mobile-invoice-list-card__status--confirm-payment {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__lifecycle-dot {
+  background: var(--cp-surface);
+  border-color: var(--cp-border);
+  color: var(--cp-text-muted);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__lifecycle-step.is-done .payment-confirmation-panel__lifecycle-dot {
+  background: #1684fe;
+  border-color: #1684fe;
+  color: #ffffff;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__lifecycle-step.is-current .payment-confirmation-panel__lifecycle-dot {
+  background: rgba(22, 132, 254, 0.18);
+  border-color: #1684fe;
+  color: #60a5fa;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__summary--mobile-mint {
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__summary--confirmed.payment-confirmation-panel__summary--mobile-mint {
+  background: linear-gradient(180deg, rgba(47, 169, 140, 0.22) 0%, rgba(47, 169, 140, 0.08) 100%);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__summary .invoice-balance-summary__fig,
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__summary-cell {
+  background: rgba(15, 23, 42, 0.45);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__notes--mobile-surface {
+  background: var(--cp-bg);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__notes--mobile-surface .payment-confirmation-panel__notes-filters--segmented {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__notes--mobile-surface .invoice-detail-note-compose {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__note-card {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__note-card-top {
+  background: rgba(15, 23, 42, 0.55);
+  border-bottom-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__note-card-title {
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__note-card-date {
+  color: #64748b;
+  font-weight: 400;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__note-card-detail {
+  color: #e2e8f0;
+  font-weight: 400;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__note-card-meta {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__note-card-source--credyx {
+  background: rgba(22, 132, 254, 0.18);
+  color: #60a5fa;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__note-card-source--carrier {
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__notes-filters--segmented {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__notes-filters--segmented .payment-confirmation-panel__notes-filter--active {
+  background: rgba(22, 132, 254, 0.18);
+  color: #60a5fa;
+  box-shadow: inset 0 0 0 1px rgba(22, 132, 254, 0.4);
 }
 
 .client-portal[data-theme='dark'] .invoice-balance-summary__fig--written-off {

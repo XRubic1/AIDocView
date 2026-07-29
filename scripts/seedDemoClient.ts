@@ -148,6 +148,7 @@ type ScenarioKind =
   | 'paid'
   | 'open'
   | 'overdue'
+  | 'force_closed'
   | 'hold_dispute'
   | 'awaiting_confirm'
   | 'short_awaiting'
@@ -185,36 +186,36 @@ interface DemoInvoiceSpec {
 /**
  * Mix across last 4 months. `daysPastExpected` fills Aging A/R buckets:
  * current (≤0) · 1–15 · 16–30 · 31–45 · 46–60 · 61–90 · 91+
+ * Force-closed loads leave aging (Managed-only); keep one demo example with a clear reason.
  * Overdue badge = approved + daysPastExpected ≥ 15.
  */
 const INVOICE_SPECS: DemoInvoiceSpec[] = [
-  // ── 4 months ago (91+ aging) ──
+  // ── 4 months ago — force-closed after 90+ days (uncollectable; fee still applies) ──
   {
-    key: 'm4-overdue-91',
+    key: 'm4-force-closed',
     invoiceNumber: '2001',
     loadNumber: 'LD-87001',
     monthsAgo: 4,
     day: 8,
     termsDays: 30,
     daysPastExpected: 95,
-    amount: 2850,
+    amount: 980,
     brokerIndex: 0,
     batch: 4,
-    scenario: 'overdue',
+    scenario: 'force_closed',
     docsSent: true,
   },
   {
-    key: 'm4-overdue-110',
+    key: 'm4-paid',
     invoiceNumber: '2002',
     loadNumber: 'LD-87022',
     monthsAgo: 4,
     day: 18,
     termsDays: 30,
-    daysPastExpected: 110,
     amount: 4125,
     brokerIndex: 2,
     batch: 4,
-    scenario: 'overdue',
+    scenario: 'paid',
     docsSent: true,
   },
 
@@ -689,16 +690,16 @@ function buildInvoice(
       break
     }
     case 'overdue': {
+      // Still open A/R — chased, no remittance yet (not force-closed).
       status = 'approved'
       days_since_expected = daysBetween(expected, today)
       const call1 = isoAt(addDays(due, 7), 14, 15)
       const call2 = isoAt(addDays(due, 14), 11, 20)
-      const call3 = isoAt(addDays(due, 18), 15, 40)
-      const finalNoteAt = isoAt(addDays(due, 20), 10, 5)
+      const lastChase = isoAt(addDays(due, 21), 15, 40)
       notes.push(
         note(
           `note-${spec.key}-chase1`,
-          `Email follow-up to ${broker.name} AP — past due ${Math.max(5, days_since_expected - 15)} days. Asked for remittance status.`,
+          `Email follow-up to ${broker.name} AP — past due. Asked for remittance status or any hold reason.`,
           OPS,
           isoAt(addDays(due, 5), 13, 0),
           'note',
@@ -722,7 +723,72 @@ function buildInvoice(
         ),
         note(
           `note-${spec.key}-call2`,
-          `Phone follow-up with ${broker.name}. Spoke with AP — they confirmed invoice is in queue, no dispute on docs.`,
+          `Phone follow-up with ${broker.name}. Spoke with AP — they said invoice is in queue, no dispute on docs. No remittance date given.`,
+          OPS,
+          call2,
+          'note',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-chase3`,
+          `Still open — ${days_since_expected} days past expected pay. Continuing collections chase with ${broker.name}; no payment posted yet.`,
+          OPS,
+          lastChase,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-internal`,
+          'Collections active — escalate if no remittance before force-close eligibility (90+ days past expected).',
+          OPS,
+          lastChase,
+          'note',
+          'internal'
+        )
+      )
+      broker_contacted = true
+      last_broker_contact = lastChase
+      collection_status = 'C/B'
+      collection_date = toDateStr(addDays(today, 3))
+      break
+    }
+    case 'force_closed': {
+      // Managed-only: Credyx closed aged uncollectable load after collections work; fee still bills.
+      status = 'force_closed'
+      days_since_expected = typeof spec.daysPastExpected === 'number' ? spec.daysPastExpected : 95
+      const call1 = isoAt(addDays(due, 10), 14, 15)
+      const call2 = isoAt(addDays(due, 25), 11, 20)
+      const call3 = isoAt(addDays(due, 45), 15, 40)
+      const escalateAt = isoAt(addDays(due, 75), 10, 5)
+      const closedAt = isoAt(addDays(today, -3), 16, 20)
+      notes.push(
+        note(
+          `note-${spec.key}-chase1`,
+          `Email follow-up to ${broker.name} AP — past due. Asked for remittance status.`,
+          OPS,
+          isoAt(addDays(due, 5), 13, 0),
+          'note',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-call1`,
+          `Called ${broker.name} AP desk. Left voicemail with invoice #${spec.invoiceNumber} / load ${spec.loadNumber}. No callback.`,
+          OPS,
+          call1,
+          'note',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-chase2`,
+          'Second email chase with PPW packet attached. No reply from broker AP.',
+          OPS,
+          isoAt(addDays(due, 18), 10, 30),
+          'note',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-call2`,
+          `Phone follow-up with ${broker.name}. Reached receptionist — transferred to voicemail. No dispute raised; still no remittance.`,
           OPS,
           call2,
           'note',
@@ -730,33 +796,41 @@ function buildInvoice(
         ),
         note(
           `note-${spec.key}-call3`,
-          `Called ${broker.name} again. Reached payables supervisor — processing this week’s check run; tracking as will-pay.`,
+          `Called ${broker.name} again. AP would not commit to a pay date. Docs remain undisputed; payment not forthcoming.`,
           OPS,
           call3,
           'note',
           'client'
         ),
         note(
-          `note-${spec.key}-willpay`,
-          `${broker.name} confirmed this invoice will be paid in 10–20 days. We’ll keep monitoring and update you when remittance posts.`,
+          `note-${spec.key}-eligible`,
+          `Now ${days_since_expected} days past expected pay — past Credyx force-close threshold (90+ days). Broker unresponsive after repeated collections outreach.`,
           OPS,
-          finalNoteAt,
+          escalateAt,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-closed`,
+          `Invoice force closed — collection fee applies: Force closed — uncollectable for full amount $${spec.amount.toFixed(2)}. Broker never remitted after extensive collections chase; closed as aged uncollectable (Managed policy).`,
+          OPS,
+          closedAt,
           'status_update',
           'client'
         ),
         note(
           `note-${spec.key}-internal`,
-          'W/P locked — check remittance in 10–20 days; escalate only if missed.',
+          'Force-closed after 90+ days past expected. Fee remains billable (unlike write-off). Removed from aging A/R and collections chase.',
           OPS,
-          finalNoteAt,
+          closedAt,
           'note',
           'internal'
         )
       )
       broker_contacted = true
       last_broker_contact = call3
-      collection_status = 'W/P'
-      collection_date = toDateStr(addDays(today, 15))
+      collection_status = null
+      collection_date = null
       break
     }
     case 'hold_dispute': {
@@ -1014,8 +1088,10 @@ function buildInvoice(
     batch_number: batchNumber,
     reviewed_at: status === 'pending' ? null : approvedAt,
     reviewed_by: status === 'pending' ? null : OPS,
-    approved_by: status === 'approved' || status === 'paid' ? OPS : null,
-    approved_at: status === 'approved' || status === 'paid' ? approvedAt : null,
+    approved_by:
+      status === 'approved' || status === 'paid' || status === 'force_closed' ? OPS : null,
+    approved_at:
+      status === 'approved' || status === 'paid' || status === 'force_closed' ? approvedAt : null,
     hold_reason,
     notes: hold_reason,
     notes_history: notes,

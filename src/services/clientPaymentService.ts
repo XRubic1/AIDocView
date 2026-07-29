@@ -130,6 +130,7 @@ function applyPaymentToInvoice(
   const isOver = totalReceived > invoice.amount + 0.01
   const wasWrittenOff =
     invoice.status === 'written_off' || invoice.status === 'write_off_pending'
+  const wasOnHold = invoice.status === 'hold'
 
   const noteText = wasWrittenOff
     ? `${buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)} Invoice reopened from write-off.`
@@ -150,6 +151,8 @@ function applyPaymentToInvoice(
     days_since_expected: isShort ? invoice.days_since_expected : 0,
     overpayment_accepted_at: isOver ? undefined : invoice.overpayment_accepted_at,
     write_off_request: wasWrittenOff ? undefined : invoice.write_off_request,
+    // Payment settles the hold — clear reason so short-paid invoices look open.
+    hold_reason: wasOnHold ? undefined : invoice.hold_reason,
     updated_at: new Date().toISOString(),
   })
 }
@@ -164,6 +167,7 @@ async function applyPaymentToInvoiceAsync(
   const isOver = totalReceived > invoice.amount + 0.01
   const wasWrittenOff =
     invoice.status === 'written_off' || invoice.status === 'write_off_pending'
+  const wasOnHold = invoice.status === 'hold'
 
   const noteText = wasWrittenOff
     ? `${buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)} Invoice reopened from write-off.`
@@ -184,6 +188,7 @@ async function applyPaymentToInvoiceAsync(
     days_since_expected: isShort ? invoice.days_since_expected : 0,
     overpayment_accepted_at: isOver ? undefined : invoice.overpayment_accepted_at,
     write_off_request: wasWrittenOff ? undefined : invoice.write_off_request,
+    hold_reason: wasOnHold ? undefined : invoice.hold_reason,
     updated_at: new Date().toISOString(),
   })
 }

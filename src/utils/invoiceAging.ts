@@ -41,8 +41,8 @@ export function isOpenArInvoice(invoice: Invoice): boolean {
 }
 
 /**
- * Invoices that can receive broker payments — approved (incl. short-paid), paid in full,
- * and written-off (posting / short corrections reopen the invoice).
+ * Invoices that can receive broker payments — approved (incl. short-paid), on hold,
+ * paid in full, and written-off (posting / short corrections reopen the invoice).
  * Force-closed and pending write-off approval stay blocked.
  */
 export function isPostableForPayment(invoice: Invoice): boolean {
@@ -51,13 +51,14 @@ export function isPostableForPayment(invoice: Invoice): boolean {
   }
   return (
     invoice.status === 'approved' ||
+    invoice.status === 'hold' ||
     invoice.status === 'paid' ||
     invoice.status === 'written_off'
   )
 }
 
 /**
- * Credyx admin posting — includes paid, force-closed, and written-off for remittance /
+ * Credyx admin posting — includes hold, paid, force-closed, and written-off for remittance /
  * short-payment corrections. Write-off pending stays blocked until Credyx decides.
  */
 export function isAdminPostableForPayment(invoice: Invoice): boolean {
@@ -66,6 +67,7 @@ export function isAdminPostableForPayment(invoice: Invoice): boolean {
   }
   return (
     invoice.status === 'approved' ||
+    invoice.status === 'hold' ||
     invoice.status === 'paid' ||
     invoice.status === 'force_closed' ||
     invoice.status === 'written_off'

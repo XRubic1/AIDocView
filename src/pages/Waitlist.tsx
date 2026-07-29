@@ -891,20 +891,28 @@ export default function Waitlist() {
             height={84}
           />
         </div>
-        {!isMarketingOnly && (
-          <div className="cx-footer-links">
-            <button type="button" className="cx-footer-link" onClick={() => navigate('/tour')}>
-              Product tour
-            </button>
-            <button
-              type="button"
-              className="cx-footer-link"
-              onClick={() => navigate('/client/login')}
-            >
-              Client login
-            </button>
-          </div>
-        )}
+        <div className="cx-footer-links">
+          {!isMarketingOnly && (
+            <>
+              <button type="button" className="cx-footer-link" onClick={() => navigate('/tour')}>
+                Product tour
+              </button>
+              <button
+                type="button"
+                className="cx-footer-link"
+                onClick={() => navigate('/client/login')}
+              >
+                Client login
+              </button>
+            </>
+          )}
+          <button type="button" className="cx-footer-link" onClick={() => navigate('/privacy')}>
+            Privacy
+          </button>
+          <button type="button" className="cx-footer-link" onClick={() => navigate('/terms')}>
+            Terms
+          </button>
+        </div>
         <div className="cx-footer-copy">
           © {new Date().getFullYear()} Credyx A/R Solutions. All rights reserved.
         </div>

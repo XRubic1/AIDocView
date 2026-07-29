@@ -169,6 +169,14 @@ export default function Tour() {
         <div className="cx-footer-brand">
           Cred<span>yx</span> A/R Solutions
         </div>
+        <div className="cx-footer-links">
+          <button type="button" className="cx-footer-link" onClick={() => navigate('/privacy')}>
+            Privacy
+          </button>
+          <button type="button" className="cx-footer-link" onClick={() => navigate('/terms')}>
+            Terms
+          </button>
+        </div>
         <p className="cx-footer-copy">© {new Date().getFullYear()} Credyx. All rights reserved.</p>
       </footer>
     </div>

@@ -65,3 +65,29 @@
 .credyx-wordmark--admin[role='button']:focus-visible {
   outline-color: #c2a558;
 }
+
+/* Real logo asset (client portal sidebar / headers) */
+.credyx-wordmark--logo {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
+}
+
+.credyx-wordmark__logo-img {
+  display: block;
+  height: 40px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.credyx-wordmark--compact .credyx-wordmark__logo-img {
+  height: 40px;
+}
+
+.credyx-wordmark--full .credyx-wordmark__logo-img {
+  height: 48px;
+}

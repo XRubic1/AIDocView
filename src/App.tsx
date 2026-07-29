@@ -45,10 +45,12 @@ import {
   LoadReviewWorkbench,
   PaymentPosting,
   PlatformLandingPage,
+  PrivacyPolicy,
   ReviewRulesPage,
   Settings,
   Tour,
   Users,
+  WebsiteTerms,
   withRouteSuspense,
 } from './routes/lazyPages'
 
@@ -71,6 +73,14 @@ function App() {
               <Route path="/join" element={<Navigate to="/waitlist" replace />} />
               <Route path="/tour" element={withRouteSuspense(Tour, 'Loading tour…')} />
               <Route path="/how-it-works" element={withRouteSuspense(HowItWorks)} />
+              <Route
+                path="/privacy"
+                element={withRouteSuspense(PrivacyPolicy, 'Loading privacy policy…')}
+              />
+              <Route
+                path="/terms"
+                element={withRouteSuspense(WebsiteTerms, 'Loading terms…')}
+              />
               <Route path="/login" element={<Login />} />
               <Route path="/client/login" element={<ClientLogin />} />
               <Route path="/" element={<LandingPage />} />

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
+import { useSearchParams, useLocation } from 'react-router-dom'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { Invoice } from '../types/invoice'
@@ -16,7 +16,7 @@ import ClientListTd from '../components/client/ClientListTd'
 import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, getDisplayInvoiceAgeDays, isOpenArInvoice, AR_POLICY } from '../utils/invoiceAging'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
 import { useClientTheme } from '../theme/ThemeContext'
-import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
+import { useCompactDetailViewport, useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
 import {
   getInitialListPageSize,
@@ -24,8 +24,8 @@ import {
   type SortDir,
 } from '../utils/clientListPage'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
-import { getAwaitingReceiptPaymentForInvoice } from '../utils/paymentStatus'
 import ClientReturnBanner from '../components/client/ClientReturnBanner'
+import MobileInvoiceListCard from '../components/client/MobileInvoiceListCard'
 import {
   clearInvoiceRestoreTarget,
   peekInvoiceRestoreTarget,
@@ -78,8 +78,8 @@ function getSortableInvoiceAge(invoice: EnrichedInvoice): number {
 
 export default function ClientInvoices() {
   const c = useClientTheme()
-  const navigate = useNavigate()
   const { capabilities } = useClientCapabilities()
+  const isMobileViewport = useIsMobileViewport()
   const useFullPageDetail = useCompactDetailViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -109,33 +109,53 @@ export default function ClientInvoices() {
   const [sortField, setSortField] = useState<InvoiceSortField>('invoice_date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
-  const handleViewPaymentForInvoice = useCallback(
-    (paymentId: string) => {
-      navigate(`/client/payments?status=awaiting_receipt&paymentId=${encodeURIComponent(paymentId)}`)
-    },
-    [navigate]
-  )
+  const payDateByInvoiceId = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const payment of payments) {
+      if (payment.status !== 'confirmed') continue
+      const dateStr = payment.received_date || payment.payment_date
+      const prev = map.get(payment.invoice_id)
+      if (!prev || dateStr > prev) map.set(payment.invoice_id, dateStr)
+    }
+    return map
+  }, [payments])
+
+  /** Posted date for awaiting-receipt payments — list shows Pay date (pending). */
+  const pendingPayDateByInvoiceId = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const payment of payments) {
+      if (payment.status !== 'awaiting_receipt') continue
+      const dateStr = payment.received_date || payment.payment_date
+      if (!dateStr) continue
+      const prev = map.get(payment.invoice_id)
+      if (!prev || dateStr > prev) map.set(payment.invoice_id, dateStr)
+    }
+    return map
+  }, [payments])
+
+  /** Invoice IDs with a Credyx-posted payment awaiting carrier confirmation. */
+  const awaitingReceiptInvoiceIds = useMemo(() => {
+    if (!capabilities.canConfirmPaymentReceipt) return new Set<string>()
+    const ids = new Set<string>()
+    for (const payment of payments) {
+      if (payment.status === 'awaiting_receipt') ids.add(payment.invoice_id)
+    }
+    return ids
+  }, [payments, capabilities.canConfirmPaymentReceipt])
 
   const enrichedInvoices = useMemo(() => {
     const base = enrichInvoices(invoices)
     // Freeze age at confirmed pay date for paid invoices (list + sort).
-    const payDateByInvoice = new Map<string, string>()
-    for (const payment of payments) {
-      if (payment.status !== 'confirmed') continue
-      const dateStr = payment.received_date || payment.payment_date
-      const prev = payDateByInvoice.get(payment.invoice_id)
-      if (!prev || dateStr > prev) payDateByInvoice.set(payment.invoice_id, dateStr)
-    }
     return base.map((invoice) => {
       if (invoice.status !== 'paid') return invoice
       return {
         ...invoice,
         invoiceAgeDays: getDisplayInvoiceAgeDays(invoice, {
-          payDate: payDateByInvoice.get(invoice.id) ?? null,
+          payDate: payDateByInvoiceId.get(invoice.id) ?? null,
         }),
       }
     })
-  }, [invoices, payments])
+  }, [invoices, payDateByInvoiceId])
 
   const invoiceBalanceById = useMemo(() => {
     const map = new Map<string, InvoiceBalanceState>()
@@ -452,7 +472,6 @@ export default function ClientInvoices() {
         onInvoiceUpdated: () => setInvoicesRefreshKey((key) => key + 1),
         enableClientActions: capabilities.canOpenDispute,
         payments,
-        onViewPayment: handleViewPaymentForInvoice,
         autoOpenUpload,
         onAutoOpenUploadConsumed: () => setAutoOpenUpload(false),
       }
@@ -467,7 +486,9 @@ export default function ClientInvoices() {
         ) : (
           <>
             <section
-              className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
+              className={`client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0${
+                isMobileViewport ? ' hidden' : ''
+              }`}
               style={{ borderColor: c.border }}
             >
               <div
@@ -552,45 +573,101 @@ export default function ClientInvoices() {
               </div>
             </section>
 
-            <div
-              className="client-page-toolbar px-4 py-2 border-b shrink-0"
-              style={{ borderColor: c.border, backgroundColor: c.card }}
-            >
-              <div className="flex flex-col md:flex-row md:items-center gap-2">
-                <div className="flex-1 relative">
+            {isMobileViewport ? (
+              <div
+                className="mobile-invoices-toolbar shrink-0"
+                style={{ borderColor: c.border, backgroundColor: c.card }}
+              >
+                <div className="mobile-invoices-toolbar__search">
                   <Search
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
+                    className="mobile-invoices-toolbar__search-icon"
+                    size={14}
+                    strokeWidth={2}
                     style={{ color: c.secondary }}
                   />
                   <input
                     type="text"
-                    placeholder="Search invoices..."
+                    placeholder="Search..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="client-input pl-8"
-                    style={inputCompactStyle}
+                    className="mobile-invoices-toolbar__search-input"
                   />
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Filter className="w-3.5 h-3.5" style={{ color: c.secondary }} />
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="client-input w-full md:w-auto min-w-[120px]"
-                    style={inputCompactStyle}
-                  >
-                    <option value="all">All Status</option>
-                    <option value="overdue">Overdue</option>
-                    <option value="pending">Pending</option>
-                    <option value="approved">Open</option>
-                    <option value="hold">On Hold</option>
-                    <option value="paid">Paid</option>
-                    <option value="force_closed">Force Closed</option>
-                    <option value="written_off">Written Off</option>
-                  </select>
+                <div
+                  className="mobile-invoices-toolbar__filters"
+                  role="group"
+                  aria-label="Filter by status"
+                >
+                  {(
+                    [
+                      ['all', 'All'],
+                      ['overdue', 'Overdue'],
+                      ['pending', 'Pending'],
+                      ['approved', 'Open'],
+                      ['hold', 'Hold'],
+                      ['paid', 'Paid'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`mobile-invoices-toolbar__pill${
+                        statusFilter === key ? ' is-active' : ''
+                      }${key === 'overdue' && overdueInvoices.length > 0 ? ' is-alert' : ''}`}
+                      onClick={() => setStatusFilter(key)}
+                      aria-pressed={statusFilter === key}
+                    >
+                      {label}
+                      {key === 'overdue' && overdueInvoices.length > 0 ? (
+                        <span className="mobile-invoices-toolbar__pill-count">
+                          {overdueInvoices.length}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
                 </div>
               </div>
-            </div>
+            ) : (
+              <div
+                className="client-page-toolbar px-4 py-2 border-b shrink-0"
+                style={{ borderColor: c.border, backgroundColor: c.card }}
+              >
+                <div className="flex flex-col md:flex-row md:items-center gap-2">
+                  <div className="flex-1 relative">
+                    <Search
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
+                      style={{ color: c.secondary }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Search invoices..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="client-input pl-8"
+                      style={inputCompactStyle}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Filter className="w-3.5 h-3.5" style={{ color: c.secondary }} />
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="client-input w-full md:w-auto min-w-[120px]"
+                      style={inputCompactStyle}
+                    >
+                      <option value="all">All Status</option>
+                      <option value="overdue">Overdue</option>
+                      <option value="pending">Pending</option>
+                      <option value="approved">Open</option>
+                      <option value="hold">On Hold</option>
+                      <option value="paid">Paid</option>
+                      <option value="force_closed">Force Closed</option>
+                      <option value="written_off">Written Off</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {sortedInvoices.length === 0 ? (
               <div className="payments-workspace-body flex-1 min-h-0">
@@ -621,6 +698,22 @@ export default function ClientInvoices() {
                 }
               >
                 <div className="payments-list-panel">
+                  {isMobileViewport ? (
+                    <div className="mobile-invoice-list flex-1 min-h-0 overflow-y-auto">
+                      {paginatedInvoices.map((invoice) => (
+                        <MobileInvoiceListCard
+                          key={invoice.id}
+                          invoice={invoice}
+                          payDate={payDateByInvoiceId.get(invoice.id) ?? null}
+                          pendingPayDate={pendingPayDateByInvoiceId.get(invoice.id) ?? null}
+                          awaitingReceipt={awaitingReceiptInvoiceIds.has(invoice.id)}
+                          selected={selectedInvoice?.id === invoice.id}
+                          highlighted={highlightedInvoiceId === invoice.id}
+                          onClick={() => handleViewInvoiceDetail(invoice)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
                   <div className="client-table-scroll client-table-scroll--mobile-stack flex-1 min-h-0 overflow-y-auto">
                     <table className="dashboard-table dashboard-table--compact">
                       <thead>
@@ -712,10 +805,7 @@ export default function ClientInvoices() {
                         {paginatedInvoices.map((invoice) => {
                           const isHighlighted = highlightedInvoiceId === invoice.id
                           const isSelected = selectedInvoice?.id === invoice.id
-                          const awaitingPayment =
-                            capabilities.canConfirmPaymentReceipt
-                              ? getAwaitingReceiptPaymentForInvoice(invoice.id, payments)
-                              : undefined
+                          const awaitingPayment = awaitingReceiptInvoiceIds.has(invoice.id)
                           const balance =
                             invoiceBalanceById.get(invoice.id) ??
                             getInvoiceBalanceState(invoice.amount, 0)
@@ -821,20 +911,29 @@ export default function ClientInvoices() {
                               </ClientListTd>
                               <ClientListTd variant="status" className="client-list-td--status-col">
                                 <div className="inline-flex items-center gap-1 flex-nowrap min-w-0">
-                                  {getInvoiceRowStatusBadge(invoice, {
-                                    balance,
-                                    pendingClientPosted: invoicePendingById.get(invoice.id)?.pending,
-                                    confirmedReceived: invoicePendingById.get(invoice.id)?.confirmed,
-                                  })}
-                                  <InvoiceDisputeBadges invoice={invoice} />
-                                  {awaitingPayment && (
-                                    <span className="status-pill status-pill--pending text-[10px]">
+                                  {awaitingPayment ? (
+                                    <span className="status-pill status-pill--confirm-payment">
                                       Confirm payment
                                     </span>
+                                  ) : (
+                                    <>
+                                      {getInvoiceRowStatusBadge(invoice, {
+                                        balance,
+                                        pendingClientPosted:
+                                          invoicePendingById.get(invoice.id)?.pending,
+                                        confirmedReceived:
+                                          invoicePendingById.get(invoice.id)?.confirmed,
+                                      })}
+                                      <InvoiceDisputeBadges invoice={invoice} />
+                                    </>
                                   )}
-                                  {invoice.isForceCloseEligible && capabilities.hasForceClose && (
-                                    <span className="status-pill status-pill--hold text-[10px]">Force Close</span>
-                                  )}
+                                  {invoice.isForceCloseEligible &&
+                                    capabilities.hasForceClose &&
+                                    !awaitingPayment && (
+                                      <span className="status-pill status-pill--hold text-[10px]">
+                                        Force Close
+                                      </span>
+                                    )}
                                 </div>
                               </ClientListTd>
                             </tr>
@@ -843,6 +942,7 @@ export default function ClientInvoices() {
                       </tbody>
                     </table>
                   </div>
+                  )}
 
                   <div
                     className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t shrink-0"

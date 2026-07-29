@@ -846,6 +846,133 @@
   color: var(--cx-muted);
 }
 
+.credyx-page .cx-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+}
+
+.credyx-page .cx-footer-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--cx-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+}
+
+.credyx-page .cx-footer-link:hover {
+  color: var(--cx-navy);
+}
+
+/* ══ LEGAL DOCUMENT PAGES ══
+ * Legal pages reuse waitlist chrome (dark navy). Body text must be light —
+ * never var(--cx-navy) on waitlist or it matches the background. */
+.credyx-page--legal .cx-legal {
+  padding: 48px clamp(20px, 4vw, 48px) 72px;
+  color: #e2e8f0;
+}
+
+.credyx-page--legal .cx-legal-inner {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.credyx-page--legal .cx-eyebrow {
+  color: var(--cx-blue);
+}
+
+.credyx-page--legal .cx-legal-title {
+  margin: 8px 0 0;
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #f8fafc;
+  line-height: 1.2;
+}
+
+.credyx-page--legal .cx-legal-meta {
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.credyx-page--legal .cx-legal-draft-note {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #e2e8f0;
+  background: rgba(22, 132, 254, 0.12);
+  border: 1px solid rgba(22, 132, 254, 0.35);
+  border-radius: 10px;
+}
+
+.credyx-page--legal .cx-legal-body {
+  margin-top: 28px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #e2e8f0;
+}
+
+.credyx-page--legal .cx-legal-body h2 {
+  margin: 32px 0 12px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #f8fafc;
+}
+
+.credyx-page--legal .cx-legal-body h3 {
+  margin: 20px 0 8px;
+  font-size: 1rem;
+  font-weight: 650;
+  color: #cbd5e1;
+}
+
+.credyx-page--legal .cx-legal-body p {
+  margin: 0 0 12px;
+  color: #e2e8f0;
+}
+
+.credyx-page--legal .cx-legal-body strong {
+  color: #f8fafc;
+}
+
+.credyx-page--legal .cx-legal-body ul {
+  margin: 0 0 14px;
+  padding-left: 1.25rem;
+  color: #e2e8f0;
+}
+
+.credyx-page--legal .cx-legal-body li {
+  margin-bottom: 6px;
+  color: #e2e8f0;
+}
+
+.credyx-page--legal .cx-legal-body a {
+  color: #60a5fa;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.credyx-page--legal .cx-legal-body a:hover {
+  color: #93c5fd;
+}
+
+.credyx-page--legal .cx-footer-copy,
+.credyx-page--legal .cx-footer-link {
+  color: #94a3b8;
+}
+
+.credyx-page--legal .cx-footer-link:hover {
+  color: #60a5fa;
+}
+
 /* ══ ANIMATIONS ══ */
 @keyframes cx-fade-up {
   from {
@@ -1609,6 +1736,16 @@
   color: var(--cx-muted);
   text-align: center;
   line-height: 1.4;
+}
+
+.credyx-page--waitlist .cx-form-privacy a {
+  color: var(--cx-blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.credyx-page--waitlist .cx-form-privacy a:hover {
+  color: var(--cx-navy);
 }
 
 .credyx-page--waitlist .cx-field-label .opt {

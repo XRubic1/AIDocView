@@ -204,12 +204,6 @@ export default function AdminInvoiceWorkspace() {
                 )
               }}
               payments={payments}
-              onViewPayment={(paymentId) => {
-                window.open(
-                  `/payment-posting?paymentId=${encodeURIComponent(paymentId)}`,
-                  '_blank'
-                )
-              }}
               enableClientActions={false}
               enableNotes={true}
               portalMode="admin"

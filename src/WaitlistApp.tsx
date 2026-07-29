@@ -1,5 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Waitlist from './pages/Waitlist'
+import PrivacyPolicy from './pages/PrivacyPolicy'
+import WebsiteTerms from './pages/WebsiteTerms'
 import ErrorBoundary from './components/ErrorBoundary'
 
 /**
@@ -18,6 +20,8 @@ export default function WaitlistApp() {
         <Routes>
           <Route path="/" element={<Waitlist />} />
           <Route path="/waitlist" element={<Waitlist />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<WebsiteTerms />} />
           <Route path="/join" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

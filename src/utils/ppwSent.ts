@@ -23,3 +23,17 @@ export function getDaysSincePpwSent(invoice: Invoice, nowMs = Date.now()): numbe
   if (!Number.isFinite(t)) return null
   return Math.floor((nowMs - t) / (1000 * 60 * 60 * 24))
 }
+
+/**
+ * Carrier-facing due date — only after PPW has been sent to the broker.
+ * Held / pre-invoice packets hide due date (no broker clock yet).
+ */
+export function getClientVisibleDueDate(
+  invoice: Pick<Invoice, 'due_date' | 'document_send_history' | 'status'>
+): string | null {
+  if (!invoice.due_date?.trim()) return null
+  // Settled invoices may keep due date even if send history is thin.
+  if (invoice.status === 'paid') return invoice.due_date
+  if (!hasPpwBeenSent(invoice)) return null
+  return invoice.due_date
+}

@@ -172,7 +172,7 @@ Reuse enroll checklist; trim to accurate items:
 
 **Submit button:** `Join the waitlist`  
 **Success state:** “You’re on the list. We’ll reach out when onboarding opens.”  
-**Privacy line:** “We’ll only use your email to contact you about Credyx.”
+**Privacy line:** “We’ll only use your email to contact you about Credyx. See our Privacy Policy.” (links to `/privacy`)
 
 **Backend (later):**
 
@@ -182,8 +182,9 @@ Reuse enroll checklist; trim to accurate items:
 ### 4.7 Footer
 
 - Credyx A/R Solutions · © year
-- Links: Product tour · Client login · (optional) Privacy
+- Links: Product tour · Client login · **Privacy** (`/privacy`) · **Terms** (`/terms`)
 - Mission line (small): *Empowering truckers. Simplifying payments. Driving success.*
+- Waitlist form privacy line links to `/privacy`
 
 ---
 

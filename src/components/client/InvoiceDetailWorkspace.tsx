@@ -59,7 +59,6 @@ export interface InvoiceDetailWorkspaceProps {
   onCloseAsUncollectable?: (invoiceId: string, note: string) => void | Promise<void>
   onAcceptOverpayment?: (invoiceId: string, note: string) => void | Promise<void>
   payments?: Payment[]
-  onViewPayment?: (paymentId: string) => void
   enableClientActions?: boolean
   /** Sync search/filter with parent (e.g. invoices page). Omit for local-only filtering. */
   searchTerm?: string
@@ -87,7 +86,6 @@ export default function InvoiceDetailWorkspace({
   onCloseAsUncollectable,
   onAcceptOverpayment,
   payments = [],
-  onViewPayment,
   enableClientActions = true,
   searchTerm: externalSearchTerm,
   onSearchChange: externalOnSearchChange,
@@ -293,7 +291,6 @@ export default function InvoiceDetailWorkspace({
               onCloseAsUncollectable={onCloseAsUncollectable}
               onAcceptOverpayment={onAcceptOverpayment}
               payments={payments}
-              onViewPayment={onViewPayment}
               enableClientActions={enableClientActions}
             />
           </section>

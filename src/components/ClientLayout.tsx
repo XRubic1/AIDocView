@@ -264,28 +264,31 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
     return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Brand — mark centered in rail; wordmark slides in with width */}
+      {/* Brand — full logo when expanded; C mark in collapsed rail */}
       <div
-        className="flex items-center border-b min-h-[52px]"
-        style={{ borderColor: t.sidebar.border }}
+        className="flex items-center border-b"
+        style={{ borderColor: t.sidebar.border, minHeight: sidebarExpanded ? 64 : 52 }}
       >
-        <div
-          className="shrink-0 flex items-center justify-center"
-          style={{ width: iconColWidth }}
-        >
-          <CredyxWordmark
-            variant="mark"
-            theme="client"
-            onClick={() => navigate('/client/dashboard')}
-          />
-        </div>
-        <div className="min-w-0 flex-1 overflow-hidden whitespace-nowrap pr-3">
-          <CredyxWordmark
-            variant="compact"
-            theme="client"
-            onClick={() => navigate('/client/dashboard')}
-          />
-        </div>
+        {sidebarExpanded ? (
+          <div className="min-w-0 flex-1 px-3 py-2">
+            <CredyxWordmark
+              variant="compact"
+              theme="client"
+              onClick={() => navigate('/client/dashboard')}
+            />
+          </div>
+        ) : (
+          <div
+            className="shrink-0 flex items-center justify-center w-full"
+            style={{ width: iconColWidth }}
+          >
+            <CredyxWordmark
+              variant="mark"
+              theme="client"
+              onClick={() => navigate('/client/dashboard')}
+            />
+          </div>
+        )}
       </div>
 
       {/* Company context */}
@@ -584,27 +587,29 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
           </div>
 
           <div className="client-topbar__actions">
-            <AssistantHeaderBuddy mode="client" />
+            <div className="hidden lg:block shrink-0">
+              <AssistantHeaderBuddy mode="client" />
+            </div>
             <div className="hidden lg:block shrink-0">
               <ThemeToggle compact />
             </div>
-            {(capabilities.canCreateBatch || capabilities.canSubmitDocHandoff) && (
-              <button
-                type="button"
-                onClick={() => navigate('/client/batches?tab=create')}
-                className="lg:hidden inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary shrink-0"
-                aria-label="Submit documents"
-              >
-                <Upload className="w-4 h-4" />
-                {capabilities.canCreateBatch ? 'Upload' : 'Send docs'}
-              </button>
-            )}
             <NotificationBell
               notifications={notifications}
               onMarkAsRead={handleMarkAsRead}
               onMarkAllAsRead={handleMarkAllAsRead}
               onNotificationClick={handleNotificationClick}
             />
+            {(capabilities.canCreateBatch || capabilities.canSubmitDocHandoff) && (
+              <button
+                type="button"
+                onClick={() => navigate('/client/batches?tab=create')}
+                className="client-topbar__upload-btn inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary shrink-0"
+                aria-label="Submit documents"
+              >
+                <Upload className="w-4 h-4" />
+                {capabilities.canCreateBatch ? 'Upload' : 'Send docs'}
+              </button>
+            )}
           </div>
         </header>
 

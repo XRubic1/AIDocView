@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { ArrowRight, CheckCircle2 } from 'lucide-react'
 import { EnrollField, enrollInputClass } from './EnrollField'
 
@@ -168,7 +169,8 @@ export function WaitlistForm() {
         </button>
 
         <p className="cx-form-privacy">
-          We&apos;ll only use your email to contact you about Credyx.
+          We&apos;ll only use your email to contact you about Credyx. See our{' '}
+          <Link to="/privacy">Privacy Policy</Link>.
         </p>
       </div>
     </form>

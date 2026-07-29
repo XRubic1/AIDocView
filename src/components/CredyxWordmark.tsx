@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, KeyboardEvent } from 'react'
 
 export type CredyxWordmarkVariant = 'full' | 'compact' | 'mark'
 export type CredyxWordmarkTheme = 'client' | 'admin'
@@ -30,6 +30,9 @@ const themeTokens: Record<
   },
 }
 
+/** Light-mode client logo (navy Cred + blue yx arrow). */
+const CLIENT_LOGO_SRC = '/credyx-nav-logo.png'
+
 /** Typographic Credyx brand mark for navbars and sidebars. */
 export default function CredyxWordmark({
   variant = 'full',
@@ -44,25 +47,47 @@ export default function CredyxWordmark({
     cursor: isInteractive ? 'pointer' : undefined,
   }
 
+  const interactiveProps = {
+    onClick,
+    onKeyDown: isInteractive
+      ? (e: KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onClick?.()
+          }
+        }
+      : undefined,
+    role: isInteractive ? ('button' as const) : undefined,
+    tabIndex: isInteractive ? 0 : undefined,
+    'aria-label': 'Credyx A/R Solutions',
+  }
+
+  // Client portal uses the real logo asset (text wordmark for admin stays).
+  if (theme === 'client' && variant !== 'mark') {
+    return (
+      <div
+        className={`credyx-wordmark credyx-wordmark--logo credyx-wordmark--${variant} credyx-wordmark--${theme} ${className}`.trim()}
+        style={rootStyle}
+        {...interactiveProps}
+      >
+        <img
+          src={CLIENT_LOGO_SRC}
+          alt="Credyx"
+          className="credyx-wordmark__logo-img"
+          width={360}
+          height={96}
+          decoding="async"
+        />
+      </div>
+    )
+  }
+
   if (variant === 'mark') {
     return (
       <div
         className={`credyx-wordmark credyx-wordmark--mark credyx-wordmark--${theme} ${className}`.trim()}
         style={rootStyle}
-        onClick={onClick}
-        onKeyDown={
-          isInteractive
-            ? (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  onClick?.()
-                }
-              }
-            : undefined
-        }
-        role={isInteractive ? 'button' : undefined}
-        tabIndex={isInteractive ? 0 : undefined}
-        aria-label="Credyx A/R Solutions"
+        {...interactiveProps}
       >
         <span
           className="credyx-wordmark__mark-letter"
@@ -78,20 +103,7 @@ export default function CredyxWordmark({
     <div
       className={`credyx-wordmark credyx-wordmark--${variant} credyx-wordmark--${theme} ${className}`.trim()}
       style={rootStyle}
-      onClick={onClick}
-      onKeyDown={
-        isInteractive
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                onClick?.()
-              }
-            }
-          : undefined
-      }
-      role={isInteractive ? 'button' : undefined}
-      tabIndex={isInteractive ? 0 : undefined}
-      aria-label="Credyx A/R Solutions"
+      {...interactiveProps}
     >
       <span className="credyx-wordmark__name" style={{ color: colors.primary }}>
         Cred

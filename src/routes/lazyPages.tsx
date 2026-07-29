@@ -54,6 +54,8 @@ export const ReviewRulesPage = lazy(() => import('../pages/ReviewRulesPage'))
 // ——— Marketing / secondary public ———
 export const Tour = lazy(() => import('../pages/Tour'))
 export const HowItWorks = lazy(() => import('../pages/HowItWorks'))
+export const PrivacyPolicy = lazy(() => import('../pages/PrivacyPolicy'))
+export const WebsiteTerms = lazy(() => import('../pages/WebsiteTerms'))
 export const PlatformLandingPage = lazy(() => import('../pages/PlatformLandingPage'))
 export const DocSortLandingPage = lazy(
   () => import('../products/docSort/pages/DocSortLandingPage')

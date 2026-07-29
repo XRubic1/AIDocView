@@ -111,7 +111,7 @@ body {
 
 /* Notification bell — pulse when unread items need attention (client + admin) */
 .notification-bell-btn--attention {
-  color: #c2410c;
+  color: #1684fe;
   animation: notification-bell-pulse 1.6s ease-in-out infinite;
 }
 
@@ -121,9 +121,9 @@ body {
 }
 
 .notification-bell-btn__badge {
-  background-color: #ea580c;
+  background-color: #1684fe;
   color: #ffffff;
-  box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.55);
+  box-shadow: 0 0 0 0 rgba(22, 132, 254, 0.55);
   animation: notification-badge-flash 1.6s ease-in-out infinite;
 }
 
@@ -135,7 +135,7 @@ body {
   }
   50% {
     transform: scale(1.08);
-    filter: drop-shadow(0 0 8px rgba(234, 88, 12, 0.55));
+    filter: drop-shadow(0 0 8px rgba(22, 132, 254, 0.55));
   }
 }
 
@@ -165,13 +165,13 @@ body {
   0%,
   100% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.55);
-    background-color: #ea580c;
+    box-shadow: 0 0 0 0 rgba(22, 132, 254, 0.55);
+    background-color: #1684fe;
   }
   50% {
     transform: scale(1.12);
-    box-shadow: 0 0 0 6px rgba(234, 88, 12, 0);
-    background-color: #f97316;
+    box-shadow: 0 0 0 6px rgba(22, 132, 254, 0);
+    background-color: #3b9bff;
   }
 }
 
@@ -183,11 +183,11 @@ body {
   }
 
   .notification-bell-btn--attention {
-    color: #c2410c;
+    color: #1684fe;
   }
 
   .notification-bell-btn__badge {
-    background-color: #ea580c;
+    background-color: #1684fe;
   }
 }
 

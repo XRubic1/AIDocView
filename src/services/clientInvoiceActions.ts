@@ -366,7 +366,10 @@ export async function uploadClientInvoiceDocuments(
 
   const uploadNote: InvoiceNote = {
     id: `note-upload-${Date.now()}`,
-    note: `Uploaded ${added.length} document${added.length > 1 ? 's' : ''}: ${label}`,
+    note:
+      invoice.status === 'hold'
+        ? `Uploaded ${added.length} document${added.length > 1 ? 's' : ''}: ${label}. Credyx is reviewing and will advise if further action is required.`
+        : `Uploaded ${added.length} document${added.length > 1 ? 's' : ''}: ${label}`,
     created_by: uploadedBy,
     created_at: new Date().toISOString(),
     type: 'client_note',

@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
@@ -95,7 +95,6 @@ function getBucketPillClass(bucketId: DisplayAgingBucketId): string {
 
 export default function ClientCollections() {
   const c = useClientTheme()
-  const navigate = useNavigate()
   const { capabilities } = useClientCapabilities()
   const useFullPageDetail = useCompactDetailViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
@@ -404,13 +403,6 @@ export default function ClientCollections() {
     }, 400)
   }, [useFullPageDetail, selectedInvoice])
 
-  const handleViewPaymentForInvoice = useCallback(
-    (paymentId: string) => {
-      navigate(`/client/payments?status=awaiting_receipt&paymentId=${encodeURIComponent(paymentId)}`)
-    },
-    [navigate]
-  )
-
   const handleBrokerDrillDown = (brokerName: string) => {
     setViewMode('invoices')
     setSearchTerm(brokerName)
@@ -453,7 +445,6 @@ export default function ClientCollections() {
         onInvoiceUpdated: () => setRefreshKey((key) => key + 1),
         enableClientActions: capabilities.canOpenDispute,
         payments,
-        onViewPayment: handleViewPaymentForInvoice,
       }
     : null
 

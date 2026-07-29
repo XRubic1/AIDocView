@@ -1,6 +1,7 @@
 import { useRef, useState, type DragEvent } from 'react'
 import { Upload, X, FileText, Loader } from 'lucide-react'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { useIsMobileViewport } from '../../hooks/useIsMobileViewport'
 
 interface InvoiceDocumentUploadModalProps {
   isOpen: boolean
@@ -10,9 +11,9 @@ interface InvoiceDocumentUploadModalProps {
 }
 
 function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes'
+  if (bytes === 0) return '0 B'
   const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB']
+  const sizes = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100} ${sizes[i]}`
 }
@@ -25,6 +26,7 @@ export default function InvoiceDocumentUploadModal({
   onUpload,
 }: InvoiceDocumentUploadModalProps) {
   const c = useClientTheme()
+  const isMobile = useIsMobileViewport()
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -53,7 +55,7 @@ export default function InvoiceDocumentUploadModal({
 
   const handleSubmit = async () => {
     if (pendingFiles.length === 0) {
-      setError('Add at least one file.')
+      setError('Add a file first.')
       return
     }
 
@@ -66,7 +68,7 @@ export default function InvoiceDocumentUploadModal({
       onClose()
     } catch (uploadError) {
       console.error('Invoice document upload failed:', uploadError)
-      setError('Upload failed. Please try again.')
+      setError('Upload failed. Try again.')
     } finally {
       setIsUploading(false)
     }
@@ -79,32 +81,40 @@ export default function InvoiceDocumentUploadModal({
     onClose()
   }
 
+  const openPicker = () => fileInputRef.current?.click()
+
   return (
     <div
-      className="invoice-dispute-modal-overlay"
+      className="invoice-dispute-modal-overlay invoice-doc-upload-overlay"
       onClick={handleClose}
       role="presentation"
     >
       <div
-        className="invoice-dispute-modal invoice-doc-upload-modal"
+        className={`invoice-dispute-modal invoice-doc-upload-modal${
+          isMobile ? ' invoice-doc-upload-modal--mobile' : ''
+        }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-labelledby="invoice-doc-upload-title"
       >
-        <div className="invoice-dispute-modal-header">
-          <div>
-            <h3 id="invoice-doc-upload-title" className="text-base font-semibold" style={{ color: c.primary }}>
-              Upload documents
+        <div className="invoice-dispute-modal-header invoice-doc-upload-modal__header">
+          <div className="min-w-0">
+            <h3
+              id="invoice-doc-upload-title"
+              className="invoice-doc-upload-modal__title"
+              style={{ color: c.primary }}
+            >
+              Upload
             </h3>
-            <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
-              {invoiceNumber} · POD, BOL, rate con, or other supporting files
+            <p className="invoice-doc-upload-modal__subtitle" style={{ color: c.secondary }}>
+              #{invoiceNumber}
             </p>
           </div>
           <button
             type="button"
             onClick={handleClose}
             disabled={isUploading}
-            className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-50"
+            className="invoice-doc-upload-modal__close"
             style={{ color: c.secondary }}
             aria-label="Close"
           >
@@ -112,35 +122,57 @@ export default function InvoiceDocumentUploadModal({
           </button>
         </div>
 
-        <div className="invoice-dispute-modal-body">
+        <div className="invoice-dispute-modal-body invoice-doc-upload-modal__body">
           <div
-            className={`invoice-doc-upload-dropzone ${isDragging ? 'invoice-doc-upload-dropzone--active' : ''}`}
+            className={`invoice-doc-upload-dropzone${
+              isDragging ? ' invoice-doc-upload-dropzone--active' : ''
+            }${isMobile ? ' invoice-doc-upload-dropzone--mobile' : ''}`}
+            onClick={isMobile ? openPicker : undefined}
             onDragEnter={(e) => {
+              if (isMobile) return
               e.preventDefault()
               setIsDragging(true)
             }}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => {
+              if (isMobile) return
+              e.preventDefault()
+            }}
             onDragLeave={(e) => {
+              if (isMobile) return
               e.preventDefault()
               setIsDragging(false)
             }}
-            onDrop={handleDrop}
+            onDrop={isMobile ? undefined : handleDrop}
+            role={isMobile ? 'button' : undefined}
+            tabIndex={isMobile ? 0 : undefined}
+            onKeyDown={
+              isMobile
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openPicker()
+                    }
+                  }
+                : undefined
+            }
           >
-            <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: isDragging ? c.accent : c.muted }} />
-            <p className="text-sm font-medium" style={{ color: c.primary }}>
-              Drag files here or browse
+            <Upload
+              className="invoice-doc-upload-dropzone__icon"
+              style={{ color: isDragging ? c.accent : c.muted }}
+            />
+            <p className="invoice-doc-upload-dropzone__label" style={{ color: c.primary }}>
+              {isMobile ? 'Tap to add files' : 'Drop files or browse'}
             </p>
-            <p className="text-xs mt-1 mb-3" style={{ color: c.secondary }}>
-              PDF, JPG, PNG, DOC
-            </p>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
-              className="dashboard-btn-secondary dashboard-btn-compact"
-            >
-              Select files
-            </button>
+            {!isMobile ? (
+              <button
+                type="button"
+                onClick={openPicker}
+                disabled={isUploading}
+                className="dashboard-btn-secondary dashboard-btn-compact"
+              >
+                Select files
+              </button>
+            ) : null}
             <input
               ref={fileInputRef}
               type="file"
@@ -154,17 +186,17 @@ export default function InvoiceDocumentUploadModal({
             />
           </div>
 
-          {pendingFiles.length > 0 && (
-            <div className="invoice-doc-upload-list">
+          {pendingFiles.length > 0 ? (
+            <ul className="invoice-doc-upload-list">
               {pendingFiles.map((file, index) => (
-                <div key={`${file.name}-${index}`} className="invoice-doc-upload-item">
-                  <div className="flex items-center gap-2 min-w-0">
+                <li key={`${file.name}-${index}`} className="invoice-doc-upload-item">
+                  <div className="invoice-doc-upload-item__main">
                     <FileText className="w-4 h-4 shrink-0" style={{ color: c.accent }} />
                     <div className="min-w-0">
-                      <p className="text-sm truncate" style={{ color: c.primary }}>
+                      <p className="invoice-doc-upload-item__name" style={{ color: c.primary }}>
                         {file.name}
                       </p>
-                      <p className="text-xs" style={{ color: c.secondary }}>
+                      <p className="invoice-doc-upload-item__size" style={{ color: c.secondary }}>
                         {formatFileSize(file.size)}
                       </p>
                     </div>
@@ -173,54 +205,50 @@ export default function InvoiceDocumentUploadModal({
                     type="button"
                     onClick={() => removeFile(index)}
                     disabled={isUploading}
-                    className="p-1 rounded hover:bg-slate-100 transition-colors disabled:opacity-50"
+                    className="invoice-doc-upload-item__remove"
                     style={{ color: c.secondary }}
                     aria-label={`Remove ${file.name}`}
                   >
                     <X className="w-4 h-4" />
                   </button>
-                </div>
+                </li>
               ))}
-            </div>
-          )}
+            </ul>
+          ) : null}
 
-          {error && (
-            <p className="text-xs mt-3" style={{ color: c.error }}>
+          {error ? (
+            <p className="invoice-doc-upload-error" style={{ color: c.error }}>
               {error}
             </p>
-          )}
-
-          <p className="text-xs mt-3" style={{ color: c.secondary }}>
-            Credyx will be notified to review your upload.
-          </p>
+          ) : null}
         </div>
 
-        <div className="invoice-dispute-modal-footer">
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={isUploading}
-            className="dashboard-btn-secondary"
-            style={{ height: 36, fontSize: 13 }}
-          >
-            Cancel
-          </button>
+        <div className="invoice-dispute-modal-footer invoice-doc-upload-modal__footer">
+          {!isMobile ? (
+            <button
+              type="button"
+              onClick={handleClose}
+              disabled={isUploading}
+              className="dashboard-btn-secondary"
+            >
+              Cancel
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleSubmit}
             disabled={pendingFiles.length === 0 || isUploading}
-            className="dashboard-btn-primary"
-            style={{ height: 36, fontSize: 13 }}
+            className="dashboard-btn-primary invoice-doc-upload-modal__submit"
           >
             {isUploading ? (
               <>
-                <Loader className="w-3.5 h-3.5 animate-spin" />
-                Uploading...
+                <Loader className="w-4 h-4 animate-spin" />
+                Uploading…
               </>
             ) : (
               <>
-                <Upload className="w-3.5 h-3.5" />
-                Upload {pendingFiles.length > 0 ? `(${pendingFiles.length})` : ''}
+                <Upload className="w-4 h-4" />
+                Upload{pendingFiles.length > 0 ? ` ${pendingFiles.length}` : ''}
               </>
             )}
           </button>
