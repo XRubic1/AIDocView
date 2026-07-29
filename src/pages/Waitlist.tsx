@@ -577,11 +577,13 @@ export default function Waitlist() {
           <div className="cx-buddy-head reveal reveal-grow">
             <p className="cx-eyebrow">Assistant</p>
             <h2 className="cx-section-title">
-              Meet your{' '}
-              <span className="accent cx-hand-underline">AI trucking buddy</span>
+              Meet{' '}
+              <span className="accent cx-hand-underline">Buddy</span>
             </h2>
+            <p className="cx-buddy-tagline">Your AI trucking assistant</p>
             <p className="cx-section-sub">
-              Ask about your A/R. Buddy answers from your live invoices — you stay in control.
+              Ask about holds, payments, and missing docs. Buddy answers from your live invoices —
+              and never sends anything until you confirm.
             </p>
           </div>
 
@@ -696,11 +698,14 @@ export default function Waitlist() {
 
             <div className="cx-buddy-aside reveal reveal-grow">
               <p className="cx-buddy-aside-label">What Buddy can do</p>
+              <p className="cx-buddy-aside-intro">
+                A quick A/R helper in your portal — answers, drafts, and navigation when you need them.
+              </p>
               <div className="cx-buddy-features reveal-stagger reveal">
                 {BUDDY_FEATURES.map((feature) => (
                   <div key={feature.title} className="cx-buddy-feature">
                     <div className="cx-buddy-feature-icon">
-                      <feature.icon size={18} strokeWidth={2} />
+                      <feature.icon size={16} strokeWidth={2} />
                     </div>
                     <div>
                       <h3>{feature.title}</h3>
