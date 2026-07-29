@@ -2192,15 +2192,7 @@ export async function sendAssistantChatMessage(params: {
 }
 
 /** Cap payment follow-ups at 3 and drop redundant “Open …” nav chips. */
-function dedupePayFollowUps(
-  items: Array<{
-    id: string
-    label: string
-    prompt?: string
-    action: 'prompt' | 'email_scope' | 'note_scope' | 'app_nav'
-    appActionId?: string
-  }>
-): AssistantFollowUp[] {
+function dedupePayFollowUps(items: AssistantFollowUp[]): AssistantFollowUp[] {
   const seen = new Set<string>()
   const out: AssistantFollowUp[] = []
   for (const item of items) {

@@ -77,7 +77,7 @@ function getOverResolutionPill(resolution: OverpaymentResolution) {
 
 export default function ClientShortPayments() {
   const c = useClientTheme()
-  const { clientId, clientName } = useClientSession()
+  const { clientName } = useClientSession()
   const { capabilities } = useClientCapabilities()
   const authorName = clientName
   const [searchParams, setSearchParams] = useSearchParams()

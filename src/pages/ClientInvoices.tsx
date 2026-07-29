@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
-import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
@@ -80,7 +79,6 @@ function getSortableInvoiceAge(invoice: EnrichedInvoice): number {
 export default function ClientInvoices() {
   const c = useClientTheme()
   const navigate = useNavigate()
-  const { clientId, clientName } = useClientSession()
   const { capabilities } = useClientCapabilities()
   const useFullPageDetail = useCompactDetailViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()

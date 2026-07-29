@@ -127,7 +127,7 @@ export default function AdminInvoiceWorkspace() {
     <div
       className="client-portal h-screen w-screen overflow-hidden flex flex-col"
       data-theme={resolvedTheme}
-      style={{ backgroundColor: c.background, color: c.primary }}
+      style={{ backgroundColor: c.surface, color: c.primary }}
     >
       <header
         className="flex items-center justify-between gap-3 px-4 py-2.5 border-b shrink-0"

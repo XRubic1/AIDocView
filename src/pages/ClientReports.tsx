@@ -41,7 +41,6 @@ import { computeCashCollectionForecast } from '../utils/cashCollectionForecast'
 import {
   buildOverviewCsvRows,
 } from '../utils/clientOverviewReports'
-import { useClientSession } from '../hooks/useClientSession'
 
 type ReportType = 'overview' | 'aging' | 'cashflow'
 
@@ -212,7 +211,6 @@ function ReportPanel({
 export default function ClientReports() {
   const c = useClientTheme()
   const navigate = useNavigate()
-  const { clientId, clientName } = useClientSession()
   const { invoices: clientInvoices, payments: clientPayments } = useClientDemoSnapshot()
   const [selectedReportType, setSelectedReportType] = useState<ReportType>('overview')
   const [datePreset, setDatePreset] = useState<DatePreset | 'custom'>('90d')

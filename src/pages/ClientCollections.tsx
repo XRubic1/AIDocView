@@ -1,7 +1,6 @@
 ﻿import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
-import { useClientSession } from '../hooks/useClientSession'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
 import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
@@ -97,7 +96,6 @@ function getBucketPillClass(bucketId: DisplayAgingBucketId): string {
 export default function ClientCollections() {
   const c = useClientTheme()
   const navigate = useNavigate()
-  const { clientId, clientName } = useClientSession()
   const { capabilities } = useClientCapabilities()
   const useFullPageDetail = useCompactDetailViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
