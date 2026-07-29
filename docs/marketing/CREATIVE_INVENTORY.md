@@ -41,9 +41,11 @@ Update this file whenever a new graphic is made or posted.
 | IG-12 | From paperwork to cash flow (5 steps + icons) | Process | Steps + simple icons + truck | `draft` | Small corner numbers 01–05; flat line icons center; underline on cash flow |
 | IG-13 | Missing one BOL can delay payments for weeks | Pain / Tip | Typography + clean truck split | `draft` | A/R TIP; hand-painted underline on “delay payments for weeks”; Paid on time |
 | IG-14 | We follow up when invoices are on hold | Process | Clean UI cards + truck split | `draft` | “hold” bold blue + hand-painted underline; Held Payment card; Credyx logo |
-| IG-15 | Meet your AI Trucking Buddy | Offer / Product | Buddy + chat bubbles + truck | `draft` | Carrier right / Buddy left; past due → chase email offer |
-| IG-16 | Ask Buddy anything | Product | Capability grid + chat (same Buddy face) | `draft` | Real features: holds/aging, payment status, drafts, navigate; no fluff/plain English |
-| IG-17 | Buddy takes action | Product | Aligned list + panel bg + Buddy | `draft` | Smaller icons; notes/disputes/emails/MC#/broker risk; hand underline on action |
+| IG-15 | Meet your AI Trucking Buddy | Offer / Product | New Buddy (idle) + chat + truck | `draft` | v2: bearded Credyx-cap Buddy; past due → chase email; file `creatives/IG-15-meet-buddy-past-due-v2.png` |
+| IG-15b | Meet Buddy — on hold | Offer / Product | New Buddy + waving hand + chat + truck | `draft` | v2: Buddy + waving hand; "What's on hold today?" / 3 invoices; file `creatives/IG-15b-meet-buddy-on-hold-v2.png` |
+| IG-16 | Ask Buddy anything | Product | New Buddy (waving) + capability grid + chat | `draft` | v2: holds/aging, payment status, drafts, navigate; file `creatives/IG-16-ask-buddy-anything-v2.png` |
+| IG-17 | Buddy takes action | Product | New Buddy (done/laugh) + action list | `draft` | v2: notes/disputes/emails/MC#/broker risk; file `creatives/IG-17-buddy-takes-action-v2.png` |
+| IG-21 | Buddy writes it. You send it. | Product | New Buddy (thinking) + draft email UI + truck | `draft` | v2: Follow-up on missing BOL; file `creatives/IG-21-buddy-writes-it-v2.png` |
 | IG-18 | Factoring is not A/R management | Education | Compare cards + truck | `draft` | Soft contrast; not anti-factoring attack; Paid on time |
 | IG-19 | Why broker payments get delayed | Education | 3 reasons + truck | `draft` | PPW / errors / no follow-up; underline on get delayed |
 | IG-20 | Submit once. Get it right. | Education | Docs checklist + truck | `draft` | Rate con, BOL/POD, invoice match, remit; underline on Get it right |
@@ -94,3 +96,4 @@ Update this file whenever a new graphic is made or posted.
 | --- | --- |
 | 2026-07-28 | Inventory created; IG-11 flagged; workflow + stepper corrected in marketing rules |
 | 2026-07-28 | Image generator rule added (logo + truck + clean UI + hand underline); IG-12–14 drafts |
+| 2026-07-29 | Buddy refresh: IG-15 / 15b / 16 / 17 / 21 rebuilt with new bearded Credyx-cap mascot (idle / waving / done / thinking); old white headphone sphere retired from these drafts |

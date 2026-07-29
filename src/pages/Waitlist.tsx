@@ -290,6 +290,8 @@ export default function Waitlist() {
   const navigate = useNavigate()
   const rootRef = useRef<HTMLDivElement>(null)
   const [buddyExampleIndex, setBuddyExampleIndex] = useState(0)
+  const [buddyVisibleCount, setBuddyVisibleCount] = useState(0)
+  const [buddyThinking, setBuddyThinking] = useState(false)
   const [featureTabId, setFeatureTabId] = useState<(typeof APP_FEATURE_TABS)[number]['id']>(
     'calendar'
   )
@@ -307,6 +309,55 @@ export default function Waitlist() {
   const showNextBuddyExample = () => {
     setBuddyExampleIndex((index) => (index + 1) % buddyExampleCount)
   }
+
+  // Play Buddy chat as a short conversation: ask → … → answer → ask → … → answer (5s loop).
+  useEffect(() => {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (prefersReducedMotion) {
+      setBuddyVisibleCount(buddyExample.messages.length)
+      setBuddyThinking(false)
+      return
+    }
+
+    let cancelled = false
+    const timeoutIds: number[] = []
+
+    const at = (ms: number, fn: () => void) => {
+      timeoutIds.push(
+        window.setTimeout(() => {
+          if (!cancelled) fn()
+        }, ms)
+      )
+    }
+
+    const playSequence = () => {
+      timeoutIds.forEach((id) => window.clearTimeout(id))
+      timeoutIds.length = 0
+      setBuddyVisibleCount(0)
+      setBuddyThinking(false)
+
+      // Play once (~5s): Q1 → thinking → A1 → Q2 → thinking → A2
+      at(80, () => setBuddyVisibleCount(1))
+      at(450, () => setBuddyThinking(true))
+      at(1200, () => {
+        setBuddyThinking(false)
+        setBuddyVisibleCount(2)
+      })
+      at(2100, () => setBuddyVisibleCount(3))
+      at(2500, () => setBuddyThinking(true))
+      at(3200, () => {
+        setBuddyThinking(false)
+        setBuddyVisibleCount(4)
+      })
+    }
+
+    playSequence()
+
+    return () => {
+      cancelled = true
+      timeoutIds.forEach((id) => window.clearTimeout(id))
+    }
+  }, [buddyExampleIndex, buddyExample.messages.length])
 
   const scrollToForm = () => {
     document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
@@ -375,7 +426,7 @@ export default function Waitlist() {
       <section className="cx-section bordered">
         <div className="cx-section-inner">
           <div className="cx-section-head centered reveal reveal-grow">
-            <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
+            <p className="cx-eyebrow">
               How it works
             </p>
             <h2 className="cx-section-title">From paperwork to paid on time</h2>
@@ -400,12 +451,12 @@ export default function Waitlist() {
       <section className="cx-section surface bordered">
         <div className="cx-section-inner">
           <div className="cx-section-head centered reveal reveal-grow">
-            <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
+            <p className="cx-eyebrow">
               Why Credyx
             </p>
             <h2 className="cx-section-title">
               Your back office,{' '}
-              <span className="accent cx-hand-underline">without the hire</span>
+              <span className="accent">without the hire</span>
             </h2>
             <p className="cx-section-sub">
               Visibility, follow-up, and A/R tracking in one portal — built for carriers.
@@ -429,7 +480,7 @@ export default function Waitlist() {
       <section className="cx-section bordered">
         <div className="cx-section-inner">
           <div className="cx-section-head centered reveal reveal-grow">
-            <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
+            <p className="cx-eyebrow">
               Product
             </p>
             <h2 className="cx-section-title">See your A/R clearly</h2>
@@ -480,7 +531,7 @@ export default function Waitlist() {
                 <p className="cx-proof-panel-title">Invoice progress</p>
                 <div className="cx-invoice-stepper">
                   {INVOICE_STEPS.map((step, index) => (
-                    <div key={step.label} style={{ display: 'contents' }}>
+                    <div key={step.label} className="cx-invoice-step-wrap">
                       {index > 0 && (
                         <div
                           className={`cx-invoice-step-line${
@@ -502,7 +553,7 @@ export default function Waitlist() {
                     </div>
                   ))}
                 </div>
-                <p className="cx-card-desc" style={{ marginTop: 18 }}>
+                <p className="cx-card-desc cx-proof-panel-desc">
                   You always know where each invoice stands — from paperwork to paid on time.
                 </p>
               </div>
@@ -527,7 +578,7 @@ export default function Waitlist() {
             <p className="cx-eyebrow">Assistant</p>
             <h2 className="cx-section-title">
               Meet your{' '}
-              <span className="accent cx-hand-underline">trucking buddy</span>
+              <span className="accent cx-hand-underline">AI trucking buddy</span>
             </h2>
             <p className="cx-section-sub">
               Ask about your A/R. Buddy answers from your live invoices — you stay in control.
@@ -537,15 +588,24 @@ export default function Waitlist() {
           <div className="cx-buddy-layout">
             <div className="cx-buddy-demo reveal reveal-grow" aria-label="Buddy chat examples">
               <div className="cx-buddy-demo-top">
-                <img
-                  src="/credyx-buddy-waving.png"
-                  alt=""
-                  className="cx-buddy-avatar"
-                  width={64}
-                  height={64}
-                />
+                <div className="cx-buddy-avatar-wrap" aria-hidden>
+                  <img
+                    src="/credyx-buddy-waving.png"
+                    alt=""
+                    className="cx-buddy-avatar-head"
+                    width={64}
+                    height={64}
+                  />
+                  <img
+                    src="/credyx-buddy-waving-hand.png"
+                    alt=""
+                    className="cx-buddy-avatar-hand"
+                    width={32}
+                    height={32}
+                  />
+                </div>
                 <div>
-                  <strong>Hey — I&apos;m your trucking buddy</strong>
+                  <strong>Hey — I&apos;m your AI trucking buddy</strong>
                   <span>Ask me anything about your company</span>
                 </div>
               </div>
@@ -576,33 +636,47 @@ export default function Waitlist() {
               </div>
 
               <div className="cx-buddy-chat" key={buddyExample.title}>
-                {buddyExample.messages.map((message, index) =>
+                {buddyExample.messages.slice(0, buddyVisibleCount).map((message, index) =>
                   message.role === 'user' ? (
                     <div
                       key={`${buddyExample.title}-u-${index}`}
                       className="cx-buddy-bubble cx-buddy-bubble--user"
-                      style={{ animationDelay: `${index * 0.08}s` }}
                     >
                       {message.text}
                     </div>
                   ) : (
-                    <div
-                      key={`${buddyExample.title}-b-${index}`}
-                      className="cx-buddy-row"
-                      style={{ animationDelay: `${index * 0.08}s` }}
-                    >
+                    <div key={`${buddyExample.title}-b-${index}`} className="cx-buddy-row">
                       <img
                         src={message.face}
                         alt=""
                         className="cx-buddy-bubble-face"
-                        width={40}
-                        height={40}
+                        width={48}
+                        height={48}
                       />
                       <div className="cx-buddy-bubble cx-buddy-bubble--bot">
                         <p>{message.text}</p>
                       </div>
                     </div>
                   )
+                )}
+
+                {buddyThinking && (
+                  <div className="cx-buddy-row" aria-live="polite" aria-label="Buddy is thinking">
+                    <img
+                      src="/credyx-buddy-thinking.png"
+                      alt=""
+                      className="cx-buddy-bubble-face"
+                      width={48}
+                      height={48}
+                    />
+                    <div className="cx-buddy-bubble cx-buddy-bubble--bot cx-buddy-bubble--thinking">
+                      <span className="cx-buddy-dots">
+                        <span />
+                        <span />
+                        <span />
+                      </span>
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -645,14 +719,13 @@ export default function Waitlist() {
       <section id="features" className="cx-section cx-section--features surface bordered">
         <div className="cx-section-inner">
           <div className="cx-features-head reveal reveal-grow">
-            <p className="cx-eyebrow">Product</p>
+            <p className="cx-eyebrow">Platform</p>
             <h2 className="cx-section-title">
-              See all{' '}
-              <span className="accent cx-hand-underline">app features</span>
+              Everything your fleet{' '}
+              <span className="accent">needs</span>
             </h2>
             <p className="cx-section-sub">
-              Your back office,{' '}
-              <span className="cx-soft-wiggle">in one portal</span>
+              Invoicing, tracking, and follow-up — all in one dashboard.
             </p>
           </div>
 
@@ -788,18 +861,11 @@ export default function Waitlist() {
             <div className="cx-join-head reveal reveal-grow">
               <h2 className="cx-section-title">
                 Join the{' '}
-                <span className="accent cx-hand-underline">waitlist</span>
+                <span className="accent">waitlist</span>
               </h2>
               <p className="cx-section-sub">
                 Tell us about your fleet — we&apos;ll reach out when onboarding opens.
               </p>
-              <div className="cx-spots-banner" role="status">
-                <span className="cx-spots-count">{WAITLIST_SPOTS_LEFT}</span>
-                <span className="cx-spots-copy">
-                  positions left
-                  <small>First 100 · 1 month fee-free</small>
-                </span>
-              </div>
             </div>
 
             <div className="reveal reveal-grow">
@@ -813,11 +879,11 @@ export default function Waitlist() {
       <footer className="cx-footer">
         <div className="cx-footer-brand">
           <img
-            src="/credyx-nav-logo.png"
+            src="/credyx-logo-white-cred-no-bg.png"
             alt="Credyx"
             className="cx-footer-logo"
-            width={120}
-            height={32}
+            width={320}
+            height={84}
           />
         </div>
         {!isMarketingOnly && (

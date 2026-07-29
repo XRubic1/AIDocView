@@ -61,11 +61,11 @@ export function MarketingHeader() {
         aria-label="Credyx A/R Solutions — back to top"
       >
         <img
-          src="/credyx-nav-logo.png"
+          src="/credyx-logo-white-cred-no-bg.png"
           alt="Credyx"
           className="cx-nav-logo"
-          width={140}
-          height={36}
+          width={360}
+          height={96}
         />
       </button>
 
