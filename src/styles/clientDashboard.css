@@ -2234,3 +2234,326 @@ body.cd-charts-resizing * {
     transform: none;
   }
 }
+
+/* ── Expanded Open Balance Card ── */
+.cd-open-balance--expanded {
+  min-height: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr auto;
+  gap: 1rem;
+  padding: 1.15rem 1.25rem;
+}
+
+.cd-open-balance--expanded .cd-open-balance__main {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.cd-open-balance--expanded .cd-open-balance__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.cd-open-balance--expanded .cd-open-balance__aging {
+  position: relative;
+  z-index: 1;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--cd-border);
+}
+
+.cd-open-balance__context {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.75rem;
+  color: var(--cd-muted);
+}
+
+.cd-open-balance__context-text {
+  font-weight: 450;
+}
+
+.cd-open-balance__context-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.cd-open-balance__context-icon.is-up {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.cd-open-balance__context-icon.is-down {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+/* ── Donut Ring ── */
+.cd-donut-ring {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.cd-donut-ring__chart {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.cd-donut-ring__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  pointer-events: none;
+}
+
+.cd-donut-ring__total {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--cd-text);
+}
+
+.cd-donut-ring__label {
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--cd-faint);
+}
+
+.cd-donut-ring__legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cd-donut-ring__legend-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.cd-donut-ring__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.cd-donut-ring__dot--ontime {
+  background: #1684fe;
+}
+
+.cd-donut-ring__dot--overdue {
+  background: #f87171;
+}
+
+.cd-donut-ring__legend-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--cd-faint);
+}
+
+.cd-donut-ring__legend-count {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--cd-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Compact Aging Bar ── */
+.cd-compact-aging {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cd-compact-aging__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cd-compact-aging__title {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--cd-muted);
+}
+
+.cd-compact-aging__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.cd-compact-aging__summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.05rem;
+}
+
+.cd-compact-aging__summary-label {
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--cd-faint);
+}
+
+.cd-compact-aging__summary-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--cd-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.cd-compact-aging__bar {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.cd-compact-aging__bar-seg {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cd-compact-aging__bar-empty {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+/* ── Status Stat Chips ── */
+.cd-status-chips {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.15rem;
+}
+
+.cd-status-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--cd-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  font-family: var(--cd-font);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.cd-status-chip:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--cd-border-hover);
+}
+
+.cd-status-chip:focus-visible {
+  outline: 2px solid var(--cd-blue);
+  outline-offset: 2px;
+}
+
+.cd-status-chip__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--cd-blue);
+  background: rgba(22, 132, 254, 0.12);
+}
+
+.cd-status-chip.tone-warn .cd-status-chip__icon {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.cd-status-chip.tone-danger .cd-status-chip__icon {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.cd-status-chip.tone-success .cd-status-chip__icon {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.cd-status-chip__label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--cd-faint);
+}
+
+.cd-status-chip__value {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--cd-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.cd-status-chip.tone-warn .cd-status-chip__value {
+  color: #fbbf24;
+}
+
+.cd-status-chip.tone-danger .cd-status-chip__value {
+  color: #f87171;
+}
+
+.cd-status-chip.tone-success .cd-status-chip__value {
+  color: #34d399;
+}
+
+.cd-status-chip.tone-info .cd-status-chip__value {
+  color: var(--cd-blue);
+}
+
+@media (max-width: 900px) {
+  .cd-status-chips {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .cd-open-balance--expanded .cd-open-balance__top {
+    flex-direction: column;
+  }
+
+  .cd-donut-ring {
+    flex-direction: row;
+    width: 100%;
+  }
+}
+
