@@ -36,6 +36,7 @@ export function getInvoiceLifecycleSteps(
 ): InvoiceLifecycleStep[] {
   const status = invoice.status
   const isPaid = status === 'paid'
+  const isClosed = status === 'force_closed' || status === 'written_off'
   const isHold = status === 'hold'
   const isRejected = status === 'rejected'
   const isPending = status === 'pending'
@@ -46,11 +47,22 @@ export function getInvoiceLifecycleSteps(
     { id: 'submitted', label: 'Submitted' },
     { id: 'verified', label: 'Verified' },
     { id: 'invoiced', label: 'Invoiced' },
-    { id: 'paid', label: awaitingReceipt ? 'Confirm' : 'Paid' },
+    {
+      id: 'paid',
+      label:
+        status === 'force_closed'
+          ? 'Force closed'
+          : status === 'written_off'
+            ? 'Written off'
+            : awaitingReceipt
+              ? 'Confirm'
+              : 'Paid',
+    },
   ]
 
-  // Awaiting receipt: path through Invoiced is done; Paid flashes yellow Confirm.
-  if (awaitingReceipt && !isPaid) {
+  // Awaiting receipt: path through Invoiced is done; Paid flashes yellow Confirm
+  // (includes short corrections on already-paid invoices).
+  if (awaitingReceipt && !isClosed) {
     return [
       { ...labels[0], state: 'done' },
       { ...labels[1], state: 'done' },
@@ -59,8 +71,13 @@ export function getInvoiceLifecycleSteps(
     ]
   }
 
-  // Paid: full path complete.
+  // Paid: full path complete (green).
   if (isPaid) {
+    return labels.map((step) => ({ ...step, state: 'done' as const }))
+  }
+
+  // Force closed / written off: full path complete (gray closed bar).
+  if (isClosed) {
     return labels.map((step) => ({ ...step, state: 'done' as const }))
   }
 
@@ -102,7 +119,7 @@ export function getInvoiceLifecycleSteps(
     status === 'write_off_pending'
 
   // PPW sent → stay on Invoiced (awaiting payment). Do NOT advance current to Paid.
-  if (ppwSent || status === 'force_closed' || status === 'written_off') {
+  if (ppwSent) {
     return [
       { ...labels[0], state: 'done' },
       { ...labels[1], state: verifiedDone ? 'done' : 'current' },

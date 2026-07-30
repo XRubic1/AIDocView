@@ -129,7 +129,8 @@ async function rest<T = unknown>(
 const DEMO_TAG = 'demo-abc' // stable id prefix for wipe safety checks
 const CLIENT_NAME_DEFAULT = 'ABC Trucking'
 const OPS = 'Credyx Ops'
-const CARRIER_CONTACT = 'Demo User'
+/** Carrier-side contact name on client-visible notes (reads as real ops, not “demo”). */
+const CARRIER_CONTACT = 'Alex Rivera'
 
 interface DemoBroker {
   id: string
@@ -152,6 +153,11 @@ type ScenarioKind =
   | 'hold_dispute'
   | 'awaiting_confirm'
   | 'short_awaiting'
+  | 'short_confirmed'
+  | 'over_awaiting'
+  | 'over_confirmed'
+  | 'chargeback'
+  | 'short_writeoff'
   | 'will_pay'
   | 'callback'
   | 'resolved_dispute'
@@ -182,6 +188,79 @@ interface DemoInvoiceSpec {
   scenario: ScenarioKind
   docsSent?: boolean
 }
+
+/** Approved vault docs so Document Vault setup reads as complete (everything on file). */
+interface DemoVaultDocSpec {
+  key: string
+  name: string
+  file_name: string
+  category: 'broker' | 'compliance' | 'other'
+  document_type: string
+  notes?: string
+  /** Days until expiration reminder (omit = no expiry). */
+  expiresInDays?: number
+  /** Only seed when client.factoring is true. */
+  factoringOnly?: boolean
+}
+
+const VAULT_DOC_SPECS: DemoVaultDocSpec[] = [
+  {
+    key: 'w9',
+    name: 'W-9 Tax Form',
+    file_name: 'W9.pdf',
+    category: 'compliance',
+    document_type: 'w9',
+    notes: 'Current year W-9 on file.',
+  },
+  {
+    key: 'coi',
+    name: 'Certificate of Insurance',
+    file_name: 'COI.pdf',
+    category: 'compliance',
+    document_type: 'coi',
+    notes: 'Liability + cargo coverage verified.',
+    expiresInDays: 320,
+  },
+  {
+    key: 'mc-authority',
+    name: 'MC Authority',
+    file_name: 'MC-Authority.pdf',
+    category: 'compliance',
+    document_type: 'mc_authority',
+  },
+  {
+    key: 'dot-reg',
+    name: 'DOT Registration',
+    file_name: 'DOT-Registration.pdf',
+    category: 'compliance',
+    document_type: 'dot_registration',
+  },
+  {
+    key: 'voided-check',
+    name: 'Voided check — operating account',
+    file_name: 'Voided-Check.pdf',
+    category: 'broker',
+    document_type: 'voided_check',
+    notes: 'Bank proof for remittance.',
+  },
+  {
+    key: 'bank-letter',
+    name: 'Bank letter — remittance verification',
+    file_name: 'Bank-Letter.pdf',
+    category: 'broker',
+    document_type: 'bank_letter',
+    notes: 'Confirms ACH remittance account on file.',
+  },
+  {
+    key: 'noa',
+    name: 'Notice of Assignment',
+    file_name: 'NOA.pdf',
+    category: 'broker',
+    document_type: 'noa',
+    notes: 'Factoring NOA on file.',
+    factoringOnly: true,
+  },
+]
 
 /**
  * Mix across last 4 months. `daysPastExpected` fills Aging A/R buckets:
@@ -384,7 +463,7 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     day: 24,
     termsDays: 30,
     daysPastExpected: 5,
-    amount: 3000,
+    amount: 3000, // $2,550 remitted; $450 short — missed delivery
     brokerIndex: 0,
     batch: 1,
     scenario: 'short_awaiting',
@@ -490,6 +569,78 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     scenario: 'awaiting_confirm',
     docsSent: true,
   },
+
+  // ── Payment variance showcase (current month) ──
+  {
+    key: 'm0-short-confirmed',
+    invoiceNumber: '2407',
+    loadNumber: 'LD-91082',
+    monthsAgo: 0,
+    day: 10,
+    termsDays: 30,
+    daysPastExpected: 4,
+    amount: 2800,
+    brokerIndex: 1,
+    batch: 0,
+    scenario: 'short_confirmed', // confirmed short — lumper $200 still due
+    docsSent: true,
+  },
+  {
+    key: 'm0-over-await',
+    invoiceNumber: '2408',
+    loadNumber: 'LD-91090',
+    monthsAgo: 0,
+    day: 11,
+    termsDays: 30,
+    daysPastExpected: 2,
+    amount: 2100,
+    brokerIndex: 2,
+    batch: 0,
+    scenario: 'over_awaiting', // overpay awaiting confirm (+$125)
+    docsSent: true,
+  },
+  {
+    key: 'm0-over-confirmed',
+    invoiceNumber: '2409',
+    loadNumber: 'LD-91102',
+    monthsAgo: 0,
+    day: 13,
+    termsDays: 30,
+    daysPastExpected: 1,
+    amount: 1950,
+    brokerIndex: 0,
+    batch: 0,
+    scenario: 'over_confirmed', // confirmed overpay — accept excess pending
+    docsSent: true,
+  },
+  {
+    key: 'm0-chargeback',
+    invoiceNumber: '2410',
+    loadNumber: 'LD-91114',
+    monthsAgo: 0,
+    day: 14,
+    termsDays: 30,
+    daysPastExpected: 3,
+    amount: 3200,
+    brokerIndex: 3,
+    batch: 0,
+    scenario: 'chargeback', // paid in full, then $350 chargeback correction
+    docsSent: true,
+  },
+  {
+    key: 'm0-short-writeoff',
+    invoiceNumber: '2411',
+    loadNumber: 'LD-91126',
+    monthsAgo: 0,
+    day: 16,
+    termsDays: 30,
+    daysPastExpected: 9,
+    amount: 2500,
+    brokerIndex: 1,
+    batch: 0,
+    scenario: 'short_writeoff', // short $400 written off as uncollectable
+    docsSent: true,
+  },
 ]
 
 // ─── Builders ────────────────────────────────────────────────────────────────
@@ -552,9 +703,51 @@ function normalizePayment(partial: Json): Json {
   return { ...emptyPaymentSkeleton(), ...partial }
 }
 
+/** Build approved vault rows so setup checklist is complete. */
+function buildVaultDocuments(
+  clientId: string,
+  factoring: boolean,
+  today: Date
+): Json[] {
+  const uploadedAt = isoAt(addDays(today, -45), 10, 20)
+  const approvedAt = isoAt(addDays(today, -44), 14, 5)
+
+  return VAULT_DOC_SPECS.filter((spec) => !spec.factoringOnly || factoring).map((spec, index) => {
+    const expires_at =
+      typeof spec.expiresInDays === 'number'
+        ? isoAt(addDays(today, spec.expiresInDays), 0, 0)
+        : null
+
+    return {
+      id: `cdoc-${DEMO_TAG}-${spec.key}`,
+      client_id: clientId,
+      name: spec.name,
+      file_name: spec.file_name,
+      category: spec.category,
+      document_type: spec.document_type,
+      notes: spec.notes ?? null,
+      size: 165_000 + index * 12_000,
+      mime_type: 'application/pdf',
+      storage_path: null,
+      uploaded_at: uploadedAt,
+      uploaded_by: CARRIER_CONTACT,
+      expires_at,
+      approval_status: 'approved',
+      approved_by: OPS,
+      approved_at: approvedAt,
+      rejection_reason: null,
+      uploaded_by_role: 'client',
+    }
+  })
+}
+
 interface BuiltInvoice {
   row: Json
-  payment?: Json
+  payments: Json[]
+}
+
+function money(n: number): string {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function buildInvoice(
@@ -587,19 +780,21 @@ function buildInvoice(
   let status: string = 'approved'
   let hold_reason: string | null = null
   let paid_amount: number | null = null
+  let overpayment_accepted_at: string | null = null
+  let write_off_request: Json | null = null
   let collection_status: string | null = null
   let collection_date: string | null = null
   let broker_contacted = false
   let last_broker_contact: string | null = null
   let days_since_expected: number | null =
     typeof spec.daysPastExpected === 'number' ? Math.max(0, spec.daysPastExpected) : null
-  let payment: Json | undefined
+  const payments: Json[] = []
 
   // Baseline notes every invoice gets
   notes.push(
     note(
       `note-${spec.key}-submit`,
-      `Packet uploaded for load ${spec.loadNumber}. Carrier confirmed docs look complete.`,
+      `Submitted packet for load ${spec.loadNumber}. Docs look complete on our end.`,
       CARRIER_CONTACT,
       isoAt(invDate, 10, 30),
       'client_note',
@@ -607,7 +802,7 @@ function buildInvoice(
     ),
     note(
       `note-${spec.key}-review`,
-      'Paperwork verified — invoice approved for broker submission.',
+      'Paperwork verified. Invoice approved for broker submission.',
       OPS,
       approvedAt,
       'approval',
@@ -621,7 +816,7 @@ function buildInvoice(
     notes.push(
       note(
         `note-${spec.key}-ppw`,
-        `PPW emailed to ${broker.email} (invoice, BOL, POD, rate con).`,
+        `PPW sent to ${broker.name} AP (${broker.email}) — invoice, BOL, POD, rate con.`,
         OPS,
         sentAt,
         'status_update',
@@ -648,7 +843,7 @@ function buildInvoice(
       notes.push(
         note(
           `note-${spec.key}-paid`,
-          `Payment of $${spec.amount.toFixed(2)} confirmed received via ACH.`,
+          `Payment of $${spec.amount.toFixed(2)} received via ACH. Marked paid.`,
           OPS,
           payIso,
           'status_update',
@@ -656,37 +851,39 @@ function buildInvoice(
         ),
         note(
           `note-${spec.key}-paid-thanks`,
-          'Thanks — marked paid on our side.',
+          'Confirmed — funds are in. Thanks.',
           CARRIER_CONTACT,
           isoAt(received, 17, 10),
           'client_note',
           'client'
         )
       )
-      payment = normalizePayment({
-        id: `pay-${DEMO_TAG}-${spec.key}`,
-        client_id: clientId,
-        invoice_id: invoiceId,
-        invoice_number: spec.invoiceNumber,
-        broker_name: broker.name,
-        amount: spec.amount,
-        payment_date: toDateStr(received),
-        received_date: toDateStr(received),
-        payment_method: 'ach',
-        payment_reference: `ACH-DEMO-${spec.invoiceNumber}`,
-        status: 'confirmed',
-        notes: 'Demo seed — confirmed payment',
-        posted_source: 'credyx',
-        posted_by: OPS,
-        confirmed_by: OPS,
-        confirmed_at: payIso,
-        client_confirmed_at: payIso,
-        client_confirmed_by: CARRIER_CONTACT,
-        payment_kind: 'normal',
-        batch_id: batchId,
-        batch_number: batchNumber,
-        load_number: spec.loadNumber,
-      })
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: spec.amount,
+          payment_date: toDateStr(received),
+          received_date: toDateStr(received),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}`,
+          status: 'confirmed',
+          notes: 'Full payment received via ACH.',
+          posted_source: 'credyx',
+          posted_by: OPS,
+          confirmed_by: OPS,
+          confirmed_at: payIso,
+          client_confirmed_at: payIso,
+          client_confirmed_by: CARRIER_CONTACT,
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
       break
     }
     case 'overdue': {
@@ -918,7 +1115,7 @@ function buildInvoice(
       notes.push(
         note(
           `note-${spec.key}-posted`,
-          `Credyx posted $${spec.amount.toFixed(2)} from ${broker.name}. Please confirm you received it.`,
+          `Posted $${spec.amount.toFixed(2)} from ${broker.name}. Please confirm you received the funds.`,
           OPS,
           isoAt(payDate, 12, 0),
           'status_update',
@@ -926,82 +1123,446 @@ function buildInvoice(
         ),
         note(
           `note-${spec.key}-action`,
-          'Action needed: Confirm payment receipt in Payments (or dispute if funds not received).',
+          'Action needed: Confirm payment receipt in Payments, or dispute if funds were not received.',
           OPS,
           isoAt(payDate, 12, 5),
           'note',
           'client'
         )
       )
-      payment = normalizePayment({
-        id: `pay-${DEMO_TAG}-${spec.key}`,
-        client_id: clientId,
-        invoice_id: invoiceId,
-        invoice_number: spec.invoiceNumber,
-        broker_name: broker.name,
-        amount: spec.amount,
-        payment_date: toDateStr(payDate),
-        received_date: toDateStr(payDate),
-        payment_method: 'ach',
-        payment_reference: `ACH-PEND-${spec.invoiceNumber}`,
-        status: 'awaiting_receipt',
-        notes: 'Demo seed — awaiting carrier confirmation',
-        posted_source: 'credyx',
-        posted_by: OPS,
-        client_confirmation_deadline: toDateStr(deadline),
-        payment_kind: 'normal',
-        batch_id: batchId,
-        batch_number: batchNumber,
-        load_number: spec.loadNumber,
-      })
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: spec.amount,
+          payment_date: toDateStr(payDate),
+          received_date: toDateStr(payDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}`,
+          status: 'awaiting_receipt',
+          notes: 'Full remittance posted — awaiting receipt confirmation.',
+          posted_source: 'credyx',
+          posted_by: OPS,
+          client_confirmation_deadline: toDateStr(deadline),
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
       break
     }
     case 'short_awaiting': {
       // Partial underpayment (not payment_kind short — that is a correction that subtracts).
+      // Inv #2305: $3,000 face, $450 missed-delivery deduction → $2,550 remitted.
       status = 'approved'
-      const paidAmt = Math.round(spec.amount * 0.85 * 100) / 100
-      const stillDue = Math.round((spec.amount - paidAmt) * 100) / 100
+      const shortfall = 450
+      const paidAmt = Math.round((spec.amount - shortfall) * 100) / 100
       const payDate = addDays(today, -1)
       const deadline = addDays(today, 4)
       notes.push(
         note(
           `note-${spec.key}-short`,
-          `Broker remitted $${paidAmt.toFixed(2)} of $${spec.amount.toFixed(2)} ($${stillDue.toFixed(2)} still due). Confirm what you received.`,
+          `${broker.name} remitted $${money(paidAmt)} of $${money(spec.amount)}. Short by $${money(shortfall)} — missed delivery deduction.`,
           OPS,
           isoAt(payDate, 11, 0),
           'status_update',
           'client'
         ),
         note(
+          `note-${spec.key}-reason`,
+          `Short-pay reason: Missed delivery — $${money(shortfall)} deducted by broker. $${money(shortfall)} still due on invoice #${spec.invoiceNumber} / load ${spec.loadNumber}.`,
+          OPS,
+          isoAt(payDate, 11, 5),
+          'note',
+          'client'
+        ),
+        note(
           `note-${spec.key}-action`,
-          'Action needed: Confirm this partial payment or dispute if the amount is wrong.',
+          `Action needed: Confirm the $${money(paidAmt)} you received, or dispute if the missed-delivery deduction is incorrect.`,
           OPS,
           isoAt(payDate, 11, 10),
           'note',
           'client'
         )
       )
-      payment = normalizePayment({
-        id: `pay-${DEMO_TAG}-${spec.key}`,
-        client_id: clientId,
-        invoice_id: invoiceId,
-        invoice_number: spec.invoiceNumber,
-        broker_name: broker.name,
-        amount: paidAmt,
-        payment_date: toDateStr(payDate),
-        received_date: toDateStr(payDate),
-        payment_method: 'ach',
-        payment_reference: `ACH-PARTIAL-${spec.invoiceNumber}`,
-        status: 'awaiting_receipt',
-        notes: 'Demo seed — partial payment awaiting confirmation',
-        posted_source: 'credyx',
-        posted_by: OPS,
-        client_confirmation_deadline: toDateStr(deadline),
-        payment_kind: 'normal',
-        batch_id: batchId,
-        batch_number: batchNumber,
-        load_number: spec.loadNumber,
-      })
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: paidAmt,
+          payment_date: toDateStr(payDate),
+          received_date: toDateStr(payDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}`,
+          status: 'awaiting_receipt',
+          notes: 'Short pay — missed delivery $450',
+          posted_source: 'credyx',
+          posted_by: OPS,
+          client_confirmation_deadline: toDateStr(deadline),
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
+      break
+    }
+    case 'short_confirmed': {
+      // Confirmed partial remittance — short paid, balance still open.
+      status = 'approved'
+      const shortfall = 200
+      const paidAmt = Math.round((spec.amount - shortfall) * 100) / 100
+      const payDate = addDays(today, -4)
+      const payIso = isoAt(payDate, 14, 20)
+      paid_amount = paidAmt
+      notes.push(
+        note(
+          `note-${spec.key}-short`,
+          `${broker.name} remitted $${money(paidAmt)} of $${money(spec.amount)}. Short by $${money(shortfall)} — lumper fee deducted.`,
+          OPS,
+          payIso,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-confirm`,
+          `Confirmed receipt of $${money(paidAmt)}. $${money(shortfall)} still due — chasing lumper deduction with broker.`,
+          CARRIER_CONTACT,
+          isoAt(payDate, 16, 5),
+          'client_note',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-follow`,
+          `Short-pay reason: Lumper fee $${money(shortfall)}. Requested revised remittance or credit memo from ${broker.name}.`,
+          OPS,
+          isoAt(addDays(today, -2), 10, 30),
+          'note',
+          'client'
+        )
+      )
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: paidAmt,
+          payment_date: toDateStr(payDate),
+          received_date: toDateStr(payDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}`,
+          status: 'confirmed',
+          notes: 'Short pay — lumper fee $200',
+          posted_source: 'credyx',
+          posted_by: OPS,
+          confirmed_by: OPS,
+          confirmed_at: payIso,
+          client_confirmed_at: isoAt(payDate, 16, 5),
+          client_confirmed_by: CARRIER_CONTACT,
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
+      broker_contacted = true
+      last_broker_contact = isoAt(addDays(today, -2), 10, 30)
+      break
+    }
+    case 'over_awaiting': {
+      // Broker remitted more than face — awaiting carrier confirm.
+      status = 'approved'
+      const overage = 125
+      const paidAmt = Math.round((spec.amount + overage) * 100) / 100
+      const payDate = addDays(today, -1)
+      const deadline = addDays(today, 5)
+      notes.push(
+        note(
+          `note-${spec.key}-over`,
+          `${broker.name} remitted $${money(paidAmt)} on a $${money(spec.amount)} invoice ($${money(overage)} over). Please confirm what landed in your account.`,
+          OPS,
+          isoAt(payDate, 11, 15),
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-action`,
+          `Action needed: Confirm the $${money(paidAmt)} remittance, or dispute if the amount is wrong.`,
+          OPS,
+          isoAt(payDate, 11, 20),
+          'note',
+          'client'
+        )
+      )
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: paidAmt,
+          payment_date: toDateStr(payDate),
+          received_date: toDateStr(payDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}`,
+          status: 'awaiting_receipt',
+          notes: `Overpay — remitted $${money(paidAmt)} (+$${money(overage)})`,
+          posted_source: 'credyx',
+          posted_by: OPS,
+          client_confirmation_deadline: toDateStr(deadline),
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
+      break
+    }
+    case 'over_confirmed': {
+      // Confirmed overpayment — excess not yet accepted.
+      status = 'paid'
+      const overage = 85
+      const paidAmt = Math.round((spec.amount + overage) * 100) / 100
+      const payDate = addDays(today, -3)
+      const payIso = isoAt(payDate, 13, 40)
+      paid_amount = paidAmt
+      notes.push(
+        note(
+          `note-${spec.key}-over`,
+          `${broker.name} remitted $${money(paidAmt)} on a $${money(spec.amount)} invoice ($${money(overage)} over).`,
+          OPS,
+          payIso,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-confirm`,
+          `Confirmed receipt of $${money(paidAmt)}. Excess $${money(overage)} still needs to be accepted or resolved.`,
+          CARRIER_CONTACT,
+          isoAt(payDate, 15, 10),
+          'client_note',
+          'client'
+        )
+      )
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: paidAmt,
+          payment_date: toDateStr(payDate),
+          received_date: toDateStr(payDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}`,
+          status: 'confirmed',
+          notes: `Overpay — remitted $${money(paidAmt)} (+$${money(overage)})`,
+          posted_source: 'credyx',
+          posted_by: OPS,
+          confirmed_by: OPS,
+          confirmed_at: payIso,
+          client_confirmed_at: isoAt(payDate, 15, 10),
+          client_confirmed_by: CARRIER_CONTACT,
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
+      break
+    }
+    case 'chargeback': {
+      // Paid in full, then broker chargeback short correction.
+      status = 'approved'
+      const chargebackAmt = 350
+      const netPaid = Math.round((spec.amount - chargebackAmt) * 100) / 100
+      const fullPayDate = addDays(today, -8)
+      const fullPayIso = isoAt(fullPayDate, 12, 0)
+      const cbDate = addDays(today, -2)
+      const cbIso = isoAt(cbDate, 10, 45)
+      const parentPayId = `pay-${DEMO_TAG}-${spec.key}-full`
+      paid_amount = netPaid
+      notes.push(
+        note(
+          `note-${spec.key}-paid`,
+          `Payment of $${money(spec.amount)} received via ACH. Marked paid.`,
+          OPS,
+          fullPayIso,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-confirm`,
+          'Confirmed — funds are in. Thanks.',
+          CARRIER_CONTACT,
+          isoAt(fullPayDate, 14, 0),
+          'client_note',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-cb`,
+          `Short payment correction posted: chargeback of $${money(chargebackAmt)} against the original remittance. Net received now $${money(netPaid)} of $${money(spec.amount)}.`,
+          OPS,
+          cbIso,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-cb-confirm`,
+          `Confirmed the $${money(chargebackAmt)} chargeback. $${money(chargebackAmt)} still due — following up with ${broker.name}.`,
+          CARRIER_CONTACT,
+          isoAt(cbDate, 15, 20),
+          'client_note',
+          'client'
+        )
+      )
+      payments.push(
+        normalizePayment({
+          id: parentPayId,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: spec.amount,
+          payment_date: toDateStr(fullPayDate),
+          received_date: toDateStr(fullPayDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}`,
+          status: 'confirmed',
+          notes: 'Full payment received via ACH.',
+          posted_source: 'credyx',
+          posted_by: OPS,
+          confirmed_by: OPS,
+          confirmed_at: fullPayIso,
+          client_confirmed_at: isoAt(fullPayDate, 14, 0),
+          client_confirmed_by: CARRIER_CONTACT,
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        }),
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}-cb`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: chargebackAmt,
+          payment_date: toDateStr(cbDate),
+          received_date: toDateStr(cbDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}-CB`,
+          status: 'confirmed',
+          notes: 'Short payment — chargeback $350',
+          posted_source: 'credyx',
+          posted_by: OPS,
+          confirmed_by: OPS,
+          confirmed_at: cbIso,
+          client_confirmed_at: isoAt(cbDate, 15, 20),
+          client_confirmed_by: CARRIER_CONTACT,
+          parent_payment_id: parentPayId,
+          payment_kind: 'short',
+          short_pay_reason: 'chargeback',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
+      broker_contacted = true
+      last_broker_contact = cbIso
+      break
+    }
+    case 'short_writeoff': {
+      // Confirmed short pay; remaining balance written off as uncollectable.
+      status = 'written_off'
+      const shortfall = 400
+      const paidAmt = Math.round((spec.amount - shortfall) * 100) / 100
+      const payDate = addDays(today, -12)
+      const payIso = isoAt(payDate, 11, 30)
+      const writeOffAt = isoAt(addDays(today, -1), 16, 0)
+      paid_amount = paidAmt
+      write_off_request = {
+        requested_by: CARRIER_CONTACT,
+        requested_at: isoAt(addDays(today, -3), 9, 15),
+        client_note: `Broker deducted $${money(shortfall)} for claimed detention that we dispute. Accepting write-off on the balance.`,
+        received_amount: paidAmt,
+        shortfall,
+        resolved_at: writeOffAt,
+        resolved_by: OPS,
+        resolution: 'approved',
+        internal_note: 'Approved — aged short balance closed as uncollectable.',
+      }
+      notes.push(
+        note(
+          `note-${spec.key}-short`,
+          `${broker.name} remitted $${money(paidAmt)} of $${money(spec.amount)}. Short by $${money(shortfall)} — detention claim.`,
+          OPS,
+          payIso,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-confirm`,
+          `Confirmed receipt of $${money(paidAmt)}.`,
+          CARRIER_CONTACT,
+          isoAt(payDate, 14, 0),
+          'client_note',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-wo-req`,
+          `Write-off requested on remaining $${money(shortfall)} — disputed detention deduction.`,
+          CARRIER_CONTACT,
+          isoAt(addDays(today, -3), 9, 15),
+          'client_note',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-wo`,
+          `Closed as uncollectable — received $${money(paidAmt)}, write-off $${money(shortfall)}. Disputed detention deduction accepted as uncollectable.`,
+          OPS,
+          writeOffAt,
+          'status_update',
+          'client'
+        )
+      )
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: paidAmt,
+          payment_date: toDateStr(payDate),
+          received_date: toDateStr(payDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}`,
+          status: 'confirmed',
+          notes: 'Short pay — detention claim $400',
+          posted_source: 'credyx',
+          posted_by: OPS,
+          confirmed_by: OPS,
+          confirmed_at: payIso,
+          client_confirmed_at: isoAt(payDate, 14, 0),
+          client_confirmed_by: CARRIER_CONTACT,
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
       break
     }
     case 'will_pay': {
@@ -1031,7 +1592,7 @@ function buildInvoice(
       notes.push(
         note(
           `note-${spec.key}-cb`,
-          `Left voicemail with ${broker.name}. Scheduled callback ${collection_date}.`,
+          `Left voicemail with ${broker.name} AP. Callback scheduled for ${collection_date}.`,
           OPS,
           last_broker_contact,
           'status_update',
@@ -1039,7 +1600,7 @@ function buildInvoice(
         ),
         note(
           `note-${spec.key}-cb2`,
-          'We’ll update you after the callback.',
+          'Will update after the callback.',
           OPS,
           isoAt(addDays(today, -1), 15, 50),
           'note',
@@ -1054,7 +1615,7 @@ function buildInvoice(
       notes.push(
         note(
           `note-${spec.key}-track`,
-          'Invoice submitted to broker. Monitoring for acceptance / payment.',
+          `Invoice submitted to ${broker.name}. Monitoring for acceptance and payment.`,
           OPS,
           isoAt(addDays(invDate, 3), 9, 0),
           'note',
@@ -1078,7 +1639,8 @@ function buildInvoice(
     broker_name: broker.name,
     amount: spec.amount,
     paid_amount,
-    overpayment_accepted_at: null,
+    overpayment_accepted_at,
+    write_off_request,
     invoice_date: toDateStr(invDate),
     due_date: toDateStr(due),
     expected_payment_date: toDateStr(expected),
@@ -1089,9 +1651,19 @@ function buildInvoice(
     reviewed_at: status === 'pending' ? null : approvedAt,
     reviewed_by: status === 'pending' ? null : OPS,
     approved_by:
-      status === 'approved' || status === 'paid' || status === 'force_closed' ? OPS : null,
+      status === 'approved' ||
+      status === 'paid' ||
+      status === 'force_closed' ||
+      status === 'written_off'
+        ? OPS
+        : null,
     approved_at:
-      status === 'approved' || status === 'paid' || status === 'force_closed' ? approvedAt : null,
+      status === 'approved' ||
+      status === 'paid' ||
+      status === 'force_closed' ||
+      status === 'written_off'
+        ? approvedAt
+        : null,
     hold_reason,
     notes: hold_reason,
     notes_history: notes,
@@ -1122,7 +1694,7 @@ function buildInvoice(
     updated_at: new Date().toISOString(),
   }
 
-  return { row, payment }
+  return { row, payments }
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -1191,6 +1763,7 @@ async function main(): Promise<void> {
 
   const clientId = String(client!.id)
   const clientName = String(client!.name)
+  const clientFactoring = Boolean(client!.factoring)
   const batchCode = String(client!.batch_code || 'ABCT').slice(0, 4).toUpperCase()
 
   console.log(`  Resolved:  ${clientName} (${clientId})\n`)
@@ -1211,20 +1784,38 @@ async function main(): Promise<void> {
     serviceKey,
     `batches?client_id=eq.${encodeURIComponent(clientId)}&select=id`
   )
+  const existingDocs = await rest<Json[]>(
+    baseUrl,
+    serviceKey,
+    `client_documents?client_id=eq.${encodeURIComponent(clientId)}&select=id`
+  )
+
+  const vaultDocsPreview = buildVaultDocuments(clientId, clientFactoring, today)
 
   console.log(`Will remove:`)
   console.log(`  payments:  ${existingPay.data?.length ?? 0}`)
   console.log(`  invoices:  ${existingInv.data?.length ?? 0}`)
   console.log(`  batches:   ${existingBat.data?.length ?? 0}`)
+  console.log(`  vault docs:${existingDocs.data?.length ?? 0}`)
   console.log(`Will insert:`)
   console.log(`  brokers:   ${DEMO_BROKERS.length} (upsert)`)
   console.log(`  batches:   5`)
   console.log(`  invoices:  ${INVOICE_SPECS.length}`)
   console.log(
     `  payments:  ${INVOICE_SPECS.filter((s) =>
-      ['paid', 'awaiting_confirm', 'short_awaiting'].includes(s.scenario)
-    ).length}`
+      [
+        'paid',
+        'awaiting_confirm',
+        'short_awaiting',
+        'short_confirmed',
+        'over_awaiting',
+        'over_confirmed',
+        'chargeback',
+        'short_writeoff',
+      ].includes(s.scenario)
+    ).length}+ (chargeback adds a correction row)`
   )
+  console.log(`  vault docs:${vaultDocsPreview.length} (approved — setup complete)`)
 
   if (dryRun) {
     console.log('\nDry run only — no changes made.')
@@ -1266,6 +1857,14 @@ async function main(): Promise<void> {
     { method: 'DELETE', prefer: 'return=minimal' }
   )
   if (!delBat.ok) console.error('  batch delete warning', delBat.status, delBat.data)
+
+  const delDocs = await rest(
+    baseUrl,
+    serviceKey,
+    `client_documents?client_id=eq.${encodeURIComponent(clientId)}`,
+    { method: 'DELETE', prefer: 'return=minimal' }
+  )
+  if (!delDocs.ok) console.error('  vault doc delete warning', delDocs.status, delDocs.data)
 
   // 2) Upsert demo brokers (stable ids)
   console.log('Upserting brokers…')
@@ -1390,7 +1989,7 @@ async function main(): Promise<void> {
       today
     )
     invoiceRows.push(built.row)
-    if (built.payment) paymentRows.push(built.payment)
+    paymentRows.push(...built.payments)
   }
 
   const invIns = await rest(baseUrl, serviceKey, 'invoices', {
@@ -1415,6 +2014,21 @@ async function main(): Promise<void> {
     }
   }
 
+  // 5) Document vault — approved setup packet (setup complete)
+  console.log('Creating vault documents…')
+  const vaultRows = buildVaultDocuments(clientId, clientFactoring, today)
+  if (vaultRows.length) {
+    const docIns = await rest(baseUrl, serviceKey, 'client_documents', {
+      method: 'POST',
+      prefer: 'return=minimal',
+      body: JSON.stringify(vaultRows),
+    })
+    if (!docIns.ok) {
+      console.error('Failed to insert vault documents', docIns.status, docIns.data)
+      process.exit(1)
+    }
+  }
+
   // Summary by scenario
   const byScenario = INVOICE_SPECS.reduce<Record<string, number>>((acc, s) => {
     acc[s.scenario] = (acc[s.scenario] ?? 0) + 1
@@ -1425,6 +2039,7 @@ async function main(): Promise<void> {
   console.log(`  Client:   ${clientName}`)
   console.log(`  Invoices: ${invoiceRows.length}`)
   console.log(`  Payments: ${paymentRows.length}`)
+  console.log(`  Vault:    ${vaultRows.length} approved docs (setup complete)`)
   console.log('  Mix:', byScenario)
   console.log('\nRe-run anytime to refresh dates to the latest 4 months:')
   console.log(`  npm run seed-demo -- "${clientName}"`)

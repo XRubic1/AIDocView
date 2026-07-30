@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type TransitionEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useHorizontalSwipe } from '../../hooks/useHorizontalSwipe'
 import {
   X,
   ChevronLeft,
@@ -16,7 +17,7 @@ import {
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
-import { formatCurrency, formatDate, formatDateTime } from '../../utils/format'
+import { formatCurrency, formatDate } from '../../utils/format'
 import {
   addClientInvoiceNote,
   openClientInvoiceDispute,
@@ -66,6 +67,7 @@ import {
   getClientDisplayBalanceState,
   getClientPostedPendingTotal,
   getInvoiceReceivedAmount,
+  AMOUNT_EPSILON,
 } from '../../utils/paymentVariance'
 import {
   getUnconfirmedPaymentTotal,
@@ -95,6 +97,7 @@ import {
 } from '../../utils/carrierRemittance'
 import type { ClientDocument } from '../../types/clientDocument'
 import MobileInvoiceOverview from './MobileInvoiceOverview'
+import { InvoiceActivityNoteList, declutterActivityEntries } from './InvoiceActivityNoteList'
 import { getCarrierInvoiceActionRequired } from '../../utils/invoiceMobileInsights'
 import ConfirmPaymentReceiptModal from './ConfirmPaymentReceiptModal'
 
@@ -257,8 +260,26 @@ export default function InvoiceDetailPanel({
   const notesEnabled = enableNotes ?? enableClientActions
   const authorName = noteAuthorName?.trim() || clientName
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all')
-  /** Mobile: stats overview vs separated activity/notes surface. */
-  const [mobileSurface, setMobileSurface] = useState<'overview' | 'activity'>('overview')
+  /** Overview vs separated activity/notes surface (mobile + sidebar). */
+  const [detailSurface, setDetailSurface] = useState<'overview' | 'activity'>('overview')
+  /**
+   * Mobile invoice pager animation:
+   * - drag: follow finger
+   * - exit: slide current invoice off-screen
+   * - enter: slide next invoice in
+   */
+  const [swipeMotion, setSwipeMotion] = useState<{
+    phase: 'idle' | 'drag' | 'exit' | 'enter'
+    /** Pixel offset while dragging / exiting. */
+    offsetX: number
+    /** Navigation direction for exit/enter transitions. */
+    direction: 'prev' | 'next' | null
+  }>({ phase: 'idle', offsetX: 0, direction: null })
+  const swipeShellRef = useRef<HTMLDivElement>(null)
+  const pendingNavRef = useRef<Invoice | null>(null)
+  const swipeAnimatingRef = useRef(false)
+  const onNavigateInvoiceRef = useRef(onNavigateInvoice)
+  onNavigateInvoiceRef.current = onNavigateInvoice
 
   useEffect(() => {
     if (!isMobile) return
@@ -287,7 +308,7 @@ export default function InvoiceDetailPanel({
 
   useEffect(() => {
     setTimelineFilter('all')
-    setMobileSurface('overview')
+    setDetailSurface('overview')
   }, [invoice.id])
 
   const invoicePayments = useMemo(
@@ -445,6 +466,70 @@ export default function InvoiceDetailPanel({
     return getUnconfirmedShortPaymentTotal(visibleInvoice.id)
   }, [showBalanceSummary, visibleInvoice.id])
 
+  /** Shortfall vs face amount, treating pending confirmation as applied.
+   *  Unpaid invoices (nothing applied) are not short-paid — return 0. */
+  const shortfallInclPending = useMemo(() => {
+    const applied = receivedAmount + pendingConfirmation - pendingShortCorrection
+    if (applied < AMOUNT_EPSILON) return 0
+    return Math.max(0, visibleInvoice.amount - applied)
+  }, [
+    receivedAmount,
+    pendingConfirmation,
+    pendingShortCorrection,
+    visibleInvoice.amount,
+  ])
+
+  /** Overage vs face amount when remittance exceeds invoice total. */
+  const overageInclPending = useMemo(() => {
+    const applied = receivedAmount + pendingConfirmation - pendingShortCorrection
+    if (applied < AMOUNT_EPSILON) return 0
+    return Math.max(0, applied - visibleInvoice.amount)
+  }, [
+    receivedAmount,
+    pendingConfirmation,
+    pendingShortCorrection,
+    visibleInvoice.amount,
+  ])
+
+  /** Carrier-facing short-pay reason from awaiting / latest payment notes. */
+  const shortPayReasonText = useMemo(() => {
+    const payment =
+      awaitingReceiptPayment ||
+      invoicePayments.find((p) => p.notes?.trim() || p.short_pay_reason) ||
+      null
+    if (!payment) return null
+
+    const notes = payment.notes?.trim()
+    if (notes) {
+      // Prefer the structured short-pay note Credyx stored on the payment.
+      if (/^short payment/i.test(notes)) return notes
+    }
+
+    if (payment.payment_kind === 'short' || payment.short_pay_reason) {
+      const reason =
+        payment.short_pay_reason === 'chargeback'
+          ? 'chargeback'
+          : payment.short_pay_reason === 'wrong_amount'
+            ? 'wrong amount'
+            : 'short payment'
+      const base = `Short payment — ${reason} ${formatCurrency(payment.amount)}`
+      return notes && !/^short payment/i.test(notes) ? `${base}. ${notes}` : base
+    }
+
+    if (notes) return notes
+    return null
+  }, [awaitingReceiptPayment, invoicePayments])
+
+  /** True when the awaiting payment is a short correction (not a full remittance). */
+  const awaitingShortCorrection = Boolean(
+    awaitingReceiptPayment &&
+      (awaitingReceiptPayment.payment_kind === 'short' ||
+        awaitingReceiptPayment.short_pay_reason)
+  )
+  const awaitingShortAmount = awaitingShortCorrection
+    ? awaitingReceiptPayment!.amount
+    : 0
+
   const activityEntries = useMemo((): TimelineEntry[] => {
     const entries: TimelineEntry[] = []
     for (const dispute of openDisputes) {
@@ -592,12 +677,13 @@ export default function InvoiceDetailPanel({
       .map((entry) => {
         const typeKey = entry.type || 'note'
         const source = noteSource(typeKey, entry.created_by, entry.note)
+        const actionMatch = entry.note.match(/^action needed:\s*(.+)$/i)
         return {
           id: `note-${entry.id}`,
-          title: noteTitle(typeKey),
-          detail: entry.note,
+          title: actionMatch ? 'Action needed' : noteTitle(typeKey),
+          detail: actionMatch ? actionMatch[1] : entry.note,
           timestamp: entry.created_at,
-          tone: noteTone(typeKey),
+          tone: actionMatch ? 'warning' : noteTone(typeKey),
           kind: typeKey,
           source,
           internal: entry.visibility === 'internal',
@@ -618,10 +704,7 @@ export default function InvoiceDetailPanel({
         send.part_number && send.part_total && send.part_total > 1
           ? `Part ${send.part_number} of ${send.part_total}`
           : null
-      const docs =
-        send.documents_sent && send.documents_sent.length > 0
-          ? send.documents_sent.join(', ')
-          : null
+      const fileCount = send.documents_sent?.length ?? 0
       return {
         id: `send-${idx}-${send.sent_at}`,
         title: partLabel ? `Document sent · ${partLabel}` : 'Document sent',
@@ -632,7 +715,7 @@ export default function InvoiceDetailPanel({
         tone: sendTone,
         kind: send.status === 'failed' ? 'send_failed' : 'send',
         source: 'credyx' as NoteSource,
-        meta: [send.note, docs ? `Files: ${docs}` : null].filter(Boolean).join(' · ') || undefined,
+        meta: fileCount > 0 ? `Files: ${fileCount} attached` : send.note || undefined,
       }
     })
   }, [invoice.document_send_history])
@@ -645,6 +728,24 @@ export default function InvoiceDetailPanel({
       ...sendEntries,
     ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
   }, [activityEntries, noteTimelineEntries, paymentTimelineEntries, sendEntries])
+
+  // Counts match the decluttered feed (hidden duplicate rows don’t inflate badges).
+  const timelineFilterCounts = useMemo(() => {
+    const ctx = allTimelineEntries
+    return {
+      all: declutterActivityEntries(allTimelineEntries, ctx).length,
+      activity: declutterActivityEntries(activityEntries, ctx).length,
+      notes: declutterActivityEntries(noteTimelineEntries, ctx).length,
+      payments: declutterActivityEntries(paymentTimelineEntries, ctx).length,
+      send: declutterActivityEntries(sendEntries, ctx).length,
+    }
+  }, [
+    allTimelineEntries,
+    activityEntries,
+    noteTimelineEntries,
+    paymentTimelineEntries,
+    sendEntries,
+  ])
 
   const filteredTimeline =
     timelineFilter === 'all'
@@ -660,6 +761,147 @@ export default function InvoiceDetailPanel({
   const navIndex = navigationInvoices.findIndex((inv) => inv.id === invoice.id)
   const hasPrev = navIndex > 0
   const hasNext = navIndex >= 0 && navIndex < navigationInvoices.length - 1
+
+  /** Apply rubber-band resistance past list edges during drag. */
+  const resistSwipeOffset = (raw: number) => {
+    const width = swipeShellRef.current?.clientWidth || window.innerWidth || 360
+    if ((raw < 0 && !hasNext) || (raw > 0 && !hasPrev)) {
+      return raw * 0.22
+    }
+    // Soft resistance past ~55% of width so the panel never fully leaves during drag.
+    const cap = width * 0.55
+    if (Math.abs(raw) <= cap) return raw
+    const overflow = Math.abs(raw) - cap
+    const signed = Math.sign(raw)
+    return signed * (cap + overflow * 0.18)
+  }
+
+  const beginExitToInvoice = (target: Invoice, direction: 'prev' | 'next', fromOffset = 0) => {
+    if (swipeAnimatingRef.current) return
+    swipeAnimatingRef.current = true
+    pendingNavRef.current = target
+    const width = swipeShellRef.current?.clientWidth || window.innerWidth || 360
+    const exitX = direction === 'next' ? -width : width
+    setSwipeMotion({ phase: 'exit', offsetX: fromOffset, direction })
+    // Next frame: animate from current drag position to fully off-screen.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setSwipeMotion({ phase: 'exit', offsetX: exitX, direction })
+      })
+    })
+  }
+
+  const goToAdjacentInvoice = (direction: 'prev' | 'next', fromOffset = 0) => {
+    const target =
+      direction === 'prev' && hasPrev
+        ? navigationInvoices[navIndex - 1]
+        : direction === 'next' && hasNext
+          ? navigationInvoices[navIndex + 1]
+          : null
+    if (!target) return
+    if (isMobile) {
+      beginExitToInvoice(target, direction, fromOffset)
+      return
+    }
+    onNavigateInvoice(target)
+  }
+
+  const anyModalOpen =
+    showSendDocsModal ||
+    showDisputeModal ||
+    showPaidModal ||
+    showUploadModal ||
+    showConfirmPaymentModal ||
+    showCloseModal ||
+    showAcceptOverModal
+
+  const swipeGestureEnabled =
+    isMobile &&
+    !anyModalOpen &&
+    (swipeMotion.phase === 'idle' || swipeMotion.phase === 'drag')
+
+  const { swipeHandlers } = useHorizontalSwipe({
+    enabled: swipeGestureEnabled,
+    keepOffsetOnCommit: true,
+    onSwipe: ({ direction, offsetX }) => {
+      const navDir = direction === 'left' ? 'next' : 'prev'
+      const canGo = navDir === 'next' ? hasNext : hasPrev
+      if (!canGo) {
+        // Bounce back at edges.
+        setSwipeMotion({ phase: 'idle', offsetX: 0, direction: null })
+        return
+      }
+      goToAdjacentInvoice(navDir, offsetX)
+    },
+    onDragOffsetChange: (offset) => {
+      if (offset == null) {
+        // Spring back when the gesture was cancelled / below threshold.
+        setSwipeMotion((prev) =>
+          prev.phase === 'drag' ? { phase: 'idle', offsetX: 0, direction: null } : prev
+        )
+        return
+      }
+      setSwipeMotion({
+        phase: 'drag',
+        offsetX: resistSwipeOffset(offset),
+        direction: offset < 0 ? 'next' : 'prev',
+      })
+    },
+  })
+
+  /** After exit finishes, swap invoice then run enter animation. */
+  const handleSwipeTransitionEnd = (event: TransitionEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return
+    if (event.propertyName !== 'transform') return
+
+    if (swipeMotion.phase === 'exit' && pendingNavRef.current) {
+      const target = pendingNavRef.current
+      pendingNavRef.current = null
+      const direction = swipeMotion.direction
+      const width = swipeShellRef.current?.clientWidth || window.innerWidth || 360
+      // Place the incoming panel just off-screen on the opposite side.
+      setSwipeMotion({
+        phase: 'enter',
+        offsetX: direction === 'next' ? width : -width,
+        direction,
+      })
+      onNavigateInvoiceRef.current(target)
+      return
+    }
+
+    if (swipeMotion.phase === 'enter') {
+      swipeAnimatingRef.current = false
+      setSwipeMotion({ phase: 'idle', offsetX: 0, direction: null })
+    }
+  }
+
+  // Once enter content is mounted at the off-screen offset, animate it to center.
+  useEffect(() => {
+    if (swipeMotion.phase !== 'enter') return
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setSwipeMotion((prev) =>
+          prev.phase === 'enter' ? { ...prev, offsetX: 0 } : prev
+        )
+      })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [swipeMotion.phase, invoice.id])
+
+  // Failsafe if a transitionend is missed (tab blur, reduced-motion, etc.).
+  useEffect(() => {
+    if (swipeMotion.phase !== 'exit' && swipeMotion.phase !== 'enter') return
+    const timer = window.setTimeout(() => {
+      if (pendingNavRef.current) {
+        const target = pendingNavRef.current
+        pendingNavRef.current = null
+        onNavigateInvoiceRef.current(target)
+      }
+      swipeAnimatingRef.current = false
+      setSwipeMotion({ phase: 'idle', offsetX: 0, direction: null })
+    }, 520)
+    return () => window.clearTimeout(timer)
+  }, [swipeMotion.phase])
 
   const summaryToneClass =
     SUMMARY_TONE_BY_STATUS[enriched.displayStatus || invoice.status] ||
@@ -815,7 +1057,7 @@ export default function InvoiceDetailPanel({
       showToast(successMessage, 'success')
       // Keep confirmation visible long enough to read on mobile overview.
       window.setTimeout(() => setUploadSuccess(null), wasActionRequiredUpload ? 12000 : 5000)
-      if (isMobile) setMobileSurface('overview')
+      if (isMobile) setDetailSurface('overview')
       onInvoiceUpdated?.()
     } catch (error) {
       console.error('Failed to upload documents:', error)
@@ -1007,50 +1249,95 @@ export default function InvoiceDetailPanel({
           <button
             type="button"
             onClick={() => {
-              if (mobileSurface === 'activity') {
-                setMobileSurface('overview')
+              if (detailSurface === 'activity') {
+                setDetailSurface('overview')
                 return
               }
               onClose()
             }}
             className="payment-confirmation-panel__icon-btn"
-            aria-label={mobileSurface === 'activity' ? 'Back to invoice overview' : 'Back to invoices'}
+            aria-label={detailSurface === 'activity' ? 'Back to invoice overview' : 'Back to invoices'}
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
         ) : null}
 
         {isMobile ? (
-          <p className="payment-confirmation-panel__mobile-top-title">
-            {mobileSurface === 'activity' ? 'Activity' : 'Invoice details'}
-          </p>
+          <>
+            <p className="payment-confirmation-panel__mobile-top-title">
+              {detailSurface === 'activity' ? 'Activity' : 'Invoice details'}
+            </p>
+            <div
+              className="payment-confirmation-panel__mobile-pager"
+              aria-label="Invoice pager"
+            >
+              <button
+                type="button"
+                className="payment-confirmation-panel__icon-btn"
+                disabled={!hasPrev || swipeMotion.phase === 'exit' || swipeMotion.phase === 'enter'}
+                onClick={() => goToAdjacentInvoice('prev')}
+                aria-label="Previous invoice"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span
+                className="payment-confirmation-panel__mobile-pager-count tabular-nums"
+                style={{ color: c.secondary }}
+              >
+                {navIndex >= 0 ? navIndex + 1 : 1}/{navigationInvoices.length || 1}
+              </span>
+              <button
+                type="button"
+                className="payment-confirmation-panel__icon-btn"
+                disabled={!hasNext || swipeMotion.phase === 'exit' || swipeMotion.phase === 'enter'}
+                onClick={() => goToAdjacentInvoice('next')}
+                aria-label="Next invoice"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </>
         ) : (
           <>
+            {detailSurface === 'activity' ? (
+              <button
+                type="button"
+                onClick={() => setDetailSurface('overview')}
+                className="payment-confirmation-panel__icon-btn shrink-0"
+                aria-label="Back to invoice overview"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            ) : null}
             <div className="payment-confirmation-panel__header-main min-w-0">
               <div className="payment-confirmation-panel__eyebrow-row">
                 <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
-                  Invoice details
+                  {detailSurface === 'activity' ? 'Activity & notes' : 'Invoice details'}
                 </p>
-                {awaitingReceiptPayment ? (
-                  <span className="status-pill status-pill--confirm-payment status-pill--compact">
-                    Confirm payment
-                  </span>
-                ) : (
-                  getInvoiceRowStatusBadge(enriched, {
-                    compact: true,
-                    balance: balanceState,
-                    pendingClientPosted,
-                    confirmedReceived: receivedAmount,
-                  })
-                )}
+                {detailSurface === 'overview' ? (
+                  awaitingReceiptPayment ? (
+                    <span className="status-pill status-pill--confirm-payment status-pill--compact">
+                      Confirm payment
+                    </span>
+                  ) : (
+                    getInvoiceRowStatusBadge(enriched, {
+                      compact: true,
+                      balance: balanceState,
+                      pendingClientPosted,
+                      confirmedReceived: receivedAmount,
+                    })
+                  )
+                ) : null}
               </div>
               <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
                 Invoice {visibleInvoice.invoice_number}
                 {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
               </p>
-              <p className="payment-confirmation-panel__context-sub" style={{ color: c.secondary }}>
-                {visibleInvoice.broker_name}
-              </p>
+              {detailSurface === 'overview' ? (
+                <p className="payment-confirmation-panel__context-sub" style={{ color: c.secondary }}>
+                  {visibleInvoice.broker_name}
+                </p>
+              ) : null}
             </div>
 
             <div className="payment-confirmation-panel__header-actions">
@@ -1059,7 +1346,7 @@ export default function InvoiceDetailPanel({
                   type="button"
                   className="payment-confirmation-panel__icon-btn"
                   disabled={!hasPrev}
-                  onClick={() => hasPrev && onNavigateInvoice(navigationInvoices[navIndex - 1])}
+                  onClick={() => goToAdjacentInvoice('prev')}
                   aria-label="Previous invoice"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -1074,13 +1361,13 @@ export default function InvoiceDetailPanel({
                   type="button"
                   className="payment-confirmation-panel__icon-btn"
                   disabled={!hasNext}
-                  onClick={() => hasNext && onNavigateInvoice(navigationInvoices[navIndex + 1])}
+                  onClick={() => goToAdjacentInvoice('next')}
                   aria-label="Next invoice"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
-              {onPopOut ? (
+              {onPopOut && detailSurface === 'overview' ? (
                 <button
                   type="button"
                   onClick={onPopOut}
@@ -1115,26 +1402,26 @@ export default function InvoiceDetailPanel({
               <button
                 type="button"
                 role="tab"
-                aria-selected={mobileSurface === 'overview'}
+                aria-selected={detailSurface === 'overview'}
                 className={`payment-confirmation-panel__mobile-surface-tab${
-                  mobileSurface === 'overview'
+                  detailSurface === 'overview'
                     ? ' payment-confirmation-panel__mobile-surface-tab--active'
                     : ''
                 }`}
-                onClick={() => setMobileSurface('overview')}
+                onClick={() => setDetailSurface('overview')}
               >
                 Overview
               </button>
               <button
                 type="button"
                 role="tab"
-                aria-selected={mobileSurface === 'activity'}
+                aria-selected={detailSurface === 'activity'}
                 className={`payment-confirmation-panel__mobile-surface-tab${
-                  mobileSurface === 'activity'
+                  detailSurface === 'activity'
                     ? ' payment-confirmation-panel__mobile-surface-tab--active'
                     : ''
                 }`}
-                onClick={() => setMobileSurface('activity')}
+                onClick={() => setDetailSurface('activity')}
               >
                 Activity
                 {allTimelineEntries.length > 0 ? (
@@ -1145,7 +1432,7 @@ export default function InvoiceDetailPanel({
               </button>
             </div>
 
-            {mobileSurface === 'overview' ? (
+            {detailSurface === 'overview' ? (
               <MobileInvoiceOverview
                 invoice={visibleInvoice}
                 enriched={enriched}
@@ -1156,7 +1443,11 @@ export default function InvoiceDetailPanel({
                 activityCount={allTimelineEntries.length}
                 documentCount={documentCount}
                 uploadConfirmation={uploadSuccess}
-                onOpenActivity={() => setMobileSurface('activity')}
+                shortfallAmount={shortfallInclPending}
+                shortPayReason={shortPayReasonText}
+                overageAmount={overageInclPending}
+                awaitingShortAmount={awaitingShortAmount}
+                onOpenActivity={() => setDetailSurface('activity')}
                 onConfirmPayment={
                   canConfirmPaymentAction
                     ? () => setShowConfirmPaymentModal(true)
@@ -1177,9 +1468,9 @@ export default function InvoiceDetailPanel({
                   >
                     {(
                       [
-                        ['all', 'All', allTimelineEntries.length],
-                        ['activity', 'Activity', activityEntries.length],
-                        ['payments', 'Payments', paymentTimelineEntries.length],
+                        ['all', 'All', timelineFilterCounts.all],
+                        ['activity', 'Activity', timelineFilterCounts.activity],
+                        ['payments', 'Payments', timelineFilterCounts.payments],
                       ] as const
                     ).map(([key, label, count]) => (
                       <button
@@ -1219,69 +1510,17 @@ export default function InvoiceDetailPanel({
                 )}
 
                 <div className="payment-confirmation-panel__notes-scroll">
-                  {filteredTimeline.length === 0 ? (
-                    <p
-                      className="payment-confirmation-panel__notes-empty"
-                      style={{ color: c.mutedLight }}
-                    >
-                      {emptyMessage}
-                    </p>
-                  ) : (
-                    <ol className="payment-confirmation-panel__notes-list payment-confirmation-panel__notes-list--cards">
-                      {filteredTimeline.map((entry) => (
-                        <li
-                          key={entry.id}
-                          className={`payment-confirmation-panel__note-card${
-                            entry.source
-                              ? ` payment-confirmation-panel__note-card--${entry.source}`
-                              : ''
-                          }`}
-                        >
-                          <div className="payment-confirmation-panel__note-card-top">
-                            <span className="payment-confirmation-panel__note-card-title">
-                              {entry.title}
-                              {entry.source ? (
-                                <span
-                                  className={`payment-confirmation-panel__note-card-source payment-confirmation-panel__note-card-source--${entry.source}`}
-                                >
-                                  {entry.source === 'carrier' ? 'You' : 'Credyx'}
-                                </span>
-                              ) : null}
-                              {entry.internal ? (
-                                <span
-                                  className="payment-confirmation-panel__note-internal"
-                                  title="Visible to Credyx only"
-                                >
-                                  Internal
-                                </span>
-                              ) : null}
-                            </span>
-                            <time
-                              className="payment-confirmation-panel__note-card-date tabular-nums"
-                              dateTime={entry.timestamp}
-                            >
-                              {formatDateTime(entry.timestamp)}
-                            </time>
-                          </div>
-                          {entry.detail ? (
-                            <p className="payment-confirmation-panel__note-card-detail">
-                              {entry.detail}
-                            </p>
-                          ) : null}
-                          {entry.meta ? (
-                            <p className="payment-confirmation-panel__note-card-meta">
-                              {entry.meta}
-                            </p>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ol>
-                  )}
+                  <InvoiceActivityNoteList
+                    entries={filteredTimeline}
+                    contextEntries={allTimelineEntries}
+                    emptyMessage={emptyMessage}
+                    emptyColor={c.mutedLight}
+                  />
                 </div>
               </section>
             )}
           </>
-        ) : (
+        ) : detailSurface === 'overview' ? (
           <>
         <section
           className={`payment-confirmation-panel__summary ${summaryToneClass}`}
@@ -1328,10 +1567,10 @@ export default function InvoiceDetailPanel({
             <div className="payment-confirmation-panel__summary-cell">
               <dt>Pay date</dt>
               <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                {pendingPayDate
-                  ? `${formatDate(pendingPayDate)} (pending)`
-                  : payDate
-                    ? formatDate(payDate)
+                {payDate
+                  ? formatDate(payDate)
+                  : pendingPayDate
+                    ? `${formatDate(pendingPayDate)} (pending)`
                     : '—'}
               </dd>
             </div>
@@ -1396,11 +1635,36 @@ export default function InvoiceDetailPanel({
           )}
         </section>
 
-        <section className="payment-confirmation-panel__notes">
+        <MobileInvoiceOverview
+          insightsOnly
+          invoice={visibleInvoice}
+          enriched={enriched}
+          payDate={payDate}
+          pendingPayDate={pendingPayDate}
+          receiptDaysLeft={receiptDaysLeft}
+          hasAwaitingReceipt={Boolean(awaitingReceiptPayment)}
+          activityCount={allTimelineEntries.length}
+          documentCount={documentCount}
+          uploadConfirmation={uploadSuccess}
+          shortfallAmount={shortfallInclPending}
+          shortPayReason={shortPayReasonText}
+          overageAmount={overageInclPending}
+          awaitingShortAmount={awaitingShortAmount}
+          onOpenActivity={() => setDetailSurface('activity')}
+          onConfirmPayment={
+            canConfirmPaymentAction
+              ? () => setShowConfirmPaymentModal(true)
+              : undefined
+          }
+          onViewDocuments={canViewDocuments ? onViewDocuments : undefined}
+          onUploadDocuments={
+            enableClientActions ? () => setShowUploadModal(true) : undefined
+          }
+        />
+          </>
+        ) : (
+        <section className="payment-confirmation-panel__notes payment-confirmation-panel__notes--sidebar-surface">
           <div className="payment-confirmation-panel__notes-head">
-            <h3 className="payment-confirmation-panel__notes-title" style={{ color: c.primary }}>
-              Activity & notes
-            </h3>
             <div
               className="payment-confirmation-panel__notes-filters"
               role="group"
@@ -1408,11 +1672,11 @@ export default function InvoiceDetailPanel({
             >
               {(
                 [
-                  ['all', 'All', allTimelineEntries.length],
-                  ['activity', 'Activity', activityEntries.length],
-                  ['notes', 'Notes', noteTimelineEntries.length],
-                  ['payments', 'Payments', paymentTimelineEntries.length],
-                  ['send', 'Send', sendEntries.length],
+                  ['all', 'All', timelineFilterCounts.all],
+                  ['activity', 'Activity', timelineFilterCounts.activity],
+                  ['notes', 'Notes', timelineFilterCounts.notes],
+                  ['payments', 'Payments', timelineFilterCounts.payments],
+                  ['send', 'Send', timelineFilterCounts.send],
                 ] as const
               ).map(([key, label, count]) => (
                 <button
@@ -1513,62 +1777,14 @@ export default function InvoiceDetailPanel({
           )}
 
           <div className="payment-confirmation-panel__notes-scroll">
-            {filteredTimeline.length === 0 ? (
-              <p className="payment-confirmation-panel__notes-empty" style={{ color: c.mutedLight }}>
-                {emptyMessage}
-              </p>
-            ) : (
-              <ol className="payment-confirmation-panel__notes-list">
-                {filteredTimeline.map((entry) => (
-                  <li key={entry.id} className="payment-confirmation-panel__note">
-                    {entry.source ? (
-                      <span
-                        className={`payment-confirmation-panel__note-source payment-confirmation-panel__note-source--${entry.source}`}
-                        aria-label={entry.source === 'carrier' ? 'Carrier' : 'Credyx'}
-                        title={entry.source === 'carrier' ? 'Carrier' : 'Credyx'}
-                      >
-                        <span className="payment-confirmation-panel__note-source-dot" aria-hidden />
-                      </span>
-                    ) : (
-                      <span
-                        className="payment-confirmation-panel__note-source"
-                        aria-hidden
-                      >
-                        <span className="payment-confirmation-panel__note-source-dot" />
-                      </span>
-                    )}
-                    <div className="payment-confirmation-panel__note-head">
-                      <div className="payment-confirmation-panel__note-title-row">
-                        <span className="payment-confirmation-panel__note-title">
-                          {entry.title}
-                        </span>
-                        {entry.internal && (
-                          <span
-                            className="payment-confirmation-panel__note-internal"
-                            title="Visible to Credyx only"
-                          >
-                            Internal
-                          </span>
-                        )}
-                      </div>
-                      <time
-                        className="payment-confirmation-panel__note-date tabular-nums"
-                        dateTime={entry.timestamp}
-                      >
-                        {formatDate(entry.timestamp)}
-                      </time>
-                    </div>
-                    <p className="payment-confirmation-panel__note-detail">{entry.detail}</p>
-                    {entry.meta && (
-                      <p className="payment-confirmation-panel__note-meta">{entry.meta}</p>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
+            <InvoiceActivityNoteList
+              entries={filteredTimeline}
+              contextEntries={allTimelineEntries}
+              emptyMessage={emptyMessage}
+              emptyColor={c.mutedLight}
+            />
           </div>
         </section>
-          </>
         )}
       </div>
 
@@ -1586,8 +1802,8 @@ export default function InvoiceDetailPanel({
                 onClick={() => setShowConfirmPaymentModal(true)}
                 className="confirm-payment-receipt-modal__confirm-btn payment-confirmation-panel__footer-confirm flex-1 min-w-0 inline-flex items-center justify-center gap-1.5"
               >
-                <CircleCheck className="w-4 h-4 shrink-0" />
-                <span>{isMobile ? 'Confirm' : 'Confirm payment'}</span>
+                <CircleCheck className="w-3 h-3 shrink-0" />
+                <span>Confirm</span>
               </button>
             )}
             {canViewPaymentAction && settledPayment && (
@@ -1889,6 +2105,7 @@ export default function InvoiceDetailPanel({
         <ConfirmPaymentReceiptModal
           payment={awaitingReceiptPayment}
           clientName={authorName}
+          invoiceAmount={visibleInvoice.amount}
           onClose={() => setShowConfirmPaymentModal(false)}
           onUpdated={() => {
             onInvoiceUpdated?.()
@@ -2135,9 +2352,39 @@ export default function InvoiceDetailPanel({
   )
 
   if (variant === 'mobile') {
+    const isDragging = swipeMotion.phase === 'drag'
+    const isSliding = swipeMotion.phase === 'exit' || swipeMotion.phase === 'enter'
+    const width = swipeShellRef.current?.clientWidth || 360
+    const dragProgress = isDragging
+      ? Math.min(1, Math.abs(swipeMotion.offsetX) / Math.max(1, width * 0.35))
+      : 0
+    // Skip transition while placing the incoming panel off-screen.
+    const skipTransition =
+      isDragging || (swipeMotion.phase === 'enter' && Math.abs(swipeMotion.offsetX) > 8)
+
     return (
-      <div className="payment-confirmation-panel payment-confirmation-panel--mobile flex flex-col min-h-0 flex-1 overflow-hidden">
-        {panelBody}
+      <div
+        ref={swipeShellRef}
+        className={`payment-confirmation-panel payment-confirmation-panel--mobile payment-confirmation-panel--swipeable flex flex-col min-h-0 flex-1 overflow-hidden${
+          isDragging ? ' payment-confirmation-panel--swiping' : ''
+        }${isSliding ? ' payment-confirmation-panel--slide-animating' : ''}`}
+        {...swipeHandlers}
+        role="region"
+        aria-label={`Invoice details for ${visibleInvoice.invoice_number}. Swipe left or right to change invoice.`}
+      >
+        <div
+          className="payment-confirmation-panel__swipe-sheet flex flex-col min-h-0 flex-1"
+          onTransitionEnd={handleSwipeTransitionEnd}
+          style={{
+            transform: `translate3d(${swipeMotion.offsetX}px, 0, 0)`,
+            opacity: isDragging ? 1 - dragProgress * 0.08 : 1,
+            transition: skipTransition
+              ? 'none'
+              : 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 320ms cubic-bezier(0.22, 1, 0.36, 1)',
+          }}
+        >
+          {panelBody}
+        </div>
       </div>
     )
   }

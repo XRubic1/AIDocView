@@ -657,7 +657,8 @@ export function postAdminShortPayment(
       posted_source: 'credyx',
       posted_by: adminName,
       client_confirmation_deadline: buildReceiptConfirmationDeadline(),
-      notes: input.notes?.trim() || undefined,
+      // Store full short-pay label so invoice details / insights can show the reason + note.
+      notes: noteSuffix,
       batch_id: invoice.batch_id,
       batch_number: invoice.batch_number,
       load_number: invoice.load_number,

@@ -327,7 +327,7 @@ function pushPaymentActivity(entries: PaymentAuditTimelineEntry[], payment: Paym
     payment.status === 'confirmed' && payment.client_confirmed_by === CREDYX_FORCE_CONFIRM_ACTOR
   let detail = `${formatCurrency(payment.amount)} · ${method}`
   if (payment.payment_reference) detail += ` · Ref ${payment.payment_reference}`
-  if (payment.notes) detail += ` — ${payment.notes}`
+  const paymentMeta = payment.notes?.trim() || undefined
 
   // Show the funds post event — not current status as a fake "confirmed" history item.
   // Client/Credyx confirmation is covered by payment notes (Payment Confirmation, etc.).
@@ -359,6 +359,7 @@ function pushPaymentActivity(entries: PaymentAuditTimelineEntry[], payment: Paym
     timestamp: payment.received_date || payment.payment_date,
     title,
     detail,
+    meta: paymentMeta,
     tone: paymentTone(payment.status),
     kind: 'activity',
     noteKind: 'payment',

@@ -45,10 +45,10 @@ export default function MobileInvoiceListCard({
   const load = invoice.load_number?.trim() || '—'
   const visibleDueDate = getClientVisibleDueDate(invoice)
   const due = visibleDueDate ? formatMobileInvoiceDate(visibleDueDate) : '—'
-  const pay = pendingPayDate
-    ? `${formatMobileInvoiceDate(pendingPayDate)} (pending)`
-    : payDate
-      ? formatMobileInvoiceDate(payDate)
+  const pay = payDate
+    ? formatMobileInvoiceDate(payDate)
+    : pendingPayDate
+      ? `${formatMobileInvoiceDate(pendingPayDate)} (pending)`
       : '—'
 
   return (

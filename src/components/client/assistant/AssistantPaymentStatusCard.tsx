@@ -7,12 +7,18 @@ interface AssistantPaymentStatusCardProps {
   onOpenInvoice?: (invoiceId: string, invoiceNumber: string) => void
 }
 
-/** Clear payment truth — balance, confirmed, and WHY from structured fields. */
+/** Clear payment truth — balance, confirmed, pending, and WHY from structured fields. */
 export default function AssistantPaymentStatusCardView({
   status,
   note,
   onOpenInvoice,
 }: AssistantPaymentStatusCardProps) {
+  const showAwaiting =
+    Boolean(status.postedAwaitingConfirmLabel) &&
+    status.postedAwaitingConfirmLabel !== '$0.00'
+  const showRemainingAfterPending =
+    status.isPartialRemittance && Boolean(status.remainingAfterPendingLabel)
+
   return (
     <div className="assistant-pay-status">
       <div className="assistant-pay-status__head">
@@ -43,12 +49,27 @@ export default function AssistantPaymentStatusCardView({
           <dt>Confirmed received</dt>
           <dd>{status.confirmedReceivedLabel}</dd>
         </div>
-        <div>
-          <dt>Balance due</dt>
-          <dd className={`assistant-pay-status__bal--${status.balanceTone}`}>
-            {status.balanceDueLabel}
-          </dd>
-        </div>
+        {showAwaiting ? (
+          <div>
+            <dt>Awaiting your confirmation</dt>
+            <dd className="assistant-pay-status__pending">{status.postedAwaitingConfirmLabel}</dd>
+          </div>
+        ) : null}
+        {showRemainingAfterPending ? (
+          <div>
+            <dt>Still due after this payment</dt>
+            <dd className="assistant-pay-status__bal--short">
+              {status.remainingAfterPendingLabel}
+            </dd>
+          </div>
+        ) : (
+          <div>
+            <dt>Balance due</dt>
+            <dd className={`assistant-pay-status__bal--${status.balanceTone}`}>
+              {status.balanceDueLabel}
+            </dd>
+          </div>
+        )}
         <div>
           <dt>Display status</dt>
           <dd>

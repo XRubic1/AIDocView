@@ -4,7 +4,7 @@ import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
-import { FileText, Search, Filter, DollarSign, ChevronLeft, ChevronRight, AlertCircle, Check } from 'lucide-react'
+import { FileText, Search, DollarSign, ChevronLeft, ChevronRight, AlertCircle, Check } from 'lucide-react'
 import DocumentViewer from '../components/DocumentViewer'
 import {
   getInvoiceRowStatusBadge,
@@ -53,6 +53,81 @@ type InvoiceSortField =
   | 'ppw_sent'
   | 'status'
 
+/** Working list — excludes paid and closed invoices. */
+type InvoiceStatusFilter =
+  | 'active'
+  | 'overdue'
+  | 'pending'
+  | 'approved'
+  | 'hold'
+  | 'paid'
+  | 'closed'
+
+const INVOICE_STATUS_FILTERS: { id: InvoiceStatusFilter; label: string }[] = [
+  { id: 'active', label: 'Active' },
+  { id: 'overdue', label: 'Overdue' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'approved', label: 'Open' },
+  { id: 'hold', label: 'Hold' },
+  { id: 'paid', label: 'Paid' },
+  { id: 'closed', label: 'Closed' },
+]
+
+const CLOSED_DISPLAY_STATUSES = new Set(['force_closed', 'written_off', 'rejected'])
+
+/** Resolve client-visible status used for list filters and badges. */
+function getInvoiceFilterDisplayStatus(
+  invoice: EnrichedInvoice,
+  balance: InvoiceBalanceState,
+  pendingInfo?: { pending: number; confirmed: number }
+): string {
+  return getClientInvoiceStatusParts(invoice, balance, {
+    pendingClientPosted: pendingInfo?.pending,
+    confirmedReceived: pendingInfo?.confirmed,
+    invoiceAmount: invoice.amount,
+  }).status
+}
+
+/** Whether an invoice belongs in the selected status filter bucket. */
+function matchesInvoiceStatusFilter(
+  invoice: EnrichedInvoice,
+  filter: InvoiceStatusFilter,
+  displayStatus: string,
+  options?: { awaitingReceipt?: boolean }
+): boolean {
+  const awaitingReceipt = Boolean(options?.awaitingReceipt)
+  switch (filter) {
+    case 'active':
+      // Paid invoices with a Credyx short/payment awaiting confirm stay in Active.
+      if (awaitingReceipt) return true
+      return displayStatus !== 'paid' && !CLOSED_DISPLAY_STATUSES.has(displayStatus)
+    case 'overdue':
+      return Boolean(invoice.isOverdue)
+    case 'approved':
+    case 'paid':
+      return displayStatus === filter
+    case 'closed':
+      return CLOSED_DISPLAY_STATUSES.has(displayStatus)
+    case 'pending':
+    case 'hold':
+      return displayStatus === filter || invoice.status === filter
+    default:
+      return true
+  }
+}
+
+/** Pick the filter bucket that will show a deep-linked invoice. */
+function statusFilterForInvoice(
+  invoice: EnrichedInvoice,
+  displayStatus: string,
+  options?: { awaitingReceipt?: boolean }
+): InvoiceStatusFilter {
+  if (options?.awaitingReceipt) return 'active'
+  if (displayStatus === 'paid') return 'paid'
+  if (CLOSED_DISPLAY_STATUSES.has(displayStatus)) return 'closed'
+  return 'active'
+}
+
 /** Open balance display — remaining due, $0 when settled, +overage when overpaid. */
 function formatInvoiceOpenBalance(
   balance: InvoiceBalanceState,
@@ -98,7 +173,7 @@ export default function ClientInvoices() {
     [rawInvoices]
   )
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [statusFilter, setStatusFilter] = useState<InvoiceStatusFilter>('active')
   const [showInvoiceDetail, setShowInvoiceDetail] = useState(false)
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
   const [detailPanelClosing, setDetailPanelClosing] = useState(false)
@@ -192,22 +267,48 @@ export default function ClientInvoices() {
       invoiceBalanceById.get(invoice.id) ??
       getClientDisplayBalanceState(invoice.amount, 0, 0)
     const pendingInfo = invoicePendingById.get(invoice.id)
-    const { status: displayStatus } = getClientInvoiceStatusParts(invoice, balance, {
-      pendingClientPosted: pendingInfo?.pending,
-      confirmedReceived: pendingInfo?.confirmed,
-      invoiceAmount: invoice.amount,
-    })
+    const displayStatus = getInvoiceFilterDisplayStatus(invoice, balance, pendingInfo)
 
-    const matchesStatus =
-      statusFilter === 'all' ||
-      (statusFilter === 'overdue'
-        ? invoice.isOverdue
-        : statusFilter === 'approved' || statusFilter === 'paid'
-          ? displayStatus === statusFilter
-          : invoice.status === statusFilter)
-
-    return matchesSearch && matchesStatus
+    return (
+      matchesSearch &&
+      matchesInvoiceStatusFilter(invoice, statusFilter, displayStatus, {
+        awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
+      })
+    )
   })
+
+  /** Counts per filter bucket (from full list, not search-narrowed). */
+  const statusFilterCounts = useMemo(() => {
+    const counts: Record<InvoiceStatusFilter, number> = {
+      active: 0,
+      overdue: 0,
+      pending: 0,
+      approved: 0,
+      hold: 0,
+      paid: 0,
+      closed: 0,
+    }
+
+    for (const invoice of enrichedInvoices) {
+      const balance =
+        invoiceBalanceById.get(invoice.id) ??
+        getClientDisplayBalanceState(invoice.amount, 0, 0)
+      const pendingInfo = invoicePendingById.get(invoice.id)
+      const displayStatus = getInvoiceFilterDisplayStatus(invoice, balance, pendingInfo)
+
+      for (const { id } of INVOICE_STATUS_FILTERS) {
+        if (
+          matchesInvoiceStatusFilter(invoice, id, displayStatus, {
+            awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
+          })
+        ) {
+          counts[id] += 1
+        }
+      }
+    }
+
+    return counts
+  }, [enrichedInvoices, invoiceBalanceById, invoicePendingById, awaitingReceiptInvoiceIds])
 
   const sortedInvoices = useMemo(() => {
     const sorted = [...filteredInvoices]
@@ -292,9 +393,25 @@ export default function ClientInvoices() {
 
   useEffect(() => {
     const status = searchParams.get('status')
-    const validStatuses = ['overdue', 'pending', 'approved', 'hold', 'paid', 'force_closed', 'written_off']
-    if (status && validStatuses.includes(status)) {
-      setStatusFilter(status)
+    const validStatuses: InvoiceStatusFilter[] = [
+      'active',
+      'overdue',
+      'pending',
+      'approved',
+      'hold',
+      'paid',
+      'closed',
+    ]
+    // Legacy deep-links for closed invoices.
+    if (status === 'force_closed' || status === 'written_off') {
+      setStatusFilter('closed')
+      const next = new URLSearchParams(searchParams)
+      next.delete('status')
+      setSearchParams(next, { replace: true })
+      return
+    }
+    if (status && validStatuses.includes(status as InvoiceStatusFilter)) {
+      setStatusFilter(status as InvoiceStatusFilter)
       const next = new URLSearchParams(searchParams)
       next.delete('status')
       setSearchParams(next, { replace: true })
@@ -402,7 +519,16 @@ export default function ClientInvoices() {
 
     const target = enrichedInvoices[highlightIndex]
     openedHighlightRef.current = highlightRef
-    setStatusFilter('all')
+    const balance =
+      invoiceBalanceById.get(target.id) ??
+      getClientDisplayBalanceState(target.amount, 0, 0)
+    const pendingInfo = invoicePendingById.get(target.id)
+    const displayStatus = getInvoiceFilterDisplayStatus(target, balance, pendingInfo)
+    setStatusFilter(
+      statusFilterForInvoice(target, displayStatus, {
+        awaitingReceipt: awaitingReceiptInvoiceIds.has(target.id),
+      })
+    )
     setSearchTerm('')
     setHighlightedInvoiceId(target.id)
     setSelectedInvoiceId(target.id)
@@ -427,6 +553,8 @@ export default function ClientInvoices() {
   }, [
     searchParams,
     enrichedInvoices,
+    invoiceBalanceById,
+    invoicePendingById,
     pageSize,
     setSearchParams,
     location.state,
@@ -443,12 +571,31 @@ export default function ClientInvoices() {
     const index = enrichedInvoices.findIndex((inv) => inv.id === stashedId)
     if (index < 0) return
 
+    const target = enrichedInvoices[index]
+    const balance =
+      invoiceBalanceById.get(target.id) ??
+      getClientDisplayBalanceState(target.amount, 0, 0)
+    const pendingInfo = invoicePendingById.get(target.id)
+    const displayStatus = getInvoiceFilterDisplayStatus(target, balance, pendingInfo)
+
     openedHighlightRef.current = stashedId
+    setStatusFilter(
+      statusFilterForInvoice(target, displayStatus, {
+        awaitingReceipt: awaitingReceiptInvoiceIds.has(target.id),
+      })
+    )
     setSelectedInvoiceId(stashedId)
     setDetailPanelClosing(false)
     if (useFullPageDetail) setShowInvoiceDetail(true)
     setCurrentPage(Math.floor(index / pageSize) + 1)
-  }, [enrichedInvoices, searchParams, pageSize, useFullPageDetail])
+  }, [
+    enrichedInvoices,
+    invoiceBalanceById,
+    invoicePendingById,
+    searchParams,
+    pageSize,
+    useFullPageDetail,
+  ])
 
   const inputCompactStyle = {
     backgroundColor: c.card,
@@ -527,7 +674,7 @@ export default function ClientInvoices() {
               </div>
               <button
                 type="button"
-                onClick={() => setStatusFilter(statusFilter === 'overdue' ? 'all' : 'overdue')}
+                onClick={() => setStatusFilter(statusFilter === 'overdue' ? 'active' : 'overdue')}
                 className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left transition-colors hover:opacity-90"
                 style={{
                   backgroundColor: statusFilter === 'overdue' ? c.stat.redActive : c.stat.red,
@@ -598,33 +745,23 @@ export default function ClientInvoices() {
                   role="group"
                   aria-label="Filter by status"
                 >
-                  {(
-                    [
-                      ['all', 'All'],
-                      ['overdue', 'Overdue'],
-                      ['pending', 'Pending'],
-                      ['approved', 'Open'],
-                      ['hold', 'Hold'],
-                      ['paid', 'Paid'],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={`mobile-invoices-toolbar__pill${
-                        statusFilter === key ? ' is-active' : ''
-                      }${key === 'overdue' && overdueInvoices.length > 0 ? ' is-alert' : ''}`}
-                      onClick={() => setStatusFilter(key)}
-                      aria-pressed={statusFilter === key}
-                    >
-                      {label}
-                      {key === 'overdue' && overdueInvoices.length > 0 ? (
-                        <span className="mobile-invoices-toolbar__pill-count">
-                          {overdueInvoices.length}
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
+                  {INVOICE_STATUS_FILTERS.map(({ id, label }) => {
+                    const count = statusFilterCounts[id]
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        className={`mobile-invoices-toolbar__pill${
+                          statusFilter === id ? ' is-active' : ''
+                        }${id === 'overdue' && count > 0 ? ' is-alert' : ''}`}
+                        onClick={() => setStatusFilter(id)}
+                        aria-pressed={statusFilter === id}
+                      >
+                        {label}
+                        <span className="mobile-invoices-toolbar__pill-count">{count}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ) : (
@@ -632,8 +769,27 @@ export default function ClientInvoices() {
                 className="client-page-toolbar px-4 py-2 border-b shrink-0"
                 style={{ borderColor: c.border, backgroundColor: c.card }}
               >
-                <div className="flex flex-col md:flex-row md:items-center gap-2">
-                  <div className="flex-1 relative">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
+                    {INVOICE_STATUS_FILTERS.map(({ id, label }) => {
+                      const count = statusFilterCounts[id]
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setStatusFilter(id)}
+                          className={`batch-filter-pill${
+                            statusFilter === id ? ' batch-filter-pill--active' : ''
+                          }${id === 'overdue' && count > 0 && statusFilter !== id ? ' batch-filter-pill--alert' : ''}`}
+                          aria-pressed={statusFilter === id}
+                        >
+                          {label}
+                          <span className="batch-filter-pill__count">{count}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="relative w-full lg:w-auto lg:min-w-[280px] lg:max-w-sm">
                     <Search
                       className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
                       style={{ color: c.secondary }}
@@ -646,24 +802,6 @@ export default function ClientInvoices() {
                       className="client-input pl-8"
                       style={inputCompactStyle}
                     />
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Filter className="w-3.5 h-3.5" style={{ color: c.secondary }} />
-                    <select
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value)}
-                      className="client-input w-full md:w-auto min-w-[120px]"
-                      style={inputCompactStyle}
-                    >
-                      <option value="all">All Status</option>
-                      <option value="overdue">Overdue</option>
-                      <option value="pending">Pending</option>
-                      <option value="approved">Open</option>
-                      <option value="hold">On Hold</option>
-                      <option value="paid">Paid</option>
-                      <option value="force_closed">Force Closed</option>
-                      <option value="written_off">Written Off</option>
-                    </select>
                   </div>
                 </div>
               </div>
@@ -678,7 +816,7 @@ export default function ClientInvoices() {
                       No invoices found
                     </p>
                     <p className="text-sm" style={{ color: c.secondary }}>
-                      {searchTerm || statusFilter !== 'all'
+                      {searchTerm || statusFilter !== 'active'
                         ? 'Try adjusting your search or filters'
                         : 'Your invoices will appear here'}
                     </p>

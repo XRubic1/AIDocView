@@ -320,12 +320,24 @@ export default function AssistantChatThread({
         !replies.some((m) => m.kind === 'payment_status' || m.kind === 'dispute_draft')
       ) {
         const nums = [...text.matchAll(/#?\b(\d{3,})\b/g)].map((m) => m[1])
-        const matchedInv = invoices.filter((inv) =>
+        let matchedInv = invoices.filter((inv) =>
           nums.some(
             (n) =>
               String(inv.invoice_number).replace(/^#/, '') === n || inv.id === n
           )
         )
+        // Follow-ups like “is that a short payment?” — reuse last payment card in thread.
+        if (matchedInv.length === 0) {
+          for (let i = messages.length - 1; i >= 0; i--) {
+            const id = messages[i].paymentStatus?.invoiceId
+            if (!id) continue
+            const inv = invoices.find((x) => x.id === id)
+            if (inv) {
+              matchedInv = [inv]
+              break
+            }
+          }
+        }
         if (matchedInv.length) {
           const snaps = buildPaymentStatusSnapshots(matchedInv, payments, 4)
           replies = [
@@ -336,7 +348,9 @@ export default function AssistantChatThread({
               createdAt: new Date().toISOString(),
               text:
                 snaps.length === 1
-                  ? `Here’s the payment status for #${snaps[0].invoiceNumber}:`
+                  ? snaps[0].isPartialRemittance
+                    ? `Yes — #${snaps[0].invoiceNumber} has a short remittance awaiting your confirmation:`
+                    : `Here’s the payment status for #${snaps[0].invoiceNumber}:`
                   : `Here’s the payment status for ${snaps.length} invoices:`,
             },
             ...snaps.map((snap, i) => ({
@@ -353,6 +367,9 @@ export default function AssistantChatThread({
                 summary: snap.summary,
                 faceAmountLabel: snap.faceAmountLabel,
                 confirmedReceivedLabel: snap.confirmedReceivedLabel,
+                postedAwaitingConfirmLabel: snap.postedAwaitingConfirmLabel,
+                remainingAfterPendingLabel: snap.remainingAfterPendingLabel,
+                isPartialRemittance: snap.isPartialRemittance,
                 balanceDueLabel: snap.balanceDueLabel,
                 balanceTone: snap.balanceTone,
                 displayStatus: snap.displayStatus,

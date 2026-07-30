@@ -30,6 +30,7 @@ import { addClientInvoiceNote } from '../../services/clientInvoiceActions'
 import { stashPaymentRestoreTarget } from '../../utils/paymentRestoreTarget'
 import InvoiceBalanceSummary from './InvoiceBalanceSummary'
 import { InvoiceNoteCompose } from './InvoiceNoteCompose'
+import { InvoiceActivityNoteList } from './InvoiceActivityNoteList'
 
 const METHOD_LABELS: Record<string, string> = {
   check: 'Check',
@@ -438,52 +439,19 @@ export default function PaymentConfirmationPanel({
           ) : null}
 
           <div className="payment-confirmation-panel__notes-scroll">
-            {filteredTimeline.length === 0 ? (
-              <p className="payment-confirmation-panel__notes-empty" style={{ color: c.mutedLight }}>
-                {timelineFilter === 'all'
+            <InvoiceActivityNoteList
+              entries={filteredTimeline}
+              emptyMessage={
+                timelineFilter === 'all'
                   ? 'No activity or notes recorded for this invoice yet.'
                   : timelineFilter === 'activity'
                     ? 'No invoice activity recorded yet.'
                     : timelineFilter === 'payments'
                       ? 'No payment activity on this invoice yet.'
-                      : 'No notes recorded for this invoice yet.'}
-              </p>
-            ) : (
-              <ol className="payment-confirmation-panel__notes-list">
-                {filteredTimeline.map((entry) => (
-                  <li key={entry.id} className="payment-confirmation-panel__note">
-                    {entry.source ? (
-                      <span
-                        className={`payment-confirmation-panel__note-source payment-confirmation-panel__note-source--${entry.source}`}
-                        aria-label={entry.source === 'carrier' ? 'Carrier' : 'Credyx'}
-                        title={entry.source === 'carrier' ? 'Carrier' : 'Credyx'}
-                      >
-                        <span className="payment-confirmation-panel__note-source-dot" aria-hidden />
-                      </span>
-                    ) : (
-                      <span className="payment-confirmation-panel__note-source" aria-hidden>
-                        <span className="payment-confirmation-panel__note-source-dot" />
-                      </span>
-                    )}
-                    <div className="payment-confirmation-panel__note-head">
-                      <div className="payment-confirmation-panel__note-title-row">
-                        <span className="payment-confirmation-panel__note-title">{entry.title}</span>
-                      </div>
-                      <time
-                        className="payment-confirmation-panel__note-date tabular-nums"
-                        dateTime={entry.timestamp}
-                      >
-                        {formatDate(entry.timestamp)}
-                      </time>
-                    </div>
-                    <p className="payment-confirmation-panel__note-detail">{entry.detail}</p>
-                    {entry.meta ? (
-                      <p className="payment-confirmation-panel__note-meta">{entry.meta}</p>
-                    ) : null}
-                  </li>
-                ))}
-              </ol>
-            )}
+                      : 'No notes recorded for this invoice yet.'
+              }
+              emptyColor={c.mutedLight}
+            />
           </div>
         </section>
       </div>

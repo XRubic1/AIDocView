@@ -1,10 +1,11 @@
 import type { Invoice } from '../types/invoice'
 import type { EnrichedInvoice } from './invoiceAging'
 import { isOpenArInvoice } from './invoiceAging'
-import { formatRelativeTime } from './format'
+import { formatCurrency, formatRelativeTime } from './format'
 import { getOpenDisputes } from '../services/clientInvoiceActions'
 import { isClientVisibleHold, clientVisibleNotesForInvoice } from './clientInvoiceView'
 import { deriveHoldExplanation } from './assistantHoldExplanation'
+import { AMOUNT_EPSILON } from './paymentVariance'
 
 export type InvoiceInsightTone = 'default' | 'alert' | 'success' | 'info'
 export type InvoiceInsightIcon =
@@ -16,6 +17,8 @@ export type InvoiceInsightIcon =
   | 'activity'
   | 'hold'
   | 'file'
+  | 'short_pay'
+  | 'over_pay'
 
 export type InvoiceInsightAction = 'activity' | 'docs' | 'confirm_payment' | 'none'
 
@@ -40,6 +43,23 @@ export interface InvoiceMobileInsightsInput {
   hasAwaitingReceipt?: boolean
   activityCount?: number
   documentCount?: number
+  /**
+   * Shortfall vs invoice total including pending confirmation
+   * (e.g. $450 when $2,550 is posted against a $3,000 invoice).
+   */
+  shortfallAmount?: number | null
+  /** Carrier-facing reason for the short pay (payment notes / short_pay_reason). */
+  shortPayReason?: string | null
+  /**
+   * Overage vs invoice total including pending confirmation
+   * (e.g. $200 when $3,200 is posted against a $3,000 invoice).
+   */
+  overageAmount?: number | null
+  /**
+   * Amount of an awaiting-receipt short correction (payment_kind short).
+   * When set, confirm UI shows as Short paid with the carrier-facing note.
+   */
+  awaitingShortAmount?: number | null
 }
 
 /** Medium date for insight subtitles (e.g. May 15, 2024). */
@@ -122,6 +142,10 @@ export function getInvoiceMobileInsights(
     hasAwaitingReceipt,
     activityCount = 0,
     documentCount = 0,
+    shortfallAmount = null,
+    shortPayReason = null,
+    overageAmount = null,
+    awaitingShortAmount = null,
   } = input
 
   const insights: InvoiceMobileInsight[] = []
@@ -129,6 +153,44 @@ export function getInvoiceMobileInsights(
   const openDisputes = getOpenDisputes(invoice)
   // Hold is surfaced as the Action Required banner — skip duplicate insight row.
   const skipHoldInsight = Boolean(getCarrierInvoiceActionRequired(invoice))
+  const shortfall =
+    shortfallAmount != null && shortfallAmount >= AMOUNT_EPSILON ? shortfallAmount : 0
+  const overage =
+    overageAmount != null && overageAmount >= AMOUNT_EPSILON ? overageAmount : 0
+  const awaitingShort =
+    awaitingShortAmount != null && awaitingShortAmount >= AMOUNT_EPSILON
+      ? awaitingShortAmount
+      : 0
+  const shortReason =
+    shortPayReason?.trim() ||
+    (shortfall > 0 || awaitingShort > 0
+      ? 'Broker paid less than the invoice total'
+      : '')
+  const overReason =
+    overage > 0 ? 'Broker paid more than the invoice total' : ''
+
+  if (invoice.status === 'force_closed') {
+    insights.push({
+      id: 'force-closed',
+      title: 'Invoice force closed',
+      subtitle:
+        'Credyx closed this after collections outreach — the broker did not remit. Removed from open A/R.',
+      tone: 'alert',
+      icon: 'alert',
+      action: 'activity',
+    })
+  }
+
+  if (invoice.status === 'written_off') {
+    insights.push({
+      id: 'written-off',
+      title: 'Invoice written off',
+      subtitle: 'This balance was written off and is no longer open A/R.',
+      tone: 'alert',
+      icon: 'alert',
+      action: 'activity',
+    })
+  }
 
   if (invoice.status === 'hold' && !skipHoldInsight) {
     insights.push({
@@ -153,17 +215,78 @@ export function getInvoiceMobileInsights(
     })
   }
 
-  if (hasAwaitingReceipt) {
+  if (hasAwaitingReceipt && awaitingShort > 0) {
+    // Short correction on a paid/open invoice — show Short paid card with Credyx note.
+    const daysHint =
+      receiptDaysLeft != null
+        ? ` · ${receiptDaysLeft} day${receiptDaysLeft === 1 ? '' : 's'} until auto-confirm`
+        : ''
+    insights.push({
+      id: 'short-paid-awaiting',
+      title: `Short paid · ${formatCurrency(awaitingShort)}`,
+      subtitle: shortReason.includes('until auto-confirm')
+        ? shortReason
+        : `${shortReason}${daysHint}`,
+      tone: 'alert',
+      icon: 'short_pay',
+      action: 'confirm_payment',
+    })
+  } else if (hasAwaitingReceipt) {
     insights.push({
       id: 'awaiting-receipt',
       title: 'Confirm payment receipt',
       subtitle:
-        receiptDaysLeft != null
-          ? `${receiptDaysLeft} day${receiptDaysLeft === 1 ? '' : 's'} until auto-confirm payment`
-          : 'Credyx posted a payment — confirm when funds arrive',
+        shortfall > 0
+          ? `Short paid ${formatCurrency(shortfall)}${
+              receiptDaysLeft != null
+                ? ` · ${receiptDaysLeft} day${receiptDaysLeft === 1 ? '' : 's'} until auto-confirm`
+                : ''
+            }`
+          : overage > 0
+            ? `Overpayment ${formatCurrency(overage)}${
+                receiptDaysLeft != null
+                  ? ` · ${receiptDaysLeft} day${receiptDaysLeft === 1 ? '' : 's'} until auto-confirm`
+                  : ''
+              }`
+            : receiptDaysLeft != null
+              ? `${receiptDaysLeft} day${receiptDaysLeft === 1 ? '' : 's'} until auto-confirm payment`
+              : 'Credyx posted a payment — confirm when funds arrive',
       tone: 'info',
       icon: 'dollar',
       action: 'confirm_payment',
+    })
+  }
+
+  // Short paid only when remittance was applied and still left a gap — never for
+  // unpaid open invoices (shortfall === face amount with $0 received).
+  // Skip when awaiting short card already covers the correction.
+  const isUnpaidOpenShortfall =
+    shortfall >= invoice.amount - AMOUNT_EPSILON
+  if (
+    shortfall > 0 &&
+    !isUnpaidOpenShortfall &&
+    !hasAwaitingReceipt &&
+    awaitingShort <= 0
+  ) {
+    insights.push({
+      id: 'short-paid',
+      title: `Short paid · ${formatCurrency(shortfall)}`,
+      subtitle: shortReason,
+      tone: 'alert',
+      icon: 'short_pay',
+      action: 'activity',
+    })
+  }
+
+  // Overpayment when remittance exceeds face (confirmed or pending already counted).
+  if (overage > 0 && !hasAwaitingReceipt) {
+    insights.push({
+      id: 'overpaid',
+      title: `Overpayment · ${formatCurrency(overage)}`,
+      subtitle: overReason,
+      tone: 'success',
+      icon: 'over_pay',
+      action: 'activity',
     })
   }
 
@@ -278,7 +401,7 @@ export function getMobileInvoiceStatusLabel(
   const raw = (enriched.displayStatus || invoice.status || '').replace(/_/g, ' ')
   if (raw === 'approved') return 'OPEN'
   if (raw === 'write off pending') return 'WRITE-OFF'
-  if (raw === 'force closed') return 'CLOSED'
+  if (raw === 'force closed') return 'FORCE CLOSED'
   if (raw === 'written off') return 'WRITTEN OFF'
   if (raw === 'hold') return 'ON HOLD'
   return raw.toUpperCase()

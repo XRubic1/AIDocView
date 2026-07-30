@@ -13,6 +13,7 @@ import {
   confirmPaymentReceipt,
   openPaymentReceiptDispute,
 } from '../../services/paymentReceiptConfirmationService'
+import { AMOUNT_EPSILON } from '../../utils/paymentVariance'
 
 const METHOD_LABELS: Record<string, string> = {
   check: 'Check',
@@ -24,6 +25,8 @@ const METHOD_LABELS: Record<string, string> = {
 interface ConfirmPaymentReceiptModalProps {
   payment: Payment
   clientName: string
+  /** Invoice face amount — shown under Amount with shortfall difference. */
+  invoiceAmount: number
   onClose: () => void
   onUpdated: () => void
 }
@@ -35,6 +38,7 @@ interface ConfirmPaymentReceiptModalProps {
 export default function ConfirmPaymentReceiptModal({
   payment,
   clientName,
+  invoiceAmount,
   onClose,
   onUpdated,
 }: ConfirmPaymentReceiptModalProps) {
@@ -48,6 +52,12 @@ export default function ConfirmPaymentReceiptModal({
   const daysLeft = getReceiptConfirmationDaysLeft(payment)
   const overdue = isReceiptConfirmationOverdue(payment)
   const methodLabel = METHOD_LABELS[payment.payment_method] || payment.payment_method || '—'
+  const shortfall = Math.max(0, invoiceAmount - payment.amount)
+  const overage = Math.max(0, payment.amount - invoiceAmount)
+  const showVariance =
+    Number.isFinite(invoiceAmount) &&
+    invoiceAmount > 0 &&
+    (shortfall >= AMOUNT_EPSILON || overage >= AMOUNT_EPSILON)
 
   const handleConfirm = async () => {
     if (busy) return
@@ -140,6 +150,25 @@ export default function ConfirmPaymentReceiptModal({
             <div>
               <dt>Amount</dt>
               <dd className="tabular-nums">{formatCurrency(payment.amount)}</dd>
+              {Number.isFinite(invoiceAmount) && invoiceAmount > 0 ? (
+                <p className="confirm-payment-receipt-modal__amount-meta tabular-nums">
+                  <span>Inv$ {formatCurrency(invoiceAmount)}</span>
+                  {showVariance ? (
+                    <span
+                      className="confirm-payment-receipt-modal__amount-diff"
+                      style={{ color: shortfall > 0 ? c.error : c.success }}
+                    >
+                      {shortfall > 0
+                        ? `Difference −${formatCurrency(shortfall)}`
+                        : `Difference +${formatCurrency(overage)}`}
+                    </span>
+                  ) : (
+                    <span className="confirm-payment-receipt-modal__amount-diff">
+                      Difference {formatCurrency(0)}
+                    </span>
+                  )}
+                </p>
+              ) : null}
             </div>
             <div>
               <dt>Broker</dt>

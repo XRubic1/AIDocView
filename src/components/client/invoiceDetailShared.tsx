@@ -68,8 +68,8 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     paid: 'status-pill status-pill--approved',
     rejected: 'status-pill status-pill--overdue',
     overdue: 'status-pill status-pill--overdue',
-    force_closed: 'status-pill status-pill--overdue',
-    written_off: 'status-pill status-pill--warn',
+    force_closed: 'status-pill status-pill--closed',
+    written_off: 'status-pill status-pill--closed',
   }
   const labels: Record<string, string> = {
     pending: 'Pending',
@@ -78,7 +78,7 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     paid: 'Paid',
     rejected: 'Rejected',
     overdue: 'Overdue',
-    force_closed: 'Force Closed',
+    force_closed: 'Force closed',
     written_off: 'Written Off',
   }
   const base = classMap[status] || 'status-pill status-pill--pending'
@@ -164,7 +164,7 @@ export function InvoiceDisputeBadges({ invoice }: { invoice: Invoice }) {
   )
 }
 
-export type InvoiceNoticeType = 'hold' | 'force_close' | 'overdue' | 'dispute'
+export type InvoiceNoticeType = 'hold' | 'force_close' | 'overdue' | 'dispute' | 'force_closed'
 
 export function getInvoiceNotice(
   invoice: Invoice,
@@ -172,6 +172,13 @@ export function getInvoiceNotice(
   openDisputeCount: number,
   hasForceClose: boolean
 ): { type: InvoiceNoticeType; message: string } | null {
+  if (invoice.status === 'force_closed') {
+    return {
+      type: 'force_closed',
+      message:
+        'This invoice was force closed by Credyx after collections outreach — the broker did not remit. It is removed from open A/R.',
+    }
+  }
   if (invoice.status === 'hold') {
     return {
       type: 'hold',

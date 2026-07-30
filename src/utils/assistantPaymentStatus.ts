@@ -5,6 +5,7 @@
 
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
+import { isShortPayment } from '../types/payment'
 import {
   getClientDisplayBalanceState,
   getClientInvoiceStatusParts,
@@ -42,6 +43,14 @@ export type AssistantPaymentStatus = {
   faceAmountLabel: string
   confirmedReceived: number
   confirmedReceivedLabel: string
+  /** Credyx-posted amount awaiting carrier receipt confirm (excludes short corrections). */
+  postedAwaitingConfirm: number
+  postedAwaitingConfirmLabel: string
+  /** Face − (confirmed + awaiting remittance − awaiting short corrections), floored at 0. */
+  remainingAfterPending: number
+  remainingAfterPendingLabel: string
+  /** True when awaiting remittance is under face (short/partial broker pay). */
+  isPartialRemittance: boolean
   balanceDue: number
   balanceDueLabel: string
   balanceTone: 'open' | 'short' | 'over' | 'zero'
@@ -68,7 +77,34 @@ export type AssistantPaymentStatus = {
   }>
 }
 
-function headlineLabel(h: AssistantPaymentHeadline): string {
+/** Sum of Credyx remittances awaiting carrier confirm (not short corrections). */
+function sumAwaitingRemittance(rows: Payment[]): number {
+  return rows
+    .filter(
+      (p) =>
+        (p.status === 'awaiting_receipt' || p.status === 'disputed') &&
+        !isShortPayment(p)
+    )
+    .reduce((sum, p) => sum + p.amount, 0)
+}
+
+/** Short corrections awaiting confirm (reduce received once confirmed). */
+function sumAwaitingShortCorrection(rows: Payment[]): number {
+  return rows
+    .filter(
+      (p) =>
+        (p.status === 'awaiting_receipt' ||
+          p.status === 'pending' ||
+          p.status === 'disputed') &&
+        isShortPayment(p)
+    )
+    .reduce((sum, p) => sum + p.amount, 0)
+}
+
+function headlineLabel(
+  h: AssistantPaymentHeadline,
+  opts?: { isPartialRemittance?: boolean }
+): string {
   switch (h) {
     case 'unpaid':
       return 'Unpaid — balance due'
@@ -79,7 +115,9 @@ function headlineLabel(h: AssistantPaymentHeadline): string {
     case 'overpaid':
       return 'Overpaid'
     case 'awaiting_carrier_receipt':
-      return 'Awaiting your payment confirmation'
+      return opts?.isPartialRemittance
+        ? 'Partial payment awaiting confirmation'
+        : 'Awaiting your payment confirmation'
     case 'awaiting_credyx_confirm':
       return 'Paid — awaiting Credyx confirm'
     case 'payment_disputed':
@@ -145,6 +183,14 @@ export function buildPaymentStatusSnapshot(
 
   const confirmedReceived = getInvoiceReceivedAmount(invoice, allPayments)
   const pendingClientPosted = getClientPostedPendingTotal(invoice.id, allPayments)
+  const postedAwaitingConfirm = sumAwaitingRemittance(rows)
+  const awaitingShortCorrection = sumAwaitingShortCorrection(rows)
+  const appliedInclPending =
+    confirmedReceived + postedAwaitingConfirm - awaitingShortCorrection
+  const remainingAfterPending = Math.max(0, invoice.amount - appliedInclPending)
+  const isPartialRemittance =
+    postedAwaitingConfirm > 0.01 && remainingAfterPending > 0.01
+
   const balanceDue = getInvoiceOpenArBalance(invoice, allPayments)
   const balance = getClientDisplayBalanceState(
     invoice.amount,
@@ -189,6 +235,12 @@ export function buildPaymentStatusSnapshot(
     headline = 'unpaid'
   }
 
+  // Prefer "short" tone when remittance under face is awaiting confirm.
+  const balanceTone =
+    isPartialRemittance && headline === 'awaiting_carrier_receipt'
+      ? 'short'
+      : balance.tone
+
   // "Why" must explain the CURRENT state. On settled invoices (paid/overpaid/awaiting
   // confirm) an old rejected/reversed row is history, not the reason — skip it there.
   const settled =
@@ -232,7 +284,21 @@ export function buildPaymentStatusSnapshot(
   } else if (headline === 'unpaid') {
     summary = `Nothing confirmed yet. Balance due ${formatCurrency(balanceDue)}.`
   } else if (headline === 'awaiting_carrier_receipt') {
-    summary = 'Credyx posted a payment — confirm you received the funds (or dispute).'
+    if (isPartialRemittance) {
+      summary = `Yes — short remittance. Credyx posted ${formatCurrency(
+        postedAwaitingConfirm
+      )} of ${formatCurrency(
+        invoice.amount
+      )}. Confirm what you received (or dispute). ${formatCurrency(
+        remainingAfterPending
+      )} still due after this payment.`
+    } else if (postedAwaitingConfirm > 0.01) {
+      summary = `Credyx posted ${formatCurrency(
+        postedAwaitingConfirm
+      )} — confirm you received the funds (or dispute).`
+    } else {
+      summary = 'Credyx posted a payment — confirm you received the funds (or dispute).'
+    }
   } else if (headline === 'awaiting_credyx_confirm') {
     summary = 'You posted a payment — waiting for Credyx to confirm.'
   } else if (headline === 'overpaid') {
@@ -252,15 +318,20 @@ export function buildPaymentStatusSnapshot(
     invoiceNumber: invoice.invoice_number,
     brokerName: invoice.broker_name,
     headline,
-    headlineLabel: headlineLabel(headline),
+    headlineLabel: headlineLabel(headline, { isPartialRemittance }),
     summary,
     faceAmount: invoice.amount,
     faceAmountLabel: formatCurrency(invoice.amount),
     confirmedReceived,
     confirmedReceivedLabel: formatCurrency(confirmedReceived),
+    postedAwaitingConfirm,
+    postedAwaitingConfirmLabel: formatCurrency(postedAwaitingConfirm),
+    remainingAfterPending,
+    remainingAfterPendingLabel: formatCurrency(remainingAfterPending),
+    isPartialRemittance,
     balanceDue,
     balanceDueLabel: formatCurrency(balanceDue),
-    balanceTone: balance.tone,
+    balanceTone,
     displayStatus: parts.status,
     variance: parts.variance,
     invoiceStatus: invoice.status,
@@ -294,9 +365,18 @@ export function buildPaymentStatusSnapshots(
 /** Detect payment-status questions (includes follow-ups like “why?” when invoice # is in context). */
 export function isPaymentStatusQuery(prompt: string): boolean {
   if (
-    /\b(payment|paid|pay|reversed|reversal|balance\s*due|what\s+happened|receipt|disputed?|rejected)\b/i.test(
+    /\b(payment|paid|pay|reversed|reversal|balance\s*due|what\s+happened|receipt|disputed?|rejected|short\s*pay|shortfall|underpaid|partial|still\s+due|remittance)\b/i.test(
       prompt
     )
+  ) {
+    return true
+  }
+  // “What’s going on with Inv #…” / status of a named invoice
+  if (
+    /\b(what('s| is|s)?\s+(going\s+on|up|the\s+status)|status\s+(of|on)|look\s+at)\b/i.test(
+      prompt
+    ) &&
+    /\b(invoice|inv\s*#|#\s*\d{3,})\b/i.test(prompt)
   ) {
     return true
   }

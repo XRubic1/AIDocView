@@ -142,11 +142,11 @@ type AiReplyPayload = {
   }>
 }
 
-const DEFAULT_ASSISTANT_MODEL = 'gpt-4o-mini'
+const DEFAULT_ASSISTANT_MODEL = 'gpt-4o'
 const NOTE_TEXT_MAX = 160
 const NOTES_PER_INVOICE = 6
 
-/** Assistant chat model — cheap text model; override with VITE_ASSISTANT_CHAT_MODEL. */
+/** Assistant chat model — gpt-4o default; override with VITE_ASSISTANT_CHAT_MODEL. */
 function getAssistantChatModel(): string {
   return import.meta.env.VITE_ASSISTANT_CHAT_MODEL?.trim() || DEFAULT_ASSISTANT_MODEL
 }
@@ -313,6 +313,9 @@ function summarizeInvoiceDetails(
         summary: pay.summary,
         faceAmount: pay.faceAmount,
         confirmedReceived: pay.confirmedReceived,
+        postedAwaitingConfirm: pay.postedAwaitingConfirm,
+        remainingAfterPending: pay.remainingAfterPending,
+        isPartialRemittance: pay.isPartialRemittance,
         balanceDue: pay.balanceDue,
         displayStatus: pay.displayStatus,
         variance: pay.variance,
@@ -357,6 +360,9 @@ function toPaymentStatusCard(snap: AssistantPaymentStatus): AssistantPaymentStat
     summary: snap.summary,
     faceAmountLabel: snap.faceAmountLabel,
     confirmedReceivedLabel: snap.confirmedReceivedLabel,
+    postedAwaitingConfirmLabel: snap.postedAwaitingConfirmLabel,
+    remainingAfterPendingLabel: snap.remainingAfterPendingLabel,
+    isPartialRemittance: snap.isPartialRemittance,
     balanceDueLabel: snap.balanceDueLabel,
     balanceTone: snap.balanceTone,
     displayStatus: snap.displayStatus,
@@ -486,11 +492,13 @@ function buildSystemPrompt(mode: AssistantChatMode): string {
 - description: 1–3 plain-text sentences from context. The user can edit it on the card.
 - ANY invoice can be disputed — including paid ones. NEVER refuse; hand over the draft card.
 - Resolve "this invoice" from conversation context. Do NOT claim the dispute was opened — the user confirms on the card.`
-  const paymentRules = `When the user ASKS about payment / paid / balance due / reversed / “what happened” for invoice(s) (informational — NOT when they ask to dispute, note, or email; use the matching draft kind instead, without repeating the payment card):
+  const paymentRules = `When the user ASKS about payment / paid / balance due / reversed / short pay / partial / “what happened” / “what’s going on” for invoice(s) (informational — NOT when they ask to dispute, note, or email; use the matching draft kind instead, without repeating the payment card):
 - Prefer invoiceDetails[].paymentStatus (structured). Never invent a WHY from notes when paymentStatus.why exists.
-- Respond with kind "payment_status" and paymentStatusInvoiceNumbers (and/or paymentStatusInvoiceIds) for each invoice asked about.
+- Respond with kind "payment_status" and paymentStatusInvoiceNumbers (and/or paymentStatusInvoiceIds) for EACH invoice asked about — never swap in a different invoice.
+- Follow-ups like “is that a short payment?”, “but I see a short pay”, “explain” with no new # → reuse the invoice most recently discussed (payment_status card or last #). Do NOT answer about a different invoice.
+- Short / partial remittance: if paymentStatus.isPartialRemittance (or postedAwaitingConfirm < faceAmount with remainingAfterPending > 0), say clearly it is a SHORT remittance: posted X of face Y, still due Z after confirm — do NOT say “unpaid” or “no payment rows”.
 - Keep any plain text SHORT: one sentence pointing at the card. Do not contradict the card (e.g. if headline is payment_reversed with balanceDue > 0, say the money came off and balance is due again — even if invoice.status is still "approved").
-- Notes are history only — they may say “confirmed” from an earlier step; money truth is confirmedReceived + balanceDue + payment rows.`
+- Notes are history only — they may say “confirmed” from an earlier step; money truth is confirmedReceived + postedAwaitingConfirm + balanceDue + payment rows.`
   const appActionRules = `You can open ANY screen in Credyx for the user via kind "app_action":
 - Pick ids ONLY from CREDYX CONTEXT appActions catalog (never invent paths).
 - Also allowed dynamic ids: "open_invoice" or "upload_invoice" with invoiceId and/or invoiceNumber.
@@ -508,9 +516,9 @@ function buildSystemPrompt(mode: AssistantChatMode): string {
 - Include invoiceNumber / invoiceId / brokerName when the email is about a specific invoice.
 - Do NOT claim the email was sent — only draft for review.`
   const knowledgeRules = `PRODUCT KNOWLEDGE — answer questions about Credyx and this assistant directly (kind "plain"); do NOT say "I don't have information" for the facts below:
-- Credyx is a factoring / A/R platform for trucking carriers. Carriers submit invoices + paperwork (BOL, POD, rate con) in batches; Credyx advances funds and manages collections from brokers. This portal is where a carrier tracks invoices, payments, holds, disputes, documents, brokers, aging, and reports.
+- Credyx is A/R + back-office for trucking carriers — NOT factoring, NOT cash advances. Carriers submit invoices + paperwork (BOL, POD, rate con); Credyx verifies, invoices brokers, follows up, and tracks to paid on time. This portal is where a carrier tracks invoices, payments, holds, disputes, documents, brokers, aging, and reports.
 - Holds: an invoice goes on hold when paperwork is missing or something needs review. The carrier uploads the missing docs (or Credyx clears it) to move it forward.
-- Payments: Credyx posts payments; the carrier confirms receipt. Payments can be reversed or short-paid; the money truth is confirmed received + balance due.
+- Payments: Credyx posts broker remittances; the carrier confirms receipt. Remittances can be full, short/partial (under face), or later short-corrected. Confirmed received only counts confirmed rows; awaiting_receipt is posted but not yet confirmed. Money truth = confirmedReceived + postedAwaitingConfirm + remainingAfterPending / balanceDue.
 - Disputes lifecycle: a carrier opens a dispute (reason + description) → Credyx reviews it (open → under review) → Credyx resolves or closes it. The CARRIER opens and can add notes/withdraw context, but CLOSING/RESOLVING is done by Credyx after review — so answer "can I close a dispute?" with: you open it and Credyx reviews and closes it; you can add notes or email Credyx to withdraw it.
 - What this assistant can do: explain holds/payments/disputes, summarize A/R (growth, projection, aging), list open/held/past-due invoices, draft emails to Credyx/brokers, post invoice notes, open disputes, upload missing docs, and open any screen in the portal.
 - Contacting Credyx: you cannot transfer a human, but you CAN draft an email to Credyx Ops (offer this and, if they say yes, emit an email_draft to audience "credyx").
@@ -1531,11 +1539,12 @@ function normalizeModelFollowUps(
 }
 
 /** If user asked about payment on named invoices and the model forgot cards, attach them.
- *  Only fires on informational questions about invoices named in the CURRENT prompt —
- *  never on action requests (dispute/note/email/open) and never over draft cards. */
+ *  Also corrects wrong-invoice cards on follow-ups (“is that a short pay?” → last discussed).
+ *  Only fires on informational questions — never on action requests (dispute/note/email/open). */
 function ensurePaymentStatusCards(
   messages: AssistantMessage[],
   prompt: string,
+  history: AssistantMessage[],
   invoices: Invoice[],
   payments: Payment[]
 ): AssistantMessage[] {
@@ -1544,7 +1553,6 @@ function ensurePaymentStatusCards(
   if (
     messages.some(
       (m) =>
-        m.kind === 'payment_status' ||
         m.kind === 'note_draft' ||
         m.kind === 'dispute_draft' ||
         m.kind === 'email_draft'
@@ -1554,11 +1562,30 @@ function ensurePaymentStatusCards(
   }
 
   const tokens = extractLookupTokens(prompt)
-  const matched = invoices.filter((inv) => invoiceMatchesTokens(inv, tokens))
+  let matched = invoices.filter((inv) => invoiceMatchesTokens(inv, tokens))
+  if (matched.length === 0) {
+    const last = lastDiscussedInvoice(history, invoices)
+    if (last) matched = [last]
+  }
   if (matched.length === 0) return messages
 
   const snaps = buildPaymentStatusSnapshots(matched, payments, 4)
   if (!snaps.length) return messages
+
+  const targetIds = new Set(snaps.map((s) => s.invoiceId))
+  const existingPay = messages.filter((m) => m.kind === 'payment_status')
+  const existingCorrect =
+    existingPay.length === snaps.length &&
+    existingPay.every((m) => m.paymentStatus && targetIds.has(m.paymentStatus.invoiceId))
+
+  // Right invoice(s) already — refresh structured fields (short-pay copy) without duplicating.
+  if (existingCorrect) {
+    return messages.map((m) => {
+      if (m.kind !== 'payment_status' || !m.paymentStatus) return m
+      const snap = snaps.find((s) => s.invoiceId === m.paymentStatus!.invoiceId)
+      return snap ? { ...m, paymentStatus: toPaymentStatusCard(snap) } : m
+    })
+  }
 
   const cards: AssistantMessage[] = snaps.map((snap) => ({
     id: nextMsgId(),
@@ -1568,25 +1595,29 @@ function ensurePaymentStatusCards(
     paymentStatus: toPaymentStatusCard(snap),
   }))
 
-  // Drop verbose plain replies that often contradict money truth; keep a short lead-in.
+  const leadText =
+    snaps.length === 1
+      ? snaps[0].isPartialRemittance
+        ? `Yes — #${snaps[0].invoiceNumber} has a short remittance awaiting your confirmation:`
+        : `Here’s the payment status for #${snaps[0].invoiceNumber}:`
+      : `Here’s the payment status for ${snaps.length} invoices:`
+
   const lead: AssistantMessage = {
     id: nextMsgId(),
     role: 'assistant',
     kind: 'plain',
     createdAt: new Date().toISOString(),
-    text:
-      snaps.length === 1
-        ? `Here’s the payment status for #${snaps[0].invoiceNumber}:`
-        : `Here’s the payment status for ${snaps.length} invoices:`,
+    text: leadText,
   }
 
-  const withoutConflictingPlain = messages.filter((m) => {
+  // Drop wrong/stale payment cards and verbose plain that often contradicts money truth.
+  const withoutConflicting = messages.filter((m) => {
+    if (m.kind === 'payment_status') return false
     if (m.kind !== 'plain' || !m.text) return true
-    // Keep short tips; drop long status essays we’ll replace with cards.
     return m.text.trim().length < 80
   })
 
-  return [...withoutConflictingPlain, lead, ...cards]
+  return [...withoutConflicting, lead, ...cards]
 }
 
 /** If the user asked to dispute and the model refused or asked "which invoice",
@@ -2119,6 +2150,7 @@ export async function sendAssistantChatMessage(params: {
   const withPay = ensurePaymentStatusCards(
     mapped,
     params.prompt,
+    params.history,
     params.context.invoices,
     params.context.payments
   )
@@ -2166,16 +2198,34 @@ export async function sendAssistantChatMessage(params: {
   )
 
   // Prefer payment-aware follow-ups on money questions — deepen, don't navigate.
+  const payCards = withEmail.filter((m) => m.kind === 'payment_status' && m.paymentStatus)
+  const hasPartialAwaiting = payCards.some((m) => m.paymentStatus?.isPartialRemittance)
   const payFollowUps =
-    isPaymentStatusQuery(params.prompt) &&
-    withEmail.some((m) => m.kind === 'payment_status')
+    isPaymentStatusQuery(params.prompt) && payCards.length > 0
       ? dedupePayFollowUps([
-          {
-            id: nextMsgId('fu'),
-            label: 'Open a dispute',
-            prompt: 'Open a dispute for this invoice',
-            action: 'prompt' as const,
-          },
+          ...(hasPartialAwaiting
+            ? [
+                {
+                  id: nextMsgId('fu'),
+                  label: 'What’s still due?',
+                  prompt: 'What’s still due after this short remittance?',
+                  action: 'prompt' as const,
+                },
+                {
+                  id: nextMsgId('fu'),
+                  label: 'Dispute the short amount',
+                  prompt: 'Open a dispute for the short remittance on this invoice',
+                  action: 'prompt' as const,
+                },
+              ]
+            : [
+                {
+                  id: nextMsgId('fu'),
+                  label: 'Open a dispute',
+                  prompt: 'Open a dispute for this invoice',
+                  action: 'prompt' as const,
+                },
+              ]),
           {
             id: nextMsgId('fu'),
             label: 'Add a note',

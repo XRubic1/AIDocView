@@ -27,7 +27,7 @@ Update this file whenever a new graphic is made or posted.
 
 | ID | Title / hook | Pillar | Visual | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| IG-01 | Profile logo — yx monogram | Brand | Logo only | `posted` | Profile pic |
+| IG-01 | Profile logo — Credyx + A/R Solutions | Brand | Full wordmark lockup | `draft` | Square IG profile; navy bg; file `creatives/IG-01-profile-logo.png` |
 | IG-02 | Our Mission — Empowering truckers… | Mission | Truck + navy split | `needs_fix` | Remove “Get paid faster” CTA → “Paid on time” |
 | IG-03 | See your A/R in one place (dashboard) | Proof | Product UI | `posted` / `draft` | Keep; good product proof |
 | IG-04 | Know why an invoice is on hold | Proof | Invoices + notes UI | `posted` / `draft` | Good; market-friendly notes |

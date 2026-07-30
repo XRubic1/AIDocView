@@ -54,7 +54,7 @@ export function getInvoiceBalanceState(
     return { tone: 'open', label: 'Balance due', signedBalance: invoiceAmount }
   }
   if (received < invoiceAmount - AMOUNT_EPSILON) {
-    return { tone: 'short', label: 'Balance due', signedBalance: invoiceAmount - received }
+    return { tone: 'short', label: 'Short paid', signedBalance: invoiceAmount - received }
   }
   if (received > invoiceAmount + AMOUNT_EPSILON) {
     return { tone: 'over', label: 'Overpaid', signedBalance: -(received - invoiceAmount) }

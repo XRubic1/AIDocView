@@ -1192,6 +1192,55 @@
   color: var(--cx-blue);
 }
 
+/* ── How it works: soft grain + slate wash so blues don’t feel so flat ── */
+.credyx-page--waitlist .cx-section--process {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, #0d121c 0%, #121925 48%, #0f1520 100%);
+}
+
+.credyx-page--waitlist .cx-section--process::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.45;
+  background-image:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: soft-light;
+}
+
+.credyx-page--waitlist .cx-section--process::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 0%, rgba(148, 163, 184, 0.06), transparent 62%),
+    radial-gradient(ellipse 50% 40% at 12% 70%, rgba(100, 116, 139, 0.05), transparent 70%),
+    radial-gradient(ellipse 45% 35% at 88% 55%, rgba(71, 85, 105, 0.05), transparent 68%),
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size:
+    auto,
+    auto,
+    auto,
+    28px 28px,
+    28px 28px;
+  mask-image: radial-gradient(ellipse 85% 80% at 50% 40%, #000 20%, transparent 85%);
+  -webkit-mask-image: radial-gradient(ellipse 85% 80% at 50% 40%, #000 20%, transparent 85%);
+}
+
+.credyx-page--waitlist .cx-section--process > .cx-section-inner {
+  position: relative;
+  z-index: 1;
+}
+
 /* Soft marker underline under emphasized phrase */
 .credyx-page--waitlist .cx-hand-underline {
   position: relative;
@@ -1204,14 +1253,72 @@
 .credyx-page--waitlist .cx-hand-underline::after {
   content: '';
   position: absolute;
-  left: -0.05em;
-  right: -0.08em;
-  bottom: 0.02em;
-  height: 0.18em;
+  left: -0.04em;
+  right: -0.06em;
+  bottom: -0.14em;
+  height: 0.38em;
   pointer-events: none;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 12' preserveAspectRatio='none'%3E%3Cpath d='M2 8 C30 3, 50 10, 80 6 S130 2, 160 7 S190 11, 198 5' fill='none' stroke='%231684FE' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+  /* Default: smooth marker arc with sharp ends */
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 18' preserveAspectRatio='none'%3E%3Cpath d='M2 12 Q100 2 198 11 L196 16.5 Q100 8 4 17 Z' fill='%230B5ED7'/%3E%3C/svg%3E")
     center bottom / 100% 100% no-repeat;
   opacity: 0.95;
+}
+
+/* Slight hand-drawn variance so underlines don't look cloned */
+.credyx-page--waitlist .cx-hand-underline--v2::after {
+  bottom: -0.12em;
+  height: 0.36em;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 18' preserveAspectRatio='none'%3E%3Cpath d='M3 13.5 Q88 1.5 197 10 L195 15.5 Q90 7 5 17.5 Z' fill='%230B5ED7'/%3E%3C/svg%3E")
+    center bottom / 100% 100% no-repeat;
+}
+
+.credyx-page--waitlist .cx-hand-underline--v3::after {
+  bottom: -0.15em;
+  height: 0.4em;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 18' preserveAspectRatio='none'%3E%3Cpath d='M4 11 Q110 3.5 196 13 L194.5 17 Q108 8.5 6 16 Z' fill='%230B5ED7'/%3E%3C/svg%3E")
+    center bottom / 100% 100% no-repeat;
+}
+
+.credyx-page--waitlist .cx-hand-underline--v4::after {
+  bottom: -0.11em;
+  height: 0.34em;
+  left: -0.02em;
+  right: -0.08em;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 18' preserveAspectRatio='none'%3E%3Cpath d='M2 10.5 Q70 4 120 3 Q170 2.5 198 12 L196 16.5 Q168 7 118 7.5 Q68 9 4 15.5 Z' fill='%230B5ED7'/%3E%3C/svg%3E")
+    center bottom / 100% 100% no-repeat;
+}
+
+.credyx-page--waitlist .cx-hand-underline--v5::after {
+  bottom: -0.13em;
+  height: 0.37em;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 18' preserveAspectRatio='none'%3E%3Cpath d='M5 14 Q105 1 195 9.5 L193.5 15 Q104 7 7 17.5 Z' fill='%230B5ED7'/%3E%3C/svg%3E")
+    center bottom / 100% 100% no-repeat;
+}
+
+/* Hero: underline draws left→right like a hand marker stroke */
+.credyx-page--waitlist .cx-hand-underline--draw {
+  display: inline-block;
+}
+
+.credyx-page--waitlist .cx-hand-underline--draw::after {
+  opacity: 0;
+  clip-path: inset(0 100% 0 0);
+  transform-origin: left bottom;
+  animation: cx-underline-draw .65s linear 0.7s forwards;
+}
+
+@keyframes cx-underline-draw {
+  0% {
+    opacity: 0.7;
+    clip-path: inset(0 100% 0 0);
+  }
+  8% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0.95;
+    clip-path: inset(0 0 0 0);
+  }
 }
 
 /* Super-subtle intermittent wiggle on key phrase */
@@ -1297,10 +1404,12 @@
 }
 
 .credyx-page--waitlist .cx-hero-headline {
-  font-size: clamp(2rem, 1.2rem + 3.6vw, 3.75rem);
+  font-size: clamp(2.15rem, 1.25rem + 3.8vw, 3.9rem);
   text-align: left;
-  margin-bottom: clamp(16px, 2.4vh, 24px);
+  margin-bottom: clamp(18px, 2.6vh, 26px);
   color: #ffffff;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
 }
 
 .credyx-page--waitlist .cx-section-title {
@@ -1313,15 +1422,18 @@
 }
 
 .credyx-page--waitlist .cx-hero-sub strong {
-  color: var(--cx-ink);
+  color: #ffffff;
 }
 
 .credyx-page--waitlist .cx-hero-sub {
   text-align: left;
   margin-left: 0;
   margin-right: 0;
-  max-width: 34rem;
-  font-size: clamp(0.95rem, 0.88rem + 0.4vw, 1.15rem);
+  margin-bottom: clamp(28px, 4vh, 40px);
+  max-width: 32rem;
+  font-size: clamp(1rem, 0.92rem + 0.35vw, 1.18rem);
+  line-height: 1.6;
+  color: #94a3b8;
 }
 
 .credyx-page--waitlist .cx-section-title {
@@ -1337,25 +1449,41 @@
 
 .credyx-page--waitlist .cx-hero-buttons {
   justify-content: flex-start;
-  margin-bottom: clamp(28px, 5vh, 44px);
+  margin-bottom: 0;
+  gap: 12px;
 }
 
 .credyx-page--waitlist .cx-badge {
-  margin-bottom: clamp(18px, 3vh, 28px);
+  margin-bottom: clamp(20px, 3.2vh, 30px);
+  letter-spacing: 0.02em;
+}
+
+.credyx-page--waitlist .cx-hero-brand {
+  margin-bottom: clamp(8px, 1.5vh, 14px);
+  line-height: 0;
+}
+
+.credyx-page--waitlist .cx-hero-logo {
+  display: block;
+  height: clamp(96px, 14vw, 160px);
+  width: auto;
+  max-width: min(92vw, 520px);
+  object-fit: contain;
+  object-position: left center;
 }
 
 /* ── Hero (copy + full-bleed truck) ── */
 .credyx-page--waitlist .cx-hero--waitlist {
-  padding: clamp(48px, 8vh, 100px) var(--cx-pad-x) clamp(56px, 9vh, 110px);
-  min-height: min(100svh - 96px, 800px);
+  padding: clamp(56px, 10vh, 120px) var(--cx-pad-x) clamp(64px, 11vh, 128px);
+  min-height: min(100svh - 96px, 820px);
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 
 .credyx-page--waitlist .cx-hero--waitlist .cx-hero-photo img {
-  opacity: 0.22;
-  filter: saturate(0.6) brightness(0.7);
+  opacity: 0.2;
+  filter: saturate(0.55) brightness(0.65);
   object-position: 78% 50%;
   transform: scale(1.04);
   animation: cx-photo-ken 28s ease-in-out infinite alternate;
@@ -1363,11 +1491,11 @@
 
 .credyx-page--waitlist .cx-hero--waitlist .cx-hero-photo::after {
   background: linear-gradient(
-    100deg,
-    rgba(15, 23, 42, 0.95) 0%,
-    rgba(15, 23, 42, 0.88) 42%,
-    rgba(15, 23, 42, 0.65) 68%,
-    rgba(15, 23, 42, 0.4) 100%
+    105deg,
+    rgba(15, 23, 42, 0.97) 0%,
+    rgba(15, 23, 42, 0.9) 40%,
+    rgba(15, 23, 42, 0.62) 70%,
+    rgba(15, 23, 42, 0.38) 100%
   );
 }
 
@@ -1382,38 +1510,7 @@
 .credyx-page--waitlist .cx-hero-copy {
   text-align: left;
   min-width: 0;
-  max-width: 36rem;
-}
-
-.credyx-page--waitlist .cx-hero-stats {
-  max-width: none;
-  margin: 0;
-  background: var(--cx-border);
-  border-color: var(--cx-border);
-}
-
-.credyx-page--waitlist .cx-hero-stat {
-  background: var(--cx-card-bg);
-}
-
-.credyx-page--waitlist .cx-hero-stat-num {
-  color: var(--cx-ink);
-}
-
-.credyx-page--waitlist .cx-hero-stat-label {
-  color: var(--cx-body);
-}
-
-.credyx-page--waitlist .cx-hero-stat {
-  padding: clamp(16px, 2.2vw, 24px) clamp(10px, 1.4vw, 18px);
-}
-
-.credyx-page--waitlist .cx-hero-stat-num {
-  font-size: clamp(1.15rem, 0.95rem + 1vw, 1.7rem);
-}
-
-.credyx-page--waitlist .cx-hero-stat-label {
-  font-size: clamp(0.7rem, 0.65rem + 0.2vw, 0.8rem);
+  max-width: 34rem;
 }
 
 /* Browser chrome around real desktop screenshot */
@@ -1510,9 +1607,23 @@
 }
 
 /* ── Process / benefit grids ── */
-.credyx-page--waitlist .cx-card-grid--process {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: clamp(12px, 1.6vw, 20px);
+.credyx-page--waitlist .cx-process-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+}
+
+.credyx-page--waitlist .cx-process-step {
+  display: flex;
+  flex: 1 1 0;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.credyx-page--waitlist .cx-process-step .cx-card {
+  flex: 1;
+  min-width: 0;
 }
 
 .credyx-page--waitlist .cx-card-grid {
@@ -1552,8 +1663,104 @@
   position: relative;
 }
 
+/* Wiggly arrows between process steps */
 .credyx-page--waitlist .cx-process-connector {
+  display: flex;
+  flex: 0 0 clamp(28px, 3.2vw, 40px);
+  align-items: center;
+  justify-content: center;
+  color: #0b5ed7;
+  pointer-events: none;
+}
+
+.credyx-page--waitlist .cx-process-arrow {
+  display: block;
+  overflow: visible;
+}
+
+.credyx-page--waitlist .cx-process-arrow--h {
+  width: 100%;
+  max-width: 40px;
+  height: 28px;
+}
+
+.credyx-page--waitlist .cx-process-arrow--loop {
   display: none;
+  width: 72px;
+  height: 120px;
+  overflow: visible;
+}
+
+.credyx-page--waitlist .cx-process-arrow-path,
+.credyx-page--waitlist .cx-process-arrow-head {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+/*
+  How it works sequence: card → line draw → arrowhead + next card together.
+  Arrowhead draws in (stroke) while the following card appears.
+*/
+.credyx-page--waitlist .cx-process-flow.reveal-stagger > .cx-process-step > .cx-card {
+  transition-duration: 0.55s;
+}
+
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible > .cx-process-step:nth-child(1) > .cx-card {
+  transition-delay: 0.08s;
+}
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible > .cx-process-step:nth-child(2) > .cx-card {
+  transition-delay: 1.45s;
+}
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible > .cx-process-step:nth-child(3) > .cx-card {
+  transition-delay: 2.95s;
+}
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible > .cx-process-step:nth-child(4) > .cx-card {
+  transition-delay: 4.45s;
+}
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible > .cx-process-step:nth-child(5) > .cx-card {
+  transition-delay: 5.95s;
+}
+
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible .cx-process-arrow-path {
+  animation: cx-process-arrow-draw 0.95s linear forwards;
+}
+
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible .cx-process-arrow-head {
+  animation: cx-process-arrow-draw 0.55s linear forwards;
+}
+
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible .cx-process-step:nth-child(1) .cx-process-arrow-path {
+  animation-delay: 0.55s;
+}
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible .cx-process-step:nth-child(1) .cx-process-arrow-head {
+  animation-delay: 1.45s;
+}
+
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible .cx-process-step:nth-child(2) .cx-process-arrow-path {
+  animation-delay: 2.05s;
+}
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible .cx-process-step:nth-child(2) .cx-process-arrow-head {
+  animation-delay: 2.95s;
+}
+
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible .cx-process-step:nth-child(3) .cx-process-arrow-path {
+  animation-delay: 3.55s;
+}
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible .cx-process-step:nth-child(3) .cx-process-arrow-head {
+  animation-delay: 4.45s;
+}
+
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible .cx-process-step:nth-child(4) .cx-process-arrow-path {
+  animation-delay: 5.05s;
+}
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible .cx-process-step:nth-child(4) .cx-process-arrow-head {
+  animation-delay: 5.95s;
+}
+
+@keyframes cx-process-arrow-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 /* ── Product proof imagery ── */
@@ -3256,6 +3463,7 @@
 }
 
 .credyx-page--waitlist .reveal-stagger > .cx-card--grow,
+.credyx-page--waitlist .reveal-stagger > .cx-process-step > .cx-card,
 .credyx-page--waitlist .reveal-stagger > .cx-pricing-point,
 .credyx-page--waitlist .reveal-stagger > .cx-buddy-feature,
 .credyx-page--waitlist .reveal-stagger > .cx-coverage-item,
@@ -3270,6 +3478,7 @@
 }
 
 .credyx-page--waitlist .reveal-stagger.visible > .cx-card--grow,
+.credyx-page--waitlist .reveal-stagger.visible > .cx-process-step > .cx-card,
 .credyx-page--waitlist .reveal-stagger.visible > .cx-pricing-point,
 .credyx-page--waitlist .reveal-stagger.visible > .cx-buddy-feature,
 .credyx-page--waitlist .reveal-stagger.visible > .cx-coverage-item,
@@ -3277,6 +3486,12 @@
 .credyx-page--waitlist .reveal-stagger.visible > .cx-proof-side {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+
+/* Process cards: longer stagger owned by .cx-process-flow rules above —
+   reset the short generic *:nth-child delays so they don’t fight the sequence. */
+.credyx-page--waitlist .cx-process-flow.reveal-stagger.visible > .cx-process-step {
+  transition-delay: 0s;
 }
 
 .credyx-page--waitlist .reveal-stagger.visible > .cx-proof-side > .cx-card--grow {
@@ -3396,8 +3611,100 @@
 
 /* ══ Breakpoints ══ */
 @media (max-width: 1100px) {
-  .credyx-page--waitlist .cx-card-grid--process {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .credyx-page--waitlist .cx-process-flow {
+    flex-direction: column;
+    width: 100%;
+    max-width: 360px;
+    margin-left: auto;
+    margin-right: auto;
+    gap: 22px;
+    padding-inline: 64px;
+    box-sizing: border-box;
+  }
+
+  .credyx-page--waitlist .cx-process-step {
+    flex-direction: column;
+    flex: 0 0 auto;
+    width: 100%;
+    position: relative;
+  }
+
+  .credyx-page--waitlist .cx-process-step .cx-card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 12px;
+    row-gap: 4px;
+    align-items: start;
+    padding: 14px 16px;
+    border-radius: 14px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .credyx-page--waitlist .cx-process-step .cx-card-num {
+    grid-row: 1 / span 2;
+    width: 28px;
+    height: 28px;
+    font-size: 11px;
+    margin-bottom: 0;
+    margin-top: 2px;
+  }
+
+  .credyx-page--waitlist .cx-process-step .cx-card-title {
+    font-size: 0.95rem;
+    margin: 0;
+    line-height: 1.25;
+  }
+
+  .credyx-page--waitlist .cx-process-step .cx-card-desc {
+    font-size: 0.8rem;
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  /* Painted zig-zag: sit flush on the card side, mid → mid */
+  .credyx-page--waitlist .cx-process-connector {
+    position: absolute;
+    top: 48%;
+    width: 72px;
+    height: 120px;
+    margin: 0;
+    flex: none;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    color: #0b5ed7;
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .credyx-page--waitlist .cx-process-connector--left {
+    left: -60px;
+    right: auto;
+    align-self: auto;
+    margin-left: 0;
+  }
+
+  .credyx-page--waitlist .cx-process-connector--right {
+    right: -60px;
+    left: auto;
+    align-self: auto;
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  .credyx-page--waitlist .cx-process-connector--right .cx-process-arrow--loop {
+    transform: scaleX(-1);
+  }
+
+  .credyx-page--waitlist .cx-process-arrow--h {
+    display: none;
+  }
+
+  .credyx-page--waitlist .cx-process-arrow--loop {
+    display: block;
+    width: 72px;
+    height: 120px;
   }
 
   .credyx-page--waitlist .cx-hero-copy {
@@ -3405,6 +3712,15 @@
     max-width: 34rem;
     margin-left: auto;
     margin-right: auto;
+  }
+
+  .credyx-page--waitlist .cx-hero-brand {
+    display: flex;
+    justify-content: center;
+  }
+
+  .credyx-page--waitlist .cx-hero-logo {
+    object-position: center;
   }
 
   .credyx-page--waitlist .cx-hero-headline,
@@ -3508,9 +3824,35 @@
 }
 
 @media (max-width: 720px) {
-  .credyx-page--waitlist .cx-card-grid--process,
   .credyx-page--waitlist .cx-card-grid {
     grid-template-columns: 1fr;
+  }
+
+  .credyx-page--waitlist .cx-process-flow {
+    max-width: 100%;
+    padding-inline: 58px;
+    gap: 20px;
+  }
+
+  .credyx-page--waitlist .cx-process-connector {
+    width: 68px;
+    height: 114px;
+    top: 46%;
+  }
+
+  .credyx-page--waitlist .cx-process-connector--left {
+    left: -56px;
+    margin-left: 0;
+  }
+
+  .credyx-page--waitlist .cx-process-connector--right {
+    right: -56px;
+    margin-right: 0;
+  }
+
+  .credyx-page--waitlist .cx-process-arrow--loop {
+    width: 68px;
+    height: 114px;
   }
 
   .credyx-page--waitlist .cx-proof-side {
@@ -3520,14 +3862,6 @@
   .credyx-page--waitlist .cx-proof-shot--phone {
     max-width: 260px;
   }
-
-  .credyx-page--waitlist .cx-hero-stats {
-    grid-template-columns: 1fr;
-    max-width: 320px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
 
   .credyx-page--waitlist .cx-pricing-zeros,
   .credyx-page--waitlist .cx-founding-top {
@@ -3568,6 +3902,13 @@
     animation: none;
   }
 
+  .credyx-page--waitlist .cx-hand-underline--draw::after {
+    animation: none;
+    opacity: 0.95;
+    clip-path: none;
+    transform: none;
+  }
+
   .credyx-page--waitlist .cx-section--buddy::after {
     transform: none;
   }
@@ -3575,12 +3916,20 @@
   .credyx-page--waitlist .reveal,
   .credyx-page--waitlist .reveal-grow,
   .credyx-page--waitlist .reveal-stagger > .cx-card--grow,
+  .credyx-page--waitlist .reveal-stagger > .cx-process-step > .cx-card,
   .credyx-page--waitlist .reveal-stagger > .cx-coverage-item,
   .credyx-page--waitlist .reveal-stagger > .cx-proof-shot,
   .credyx-page--waitlist .reveal-stagger > .cx-proof-side {
     opacity: 1;
     transform: none;
     transition: none;
+  }
+
+  .credyx-page--waitlist .cx-process-arrow-path,
+  .credyx-page--waitlist .cx-process-arrow-head {
+    animation: none !important;
+    stroke-dashoffset: 0;
+    opacity: 1;
   }
 
   .credyx-page--waitlist .reveal.visible .cx-invoice-step.done .cx-invoice-step-dot,

@@ -210,6 +210,12 @@ export type AssistantPaymentStatusCard = {
   summary: string
   faceAmountLabel: string
   confirmedReceivedLabel: string
+  /** Credyx-posted amount awaiting carrier receipt confirm. */
+  postedAwaitingConfirmLabel?: string
+  /** Still due after treating awaiting remittance as applied. */
+  remainingAfterPendingLabel?: string
+  /** Short/partial remittance awaiting confirmation. */
+  isPartialRemittance?: boolean
   balanceDueLabel: string
   balanceTone: 'open' | 'short' | 'over' | 'zero'
   displayStatus: string

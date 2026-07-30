@@ -1,5 +1,6 @@
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
+import { isShortPayment } from '../types/payment'
 import {
   AMOUNT_EPSILON,
   getInvoiceReceivedAmount,
@@ -18,10 +19,45 @@ export type ShortPaymentRecord = {
 
 export { getInvoiceReceivedAmount, getShortfallAmount }
 
+/**
+ * Amount treated as applied for pay-variance detection:
+ * confirmed received + awaiting/disputed remittances − awaiting short corrections.
+ * Unpaid invoices (nothing posted) are not short-pays.
+ */
+export function getInvoiceAppliedForVariance(invoice: Invoice, payments: Payment[]): number {
+  const confirmed = getInvoiceReceivedAmount(invoice, payments)
+  // Explicit paid_amount already reflects settled received — don't double-count rows.
+  if (invoice.paid_amount != null && invoice.paid_amount > 0) {
+    return confirmed
+  }
+
+  const pendingRemit = payments
+    .filter(
+      (p) =>
+        p.invoice_id === invoice.id &&
+        (p.status === 'awaiting_receipt' || p.status === 'disputed') &&
+        !isShortPayment(p)
+    )
+    .reduce((sum, p) => sum + p.amount, 0)
+
+  const pendingShort = payments
+    .filter(
+      (p) =>
+        p.invoice_id === invoice.id &&
+        (p.status === 'awaiting_receipt' ||
+          p.status === 'pending' ||
+          p.status === 'disputed') &&
+        isShortPayment(p)
+    )
+    .reduce((sum, p) => sum + p.amount, 0)
+
+  return Math.max(0, confirmed + pendingRemit - pendingShort)
+}
+
 export function isShortPaymentInvoice(invoice: Invoice, payments: Payment[]): boolean {
-  const received = getInvoiceReceivedAmount(invoice, payments)
-  if (received <= 0) return false
-  return getShortfallAmount(invoice, received) >= AMOUNT_EPSILON
+  const applied = getInvoiceAppliedForVariance(invoice, payments)
+  if (applied <= AMOUNT_EPSILON) return false
+  return getShortfallAmount(invoice, applied) >= AMOUNT_EPSILON
 }
 
 export function canCloseShortPaymentAsUncollectable(invoice: Invoice): boolean {
@@ -36,7 +72,11 @@ export function canCloseShortPaymentAsUncollectable(invoice: Invoice): boolean {
 }
 
 export function getShortPaymentResolution(invoice: Invoice): ShortPaymentResolution {
-  if (invoice.status === 'written_off' || invoice.status === 'write_off_pending') {
+  if (
+    invoice.status === 'written_off' ||
+    invoice.status === 'write_off_pending' ||
+    invoice.status === 'force_closed'
+  ) {
     return 'written_off'
   }
   return 'open'
@@ -48,7 +88,7 @@ export function buildShortPaymentRecord(
 ): ShortPaymentRecord | null {
   if (!isShortPaymentInvoice(invoice, payments)) return null
 
-  const received_amount = getInvoiceReceivedAmount(invoice, payments)
+  const received_amount = getInvoiceAppliedForVariance(invoice, payments)
   return {
     invoice,
     invoice_amount: invoice.amount,

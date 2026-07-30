@@ -61,8 +61,11 @@ type SortField =
   | 'variance_amount'
   | 'invoice_date'
 
-function getShortResolutionPill(resolution: ShortPaymentResolution) {
-  if (resolution === 'written_off') {
+function getShortResolutionPill(row: ShortPaymentRecord) {
+  if (row.invoice.status === 'force_closed') {
+    return <span className="status-pill status-pill--closed">Force closed</span>
+  }
+  if (row.resolution === 'written_off') {
     return <span className="status-pill status-pill--warn">Written off</span>
   }
   return <span className="status-pill status-pill--review">Open</span>
@@ -88,8 +91,8 @@ export default function ClientShortPayments() {
     useClientDemoSnapshot(refreshKey)
   const clientInvoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
   const [searchTerm, setSearchTerm] = useState('')
-  const [shortFilter, setShortFilter] = useState<ShortFilter>('open')
-  const [overFilter, setOverFilter] = useState<OverFilter>('open')
+  const [shortFilter, setShortFilter] = useState<ShortFilter>('all')
+  const [overFilter, setOverFilter] = useState<OverFilter>('all')
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<SortField>('variance_amount')
@@ -346,9 +349,12 @@ export default function ClientShortPayments() {
                   {writtenOffRows.length}
                 </span>
               </button>
-              <div
-                className="flex items-center justify-between gap-2 px-4 py-2.5"
+              <button
+                type="button"
+                onClick={() => setShortFilter('all')}
+                className="flex items-center justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:opacity-90"
                 style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
+                aria-pressed={shortFilter === 'all'}
               >
                 <div className="flex items-center gap-1.5 min-w-0">
                   <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
@@ -359,7 +365,7 @@ export default function ClientShortPayments() {
                 <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
                   {shortPayments.length}
                 </span>
-              </div>
+              </button>
             </>
           ) : (
             <>
@@ -409,9 +415,12 @@ export default function ClientShortPayments() {
                   {acceptedOverRows.length}
                 </span>
               </button>
-              <div
-                className="flex items-center justify-between gap-2 px-4 py-2.5"
+              <button
+                type="button"
+                onClick={() => setOverFilter('all')}
+                className="flex items-center justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:opacity-90"
                 style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
+                aria-pressed={overFilter === 'all'}
               >
                 <div className="flex items-center gap-1.5 min-w-0">
                   <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
@@ -422,7 +431,7 @@ export default function ClientShortPayments() {
                 <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
                   {overpayments.length}
                 </span>
-              </div>
+              </button>
             </>
           )}
         </section>
@@ -604,7 +613,7 @@ export default function ClientShortPayments() {
                               {formatCurrency(row.shortfall_amount)}
                             </span>
                           </ClientListTd>
-                          <ClientListTd>{getShortResolutionPill(row.resolution)}</ClientListTd>
+                          <ClientListTd>{getShortResolutionPill(row)}</ClientListTd>
                           <ClientListTd align="right">
                             <div
                               className="flex items-center justify-end gap-1"

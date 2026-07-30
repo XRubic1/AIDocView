@@ -2,9 +2,9 @@ import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
 import {
   AMOUNT_EPSILON,
-  getInvoiceReceivedAmount,
   getOverageAmount,
 } from './paymentVariance'
+import { getInvoiceAppliedForVariance } from './shortPayments'
 
 export type OverpaymentResolution = 'open' | 'accepted'
 
@@ -17,9 +17,9 @@ export type OverpaymentRecord = {
 }
 
 export function isOverpaymentInvoice(invoice: Invoice, payments: Payment[]): boolean {
-  const received = getInvoiceReceivedAmount(invoice, payments)
-  if (received <= 0) return false
-  return getOverageAmount(invoice, received) >= AMOUNT_EPSILON
+  const applied = getInvoiceAppliedForVariance(invoice, payments)
+  if (applied <= AMOUNT_EPSILON) return false
+  return getOverageAmount(invoice, applied) >= AMOUNT_EPSILON
 }
 
 export function getOverpaymentResolution(invoice: Invoice): OverpaymentResolution {
@@ -39,7 +39,7 @@ export function buildOverpaymentRecord(
 ): OverpaymentRecord | null {
   if (!isOverpaymentInvoice(invoice, payments)) return null
 
-  const received_amount = getInvoiceReceivedAmount(invoice, payments)
+  const received_amount = getInvoiceAppliedForVariance(invoice, payments)
   return {
     invoice,
     invoice_amount: invoice.amount,

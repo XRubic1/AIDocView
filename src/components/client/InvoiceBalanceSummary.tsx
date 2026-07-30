@@ -240,10 +240,8 @@ export default function InvoiceBalanceSummary({
           style={{ backgroundColor: toneBg(current.tone) }}
         >
           <span className="invoice-balance-summary__fig-label inline-flex items-center gap-1 flex-nowrap min-w-0">
-            {pending > 0 || shortPending > 0
-              ? current.tone === 'zero'
-                ? 'Paid in full when confirmed'
-                : 'Balance incl. pending'
+            {(pending > 0 || shortPending > 0) && current.tone === 'zero'
+              ? 'Paid in full when confirmed'
               : current.label}
             {statusBadgePlacement === 'balance' ? statusBadge : null}
           </span>

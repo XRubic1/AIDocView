@@ -24,34 +24,48 @@ import { WaitlistForm } from '../components/enroll/WaitlistForm'
 
 // ── Static content (aligned with WAITLIST_MARKETING_SITE.md) ──
 
-const HERO_STATS = [
-  { value: 'Real-time', label: 'A/R visibility' },
-  { value: '1–50', label: 'Trucks supported' },
-  { value: 'On time', label: 'Payment tracking' },
-]
-
 const WORKFLOW_STEPS = [
   {
     title: 'Docs received',
-    description: 'Carrier submits paperwork and invoice packet to Credyx.',
+    description: 'You send Credyx your paperwork for the load.',
   },
   {
     title: 'Paperwork verified',
-    description: 'We verify documents so nothing gets missed.',
+    description: 'We check every document so nothing gets missed.',
   },
   {
     title: 'Invoice submitted',
-    description: 'We submit your invoice (PPW) to the broker and track acceptance.',
+    description: 'We invoice the broker (PPW) and track acceptance.',
   },
   {
     title: 'Broker follow-up',
-    description: 'We follow up, resolve holds and disputes, and keep you informed.',
+    description: 'We chase holds and disputes — and keep you updated.',
   },
   {
     title: 'Payment received',
-    description: 'We confirm payment when it arrives — on time.',
+    description: 'We confirm when payment arrives — on time.',
   },
 ]
+
+/** Slight path variance so each side connector feels hand-drawn, not cloned. */
+const PROCESS_CONNECTORS = [
+  {
+    path: 'M66 6 C48 12, 12 14, 10 34 C8 52, 44 56, 46 38 C48 24, 6 58, 4 82 C2 102, 36 110, 66 116',
+    head: 'M50 106 L68 116 L50 124',
+  },
+  {
+    path: 'M66 8 C50 10, 16 18, 8 36 C2 54, 40 60, 44 40 C48 22, 10 54, 6 78 C2 100, 40 108, 66 114',
+    head: 'M48 104 L68 114 L52 122',
+  },
+  {
+    path: 'M66 4 C44 14, 10 12, 12 32 C14 50, 48 54, 42 36 C36 20, 4 62, 8 86 C12 106, 34 112, 66 118',
+    head: 'M52 108 L68 118 L48 124',
+  },
+  {
+    path: 'M66 7 C52 16, 14 10, 6 30 C0 48, 38 58, 48 42 C56 28, 8 64, 2 84 C-2 104, 38 112, 66 115',
+    head: 'M50 105 L66 115 L48 122',
+  },
+] as const
 
 const BENEFITS = [
   {
@@ -391,10 +405,16 @@ export default function Waitlist() {
 
         <div className="cx-hero-layout">
           <div className="cx-hero-copy">
-            <p className="cx-badge hero-enter hero-enter-1">A/R back office for carriers</p>
+            <div className="cx-hero-brand hero-enter hero-enter-1">
+              <img
+                className="cx-hero-logo"
+                src="/credyx-logo-white-cred-no-bg.png"
+                alt="Credyx"
+              />
+            </div>
             <h1 className="cx-hero-headline hero-enter hero-enter-2">
               Your back office,{' '}
-              <span className="accent cx-hand-underline cx-soft-wiggle">in one portal.</span>
+              <span className="accent cx-hand-underline cx-hand-underline--draw">handled.</span>
             </h1>
             <p className="cx-hero-sub hero-enter hero-enter-3">
               Submit paperwork, track invoices, and follow broker payments — without hiring a
@@ -409,38 +429,87 @@ export default function Waitlist() {
                 See pricing
               </button>
             </div>
-
-            <div className="cx-hero-stats hero-enter hero-enter-5">
-              {HERO_STATS.map((stat) => (
-                <div key={stat.label} className="cx-hero-stat">
-                  <div className="cx-hero-stat-num">{stat.value}</div>
-                  <div className="cx-hero-stat-label">{stat.label}</div>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </section>
 
       {/* ── Process ── */}
-      <section className="cx-section bordered">
+      <section className="cx-section cx-section--process bordered">
         <div className="cx-section-inner">
           <div className="cx-section-head centered reveal reveal-grow">
             <p className="cx-eyebrow">
               How it works
             </p>
-            <h2 className="cx-section-title">From paperwork to paid on time</h2>
+            <h2 className="cx-section-title">
+              From{' '}
+              <span className="accent cx-hand-underline cx-hand-underline--v2">paperwork</span>
+              {' '}to{' '}
+              <span className="accent cx-hand-underline cx-hand-underline--v3">payment</span>
+            </h2>
             <p className="cx-section-sub">
               Credyx verifies documents, invoices brokers, follows up, and tracks payment —
               so you stay focused on the road.
             </p>
           </div>
-          <div className="cx-card-grid cx-card-grid--process reveal-stagger reveal">
+          <div className="cx-process-flow reveal-stagger reveal">
             {WORKFLOW_STEPS.map((item, index) => (
-              <div key={item.title} className="cx-card cx-card--grow">
-                <div className="cx-card-num">{String(index + 1).padStart(2, '0')}</div>
-                <h3 className="cx-card-title">{item.title}</h3>
-                <p className="cx-card-desc">{item.description}</p>
+              <div key={item.title} className="cx-process-step">
+                <div className="cx-card cx-card--grow">
+                  <div className="cx-card-num">{String(index + 1).padStart(2, '0')}</div>
+                  <h3 className="cx-card-title">{item.title}</h3>
+                  <p className="cx-card-desc">{item.description}</p>
+                </div>
+                {index < WORKFLOW_STEPS.length - 1 ? (
+                  <div
+                    className={`cx-process-connector cx-process-connector--${
+                      index % 2 === 0 ? 'left' : 'right'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {/* Horizontal wiggle (wide desktop) */}
+                    <svg
+                      className="cx-process-arrow cx-process-arrow--h"
+                      viewBox="0 0 44 28"
+                      fill="none"
+                    >
+                      <path
+                        className="cx-process-arrow-path"
+                        pathLength="1"
+                        d="M2 14 C10 4, 16 24, 22 14 S34 4, 38 14 M33 8 L40 14 L33 20"
+                        stroke="currentColor"
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    {/* Side connector with slight hand-drawn variance per step */}
+                    <svg
+                      className="cx-process-arrow cx-process-arrow--loop"
+                      viewBox="0 0 80 132"
+                      fill="none"
+                    >
+                      <path
+                        className="cx-process-arrow-path"
+                        pathLength="1"
+                        d={PROCESS_CONNECTORS[index].path}
+                        stroke="currentColor"
+                        strokeWidth="4.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        className="cx-process-arrow-head"
+                        pathLength="1"
+                        d={PROCESS_CONNECTORS[index].head}
+                        stroke="currentColor"
+                        strokeWidth="4.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        fill="none"
+                      />
+                    </svg>
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -578,7 +647,7 @@ export default function Waitlist() {
             <p className="cx-eyebrow">Assistant</p>
             <h2 className="cx-section-title">
               Meet{' '}
-              <span className="accent cx-hand-underline">Buddy</span>
+              <span className="accent cx-hand-underline cx-hand-underline--v4">Buddy</span>
             </h2>
             <p className="cx-buddy-tagline">Your AI trucking assistant</p>
             <p className="cx-section-sub">
@@ -784,7 +853,7 @@ export default function Waitlist() {
             <p className="cx-eyebrow">Pricing</p>
             <h2 className="cx-section-title">
               How we get paid{' '}
-              <span className="accent cx-hand-underline">explained simply</span>
+              <span className="accent cx-hand-underline cx-hand-underline--v5">explained simply</span>
             </h2>
             <p className="cx-section-sub">
               You get paid first. We only take a small cut after that.
