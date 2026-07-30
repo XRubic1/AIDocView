@@ -22,7 +22,7 @@ Monthly Credyx bill ≈ (agreed platform fee, if any) + (agreed rate × eligible
                      + any other adjustments the parties have agreed (e.g., force-close fee lines)
 ```
 
-Credyx does not deduct its fee from broker remittances. Client pays Credyx separately (e.g., via Payoneer payment request or other method Credyx designates).
+Credyx does not deduct its fee from broker remittances. Client pays Credyx separately via the payment method Credyx designates.
 
 ---
 
@@ -86,9 +86,9 @@ for that item in the month’s bill (so work performed is not zero-fee solely be
 This section covers **Client’s payment of Credyx fees only**. It does **not** set broker freight payment terms (see the MSA regarding per-broker due dates).
 
 - Credyx issues periodic **Credyx fee bills** (typically monthly) summarizing agreed platform fees, collection fees, and adjustments.
-- Payment of each Credyx fee bill is due on the **due date stated on that bill** (or in the related Payoneer payment request).
-- Launch payment method: **Payoneer payment requests** (or successor method Credyx specifies).
-- Client must keep billing contacts and Payoneer/payment details current.
+- Payment of each Credyx fee bill is due on the **due date stated on that bill**.
+- Launch payment method: payment requests (or successor method Credyx specifies).
+- Client must keep billing contacts and payment details current.
 
 ---
 

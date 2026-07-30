@@ -109,9 +109,9 @@ We may suspend or stop providing the Site (in whole or part) at any time. Provis
 
 ## 12. Governing law and disputes
 
-These Terms are governed by the laws of **North Macedonia**, without regard to conflict-of-law rules.
+These Terms are governed by the laws of the United States, without regard to conflict-of-law rules.
 
-Any dispute arising out of or relating to these Terms or the Site shall be finally resolved by binding arbitration conducted in English. The seat of arbitration shall be Skopje, North Macedonia.
+Any dispute arising out of or relating to these Terms or the Site shall be finally resolved by binding arbitration conducted in English.
 
 Judgment on the arbitration award may be entered in any court of competent jurisdiction. Provisional or interim relief may be sought in a court of competent jurisdiction to protect rights pending the arbitration award, to the extent allowed by law.
 

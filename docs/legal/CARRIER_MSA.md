@@ -4,7 +4,7 @@
 
 This Carrier Master Service Agreement (the “**Agreement**”) is entered into as of the Effective Date between:
 
-**Service provider:** Petar Kostic, doing business as **Credyx A/R Solutions** (“**Credyx**,” “**we**,” “**us**,” or “**our**”)
+**Service provider:** Credyx A/R Solutions (“**Credyx**,” “**we**,” “**us**,” or “**our**”)
 
 **Client:** the motor carrier / business identified in the signature block or enrollment record below (“**Client**,” “**you**,” or “**your**”)
 
@@ -171,7 +171,7 @@ If a broker is not paying and Client wants to pursue a claim against a broker's 
 
 ## 9. Fees, invoicing, and non-payment
 
-Fees, agreed rates (including platform fee **if agreed**), billing basis (typically confirmed collections), trial, payment method (e.g., Payoneer payment requests), and suspension/lock rules for **Credyx fee bills** are set out in **Exhibit A**. Broker freight due dates are per broker/payor as configured in Credyx (Section 5.5).
+Fees, agreed rates (including platform fee **if agreed**), billing basis (typically confirmed collections), trial, payment method, and suspension/lock rules for **Credyx fee bills** are set out in **Exhibit A**. Broker freight due dates are per broker/payor as configured in Credyx (Section 5.5).
 
 Unpaid Credyx fee bills may result in reminders, portal restrictions, and account lock as described in Exhibit A. Termination does not erase fees already owed.
 
@@ -235,9 +235,9 @@ Credyx may propose updates to Exhibit A fees for future periods by written notic
 
 ## 17. Governing law and arbitration
 
-This Agreement is governed by the laws of **North Macedonia**, without regard to conflict-of-law rules.
+This Agreement is governed by the laws of the United States, without regard to conflict-of-law rules.
 
-Any dispute arising out of or relating to this Agreement shall be finally resolved by binding arbitration conducted in English. The seat of arbitration shall be Skopje, North Macedonia.
+Any dispute arising out of or relating to this Agreement shall be finally resolved by binding arbitration conducted in English.
 
 Judgment on the arbitration award may be entered in any court of competent jurisdiction. Each party will bear its own attorneys' fees unless the arbitrator orders otherwise or applicable law requires a different allocation. Provisional or interim relief may be sought in a court of competent jurisdiction to protect rights pending the arbitration award, to the extent allowed by law.
 

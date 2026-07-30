@@ -16,7 +16,7 @@ Contact for privacy requests: **privacy@credyx.net**
 
 - **Waitlist / marketing:** company name, contact name, email, phone, fleet size, how you heard about us, and optional notes.
 - **Account & enrollment:** business and contact details needed to create a carrier account and communicate with your team.
-- **Login credentials:** authentication data processed through our identity provider (currently Supabase Auth).
+- **Login credentials:** authentication data processed through our identity provider.
 - **Setup / compliance documents** you upload to the document vault, which may include W-9, certificate of insurance (COI), MC/DOT authority documents, voided check or bank letter, and Notice of Assignment (NOA) when a factoring arrangement applies.
 - **Operational documents & data:** rate confirmations, bills of lading, proofs of delivery, invoices, broker contacts, remittance instructions, payment records, holds/disputes notes, and related freight paperwork you or your team submit.
 - **Support & communications:** messages you send to Credyx (email, portal, or assistant features).
@@ -52,7 +52,7 @@ We do **not** sell your personal information.
 
 We may share information with:
 
-- **Service providers** who help us run the Services (for example hosting/database, authentication, email delivery, and payment or payout tooling such as Payoneer), under obligations to protect the data.
+- **Service providers** who help us run the Services (for example hosting, authentication, email delivery, and payment processing), under obligations to protect the data.
 - **Brokers, shippers, and payors** when needed to invoice, follow up, or confirm payment **on your behalf** as part of the Services you requested.
 - **Your authorized users** on your carrier account.
 - **Professional advisors** (legal, accounting) under confidentiality.
