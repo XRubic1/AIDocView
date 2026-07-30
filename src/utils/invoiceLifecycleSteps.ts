@@ -111,11 +111,10 @@ export function getInvoiceLifecycleSteps(
     ]
   }
 
+  // force_closed / written_off already returned above via isClosed.
   const verifiedDone =
     Boolean(invoice.reviewed_at || invoice.approved_at) ||
     status === 'approved' ||
-    status === 'force_closed' ||
-    status === 'written_off' ||
     status === 'write_off_pending'
 
   // PPW sent → stay on Invoiced (awaiting payment). Do NOT advance current to Paid.

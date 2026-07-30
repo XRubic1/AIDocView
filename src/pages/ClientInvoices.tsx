@@ -118,7 +118,7 @@ function matchesInvoiceStatusFilter(
 
 /** Pick the filter bucket that will show a deep-linked invoice. */
 function statusFilterForInvoice(
-  invoice: EnrichedInvoice,
+  _invoice: EnrichedInvoice,
   displayStatus: string,
   options?: { awaitingReceipt?: boolean }
 ): InvoiceStatusFilter {

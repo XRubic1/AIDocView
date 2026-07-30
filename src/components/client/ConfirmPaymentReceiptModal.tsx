@@ -15,6 +15,9 @@ import {
 } from '../../services/paymentReceiptConfirmationService'
 import { AMOUNT_EPSILON } from '../../utils/paymentVariance'
 
+type PaymentReceiptDisputeReason =
+  (typeof PAYMENT_RECEIPT_DISPUTE_REASONS)[number]['value']
+
 const METHOD_LABELS: Record<string, string> = {
   check: 'Check',
   wire: 'Wire',
@@ -46,7 +49,9 @@ export default function ConfirmPaymentReceiptModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showDispute, setShowDispute] = useState(false)
-  const [disputeReason, setDisputeReason] = useState(PAYMENT_RECEIPT_DISPUTE_REASONS[0].value)
+  const [disputeReason, setDisputeReason] = useState<PaymentReceiptDisputeReason>(
+    PAYMENT_RECEIPT_DISPUTE_REASONS[0].value
+  )
   const [disputeDescription, setDisputeDescription] = useState('')
 
   const daysLeft = getReceiptConfirmationDaysLeft(payment)
@@ -222,7 +227,9 @@ export default function ConfirmPaymentReceiptModal({
                 id="confirm-pay-dispute-reason"
                 className="client-input w-full"
                 value={disputeReason}
-                onChange={(e) => setDisputeReason(e.target.value)}
+                onChange={(e) =>
+                  setDisputeReason(e.target.value as PaymentReceiptDisputeReason)
+                }
                 disabled={busy}
                 style={{ backgroundColor: c.card }}
               >
