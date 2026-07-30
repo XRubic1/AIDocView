@@ -29,8 +29,13 @@ type DashboardSparkChartsProps = {
 type SparkPoint = {
   i: number
   label: string
-  a: number
+  /** Past collections — null on forecast buckets so the line ends cleanly. */
+  a: number | null
+  /** Invoiced (history) or unused. */
   b: number
+  /** Upcoming forecast — null on history buckets. */
+  forecast?: number | null
+  phase?: 'past' | 'future'
 }
 
 type NamedBucket = {
@@ -359,7 +364,7 @@ function buildForecastBuckets(
   return buckets
 }
 
-type ChartMode = 'history' | 'forecast'
+type ChartMode = 'history' | 'forecast' | 'unified'
 
 function ChartTooltip({
   active,
@@ -379,20 +384,31 @@ function ChartTooltip({
   )
 
   const rows =
-    mode === 'history'
+    mode === 'unified'
       ? [
-          { label: 'Collected', value: byKey.get('a') ?? 0, color: '#1684FE' },
-          ...(byKey.has('b')
-            ? [
-                {
-                  label: 'Invoiced',
-                  value: byKey.get('b') ?? 0,
-                  color: 'rgba(203, 213, 225, 0.85)',
-                },
-              ]
+          ...((byKey.get('a') ?? 0) > 0.01
+            ? [{ label: 'Collected', value: byKey.get('a') ?? 0, color: '#1684FE' }]
+            : []),
+          ...((byKey.get('forecast') ?? 0) > 0.01
+            ? [{ label: 'Forecast', value: byKey.get('forecast') ?? 0, color: '#2DD4BF' }]
             : []),
         ]
-      : [{ label: 'Forecast', value: byKey.get('a') ?? 0, color: '#2DD4BF' }]
+      : mode === 'history'
+        ? [
+            { label: 'Collected', value: byKey.get('a') ?? 0, color: '#1684FE' },
+            ...(byKey.has('b')
+              ? [
+                  {
+                    label: 'Invoiced',
+                    value: byKey.get('b') ?? 0,
+                    color: 'rgba(203, 213, 225, 0.85)',
+                  },
+                ]
+              : []),
+          ]
+        : [{ label: 'Forecast', value: byKey.get('a') ?? 0, color: '#2DD4BF' }]
+
+  if (rows.length === 0) return null
 
   return (
     <div className="cd-spark-tooltip">
@@ -400,7 +416,7 @@ function ChartTooltip({
       {rows.map((row) => (
         <p key={row.label} className="cd-spark-tooltip__row">
           <span
-            className={`cd-spark-tooltip__dot${row.label === 'Invoiced' ? ' is-dashed' : ''}`}
+            className={`cd-spark-tooltip__dot${row.label === 'Invoiced' || row.label === 'Forecast' ? ' is-dashed' : ''}`}
             style={{ background: row.color }}
             aria-hidden
           />
@@ -431,8 +447,12 @@ function SparkChart({
 }: SparkChartProps) {
   const uid = useId().replace(/:/g, '')
   const primaryGrad = `cd-spark-p-${uid}`
+  const forecastGrad = `cd-spark-f-${uid}`
   // Flat $0 secondary series draws a hard baseline stroke — skip it.
-  const showSecondary = dual && data.some((d) => d.b > 0.01)
+  const showSecondary = dual && mode !== 'unified' && data.some((d) => d.b > 0.01)
+  const showForecast =
+    mode === 'unified' && data.some((d) => (d.forecast ?? 0) > 0.01)
+  const isUnified = mode === 'unified'
 
   return (
     <div
@@ -458,14 +478,19 @@ function SparkChart({
               <stop
                 offset="0%"
                 stopColor={primaryColor}
-                stopOpacity={mode === 'history' ? 0.16 : 0.22}
+                stopOpacity={isUnified || mode === 'history' ? 0.16 : 0.22}
               />
               <stop
                 offset="55%"
                 stopColor={primaryColor}
-                stopOpacity={mode === 'history' ? 0.04 : 0.06}
+                stopOpacity={isUnified || mode === 'history' ? 0.04 : 0.06}
               />
               <stop offset="100%" stopColor={primaryColor} stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id={forecastGrad} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2DD4BF" stopOpacity={0.14} />
+              <stop offset="60%" stopColor="#2DD4BF" stopOpacity={0.03} />
+              <stop offset="100%" stopColor="#2DD4BF" stopOpacity={0} />
             </linearGradient>
           </defs>
           <XAxis
@@ -532,18 +557,43 @@ function SparkChart({
           <Area
             type="monotone"
             dataKey="a"
-            name={mode === 'history' ? 'Collected' : 'Forecast'}
+            name="Collected"
             stroke={primaryColor}
-            strokeWidth={mode === 'history' ? 2.5 : 2.25}
+            strokeWidth={isUnified || mode === 'history' ? 2.5 : 2.25}
             fill={`url(#${primaryGrad})`}
             fillOpacity={1}
             baseLine={0}
-            dot={{
-              r: mode === 'history' ? 4 : 3.5,
-              fill: primaryColor,
-              stroke: 'none',
-              strokeWidth: 0,
-            }}
+            connectNulls={false}
+            dot={
+              isUnified
+                ? ((props: { cx?: number; cy?: number; payload?: SparkPoint }) => {
+                    const { cx, cy, payload } = props
+                    if (
+                      payload?.phase !== 'past' ||
+                      (payload.a ?? 0) <= 0.01 ||
+                      cx == null ||
+                      cy == null
+                    ) {
+                      return <g key={`dot-a-${payload?.i ?? 0}`} />
+                    }
+                    return (
+                      <circle
+                        key={`dot-a-${payload.i}`}
+                        cx={cx}
+                        cy={cy}
+                        r={3.5}
+                        fill={primaryColor}
+                        stroke="none"
+                      />
+                    )
+                  })
+                : {
+                    r: mode === 'history' ? 4 : 3.5,
+                    fill: primaryColor,
+                    stroke: 'none',
+                    strokeWidth: 0,
+                  }
+            }
             activeDot={{
               r: 6,
               fill: primaryColor,
@@ -553,6 +603,28 @@ function SparkChart({
             isAnimationActive
             animationDuration={800}
           />
+          {showForecast ? (
+            <Area
+              type="monotone"
+              dataKey="forecast"
+              name="Forecast"
+              stroke="#2DD4BF"
+              strokeWidth={2}
+              strokeDasharray="5 4"
+              fill={`url(#${forecastGrad})`}
+              fillOpacity={1}
+              baseLine={0}
+              dot={false}
+              activeDot={{
+                r: 5,
+                fill: '#2DD4BF',
+                stroke: 'none',
+                strokeWidth: 0,
+              }}
+              isAnimationActive
+              animationDuration={800}
+            />
+          ) : null}
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -573,8 +645,7 @@ function toSparkPoints(
 }
 
 /**
- * Top: past collected + invoiced (last 6 periods).
- * Bottom: upcoming collections from broker net-day expectations (next 6).
+ * One trend chart: past collected (solid) + upcoming forecast (dashed).
  */
 export default function DashboardSparkCharts({
   invoices,
@@ -582,63 +653,61 @@ export default function DashboardSparkCharts({
   period,
   customRange,
 }: DashboardSparkChartsProps) {
-  const { top, bottom, totals } = useMemo(() => {
+  const { series, totals, rangeLabel } = useMemo(() => {
     const past = buildHistoricalBuckets(invoices, payments, period, customRange)
     const upcoming = buildForecastBuckets(invoices, payments, period, customRange)
 
-    const invoicedTotal = past.reduce((s, b) => s + b.invoiced, 0)
     const collectedTotal = past.reduce((s, b) => s + b.collected, 0)
     const forecastTotal = upcoming.reduce((s, b) => s + b.forecast, 0)
 
-    const pastHasSignal = collectedTotal > 0 || invoicedTotal > 0
-    const forecastHasSignal = forecastTotal > 0
+    const pastPoints: SparkPoint[] = past.map((b, i) => ({
+      i,
+      label: b.label,
+      a: b.collected,
+      b: 0,
+      forecast: null,
+      phase: 'past' as const,
+    }))
+    const futurePoints: SparkPoint[] = upcoming.map((b, i) => ({
+      i: pastPoints.length + i,
+      label: b.label,
+      a: null,
+      b: 0,
+      forecast: b.forecast,
+      phase: 'future' as const,
+    }))
 
-    const emptyHistory: SparkPoint[] =
-      past.length > 0
-        ? past.map((b, i) => ({ i, label: b.label, a: 0, b: 0 }))
-        : buildFallbackSeries(0.2, period)
-    const emptyForecast: SparkPoint[] =
-      upcoming.length > 0
-        ? upcoming.map((b, i) => ({ i, label: b.label, a: 0, b: 0 }))
-        : buildFallbackSeries(0.7, period)
+    const series =
+      pastPoints.length + futurePoints.length > 0
+        ? [...pastPoints, ...futurePoints]
+        : buildFallbackSeries(0.35, period).map((p) => ({
+            ...p,
+            forecast: null,
+            phase: 'past' as const,
+          }))
+
+    const label =
+      period === 'custom'
+        ? `${customRange.start} → ${customRange.end}`
+        : period === 'daily'
+          ? '6 days past + next'
+          : period === 'weekly'
+            ? '6 weeks past + next'
+            : period === 'monthly'
+              ? '6 months past + next'
+              : '6 years past + next'
 
     return {
-      top: pastHasSignal ? toSparkPoints(past, 'collected', 'invoiced') : emptyHistory,
-      bottom: forecastHasSignal
-        ? toSparkPoints(upcoming, 'forecast', null)
-        : emptyForecast,
-      totals: {
-        invoiced: invoicedTotal,
-        collected: collectedTotal,
-        forecast: forecastTotal,
-      },
+      series,
+      totals: { collected: collectedTotal, forecast: forecastTotal },
+      rangeLabel: label,
     }
   }, [invoices, payments, period, customRange])
 
-  const rangeLabel =
-    period === 'custom'
-      ? `${customRange.start} → ${customRange.end}`
-      : period === 'daily'
-        ? '6 days'
-        : period === 'weekly'
-          ? '6 weeks'
-          : period === 'monthly'
-            ? '6 months'
-            : '6 years'
-
   return (
-    <div className="cd-spark-stack">
+    <div className="cd-spark-stack cd-spark-stack--unified">
       <div className="cd-spark-block">
-        <div className="cd-spark-metrics" aria-label="Past period totals">
-          <div className="cd-spark-metric">
-            <span className="cd-spark-metric__label">
-              <i className="cd-spark-swatch cd-spark-swatch--invoiced" aria-hidden />
-              Invoiced
-            </span>
-            <span className="cd-spark-metric__value tabular-nums">
-              {formatCurrency(totals.invoiced)}
-            </span>
-          </div>
+        <div className="cd-spark-metrics" aria-label="Trend totals">
           <div className="cd-spark-metric">
             <span className="cd-spark-metric__label">
               <i className="cd-spark-swatch cd-spark-swatch--collected" aria-hidden />
@@ -648,33 +717,23 @@ export default function DashboardSparkCharts({
               {formatCurrency(totals.collected)}
             </span>
           </div>
-        </div>
-        <SparkChart
-          chartKey={`top-${period}-${customRange.start}-${customRange.end}`}
-          data={top}
-          dual
-          mode="history"
-          syncId="cd-ar-charts"
-          primaryColor="#1684FE"
-        />
-      </div>
-
-      <div className="cd-spark-block cd-spark-block--forecast">
-        <div className="cd-spark-metrics cd-spark-metrics--solo" aria-label="Forecast total">
           <div className="cd-spark-metric">
             <span className="cd-spark-metric__label-row">
-              <span className="cd-spark-metric__label">Forecast collections</span>
+              <span className="cd-spark-metric__label">
+                <i className="cd-spark-swatch cd-spark-swatch--forecast" aria-hidden />
+                Forecast
+              </span>
               <span
                 className="cd-spark-disclaimer-tip"
                 tabIndex={0}
-                aria-label={`Upcoming collections are estimates from broker net days — actual pay dates may differ. Showing next ${rangeLabel}.`}
+                aria-label={`Forecast uses broker net days — actual pay dates may differ. Range: ${rangeLabel}.`}
               >
                 <span className="cd-spark-disclaimer-tip__icon" aria-hidden>
                   !
                 </span>
                 <span role="tooltip" className="cd-spark-disclaimer-tip__bubble">
-                  Upcoming collections are estimates from broker net days — actual
-                  pay dates may differ. Showing next {rangeLabel}.
+                  Forecast uses broker net days — actual pay dates may differ.
+                  Range: {rangeLabel}.
                 </span>
               </span>
             </span>
@@ -684,11 +743,11 @@ export default function DashboardSparkCharts({
           </div>
         </div>
         <SparkChart
-          chartKey={`bottom-${period}-${customRange.start}-${customRange.end}`}
-          data={bottom}
-          mode="forecast"
+          chartKey={`unified-${period}-${customRange.start}-${customRange.end}`}
+          data={series}
+          mode="unified"
           syncId="cd-ar-charts"
-          primaryColor="#2DD4BF"
+          primaryColor="#1684FE"
         />
       </div>
     </div>

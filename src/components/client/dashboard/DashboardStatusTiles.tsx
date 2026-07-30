@@ -3,7 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  PauseCircle,
+  Lock,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -23,7 +23,7 @@ type DashboardStatusTilesProps = {
 }
 
 const TILE_ICONS: Record<string, LucideIcon> = {
-  held: PauseCircle,
+  held: Lock,
   overdue: AlertTriangle,
   awaiting: Clock,
   paid30d: CheckCircle2,
