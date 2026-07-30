@@ -154,6 +154,7 @@
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   color-scheme: light;
+  /* Waitlist brand palette — navy #0F172A · blue #1684FE */
   --cp-primary: #0f172a;
   --cp-primary-hover: #1e293b;
   --cp-secondary: #64748b;
@@ -167,9 +168,10 @@
   --cp-success: #10b981;
   --cp-warning: #f59e0b;
   --cp-error: #ef4444;
-  --cp-info: #3b82f6;
-  --cp-accent: #3b82f6;
-  --cp-accent-hover: #2563eb;
+  --cp-info: #1684fe;
+  --cp-accent: #1684fe;
+  --cp-accent-hover: #0f5fc4;
+  --cp-accent-pressed: #0c4a9e;
   --cp-accent-light: #eff6ff;
   --cp-shadow-card: 0 2px 8px rgba(15, 23, 42, 0.04);
   --cp-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.08);
@@ -221,7 +223,7 @@
   isolation: isolate;
 }
 
-/* Soft draped-silk / fabric atmosphere (Wells-style, low-key). */
+/* Soft draped-silk / fabric atmosphere with a light Credyx blue wash. */
 .client-portal::before {
   content: '';
   position: absolute;
@@ -231,7 +233,7 @@
   background-color: transparent;
   background-image:
     radial-gradient(ellipse 90% 55% at 8% 12%, rgba(255, 255, 255, 0.95) 0%, transparent 55%),
-    radial-gradient(ellipse 70% 45% at 92% 8%, rgba(226, 232, 240, 0.75) 0%, transparent 50%),
+    radial-gradient(ellipse 70% 45% at 92% 8%, rgba(22, 132, 254, 0.07) 0%, transparent 50%),
     radial-gradient(ellipse 55% 40% at 78% 72%, rgba(203, 213, 225, 0.45) 0%, transparent 55%),
     radial-gradient(ellipse 65% 50% at 18% 88%, rgba(241, 245, 249, 0.85) 0%, transparent 50%),
     radial-gradient(ellipse 50% 35% at 48% 42%, rgba(255, 255, 255, 0.55) 0%, transparent 60%),
@@ -244,57 +246,57 @@
 
 .client-portal[data-theme='dark'] {
   color-scheme: dark;
-  /* Graphite ledger + brand blue accent (#1684FE) */
-  --cp-primary: #e8e9ed;
+  /* Waitlist navy shell (#0F172A / #111827 / #1E293B) + brand blue */
+  --cp-primary: #f8fafc;
   --cp-primary-hover: #ffffff;
-  --cp-secondary: #8e93a1;
-  --cp-muted-light: #6b7080;
-  --cp-border: #2a2e38;
-  --cp-border-hover: #3a4050;
-  --cp-surface: #12141a;
-  --cp-card: #1a1d24;
-  --cp-text: #e8e9ed;
-  --cp-text-muted: #8e93a1;
-  --cp-success: #2fa98c;
-  --cp-warning: #d4a853;
-  --cp-error: #d14343;
+  --cp-secondary: #94a3b8;
+  --cp-muted-light: #64748b;
+  --cp-border: #1e293b;
+  --cp-border-hover: #334155;
+  --cp-surface: #0f172a;
+  --cp-card: #111827;
+  --cp-text: #f8fafc;
+  --cp-text-muted: #94a3b8;
+  --cp-success: #34d399;
+  --cp-warning: #fbbf24;
+  --cp-error: #f87171;
   --cp-info: #1684fe;
   --cp-accent: #1684fe;
   --cp-accent-hover: #4da3ff;
   --cp-accent-pressed: #0f5fc4;
   --cp-accent-light: #0f1e33;
-  --cp-nav: #1a1d24;
+  --cp-nav: #111827;
   --cp-shadow-card: 0 2px 12px rgba(0, 0, 0, 0.4);
   --cp-shadow-hover: 0 8px 28px rgba(0, 0, 0, 0.5);
-  --cp-input-bg: #1a1d24;
-  --cp-input-border: #2a2e38;
-  --cp-table-hover: #22262f;
-  --cp-overlay: rgba(18, 20, 26, 0.72);
+  --cp-input-bg: #111827;
+  --cp-input-border: #1e293b;
+  --cp-table-hover: #1e293b;
+  --cp-overlay: rgba(15, 23, 42, 0.72);
   --cp-btn-primary-bg: #1684fe;
   --cp-btn-primary-hover: #4da3ff;
   --cp-btn-primary-text: #ffffff;
-  --cp-btn-secondary-bg: #1a1d24;
-  --cp-btn-secondary-text: #e8e9ed;
-  --cp-btn-secondary-hover: #22262f;
+  --cp-btn-secondary-bg: #111827;
+  --cp-btn-secondary-text: #f8fafc;
+  --cp-btn-secondary-hover: #1e293b;
   --cp-stat-blue-bg: #0f1e33;
   --cp-stat-amber-bg: #2a2110;
-  --cp-stat-green-bg: #152822;
-  --cp-stat-slate-bg: #1a1d24;
-  --cp-scrollbar-thumb: #2a2e38;
-  --cp-scrollbar-thumb-hover: #3a4050;
-  --cp-scrollbar-track: #12141a;
+  --cp-stat-green-bg: #0f2a22;
+  --cp-stat-slate-bg: #1e293b;
+  --cp-scrollbar-thumb: #1e293b;
+  --cp-scrollbar-thumb-hover: #334155;
+  --cp-scrollbar-track: #0f172a;
   background-color: var(--cp-surface);
 }
 
-/* Graphite silk folds for dark mode — quiet depth, no flat void */
+/* Navy + blue wash for dark mode — matches waitlist atmosphere */
 .client-portal[data-theme='dark']::before {
   background-image:
-    radial-gradient(ellipse 85% 50% at 12% 8%, rgba(42, 46, 56, 0.55) 0%, transparent 55%),
-    radial-gradient(ellipse 70% 45% at 90% 14%, rgba(15, 30, 51, 0.45) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 72% 78%, rgba(26, 29, 36, 0.7) 0%, transparent 55%),
-    radial-gradient(ellipse 55% 35% at 22% 88%, rgba(34, 38, 47, 0.5) 0%, transparent 50%),
-    radial-gradient(ellipse 45% 30% at 50% 40%, rgba(22, 132, 254, 0.06) 0%, transparent 60%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1600' height='1000' viewBox='0 0 1600 1000' preserveAspectRatio='xMidYMid slice'%3E%3Cdefs%3E%3Cfilter id='b' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeGaussianBlur stdDeviation='52'/%3E%3C/filter%3E%3C/defs%3E%3Cg filter='url(%23b)' opacity='0.5'%3E%3Cpath fill='%23222830' d='M-80 180C220 40 420 260 700 160S1180 20 1680 140V-40H-80Z'/%3E%3Cpath fill='%23161a22' d='M-80 520C260 380 480 620 780 500S1260 360 1680 480V320C1280 280 980 420 700 380S220 300-80 380Z'/%3E%3Cpath fill='%232a2e38' d='M-80 860C300 720 520 940 860 820S1340 700 1680 820V1000H-80Z'/%3E%3C/g%3E%3C/svg%3E");
+    radial-gradient(ellipse 85% 50% at 12% 8%, rgba(30, 41, 59, 0.65) 0%, transparent 55%),
+    radial-gradient(ellipse 70% 45% at 90% 14%, rgba(22, 132, 254, 0.1) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 72% 78%, rgba(17, 24, 39, 0.7) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 35% at 22% 88%, rgba(30, 41, 59, 0.55) 0%, transparent 50%),
+    radial-gradient(ellipse 45% 30% at 50% 40%, rgba(22, 132, 254, 0.08) 0%, transparent 60%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1600' height='1000' viewBox='0 0 1600 1000' preserveAspectRatio='xMidYMid slice'%3E%3Cdefs%3E%3Cfilter id='b' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeGaussianBlur stdDeviation='52'/%3E%3C/filter%3E%3C/defs%3E%3Cg filter='url(%23b)' opacity='0.5'%3E%3Cpath fill='%231e293b' d='M-80 180C220 40 420 260 700 160S1180 20 1680 140V-40H-80Z'/%3E%3Cpath fill='%23111827' d='M-80 520C260 380 480 620 780 500S1260 360 1680 480V320C1280 280 980 420 700 380S220 300-80 380Z'/%3E%3Cpath fill='%230f172a' d='M-80 860C300 720 520 940 860 820S1340 700 1680 820V1000H-80Z'/%3E%3C/g%3E%3C/svg%3E");
   opacity: 1;
 }
 
@@ -908,7 +910,7 @@
 }
 
 .client-portal .alert-inline__info {
-  color: #3b82f6;
+  color: #1684fe;
 }
 
 .client-portal .status-pill {
@@ -2107,8 +2109,8 @@
 
 .client-portal .invoice-detail-note-compose__vis-btn--active {
   background: var(--cp-accent-light, #eff6ff);
-  border-color: var(--cp-accent, #3b82f6);
-  color: var(--cp-accent, #3b82f6);
+  border-color: var(--cp-accent, #1684fe);
+  color: var(--cp-accent, #1684fe);
 }
 
 .client-portal .invoice-admin-status-actions {
@@ -2993,8 +2995,8 @@
 
 /* Selected invoice — stand out clearly while detail panel is open */
 .client-portal .client-invoices-page .dashboard-table tbody tr.invoice-row--selected {
-  background: color-mix(in srgb, var(--cp-accent, #3b82f6) 12%, var(--cp-card, #fff)) !important;
-  box-shadow: inset 3px 0 0 var(--cp-accent, #3b82f6);
+  background: color-mix(in srgb, var(--cp-accent, #1684fe) 12%, var(--cp-card, #fff)) !important;
+  box-shadow: inset 3px 0 0 var(--cp-accent, #1684fe);
 }
 
 .client-portal .client-invoices-page .dashboard-table tbody tr.invoice-row--selected td {
@@ -3002,7 +3004,7 @@
 }
 
 .client-portal .client-invoices-page .dashboard-table tbody tr.invoice-row--selected:hover {
-  background: color-mix(in srgb, var(--cp-accent, #3b82f6) 16%, var(--cp-card, #fff)) !important;
+  background: color-mix(in srgb, var(--cp-accent, #1684fe) 16%, var(--cp-card, #fff)) !important;
 }
 
 .client-portal .client-invoices-page .dashboard-table th.client-list-td--status-col,
@@ -3197,7 +3199,7 @@
 }
 
 .client-portal .client-post-payment__picker-item--active {
-  border-left: 3px solid var(--cp-info, #2563eb);
+  border-left: 3px solid var(--cp-info, #0f5fc4);
 }
 
 /* Post payment — split-panel workspace */
@@ -3381,8 +3383,8 @@
 }
 
 .client-portal .post-payment-picker__row--selected {
-  background: color-mix(in srgb, var(--cp-info, #2563eb) 8%, #fff) !important;
-  box-shadow: inset 3px 0 0 var(--cp-info, #2563eb);
+  background: color-mix(in srgb, var(--cp-info, #0f5fc4) 8%, #fff) !important;
+  box-shadow: inset 3px 0 0 var(--cp-info, #0f5fc4);
 }
 
 .client-portal .post-payment-picker__row--disabled {
@@ -4018,7 +4020,7 @@
   width: 4px;
   height: 56px;
   max-height: 50%;
-  background: var(--cp-accent, #3b82f6);
+  background: var(--cp-accent, #1684fe);
 }
 
 .client-portal .payments-resize-handle:focus-visible {
@@ -4078,8 +4080,8 @@
 }
 
 .client-portal .payment-row--selected {
-  background: color-mix(in srgb, var(--cp-accent, #3b82f6) 10%, transparent) !important;
-  box-shadow: inset 3px 0 0 var(--cp-accent, #3b82f6);
+  background: color-mix(in srgb, var(--cp-accent, #1684fe) 10%, transparent) !important;
+  box-shadow: inset 3px 0 0 var(--cp-accent, #1684fe);
 }
 
 .client-portal .payment-row__invoice-cell {
@@ -4114,7 +4116,7 @@
 }
 
 .client-portal .payment-row__expand-btn:hover {
-  background: color-mix(in srgb, var(--cp-accent, #3b82f6) 12%, transparent);
+  background: color-mix(in srgb, var(--cp-accent, #1684fe) 12%, transparent);
   color: var(--cp-primary, #0f172a);
 }
 
@@ -4251,7 +4253,7 @@
 }
 
 .client-portal .payment-row--child.payment-row--selected {
-  background: color-mix(in srgb, var(--cp-accent, #3b82f6) 8%, var(--cp-surface, #f8fafc)) !important;
+  background: color-mix(in srgb, var(--cp-accent, #1684fe) 8%, var(--cp-surface, #f8fafc)) !important;
 }
 
 .client-portal .payment-row__child-label {
@@ -4509,7 +4511,7 @@
   height: 44px;
   border-radius: 12px;
   background: #eff6ff;
-  color: #3b82f6;
+  color: #1684fe;
   flex-shrink: 0;
 }
 
@@ -4690,7 +4692,7 @@
 }
 
 .client-portal .client-submit-docs__option:focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid #1684fe;
   outline-offset: 2px;
 }
 
@@ -4754,7 +4756,7 @@
 
 .client-portal .client-submit-docs__option-icon--ai {
   background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-  color: #2563eb;
+  color: #0f5fc4;
 }
 
 .client-portal .client-submit-docs__option-icon--manual {
@@ -4829,7 +4831,7 @@
 }
 
 .client-portal .client-submit-docs__option--featured .client-submit-docs__step-check {
-  color: #3b82f6;
+  color: #1684fe;
 }
 
 .client-portal .client-submit-docs__option-cta {
@@ -4848,12 +4850,12 @@
 }
 
 .client-portal .client-submit-docs__option:hover .client-submit-docs__option-cta {
-  color: #2563eb;
+  color: #0f5fc4;
   background: #eff6ff;
 }
 
 .client-portal .client-submit-docs__option--featured .client-submit-docs__option-cta {
-  color: #2563eb;
+  color: #0f5fc4;
   background: #f8fbff;
   border-top-color: #dbeafe;
 }
@@ -4951,7 +4953,7 @@
 }
 
 .client-portal .client-submit-docs__dropzone:hover {
-  border-color: #3b82f6;
+  border-color: #1684fe;
   background: #eff6ff;
 }
 
@@ -5040,7 +5042,7 @@
 }
 
 .client-portal .client-submit-docs__spinner {
-  color: #3b82f6;
+  color: #1684fe;
   animation: clientSubmitSpin 0.8s linear infinite;
 }
 
@@ -5220,7 +5222,7 @@
 }
 
 .client-portal .client-manual-batch__required {
-  color: #3b82f6;
+  color: #1684fe;
 }
 
 .client-portal .client-manual-batch__textarea {
@@ -5366,7 +5368,7 @@
 
 .client-portal .client-manual-batch__doc-edit:hover {
   background: #eff6ff;
-  color: #2563eb;
+  color: #0f5fc4;
 }
 
 .client-portal .client-manual-batch__doc-upload {
@@ -5385,7 +5387,7 @@
 
 .client-portal .client-manual-batch__doc-upload:hover {
   border-color: #93c5fd;
-  color: #2563eb;
+  color: #0f5fc4;
   background: #eff6ff;
 }
 
@@ -5537,7 +5539,7 @@
 }
 
 .client-portal .client-ai-upload__step--active {
-  color: #2563eb;
+  color: #0f5fc4;
   font-weight: 600;
 }
 
@@ -5560,7 +5562,7 @@
 
 .client-portal .client-ai-upload__step--active .client-ai-upload__step-dot {
   background: #dbeafe;
-  color: #2563eb;
+  color: #0f5fc4;
 }
 
 .client-portal .client-ai-upload__step--done .client-ai-upload__step-dot {
@@ -5608,7 +5610,7 @@
 }
 
 .client-portal .client-ai-upload__dropzone:hover {
-  border-color: #3b82f6;
+  border-color: #1684fe;
   background: #eff6ff;
   box-shadow: 0 8px 24px rgba(59, 130, 246, 0.08);
 }
@@ -5621,7 +5623,7 @@
   height: 56px;
   border-radius: 14px;
   background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-  color: #2563eb;
+  color: #0f5fc4;
   margin-bottom: 12px;
 }
 
@@ -5695,7 +5697,7 @@
 .client-portal .client-ai-upload__files-count {
   font-size: 11px;
   font-weight: 700;
-  color: #2563eb;
+  color: #0f5fc4;
   background: #eff6ff;
   border-radius: 999px;
   padding: 2px 8px;
@@ -5820,7 +5822,7 @@
 }
 
 .client-portal .client-ai-upload__spinner {
-  color: #3b82f6;
+  color: #1684fe;
   animation: clientSubmitSpin 0.8s linear infinite;
 }
 
@@ -5837,7 +5839,7 @@
   height: 100%;
   width: 40%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  background: linear-gradient(90deg, #1684fe, #60a5fa);
   animation: clientAiProgress 1.2s ease-in-out infinite;
 }
 
@@ -5910,9 +5912,9 @@
 }
 
 .client-portal .client-ai-confirm__add-btn:hover:not(:disabled) {
-  border-color: #3b82f6;
+  border-color: #1684fe;
   background: #eff6ff;
-  color: #2563eb;
+  color: #0f5fc4;
 }
 
 .client-portal .client-ai-confirm__add-btn:disabled {
@@ -6127,7 +6129,7 @@
 }
 
 .client-portal .client-ai-confirm__docs-link:hover:not(:disabled) {
-  color: #2563eb;
+  color: #0f5fc4;
   text-decoration-color: #93c5fd;
 }
 
@@ -6138,7 +6140,7 @@
 }
 
 .client-portal .client-ai-confirm__docs-link--add {
-  color: #2563eb;
+  color: #0f5fc4;
 }
 
 .client-portal .client-ai-confirm__docs-more {
@@ -6147,7 +6149,7 @@
   background: transparent;
   font-size: 11px;
   font-weight: 600;
-  color: #2563eb;
+  color: #0f5fc4;
   cursor: pointer;
 }
 
@@ -6212,9 +6214,9 @@
 }
 
 .client-portal .client-ai-confirm__action-btn:hover:not(:disabled) {
-  border-color: #3b82f6;
+  border-color: #1684fe;
   background: #eff6ff;
-  color: #2563eb;
+  color: #0f5fc4;
 }
 
 .client-portal .client-ai-confirm__action-btn--confirmed {
@@ -6247,7 +6249,7 @@
 
 .client-portal .client-ai-confirm__input:focus {
   outline: none;
-  border-color: #3b82f6;
+  border-color: #1684fe;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
@@ -6302,9 +6304,9 @@
 }
 
 .client-portal .client-ai-confirm__confirm-btn:hover:not(:disabled) {
-  border-color: #3b82f6;
+  border-color: #1684fe;
   background: #eff6ff;
-  color: #2563eb;
+  color: #0f5fc4;
 }
 
 .client-portal .client-ai-confirm__confirm-btn:disabled {
@@ -6661,7 +6663,7 @@
 }
 
 .client-portal .aging-bucket-cell--active {
-  box-shadow: inset 0 -2px 0 #3b82f6;
+  box-shadow: inset 0 -2px 0 #1684fe;
 }
 
 .client-portal .batch-filter-pill__count {
@@ -6859,7 +6861,7 @@
 
 .client-portal .client-batch-detail__row-action:hover {
   background: #eff6ff;
-  color: #2563eb;
+  color: #0f5fc4;
 }
 
 .client-portal .client-batch-detail .dashboard-table th:first-child,
@@ -6983,7 +6985,7 @@
 
 .client-portal .invoice-list-item--active {
   background: #eff6ff;
-  border-left-color: #3b82f6;
+  border-left-color: #1684fe;
 }
 
 .client-portal .invoice-list-item--highlight {
@@ -7092,7 +7094,7 @@
   height: 10px;
   border-radius: 50%;
   background: #ffffff;
-  border: 2px solid #3b82f6;
+  border: 2px solid #1684fe;
 }
 
 /* Inline status dot inside dashboard tables (Recent Actions, etc.) */
@@ -7268,7 +7270,7 @@
 }
 
 .client-portal .batch-option-card--featured {
-  border-color: #3b82f6;
+  border-color: #1684fe;
   background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
 }
 
@@ -7279,7 +7281,7 @@
 
 .client-portal .status-pill--review {
   background: #eff6ff;
-  color: #3b82f6;
+  color: #1684fe;
 }
 
 .client-portal .status-pill--pending-batch {
@@ -7403,7 +7405,7 @@
 .client-portal .client-doc-upload-modal__browse {
   font-size: 12px;
   font-weight: 600;
-  color: #2563eb;
+  color: #0f5fc4;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -7440,7 +7442,7 @@
 .client-portal .client-doc-upload-modal__files-count {
   font-size: 10px;
   font-weight: 700;
-  color: #2563eb;
+  color: #0f5fc4;
   background: #eff6ff;
   border-radius: 999px;
   padding: 1px 7px;
@@ -7754,7 +7756,7 @@
 }
 
 .client-portal .doc-vault-dropzone--active {
-  border-color: #3b82f6;
+  border-color: #1684fe;
   background: #eff6ff;
 }
 
@@ -7917,7 +7919,7 @@
 
 .client-portal .dashboard-panel-icon--blue {
   background: #eff6ff;
-  color: #2563eb;
+  color: #0f5fc4;
 }
 
 .client-portal .dashboard-panel-icon--green {
@@ -11355,8 +11357,8 @@
 
 .client-portal .payment-confirmation-panel__notes-filter--active {
   background: var(--cp-accent-light, #eff6ff);
-  border-color: var(--cp-accent, #3b82f6);
-  color: var(--cp-accent, #3b82f6);
+  border-color: var(--cp-accent, #1684fe);
+  color: var(--cp-accent, #1684fe);
 }
 
 .client-portal .payment-confirmation-panel__notes-filter-count {
@@ -13649,7 +13651,7 @@
   width: 4px;
   height: 56px;
   max-height: 50%;
-  background: var(--cp-accent, #3b82f6);
+  background: var(--cp-accent, #1684fe);
 }
 
 .client-portal .assistant-page__resize-handle:focus-visible {
@@ -14152,7 +14154,7 @@
 
 .client-portal .assistant-cal__pill--reminder {
   background: var(--cp-stat-blue-bg);
-  border-left-color: #3b82f6;
+  border-left-color: #1684fe;
   color: #1e40af;
 }
 
@@ -14170,7 +14172,7 @@
 
 .client-portal .assistant-cal__pill--meeting {
   background: #eff6ff;
-  border-left-color: #3b82f6;
+  border-left-color: #1684fe;
   color: #1e40af;
 }
 
@@ -14253,7 +14255,7 @@
 }
 
 .client-portal .assistant-cal__dot--meeting {
-  background: #3b82f6;
+  background: #1684fe;
 }
 
 .client-portal .assistant-cal__dot--escalate,

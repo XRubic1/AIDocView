@@ -538,7 +538,7 @@ export default function Waitlist() {
             </p>
             <h2 className="cx-section-title">
               Your back office,{' '}
-              <span className="accent">without the hire</span>
+              <span className="accent cx-hand-underline cx-hand-underline--v7">without the hire</span>
             </h2>
             <p className="cx-section-sub">
               Visibility, follow-up, and A/R tracking in one portal — built for carriers.
@@ -760,7 +760,7 @@ export default function Waitlist() {
             <p className="cx-eyebrow">Platform</p>
             <h2 className="cx-section-title">
               What&apos;s in{' '}
-              <span className="accent">the portal</span>
+              <span className="accent cx-hand-underline cx-hand-underline--v8">the portal</span>
             </h2>
           </div>
 
@@ -791,13 +791,13 @@ export default function Waitlist() {
       </section>
 
       {/* ── Waitlist form ── */}
-      <section id="waitlist-form" className="cx-section cx-section--join surface bordered">
+      <section id="waitlist-form" className="cx-section cx-section--join bordered">
         <div className="cx-section-inner">
           <div className="cx-enroll-shell">
             <div className="cx-join-head reveal reveal-grow">
               <h2 className="cx-section-title">
                 Join the{' '}
-                <span className="accent">waitlist</span>
+                <span className="accent cx-hand-underline cx-hand-underline--v6">waitlist</span>
               </h2>
               <p className="cx-section-sub">
                 Tell us about your fleet — we&apos;ll reach out when onboarding opens.
@@ -841,8 +841,8 @@ export default function Waitlist() {
             src="/credyx-logo-white-cred-no-bg.png"
             alt="Credyx"
             className="cx-footer-logo"
-            width={320}
-            height={84}
+            width={107}
+            height={28}
           />
         </div>
         <div className="cx-footer-links">

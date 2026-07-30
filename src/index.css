@@ -95,18 +95,18 @@ body {
   }
 }
 
-/* Client portal theme tokens */
+/* Client portal theme tokens — waitlist navy / Credyx blue (overridden by clientPortal.css) */
 .client-portal {
-  --cp-primary: #113543;
-  --cp-primary-hover: #0a2529;
-  --cp-accent: #0891b2;
-  --cp-accent-light: #ecfeff;
+  --cp-primary: #0f172a;
+  --cp-primary-hover: #1e293b;
+  --cp-accent: #1684fe;
+  --cp-accent-light: #eff6ff;
   --cp-muted: #64748b;
   --cp-border: #e2e8f0;
-  --cp-surface: #f0f4f6;
-  --cp-success: #059669;
-  --cp-warning: #d97706;
-  --cp-error: #dc2626;
+  --cp-surface: #eef1f5;
+  --cp-success: #10b981;
+  --cp-warning: #f59e0b;
+  --cp-error: #ef4444;
 }
 
 /* Notification bell — pulse when unread items need attention (client + admin) */

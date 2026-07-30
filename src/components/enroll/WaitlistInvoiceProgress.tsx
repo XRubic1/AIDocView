@@ -13,6 +13,12 @@ type DemoFrame = {
 
 const STEP_LABELS = ['Submitted', 'Verified', 'Invoiced', 'Paid'] as const
 
+/** Hold each major status long enough to read (~4s between states). */
+const STATE_MS = 4000
+const INTRO_MS = 700
+const SETTLE_MS = 550
+const END_HOLD_MS = 4200
+
 /** Status notes — same reserved slot as Held; fade between steps (no layout jump). */
 const STATUS_NOTES: Record<
   StatusNoteId,
@@ -47,8 +53,16 @@ const STATUS_NOTES: Record<
 
 /**
  * Demo path: Submitted → Hold → Verified → Invoiced → Paid
- * (Hold lands on step 2 before Verified is checked.)
+ * Major states are spaced STATE_MS apart; micro settle happens inside each beat.
  */
+const t0 = INTRO_MS
+const tSubmitted = t0
+const tHeld = tSubmitted + STATE_MS
+const tVerified = tHeld + STATE_MS
+const tInvoiced = tVerified + STATE_MS
+const tPaid = tInvoiced + STATE_MS
+const tEnd = tPaid + END_HOLD_MS
+
 const DEMO_FRAMES: { at: number; frame: DemoFrame }[] = [
   {
     at: 0,
@@ -59,7 +73,7 @@ const DEMO_FRAMES: { at: number; frame: DemoFrame }[] = [
     },
   },
   {
-    at: 350,
+    at: tSubmitted,
     frame: {
       steps: ['active', 'upcoming', 'upcoming', 'upcoming'],
       note: 'submitted',
@@ -67,7 +81,7 @@ const DEMO_FRAMES: { at: number; frame: DemoFrame }[] = [
     },
   },
   {
-    at: 900,
+    at: tSubmitted + SETTLE_MS,
     frame: {
       steps: ['done', 'upcoming', 'upcoming', 'upcoming'],
       note: 'submitted',
@@ -76,15 +90,7 @@ const DEMO_FRAMES: { at: number; frame: DemoFrame }[] = [
   },
   // Hold before Verified — never check Verified first
   {
-    at: 1500,
-    frame: {
-      steps: ['done', 'held', 'upcoming', 'upcoming'],
-      note: 'held',
-      allPaid: false,
-    },
-  },
-  {
-    at: 4200,
+    at: tHeld,
     frame: {
       steps: ['done', 'held', 'upcoming', 'upcoming'],
       note: 'held',
@@ -93,7 +99,7 @@ const DEMO_FRAMES: { at: number; frame: DemoFrame }[] = [
   },
   // Resolved → Verified
   {
-    at: 4600,
+    at: tVerified,
     frame: {
       steps: ['done', 'done', 'upcoming', 'upcoming'],
       note: 'verified',
@@ -101,7 +107,7 @@ const DEMO_FRAMES: { at: number; frame: DemoFrame }[] = [
     },
   },
   {
-    at: 5300,
+    at: tInvoiced,
     frame: {
       steps: ['done', 'done', 'active', 'upcoming'],
       note: 'invoiced',
@@ -109,7 +115,7 @@ const DEMO_FRAMES: { at: number; frame: DemoFrame }[] = [
     },
   },
   {
-    at: 6000,
+    at: tInvoiced + SETTLE_MS,
     frame: {
       steps: ['done', 'done', 'done', 'upcoming'],
       note: 'invoiced',
@@ -117,7 +123,7 @@ const DEMO_FRAMES: { at: number; frame: DemoFrame }[] = [
     },
   },
   {
-    at: 6700,
+    at: tPaid,
     frame: {
       steps: ['done', 'done', 'done', 'active'],
       note: 'paid',
@@ -125,15 +131,7 @@ const DEMO_FRAMES: { at: number; frame: DemoFrame }[] = [
     },
   },
   {
-    at: 7400,
-    frame: {
-      steps: ['done', 'done', 'done', 'paid'],
-      note: 'paid',
-      allPaid: true,
-    },
-  },
-  {
-    at: 10200,
+    at: tPaid + SETTLE_MS,
     frame: {
       steps: ['done', 'done', 'done', 'paid'],
       note: 'paid',
@@ -142,7 +140,7 @@ const DEMO_FRAMES: { at: number; frame: DemoFrame }[] = [
   },
 ]
 
-const LOOP_MS = 11000
+const LOOP_MS = tEnd
 
 const INITIAL_FRAME: DemoFrame = DEMO_FRAMES[0].frame
 
@@ -231,7 +229,23 @@ export function WaitlistInvoiceProgress() {
       }${isHeldPhase ? ' is-held' : ''}`}
       aria-label="Demo invoice progress"
     >
-      <p className="cx-proof-panel-title">Invoice progress</p>
+      <div className="cx-proof-panel-head">
+        <div>
+          <p className="cx-proof-panel-title">Invoice progress</p>
+          <p className="cx-proof-panel-meta">
+            <span>INV-4821</span>
+            <span aria-hidden>·</span>
+            <span>$2,840.00</span>
+          </p>
+        </div>
+        <span
+          className={`cx-proof-live-pill${
+            isHeldPhase ? ' is-warn' : frame.allPaid ? ' is-good' : ''
+          }`}
+        >
+          {isHeldPhase ? 'On hold' : frame.allPaid ? 'Paid' : 'Live status'}
+        </span>
+      </div>
 
       <div className="cx-invoice-stepper" data-play={playId}>
         {STEP_LABELS.map((baseLabel, index) => {
@@ -269,9 +283,9 @@ export function WaitlistInvoiceProgress() {
               >
                 <span className="cx-invoice-step-dot">
                   {state === 'held' ? (
-                    <X size={14} strokeWidth={2.75} />
+                    <X size={13} strokeWidth={2.75} />
                   ) : state === 'done' || state === 'paid' ? (
-                    <CheckCircle2 size={14} strokeWidth={2.5} />
+                    <CheckCircle2 size={13} strokeWidth={2.5} />
                   ) : (
                     index + 1
                   )}

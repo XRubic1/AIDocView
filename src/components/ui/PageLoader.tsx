@@ -29,6 +29,9 @@ export default function PageLoader({
 }: PageLoaderProps) {
   const reducedMotion = usePrefersReducedMotion()
   const [logoFailed, setLogoFailed] = useState(false)
+  const logoSrc = fullScreen
+    ? '/credyx-logo-white-cred-no-bg.png'
+    : '/credyx-logo-black-cred-no-bg.png'
 
   return (
     <div
@@ -43,17 +46,25 @@ export default function PageLoader({
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="page-loader__stage" aria-hidden>
-        <div className="page-loader__glow" />
-      </div>
+      {fullScreen ? (
+        <div className="page-loader__stage" aria-hidden>
+          <div className="page-loader__waves" />
+          <div className="page-loader__waves page-loader__waves--slow" />
+          <div className="page-loader__glow" />
+        </div>
+      ) : (
+        <div className="page-loader__stage" aria-hidden>
+          <div className="page-loader__glow" />
+        </div>
+      )}
 
       <div className="page-loader__content">
         {!logoFailed ? (
           <img
-            src="/Logo.png"
+            src={logoSrc}
             alt="Credyx"
             className="page-loader__logo"
-            width={168}
+            width={180}
             height={48}
             onError={() => setLogoFailed(true)}
           />

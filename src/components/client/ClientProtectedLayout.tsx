@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from 'react-router-dom'
+import { Outlet } from 'react-router-dom'
 import { ClientPortalProvider, useClientPortal } from '../../context/ClientPortalContext'
 import ClientLayout from '../ClientLayout'
 import ClientRouteGuard from './ClientRouteGuard'
@@ -6,15 +6,12 @@ import ClientRouteGuard from './ClientRouteGuard'
 /** Persistent chrome around client routes so the sidebar does not remount on navigation. */
 function ClientPortalShell() {
   const { client } = useClientPortal()
-  const location = useLocation()
-  // Dashboard keeps layout padding; flush pages own their edge-to-edge shells.
-  const flushMain = location.pathname !== '/client/dashboard'
 
   return (
     <ClientLayout
       clientName={client?.name ?? 'Client'}
       clientId={client?.id}
-      flushMain={flushMain}
+      flushMain
     >
       <Outlet />
     </ClientLayout>

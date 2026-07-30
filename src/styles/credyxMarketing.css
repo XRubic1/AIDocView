@@ -1166,7 +1166,7 @@
 
 .credyx-page--waitlist .cx-footer-logo {
   display: block;
-  height: 84px;
+  height: 28px;
   width: auto;
   object-fit: contain;
 }
@@ -1293,6 +1293,33 @@
   bottom: -0.13em;
   height: 0.37em;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 18' preserveAspectRatio='none'%3E%3Cpath d='M5 14 Q105 1 195 9.5 L193.5 15 Q104 7 7 17.5 Z' fill='%230B5ED7'/%3E%3C/svg%3E")
+    center bottom / 100% 100% no-repeat;
+}
+
+.credyx-page--waitlist .cx-hand-underline--v6::after {
+  bottom: -0.12em;
+  height: 0.36em;
+  left: -0.03em;
+  right: -0.05em;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 18' preserveAspectRatio='none'%3E%3Cpath d='M3 12.5 Q55 4 100 5.5 Q150 7 197 11.5 L195.5 16 Q148 11.5 99 10 Q52 9 5 16.5 Z' fill='%230B5ED7'/%3E%3C/svg%3E")
+    center bottom / 100% 100% no-repeat;
+}
+
+.credyx-page--waitlist .cx-hand-underline--v7::after {
+  bottom: -0.14em;
+  height: 0.38em;
+  left: -0.02em;
+  right: -0.04em;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 18' preserveAspectRatio='none'%3E%3Cpath d='M2 11 Q60 3 110 4.5 Q160 6 198 12.5 L196.5 17 Q158 10.5 109 9 Q58 8 4 15.5 Z' fill='%230B5ED7'/%3E%3C/svg%3E")
+    center bottom / 100% 100% no-repeat;
+}
+
+.credyx-page--waitlist .cx-hand-underline--v8::after {
+  bottom: -0.13em;
+  height: 0.35em;
+  left: -0.04em;
+  right: -0.06em;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 18' preserveAspectRatio='none'%3E%3Cpath d='M4 13 Q75 2.5 130 4 Q175 5.5 196 12 L194 16.5 Q172 10 129 8.5 Q72 7 6 16.5 Z' fill='%230B5ED7'/%3E%3C/svg%3E")
     center bottom / 100% 100% no-repeat;
 }
 
@@ -1848,7 +1875,109 @@
 .credyx-page--waitlist .cx-proof-panel--progress {
   display: flex;
   flex-direction: column;
-  min-height: 248px;
+  gap: 0;
+  min-height: 268px;
+  padding: clamp(18px, 2.2vw, 24px);
+  background:
+    linear-gradient(165deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.88) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 16px 40px rgba(0, 0, 0, 0.28);
+}
+
+.credyx-page--waitlist .cx-proof-panel--progress.is-held {
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.credyx-page--waitlist .cx-proof-panel--progress.is-paid-complete {
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.credyx-page--waitlist .cx-proof-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  flex-shrink: 0;
+}
+
+.credyx-page--waitlist .cx-proof-panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cx-muted);
+  margin: 0 0 4px;
+  flex-shrink: 0;
+}
+
+.credyx-page--waitlist .cx-proof-panel-meta {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--cx-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.credyx-page--waitlist .cx-proof-panel-meta span[aria-hidden] {
+  color: var(--cx-muted);
+  font-weight: 500;
+}
+
+.credyx-page--waitlist .cx-proof-live-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #bfdbfe;
+  background: rgba(22, 132, 254, 0.12);
+  border: 1px solid rgba(22, 132, 254, 0.28);
+  white-space: nowrap;
+}
+
+.credyx-page--waitlist .cx-proof-live-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--cx-blue);
+  box-shadow: 0 0 0 3px rgba(22, 132, 254, 0.2);
+  animation: cx-live-dot 1.8s ease-in-out infinite;
+}
+
+.credyx-page--waitlist .cx-proof-live-pill.is-warn {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.32);
+}
+
+.credyx-page--waitlist .cx-proof-live-pill.is-warn::before {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.22);
+}
+
+.credyx-page--waitlist .cx-proof-live-pill.is-good {
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.32);
+}
+
+.credyx-page--waitlist .cx-proof-live-pill.is-good::before {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22);
+  animation: none;
 }
 
 .credyx-page--waitlist .cx-invoice-step-wrap {
@@ -1862,16 +1991,6 @@
   flex: 0 0 auto;
 }
 
-.credyx-page--waitlist .cx-proof-panel-title {
-  font-size: 12.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--cx-muted);
-  margin: 0 0 14px;
-  flex-shrink: 0;
-}
-
 .credyx-page--waitlist .cx-invoice-stepper {
   display: flex;
   align-items: flex-start;
@@ -1879,63 +1998,69 @@
   gap: 0;
   margin: 0;
   width: 100%;
-  height: 58px;
-  padding: 6px 2px 0;
+  height: 64px;
+  padding: 10px 8px 4px;
   box-sizing: border-box;
   flex-shrink: 0;
   overflow: visible;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .credyx-page--waitlist .cx-invoice-step {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   flex: 0 0 auto;
-  width: 64px;
-  min-width: 64px;
+  width: 66px;
+  min-width: 66px;
 }
 
 .credyx-page--waitlist .cx-invoice-step-dot {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
   font-weight: 700;
-  background: rgba(148, 163, 184, 0.12);
+  background: rgba(148, 163, 184, 0.1);
   color: var(--cx-muted);
-  border: 2px solid transparent;
+  border: 1.5px solid rgba(148, 163, 184, 0.22);
   box-sizing: border-box;
   flex-shrink: 0;
   transition:
-    background 0.3s ease,
-    color 0.3s ease,
-    border-color 0.3s ease,
-    box-shadow 0.3s ease;
+    background 0.45s ease,
+    color 0.45s ease,
+    border-color 0.45s ease,
+    box-shadow 0.45s ease,
+    transform 0.45s ease;
 }
 
 .credyx-page--waitlist .cx-invoice-step.done .cx-invoice-step-dot {
   background: var(--cx-blue);
   color: #ffffff;
-  animation: cx-dot-pop 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  border-color: transparent;
+  animation: cx-dot-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .credyx-page--waitlist .cx-invoice-step.active .cx-invoice-step-dot {
   border-color: var(--cx-blue);
-  background: var(--cx-card-bg);
+  background: rgba(22, 132, 254, 0.12);
   color: var(--cx-blue);
-  box-shadow: 0 0 0 3px rgba(22, 132, 254, 0.18);
+  box-shadow: 0 0 0 4px rgba(22, 132, 254, 0.16);
+  transform: scale(1.06);
 }
 
 .credyx-page--waitlist .cx-invoice-step.held .cx-invoice-step-dot {
   background: #ef4444;
   color: #ffffff;
   border-color: #ef4444;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
-  animation: cx-hold-pulse 1.4s ease-in-out infinite;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18);
+  animation: cx-hold-pulse 1.8s ease-in-out infinite;
 }
 
 /* Submitted turns red with Held (hold path) */
@@ -1952,8 +2077,8 @@
   background: #22c55e;
   color: #ffffff;
   border-color: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
-  animation: cx-dot-pop 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16);
+  animation: cx-dot-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .credyx-page--waitlist .cx-proof-panel.is-paid-complete .cx-invoice-step.done .cx-invoice-step-dot {
@@ -1964,12 +2089,12 @@
 .credyx-page--waitlist .cx-invoice-step-label {
   display: block;
   height: 16px;
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 600;
   color: var(--cx-muted);
   text-align: center;
   line-height: 16px;
-  transition: color 0.3s ease;
+  transition: color 0.4s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2002,13 +2127,13 @@
 /* Gap between line and dots — never flush against circles */
 .credyx-page--waitlist .cx-invoice-step-line {
   flex: 1 1 auto;
-  height: 2px;
+  height: 3px;
   min-width: 8px;
-  background: var(--cx-border);
-  margin: 12px 8px 0;
+  background: rgba(148, 163, 184, 0.16);
+  margin: 13px 8px 0;
   position: relative;
   overflow: hidden;
-  border-radius: 0;
+  border-radius: 999px;
   align-self: flex-start;
 }
 
@@ -2019,9 +2144,9 @@
   inset: 0;
   background: var(--cx-blue);
   transform-origin: left center;
-  border-radius: 0;
-  animation: cx-line-grow 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  transition: background-color 0.4s ease;
+  border-radius: inherit;
+  animation: cx-line-grow 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transition: background-color 0.55s ease;
 }
 
 .credyx-page--waitlist .cx-invoice-step-line.filled.held::after {
@@ -2037,7 +2162,7 @@
 .credyx-page--waitlist .cx-invoice-status-slot {
   position: relative;
   margin-top: 14px;
-  min-height: 52px;
+  min-height: 58px;
   flex-shrink: 0;
 }
 
@@ -2048,7 +2173,7 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 11px 12px;
   box-sizing: border-box;
   border-radius: 12px;
   border: 1px solid transparent;
@@ -2057,10 +2182,10 @@
   visibility: hidden;
   pointer-events: none;
   transition:
-    opacity 0.35s ease,
-    visibility 0.35s ease,
-    border-color 0.35s ease,
-    background 0.35s ease;
+    opacity 0.5s ease,
+    visibility 0.5s ease,
+    border-color 0.5s ease,
+    background 0.5s ease;
 }
 
 .credyx-page--waitlist .cx-invoice-status-note.is-visible {
@@ -2070,17 +2195,17 @@
 }
 
 .credyx-page--waitlist .cx-invoice-status-note.tone-info.is-visible {
-  border-color: rgba(22, 132, 254, 0.3);
+  border-color: rgba(22, 132, 254, 0.28);
   background: rgba(22, 132, 254, 0.1);
 }
 
 .credyx-page--waitlist .cx-invoice-status-note.tone-warn.is-visible {
-  border-color: rgba(239, 68, 68, 0.35);
+  border-color: rgba(239, 68, 68, 0.32);
   background: rgba(239, 68, 68, 0.1);
 }
 
 .credyx-page--waitlist .cx-invoice-status-note.tone-success.is-visible {
-  border-color: rgba(34, 197, 94, 0.35);
+  border-color: rgba(34, 197, 94, 0.32);
   background: rgba(34, 197, 94, 0.1);
 }
 
@@ -2109,8 +2234,8 @@
 
 .credyx-page--waitlist .cx-invoice-status-note p {
   margin: 0;
-  font-size: 0.78rem;
-  line-height: 1.35;
+  font-size: 0.8rem;
+  line-height: 1.4;
   color: var(--cx-body);
 }
 
@@ -2129,6 +2254,10 @@
 .credyx-page--waitlist .cx-proof-panel--progress .cx-proof-panel-desc {
   margin-top: auto;
   padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--cx-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 .credyx-page--waitlist .cx-proof-cta {
@@ -2168,10 +2297,47 @@
   gap: 14px;
 }
 
-/* Join waitlist — polished */
+/* Join waitlist — concentric invitation rings on dark navy (matches page) */
 .credyx-page--waitlist .cx-section--join {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   padding: clamp(36px, 6vh, 72px) var(--cx-pad-x);
   scroll-margin-top: 96px;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 18%, rgba(22, 132, 254, 0.1), transparent 62%),
+    linear-gradient(180deg, #0f172a 0%, #111827 48%, #0c1220 100%);
+}
+
+.credyx-page--waitlist .cx-section--join::before {
+  content: '';
+  position: absolute;
+  inset: -12% -8%;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 640' fill='none'%3E%3Ccircle cx='400' cy='280' r='72' stroke='%231684FE' stroke-opacity='0.22' stroke-width='1.25'/%3E%3Ccircle cx='400' cy='280' r='128' stroke='%231684FE' stroke-opacity='0.16' stroke-width='1.1' stroke-dasharray='5 9'/%3E%3Ccircle cx='400' cy='280' r='192' stroke='%23ffffff' stroke-opacity='0.06' stroke-width='1'/%3E%3Ccircle cx='400' cy='280' r='262' stroke='%231684FE' stroke-opacity='0.12' stroke-width='1.1' stroke-dasharray='3 11'/%3E%3Ccircle cx='400' cy='280' r='340' stroke='%23ffffff' stroke-opacity='0.045' stroke-width='1'/%3E%3Ccircle cx='400' cy='280' r='420' stroke='%231684FE' stroke-opacity='0.08' stroke-width='1' stroke-dasharray='2 14'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center 8%;
+  background-size: min(920px, 140%) auto;
+  mask-image: radial-gradient(ellipse 72% 68% at 50% 32%, #000 18%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 72% 68% at 50% 32%, #000 18%, transparent 78%);
+  opacity: 1;
+}
+
+.credyx-page--waitlist .cx-section--join::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 42% 34% at 12% 88%, rgba(22, 132, 254, 0.07), transparent 70%),
+    radial-gradient(ellipse 38% 30% at 92% 12%, rgba(15, 23, 42, 0.35), transparent 68%);
+}
+
+.credyx-page--waitlist .cx-section--join > .cx-section-inner {
+  position: relative;
+  z-index: 1;
 }
 
 .credyx-page--waitlist .cx-join-head {
@@ -4322,18 +4488,18 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 8px 20px;
-  margin-bottom: 16px;
+  gap: 8px 16px;
+  margin-bottom: 0;
 }
 
 .credyx-page--waitlist .cx-footer-link {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--cx-muted);
   background: none;
   border: none;
   cursor: pointer;
-  padding: 4px 0;
+  padding: 0;
   transition: color 0.2s;
 }
 
@@ -4342,11 +4508,21 @@
 }
 
 .credyx-page--waitlist .cx-footer-mission {
-  margin: 12px 0 0;
-  font-size: 13px;
+  margin: 0;
+  font-size: 12px;
   font-style: italic;
   color: var(--cx-muted);
   text-align: center;
+}
+
+.credyx-page--waitlist .cx-footer {
+  padding: 14px clamp(16px, 3vw, 32px);
+  gap: 12px 20px;
+  min-height: 0;
+}
+
+.credyx-page--waitlist .cx-footer-copy {
+  font-size: 12px;
 }
 
 .credyx-page--waitlist .cx-coverage {
@@ -4508,6 +4684,18 @@
   }
   50% {
     box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.26);
+  }
+}
+
+@keyframes cx-live-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.85);
   }
 }
 
@@ -4874,12 +5062,22 @@
   }
 
   .credyx-page--waitlist .cx-proof-panel--progress {
-    min-height: 236px;
+    min-height: 260px;
+  }
+
+  .credyx-page--waitlist .cx-proof-panel-head {
+    margin-bottom: 14px;
+  }
+
+  .credyx-page--waitlist .cx-proof-live-pill {
+    height: 24px;
+    padding: 0 8px;
+    font-size: 0.62rem;
   }
 
   .credyx-page--waitlist .cx-invoice-stepper {
-    height: 54px;
-    padding-top: 4px;
+    height: 60px;
+    padding: 8px 6px 2px;
   }
 
   .credyx-page--waitlist .cx-invoice-step {
@@ -4888,14 +5086,15 @@
   }
 
   .credyx-page--waitlist .cx-invoice-step-dot {
-    width: 24px;
-    height: 24px;
+    width: 26px;
+    height: 26px;
     font-size: 10px;
   }
 
   .credyx-page--waitlist .cx-invoice-step-line {
-    margin: 10px 6px 0;
+    margin: 11px 5px 0;
     min-width: 6px;
+    height: 2.5px;
   }
 
   .credyx-page--waitlist .cx-invoice-step-label {
@@ -4905,11 +5104,11 @@
   }
 
   .credyx-page--waitlist .cx-invoice-status-slot {
-    min-height: 56px;
+    min-height: 58px;
   }
 
   .credyx-page--waitlist .cx-invoice-status-note {
-    padding: 8px 10px;
+    padding: 9px 10px;
   }
 
   .credyx-page--waitlist .cx-coverage {
@@ -4933,7 +5132,8 @@
   .credyx-page--waitlist .cx-mesh,
   .credyx-page--waitlist .cx-hero--waitlist .cx-hero-photo img,
   .credyx-page--waitlist .cx-soft-wiggle,
-  .credyx-page--waitlist .cx-section--buddy::after {
+  .credyx-page--waitlist .cx-section--buddy::after,
+  .credyx-page--waitlist .cx-proof-live-pill::before {
     animation: none;
   }
 

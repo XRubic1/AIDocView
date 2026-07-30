@@ -16,50 +16,161 @@
     <div id="root">
       <style>
         #boot-splash {
+          position: relative;
+          isolation: isolate;
+          overflow: hidden;
           min-height: 100vh;
+          min-height: 100dvh;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          background: #f8fafc;
-          font-family: 'Barlow Condensed', 'Segoe UI', sans-serif;
+          background: #0b1220;
+          font-family: 'Inter', 'Segoe UI', sans-serif;
         }
-        #boot-splash .boot-wordmark {
-          font-size: 1.5rem;
-          font-weight: 600;
-          color: #113543;
-          letter-spacing: -0.02em;
-          margin-bottom: 1.5rem;
+
+        #boot-splash .boot-waves,
+        #boot-splash .boot-waves-slow {
+          position: absolute;
+          inset: -20% -50%;
+          z-index: 0;
+          pointer-events: none;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1440' height='320' viewBox='0 0 1440 320' preserveAspectRatio='none'%3E%3Cpath fill='none' stroke='%23ffffff' stroke-opacity='0.055' stroke-width='1.25' d='M0 180 C180 120, 360 240, 540 180 S900 120, 1080 180 S1260 240, 1440 180'/%3E%3Cpath fill='none' stroke='%231684FE' stroke-opacity='0.1' stroke-width='1.25' d='M0 220 C200 160, 400 280, 600 220 S1000 160, 1200 220 S1320 280, 1440 220'/%3E%3Cpath fill='none' stroke='%23ffffff' stroke-opacity='0.04' stroke-width='1' d='M0 140 C160 200, 320 80, 480 140 S800 200, 960 140 S1280 80, 1440 140'/%3E%3C/svg%3E");
+          background-size: 720px 220px;
+          background-repeat: repeat;
+          mask-image: radial-gradient(ellipse 90% 80% at 50% 45%, #000 15%, transparent 78%);
+          -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 45%, #000 15%, transparent 78%);
         }
-        #boot-splash .boot-spinner {
-          width: 2rem;
-          height: 2rem;
-          border: 3px solid #e2e8f0;
-          border-top-color: #0891b2;
-          border-radius: 50%;
-          animation: boot-spin 0.8s linear infinite;
+
+        #boot-splash .boot-waves {
+          animation: boot-wave-drift 22s linear infinite;
         }
+
+        #boot-splash .boot-waves-slow {
+          opacity: 0.55;
+          background-size: 960px 260px;
+          animation: boot-wave-drift-rev 36s linear infinite;
+        }
+
+        #boot-splash .boot-glow {
+          position: absolute;
+          inset: 0;
+          z-index: 0;
+          pointer-events: none;
+          background:
+            radial-gradient(ellipse 70% 50% at 50% 35%, rgba(22, 132, 254, 0.12), transparent 55%),
+            radial-gradient(ellipse 50% 40% at 80% 80%, rgba(15, 23, 42, 0.5), transparent 60%);
+        }
+
+        #boot-splash .boot-content {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 1.35rem;
+        }
+
+        #boot-splash .boot-logo {
+          display: block;
+          height: 48px;
+          width: auto;
+          max-width: min(220px, 70vw);
+          object-fit: contain;
+        }
+
+        #boot-splash .boot-track {
+          position: relative;
+          width: 112px;
+          height: 2px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.12);
+          overflow: hidden;
+        }
+
+        #boot-splash .boot-bar {
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 40%;
+          border-radius: inherit;
+          background: linear-gradient(
+            90deg,
+            transparent,
+            rgba(255, 255, 255, 0.35) 25%,
+            #1684fe 70%,
+            transparent
+          );
+          animation: boot-bar-sweep 1.35s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+
         #boot-splash .boot-message {
-          margin-top: 1rem;
-          font-size: 0.875rem;
-          color: #64748b;
-          font-family: 'Segoe UI', sans-serif;
+          margin: 0;
+          font-size: 0.8125rem;
+          font-weight: 500;
+          letter-spacing: 0.02em;
+          color: #94a3b8;
         }
-        @keyframes boot-spin {
-          to { transform: rotate(360deg); }
+
+        @keyframes boot-wave-drift {
+          from {
+            transform: translate3d(0, 0, 0);
+          }
+          to {
+            transform: translate3d(-720px, 18px, 0);
+          }
         }
+
+        @keyframes boot-wave-drift-rev {
+          from {
+            transform: translate3d(-480px, 0, 0);
+          }
+          to {
+            transform: translate3d(0, -14px, 0);
+          }
+        }
+
+        @keyframes boot-bar-sweep {
+          0% {
+            transform: translateX(-120%);
+          }
+          100% {
+            transform: translateX(280%);
+          }
+        }
+
         @media (prefers-reduced-motion: reduce) {
-          #boot-splash .boot-spinner { animation: none; border-top-color: #0891b2; }
+          #boot-splash .boot-waves,
+          #boot-splash .boot-waves-slow,
+          #boot-splash .boot-bar {
+            animation: none;
+          }
+
+          #boot-splash .boot-bar {
+            width: 100%;
+            opacity: 0.4;
+            background: #1684fe;
+          }
         }
       </style>
       <div id="boot-splash" role="status" aria-live="polite" aria-busy="true">
-        <div class="boot-wordmark">Credyx</div>
-        <div class="boot-spinner" aria-hidden="true"></div>
-        <p class="boot-message">Loading…</p>
+        <div class="boot-waves" aria-hidden="true"></div>
+        <div class="boot-waves-slow" aria-hidden="true"></div>
+        <div class="boot-glow" aria-hidden="true"></div>
+        <div class="boot-content">
+          <img
+            class="boot-logo"
+            src="/credyx-logo-white-cred-no-bg.png"
+            alt="Credyx"
+            width="180"
+            height="48"
+          />
+          <div class="boot-track" aria-hidden="true">
+            <span class="boot-bar"></span>
+          </div>
+          <p class="boot-message">Loading…</p>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
-

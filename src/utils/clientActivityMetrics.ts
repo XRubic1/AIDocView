@@ -5,6 +5,8 @@
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
 import type { Batch } from '../data/mockBatches'
+import { isInvoiceOverdue, isOpenArInvoice } from './invoiceAging'
+import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from './paymentVariance'
 import { getAwaitingReceiptPayments } from './paymentStatus'
 
 /** Visual tone reused from the shared dashboard panel icon palette. */
@@ -213,6 +215,119 @@ export interface RequiredActionsOptions {
 }
 
 /**
+ * Payments awaiting client receipt confirmation.
+ */
+export function computeConfirmPaymentActions(
+  payments: Payment[],
+  limit = 50
+): RequiredAction[] {
+  return getAwaitingReceiptPayments(payments)
+    .map((payment) => ({
+      id: `confirm-${payment.id}`,
+      type: 'confirm_payment' as const,
+      label: `Confirm payment · ${payment.invoice_number}`,
+      detail: `${formatCompactAmount(payment.amount)} · ${payment.broker_name}`,
+      tone: 'amber' as const,
+      navigateTo: `/client/payments?status=awaiting_receipt&paymentId=${encodeURIComponent(payment.id)}`,
+    }))
+    .slice(0, limit)
+}
+
+/**
+ * Held + overdue invoices that need attention (no payment confirms).
+ * Overdue matches Open Balance / rings: approved open A/R past expected-pay policy.
+ */
+export function computeAttentionActions(
+  { invoices, payments }: Pick<ActivityMetricsInput, 'invoices' | 'payments'>,
+  limit = 50
+): RequiredAction[] {
+  const actions: RequiredAction[] = []
+
+  for (const invoice of invoices.filter((inv) => inv.status === 'hold')) {
+    const reason = invoice.hold_reason?.trim()
+    const balance = getInvoiceOpenArBalance(invoice, payments)
+    const amount = balance > AMOUNT_EPSILON ? balance : invoice.amount
+    actions.push({
+      id: `held-${invoice.id}`,
+      type: 'held_invoice',
+      label: `Held invoice · ${invoice.invoice_number}`,
+      detail: reason
+        ? `${formatCompactAmount(amount)} · ${invoice.broker_name} · ${reason}`
+        : `${formatCompactAmount(amount)} · ${invoice.broker_name}`,
+      tone: 'amber',
+      navigateTo: `/client/invoices?status=hold&highlight_invoice=${encodeURIComponent(invoice.id)}`,
+    })
+  }
+
+  for (const invoice of invoices) {
+    if (!isOpenArInvoice(invoice) || !isInvoiceOverdue(invoice)) continue
+    const balance = getInvoiceOpenArBalance(invoice, payments)
+    if (balance <= AMOUNT_EPSILON) continue
+
+    actions.push({
+      id: `overdue-${invoice.id}`,
+      type: 'overdue_invoice',
+      label: `Overdue invoice · ${invoice.invoice_number}`,
+      detail: `${formatCompactAmount(balance)} · ${invoice.broker_name}`,
+      tone: 'red',
+      navigateTo: `/client/invoices?status=overdue&highlight_invoice=${encodeURIComponent(invoice.id)}`,
+    })
+  }
+
+  return actions.slice(0, limit)
+}
+
+/** Totals for the side-rail summary under attention / confirm lists. */
+export interface AttentionSummary {
+  heldCount: number
+  heldAmount: number
+  overdueCount: number
+  overdueAmount: number
+  confirmCount: number
+  confirmAmount: number
+  totalCount: number
+}
+
+/** Roll up held, overdue, and awaiting-confirm totals for the dashboard summary. */
+export function computeAttentionSummary({
+  invoices,
+  payments,
+}: Pick<ActivityMetricsInput, 'invoices' | 'payments'>): AttentionSummary {
+  let heldCount = 0
+  let heldAmount = 0
+  let overdueCount = 0
+  let overdueAmount = 0
+
+  for (const invoice of invoices) {
+    if (invoice.status === 'hold') {
+      const balance = getInvoiceOpenArBalance(invoice, payments)
+      heldCount += 1
+      heldAmount += balance > AMOUNT_EPSILON ? balance : invoice.amount
+      continue
+    }
+    if (!isOpenArInvoice(invoice) || !isInvoiceOverdue(invoice)) continue
+    const balance = getInvoiceOpenArBalance(invoice, payments)
+    if (balance <= AMOUNT_EPSILON) continue
+    overdueCount += 1
+    overdueAmount += balance
+  }
+
+  const awaiting = getAwaitingReceiptPayments(payments)
+  const confirmCount = awaiting.length
+  const confirmAmount = awaiting.reduce((sum, p) => sum + p.amount, 0)
+
+  return {
+    heldCount,
+    heldAmount,
+    overdueCount,
+    overdueAmount,
+    confirmCount,
+    confirmAmount,
+    totalCount: heldCount + overdueCount + confirmCount,
+  }
+}
+
+/**
  * Builds the dashboard "Required Actions" list: confirm payments, resolve held
  * invoices, and address overdue balances — ordered by urgency.
  */
@@ -221,51 +336,9 @@ export function computeRequiredActions(
   options: RequiredActionsOptions = {}
 ): RequiredAction[] {
   const { includePaymentConfirmation = true, limit = 8 } = options
-  const actions: RequiredAction[] = []
-
-  if (includePaymentConfirmation) {
-    for (const payment of getAwaitingReceiptPayments(payments)) {
-      actions.push({
-        id: `confirm-${payment.id}`,
-        type: 'confirm_payment',
-        label: `Confirm payment · ${payment.invoice_number}`,
-        detail: `${formatCompactAmount(payment.amount)} · ${payment.broker_name}`,
-        tone: 'amber',
-        navigateTo: `/client/payments?status=awaiting_receipt&paymentId=${encodeURIComponent(payment.id)}`,
-      })
-    }
-  }
-
-  for (const invoice of invoices.filter((inv) => inv.status === 'hold')) {
-    const reason = invoice.hold_reason?.trim()
-    actions.push({
-      id: `held-${invoice.id}`,
-      type: 'held_invoice',
-      label: `Held invoice · ${invoice.invoice_number}`,
-      detail: reason
-        ? `${formatCompactAmount(invoice.amount)} · ${invoice.broker_name} · ${reason}`
-        : `${formatCompactAmount(invoice.amount)} · ${invoice.broker_name}`,
-      tone: 'amber',
-      navigateTo: `/client/invoices?status=hold&highlight_invoice=${encodeURIComponent(invoice.id)}`,
-    })
-  }
-
-  const now = Date.now()
-  for (const invoice of invoices) {
-    if (invoice.status === 'paid' || invoice.status === 'force_closed' || invoice.status === 'hold') {
-      continue
-    }
-    const due = new Date(invoice.due_date).getTime()
-    if (!Number.isFinite(due) || due >= now) continue
-    actions.push({
-      id: `overdue-${invoice.id}`,
-      type: 'overdue_invoice',
-      label: `Overdue invoice · ${invoice.invoice_number}`,
-      detail: `${formatCompactAmount(invoice.amount)} · ${invoice.broker_name}`,
-      tone: 'red',
-      navigateTo: `/client/invoices?status=overdue&highlight_invoice=${encodeURIComponent(invoice.id)}`,
-    })
-  }
-
-  return actions.slice(0, limit)
+  const confirms = includePaymentConfirmation
+    ? computeConfirmPaymentActions(payments, limit)
+    : []
+  const attention = computeAttentionActions({ invoices, payments }, limit)
+  return [...confirms, ...attention].slice(0, limit)
 }

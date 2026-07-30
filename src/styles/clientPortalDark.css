@@ -337,7 +337,7 @@
 }
 
 .client-portal[data-theme='dark'] .dashboard-metric-primary {
-  background: linear-gradient(155deg, #1a1d24 0%, #161920 55%, #12141a 100%);
+  background: linear-gradient(155deg, #1e293b 0%, #111827 55%, #0f172a 100%);
 }
 
 .client-portal[data-theme='dark'] .dashboard-metric-secondary {
@@ -345,8 +345,8 @@
 }
 
 .client-portal[data-theme='dark'] .client-manual-batch__doc-badge {
-  background: #1a1d24;
-  color: #e8e9ed;
+  background: #111827;
+  color: #f8fafc;
 }
 
 .client-portal[data-theme='dark'] .client-manual-batch__doc-badge:hover {
