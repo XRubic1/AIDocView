@@ -1129,7 +1129,7 @@
 .credyx-page--waitlist .cx-nav {
   padding-left: var(--cx-pad-x);
   padding-right: var(--cx-pad-x);
-  height: 96px;
+  height: 64px;
   background: rgba(15, 23, 42, 0.88);
   border-bottom-color: var(--cx-border);
 }
@@ -1143,9 +1143,9 @@
 
 .credyx-page--waitlist .cx-nav-logo {
   display: block;
-  height: clamp(56px, 7vw, 96px);
+  height: clamp(28px, 3.5vw, 48px);
   width: auto;
-  max-width: min(280px, 70vw);
+  max-width: min(140px, 55vw);
   object-fit: contain;
   object-position: left center;
 }
