@@ -3,24 +3,24 @@ import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   ArrowRight,
-  CheckCircle2,
   Eye,
   FileCheck,
   Headphones,
-  MessageSquare,
   CalendarDays,
-  Navigation,
-  FilePenLine,
-  AlertCircle,
   Truck,
-  Building2,
   BarChart3,
   FolderOpen,
+  AlertCircle,
+  MessageSquare,
+  Building2,
 } from 'lucide-react'
 import '../styles/credyxMarketing.css'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
 import { MarketingHeader } from '../components/enroll/MarketingHeader'
 import { WaitlistForm } from '../components/enroll/WaitlistForm'
+import { WaitlistInvoiceProgress } from '../components/enroll/WaitlistInvoiceProgress'
+import { WaitlistPlatformDeck } from '../components/enroll/WaitlistPlatformDeck'
+import { WaitlistPricingCompare } from '../components/enroll/WaitlistPricingCompare'
 
 // ── Static content (aligned with WAITLIST_MARKETING_SITE.md) ──
 
@@ -90,74 +90,92 @@ const BENEFITS = [
   },
 ]
 
-const APP_FEATURE_TABS = [
+const PLATFORM_FEATURES = [
   {
-    id: 'invoices',
-    label: 'Invoices',
     icon: FileCheck,
-    title: 'Invoices',
-    description: 'Track every invoice from paperwork to paid.',
-    points: ['Open A/R & holds at a glance', 'Status progress on every load', 'Details, activity, and docs together'],
+    title: 'Invoice tracking',
+    description: 'Follow every load from paperwork to paid — with status on the invoice.',
+    points: [
+      'Open A/R and holds at a glance',
+      'Submitted → Verified → Invoiced → Paid',
+      'Activity, notes, and docs on one screen',
+    ],
   },
   {
-    id: 'calendar',
-    label: 'Calendar',
+    icon: AlertCircle,
+    title: 'Holds & disputes',
+    description: 'See what is blocked and why — no digging through email threads.',
+    points: [
+      'Hold reason shown right away',
+      'Missing PPW, POD, or rate con called out',
+      'We follow up with the broker for you',
+    ],
+  },
+  {
     icon: CalendarDays,
     title: 'A/R calendar',
-    description: 'Know what is due — paperwork, pay dates, and reminders.',
-    points: ['Paperwork & upload checks', 'Expected payment dates', 'Jump straight to the invoice'],
+    description: 'Know what is due — paperwork checks and expected pay dates.',
+    points: [
+      'Paperwork and upload reminders',
+      'Expected payment dates by invoice',
+      'Jump straight to the invoice from the calendar',
+    ],
   },
   {
-    id: 'assistant',
-    label: 'Assistant',
+    icon: FolderOpen,
+    title: 'Document vault',
+    description: 'Setup packets and load docs approved, filed, and ready.',
+    points: [
+      'BOL, POD, and rate cons with each load',
+      'Company setup packets in one place',
+      'NOAs and bank proof on file when needed',
+    ],
+  },
+  {
+    icon: BarChart3,
+    title: 'Open A/R & reports',
+    description: 'Aging, balances, and payment status without a spreadsheet chase.',
+    points: [
+      'Aging views for open invoices',
+      'Paid vs outstanding at a glance',
+      'Built for fleets of about 1–50 trucks',
+    ],
+  },
+  {
+    icon: Eye,
+    title: 'Live status',
+    description: 'Know where each invoice stands without calling around.',
+    points: [
+      'Real-time status on every load',
+      'Clear next step when something stalls',
+      'You stay informed — we handle the chase',
+    ],
+  },
+  {
     icon: MessageSquare,
     title: 'Trucking Buddy',
-    description: 'Ask about your A/R — Buddy answers from live invoices.',
-    points: ['Holds, aging & payments', 'Drafts you confirm first', 'Opens the right screen'],
+    description: 'Ask about your A/R — Buddy answers from live invoice data.',
+    points: [
+      'Holds, aging, and payment questions',
+      'Drafts you confirm before anything sends',
+      'Opens the right invoice or screen',
+    ],
   },
   {
-    id: 'brokers',
-    label: 'Brokers',
     icon: Building2,
     title: 'Brokers',
-    description: 'Broker context when you need it.',
-    points: ['Directory & notes', 'Quick MC lookup', 'Tied to your A/R'],
-  },
-  {
-    id: 'docvault',
-    label: 'DocVault',
-    icon: FolderOpen,
-    title: 'Document Vault',
-    description: 'Setup and broker docs, approved and ready.',
-    points: ['Company setup packets', 'NOAs & bank proof on file', 'Load docs with each invoice'],
-  },
-  {
-    id: 'reports',
-    label: 'Reports',
-    icon: BarChart3,
-    title: 'Reports',
-    description: 'See open, aging, and paid A/R clearly.',
-    points: ['Aging views', 'Payment tracking', 'Built for 1–50 trucks'],
+    description: 'Broker context when you need it — tied to your A/R.',
+    points: [
+      'Directory and notes in one place',
+      'Quick MC lookup',
+      'Linked to the invoices you are tracking',
+    ],
   },
 ] as const
-
-const INVOICE_STEPS = [
-  { label: 'Submitted', state: 'done' as const },
-  { label: 'Verified', state: 'done' as const },
-  { label: 'Invoiced', state: 'active' as const },
-  { label: 'Paid', state: 'pending' as const },
-]
 
 const WAITLIST_CAP = 100
 const WAITLIST_SPOTS_LEFT = 68
 const WAITLIST_TAKEN = WAITLIST_CAP - WAITLIST_SPOTS_LEFT
-
-const BUDDY_FEATURES = [
-  { icon: MessageSquare, title: 'Live A/R answers', hint: 'Holds, aging, payments' },
-  { icon: AlertCircle, title: 'Missing docs', hint: 'What is blocked & why' },
-  { icon: FilePenLine, title: 'Drafts for you', hint: 'Notes & emails — you confirm' },
-  { icon: Navigation, title: 'Takes you there', hint: 'Opens the right screen' },
-] as const
 
 const BUDDY_EXAMPLES = [
   {
@@ -306,15 +324,10 @@ export default function Waitlist() {
   const [buddyExampleIndex, setBuddyExampleIndex] = useState(0)
   const [buddyVisibleCount, setBuddyVisibleCount] = useState(0)
   const [buddyThinking, setBuddyThinking] = useState(false)
-  const [featureTabId, setFeatureTabId] = useState<(typeof APP_FEATURE_TABS)[number]['id']>(
-    'calendar'
-  )
   useRevealOnScroll(rootRef)
 
   const buddyExample = BUDDY_EXAMPLES[buddyExampleIndex]
   const buddyExampleCount = BUDDY_EXAMPLES.length
-  const activeFeatureTab =
-    APP_FEATURE_TABS.find((tab) => tab.id === featureTabId) ?? APP_FEATURE_TABS[0]
 
   const showPrevBuddyExample = () => {
     setBuddyExampleIndex((index) => (index - 1 + buddyExampleCount) % buddyExampleCount)
@@ -517,7 +530,7 @@ export default function Waitlist() {
       </section>
 
       {/* ── Why Credyx ── */}
-      <section className="cx-section surface bordered">
+      <section className="cx-section surface bordered cx-section--why">
         <div className="cx-section-inner">
           <div className="cx-section-head centered reveal reveal-grow">
             <p className="cx-eyebrow">
@@ -531,14 +544,16 @@ export default function Waitlist() {
               Visibility, follow-up, and A/R tracking in one portal — built for carriers.
             </p>
           </div>
-          <div className="cx-card-grid reveal-stagger reveal">
+          <div className="cx-card-grid cx-why-grid reveal-stagger reveal">
             {BENEFITS.map((benefit) => (
-              <div key={benefit.title} className="cx-card cx-card--grow">
+              <div key={benefit.title} className="cx-card cx-card--grow cx-why-card">
                 <div className="cx-card-icon">
                   <benefit.icon size={20} />
                 </div>
-                <h3 className="cx-card-title">{benefit.title}</h3>
-                <p className="cx-card-desc">{benefit.description}</p>
+                <div className="cx-why-card-copy">
+                  <h3 className="cx-card-title">{benefit.title}</h3>
+                  <p className="cx-card-desc">{benefit.description}</p>
+                </div>
               </div>
             ))}
           </div>
@@ -596,36 +611,7 @@ export default function Waitlist() {
                 </figcaption>
               </figure>
 
-              <div className="cx-proof-panel cx-card--grow" aria-label="Demo invoice progress">
-                <p className="cx-proof-panel-title">Invoice progress</p>
-                <div className="cx-invoice-stepper">
-                  {INVOICE_STEPS.map((step, index) => (
-                    <div key={step.label} className="cx-invoice-step-wrap">
-                      {index > 0 && (
-                        <div
-                          className={`cx-invoice-step-line${
-                            INVOICE_STEPS[index - 1].state === 'done' ? ' done' : ''
-                          }`}
-                          aria-hidden
-                        />
-                      )}
-                      <div className={`cx-invoice-step ${step.state}`}>
-                        <span className="cx-invoice-step-dot">
-                          {step.state === 'done' ? (
-                            <CheckCircle2 size={14} strokeWidth={2.5} />
-                          ) : (
-                            index + 1
-                          )}
-                        </span>
-                        <span className="cx-invoice-step-label">{step.label}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <p className="cx-card-desc cx-proof-panel-desc">
-                  You always know where each invoice stands — from paperwork to paid on time.
-                </p>
-              </div>
+              <WaitlistInvoiceProgress />
             </div>
           </div>
 
@@ -651,8 +637,7 @@ export default function Waitlist() {
             </h2>
             <p className="cx-buddy-tagline">Your AI trucking assistant</p>
             <p className="cx-section-sub">
-              Ask about holds, payments, and missing docs. Buddy answers from your live invoices —
-              and never sends anything until you confirm.
+              Ask about holds, payments, and missing docs. Buddy answers from your live invoices.
             </p>
           </div>
 
@@ -764,85 +749,22 @@ export default function Waitlist() {
                 ))}
               </div>
             </div>
-
-            <div className="cx-buddy-aside reveal reveal-grow">
-              <p className="cx-buddy-aside-label">What Buddy can do</p>
-              <p className="cx-buddy-aside-intro">
-                A quick A/R helper in your portal — answers, drafts, and navigation when you need them.
-              </p>
-              <div className="cx-buddy-features reveal-stagger reveal">
-                {BUDDY_FEATURES.map((feature) => (
-                  <div key={feature.title} className="cx-buddy-feature">
-                    <div className="cx-buddy-feature-icon">
-                      <feature.icon size={16} strokeWidth={2} />
-                    </div>
-                    <div>
-                      <h3>{feature.title}</h3>
-                      <p>{feature.hint}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="cx-buddy-aside-note">You confirm before anything is sent or posted.</p>
-            </div>
           </div>
         </div>
       </section>
 
-      {/* ── App features ── */}
+      {/* ── Platform ── */}
       <section id="features" className="cx-section cx-section--features surface bordered">
         <div className="cx-section-inner">
           <div className="cx-features-head reveal reveal-grow">
             <p className="cx-eyebrow">Platform</p>
             <h2 className="cx-section-title">
-              Everything your fleet{' '}
-              <span className="accent">needs</span>
+              What&apos;s in{' '}
+              <span className="accent">the portal</span>
             </h2>
-            <p className="cx-section-sub">
-              Invoicing, tracking, and follow-up — all in one dashboard.
-            </p>
           </div>
 
-          <div className="cx-features-shell reveal reveal-grow">
-            <div className="cx-features-tabs" role="tablist" aria-label="App features">
-              {APP_FEATURE_TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={featureTabId === tab.id}
-                  className={`cx-features-tab${featureTabId === tab.id ? ' active' : ''}`}
-                  onClick={() => setFeatureTabId(tab.id)}
-                >
-                  <span className="cx-features-tab-icon" aria-hidden>
-                    <tab.icon size={18} strokeWidth={2} />
-                  </span>
-                  <span className="cx-features-tab-label">{tab.label}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="cx-features-panel" role="tabpanel" key={activeFeatureTab.id}>
-              <div className="cx-features-panel-intro">
-                <div className="cx-features-panel-icon" aria-hidden>
-                  <activeFeatureTab.icon size={24} strokeWidth={1.75} />
-                </div>
-                <div className="cx-features-panel-copy">
-                  <h3>{activeFeatureTab.title}</h3>
-                  <p>{activeFeatureTab.description}</p>
-                </div>
-              </div>
-
-              <ul className="cx-features-points">
-                {activeFeatureTab.points.map((point) => (
-                  <li key={point}>
-                    <span className="cx-features-point-dot" aria-hidden />
-                    <span>{point}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
+          <WaitlistPlatformDeck features={PLATFORM_FEATURES} />
         </div>
       </section>
 
@@ -861,41 +783,8 @@ export default function Waitlist() {
           </div>
 
           <div className="cx-pricing">
-            <div className="cx-pricing-hero reveal reveal-grow">
-              <div className="cx-pricing-zeros">
-                <div>
-                  <span>$0</span>
-                  <small>To start</small>
-                </div>
-                <div>
-                  <span>$0</span>
-                  <small>No monthly fee</small>
-                </div>
-                <div>
-                  <span>%</span>
-                  <small>Only after you&apos;re paid</small>
-                </div>
-              </div>
-
-              <ol className="cx-pricing-steps" aria-label="How Credyx pricing works">
-                <li>
-                  <span>1</span>
-                  You send paperwork
-                </li>
-                <li>
-                  <span>2</span>
-                  You get paid
-                </li>
-                <li>
-                  <span>3</span>
-                  Then we take a small %
-                </li>
-              </ol>
-
-              <p className="cx-pricing-example">
-                Example: broker pays you <strong>$4,000</strong> — yours first. Not paid yet?{' '}
-                <strong>You owe us nothing.</strong>
-              </p>
+            <div className="reveal reveal-grow">
+              <WaitlistPricingCompare />
             </div>
 
             <div className="cx-founding-card reveal reveal-grow">
