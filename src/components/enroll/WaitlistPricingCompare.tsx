@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight } from 'lucide-react'
 
 type Phase = 'inhouse' | 'credyx'
 
@@ -40,14 +39,14 @@ const CREDYX_STEPS = [
   },
 ] as const
 
-/** Each phase fills the bar 0→100, then advances. */
+/** Auto-cycle duration per phase (no manual controls). */
 const PHASE_MS = 10000
 const COUNT_UP_MS = 2200
 const COUNT_DOWN_MS = 2400
 
 /**
- * Pricing zeros card: in-house hire cost → count down to Credyx.
- * Progress bar fills per phase; at 100% the other scene plays.
+ * Pricing compare: in-house hire cost → count down to Credyx.
+ * Auto-cycles when in view — no progress bar / Restart / Next UI.
  */
 export function WaitlistPricingCompare() {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -59,23 +58,17 @@ export function WaitlistPricingCompare() {
   const [showInhouseFoot, setShowInhouseFoot] = useState(true)
   const [showCredyxFoot, setShowCredyxFoot] = useState(false)
   const [noteVisible, setNoteVisible] = useState(true)
-  const [progress, setProgress] = useState(0)
 
   const runIdRef = useRef(0)
-  const phaseStartedAtRef = useRef(0)
   const timeoutIdsRef = useRef<number[]>([])
   const rafIdsRef = useRef<number[]>([])
-  const progressRafRef = useRef(0)
   const cancelledRef = useRef(false)
-  const phaseRef = useRef<Phase>('inhouse')
 
   const clearTimers = useCallback(() => {
     timeoutIdsRef.current.forEach((id) => window.clearTimeout(id))
     rafIdsRef.current.forEach((id) => window.cancelAnimationFrame(id))
-    if (progressRafRef.current) window.cancelAnimationFrame(progressRafRef.current)
     timeoutIdsRef.current = []
     rafIdsRef.current = []
-    progressRafRef.current = 0
   }, [])
 
   const at = useCallback((ms: number, fn: () => void) => {
@@ -92,7 +85,6 @@ export function WaitlistPricingCompare() {
       const tick = (now: number) => {
         if (cancelledRef.current) return
         const t = Math.min(1, (now - start) / durationMs)
-        // Smooth ease-out cubic
         const eased = 1 - (1 - t) ** 3
         onTick(Math.round(from + (to - from) * eased))
         if (t < 1) rafIdsRef.current.push(window.requestAnimationFrame(tick))
@@ -108,28 +100,15 @@ export function WaitlistPricingCompare() {
       clearTimers()
       const runId = ++runIdRef.current
       cancelledRef.current = false
-      phaseRef.current = next
-      phaseStartedAtRef.current = performance.now()
-      setProgress(0)
       setPhase(next)
 
-      // Smooth progress 0→100 for this phase; at end, play the other animation
-      const tickProgress = (now: number) => {
-        if (cancelledRef.current || runId !== runIdRef.current) return
-        const elapsed = now - phaseStartedAtRef.current
-        const pct = Math.min(100, (elapsed / PHASE_MS) * 100)
-        setProgress(pct)
-        if (pct >= 100) {
-          // Bar finished — advance to the other scene
-          startPhase(next === 'inhouse' ? 'credyx' : 'inhouse')
-          return
-        }
-        progressRafRef.current = window.requestAnimationFrame(tickProgress)
-      }
-      progressRafRef.current = window.requestAnimationFrame(tickProgress)
+      // Auto-advance to the other scene
+      at(PHASE_MS, () => {
+        if (runId !== runIdRef.current) return
+        startPhase(next === 'inhouse' ? 'credyx' : 'inhouse')
+      })
 
       if (next === 'inhouse') {
-        // Restart from $0 and count up
         setStartAmt(0)
         setMonthlyAmt(0)
         setTotalAmt(0)
@@ -149,7 +128,6 @@ export function WaitlistPricingCompare() {
           countFromTo(0, INHOUSE.total, COUNT_UP_MS, setTotalAmt)
         })
       } else {
-        // Switch to Credyx — show copy immediately; numbers count down in parallel
         setShowInhouseFoot(false)
         setShowCredyxFoot(true)
         setNoteVisible(false)
@@ -195,7 +173,6 @@ export function WaitlistPricingCompare() {
       setShowInhouseFoot(false)
       setShowCredyxFoot(true)
       setNoteVisible(true)
-      setProgress(100)
       return
     }
 
@@ -207,14 +184,6 @@ export function WaitlistPricingCompare() {
       clearTimers()
     }
   }, [inView, startPhase, clearTimers])
-
-  const goNext = () => {
-    startPhase(phaseRef.current === 'inhouse' ? 'credyx' : 'inhouse')
-  }
-
-  const goPrev = () => {
-    startPhase('inhouse')
-  }
 
   const formatMoney = (n: number) => `$${n.toLocaleString('en-US')}`
   const showPerMonth = phase === 'inhouse' || monthlyAmt > 0
@@ -289,8 +258,10 @@ export function WaitlistPricingCompare() {
             {INHOUSE_HASSLES.map((item, index) => (
               <li key={item.title}>
                 <span className="cx-pricing-step-num">{index + 1}</span>
-                <strong>{item.title}</strong>
-                <em>{item.detail}</em>
+                <div className="cx-pricing-step-copy">
+                  <strong>{item.title}</strong>
+                  <em>{item.detail}</em>
+                </div>
               </li>
             ))}
           </ol>
@@ -313,8 +284,10 @@ export function WaitlistPricingCompare() {
             {CREDYX_STEPS.map((item, index) => (
               <li key={item.title}>
                 <span className="cx-pricing-step-num">{index + 1}</span>
-                <strong>{item.title}</strong>
-                <em>{item.detail}</em>
+                <div className="cx-pricing-step-copy">
+                  <strong>{item.title}</strong>
+                  <em>{item.detail}</em>
+                </div>
               </li>
             ))}
           </ol>
@@ -322,42 +295,6 @@ export function WaitlistPricingCompare() {
             Focus on the road. <strong>We&apos;ll handle the rest</strong> — paperwork to paid on
             time.
           </p>
-        </div>
-      </div>
-
-      <div className="cx-pricing-controls">
-        <div
-          className="cx-pricing-progress"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(progress)}
-          aria-label="Pricing comparison progress"
-        >
-          <span style={{ width: `${progress}%` }} />
-        </div>
-        <div className="cx-pricing-nav">
-          <button
-            type="button"
-            className="cx-pricing-nav-btn"
-            onClick={goPrev}
-            aria-label="Restart in-house comparison"
-          >
-            <ArrowLeft size={16} strokeWidth={2.5} />
-            Restart
-          </button>
-          <span className="cx-pricing-nav-phase">
-            {phase === 'inhouse' ? '1 / 2 · In-house' : '2 / 2 · Credyx'}
-          </span>
-          <button
-            type="button"
-            className="cx-pricing-nav-btn"
-            onClick={goNext}
-            aria-label={phase === 'inhouse' ? 'Show Credyx' : 'Replay from start'}
-          >
-            {phase === 'inhouse' ? 'Next' : 'Replay'}
-            <ArrowRight size={16} strokeWidth={2.5} />
-          </button>
         </div>
       </div>
     </div>

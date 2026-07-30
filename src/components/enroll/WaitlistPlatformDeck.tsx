@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { ArrowLeft, ArrowRight, type LucideIcon } from 'lucide-react'
+import { type LucideIcon } from 'lucide-react'
 
 export type PlatformFeature = {
   icon: LucideIcon
@@ -65,7 +65,7 @@ function PlatformCardBody({ feature }: { feature: PlatformFeature }) {
 
 /**
  * Coverflow platform deck: sharp center card, blurred side cards,
- * auto-cycle + swipe / arrows / dots.
+ * auto-cycle + swipe / dots (no tap-to-advance on side cards).
  */
 export function WaitlistPlatformDeck({ features }: WaitlistPlatformDeckProps) {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -73,7 +73,6 @@ export function WaitlistPlatformDeck({ features }: WaitlistPlatformDeckProps) {
   const resumeTimerRef = useRef<number | null>(null)
   const dragStartX = useRef<number | null>(null)
   const dragActive = useRef(false)
-  const didSwipe = useRef(false)
 
   const [inView, setInView] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
@@ -144,7 +143,6 @@ export function WaitlistPlatformDeck({ features }: WaitlistPlatformDeckProps) {
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
     dragActive.current = true
-    didSwipe.current = false
     dragStartX.current = event.clientX
     setDragging(true)
     bumpInteraction()
@@ -167,34 +165,14 @@ export function WaitlistPlatformDeck({ features }: WaitlistPlatformDeckProps) {
     dragStartX.current = null
     const delta = start == null ? 0 : event.clientX - start
 
-    if (delta <= -SWIPE_THRESHOLD) {
-      didSwipe.current = true
-      goNext()
-    } else if (delta >= SWIPE_THRESHOLD) {
-      didSwipe.current = true
-      goPrev()
-    } else {
-      setDragOffset(0)
-    }
+    if (delta <= -SWIPE_THRESHOLD) goNext()
+    else if (delta >= SWIPE_THRESHOLD) goPrev()
+    else setDragOffset(0)
 
     try {
       stageRef.current?.releasePointerCapture(event.pointerId)
     } catch {
       /* already released */
-    }
-  }
-
-  const onCardActivate = (slot: Slot) => {
-    if (didSwipe.current) {
-      didSwipe.current = false
-      return
-    }
-    if (slot === 'left' || slot === 'far-left') {
-      bumpInteraction()
-      goPrev()
-    } else if (slot === 'right' || slot === 'far-right') {
-      bumpInteraction()
-      goNext()
     }
   }
 
@@ -214,6 +192,27 @@ export function WaitlistPlatformDeck({ features }: WaitlistPlatformDeckProps) {
 
   const active = features[activeIndex]
 
+  const pager = (
+    <div className="cx-platform-pager">
+      <div className="cx-platform-dots" role="tablist" aria-label="Feature slides">
+        {features.map((feature, index) => (
+          <button
+            key={feature.title}
+            type="button"
+            role="tab"
+            aria-selected={index === activeIndex}
+            aria-label={`Show ${feature.title}`}
+            className={`cx-platform-dot${index === activeIndex ? ' is-active' : ''}`}
+            onClick={() => {
+              bumpInteraction()
+              goTo(index)
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  )
+
   // Reduced motion: single card + pager only
   if (reduceMotion) {
     return (
@@ -224,53 +223,10 @@ export function WaitlistPlatformDeck({ features }: WaitlistPlatformDeckProps) {
         aria-roledescription="carousel"
         aria-label="Platform features"
       >
-        <div className="cx-platform-pager">
-          <div className="cx-platform-dots" role="tablist" aria-label="Feature slides">
-            {features.map((feature, index) => (
-              <button
-                key={feature.title}
-                type="button"
-                role="tab"
-                aria-selected={index === activeIndex}
-                aria-label={`Show ${feature.title}`}
-                className={`cx-platform-dot${index === activeIndex ? ' is-active' : ''}`}
-                onClick={() => {
-                  bumpInteraction()
-                  goTo(index)
-                }}
-              />
-            ))}
-          </div>
-        </div>
-
+        {pager}
         <article className="cx-platform-card is-center is-static" aria-live="polite">
           <PlatformCardBody feature={active} />
         </article>
-
-        <div className="cx-platform-nav">
-          <button
-            type="button"
-            className="cx-platform-nav-btn"
-            aria-label="Previous feature"
-            onClick={() => {
-              bumpInteraction()
-              goPrev()
-            }}
-          >
-            <ArrowLeft size={16} strokeWidth={2.25} />
-          </button>
-          <button
-            type="button"
-            className="cx-platform-nav-btn"
-            aria-label="Next feature"
-            onClick={() => {
-              bumpInteraction()
-              goNext()
-            }}
-          >
-            <ArrowRight size={16} strokeWidth={2.25} />
-          </button>
-        </div>
       </div>
     )
   }
@@ -291,24 +247,7 @@ export function WaitlistPlatformDeck({ features }: WaitlistPlatformDeckProps) {
         }
       }}
     >
-      <div className="cx-platform-pager">
-        <div className="cx-platform-dots" role="tablist" aria-label="Feature slides">
-          {features.map((feature, index) => (
-            <button
-              key={feature.title}
-              type="button"
-              role="tab"
-              aria-selected={index === activeIndex}
-              aria-label={`Show ${feature.title}`}
-              className={`cx-platform-dot${index === activeIndex ? ' is-active' : ''}`}
-              onClick={() => {
-                bumpInteraction()
-                goTo(index)
-              }}
-            />
-          ))}
-        </div>
-      </div>
+      {pager}
 
       <div
         ref={stageRef}
@@ -337,37 +276,11 @@ export function WaitlistPlatformDeck({ features }: WaitlistPlatformDeckProps) {
               className={`cx-platform-card is-${slot}`}
               aria-hidden={!isCenter}
               aria-live={isCenter ? 'polite' : undefined}
-              onClick={() => onCardActivate(slot)}
             >
               <PlatformCardBody feature={feature} />
             </article>
           )
         })}
-      </div>
-
-      <div className="cx-platform-nav">
-        <button
-          type="button"
-          className="cx-platform-nav-btn"
-          aria-label="Previous feature"
-          onClick={() => {
-            bumpInteraction()
-            goPrev()
-          }}
-        >
-          <ArrowLeft size={16} strokeWidth={2.25} />
-        </button>
-        <button
-          type="button"
-          className="cx-platform-nav-btn"
-          aria-label="Next feature"
-          onClick={() => {
-            bumpInteraction()
-            goNext()
-          }}
-        >
-          <ArrowRight size={16} strokeWidth={2.25} />
-        </button>
       </div>
     </div>
   )

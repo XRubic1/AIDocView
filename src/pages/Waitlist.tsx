@@ -786,6 +786,23 @@ export default function Waitlist() {
             <div className="reveal reveal-grow">
               <WaitlistPricingCompare />
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Waitlist form ── */}
+      <section id="waitlist-form" className="cx-section cx-section--join surface bordered">
+        <div className="cx-section-inner">
+          <div className="cx-enroll-shell">
+            <div className="cx-join-head reveal reveal-grow">
+              <h2 className="cx-section-title">
+                Join the{' '}
+                <span className="accent">waitlist</span>
+              </h2>
+              <p className="cx-section-sub">
+                Tell us about your fleet — we&apos;ll reach out when onboarding opens.
+              </p>
+            </div>
 
             <div className="cx-founding-card reveal reveal-grow">
               <div className="cx-founding-bg" aria-hidden />
@@ -807,28 +824,7 @@ export default function Waitlist() {
                     </div>
                   </div>
                 </div>
-                <button type="button" className="cx-btn-primary" onClick={scrollToForm}>
-                  Claim a founding spot
-                  <ArrowRight size={16} />
-                </button>
               </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Waitlist form ── */}
-      <section id="waitlist-form" className="cx-section cx-section--join surface bordered">
-        <div className="cx-section-inner">
-          <div className="cx-enroll-shell">
-            <div className="cx-join-head reveal reveal-grow">
-              <h2 className="cx-section-title">
-                Join the{' '}
-                <span className="accent">waitlist</span>
-              </h2>
-              <p className="cx-section-sub">
-                Tell us about your fleet — we&apos;ll reach out when onboarding opens.
-              </p>
             </div>
 
             <div className="reveal reveal-grow">
