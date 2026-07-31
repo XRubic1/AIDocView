@@ -10,6 +10,13 @@ import {
 
 type FilterId = 'all' | 'held' | 'overdue' | 'confirm'
 
+type Urgency = 'urgent' | 'soon' | 'normal'
+
+type ActionWithUrgency = RequiredAction & {
+  urgency: Urgency
+  daysOverdue?: number
+}
+
 type DashboardActionTableProps = {
   invoices: Invoice[]
   payments: Payment[]
@@ -50,7 +57,56 @@ function matchesFilter(action: RequiredAction, filter: FilterId): boolean {
 }
 
 /**
- * Single actionable list — held, overdue, and payment confirms with filters.
+ * Compute urgency based on action type and days overdue.
+ * - Urgent: overdue >30 days, or held >45 days
+ * - Soon: overdue 7-30 days, or held 15-45 days
+ * - Normal: everything else
+ */
+function computeUrgency(action: RequiredAction, invoices: Invoice[]): ActionWithUrgency {
+  // Extract invoice number from action label
+  const invoiceNumber = action.label.split(' · ')[1]?.trim() || action.label
+  const invoice = invoices.find(
+    (inv) => inv.invoice_number === invoiceNumber || action.label.includes(inv.invoice_number)
+  )
+
+  if (!invoice) {
+    return { ...action, urgency: 'normal' as const }
+  }
+
+  const now = new Date()
+  const expectedDate = invoice.expected_payment_date || invoice.due_date
+  
+  if (action.type === 'overdue_invoice' && expectedDate) {
+    const overdueDays = Math.floor(
+      (now.getTime() - new Date(expectedDate).getTime()) / (1000 * 60 * 60 * 24)
+    )
+    if (overdueDays > 30) {
+      return { ...action, urgency: 'urgent' as const, daysOverdue: overdueDays }
+    }
+    if (overdueDays > 7) {
+      return { ...action, urgency: 'soon' as const, daysOverdue: overdueDays }
+    }
+    return { ...action, urgency: 'normal' as const, daysOverdue: overdueDays }
+  }
+
+  if (action.type === 'held_invoice' && invoice.invoice_date) {
+    const daysSinceInvoice = Math.floor(
+      (now.getTime() - new Date(invoice.invoice_date).getTime()) / (1000 * 60 * 60 * 24)
+    )
+    if (daysSinceInvoice > 45) {
+      return { ...action, urgency: 'urgent' as const, daysOverdue: daysSinceInvoice }
+    }
+    if (daysSinceInvoice > 15) {
+      return { ...action, urgency: 'soon' as const, daysOverdue: daysSinceInvoice }
+    }
+  }
+
+  // Payment confirms are always normal priority (quick wins)
+  return { ...action, urgency: 'normal' as const }
+}
+
+/**
+ * Single actionable list — held, overdue, and payment confirms with filters and urgency badges.
  * Replaces the three overlapping side panels.
  */
 export default function DashboardActionTable({
@@ -60,28 +116,34 @@ export default function DashboardActionTable({
   const navigate = useNavigate()
   const [filter, setFilter] = useState<FilterId>('all')
 
-  const actions = useMemo(() => {
+  const actionsWithUrgency = useMemo(() => {
     const attention = computeAttentionActions({ invoices, payments })
     const confirms = computeConfirmPaymentActions(payments)
-    // Confirm first (needs a decision), then held, then overdue.
-    return [...confirms, ...attention]
+    const allActions = [...confirms, ...attention]
+    
+    // Add urgency and sort: urgent first, then soon, then normal
+    const withUrgency = allActions.map((action) => computeUrgency(action, invoices))
+    return withUrgency.sort((a, b) => {
+      const urgencyOrder = { urgent: 0, soon: 1, normal: 2 }
+      return urgencyOrder[a.urgency] - urgencyOrder[b.urgency]
+    })
   }, [invoices, payments])
 
   const counts = useMemo(() => {
     let held = 0
     let overdue = 0
     let confirm = 0
-    for (const a of actions) {
+    for (const a of actionsWithUrgency) {
       if (a.type === 'held_invoice') held += 1
       else if (a.type === 'overdue_invoice') overdue += 1
       else confirm += 1
     }
-    return { all: actions.length, held, overdue, confirm }
-  }, [actions])
+    return { all: actionsWithUrgency.length, held, overdue, confirm }
+  }, [actionsWithUrgency])
 
   const rows = useMemo(
-    () => actions.filter((a) => matchesFilter(a, filter)),
-    [actions, filter]
+    () => actionsWithUrgency.filter((a) => matchesFilter(a, filter)),
+    [actionsWithUrgency, filter]
   )
 
   return (
@@ -135,10 +197,15 @@ export default function DashboardActionTable({
               <li key={action.id}>
                 <button
                   type="button"
-                  className="cd-actions__row"
+                  className={`cd-actions__row cd-actions__row--${action.urgency}`}
                   title={action.detail}
                   onClick={() => navigate(action.navigateTo)}
                 >
+                  {action.urgency !== 'normal' ? (
+                    <span className={`cd-actions__urgency cd-actions__urgency--${action.urgency}`}>
+                      {action.urgency === 'urgent' ? '🔴' : '🟡'}
+                    </span>
+                  ) : null}
                   <span className={`cd-actions__pill tone-${pill.tone}`}>{pill.label}</span>
                   <span className="cd-actions__body">
                     <span className="cd-actions__label">{actionTitle(action)}</span>
