@@ -1,6 +1,5 @@
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Clock, Lock } from 'lucide-react'
-import { formatCurrency } from '../../../utils/format'
 
 type StatusStatChip = {
   key: string
@@ -24,8 +23,7 @@ const CHIP_ICONS = {
 }
 
 /**
- * Compact status stat chips - Held, Overdue, Awaiting, Paid 30d.
- * Fits inside the Open Balance card in a 2x2 or 4-column grid.
+ * Compact status chips — icon beside label + value (Held, Overdue, Awaiting, Paid 30d).
  */
 export default function StatusStatChips({ chips, loading = false }: StatusStatChipsProps) {
   const navigate = useNavigate()
@@ -35,8 +33,11 @@ export default function StatusStatChips({ chips, loading = false }: StatusStatCh
       <div className="cd-status-chips is-loading" aria-label="Loading status chips">
         {[1, 2, 3, 4].map((i) => (
           <div key={i} className="cd-status-chip">
-            <span className="cd-status-chip__label">—</span>
-            <span className="cd-status-chip__value">—</span>
+            <span className="cd-status-chip__icon" aria-hidden />
+            <span className="cd-status-chip__text">
+              <span className="cd-status-chip__label">—</span>
+              <span className="cd-status-chip__value">—</span>
+            </span>
           </div>
         ))}
       </div>
@@ -56,10 +57,12 @@ export default function StatusStatChips({ chips, loading = false }: StatusStatCh
             title={`${chip.count} ${chip.label}`}
           >
             <span className="cd-status-chip__icon" aria-hidden>
-              <Icon size={14} strokeWidth={2} />
+              <Icon size={12} strokeWidth={2.25} />
             </span>
-            <span className="cd-status-chip__label">{chip.label}</span>
-            <span className="cd-status-chip__value tabular-nums">{chip.value}</span>
+            <span className="cd-status-chip__text">
+              <span className="cd-status-chip__label">{chip.label}</span>
+              <span className="cd-status-chip__value tabular-nums">{chip.value}</span>
+            </span>
           </button>
         )
       })}

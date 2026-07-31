@@ -20,8 +20,9 @@ type OpenBalanceCardProps = {
   onTimeAmount?: number
   /** Overdue share of open A/R (sums with on-time to amount). */
   overdueAmount?: number
-  /** Optional carrier / account label on the card face. */
-  accountName?: string
+  /** Open invoice counts for the donut legend. */
+  onTimeCount?: number
+  overdueCount?: number
   /** Aging A/R data for compact bar. */
   aging?: {
     '1_15': number
@@ -45,14 +46,14 @@ type OpenBalanceCardProps = {
 }
 
 /**
- * Expanded Open Balance card — now absorbs the donut ring, aging bar, and status chips.
- * Dense summary card with all key A/R metrics in one place.
+ * Left-rail Open Balance card — amount + donut side by side, then chips and aging.
  */
 export default function OpenBalanceCard({
   amount,
   onTimeAmount,
   overdueAmount,
-  accountName,
+  onTimeCount,
+  overdueCount,
   aging,
   statusChips = [],
   recentCollections,
@@ -71,59 +72,56 @@ export default function OpenBalanceCard({
     >
       <div className="cd-open-balance__wash" aria-hidden />
 
-      <div className="cd-open-balance__main">
-        <header className="cd-open-balance__top">
-          <div>
-            <p className="cd-open-balance__label">Open Balance</p>
-            <p className="cd-open-balance__eyebrow">Open A/R</p>
-          </div>
-          {showSplit && onTimeAmount != null && overdueAmount != null ? (
+      <div className="cd-open-balance__hero">
+        <div className="cd-open-balance__hero-text">
+          <p className="cd-open-balance__label">Open Balance</p>
+          <p className="cd-open-balance__eyebrow">Open A/R</p>
+          <p className="cd-open-balance__amount tabular-nums">
+            {loading ? '—' : formatCurrency(animated)}
+          </p>
+          {recentCollections && !loading ? (
+            <div className="cd-open-balance__context">
+              <span className="cd-open-balance__context-text">
+                {formatCurrency(recentCollections.amount)} collected in {recentCollections.period}
+              </span>
+              {recentCollections.trend === 'up' ? (
+                <span className="cd-open-balance__context-icon is-up" aria-label="Trending up">
+                  ↑
+                </span>
+              ) : recentCollections.trend === 'down' ? (
+                <span className="cd-open-balance__context-icon is-down" aria-label="Trending down">
+                  ↓
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        {showSplit && onTimeAmount != null && overdueAmount != null ? (
+          <div className="cd-open-balance__donut">
             <DonutRing
               onTimeAmount={onTimeAmount}
               overdueAmount={overdueAmount}
               totalAmount={amount}
+              onTimeCount={onTimeCount}
+              overdueCount={overdueCount}
               loading={loading}
             />
-          ) : null}
-        </header>
-
-        <p className="cd-open-balance__amount tabular-nums">
-          {loading ? '—' : formatCurrency(animated)}
-        </p>
-
-        {recentCollections && !loading ? (
-          <div className="cd-open-balance__context">
-            <span className="cd-open-balance__context-text">
-              {formatCurrency(recentCollections.amount)} collected in {recentCollections.period}
-            </span>
-            {recentCollections.trend === 'up' ? (
-              <span className="cd-open-balance__context-icon is-up" aria-label="Trending up">
-                ↑
-              </span>
-            ) : recentCollections.trend === 'down' ? (
-              <span className="cd-open-balance__context-icon is-down" aria-label="Trending down">
-                ↓
-              </span>
-            ) : null}
           </div>
         ) : null}
-
-        {statusChips.length > 0 ? (
-          <StatusStatChips chips={statusChips} loading={loading} />
-        ) : null}
       </div>
+
+      {statusChips.length > 0 ? (
+        <div className="cd-open-balance__stats">
+          <StatusStatChips chips={statusChips} loading={loading} />
+        </div>
+      ) : null}
 
       {aging ? (
         <div className="cd-open-balance__aging">
           <CompactAgingBar aging={aging} loading={loading} />
         </div>
       ) : null}
-
-      <footer className="cd-open-balance__foot">
-        <span className="cd-open-balance__account">
-          {accountName?.trim() || 'Carrier account'}
-        </span>
-      </footer>
     </article>
   )
 }

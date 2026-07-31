@@ -383,14 +383,19 @@ function ChartTooltip({
     payload.map((p) => [String(p.dataKey), typeof p.value === 'number' ? p.value : 0])
   )
 
+  const collected = byKey.get('a') ?? 0
+  const forecast = byKey.get('forecast') ?? 0
+  const showForecast =
+    forecast > 0.01 && (collected <= 0.01 || Math.abs(forecast - collected) > 0.01)
+
   const rows =
     mode === 'unified'
       ? [
-          ...((byKey.get('a') ?? 0) > 0.01
-            ? [{ label: 'Collected', value: byKey.get('a') ?? 0, color: '#1684FE' }]
+          ...(collected > 0.01
+            ? [{ label: 'Collected', value: collected, color: '#1684FE' }]
             : []),
-          ...((byKey.get('forecast') ?? 0) > 0.01
-            ? [{ label: 'Forecast', value: byKey.get('forecast') ?? 0, color: '#2DD4BF' }]
+          ...(showForecast
+            ? [{ label: 'Forecast', value: forecast, color: '#2DD4BF' }]
             : []),
         ]
       : mode === 'history'
@@ -614,6 +619,7 @@ function SparkChart({
               fill={`url(#${forecastGrad})`}
               fillOpacity={1}
               baseLine={0}
+              connectNulls={false}
               dot={false}
               activeDot={{
                 r: 5,
@@ -629,19 +635,6 @@ function SparkChart({
       </ResponsiveContainer>
     </div>
   )
-}
-
-function toSparkPoints(
-  buckets: NamedBucket[],
-  primary: 'collected' | 'invoiced' | 'forecast',
-  secondary: 'collected' | 'invoiced' | 'forecast' | null
-): SparkPoint[] {
-  return buckets.map((b, i) => ({
-    i,
-    label: b.label,
-    a: b[primary],
-    b: secondary ? b[secondary] : 0,
-  }))
 }
 
 /**
@@ -660,15 +653,31 @@ export default function DashboardSparkCharts({
     const collectedTotal = past.reduce((s, b) => s + b.collected, 0)
     const forecastTotal = upcoming.reduce((s, b) => s + b.forecast, 0)
 
+    // Fold the overlapping current bucket into the last history point, then continue forward.
+    const lastPastKey = past[past.length - 1]?.key
+    const overlap = lastPastKey && upcoming[0]?.key === lastPastKey ? upcoming[0] : null
+    const futureBuckets = overlap ? upcoming.slice(1) : upcoming
+
     const pastPoints: SparkPoint[] = past.map((b, i) => ({
       i,
       label: b.label,
       a: b.collected,
       b: 0,
-      forecast: null,
+      forecast: null as number | null,
       phase: 'past' as const,
     }))
-    const futurePoints: SparkPoint[] = upcoming.map((b, i) => ({
+
+    if (pastPoints.length > 0) {
+      const anchor = pastPoints[pastPoints.length - 1]
+      if (futureBuckets.length > 0) {
+        // Same Y as collected so solid → dashed joins without a gap.
+        anchor.forecast = typeof anchor.a === 'number' ? anchor.a : 0
+      } else if (overlap && overlap.forecast > 0.01) {
+        anchor.forecast = overlap.forecast
+      }
+    }
+
+    const futurePoints: SparkPoint[] = futureBuckets.map((b, i) => ({
       i: pastPoints.length + i,
       label: b.label,
       a: null,

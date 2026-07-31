@@ -2,7 +2,7 @@
  * Client dashboard — first glance: Open Balance, Actions, one trend chart.
  * Previous version archived as `ClientDashboardLegacy.tsx`.
  */
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import DashboardActionTable from '../components/client/dashboard/DashboardActionTable'
 import { DashboardChartsPanel } from '../components/client/dashboard/DashboardSparkCharts'
@@ -30,20 +30,31 @@ export default function ClientDashboard() {
   const invoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
   const { capabilities } = useClientCapabilities()
   const navigate = useNavigate()
-  const [showUpload, setShowUpload] = useState(false)
 
   /** On-time + overdue open A/R — same basis as Open Balance (reconciles). */
-  const { onTimeAmount, overdueAmount } = useMemo(() => {
+  const { onTimeAmount, overdueAmount, onTimeCount, overdueCount } = useMemo(() => {
     let onTime = 0
     let overdue = 0
+    let onTimeN = 0
+    let overdueN = 0
     for (const inv of invoices) {
       if (!isOpenArInvoice(inv)) continue
       const balance = getInvoiceOpenArBalance(inv, payments)
       if (balance <= AMOUNT_EPSILON) continue
-      if (isInvoiceOverdue(inv)) overdue += balance
-      else onTime += balance
+      if (isInvoiceOverdue(inv)) {
+        overdue += balance
+        overdueN += 1
+      } else {
+        onTime += balance
+        onTimeN += 1
+      }
     }
-    return { onTimeAmount: onTime, overdueAmount: overdue }
+    return {
+      onTimeAmount: onTime,
+      overdueAmount: overdue,
+      onTimeCount: onTimeN,
+      overdueCount: overdueN,
+    }
   }, [invoices, payments])
 
   /** Status stat chips for Open Balance card. */
@@ -149,7 +160,7 @@ export default function ClientDashboard() {
     )
     const recentPaymentsAmount = recentPayments.reduce((sum, p) => sum + p.amount, 0)
 
-    const recentBatches = batches.filter((b) => new Date(b.created_at) >= cutoff)
+    const recentBatches = batches.filter((b) => new Date(b.submitted_at) >= cutoff)
 
     const newApproved = invoices.filter(
       (inv) =>
@@ -178,7 +189,7 @@ export default function ClientDashboard() {
     }
 
     if (recentBatches.length > 0) {
-      const totalInvoices = recentBatches.reduce((sum, b) => sum + (b.invoice_count || 0), 0)
+      const totalInvoices = recentBatches.reduce((sum, b) => sum + (b.total_invoices || 0), 0)
       activities.push({
         type: 'batch' as const,
         label: `Batch #${recentBatches[0].batch_number} processed`,
@@ -252,7 +263,9 @@ export default function ClientDashboard() {
     }
 
     // Pending upload (if applicable)
-    const pendingBatches = batches.filter((b) => b.status === 'pending' || b.status === 'draft')
+    const pendingBatches = batches.filter(
+      (b) => b.status === 'draft' || b.status === 'documents_uploaded'
+    )
     if (pendingBatches.length > 0) {
       recs.push({
         id: 'upload-docs',
@@ -277,45 +290,47 @@ export default function ClientDashboard() {
       </div>
 
       <div className="client-dashboard__content">
-        <WelcomeHeader
-          carrierName={clientName}
-          loading={loading}
-          onUpload={capabilities.canUseAiUpload ? () => setShowUpload(true) : undefined}
-          onPostPayment={capabilities.canPostPayment ? () => navigate('/client/payments') : undefined}
-          onViewReport={() => navigate('/client/reports')}
-          onAskAI={() => navigate('/client/assistant')}
-          canUpload={capabilities.canUseAiUpload}
-          canPostPayment={capabilities.canPostPayment}
-        />
+        <div className="client-dashboard__header-zone">
+          <WelcomeHeader
+            carrierName={clientName}
+            loading={loading}
+            onUpload={
+              capabilities.canUseAiUpload ? () => navigate('/client/batches?tab=create') : undefined
+            }
+            onPostPayment={capabilities.canPostPayment ? () => navigate('/client/payments') : undefined}
+            onViewReport={() => navigate('/client/reports')}
+            onAskAI={() => navigate('/client/assistant')}
+            canUpload={capabilities.canUseAiUpload}
+            canPostPayment={capabilities.canPostPayment}
+          />
 
-        <AIActivitySummary
-          activities={activitySummary.activities}
-          daysSinceLastLogin={activitySummary.daysSinceLastLogin}
-          loading={loading}
-        />
+          <AIActivitySummary
+            activities={activitySummary.activities}
+            daysSinceLastLogin={activitySummary.daysSinceLastLogin}
+            loading={loading}
+          />
+        </div>
 
         <div className="client-dashboard__body">
-          <div className="client-dashboard__main" aria-label="Dashboard">
-            <div className="client-dashboard__top">
-              <OpenBalanceCard
-                amount={dashboard.summary.total_ar}
-                onTimeAmount={onTimeAmount}
-                overdueAmount={overdueAmount}
-                accountName={clientName}
-                aging={dashboard.aging_ar}
-                statusChips={statusChips}
-                recentCollections={recentCollections}
-                loading={loading}
-              />
-            </div>
-
-            <div className="client-dashboard__mid">
-              <DashboardActionTable invoices={invoices} payments={payments} />
-            </div>
-
+          <aside className="client-dashboard__rail" aria-label="Account summary">
+            <OpenBalanceCard
+              amount={dashboard.summary.total_ar}
+              onTimeAmount={onTimeAmount}
+              overdueAmount={overdueAmount}
+              onTimeCount={onTimeCount}
+              overdueCount={overdueCount}
+              aging={dashboard.aging_ar}
+              statusChips={statusChips}
+              recentCollections={recentCollections}
+              loading={loading}
+            />
             <div className="client-dashboard__recommendations">
               <AIRecommendations recommendations={recommendations} loading={loading} />
             </div>
+          </aside>
+
+          <div className="client-dashboard__mid" aria-label="Actions">
+            <DashboardActionTable invoices={invoices} payments={payments} />
           </div>
 
           <DashboardChartsPanel invoices={invoices} payments={payments} />

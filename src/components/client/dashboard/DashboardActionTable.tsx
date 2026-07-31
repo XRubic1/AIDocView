@@ -201,16 +201,16 @@ export default function DashboardActionTable({
                   title={action.detail}
                   onClick={() => navigate(action.navigateTo)}
                 >
-                  {action.urgency !== 'normal' ? (
-                    <span className={`cd-actions__urgency cd-actions__urgency--${action.urgency}`}>
-                      {action.urgency === 'urgent' ? '🔴' : '🟡'}
-                    </span>
-                  ) : null}
                   <span className={`cd-actions__pill tone-${pill.tone}`}>{pill.label}</span>
                   <span className="cd-actions__body">
                     <span className="cd-actions__label">{actionTitle(action)}</span>
                     {broker ? (
-                      <span className="cd-actions__meta">{broker}</span>
+                      <>
+                        <span className="cd-actions__sep" aria-hidden>
+                          ·
+                        </span>
+                        <span className="cd-actions__meta">{broker}</span>
+                      </>
                     ) : null}
                   </span>
                   <span className="cd-actions__amt tabular-nums">{actionAmount(action)}</span>

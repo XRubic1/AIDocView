@@ -1,4 +1,3 @@
-import { useNavigate } from 'react-router-dom'
 import { Upload, DollarSign, BarChart3, MessageSquare } from 'lucide-react'
 
 type WelcomeHeaderProps = {
@@ -26,8 +25,6 @@ export default function WelcomeHeader({
   canUpload = true,
   canPostPayment = true,
 }: WelcomeHeaderProps) {
-  const navigate = useNavigate()
-
   if (loading) {
     return (
       <header className="cd-welcome-header is-loading">
