@@ -84,4 +84,21 @@ describe('clientSetupDocuments', () => {
     ])
     expect(isClientSetupComplete('client-1', {})).toBe(true)
   })
+
+  it('bypasses vault gate for demo carriers by name', () => {
+    clearClientDocuments()
+    expect(
+      isClientSetupComplete('client-1783356171061', {
+        id: 'client-1783356171061',
+        name: 'Demo Carrier LLC',
+        factoring: false,
+      })
+    ).toBe(true)
+    expect(() =>
+      assertClientSetupComplete('client-1783356171061', {
+        id: 'client-1783356171061',
+        name: 'Demo Carrier LLC',
+      })
+    ).not.toThrow()
+  })
 })

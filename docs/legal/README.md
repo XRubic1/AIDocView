@@ -27,8 +27,9 @@ Attorney-reviewable templates for Credyx. These are **drafts**, not finalized co
 | [CARRIER_MSA.md](./CARRIER_MSA.md) | **Main client agreement** — services, document rules, liability, term |
 | [FEE_SCHEDULE.md](./FEE_SCHEDULE.md) | **Exhibit A** — $99 platform + % of collections (or negotiated rate), payment processing, lock rules |
 | [AUTHORIZATION_TO_ACT.md](./AUTHORIZATION_TO_ACT.md) | **Exhibit B** — authority to email brokers / submit packets; not factoring |
+| [BROKER_NOTICE_OF_AUTHORIZATION.md](./BROKER_NOTICE_OF_AUTHORIZATION.md) | **Broker-facing notice** — send to brokers/payors; Carrier confirms Credyx may submit docs/invoices, follow up, and attach remittance/NOA; payments never to Credyx |
 
-Yes: when a carrier starts, the **MSA + Fee Schedule + Authorization** are the pack that covers what Credyx does, what % (or flat) you charge, remittance rules, and limits of liability.
+Yes: when a carrier starts, the **MSA + Fee Schedule + Authorization** are the pack that covers what Credyx does, what % (or flat) you charge, remittance rules, and limits of liability. Use the **Broker Notice** when informing brokers that Credyx is authorized to act for that Carrier.
 
 ## Placeholders / contacts
 

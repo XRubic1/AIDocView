@@ -2,6 +2,21 @@ import { getClientDocuments, getDocumentTypeLabelAny } from '../services/clientD
 import type { Client } from '../types/client'
 import type { ClientDocument, ClientDocumentApprovalStatus } from '../types/clientDocument'
 
+/** Client fields used for setup checks (+ demo detection). */
+export type SetupClientRef = Pick<Client, 'factoring' | 'id' | 'name'> | null | undefined
+
+/**
+ * Demo / sales carriers skip Document Vault gating so onboarding tours
+ * can reach submit without seeding compliance docs.
+ */
+export function isDemoClient(client: SetupClientRef, clientId?: string): boolean {
+  const id = (client?.id || clientId || '').toLowerCase()
+  const name = (client?.name || '').toLowerCase()
+  if (name.includes('demo')) return true
+  if (id.includes('demo')) return true
+  return false
+}
+
 /** Always-required compliance types for carrier setup with Credyx. */
 export const REQUIRED_COMPLIANCE_DOC_TYPES = [
   'w9',
@@ -49,7 +64,7 @@ export function getSetupRequirementLabel(key: SetupDocRequirementKey): string {
  * Required vault document types for a carrier to start sending invoices.
  * Factoring clients must also have an approved NOA.
  */
-export function getRequiredSetupTypes(client: Pick<Client, 'factoring'> | null | undefined): {
+export function getRequiredSetupTypes(client: SetupClientRef): {
   keys: SetupDocRequirementKey[]
   items: { key: SetupDocRequirementKey; documentTypes: string[]; label: string }[]
 } {
@@ -98,7 +113,7 @@ function pickBestDoc(docs: ClientDocument[], types: string[]): ClientDocument | 
 /** Build per-requirement checklist for a client's vault. */
 export function getSetupChecklist(
   clientId: string,
-  client: Pick<Client, 'factoring'> | null | undefined
+  client: SetupClientRef
 ): SetupChecklistItem[] {
   const docs = getClientDocuments(clientId)
   const { items } = getRequiredSetupTypes(client)
@@ -122,8 +137,11 @@ export function getSetupChecklist(
 /** True when every required setup type has an approved vault document. */
 export function isClientSetupComplete(
   clientId: string,
-  client: Pick<Client, 'factoring'> | null | undefined
+  client: SetupClientRef
 ): boolean {
+  // Demo accounts skip the vault gate for product tours / sales demos.
+  if (isDemoClient(client, clientId)) return true
+
   const checklist = getSetupChecklist(clientId, client)
   return checklist.every((item) => item.status === 'approved')
 }
@@ -131,7 +149,7 @@ export function isClientSetupComplete(
 /** Throw when client-initiated invoice intake must be blocked. */
 export function assertClientSetupComplete(
   clientId: string,
-  client: Pick<Client, 'factoring'> | null | undefined
+  client: SetupClientRef
 ): void {
   if (isClientSetupComplete(clientId, client)) return
 
@@ -163,7 +181,7 @@ export function countClientsWithPendingVaultDocs(clientIds: string[]): number {
 /** Clients with incomplete setup (any required item not approved). */
 export function isClientSetupIncomplete(
   clientId: string,
-  client: Pick<Client, 'factoring'> | null | undefined
+  client: SetupClientRef
 ): boolean {
   return !isClientSetupComplete(clientId, client)
 }

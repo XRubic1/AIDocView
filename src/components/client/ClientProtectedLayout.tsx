@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { ClientPortalProvider, useClientPortal } from '../../context/ClientPortalContext'
+import { OnboardingChromeProvider } from '../../context/OnboardingChromeContext'
 import ClientLayout from '../ClientLayout'
 import ClientRouteGuard from './ClientRouteGuard'
 
@@ -8,13 +9,15 @@ function ClientPortalShell() {
   const { client } = useClientPortal()
 
   return (
-    <ClientLayout
-      clientName={client?.name ?? 'Client'}
-      clientId={client?.id}
-      flushMain
-    >
-      <Outlet />
-    </ClientLayout>
+    <OnboardingChromeProvider>
+      <ClientLayout
+        clientName={client?.name ?? 'Client'}
+        clientId={client?.id}
+        flushMain
+      >
+        <Outlet />
+      </ClientLayout>
+    </OnboardingChromeProvider>
   )
 }
 

@@ -47,7 +47,13 @@ This authorization starts on the MSA Effective Date and continues until the MSA 
 
 ---
 
-## 5. Acknowledgement
+## 5. Broker-facing notice
+
+Credyx may send brokers and payors a separate **Notice to Broker / Payor — Authorization of Credyx A/R Solutions** summarizing this authority, remittance rules, and that freight payments must not be sent to Credyx. That notice is for broker/payor communication; this Exhibit B remains the Client authorization under the MSA.
+
+---
+
+## 6. Acknowledgement
 
 Client acknowledges brokers may rely on this authorization and on remittance materials supplied by Client. Credyx’s fee relationship remains solely between Credyx and Client under Exhibit A.
 

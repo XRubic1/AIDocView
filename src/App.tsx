@@ -23,12 +23,14 @@ import {
   ClientBrokers,
   ClientCollections,
   ClientDashboard,
+  OnboardingDashboard,
   ClientDocuments,
   ClientInvoices,
   ClientPayments,
   ClientReports,
   ClientSettings,
   ClientShortPayments,
+  ClientTutorials,
   Clients,
   Collections,
   AdminDocs,
@@ -92,6 +94,10 @@ function App() {
                   path="/client/dashboard"
                   element={withRouteSuspense(ClientDashboard, 'Loading dashboard…')}
                 />
+                <Route
+                  path="/client/onboarding"
+                  element={withRouteSuspense(OnboardingDashboard, 'Loading dashboard…')}
+                />
                 <Route path="/client/batches" element={withRouteSuspense(ClientBatches)} />
                 <Route path="/client/invoices" element={withRouteSuspense(ClientInvoices)} />
                 <Route path="/client/payments" element={withRouteSuspense(ClientPayments)} />
@@ -104,6 +110,7 @@ function App() {
                 <Route path="/client/assistant" element={withRouteSuspense(ClientAssistant)} />
                 <Route path="/client/reports" element={withRouteSuspense(ClientReports)} />
                 <Route path="/client/documents" element={withRouteSuspense(ClientDocuments)} />
+                <Route path="/client/tutorials" element={withRouteSuspense(ClientTutorials)} />
                 <Route path="/client/settings" element={withRouteSuspense(ClientSettings)} />
               </Route>
 

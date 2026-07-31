@@ -550,6 +550,8 @@ export default function ClientPayments() {
       // Don't apply a status chip when restoring a specific payment detail.
       if (!paymentId) {
         setStatusFilter(statusParam as PaymentStatusFilter)
+        // Open the filters panel so Status (and tour spotlight) is visible.
+        setFiltersOpen(true)
       }
     }
 
@@ -1250,6 +1252,7 @@ export default function ClientPayments() {
                   onChange={(e) => setStatusFilter(e.target.value as PaymentStatusFilter)}
                   className="client-input client-payments-filters__select"
                   aria-label="Status"
+                  data-onboard-target="paymentsAwaitingFilter"
                 >
                   <option value="all">All statuses</option>
                   <option value="awaiting_receipt">Awaiting confirmation</option>

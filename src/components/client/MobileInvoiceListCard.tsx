@@ -17,6 +17,8 @@ interface MobileInvoiceListCardProps {
   awaitingReceipt?: boolean
   selected?: boolean
   highlighted?: boolean
+  /** Onboarding tour spotlight hook. */
+  onboardTarget?: string
   onClick: () => void
 }
 
@@ -33,6 +35,7 @@ export default function MobileInvoiceListCard({
   awaitingReceipt = false,
   selected = false,
   highlighted = false,
+  onboardTarget,
   onClick,
 }: MobileInvoiceListCardProps) {
   const statusLabel = awaitingReceipt
@@ -59,6 +62,7 @@ export default function MobileInvoiceListCard({
       }${invoice.isOverdue && !awaitingReceipt ? ' is-overdue' : ''}${
         invoice.isForceCloseEligible ? ' is-force-close' : ''
       }${awaitingReceipt ? ' is-confirm-payment' : ''}`}
+      data-onboard-target={onboardTarget}
       onClick={onClick}
     >
       <div className="mobile-invoice-list-card__header">

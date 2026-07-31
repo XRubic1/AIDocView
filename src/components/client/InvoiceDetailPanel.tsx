@@ -99,6 +99,7 @@ import type { ClientDocument } from '../../types/clientDocument'
 import MobileInvoiceOverview from './MobileInvoiceOverview'
 import { InvoiceActivityNoteList, declutterActivityEntries } from './InvoiceActivityNoteList'
 import { getCarrierInvoiceActionRequired } from '../../utils/invoiceMobileInsights'
+import { hasPpwBeenSent } from '../../utils/ppwSent'
 import ConfirmPaymentReceiptModal from './ConfirmPaymentReceiptModal'
 
 type TimelineFilter = 'all' | 'activity' | 'notes' | 'payments' | 'send'
@@ -1315,18 +1316,31 @@ export default function InvoiceDetailPanel({
                   {detailSurface === 'activity' ? 'Activity & notes' : 'Invoice details'}
                 </p>
                 {detailSurface === 'overview' ? (
-                  awaitingReceiptPayment ? (
-                    <span className="status-pill status-pill--confirm-payment status-pill--compact">
-                      Confirm payment
-                    </span>
-                  ) : (
-                    getInvoiceRowStatusBadge(enriched, {
-                      compact: true,
-                      balance: balanceState,
-                      pendingClientPosted,
-                      confirmedReceived: receivedAmount,
-                    })
-                  )
+                  <div className="inline-flex items-center gap-1.5 flex-wrap">
+                    {awaitingReceiptPayment ? (
+                      <span className="status-pill status-pill--confirm-payment status-pill--compact">
+                        Confirm payment
+                      </span>
+                    ) : (
+                      getInvoiceRowStatusBadge(enriched, {
+                        compact: true,
+                        balance: balanceState,
+                        pendingClientPosted,
+                        confirmedReceived: receivedAmount,
+                      })
+                    )}
+                    {hasPpwBeenSent(visibleInvoice) ? (
+                      <span
+                        className="status-pill status-pill--compact inline-flex items-center gap-1"
+                        style={{ color: '#16a34a', borderColor: 'rgba(22, 163, 74, 0.35)' }}
+                        title="Paperwork sent to broker"
+                        data-onboard-target="invoicePpwSent"
+                      >
+                        <CircleCheck className="w-3 h-3" strokeWidth={2.5} />
+                        PPW sent
+                      </span>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
               <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
@@ -2371,6 +2385,7 @@ export default function InvoiceDetailPanel({
         {...swipeHandlers}
         role="region"
         aria-label={`Invoice details for ${visibleInvoice.invoice_number}. Swipe left or right to change invoice.`}
+        data-onboard-target="invoiceDetail"
       >
         <div
           className="payment-confirmation-panel__swipe-sheet flex flex-col min-h-0 flex-1"
@@ -2395,6 +2410,7 @@ export default function InvoiceDetailPanel({
       style={{ backgroundColor: c.card }}
       role="region"
       aria-label={`Invoice details for ${visibleInvoice.invoice_number}`}
+      data-onboard-target="invoiceDetail"
     >
       {panelBody}
     </div>

@@ -31,6 +31,7 @@ import {
   peekInvoiceRestoreTarget,
   stashInvoiceRestoreTarget,
 } from '../utils/paymentRestoreTarget'
+import { isTourInvoiceId } from '../utils/onboardingTourInvoice'
 import {
   getClientDisplayBalanceState,
   getClientInvoiceStatusParts,
@@ -496,7 +497,13 @@ export default function ClientInvoices() {
   useEffect(() => {
     const highlightRef = searchParams.get('highlight_invoice')
     if (!highlightRef) return
-    if (openedHighlightRef.current === highlightRef) return
+    // Allow re-open when onboarding tour advances (same invoice, new tour_step).
+    const tourStep = searchParams.get('tour_step')
+    const rowOnly = searchParams.get('row_only') === '1'
+    const openKey = tourStep
+      ? `${highlightRef}:${tourStep}:${rowOnly ? 'row' : 'open'}`
+      : `${highlightRef}:${rowOnly ? 'row' : 'open'}`
+    if (openedHighlightRef.current === openKey) return
 
     // Wait until tenant invoices have loaded.
     if (enrichedInvoices.length === 0) return
@@ -509,16 +516,18 @@ export default function ClientInvoices() {
     )
     // Unknown invoice — stop retrying this ref.
     if (highlightIndex < 0) {
-      openedHighlightRef.current = highlightRef
+      openedHighlightRef.current = openKey
       const next = new URLSearchParams(searchParams)
       next.delete('highlight_invoice')
       next.delete('open_upload')
+      next.delete('row_only')
+      next.delete('tour_step')
       setSearchParams(next, { replace: true, state: location.state })
       return
     }
 
     const target = enrichedInvoices[highlightIndex]
-    openedHighlightRef.current = highlightRef
+    openedHighlightRef.current = openKey
     const balance =
       invoiceBalanceById.get(target.id) ??
       getClientDisplayBalanceState(target.amount, 0, 0)
@@ -531,23 +540,34 @@ export default function ClientInvoices() {
     )
     setSearchTerm('')
     setHighlightedInvoiceId(target.id)
-    setSelectedInvoiceId(target.id)
-    stashInvoiceRestoreTarget(target.id)
-    setDetailPanelClosing(false)
-    // Always open detail (sidebar on desktop, full page on compact viewports).
-    setShowInvoiceDetail(true)
     setCurrentPage(Math.floor(highlightIndex / pageSize) + 1)
-    setAutoOpenUpload(searchParams.get('open_upload') === '1')
+
+    if (rowOnly) {
+      // Tour list step — flash the row only; keep detail closed.
+      setSelectedInvoiceId(null)
+      setShowInvoiceDetail(false)
+      setDetailPanelClosing(false)
+      setAutoOpenUpload(false)
+    } else {
+      setSelectedInvoiceId(target.id)
+      stashInvoiceRestoreTarget(target.id)
+      setDetailPanelClosing(false)
+      // Always open detail (sidebar on desktop, full page on compact viewports).
+      setShowInvoiceDetail(true)
+      setAutoOpenUpload(searchParams.get('open_upload') === '1')
+    }
 
     // Strip the highlight param but keep returnTo / other location state.
     const next = new URLSearchParams(searchParams)
     next.delete('highlight_invoice')
     next.delete('open_upload')
+    next.delete('row_only')
+    next.delete('tour_step')
     setSearchParams(next, { replace: true, state: location.state })
 
     const timer = setTimeout(() => {
       setHighlightedInvoiceId(null)
-    }, 3000)
+    }, rowOnly ? 12_000 : 3000)
 
     return () => clearTimeout(timer)
   }, [
@@ -756,6 +776,7 @@ export default function ClientInvoices() {
                         }${id === 'overdue' && count > 0 ? ' is-alert' : ''}`}
                         onClick={() => setStatusFilter(id)}
                         aria-pressed={statusFilter === id}
+                        data-onboard-target={`invoiceFilter-${id}`}
                       >
                         {label}
                         <span className="mobile-invoices-toolbar__pill-count">{count}</span>
@@ -782,6 +803,7 @@ export default function ClientInvoices() {
                             statusFilter === id ? ' batch-filter-pill--active' : ''
                           }${id === 'overdue' && count > 0 && statusFilter !== id ? ' batch-filter-pill--alert' : ''}`}
                           aria-pressed={statusFilter === id}
+                          data-onboard-target={`invoiceFilter-${id}`}
                         >
                           {label}
                           <span className="batch-filter-pill__count">{count}</span>
@@ -847,6 +869,9 @@ export default function ClientInvoices() {
                           awaitingReceipt={awaitingReceiptInvoiceIds.has(invoice.id)}
                           selected={selectedInvoice?.id === invoice.id}
                           highlighted={highlightedInvoiceId === invoice.id}
+                          onboardTarget={
+                            isTourInvoiceId(invoice.id) ? 'tourInvoiceRow' : undefined
+                          }
                           onClick={() => handleViewInvoiceDetail(invoice)}
                         />
                       ))}
@@ -967,6 +992,9 @@ export default function ClientInvoices() {
                                     ? 'invoice-row--overdue'
                                     : ''
                               }`}
+                              data-onboard-target={
+                                isTourInvoiceId(invoice.id) ? 'tourInvoiceRow' : undefined
+                              }
                               onClick={() => handleViewInvoiceDetail(invoice)}
                             >
                               <ClientListTd
@@ -1031,7 +1059,16 @@ export default function ClientInvoices() {
                                   )}
                                 </span>
                               </ClientListTd>
-                              <ClientListTd variant="desktop" label="PPW sent" className="text-center">
+                              <ClientListTd
+                                variant="desktop"
+                                label="PPW sent"
+                                className="text-center"
+                                data-onboard-target={
+                                  invoice.id.startsWith('inv-onboard-tour')
+                                    ? 'invoicePpwSent'
+                                    : undefined
+                                }
+                              >
                                 {hasPpwBeenSent(invoice) ? (
                                   <span
                                     className="inline-flex items-center justify-center"

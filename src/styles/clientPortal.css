@@ -7,6 +7,24 @@
   will-change: width;
 }
 
+/* Welcome / about / bubble — hide shell chrome completely */
+.client-portal.client-portal--onboard-immersive {
+  --sidebar-width: 0px !important;
+}
+
+.client-portal.client-portal--onboard-immersive .client-sidebar-rail,
+.client-portal.client-portal--onboard-immersive .client-topbar {
+  display: none !important;
+}
+
+.client-portal.client-portal--onboard-immersive > .flex-1 {
+  margin-left: 0 !important;
+}
+
+.client-portal.client-portal--onboard-immersive .client-shell-scroll {
+  padding: 0 !important;
+}
+
 .client-portal .client-sidebar-rail--flyout {
   z-index: 45;
 }
@@ -22,6 +40,32 @@
   min-height: 32px;
   border-radius: 8px;
   overflow: hidden;
+}
+
+@keyframes client-onboard-nav-reveal {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.client-portal .client-sidebar-nav-item--onboard-reveal {
+  animation: client-onboard-nav-reveal 0.28s ease-out both;
+}
+
+.client-portal .client-topbar__onboard-reveal {
+  animation: client-onboard-nav-reveal 0.28s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .client-portal .client-sidebar-nav-item--onboard-reveal,
+  .client-portal .client-topbar__onboard-reveal {
+    animation: none;
+  }
 }
 
 /* Overlay-style scroll so a classic Windows scrollbar doesn't crush the icon rail. */

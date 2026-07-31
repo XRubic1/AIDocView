@@ -32,11 +32,7 @@ export default function ClientRouteGuard({ children }: ClientRouteGuardProps) {
   }, [client, isLocked, standing])
 
   if (!isReady || isLoading) {
-    return (
-      <div className="client-portal min-h-screen">
-        <PageLoader message={bootMessage} />
-      </div>
-    )
+    return <PageLoader message={bootMessage} />
   }
 
   if (hydrationError) {

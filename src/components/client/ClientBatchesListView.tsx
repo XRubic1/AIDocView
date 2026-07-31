@@ -18,6 +18,7 @@ import {
   PAGE_SIZE_OPTIONS,
   type SortDir,
 } from '../../utils/clientListPage'
+import { isTourBatchId } from '../../utils/onboardingTourInvoice'
 
 export interface ClientBatchListItem {
   id: string
@@ -204,7 +205,7 @@ export default function ClientBatchesListView({
   ]
 
   return (
-    <div className="client-batches-page overflow-hidden flex flex-col min-h-0">
+    <div className="client-batches-page overflow-hidden flex flex-col min-h-0" data-onboard-target="batchList">
       <section
         className="client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0"
         style={{ borderColor: c.border }}
@@ -390,6 +391,7 @@ export default function ClientBatchesListView({
                     <tr
                       key={batch.id}
                       className={`cursor-pointer transition-colors ${isHighlighted ? 'batch-highlight-row' : ''}`}
+                      data-onboard-target={isTourBatchId(batch.id) ? 'tourBatchRow' : undefined}
                       onClick={() => onSelectBatch(batch.id)}
                     >
                       <ClientListTd variant="primary" className="font-semibold">

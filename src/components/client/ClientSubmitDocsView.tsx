@@ -185,7 +185,7 @@ export default function ClientSubmitDocsView({
 }: ClientSubmitDocsViewProps) {
   const c = useClientTheme()
   return (
-    <div className="client-submit-docs">
+    <div className="client-submit-docs" data-onboard-target="submitPanel">
       <div className="client-submit-docs__toolbar">
         {mode === 'choose' ? (
           <button type="button" onClick={onBackToBatches} className="client-submit-docs__back">
@@ -205,7 +205,7 @@ export default function ClientSubmitDocsView({
       </div>
 
       {mode === 'choose' ? (
-        <div className="client-submit-docs__choose">
+        <div className="client-submit-docs__choose" data-onboard-target="submitDropzone">
           <div className="client-submit-docs__intro">
             <div className="client-submit-docs__intro-icon">
               <Upload className="w-5 h-5" />

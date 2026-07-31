@@ -140,6 +140,7 @@ function LifecycleStepper({
                   ? 'step'
                   : undefined
               }
+              data-onboard-target={step.id === 'invoiced' ? 'invoiceLifecycleInvoiced' : undefined}
             >
               <span className="mobile-invoice-overview__lifecycle-dot" aria-hidden />
               <span className="mobile-invoice-overview__lifecycle-label">{step.label}</span>
@@ -262,6 +263,7 @@ export default function MobileInvoiceOverview({
             className="mobile-invoice-overview__insight is-alert is-interactive"
             onClick={handleActionRequired}
             aria-label={`${actionRequired.title}. ${actionRequired.note}`}
+            data-onboard-target="invoiceHoldAction"
           >
             <span className="mobile-invoice-overview__insight-icon is-alert" aria-hidden>
               {actionRequired.cta === 'upload' ? (

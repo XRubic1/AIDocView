@@ -42,9 +42,6 @@ export default function WelcomeHeader({
           <h1 className="cd-welcome-header__title">
             Welcome back, {carrierName}
           </h1>
-          <p className="cd-welcome-header__subtitle">
-            Here's what's happening with your A/R
-          </p>
         </div>
       </div>
 
@@ -56,7 +53,7 @@ export default function WelcomeHeader({
             className="cd-welcome-action cd-welcome-action--secondary"
             title="Upload documents"
           >
-            <Upload className="cd-welcome-action__icon" size={16} strokeWidth={2} />
+            <Upload className="cd-welcome-action__icon" size={14} strokeWidth={2} />
             <span>Upload</span>
           </button>
         ) : null}
@@ -68,7 +65,7 @@ export default function WelcomeHeader({
             className="cd-welcome-action cd-welcome-action--secondary"
             title="Post a payment"
           >
-            <DollarSign className="cd-welcome-action__icon" size={16} strokeWidth={2} />
+            <DollarSign className="cd-welcome-action__icon" size={14} strokeWidth={2} />
             <span>Post Payment</span>
           </button>
         ) : null}
@@ -80,7 +77,7 @@ export default function WelcomeHeader({
             className="cd-welcome-action cd-welcome-action--secondary"
             title="View reports"
           >
-            <BarChart3 className="cd-welcome-action__icon" size={16} strokeWidth={2} />
+            <BarChart3 className="cd-welcome-action__icon" size={14} strokeWidth={2} />
             <span>Reports</span>
           </button>
         ) : null}
@@ -92,7 +89,7 @@ export default function WelcomeHeader({
             className="cd-welcome-action cd-welcome-action--primary"
             title="Ask AI assistant"
           >
-            <MessageSquare className="cd-welcome-action__icon" size={16} strokeWidth={2} />
+            <MessageSquare className="cd-welcome-action__icon" size={14} strokeWidth={2} />
             <span>Ask AI</span>
           </button>
         ) : null}

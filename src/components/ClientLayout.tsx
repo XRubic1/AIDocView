@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef, type ReactNode } from 'react'
+import { useMemo, useState, useEffect, type ReactNode } from 'react'
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import {
   ChevronDown,
@@ -8,6 +8,7 @@ import {
   X,
   PanelLeftClose,
   PanelLeft,
+  RefreshCw,
 } from 'lucide-react'
 import { Notification } from '../types/notification'
 import NotificationBell from './NotificationBell'
@@ -24,11 +25,39 @@ import { isClientVisibleHold } from '../utils/clientInvoiceView'
 import { clearClientTenantCache } from '../data/clientDemoData'
 import { clearClientSession } from '../utils/clearClientSession'
 import {
+  dispatchReplayOnboardingTour,
+  getOnboardingDashboardPrefs,
+  resetOnboardingDashboardPrefs,
+  setOnboardingDashboardPrefs,
+} from '../utils/onboardingDashboardPrefs'
+import {
+  applyTourInvoiceStage,
+  buildStatusTourNavigateTo,
+  cleanupTourInvoice,
+  stageForStatusTourStep,
+} from '../utils/onboardingTourInvoice'
+import {
   filterClientNavSections,
   getInitials,
   getClientUserDisplayName,
 } from '../config/clientNav'
 import { useClientPortal } from '../context/ClientPortalContext'
+import {
+  filterNavForOnboardingStage,
+  pathsForStatusTourStep,
+  pathsForSubmitTourStep,
+  showAssistantBuddyForStage,
+  showNotificationsForStage,
+  showUploadForStage,
+  useOnboardingChrome,
+} from '../context/OnboardingChromeContext'
+import OnboardingTourOverlay from './client/dashboard/OnboardingTourOverlay'
+import { SUBMIT_INVOICE_TOUR_STEPS } from './client/dashboard/submitInvoiceTourSteps'
+import {
+  getFollowOnTourSteps,
+  type FollowOnTourKind,
+} from './client/dashboard/invoiceStatusTourSteps'
+import InvoiceStatusTourOffer from './client/dashboard/InvoiceStatusTourOffer'
 import { getTierLabel } from '../utils/clientCapabilities'
 import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import ThemeToggle from './ThemeToggle'
@@ -39,6 +68,7 @@ import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import '../styles/clientPortal.css'
 import '../styles/clientPortalDark.css'
 import '../styles/credyxWordmark.css'
+import '../styles/clientDashboard.css'
 
 interface ClientLayoutProps {
   clientName: string
@@ -55,14 +85,137 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const { client, tier, capabilities } = useClientPortal()
+  const {
+    progressive,
+    stage: chromeStage,
+    unlockedNavPaths,
+    justRevealedNavPaths,
+    revealNavPaths,
+    submitTourActive,
+    submitTourStepIndex,
+    nextSubmitTourStep,
+    backSubmitTourStep,
+    skipSubmitTour,
+    completeSubmitTour,
+    statusTourOfferVisible,
+    statusTourOfferKind,
+    showStatusTourOffer,
+    dismissStatusTourOffer,
+    statusTourActive,
+    statusTourKind,
+    statusTourStepIndex,
+    startBatchTour,
+    startStatusTour,
+    nextStatusTourStep,
+    backStatusTourStep,
+    completeStatusTour,
+    resetAllOnboardingChrome,
+  } = useOnboardingChrome()
   const t = useClientTheme()
   const resolvedClientId = clientId ?? client?.id
   const resolvedClientName = clientName || client?.name || 'Client'
   const tenantRevision = useTenantDataRevision()
-  const navSections = useMemo(
-    () => filterClientNavSections(capabilities),
-    [capabilities]
-  )
+  const navSections = useMemo(() => {
+    const base = filterClientNavSections(capabilities)
+    if (!progressive) return base
+    return filterNavForOnboardingStage(base, chromeStage, unlockedNavPaths)
+  }, [capabilities, progressive, chromeStage, unlockedNavPaths])
+  const showUpload = !progressive || showUploadForStage(chromeStage, unlockedNavPaths)
+  const showBuddy = !progressive || showAssistantBuddyForStage(chromeStage, unlockedNavPaths)
+  const showNotifs = !progressive || showNotificationsForStage(chromeStage, unlockedNavPaths)
+  /** Welcome / about / submit-offer — hide sidebar + topbar entirely. */
+  const hidePortalChrome = progressive && chromeStage === 'welcome'
+  const submitTourStep = SUBMIT_INVOICE_TOUR_STEPS[submitTourStepIndex]
+  const followOnSteps = statusTourKind ? getFollowOnTourSteps(statusTourKind) : []
+  const statusTourStep = followOnSteps[statusTourStepIndex]
+  const activeFollowOnStep = submitTourActive
+    ? submitTourStep
+    : statusTourActive
+      ? statusTourStep
+      : null
+
+  // Apply demo invoice lifecycle + navigate once per follow-on tour step.
+  // Pages may strip query params after applying filters — do not re-sync.
+  useEffect(() => {
+    if (!activeFollowOnStep) return
+
+    if (statusTourActive && statusTourStep) {
+      revealNavPaths(pathsForStatusTourStep(statusTourStep.id))
+      if (resolvedClientId) {
+        const stage = stageForStatusTourStep(statusTourStep.id)
+        if (stage) {
+          applyTourInvoiceStage(resolvedClientId, resolvedClientName, stage)
+        }
+        const path = buildStatusTourNavigateTo(statusTourStep, resolvedClientId)
+        if (path) {
+          navigate(path)
+          return
+        }
+      }
+    }
+
+    if (submitTourActive && submitTourStep) {
+      revealNavPaths(pathsForSubmitTourStep(submitTourStep.id))
+    }
+
+    if (!activeFollowOnStep.navigateTo) return
+    navigate(activeFollowOnStep.navigateTo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on step change
+  }, [activeFollowOnStep?.id, navigate, statusTourActive, submitTourActive, resolvedClientId])
+
+  const finishSubmitTour = () => {
+    if (resolvedClientId) {
+      setOnboardingDashboardPrefs(resolvedClientId, { hasSeenSubmitTour: true })
+    }
+    completeSubmitTour()
+    const prefs = resolvedClientId
+      ? getOnboardingDashboardPrefs(resolvedClientId)
+      : { hasSeenBatchTour: true, hasSeenInvoiceStatusTour: true }
+    // After submit → batches tour, then invoices tour.
+    if (!prefs.hasSeenBatchTour) {
+      showStatusTourOffer('batch')
+    } else if (!prefs.hasSeenInvoiceStatusTour) {
+      showStatusTourOffer('invoice')
+    }
+  }
+
+  const finishStatusTour = () => {
+    const kind: FollowOnTourKind = statusTourKind ?? 'invoice'
+    if (resolvedClientId) {
+      if (kind === 'batch') {
+        setOnboardingDashboardPrefs(resolvedClientId, { hasSeenBatchTour: true })
+      } else {
+        setOnboardingDashboardPrefs(resolvedClientId, { hasSeenInvoiceStatusTour: true })
+        cleanupTourInvoice(resolvedClientId)
+      }
+    }
+    completeStatusTour()
+    // After batches tour, offer the separate invoices tour once.
+    if (kind === 'batch' && resolvedClientId) {
+      const prefs = getOnboardingDashboardPrefs(resolvedClientId)
+      if (!prefs.hasSeenInvoiceStatusTour) {
+        window.setTimeout(() => showStatusTourOffer('invoice'), 0)
+      }
+    }
+  }
+
+  const skipStatusOffer = () => {
+    const kind = statusTourOfferKind ?? 'invoice'
+    if (resolvedClientId) {
+      if (kind === 'batch') {
+        setOnboardingDashboardPrefs(resolvedClientId, { hasSeenBatchTour: true })
+        const prefs = getOnboardingDashboardPrefs(resolvedClientId)
+        dismissStatusTourOffer()
+        if (!prefs.hasSeenInvoiceStatusTour) {
+          window.setTimeout(() => showStatusTourOffer('invoice'), 0)
+        }
+        return
+      }
+      setOnboardingDashboardPrefs(resolvedClientId, { hasSeenInvoiceStatusTour: true })
+      cleanupTourInvoice(resolvedClientId)
+    }
+    dismissStatusTourOffer()
+  }
   const { resolvedTheme } = useTheme()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -94,8 +247,6 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       return false
     }
   })
-  const [hoverExpanded, setHoverExpanded] = useState(false)
-  const hoverLeaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Auto-collapse when shrinking into the mid-size range (do not auto-expand).
   useEffect(() => {
@@ -114,46 +265,16 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     return () => media.removeEventListener('change', onChange)
   }, [])
 
-  useEffect(() => {
-    return () => {
-      if (hoverLeaveTimer.current) clearTimeout(hoverLeaveTimer.current)
-    }
-  }, [])
-
-  // Rail mode = icon strip; hover temporarily expands as a flyout over content.
-  const railMode = collapsed
-  const sidebarExpanded = !railMode || hoverExpanded
-  const sidebarWidth = sidebarExpanded ? t.sidebar.expandedWidth : t.sidebar.collapsedWidth
-  // Main content only reserves the rail width so hover expand doesn't reflow the page.
-  const mainOffset = railMode ? t.sidebar.collapsedWidth : t.sidebar.expandedWidth
+  // Collapsed = icon rail; expanded only when the user clicks Extend (no hover open).
+  const sidebarExpanded = !collapsed
+  const sidebarWidth = hidePortalChrome
+    ? 0
+    : sidebarExpanded
+      ? t.sidebar.expandedWidth
+      : t.sidebar.collapsedWidth
+  const mainOffset = sidebarWidth
   /** Fixed icon column = collapsed rail width so icons stay centered while labels slide out. */
   const iconColWidth = t.sidebar.collapsedWidth
-
-  const clearHoverLeaveTimer = () => {
-    if (hoverLeaveTimer.current) {
-      clearTimeout(hoverLeaveTimer.current)
-      hoverLeaveTimer.current = null
-    }
-  }
-
-  const handleSidebarMouseEnter = () => {
-    clearHoverLeaveTimer()
-    if (railMode) setHoverExpanded(true)
-  }
-
-  const handleSidebarMouseLeave = () => {
-    clearHoverLeaveTimer()
-    hoverLeaveTimer.current = setTimeout(() => {
-      if (!userMenuOpen) setHoverExpanded(false)
-    }, 160)
-  }
-
-  useEffect(() => {
-    if (!userMenuOpen && railMode) {
-      clearHoverLeaveTimer()
-      hoverLeaveTimer.current = setTimeout(() => setHoverExpanded(false), 160)
-    }
-  }, [userMenuOpen, railMode])
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -163,7 +284,6 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       } catch {
         /* ignore */
       }
-      if (next) setHoverExpanded(false)
       return next
     })
   }
@@ -200,6 +320,14 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
     if (path.startsWith('mailto:')) return false
 
+    // Onboarding route highlights Dashboard while the progressive tour is active.
+    if (
+      pathOnly === '/client/dashboard' &&
+      location.pathname.startsWith('/client/onboarding')
+    ) {
+      return true
+    }
+
     const pathnameMatch =
       location.pathname === pathOnly ||
       (pathOnly !== '/client/dashboard' && location.pathname.startsWith(`${pathOnly}/`))
@@ -225,6 +353,11 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     setMobileOpen(false)
     if (path.startsWith('mailto:')) {
       window.location.href = path
+      return
+    }
+    // During onboarding tour, keep "Dashboard" on the onboarding experience.
+    if (progressive && path.split('?')[0] === '/client/dashboard') {
+      navigate('/client/onboarding')
       return
     }
     const [pathOnly, query] = path.split('?')
@@ -258,9 +391,9 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   }
 
   const sidebarContent = (isMobile = false) => {
-    // Labels always render; overflow + width transition reveal them (Supabase-style slide).
+    // Tooltips on icon rail only when labels are hidden.
     const tip = (label: string) =>
-      !isMobile && railMode && !hoverExpanded ? label : undefined
+      !isMobile && collapsed ? label : undefined
 
     return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -353,7 +486,40 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                       type="button"
                       onClick={() => handleNavClick(item.path)}
                       title={tip(item.label)}
-                      className="client-sidebar-nav-item w-full flex items-center text-[13px] transition-colors duration-200"
+                      data-onboard-target={
+                        item.path.startsWith('/client/batches?tab=create')
+                          ? 'navSubmitDocs'
+                          : item.path === '/client/invoices'
+                            ? 'navInvoices'
+                            : item.path === '/client/batches'
+                              ? 'navBatches'
+                              : item.path === '/client/documents'
+                                ? 'navDocuments'
+                                : item.path === '/client/collections'
+                                  ? 'navCollections'
+                                  : item.path === '/client/brokers'
+                                    ? 'navBrokers'
+                                    : item.path === '/client/assistant'
+                                      ? 'navAssistant'
+                                      : item.path === '/client/payments'
+                                        ? 'navPayments'
+                                        : item.path === '/client/short-payments'
+                                          ? 'navShortPayments'
+                                          : item.path === '/client/reports'
+                                            ? 'navReports'
+                                            : item.path === '/client/tutorials'
+                                              ? 'navTutorials'
+                                              : item.path === '/client/settings'
+                                                ? 'navSettings'
+                                                : item.path === '/client/dashboard'
+                                                  ? 'navDashboard'
+                                                  : undefined
+                      }
+                      className={`client-sidebar-nav-item w-full flex items-center text-[13px] transition-colors duration-200${
+                        progressive && justRevealedNavPaths.includes(item.path)
+                          ? ' client-sidebar-nav-item--onboard-reveal'
+                          : ''
+                      }`}
                       style={{
                         backgroundColor: active ? t.sidebar.active : 'transparent',
                         color: active ? t.sidebar.activeText : t.sidebar.muted,
@@ -413,27 +579,27 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             onClick={toggleCollapsed}
             className="w-full flex items-center text-[13px] transition-colors"
             style={{ color: t.sidebar.muted }}
-            title={tip(railMode ? 'Pin open' : 'Collapse')}
+            title={tip(collapsed ? 'Extend' : 'Collapse')}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = t.sidebar.hover
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = 'transparent'
             }}
-            aria-label={railMode ? 'Keep sidebar expanded' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Extend sidebar' : 'Collapse sidebar'}
           >
             <span
               className="shrink-0 flex items-center justify-center self-stretch py-1.5"
               style={{ width: iconColWidth }}
             >
-              {railMode ? (
+              {collapsed ? (
                 <PanelLeft className="w-4 h-4" strokeWidth={1.75} />
               ) : (
                 <PanelLeftClose className="w-4 h-4" strokeWidth={1.75} />
               )}
             </span>
             <span className="whitespace-nowrap truncate py-1.5 pr-3">
-              {railMode ? 'Pin open' : 'Collapse'}
+              {collapsed ? 'Extend' : 'Collapse'}
             </span>
           </button>
         </div>
@@ -512,23 +678,23 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
   return (
     <div
-      className="client-portal flex h-screen overflow-hidden"
+      className={`client-portal flex h-screen overflow-hidden${
+        hidePortalChrome ? ' client-portal--onboard-immersive' : ''
+      }`}
       data-theme={resolvedTheme}
       style={{ backgroundColor: t.surface, ['--sidebar-width' as string]: `${mainOffset}px` }}
     >
-      {/* Desktop sidebar — hover expands over content when in rail mode */}
+      {/* Desktop sidebar — expand/collapse via Extend control only (no hover open) */}
       <aside
         className={`client-sidebar-rail hidden lg:flex flex-col shrink-0 fixed inset-y-0 left-0 z-40 border-r${
-          railMode ? ' client-sidebar-rail--collapsed' : ''
-        }${railMode && hoverExpanded ? ' client-sidebar-rail--flyout' : ''}`}
+          collapsed ? ' client-sidebar-rail--collapsed' : ''
+        }`}
         style={{
           width: sidebarWidth,
           backgroundColor: t.sidebar.bg,
           borderColor: t.sidebar.border,
-          boxShadow: railMode && hoverExpanded ? t.shadow.cardHover : t.shadow.card,
+          boxShadow: t.shadow.card,
         }}
-        onMouseEnter={handleSidebarMouseEnter}
-        onMouseLeave={handleSidebarMouseLeave}
       >
         {sidebarContent()}
       </aside>
@@ -587,29 +753,59 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
           </div>
 
           <div className="client-topbar__actions">
-            <div className="hidden lg:block shrink-0">
-              <AssistantHeaderBuddy mode="client" />
-            </div>
+            {location.pathname.startsWith('/client/onboarding') ? (
+              <button
+                type="button"
+                className="client-header-icon-btn p-2 rounded-lg shrink-0"
+                style={{ color: t.primary }}
+                title="Replay onboarding tour"
+                aria-label="Replay onboarding tour"
+                onClick={() => {
+                  if (resolvedClientId) {
+                    resetOnboardingDashboardPrefs(resolvedClientId)
+                    cleanupTourInvoice(resolvedClientId)
+                  }
+                  resetAllOnboardingChrome()
+                  if (!location.pathname.startsWith('/client/onboarding')) {
+                    navigate('/client/onboarding')
+                  }
+                  // Let OnboardingDashboard remount tour state (same-tab).
+                  window.setTimeout(() => dispatchReplayOnboardingTour(), 0)
+                }}
+              >
+                <RefreshCw className="w-4 h-4" strokeWidth={1.75} />
+              </button>
+            ) : null}
+            {showBuddy ? (
+              <div className="hidden lg:block shrink-0 client-topbar__onboard-reveal">
+                <AssistantHeaderBuddy mode="client" />
+              </div>
+            ) : null}
             <div className="hidden lg:block shrink-0">
               <ThemeToggle compact />
             </div>
-            <NotificationBell
-              notifications={notifications}
-              onMarkAsRead={handleMarkAsRead}
-              onMarkAllAsRead={handleMarkAllAsRead}
-              onNotificationClick={handleNotificationClick}
-            />
-            {(capabilities.canCreateBatch || capabilities.canSubmitDocHandoff) && (
+            {showNotifs ? (
+              <div className="client-topbar__onboard-reveal">
+                <NotificationBell
+                  notifications={notifications}
+                  onMarkAsRead={handleMarkAsRead}
+                  onMarkAllAsRead={handleMarkAllAsRead}
+                  onNotificationClick={handleNotificationClick}
+                />
+              </div>
+            ) : null}
+            {showUpload && (capabilities.canCreateBatch || capabilities.canSubmitDocHandoff) ? (
               <button
                 type="button"
                 onClick={() => navigate('/client/batches?tab=create')}
-                className="client-topbar__upload-btn inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary shrink-0"
+                data-onboard-target="navUpload"
+                className="client-topbar__upload-btn client-topbar__onboard-reveal inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary shrink-0"
                 aria-label="Submit documents"
               >
                 <Upload className="w-4 h-4" />
                 {capabilities.canCreateBatch ? 'Upload' : 'Send docs'}
               </button>
-            )}
+            ) : null}
           </div>
         </header>
 
@@ -624,7 +820,51 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
         </main>
       </div>
 
-      <AssistantFab />
+      {submitTourActive && submitTourStep ? (
+        <OnboardingTourOverlay
+          step={submitTourStep}
+          stepIndex={submitTourStepIndex}
+          stepCount={SUBMIT_INVOICE_TOUR_STEPS.length}
+          onNext={() => {
+            if (submitTourStepIndex >= SUBMIT_INVOICE_TOUR_STEPS.length - 1) {
+              finishSubmitTour()
+            } else {
+              nextSubmitTourStep()
+            }
+          }}
+          onBack={backSubmitTourStep}
+          onSkip={finishSubmitTour}
+          finishLabel="Done"
+        />
+      ) : null}
+
+      {statusTourOfferVisible ? (
+        <InvoiceStatusTourOffer
+          kind={statusTourOfferKind ?? 'invoice'}
+          onStart={statusTourOfferKind === 'batch' ? startBatchTour : startStatusTour}
+          onSkip={skipStatusOffer}
+        />
+      ) : null}
+
+      {statusTourActive && statusTourStep ? (
+        <OnboardingTourOverlay
+          step={statusTourStep}
+          stepIndex={statusTourStepIndex}
+          stepCount={followOnSteps.length}
+          onNext={() => {
+            if (statusTourStepIndex >= followOnSteps.length - 1) {
+              finishStatusTour()
+            } else {
+              nextStatusTourStep()
+            }
+          }}
+          onBack={backStatusTourStep}
+          onSkip={finishStatusTour}
+          finishLabel="Done"
+        />
+      ) : null}
+
+      {!hidePortalChrome ? <AssistantFab /> : null}
     </div>
   )
 }

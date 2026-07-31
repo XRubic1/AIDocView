@@ -13,6 +13,7 @@ import {
   MessageCircle,
   Settings,
   HelpCircle,
+  GraduationCap,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -68,6 +69,7 @@ export const clientNavSections: ClientNavSection[] = [
   {
     title: 'ACCOUNT',
     items: [
+      { label: 'Tutorials', path: '/client/tutorials', icon: GraduationCap },
       { label: 'Settings', path: '/client/settings', icon: Settings },
       { label: 'Support', path: 'mailto:support@credyx.com', icon: HelpCircle },
     ],

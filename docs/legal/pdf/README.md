@@ -25,6 +25,7 @@ That runs `scripts/generateLegalPdfs.ts` and writes files into this folder.
 | `Credyx-Carrier-MSA.pdf` | `../CARRIER_MSA.md` |
 | `Credyx-Fee-Schedule-Exhibit-A.pdf` | `../FEE_SCHEDULE.md` |
 | `Credyx-Authorization-to-Act-Exhibit-B.pdf` | `../AUTHORIZATION_TO_ACT.md` |
+| `Credyx-Broker-Notice-of-Authorization.pdf` | `../BROKER_NOTICE_OF_AUTHORIZATION.md` |
 | `Credyx-Privacy-Policy.pdf` | `../PRIVACY_POLICY.md` |
 | `Credyx-Website-Terms.pdf` | `../WEBSITE_TERMS.md` |
 

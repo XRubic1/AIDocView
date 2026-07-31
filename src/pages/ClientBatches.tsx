@@ -206,23 +206,37 @@ export default function ClientBatches() {
     }
   }, [clientId, currentBatchInvoices.length, invoiceFormData.invoice_number])
 
-  // Check for highlight parameter from notification
+  // Check for highlight parameter from notification / onboarding tour
   useEffect(() => {
     const highlightBatchId = searchParams.get('highlight_batch')
     if (highlightBatchId) {
       setHighlightedBatchId(highlightBatchId)
+      const tourStep = searchParams.get('tour_step')
       // Remove the parameter from URL
       searchParams.delete('highlight_batch')
       setSearchParams(searchParams, { replace: true })
-      
-      // Remove highlight after 3 seconds (flashing effect)
+
+      // Tour keeps the flash longer so the row stays easy to spot.
+      const ms =
+        tourStep === 'batchesNav' || tourStep === 'batches' || tourStep === 'openBatch'
+          ? 12_000
+          : 3000
       const timer = setTimeout(() => {
         setHighlightedBatchId(null)
-      }, 3000)
-      
+      }, ms)
+
       return () => clearTimeout(timer)
     }
   }, [searchParams, setSearchParams])
+
+  // Status tour list steps need the batch list visible (not detail).
+  useEffect(() => {
+    const tourStep = searchParams.get('tour_step')
+    if (tourStep === 'batchesNav' || tourStep === 'batches' || tourStep === 'openBatch') {
+      setSelectedBatch(null)
+      setActiveTab('view')
+    }
+  }, [searchParams])
 
   const [brokerSuggestions, setBrokerSuggestions] = useState<typeof mockBrokers>([])
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false)
@@ -255,8 +269,13 @@ export default function ClientBatches() {
     const tabParam = searchParams.get('tab')
     if (tabParam === 'create' && activeTab !== 'create') {
       setActiveTab('create')
+    } else if (tabParam === 'view' && activeTab !== 'view') {
+      setActiveTab('view')
+    } else if (!tabParam && activeTab === 'create' && searchParams.has('highlight_batch')) {
+      // Tour / deep-link to list: leave the create tab.
+      setActiveTab('view')
     }
-  }, [searchParams])
+  }, [searchParams, activeTab])
 
   useEffect(() => {
     if (!capabilities.canCreateBatch && searchParams.get('mode') === 'ai') {

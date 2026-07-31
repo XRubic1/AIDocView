@@ -466,6 +466,7 @@ export default function PaymentConfirmationPanel({
                   onClick={onConfirmReceipt}
                   disabled={receiptActionLoading}
                   className="dashboard-btn-primary dashboard-btn-compact flex-1 min-w-[100px] inline-flex items-center justify-center gap-1 disabled:opacity-50"
+                  data-onboard-target="paymentConfirmBtn"
                 >
                   {receiptActionLoading ? (
                     <Loader2 className="w-3 h-3 animate-spin" />

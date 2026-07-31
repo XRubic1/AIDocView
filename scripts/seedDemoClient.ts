@@ -8,6 +8,7 @@
  *   npm run seed-demo -- "ABC Trucking"
  *   npm run seed-demo -- --client-id client-xxx
  *   npm run seed-demo -- "ABC Trucking" dry-run
+ *   npm run seed-demo -- "ABC Trucking" wipe-only   # delete A/R only (no reseed)
  *
  * Requires SUPABASE_SERVICE_ROLE_KEY + VITE_SUPABASE_URL in .env
  */
@@ -45,11 +46,16 @@ function readArg(flag: string): string | undefined {
 }
 
 /** Positional: [clientName] — npm on Windows often strips --flags. */
-function readPositionalArgs(): { clientName?: string; dryRun: boolean } {
+function readPositionalArgs(): {
+  clientName?: string
+  dryRun: boolean
+  wipeOnly: boolean
+} {
   const args = process.argv.slice(2).filter((a) => !a.startsWith('--'))
   const dryRun = hasFlag('--dry-run') || args.includes('dry-run')
-  const clientName = args.find((a) => a !== 'dry-run')
-  return { clientName, dryRun }
+  const wipeOnly = hasFlag('--wipe-only') || args.includes('wipe-only')
+  const clientName = args.find((a) => a !== 'dry-run' && a !== 'wipe-only')
+  return { clientName, dryRun, wipeOnly }
 }
 
 // ─── Date helpers (relative to today) ────────────────────────────────────────
@@ -1706,6 +1712,7 @@ async function main(): Promise<void> {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const positional = readPositionalArgs()
   const dryRun = positional.dryRun
+  const wipeOnly = positional.wipeOnly
   const clientIdArg = readArg('--client-id')
   const clientNameArg =
     readArg('--client') ?? positional.clientName ?? CLIENT_NAME_DEFAULT
@@ -1722,7 +1729,8 @@ async function main(): Promise<void> {
   console.log(`  As of:     ${toDateStr(today)}`)
   console.log(`  Window:    last 4 months (relative)`)
   console.log(`  Client:    ${clientIdArg ?? clientNameArg}`)
-  console.log(`  Dry run:   ${dryRun}\n`)
+  console.log(`  Dry run:   ${dryRun}`)
+  console.log(`  Wipe only: ${wipeOnly}\n`)
 
   // Resolve client
   let client: Json | undefined
@@ -1797,34 +1805,38 @@ async function main(): Promise<void> {
   console.log(`  invoices:  ${existingInv.data?.length ?? 0}`)
   console.log(`  batches:   ${existingBat.data?.length ?? 0}`)
   console.log(`  vault docs:${existingDocs.data?.length ?? 0}`)
-  console.log(`Will insert:`)
-  console.log(`  brokers:   ${DEMO_BROKERS.length} (upsert)`)
-  console.log(`  batches:   5`)
-  console.log(`  invoices:  ${INVOICE_SPECS.length}`)
-  console.log(
-    `  payments:  ${INVOICE_SPECS.filter((s) =>
-      [
-        'paid',
-        'awaiting_confirm',
-        'short_awaiting',
-        'short_confirmed',
-        'over_awaiting',
-        'over_confirmed',
-        'chargeback',
-        'short_writeoff',
-      ].includes(s.scenario)
-    ).length}+ (chargeback adds a correction row)`
-  )
-  console.log(`  vault docs:${vaultDocsPreview.length} (approved — setup complete)`)
+  if (!wipeOnly) {
+    console.log(`Will insert:`)
+    console.log(`  brokers:   ${DEMO_BROKERS.length} (upsert)`)
+    console.log(`  batches:   5`)
+    console.log(`  invoices:  ${INVOICE_SPECS.length}`)
+    console.log(
+      `  payments:  ${INVOICE_SPECS.filter((s) =>
+        [
+          'paid',
+          'awaiting_confirm',
+          'short_awaiting',
+          'short_confirmed',
+          'over_awaiting',
+          'over_confirmed',
+          'chargeback',
+          'short_writeoff',
+        ].includes(s.scenario)
+      ).length}+ (chargeback adds a correction row)`
+    )
+    console.log(`  vault docs:${vaultDocsPreview.length} (approved — setup complete)`)
+  }
 
   if (dryRun) {
     console.log('\nDry run only — no changes made.')
-    // Show relative month labels
-    for (let m = 3; m >= 0; m--) {
-      const d = dateInMonth(m, 1)
-      const label = d.toLocaleString('en-US', { month: 'long', year: 'numeric' })
-      const count = INVOICE_SPECS.filter((s) => s.monthsAgo === m).length
-      console.log(`  ${label}: ${count} invoices`)
+    if (!wipeOnly) {
+      // Show relative month labels
+      for (let m = 3; m >= 0; m--) {
+        const d = dateInMonth(m, 1)
+        const label = d.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+        const count = INVOICE_SPECS.filter((s) => s.monthsAgo === m).length
+        console.log(`  ${label}: ${count} invoices`)
+      }
     }
     return
   }
@@ -1865,6 +1877,13 @@ async function main(): Promise<void> {
     { method: 'DELETE', prefer: 'return=minimal' }
   )
   if (!delDocs.ok) console.error('  vault doc delete warning', delDocs.status, delDocs.data)
+
+  if (wipeOnly) {
+    console.log('\nWipe complete — client row kept; no demo A/R reseeded.')
+    console.log(`Restore later with:`)
+    console.log(`  npm run seed-demo -- "${clientName}"`)
+    return
+  }
 
   // 2) Upsert demo brokers (stable ids)
   console.log('Upserting brokers…')

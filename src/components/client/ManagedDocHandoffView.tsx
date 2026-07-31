@@ -167,7 +167,7 @@ export default function ManagedDocHandoffView({
   }
 
   return (
-    <div className="p-5 max-w-2xl mx-auto space-y-5">
+    <div className="p-5 max-w-2xl mx-auto space-y-5" data-onboard-target="submitPanel">
       <div>
         <h2 className="text-lg font-bold" style={{ color: c.primary }}>
           Send documents to Credyx
@@ -179,6 +179,7 @@ export default function ManagedDocHandoffView({
 
       <div
         className={`managed-handoff-dropzone ${isDragging ? 'managed-handoff-dropzone--active' : ''}`}
+        data-onboard-target="submitDropzone"
         onDragOver={(e) => {
           e.preventDefault()
           setIsDragging(true)

@@ -42,6 +42,10 @@ const DOCS: { file: string; outName: string }[] = [
   { file: 'CARRIER_MSA.md', outName: 'Credyx-Carrier-MSA.pdf' },
   { file: 'FEE_SCHEDULE.md', outName: 'Credyx-Fee-Schedule-Exhibit-A.pdf' },
   { file: 'AUTHORIZATION_TO_ACT.md', outName: 'Credyx-Authorization-to-Act-Exhibit-B.pdf' },
+  {
+    file: 'BROKER_NOTICE_OF_AUTHORIZATION.md',
+    outName: 'Credyx-Broker-Notice-of-Authorization.pdf',
+  },
   { file: 'PRIVACY_POLICY.md', outName: 'Credyx-Privacy-Policy.pdf' },
   { file: 'WEBSITE_TERMS.md', outName: 'Credyx-Website-Terms.pdf' },
 ]

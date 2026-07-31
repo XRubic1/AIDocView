@@ -131,7 +131,7 @@ export default function ClientBatchDetailView({
   }, [currentPage, totalPages])
 
   return (
-    <div className="client-batch-detail overflow-hidden flex flex-col min-h-0">
+    <div className="client-batch-detail overflow-hidden flex flex-col min-h-0" data-onboard-target="batchDetail">
       <div className="client-batch-detail__toolbar shrink-0">
         <button type="button" onClick={onBack} className="client-batch-detail__back">
           <ChevronLeft className="w-4 h-4" />
@@ -146,6 +146,7 @@ export default function ClientBatchDetailView({
         <div
           className="flex flex-col justify-center gap-0.5 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
           style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
+          data-onboard-target="batchCardNumber"
         >
           <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
             Batch#
@@ -157,6 +158,7 @@ export default function ClientBatchDetailView({
         <div
           className="flex flex-col justify-center gap-0.5 px-4 py-2.5 lg:border-r border-b sm:border-b-0"
           style={{ backgroundColor: c.stat.slate, borderColor: c.border }}
+          data-onboard-target="batchCardStatus"
         >
           <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
             Status
@@ -166,6 +168,7 @@ export default function ClientBatchDetailView({
         <div
           className="flex flex-col justify-center gap-0.5 px-4 py-2.5 sm:border-r border-b lg:border-b-0"
           style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
+          data-onboard-target="batchCardInvoices"
         >
           <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
             Invoices
@@ -177,6 +180,7 @@ export default function ClientBatchDetailView({
         <div
           className="flex flex-col justify-center gap-0.5 px-4 py-2.5 lg:border-r border-b lg:border-b-0"
           style={{ backgroundColor: c.stat.green, borderColor: c.border }}
+          data-onboard-target="batchCardAmount"
         >
           <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
             Amount
@@ -188,6 +192,7 @@ export default function ClientBatchDetailView({
         <div
           className="flex flex-col justify-center gap-0.5 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
           style={{ backgroundColor: c.stat.amber, borderColor: c.border }}
+          data-onboard-target="batchCardSubmitted"
         >
           <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
             Submitted
@@ -199,6 +204,7 @@ export default function ClientBatchDetailView({
         <div
           className="flex flex-col justify-center gap-0.5 px-4 py-2.5"
           style={{ backgroundColor: c.stat.slate }}
+          data-onboard-target="batchCardOutcome"
         >
           <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
             Outcome
@@ -218,7 +224,10 @@ export default function ClientBatchDetailView({
         </div>
       </section>
 
-      <div className="client-batch-detail__section flex flex-col min-h-0 flex-1">
+      <div
+        className="client-batch-detail__section flex flex-col min-h-0 flex-1"
+        data-onboard-target="batchInvoiceList"
+      >
         <div
           className="client-batch-detail__section-header shrink-0"
           style={{ borderColor: c.border, backgroundColor: c.card }}
