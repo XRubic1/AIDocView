@@ -2,6 +2,8 @@
 
 Attorney-reviewable templates for Credyx. These are **drafts**, not finalized counsel-approved documents.
 
+**Note:** Credyx A/R Solutions operates as a branch of Electro Pionir DOOEL.
+
 ## Public vs signed-contract identity
 
 | Surface | What clients see |
