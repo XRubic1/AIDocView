@@ -13,6 +13,8 @@ interface PaymentKpiCardsProps {
   statusFilter: PaymentStatusFilter
   onStatusFilter: (status: 'confirmed' | 'pending' | 'awaiting_receipt') => void
   showAwaitingConfirmation?: boolean
+  /** Put Confirm KPI first (mobile payments home). */
+  prioritizeConfirm?: boolean
 }
 
 /** Compact payment stats — matches invoice search `client-stat-strip` sizing (no charts). */
@@ -21,6 +23,7 @@ export default function PaymentKpiCards({
   statusFilter,
   onStatusFilter,
   showAwaitingConfirmation = false,
+  prioritizeConfirm = false,
 }: PaymentKpiCardsProps) {
   const c = useClientTheme()
   const summary = useMemo(() => computePaymentTrendSummary(payments, 6), [payments])
@@ -36,7 +39,9 @@ export default function PaymentKpiCards({
 
   return (
     <section
-      className={`client-stat-strip grid ${colClass} border-b shrink-0`}
+      className={`client-stat-strip grid ${colClass}${
+        prioritizeConfirm ? ' payment-kpi-strip--confirm-first' : ''
+      } border-b shrink-0`}
       style={{ borderColor: c.border }}
       aria-label="Payment summary"
     >
@@ -44,7 +49,7 @@ export default function PaymentKpiCards({
         type="button"
         onClick={() => onStatusFilter('confirmed')}
         aria-pressed={statusFilter === 'confirmed'}
-        className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0 text-left transition-colors hover:opacity-90"
+        className="payment-kpi-cell payment-kpi-cell--paid flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0 text-left transition-colors hover:opacity-90"
         style={{
           backgroundColor: c.stat.green,
           borderColor: c.border,
@@ -69,7 +74,7 @@ export default function PaymentKpiCards({
         type="button"
         onClick={() => onStatusFilter('pending')}
         aria-pressed={statusFilter === 'pending'}
-        className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b sm:border-b-0 text-left transition-colors hover:opacity-90"
+        className="payment-kpi-cell payment-kpi-cell--pending flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b sm:border-b-0 text-left transition-colors hover:opacity-90"
         style={{
           backgroundColor: c.stat.amber,
           borderColor: c.border,
@@ -95,7 +100,7 @@ export default function PaymentKpiCards({
           type="button"
           onClick={() => onStatusFilter('awaiting_receipt')}
           aria-pressed={statusFilter === 'awaiting_receipt'}
-          className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left transition-colors hover:opacity-90"
+          className="payment-kpi-cell payment-kpi-cell--confirm flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left transition-colors hover:opacity-90"
           style={{
             backgroundColor: awaitingReceipt.length > 0 ? c.stat.amber : c.stat.blue,
             borderColor: c.border,
@@ -135,7 +140,7 @@ export default function PaymentKpiCards({
         type="button"
         onClick={() => onStatusFilter('confirmed')}
         aria-pressed={statusFilter === 'confirmed'}
-        className="flex items-center justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:opacity-90"
+        className="payment-kpi-cell payment-kpi-cell--received flex items-center justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:opacity-90"
         style={{
           backgroundColor: c.stat.blue,
           borderColor: c.border,

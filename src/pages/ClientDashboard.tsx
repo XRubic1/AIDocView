@@ -1,6 +1,7 @@
 /**
  * Client dashboard — first glance: Open Balance, Actions, one trend chart.
  * Previous version archived as `ClientDashboardLegacy.tsx`.
+ * Phones use `MobileEmptyDashboard` (card-stack home from the same A/R snapshot).
  */
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -11,8 +12,10 @@ import AccountGrowthCard from '../components/client/dashboard/AccountGrowthCard'
 import WelcomeHeader from '../components/client/dashboard/WelcomeHeader'
 import AIActivitySummary from '../components/client/dashboard/AIActivitySummary'
 import AIRecommendations from '../components/client/dashboard/AIRecommendations'
+import MobileEmptyDashboard from '../components/client/dashboard/MobileEmptyDashboard'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
+import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { isInvoiceOverdue, isOpenArInvoice } from '../utils/invoiceAging'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from '../utils/paymentVariance'
@@ -25,6 +28,14 @@ import { formatCurrency } from '../utils/format'
 import '../styles/clientDashboard.css'
 
 export default function ClientDashboard() {
+  const isPhoneViewport = useIsMobileViewport()
+  if (isPhoneViewport) {
+    return <MobileEmptyDashboard />
+  }
+  return <ClientDashboardDesktop />
+}
+
+function ClientDashboardDesktop() {
   const {
     invoices: rawInvoices,
     payments,

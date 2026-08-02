@@ -9,7 +9,7 @@
 }
 
 .credyx-wordmark--compact {
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .credyx-wordmark__name {
@@ -66,28 +66,62 @@
   outline-color: #c2a558;
 }
 
-/* Real logo asset (client portal sidebar / headers) */
+/* Cropped transparent logo assets */
 .credyx-wordmark--logo {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
 }
 
 .credyx-wordmark__logo-img {
   display: block;
-  height: 40px;
+  height: 30px;
   width: auto;
-  max-width: 100%;
+  max-width: min(160px, 100%);
   object-fit: contain;
   object-position: left center;
+  /* Smooth scale on retina — avoid crisp-edges (looks jagged) */
+  image-rendering: auto;
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .credyx-wordmark--compact .credyx-wordmark__logo-img {
-  height: 40px;
+  height: 28px;
+  max-width: min(152px, 100%);
 }
 
 .credyx-wordmark--full .credyx-wordmark__logo-img {
-  height: 48px;
+  height: 32px;
+  max-width: min(172px, 100%);
+}
+
+/* Mobile drawer brand — flush left, clean size */
+.client-portal .client-mobile-drawer__brand {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.client-portal .client-mobile-drawer__brand-logo {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  padding: 14px 56px 14px 16px;
+}
+
+.client-portal .client-mobile-drawer__brand .credyx-wordmark--logo {
+  display: inline-flex;
+  justify-content: flex-start;
+  width: fit-content;
+  margin: 0;
+}
+
+.client-portal .client-mobile-drawer__brand .credyx-wordmark__logo-img {
+  height: 30px;
+  max-width: 158px;
+  margin: 0;
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, type ReactNode } from 'react'
+import { useMemo, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import {
   ChevronDown,
@@ -9,6 +9,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   RefreshCw,
+  Sparkles,
 } from 'lucide-react'
 import { Notification } from '../types/notification'
 import NotificationBell from './NotificationBell'
@@ -64,7 +65,10 @@ import ThemeToggle from './ThemeToggle'
 import CredyxWordmark from './CredyxWordmark'
 import AssistantFab from './client/assistant/AssistantFab'
 import AssistantHeaderBuddy from './client/assistant/AssistantHeaderBuddy'
+import ClientBottomNav from './client/ClientBottomNav'
+import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
+import { requestAssistantOpen } from '../utils/assistantFabPlacement'
 import '../styles/clientPortal.css'
 import '../styles/clientPortalDark.css'
 import '../styles/credyxWordmark.css'
@@ -217,9 +221,75 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     dismissStatusTourOffer()
   }
   const { resolvedTheme } = useTheme()
-  const [mobileOpen, setMobileOpen] = useState(false)
+  const isPhoneViewport = useIsMobileViewport()
+  const [mobileDrawerMounted, setMobileDrawerMounted] = useState(false)
+  const [mobileDrawerVisible, setMobileDrawerVisible] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
+  /** Phone bottom tabs — tablet keeps hamburger; immersive onboarding hides chrome. */
+  const showBottomNav = isPhoneViewport && !hidePortalChrome
+  /** Dashboard hosts the menu in the Open Balance row — hide the floating control there. */
+  const showFloatingPhoneMenu =
+    showBottomNav &&
+    !location.pathname.startsWith('/client/dashboard') &&
+    !location.pathname.startsWith('/client/onboarding')
+  /** Top-right AI — floating on non-dashboard pages; dashboard hosts it in the hero bar. */
+  const showFloatingPhoneAi =
+    showBottomNav &&
+    showBuddy &&
+    !location.pathname.startsWith('/client/dashboard') &&
+    !location.pathname.startsWith('/client/onboarding') &&
+    !location.pathname.startsWith('/client/assistant')
+
+  const openMobileDrawer = useCallback(() => {
+    setMobileDrawerMounted(true)
+  }, [])
+
+  /** Animate panel out, then unmount after the transition finishes. */
+  const closeMobileDrawer = useCallback(() => {
+    setMobileDrawerVisible(false)
+  }, [])
+
+  useEffect(() => {
+    const onOpenMenu = () => openMobileDrawer()
+    window.addEventListener('credyx:open-client-menu', onOpenMenu)
+    return () => window.removeEventListener('credyx:open-client-menu', onOpenMenu)
+  }, [openMobileDrawer])
+
+  /** After mount, flip visible on the next frame so CSS can transition in. */
+  useEffect(() => {
+    if (!mobileDrawerMounted) return
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setMobileDrawerVisible(true))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [mobileDrawerMounted])
+
+  /** After close transition, unmount the drawer. */
+  useEffect(() => {
+    if (mobileDrawerVisible || !mobileDrawerMounted) return
+    const timer = window.setTimeout(() => setMobileDrawerMounted(false), 320)
+    return () => window.clearTimeout(timer)
+  }, [mobileDrawerVisible, mobileDrawerMounted])
+
+  /** Lock background scroll while the phone menu drawer is open. */
+  useEffect(() => {
+    if (!mobileDrawerMounted) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [mobileDrawerMounted])
+
+  useEffect(() => {
+    if (!mobileDrawerMounted) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeMobileDrawer()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mobileDrawerMounted, closeMobileDrawer])
 
   useEffect(() => {
     if (!resolvedClientId) {
@@ -350,7 +420,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
   }
 
   const handleNavClick = (path: string) => {
-    setMobileOpen(false)
+    closeMobileDrawer()
     if (path.startsWith('mailto:')) {
       window.location.href = path
       return
@@ -387,7 +457,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     if (notification.payment_id) params.set('paymentId', notification.payment_id)
     const url = params.toString() ? `${notification.link}?${params.toString()}` : notification.link
     navigate(url)
-    setMobileOpen(false)
+    closeMobileDrawer()
   }
 
   const sidebarContent = (isMobile = false) => {
@@ -396,18 +466,22 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       !isMobile && collapsed ? label : undefined
 
     return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className={`flex flex-col h-full overflow-hidden${isMobile ? ' client-mobile-drawer__content' : ''}`}>
       {/* Brand — full logo when expanded; C mark in collapsed rail */}
       <div
-        className="flex items-center border-b"
-        style={{ borderColor: t.sidebar.border, minHeight: sidebarExpanded ? 64 : 52 }}
+        className={`flex items-center border-b${isMobile ? ' client-mobile-drawer__brand' : ''}`}
+        style={{ borderColor: t.sidebar.border, minHeight: isMobile ? 56 : sidebarExpanded ? 64 : 52 }}
       >
-        {sidebarExpanded ? (
-          <div className="min-w-0 flex-1 px-3 py-2">
+        {sidebarExpanded || isMobile ? (
+          <div className={isMobile ? 'client-mobile-drawer__brand-logo' : 'min-w-0 flex-1 px-3 py-2'}>
             <CredyxWordmark
               variant="compact"
               theme="client"
-              onClick={() => navigate('/client/dashboard')}
+              surface={resolvedTheme === 'dark' ? 'on-dark' : 'on-light'}
+              onClick={() => {
+                if (isMobile) closeMobileDrawer()
+                navigate('/client/dashboard')
+              }}
             />
           </div>
         ) : (
@@ -424,42 +498,44 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
         )}
       </div>
 
-      {/* Company context */}
-      <div className="border-b" style={{ borderColor: t.sidebar.border }}>
-        <div className="flex items-center min-w-0 py-2">
-          <div
-            className="shrink-0 flex items-center justify-center"
-            style={{ width: iconColWidth }}
-            title={tip(resolvedClientName)}
-          >
+      {/* Company context — desktop sidebar only */}
+      {!isMobile ? (
+        <div className="border-b" style={{ borderColor: t.sidebar.border }}>
+          <div className="flex items-center min-w-0 py-2">
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold"
-              style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
+              className="shrink-0 flex items-center justify-center"
+              style={{ width: iconColWidth }}
+              title={tip(resolvedClientName)}
             >
-              {getInitials(resolvedClientName)}
+              <div
+                className="w-7 h-7 text-[10px] rounded-full flex items-center justify-center font-semibold"
+                style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
+              >
+                {getInitials(resolvedClientName)}
+              </div>
             </div>
-          </div>
-          <div className="min-w-0 flex-1 overflow-hidden whitespace-nowrap pr-3">
-            <div className="text-[13px] font-semibold truncate leading-tight" style={{ color: t.sidebar.text }}>
-              {resolvedClientName}
-            </div>
-            <div className="text-[11px] truncate leading-tight" style={{ color: t.sidebar.muted }}>
-              {getTierLabel(tier)}
+            <div className="min-w-0 flex-1 overflow-hidden whitespace-nowrap pr-3">
+              <div className="text-[13px] font-semibold truncate leading-tight" style={{ color: t.sidebar.text }}>
+                {resolvedClientName}
+              </div>
+              <div className="text-[11px] truncate leading-tight" style={{ color: t.sidebar.muted }}>
+                {getTierLabel(tier)}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       {/* Navigation */}
-      <nav className="client-sidebar-nav-scroll space-y-1">
+      <nav className={`client-sidebar-nav-scroll${isMobile ? ' client-mobile-drawer__nav' : ''} space-y-1`}>
         {navSections.map((section, sectionIndex) => (
           <div key={section.title || `section-${sectionIndex}`}>
             {section.title ? (
               <div
-                className="mb-0.5 px-3 text-[10px] font-semibold tracking-wider uppercase whitespace-nowrap overflow-hidden"
+                className={`${isMobile ? 'mb-1 mt-2 px-4 text-[11px]' : 'mb-0.5 px-3 text-[10px]'} font-semibold tracking-wider uppercase whitespace-nowrap overflow-hidden`}
                 style={{
                   color: t.sidebar.muted,
-                  height: '0.875rem',
+                  height: isMobile ? 'auto' : '0.875rem',
                   // Keep row height when collapsed so expand doesn't shove items down.
                   opacity: sidebarExpanded || isMobile ? 1 : 0,
                 }}
@@ -468,7 +544,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                 {section.title}
               </div>
             ) : null}
-            <ul className="space-y-px">
+            <ul className={isMobile ? 'space-y-1' : 'space-y-px'}>
               {section.items.map((item) => {
                 const active = isNavActive(item.path)
                 const Icon = item.icon
@@ -478,7 +554,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                 const showLabels = sidebarExpanded || isMobile
                 // Icon column matches rail width minus the shared 8px inset on each side,
                 // so left offset stays identical while collapsed ↔ expanded.
-                const navIconColWidth = iconColWidth - 16
+                const navIconColWidth = isMobile ? 44 : iconColWidth - 16
 
                 return (
                   <li key={item.path}>
@@ -515,7 +591,9 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                                                   ? 'navDashboard'
                                                   : undefined
                       }
-                      className={`client-sidebar-nav-item w-full flex items-center text-[13px] transition-colors duration-200${
+                      className={`client-sidebar-nav-item w-full flex items-center transition-colors duration-200${
+                        isMobile ? ' client-sidebar-nav-item--mobile text-[15px]' : ' text-[13px]'
+                      }${
                         progressive && justRevealedNavPaths.includes(item.path)
                           ? ' client-sidebar-nav-item--onboard-reveal'
                           : ''
@@ -537,7 +615,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                         style={{ width: navIconColWidth }}
                       >
                         <Icon
-                          className="w-4 h-4"
+                          className={isMobile ? 'w-5 h-5' : 'w-4 h-4'}
                           strokeWidth={1.75}
                           style={{ color: active ? t.sidebar.activeText : t.mutedLight }}
                         />
@@ -551,12 +629,12 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                           </span>
                         )}
                       </span>
-                      <span className="flex-1 min-w-0 text-left truncate whitespace-nowrap py-1 pr-3">
+                      <span className={`flex-1 min-w-0 text-left truncate whitespace-nowrap pr-3${isMobile ? ' py-3' : ' py-1'}`}>
                         {item.label}
                       </span>
                       {badge > 0 && showLabels && (
                         <span
-                          className="mr-3 min-w-[18px] h-4 px-1 flex items-center justify-center rounded-full text-[9px] font-bold text-white shrink-0"
+                          className={`${isMobile ? 'mr-3 min-w-[22px] h-5 text-[11px]' : 'mr-3 min-w-[18px] h-4 text-[9px]'} px-1.5 flex items-center justify-center rounded-full font-bold text-white shrink-0`}
                           style={{ backgroundColor: badgeColor }}
                         >
                           {badge}
@@ -606,11 +684,11 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       )}
 
       {/* User profile */}
-      <div className="py-2 border-t relative" style={{ borderColor: t.sidebar.border }}>
+      <div className={`${isMobile ? 'py-3' : 'py-2'} border-t relative`} style={{ borderColor: t.sidebar.border }}>
         <button
           type="button"
           onClick={() => setUserMenuOpen((open) => !open)}
-          className="w-full flex items-center transition-colors"
+          className={`w-full flex items-center transition-colors${isMobile ? ' min-h-[52px]' : ''}`}
           style={{ color: t.sidebar.text }}
           title={tip(userDisplayName)}
           onMouseEnter={(e) => {
@@ -621,19 +699,19 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
           }}
         >
           <span
-            className="shrink-0 flex items-center justify-center self-stretch py-1.5"
-            style={{ width: iconColWidth }}
+            className={`shrink-0 flex items-center justify-center self-stretch${isMobile ? ' py-2' : ' py-1.5'}`}
+            style={{ width: isMobile ? 48 : iconColWidth }}
           >
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold"
+              className={`${isMobile ? 'w-9 h-9 text-[11px]' : 'w-7 h-7 text-[10px]'} rounded-full flex items-center justify-center font-semibold`}
               style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
             >
               {getInitials(userDisplayName)}
             </div>
           </span>
-          <div className="flex-1 min-w-0 text-left overflow-hidden whitespace-nowrap py-1.5 pr-1">
-            <div className="text-[13px] font-semibold truncate leading-tight">{userDisplayName}</div>
-            <div className="text-[11px] truncate leading-tight" style={{ color: t.sidebar.muted }}>
+          <div className={`flex-1 min-w-0 text-left overflow-hidden whitespace-nowrap pr-1${isMobile ? ' py-2' : ' py-1.5'}`}>
+            <div className={`${isMobile ? 'text-[15px]' : 'text-[13px]'} font-semibold truncate leading-tight`}>{userDisplayName}</div>
+            <div className={`${isMobile ? 'text-[12px]' : 'text-[11px]'} truncate leading-tight`} style={{ color: t.sidebar.muted }}>
               {userRole === 'Client' ? 'A/R Manager' : userRole}
             </div>
           </div>
@@ -657,7 +735,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             <button
               type="button"
               onClick={handleLogout}
-              className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left transition-colors rounded-lg mx-0"
+              className={`w-full flex items-center gap-2 px-3 text-left transition-colors rounded-lg mx-0${isMobile ? ' py-3.5 text-[15px]' : ' py-2.5 text-sm'}`}
               style={{ color: t.sidebar.text }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = t.sidebar.hover
@@ -666,7 +744,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                 e.currentTarget.style.backgroundColor = 'transparent'
               }}
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
               Sign out
             </button>
           </div>
@@ -680,7 +758,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     <div
       className={`client-portal flex h-screen overflow-hidden${
         hidePortalChrome ? ' client-portal--onboard-immersive' : ''
-      }`}
+      }${showBottomNav ? ' client-portal--bottom-nav' : ''}`}
       data-theme={resolvedTheme}
       style={{ backgroundColor: t.surface, ['--sidebar-width' as string]: `${mainOffset}px` }}
     >
@@ -699,115 +777,148 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
         {sidebarContent()}
       </aside>
 
-      {/* Mobile sidebar overlay */}
-      {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
+      {/* Mobile sidebar overlay — phone-friendly drawer */}
+      {mobileDrawerMounted ? (
+        <div
+          className={`client-mobile-drawer lg:hidden${mobileDrawerVisible ? ' is-visible' : ''}`}
+          role="presentation"
+        >
           <button
             type="button"
-            className="absolute inset-0 bg-slate-900/20"
-            onClick={() => setMobileOpen(false)}
+            className="client-mobile-drawer__backdrop"
+            onClick={closeMobileDrawer}
             aria-label="Close menu"
           />
           <aside
-            className="relative w-[260px] h-full border-r"
+            className="client-mobile-drawer__panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation menu"
             style={{
               backgroundColor: t.sidebar.bg,
               borderColor: t.sidebar.border,
-              boxShadow: t.shadow.cardHover,
             }}
           >
             <button
               type="button"
-              onClick={() => setMobileOpen(false)}
-              className="absolute top-3 right-3 p-1.5 rounded-lg client-header-icon-btn"
-              style={{ color: t.muted }}
+              onClick={closeMobileDrawer}
+              className="client-mobile-drawer__close"
+              style={{ color: t.sidebar.text }}
               aria-label="Close menu"
             >
-              <X className="w-5 h-5" />
+              <X className="w-5 h-5" strokeWidth={2} aria-hidden />
             </button>
             {sidebarContent(true)}
           </aside>
         </div>
-      )}
+      ) : null}
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-[margin] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] lg:ml-[var(--sidebar-width)]">
-        <header
-          className="client-topbar sticky top-0 z-30 border-b"
-          style={{ borderColor: t.border, backgroundColor: t.sidebar.bg }}
-        >
+        {showFloatingPhoneMenu ? (
           <button
             type="button"
-            onClick={() => setMobileOpen(true)}
-            className="lg:hidden p-2 -ml-1 rounded-lg client-header-icon-btn shrink-0"
-            style={{ color: t.primary }}
+            className="client-phone-menu-btn"
+            onClick={openMobileDrawer}
             aria-label="Open menu"
+            aria-expanded={mobileDrawerVisible}
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-5 h-5" strokeWidth={1.75} aria-hidden />
           </button>
+        ) : null}
 
-          <div className="flex-1 min-w-0 hidden lg:block">
-            <p className="text-sm font-medium truncate" style={{ color: t.secondary }}>
-              {resolvedClientName}
-            </p>
-          </div>
+        {showFloatingPhoneAi ? (
+          <button
+            type="button"
+            className="client-phone-ai-btn"
+            onClick={() => requestAssistantOpen()}
+            aria-label="Open AI assistant"
+            title="Ask AI"
+          >
+            <Sparkles className="client-phone-ai-btn__icon" strokeWidth={2} aria-hidden />
+            <span className="client-phone-ai-btn__label">Ask AI</span>
+          </button>
+        ) : null}
 
-          <div className="client-topbar__actions">
-            {location.pathname.startsWith('/client/onboarding') ? (
-              <button
-                type="button"
-                className="client-header-icon-btn p-2 rounded-lg shrink-0"
-                style={{ color: t.primary }}
-                title="Replay onboarding tour"
-                aria-label="Replay onboarding tour"
-                onClick={() => {
-                  if (resolvedClientId) {
-                    resetOnboardingDashboardPrefs(resolvedClientId)
-                    cleanupTourInvoice(resolvedClientId)
-                  }
-                  resetAllOnboardingChrome()
-                  if (!location.pathname.startsWith('/client/onboarding')) {
-                    navigate('/client/onboarding')
-                  }
-                  // Let OnboardingDashboard remount tour state (same-tab).
-                  window.setTimeout(() => dispatchReplayOnboardingTour(), 0)
-                }}
-              >
-                <RefreshCw className="w-4 h-4" strokeWidth={1.75} />
-              </button>
-            ) : null}
-            {showBuddy ? (
-              <div className="hidden lg:block shrink-0 client-topbar__onboard-reveal">
-                <AssistantHeaderBuddy mode="client" />
-              </div>
-            ) : null}
-            <div className="hidden lg:block shrink-0">
-              <ThemeToggle compact />
+        {!showBottomNav ? (
+          <header
+            className="client-topbar sticky top-0 z-30 border-b"
+            style={{ borderColor: t.border, backgroundColor: t.sidebar.bg }}
+          >
+            <button
+              type="button"
+              onClick={openMobileDrawer}
+              className="client-topbar__menu-btn lg:hidden p-2 -ml-1 rounded-lg client-header-icon-btn shrink-0"
+              style={{ color: t.primary }}
+              aria-label="Open menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            <div className="flex-1 min-w-0 hidden lg:block">
+              <p className="text-sm font-medium truncate" style={{ color: t.secondary }}>
+                {resolvedClientName}
+              </p>
             </div>
-            {showNotifs ? (
-              <div className="client-topbar__onboard-reveal">
-                <NotificationBell
-                  notifications={notifications}
-                  onMarkAsRead={handleMarkAsRead}
-                  onMarkAllAsRead={handleMarkAllAsRead}
-                  onNotificationClick={handleNotificationClick}
-                />
+
+            <div className="client-topbar__actions">
+              {location.pathname.startsWith('/client/onboarding') ? (
+                <button
+                  type="button"
+                  className="client-header-icon-btn p-2 rounded-lg shrink-0"
+                  style={{ color: t.primary }}
+                  title="Replay onboarding tour"
+                  aria-label="Replay onboarding tour"
+                  onClick={() => {
+                    if (resolvedClientId) {
+                      resetOnboardingDashboardPrefs(resolvedClientId)
+                      cleanupTourInvoice(resolvedClientId)
+                    }
+                    resetAllOnboardingChrome()
+                    if (!location.pathname.startsWith('/client/onboarding')) {
+                      navigate('/client/onboarding')
+                    }
+                    // Let OnboardingDashboard remount tour state (same-tab).
+                    window.setTimeout(() => dispatchReplayOnboardingTour(), 0)
+                  }}
+                >
+                  <RefreshCw className="w-4 h-4" strokeWidth={1.75} />
+                </button>
+              ) : null}
+              {showBuddy ? (
+                <div className="hidden lg:block shrink-0 client-topbar__onboard-reveal">
+                  <AssistantHeaderBuddy mode="client" />
+                </div>
+              ) : null}
+              <div className="hidden lg:block shrink-0">
+                <ThemeToggle compact />
               </div>
-            ) : null}
-            {showUpload && (capabilities.canCreateBatch || capabilities.canSubmitDocHandoff) ? (
-              <button
-                type="button"
-                onClick={() => navigate('/client/batches?tab=create')}
-                data-onboard-target="navUpload"
-                className="client-topbar__upload-btn client-topbar__onboard-reveal inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary shrink-0"
-                aria-label="Submit documents"
-              >
-                <Upload className="w-4 h-4" />
-                {capabilities.canCreateBatch ? 'Upload' : 'Send docs'}
-              </button>
-            ) : null}
-          </div>
-        </header>
+              {showNotifs ? (
+                <div className="client-topbar__onboard-reveal">
+                  <NotificationBell
+                    notifications={notifications}
+                    onMarkAsRead={handleMarkAsRead}
+                    onMarkAllAsRead={handleMarkAllAsRead}
+                    onNotificationClick={handleNotificationClick}
+                  />
+                </div>
+              ) : null}
+              {showUpload &&
+              (capabilities.canCreateBatch || capabilities.canSubmitDocHandoff) ? (
+                <button
+                  type="button"
+                  onClick={() => navigate('/client/batches?tab=create')}
+                  data-onboard-target="navUpload"
+                  className="client-topbar__upload-btn client-topbar__onboard-reveal inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold transition-colors dashboard-btn-primary shrink-0"
+                  aria-label="Submit documents"
+                >
+                  <Upload className="w-4 h-4" />
+                  {capabilities.canCreateBatch ? 'Upload' : 'Send docs'}
+                </button>
+              ) : null}
+            </div>
+          </header>
+        ) : null}
 
         <main
           className={`flex-1 w-full min-h-0 min-w-0 ${
@@ -818,6 +929,24 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
         >
           {children}
         </main>
+
+        {showBottomNav ? (
+          <ClientBottomNav
+            isNavActive={isNavActive}
+            onNavigate={handleNavClick}
+            badges={{
+              pendingBatches: pendingBatchCount,
+              heldInvoices: heldInvoiceCount,
+            }}
+            showUpload={showUpload}
+            canUpload={capabilities.canCreateBatch || capabilities.canSubmitDocHandoff}
+            showNotifications={showNotifs}
+            notifications={notifications}
+            onMarkAsRead={handleMarkAsRead}
+            onMarkAllAsRead={handleMarkAllAsRead}
+            onNotificationClick={handleNotificationClick}
+          />
+        ) : null}
       </div>
 
       {submitTourActive && submitTourStep ? (

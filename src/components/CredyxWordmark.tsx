@@ -1,4 +1,5 @@
 import type { CSSProperties, KeyboardEvent } from 'react'
+import { useTheme } from '../theme/ThemeContext'
 
 export type CredyxWordmarkVariant = 'full' | 'compact' | 'mark'
 export type CredyxWordmarkTheme = 'client' | 'admin'
@@ -8,6 +9,11 @@ interface CredyxWordmarkProps {
   theme?: CredyxWordmarkTheme
   className?: string
   onClick?: () => void
+  /**
+   * Force logo contrast. Default follows the active color theme
+   * (`on-dark` = white wordmark, `on-light` = navy wordmark).
+   */
+  surface?: 'on-light' | 'on-dark' | 'auto'
 }
 
 const themeTokens: Record<
@@ -30,8 +36,9 @@ const themeTokens: Record<
   },
 }
 
-/** Light-mode client logo (navy Cred + blue yx arrow). */
-const CLIENT_LOGO_SRC = '/credyx-nav-logo.png'
+/** Tight-cropped transparent wordmarks for nav chrome. */
+const CLIENT_LOGO_ON_LIGHT = '/credyx-nav-wordmark-light.png'
+const CLIENT_LOGO_ON_DARK = '/credyx-nav-wordmark-dark.png'
 
 /** Typographic Credyx brand mark for navbars and sidebars. */
 export default function CredyxWordmark({
@@ -39,9 +46,13 @@ export default function CredyxWordmark({
   theme = 'client',
   className = '',
   onClick,
+  surface = 'auto',
 }: CredyxWordmarkProps) {
   const colors = themeTokens[theme]
+  const { resolvedTheme } = useTheme()
   const isInteractive = !!onClick
+  const onDark =
+    surface === 'on-dark' || (surface === 'auto' && resolvedTheme === 'dark')
 
   const rootStyle: CSSProperties = {
     cursor: isInteractive ? 'pointer' : undefined,
@@ -62,21 +73,24 @@ export default function CredyxWordmark({
     'aria-label': 'Credyx A/R Solutions',
   }
 
-  // Client portal uses the real logo asset (text wordmark for admin stays).
+  // Client portal — real logo image (cropped, transparent).
   if (theme === 'client' && variant !== 'mark') {
     return (
       <div
-        className={`credyx-wordmark credyx-wordmark--logo credyx-wordmark--${variant} credyx-wordmark--${theme} ${className}`.trim()}
+        className={`credyx-wordmark credyx-wordmark--logo credyx-wordmark--${variant} credyx-wordmark--${theme}${
+          onDark ? ' credyx-wordmark--on-dark' : ' credyx-wordmark--on-light'
+        } ${className}`.trim()}
         style={rootStyle}
         {...interactiveProps}
       >
         <img
-          src={CLIENT_LOGO_SRC}
+          src={onDark ? CLIENT_LOGO_ON_DARK : CLIENT_LOGO_ON_LIGHT}
           alt="Credyx"
           className="credyx-wordmark__logo-img"
           width={360}
-          height={96}
+          height={110}
           decoding="async"
+          draggable={false}
         />
       </div>
     )

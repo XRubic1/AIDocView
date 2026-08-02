@@ -32,8 +32,9 @@ import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { useToast } from '../components/ui/ToastProvider'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import PaymentConfirmationPanel from '../components/client/PaymentConfirmationPanel'
-import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
+import { useCompactDetailViewport, useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
+import MobilePaymentListCard from '../components/client/MobilePaymentListCard'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
@@ -226,12 +227,14 @@ export default function ClientPayments() {
   const { capabilities } = useClientCapabilities()
   const { showToast } = useToast()
   const useFullPageDetail = useCompactDetailViewport()
+  const isMobile = useIsMobileViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
   const authorName = clientName
   const openedPaymentFromLinkRef = useRef<string | null>(null)
   const pendingRestorePaymentIdRef = useRef<string | null>(null)
+  const mobileDefaultsAppliedRef = useRef(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [payments, setPayments] = useState<Payment[]>(() =>
     buildInitialPayments(clientId, clientName)
@@ -303,6 +306,22 @@ export default function ClientPayments() {
     if (statusFilter !== 'all') count += 1
     return count
   }, [dateFrom, dateTo, methodFilter, statusFilter])
+
+  /**
+   * Mobile default: open Filters with “Awaiting confirmation” selected
+   * so action-needed payments are front and center.
+   */
+  useEffect(() => {
+    if (!isMobile || mobileDefaultsAppliedRef.current) return
+    if (searchParams.get('status') || searchParams.get('paymentId')) {
+      mobileDefaultsAppliedRef.current = true
+      return
+    }
+    if (!capabilities.canConfirmPaymentReceipt) return
+    mobileDefaultsAppliedRef.current = true
+    setStatusFilter('awaiting_receipt')
+    setFiltersOpen(true)
+  }, [isMobile, capabilities.canConfirmPaymentReceipt, searchParams])
 
   const matchesDatePreset = useCallback(
     (preset: '30d' | '90d' | 'ytd') => {
@@ -1115,7 +1134,7 @@ export default function ClientPayments() {
           payments={payments}
           statusFilter={
             statusFilter === 'all'
-              ? 'confirmed'
+              ? 'all'
               : statusFilter === 'pending' ||
                   statusFilter === 'confirmed' ||
                   statusFilter === 'awaiting_receipt'
@@ -1124,6 +1143,7 @@ export default function ClientPayments() {
           }
           onStatusFilter={handleKpiStatusFilter}
           showAwaitingConfirmation={capabilities.canConfirmPaymentReceipt}
+          prioritizeConfirm={isMobile}
         />
 
         <div
@@ -1162,6 +1182,36 @@ export default function ClientPayments() {
               )}
             </button>
           </div>
+
+          {isMobile && capabilities.canConfirmPaymentReceipt ? (
+            <div
+              className="client-payments-status-tabs"
+              role="tablist"
+              aria-label="Payment status"
+            >
+              {(
+                [
+                  { id: 'awaiting_receipt' as const, label: 'Confirm' },
+                  { id: 'pending' as const, label: 'Pending' },
+                  { id: 'confirmed' as const, label: 'Confirmed' },
+                  { id: 'all' as const, label: 'All' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={statusFilter === tab.id}
+                  className={`client-payments-status-tabs__btn${
+                    statusFilter === tab.id ? ' is-active' : ''
+                  }`}
+                  onClick={() => setStatusFilter(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           <div
             className={`client-payments-filters-wrap ${
@@ -1351,7 +1401,9 @@ export default function ClientPayments() {
                 </p>
                 <p className="text-sm" style={{ color: c.secondary }}>
                   {searchTerm || dateFrom || dateTo || methodFilter !== 'all' || statusFilter !== 'all'
-                    ? 'Try adjusting your search or filters'
+                    ? statusFilter === 'awaiting_receipt'
+                      ? 'No payments waiting for your confirmation'
+                      : 'Try adjusting your search or filters'
                     : 'Posted and pending payments appear here'}
                 </p>
               </div>
@@ -1370,6 +1422,25 @@ export default function ClientPayments() {
             }
           >
             <div className="payments-list-panel">
+            {isMobile ? (
+              <div className="mobile-payment-list">
+                {paginatedGroups.map(({ payment, orphanChild }) => (
+                  <MobilePaymentListCard
+                    key={payment.id}
+                    payment={payment}
+                    invoiceAmount={
+                      orphanChild
+                        ? undefined
+                        : invoiceAmountById.get(payment.invoice_id)
+                    }
+                    selected={selectedPayment?.id === payment.id}
+                    onClick={() => {
+                      handleViewPaymentDetail(payment)
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
             <div className="client-table-scroll client-table-scroll--mobile-stack overflow-x-auto flex-1 min-h-0">
               <table className="dashboard-table dashboard-table--compact">
                 <thead>
@@ -1469,6 +1540,7 @@ export default function ClientPayments() {
                 </tfoot>
               </table>
             </div>
+            )}
 
             <div
               className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t shrink-0"
