@@ -43,13 +43,13 @@ const PANEL_DEFAULT = 280
 
 const FILTERS: { id: FilterId; label: string }[] = [
   { id: 'all', label: 'All' },
-  { id: 'held', label: 'Held' },
-  { id: 'overdue', label: 'Overdue' },
   { id: 'confirm', label: 'Confirm' },
+  { id: 'held', label: 'On hold' },
+  { id: 'overdue', label: 'Overdue' },
 ]
 
 function actionPill(action: RequiredAction): { label: string; tone: string } {
-  if (action.type === 'held_invoice') return { label: 'Held', tone: 'warn' }
+  if (action.type === 'held_invoice') return { label: 'On hold', tone: 'warn' }
   if (action.type === 'overdue_invoice') return { label: 'Overdue', tone: 'danger' }
   return { label: 'Confirm', tone: 'info' }
 }

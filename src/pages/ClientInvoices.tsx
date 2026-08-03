@@ -41,6 +41,7 @@ import {
   type InvoiceBalanceState,
 } from '../utils/paymentVariance'
 import { hasPpwBeenSent } from '../utils/ppwSent'
+import { compareInvoicesByListPriority } from '../utils/invoiceListPriority'
 
 type InvoiceSortField =
   | 'invoice_number'
@@ -56,20 +57,25 @@ type InvoiceSortField =
 
 /** Working list — excludes paid and closed invoices. */
 type InvoiceStatusFilter =
-  | 'active'
-  | 'overdue'
-  | 'pending'
+  | 'confirm'
+  | 'short_paid'
   | 'approved'
   | 'hold'
+  | 'overdue'
+  | 'active'
+  | 'pending'
   | 'paid'
   | 'closed'
 
+/** Filter chip order — Active first, then Overdue, Confirm, and the rest. */
 const INVOICE_STATUS_FILTERS: { id: InvoiceStatusFilter; label: string }[] = [
   { id: 'active', label: 'Active' },
   { id: 'overdue', label: 'Overdue' },
-  { id: 'pending', label: 'Pending' },
+  { id: 'confirm', label: 'Confirm' },
+  { id: 'short_paid', label: 'Short paid' },
   { id: 'approved', label: 'Open' },
-  { id: 'hold', label: 'Hold' },
+  { id: 'hold', label: 'On hold' },
+  { id: 'pending', label: 'Pending' },
   { id: 'paid', label: 'Paid' },
   { id: 'closed', label: 'Closed' },
 ]
@@ -94,10 +100,15 @@ function matchesInvoiceStatusFilter(
   invoice: EnrichedInvoice,
   filter: InvoiceStatusFilter,
   displayStatus: string,
-  options?: { awaitingReceipt?: boolean }
+  options?: { awaitingReceipt?: boolean; isShortPaid?: boolean }
 ): boolean {
   const awaitingReceipt = Boolean(options?.awaitingReceipt)
+  const isShortPaid = Boolean(options?.isShortPaid)
   switch (filter) {
+    case 'confirm':
+      return awaitingReceipt
+    case 'short_paid':
+      return isShortPaid && !awaitingReceipt
     case 'active':
       // Paid invoices with a Credyx short/payment awaiting confirm stay in Active.
       if (awaitingReceipt) return true
@@ -105,6 +116,9 @@ function matchesInvoiceStatusFilter(
     case 'overdue':
       return Boolean(invoice.isOverdue)
     case 'approved':
+      // Open filter = unpaid open A/R that is not short-paid (short paid has its own chip).
+      if (isShortPaid && !awaitingReceipt) return false
+      return displayStatus === filter
     case 'paid':
       return displayStatus === filter
     case 'closed':
@@ -121,12 +135,29 @@ function matchesInvoiceStatusFilter(
 function statusFilterForInvoice(
   _invoice: EnrichedInvoice,
   displayStatus: string,
-  options?: { awaitingReceipt?: boolean }
+  options?: { awaitingReceipt?: boolean; isShortPaid?: boolean }
 ): InvoiceStatusFilter {
-  if (options?.awaitingReceipt) return 'active'
+  if (options?.awaitingReceipt) return 'confirm'
+  if (options?.isShortPaid) return 'short_paid'
   if (displayStatus === 'paid') return 'paid'
   if (CLOSED_DISPLAY_STATUSES.has(displayStatus)) return 'closed'
   return 'active'
+}
+
+/** Open A/R short-pay eligible for list sort / Short paid filter (excludes closed/hold). */
+function isInvoiceListShortPaid(
+  invoice: { status: string },
+  balance: InvoiceBalanceState | undefined
+): boolean {
+  if (
+    invoice.status === 'written_off' ||
+    invoice.status === 'write_off_pending' ||
+    invoice.status === 'force_closed' ||
+    invoice.status === 'hold'
+  ) {
+    return false
+  }
+  return balance?.tone === 'short'
 }
 
 /** Open balance display — remaining due, $0 when settled, +overage when overpaid. */
@@ -184,6 +215,27 @@ export default function ClientInvoices() {
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<InvoiceSortField>('invoice_date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  /** Mobile filter row — show right-edge arrow while more pills are off-screen. */
+  const filterScrollRef = useRef<HTMLDivElement>(null)
+  const [canScrollFiltersMore, setCanScrollFiltersMore] = useState(false)
+
+  /** Update overflow arrow when the filter strip scrolls or resizes. */
+  const updateFilterScrollHint = useCallback(() => {
+    const el = filterScrollRef.current
+    if (!el) {
+      setCanScrollFiltersMore(false)
+      return
+    }
+    const remaining = el.scrollWidth - el.clientWidth - el.scrollLeft
+    setCanScrollFiltersMore(remaining > 8)
+  }, [])
+
+  /** Nudge the filter strip so the next pills come into view. */
+  const scrollFiltersMore = useCallback(() => {
+    const el = filterScrollRef.current
+    if (!el) return
+    el.scrollBy({ left: Math.min(160, el.clientWidth * 0.55), behavior: 'smooth' })
+  }, [])
 
   const payDateByInvoiceId = useMemo(() => {
     const map = new Map<string, string>()
@@ -274,6 +326,7 @@ export default function ClientInvoices() {
       matchesSearch &&
       matchesInvoiceStatusFilter(invoice, statusFilter, displayStatus, {
         awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
+        isShortPaid: isInvoiceListShortPaid(invoice, balance),
       })
     )
   })
@@ -281,11 +334,13 @@ export default function ClientInvoices() {
   /** Counts per filter bucket (from full list, not search-narrowed). */
   const statusFilterCounts = useMemo(() => {
     const counts: Record<InvoiceStatusFilter, number> = {
-      active: 0,
-      overdue: 0,
-      pending: 0,
+      confirm: 0,
+      short_paid: 0,
       approved: 0,
       hold: 0,
+      overdue: 0,
+      active: 0,
+      pending: 0,
       paid: 0,
       closed: 0,
     }
@@ -301,6 +356,7 @@ export default function ClientInvoices() {
         if (
           matchesInvoiceStatusFilter(invoice, id, displayStatus, {
             awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
+            isShortPaid: isInvoiceListShortPaid(invoice, balance),
           })
         ) {
           counts[id] += 1
@@ -311,22 +367,56 @@ export default function ClientInvoices() {
     return counts
   }, [enrichedInvoices, invoiceBalanceById, invoicePendingById, awaitingReceiptInvoiceIds])
 
+  useEffect(() => {
+    if (!isMobileViewport) return
+    const el = filterScrollRef.current
+    if (!el) return
+
+    updateFilterScrollHint()
+    el.addEventListener('scroll', updateFilterScrollHint, { passive: true })
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(updateFilterScrollHint)
+        : null
+    ro?.observe(el)
+    window.addEventListener('resize', updateFilterScrollHint)
+    return () => {
+      el.removeEventListener('scroll', updateFilterScrollHint)
+      ro?.disconnect()
+      window.removeEventListener('resize', updateFilterScrollHint)
+    }
+  }, [isMobileViewport, updateFilterScrollHint, statusFilterCounts])
+
   const sortedInvoices = useMemo(() => {
     const sorted = [...filteredInvoices]
-    sorted.sort((a, b) => {
+
+    const priorityInput = (invoice: EnrichedInvoice) => ({
+      awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
+      isShortPaid: isInvoiceListShortPaid(invoice, invoiceBalanceById.get(invoice.id)),
+      status: invoice.status,
+      displayStatus: invoice.displayStatus,
+      isOverdue: invoice.isOverdue,
+    })
+
+    /** Column compare only — used on desktop when not sorting by status. */
+    const compareByColumn = (a: EnrichedInvoice, b: EnrichedInvoice): number => {
       let cmp = 0
       switch (sortField) {
         case 'invoice_number':
           cmp = a.invoice_number.localeCompare(b.invoice_number, undefined, { numeric: true })
           break
         case 'load_number':
-          cmp = (a.load_number ?? '').localeCompare(b.load_number ?? '', undefined, { numeric: true })
+          cmp = (a.load_number ?? '').localeCompare(b.load_number ?? '', undefined, {
+            numeric: true,
+          })
           break
         case 'broker_name':
           cmp = a.broker_name.localeCompare(b.broker_name)
           break
         case 'batch_number':
-          cmp = (a.batch_number ?? '').localeCompare(b.batch_number ?? '', undefined, { numeric: true })
+          cmp = (a.batch_number ?? '').localeCompare(b.batch_number ?? '', undefined, {
+            numeric: true,
+          })
           break
         case 'amount':
           cmp = a.amount - b.amount
@@ -347,13 +437,36 @@ export default function ClientInvoices() {
           cmp = Number(hasPpwBeenSent(a)) - Number(hasPpwBeenSent(b))
           break
         case 'status':
-          cmp = a.status.localeCompare(b.status)
+          cmp = compareInvoicesByListPriority(priorityInput(a), priorityInput(b))
           break
+        default:
+          cmp = 0
       }
       return sortDir === 'asc' ? cmp : -cmp
+    }
+
+    sorted.sort((a, b) => {
+      // Mobile list is always status-ordered: Confirm → Short paid → Open → Hold → Overdue.
+      if (isMobileViewport) {
+        const priorityCmp = compareInvoicesByListPriority(priorityInput(a), priorityInput(b))
+        if (priorityCmp !== 0) return priorityCmp
+        // Newest invoice date first within the same status bucket.
+        return new Date(b.invoice_date).getTime() - new Date(a.invoice_date).getTime()
+      }
+
+      // Desktop: honor the clicked column (status uses the priority order above).
+      return compareByColumn(a, b)
     })
+
     return sorted
-  }, [filteredInvoices, sortField, sortDir, invoiceBalanceById])
+  }, [
+    filteredInvoices,
+    sortField,
+    sortDir,
+    invoiceBalanceById,
+    awaitingReceiptInvoiceIds,
+    isMobileViewport,
+  ])
 
   const totalPages = Math.max(1, Math.ceil(sortedInvoices.length / pageSize))
 
@@ -395,11 +508,12 @@ export default function ClientInvoices() {
   useEffect(() => {
     const status = searchParams.get('status')
     const validStatuses: InvoiceStatusFilter[] = [
-      'active',
-      'overdue',
-      'pending',
+      'confirm',
       'approved',
       'hold',
+      'overdue',
+      'active',
+      'pending',
       'paid',
       'closed',
     ]
@@ -536,6 +650,7 @@ export default function ClientInvoices() {
     setStatusFilter(
       statusFilterForInvoice(target, displayStatus, {
         awaitingReceipt: awaitingReceiptInvoiceIds.has(target.id),
+        isShortPaid: isInvoiceListShortPaid(target, balance),
       })
     )
     setSearchTerm('')
@@ -602,6 +717,7 @@ export default function ClientInvoices() {
     setStatusFilter(
       statusFilterForInvoice(target, displayStatus, {
         awaitingReceipt: awaitingReceiptInvoiceIds.has(target.id),
+        isShortPaid: isInvoiceListShortPaid(target, balance),
       })
     )
     setSelectedInvoiceId(stashedId)
@@ -745,6 +861,47 @@ export default function ClientInvoices() {
                 className="mobile-invoices-toolbar shrink-0"
                 style={{ borderColor: c.border, backgroundColor: c.card }}
               >
+                <div
+                  className={`mobile-invoices-toolbar__filters-wrap${
+                    canScrollFiltersMore ? ' has-more' : ''
+                  }`}
+                >
+                  <div
+                    ref={filterScrollRef}
+                    className="mobile-invoices-toolbar__filters"
+                    role="group"
+                    aria-label="Filter by status"
+                  >
+                    {INVOICE_STATUS_FILTERS.map(({ id, label }) => {
+                      const count = statusFilterCounts[id]
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`mobile-invoices-toolbar__pill${
+                            statusFilter === id ? ' is-active' : ''
+                          }${id === 'overdue' && count > 0 ? ' is-alert' : ''}`}
+                          onClick={() => setStatusFilter(id)}
+                          aria-pressed={statusFilter === id}
+                          data-onboard-target={`invoiceFilter-${id}`}
+                        >
+                          {label}
+                          <span className="mobile-invoices-toolbar__pill-count">{count}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {canScrollFiltersMore ? (
+                    <button
+                      type="button"
+                      className="mobile-invoices-toolbar__more"
+                      onClick={scrollFiltersMore}
+                      aria-label="Show more filters"
+                    >
+                      <ChevronRight size={16} strokeWidth={2.25} aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
                 <div className="mobile-invoices-toolbar__search">
                   <Search
                     className="mobile-invoices-toolbar__search-icon"
@@ -759,30 +916,6 @@ export default function ClientInvoices() {
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="mobile-invoices-toolbar__search-input"
                   />
-                </div>
-                <div
-                  className="mobile-invoices-toolbar__filters"
-                  role="group"
-                  aria-label="Filter by status"
-                >
-                  {INVOICE_STATUS_FILTERS.map(({ id, label }) => {
-                    const count = statusFilterCounts[id]
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        className={`mobile-invoices-toolbar__pill${
-                          statusFilter === id ? ' is-active' : ''
-                        }${id === 'overdue' && count > 0 ? ' is-alert' : ''}`}
-                        onClick={() => setStatusFilter(id)}
-                        aria-pressed={statusFilter === id}
-                        data-onboard-target={`invoiceFilter-${id}`}
-                      >
-                        {label}
-                        <span className="mobile-invoices-toolbar__pill-count">{count}</span>
-                      </button>
-                    )
-                  })}
                 </div>
               </div>
             ) : (
@@ -860,13 +993,20 @@ export default function ClientInvoices() {
                 <div className="payments-list-panel">
                   {isMobileViewport ? (
                     <div className="mobile-invoice-list flex-1 min-h-0 overflow-y-auto">
-                      {paginatedInvoices.map((invoice) => (
+                      {paginatedInvoices.map((invoice) => {
+                        const balance =
+                          invoiceBalanceById.get(invoice.id) ??
+                          getInvoiceBalanceState(invoice.amount, 0)
+                        const shortPaid = isInvoiceListShortPaid(invoice, balance)
+                        return (
                         <MobileInvoiceListCard
                           key={invoice.id}
                           invoice={invoice}
                           payDate={payDateByInvoiceId.get(invoice.id) ?? null}
                           pendingPayDate={pendingPayDateByInvoiceId.get(invoice.id) ?? null}
                           awaitingReceipt={awaitingReceiptInvoiceIds.has(invoice.id)}
+                          isShortPaid={shortPaid}
+                          openAmount={shortPaid ? balance.signedBalance : null}
                           selected={selectedInvoice?.id === invoice.id}
                           highlighted={highlightedInvoiceId === invoice.id}
                           onboardTarget={
@@ -874,7 +1014,8 @@ export default function ClientInvoices() {
                           }
                           onClick={() => handleViewInvoiceDetail(invoice)}
                         />
-                      ))}
+                        )
+                      })}
                     </div>
                   ) : (
                   <div className="client-table-scroll client-table-scroll--mobile-stack flex-1 min-h-0 overflow-y-auto">

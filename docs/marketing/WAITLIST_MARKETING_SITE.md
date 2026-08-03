@@ -5,6 +5,7 @@ Planning doc for a **public marketing site** modeled on [`/enroll`](../../src/pa
 **Related docs**
 
 - Marketing voice & workflow: [`.cursor/rules/credyx-marketing-prompts.mdc`](../../.cursor/rules/credyx-marketing-prompts.mdc)
+- Credyx vs factoring messaging: [`CREDYX_VS_FACTORING.md`](./CREDYX_VS_FACTORING.md)
 - Instagram creatives: [`CREATIVE_INVENTORY.md`](./CREATIVE_INVENTORY.md)
 - Existing styles: [`src/styles/credyxMarketing.css`](../../src/styles/credyxMarketing.css)
 - Existing nav: [`src/components/enroll/EnrollHeader.tsx`](../../src/components/enroll/EnrollHeader.tsx)
@@ -136,7 +137,9 @@ MarketingHeader
 | Broker follow-up included | We chase paperwork issues and slow pay — you stay on the road. |
 | Built for carriers | Invoicing, collections, and reporting in one portal. |
 
-Remove enroll copy: “Lightning fast”, “Works with factoring” (unless you explicitly want factoring-compatible messaging later).
+Remove enroll copy: “Lightning fast”, “Get paid faster.”
+
+Optional section (or swap one card): **Works with factoring** — full integration + reduced Credyx fee when you use both. Full copy in [`CREDYX_VS_FACTORING.md`](./CREDYX_VS_FACTORING.md). Soft contrast only — not “factoring alternative” as a cash promise.
 
 ### 4.4 Product proof
 
@@ -216,7 +219,8 @@ Align with [marketing rules](../../.cursor/rules/credyx-marketing-prompts.mdc).
 | Use | Avoid |
 | --- | --- |
 | Paid on time | Get paid faster |
-| A/R back office | Factoring / cash advance |
+| A/R back office | Claiming Credyx *is* factoring / cash advance |
+| Works with your factor · reduced Credyx fee | “Factoring alternative” as a cash promise |
 | Track · verify · follow up | We confirm delivery / capture POD |
 | Join the waitlist | Enroll now (on this page) |
 | Visibility · on time | Instant pay · same-day money |
@@ -274,3 +278,4 @@ Align with [marketing rules](../../.cursor/rules/credyx-marketing-prompts.mdc).
 | Date | Change |
 | --- | --- |
 | 2026-07-28 | Initial spec — waitlist site, brand tokens, workflow-aligned copy |
+| 2026-08-03 | Linked Credyx vs factoring messaging; allow soft “works with factoring” copy |

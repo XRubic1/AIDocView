@@ -183,7 +183,11 @@ export interface ClientMarkPaidOptions {
 }
 
 /** Re-export — all mark-as-paid paths use postClientPayment under the hood. */
-export { markClientInvoiceAsPaid } from './clientPaymentService'
+export {
+  markClientInvoiceAsPaid,
+  postClientPaymentAndRequestWriteOff,
+  type PostPaymentAndWriteOffOptions,
+} from './clientPaymentService'
 
 export function buildPaymentConfirmationNote(
   invoiceAmount: number,

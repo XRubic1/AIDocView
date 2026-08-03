@@ -62,12 +62,13 @@ export function getInvoiceNoteEntries(
 export function getInvoiceStatusBadge(status: string, options?: { compact?: boolean }) {
   const classMap: Record<string, string> = {
     pending: 'status-pill status-pill--pending',
-    // Open A/R — blue, distinct from Paid (green)
-    approved: 'status-pill status-pill--pending',
+    // Open A/R — gray (Confirm payment uses blue)
+    approved: 'status-pill status-pill--open',
     hold: 'status-pill status-pill--hold',
     paid: 'status-pill status-pill--approved',
     rejected: 'status-pill status-pill--overdue',
     overdue: 'status-pill status-pill--overdue',
+    short_paid: 'status-pill status-pill--short-paid',
     force_closed: 'status-pill status-pill--closed',
     written_off: 'status-pill status-pill--closed',
   }
@@ -78,6 +79,7 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     paid: 'Paid',
     rejected: 'Rejected',
     overdue: 'Overdue',
+    short_paid: 'Short paid',
     force_closed: 'Force closed',
     written_off: 'Written Off',
   }
@@ -97,7 +99,7 @@ export function getInvoiceVarianceBadge(
   if (!variance) return null
   const className =
     variance === 'short_paid'
-      ? 'status-pill status-pill--warn'
+      ? 'status-pill status-pill--short-paid'
       : variance === 'awaiting_credyx'
         ? 'status-pill status-pill--warn'
         : 'status-pill status-pill--approved'
@@ -117,9 +119,10 @@ export function getInvoiceVarianceBadge(
 /**
  * Primary + variance status for client invoice lists/detail.
  * Pass balance so Open/Paid reflects confirmed received (e.g. overpay → Paid + Overpaid).
+ * Short-paid invoices show Short paid as the primary status (not Open + Short paid).
  */
 export function getInvoiceRowStatusBadge(
-  invoice: Invoice & { displayStatus?: string },
+  invoice: Invoice & { displayStatus?: string; isOverdue?: boolean },
   options?: {
     compact?: boolean
     balance?: InvoiceBalanceState
@@ -128,17 +131,32 @@ export function getInvoiceRowStatusBadge(
   }
 ) {
   if (!options?.balance) {
-    return getInvoiceStatusBadge(invoice.displayStatus || invoice.status, options)
+    const raw = invoice.displayStatus || invoice.status
+    const status =
+      invoice.isOverdue && (raw === 'approved' || raw === 'pending') ? 'overdue' : raw
+    return getInvoiceStatusBadge(status, options)
   }
-  const { status, variance } = getClientInvoiceStatusParts(invoice, options.balance, {
+  const parts = getClientInvoiceStatusParts(invoice, options.balance, {
     pendingClientPosted: options.pendingClientPosted,
     confirmedReceived: options.confirmedReceived,
     invoiceAmount: invoice.amount,
   })
+
+  // Short paid is the list status for open A/R — don't also show Open/Overdue beside it.
+  // Closed/hold/pending keep their primary status (written off may still carry short variance).
+  if (
+    parts.variance === 'short_paid' &&
+    (parts.status === 'approved' || parts.status === 'overdue' || parts.status === 'paid')
+  ) {
+    return getInvoiceStatusBadge('short_paid', options)
+  }
+
+  const status =
+    invoice.isOverdue && parts.status === 'approved' ? 'overdue' : parts.status
   return (
     <>
       {getInvoiceStatusBadge(status, options)}
-      {getInvoiceVarianceBadge(variance, options)}
+      {getInvoiceVarianceBadge(parts.variance, options)}
     </>
   )
 }

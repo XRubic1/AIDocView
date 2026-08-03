@@ -2,15 +2,17 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Search, Plus, FileText, CircleCheck, Info } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
-import { formatDate } from '../../utils/format'
+import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { getConfirmedPaymentTotal, getUnconfirmedPaymentTotal } from '../../data/mockPayments'
 import {
   postClientPayment,
   postClientPaymentOnNewInvoiceAsync,
+  postClientPaymentAndRequestWriteOff,
   type PostPaymentResult,
 } from '../../services/clientPaymentService'
 import { isPostableForPayment } from '../../utils/invoiceAging'
+import { canCloseShortPaymentAsUncollectable } from '../../utils/shortPayments'
 import {
   getInvoicePostStatusClass,
   getInvoicePostStatusLabel,
@@ -19,6 +21,7 @@ import {
   type PostPaymentSearchHit,
 } from '../../utils/postPaymentInvoiceSearch'
 import {
+  AMOUNT_EPSILON,
   formatSignedInvoiceBalanceDisplay,
   getInvoiceBalanceState,
 } from '../../utils/paymentVariance'
@@ -74,6 +77,8 @@ export default function PostPaymentForm({
   const [paymentMethod, setPaymentMethod] = useState<'check' | 'wire' | 'ach' | 'credit_card'>('ach')
   const [paymentReference, setPaymentReference] = useState('')
   const [notes, setNotes] = useState('')
+  const [writeOffRemaining, setWriteOffRemaining] = useState(false)
+  const [writeOffNote, setWriteOffNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [lastResult, setLastResult] = useState<PostPaymentResult | null>(null)
@@ -103,6 +108,20 @@ export default function PostPaymentForm({
 
   const priorReceived = selected ? getConfirmedPaymentTotal(selected.id) : 0
   const amountNum = parseFloat(amount)
+  const remainingOpen = selected ? Math.max(0, selected.amount - priorReceived) : 0
+  const shortfallAfterPost =
+    selected &&
+    Number.isFinite(amountNum) &&
+    amountNum > 0 &&
+    amountNum < remainingOpen - AMOUNT_EPSILON
+      ? remainingOpen - amountNum
+      : 0
+  const canOfferWriteOff =
+    selectionMode === 'existing' &&
+    !!selected &&
+    capabilities.canRequestWriteOff &&
+    canCloseShortPaymentAsUncollectable(selected) &&
+    shortfallAfterPost >= AMOUNT_EPSILON
 
   const selectInvoice = useCallback((invoice: Invoice) => {
     if (!isPostableForPayment(invoice)) {
@@ -119,6 +138,8 @@ export default function PostPaymentForm({
     setFilterQuery('')
     setError(null)
     setLastResult(null)
+    setWriteOffRemaining(false)
+    setWriteOffNote('')
     if (balance > 0) {
       setAmount(balance.toFixed(2))
     } else if (paidInFull) {
@@ -152,6 +173,8 @@ export default function PostPaymentForm({
     setAmount('')
     setPaymentReference('')
     setNotes('')
+    setWriteOffRemaining(false)
+    setWriteOffNote('')
     setPaymentDate(today)
     setReceivedDate(today)
     setPaymentMethod('ach')
@@ -174,6 +197,11 @@ export default function PostPaymentForm({
       return
     }
 
+    if (writeOffRemaining && canOfferWriteOff && !writeOffNote.trim()) {
+      setError('Add a note explaining why the remaining balance is uncollectable.')
+      return
+    }
+
     setIsSubmitting(true)
     setError(null)
     setLastResult(null)
@@ -182,6 +210,35 @@ export default function PostPaymentForm({
       let result: PostPaymentResult | undefined
 
       if (selectionMode === 'existing' && selected) {
+        if (writeOffRemaining && canOfferWriteOff) {
+          result = postClientPaymentAndRequestWriteOff(
+            selected.id,
+            authorName,
+            {
+              amountReceived: amountNum,
+              optionalNote: notes.trim() || undefined,
+              paymentDate,
+              receivedDate,
+              paymentMethod,
+              paymentReference: paymentReference.trim() || undefined,
+              writeOffNote: writeOffNote.trim(),
+            },
+            {
+              canPostPayment: capabilities.canPostPayment,
+              canRequestWriteOff: capabilities.canRequestWriteOff,
+            }
+          )
+          if (!result) {
+            setError(
+              'Could not post payment and request write-off. Invoice may be ineligible.'
+            )
+            return
+          }
+          onPosted(result)
+          resetForm()
+          return
+        }
+
         result = postClientPayment(
           {
             invoiceId: selected.id,
@@ -236,6 +293,8 @@ export default function PostPaymentForm({
           setAmount('')
           setPaymentReference('')
           setNotes('')
+          setWriteOffRemaining(false)
+          setWriteOffNote('')
         }
       }
     } catch {
@@ -533,7 +592,17 @@ export default function PostPaymentForm({
                       step="0.01"
                       inputMode="decimal"
                       value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
+                      onChange={(e) => {
+                        setAmount(e.target.value)
+                        const next = parseFloat(e.target.value)
+                        if (
+                          !Number.isFinite(next) ||
+                          next >= remainingOpen - AMOUNT_EPSILON
+                        ) {
+                          setWriteOffRemaining(false)
+                          setWriteOffNote('')
+                        }
+                      }}
                       className="client-input w-full financial-nums post-payment-entry__amount-input"
                       style={{ ...inputStyle, fontSize: 18, fontWeight: 700 }}
                       placeholder="0.00"
@@ -619,6 +688,50 @@ export default function PostPaymentForm({
                       style={inputStyle}
                     />
                   </div>
+
+                  {canOfferWriteOff && (
+                    <div
+                      className="post-payment-entry__field post-payment-entry__field--wide rounded-lg border px-3 py-3 space-y-2"
+                      style={{ borderColor: c.border, backgroundColor: c.stat?.red ?? '#FEF2F2' }}
+                    >
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={writeOffRemaining}
+                          onChange={(e) => {
+                            setWriteOffRemaining(e.target.checked)
+                            if (!e.target.checked) setWriteOffNote('')
+                            setError(null)
+                          }}
+                        />
+                        <span className="text-sm" style={{ color: c.primary }}>
+                          Write off remaining{' '}
+                          <strong>{formatCurrency(shortfallAfterPost)}</strong> as uncollectable
+                        </span>
+                      </label>
+                      {writeOffRemaining && (
+                        <>
+                          <p className="text-xs leading-relaxed" style={{ color: c.error }}>
+                            This remaining balance will be marked as uncollectable and sent to Credyx
+                            for write-off approval. You will not continue chasing this amount.
+                          </p>
+                          <label className="client-label" htmlFor="post-writeoff-note">
+                            Why is this uncollectable? (required)
+                          </label>
+                          <textarea
+                            id="post-writeoff-note"
+                            value={writeOffNote}
+                            onChange={(e) => setWriteOffNote(e.target.value)}
+                            placeholder="e.g. Broker refused detention — accepting short pay."
+                            rows={3}
+                            className="client-input w-full"
+                            style={inputStyle}
+                          />
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {selectionMode === 'existing' && selected && (
@@ -636,15 +749,21 @@ export default function PostPaymentForm({
                 <div className="post-payment-entry__actions">
                   <button
                     type="submit"
-                    disabled={isSubmitting || !canSubmit}
+                    disabled={
+                      isSubmitting ||
+                      !canSubmit ||
+                      (writeOffRemaining && canOfferWriteOff && !writeOffNote.trim())
+                    }
                     className="dashboard-btn-primary post-payment-entry__submit"
                   >
                     <CircleCheck className="w-4 h-4" />
                     {isSubmitting
                       ? 'Posting…'
-                      : selectionMode === 'new'
-                        ? 'Create invoice & post payment'
-                        : 'Post payment'}
+                      : writeOffRemaining && canOfferWriteOff
+                        ? 'Post & write off'
+                        : selectionMode === 'new'
+                          ? 'Create invoice & post payment'
+                          : 'Post payment'}
                   </button>
                   <button
                     type="button"

@@ -78,8 +78,8 @@ export default function ShortPaymentCloseModal({
 
         <div className="invoice-dispute-modal-body space-y-3">
           <p className="text-sm" style={{ color: c.secondary }}>
-            This writes off the remaining balance and marks the invoice as force closed — the same
-            outcome as an admin short-pay close.
+            This marks the remaining balance as uncollectable and sends a write-off request to Credyx
+            for approval. You will not continue chasing this amount.
           </p>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="rounded-lg px-2 py-2" style={{ backgroundColor: c.stat.slate }}>
@@ -143,7 +143,7 @@ export default function ShortPaymentCloseModal({
             style={{ height: 36, fontSize: 13 }}
           >
             <Ban className="w-3.5 h-3.5" />
-            {isSubmitting ? 'Closing...' : 'Close invoice'}
+            {isSubmitting ? 'Closing...' : 'Mark uncollectable'}
           </button>
         </div>
       </div>

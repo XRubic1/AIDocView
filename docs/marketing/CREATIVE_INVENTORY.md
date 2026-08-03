@@ -70,6 +70,8 @@ Update this file whenever a new graphic is made or posted.
 | Broker follow-up = we chase, you drive | Process | Simple icon story |
 | One dashboard metric story (e.g. held = 3) | Proof | Cropped product UI |
 | “Back office without the overhead” | Offer | Flat brand graphic |
+| Use Credyx + your factor (reduced fee) | Offer / Education | Soft compare; see [`CREDYX_VS_FACTORING.md`](./CREDYX_VS_FACTORING.md) |
+| Pay when collected — no upfront % | Offer | Fee clarity card + truck split |
 
 ---
 

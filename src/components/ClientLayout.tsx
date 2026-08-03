@@ -9,7 +9,6 @@ import {
   PanelLeftClose,
   PanelLeft,
   RefreshCw,
-  Sparkles,
 } from 'lucide-react'
 import { Notification } from '../types/notification'
 import NotificationBell from './NotificationBell'
@@ -68,7 +67,6 @@ import AssistantHeaderBuddy from './client/assistant/AssistantHeaderBuddy'
 import ClientBottomNav from './client/ClientBottomNav'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
-import { requestAssistantOpen } from '../utils/assistantFabPlacement'
 import '../styles/clientPortal.css'
 import '../styles/clientPortalDark.css'
 import '../styles/credyxWordmark.css'
@@ -233,13 +231,6 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     showBottomNav &&
     !location.pathname.startsWith('/client/dashboard') &&
     !location.pathname.startsWith('/client/onboarding')
-  /** Top-right AI — floating on non-dashboard pages; dashboard hosts it in the hero bar. */
-  const showFloatingPhoneAi =
-    showBottomNav &&
-    showBuddy &&
-    !location.pathname.startsWith('/client/dashboard') &&
-    !location.pathname.startsWith('/client/onboarding') &&
-    !location.pathname.startsWith('/client/assistant')
 
   const openMobileDrawer = useCallback(() => {
     setMobileDrawerMounted(true)
@@ -824,19 +815,6 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             aria-expanded={mobileDrawerVisible}
           >
             <Menu className="w-5 h-5" strokeWidth={1.75} aria-hidden />
-          </button>
-        ) : null}
-
-        {showFloatingPhoneAi ? (
-          <button
-            type="button"
-            className="client-phone-ai-btn"
-            onClick={() => requestAssistantOpen()}
-            aria-label="Open AI assistant"
-            title="Ask AI"
-          >
-            <Sparkles className="client-phone-ai-btn__icon" strokeWidth={2} aria-hidden />
-            <span className="client-phone-ai-btn__label">Ask AI</span>
           </button>
         ) : null}
 

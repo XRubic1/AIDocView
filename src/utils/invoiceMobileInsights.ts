@@ -6,6 +6,7 @@ import { getOpenDisputes } from '../services/clientInvoiceActions'
 import { isClientVisibleHold, clientVisibleNotesForInvoice } from './clientInvoiceView'
 import { deriveHoldExplanation } from './assistantHoldExplanation'
 import { AMOUNT_EPSILON } from './paymentVariance'
+import { invoiceListPriorityStatusLabel } from './invoiceListPriority'
 
 export type InvoiceInsightTone = 'default' | 'alert' | 'success' | 'info'
 export type InvoiceInsightIcon =
@@ -396,15 +397,15 @@ export function getInvoiceMobileInsights(
 /** Uppercase status label for the mobile hero pill. */
 export function getMobileInvoiceStatusLabel(
   enriched: EnrichedInvoice,
-  invoice: Invoice
+  invoice: Invoice,
+  options?: { awaitingReceipt?: boolean }
 ): string {
-  const raw = (enriched.displayStatus || invoice.status || '').replace(/_/g, ' ')
-  if (raw === 'approved') return 'OPEN'
-  if (raw === 'write off pending') return 'WRITE-OFF'
-  if (raw === 'force closed') return 'FORCE CLOSED'
-  if (raw === 'written off') return 'WRITTEN OFF'
-  if (raw === 'hold') return 'ON HOLD'
-  return raw.toUpperCase()
+  return invoiceListPriorityStatusLabel({
+    awaitingReceipt: options?.awaitingReceipt,
+    status: invoice.status,
+    displayStatus: enriched.displayStatus,
+    isOverdue: enriched.isOverdue,
+  })
 }
 
 /** Display amount for the hero card. */

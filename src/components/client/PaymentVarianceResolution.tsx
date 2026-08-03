@@ -107,7 +107,7 @@ export default function PaymentVarianceResolution({
         <div className="payment-variance-resolution__body">
           <p className="text-xs" style={{ color: c.secondary }}>
             {isShort
-              ? `Invoice ${invoice.invoice_number} received ${formatCurrency(received)} of ${formatCurrency(invoice.amount)}. Write off the balance or dismiss to handle later in Pay variances.`
+              ? `Invoice ${invoice.invoice_number} received ${formatCurrency(received)} of ${formatCurrency(invoice.amount)}. Writing off marks the remaining balance as uncollectable. You can also dismiss and handle this later in Pay variances.`
               : `Broker paid ${formatCurrency(received)} on a ${formatCurrency(invoice.amount)} invoice. Accept the excess or dismiss to review later.`}
           </p>
 
@@ -124,7 +124,7 @@ export default function PaymentVarianceResolution({
                 className="client-input w-full text-sm"
                 placeholder={
                   isShort
-                    ? 'Why is the remaining balance uncollectable?'
+                    ? 'Why is this remaining balance uncollectable?'
                     : 'Detention, fuel surcharge, broker correction…'
                 }
               />
@@ -143,7 +143,7 @@ export default function PaymentVarianceResolution({
                   {isShort ? (
                     <>
                       <Ban className="w-3.5 h-3.5" />
-                      Write off balance
+                      Write off as uncollectable
                     </>
                   ) : (
                     <>

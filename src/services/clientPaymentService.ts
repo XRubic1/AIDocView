@@ -20,7 +20,11 @@ import { buildPaymentConfirmationNote } from './clientInvoiceActions'
 import { logAuditEvent } from '../utils/auditLogger'
 import { isPostableForPayment, isAdminPostableForPayment } from '../utils/invoiceAging'
 import { formatCurrency } from '../utils/format'
-import { notifyAdminPaymentReported } from './adminNotificationService'
+import {
+  notifyAdminPaymentReported,
+  notifyAdminWriteOffRequested,
+} from './adminNotificationService'
+import { canCloseShortPaymentAsUncollectable } from '../utils/shortPayments'
 import { notifyClientPaymentPosted, type ClientPaymentNotifyKind } from '../data/mockNotifications'
 import {
   buildReceiptConfirmationDeadline,
@@ -932,6 +936,132 @@ export function markClientInvoiceAsPaid(
     capabilities
   )
   return result?.invoice
+}
+
+export interface PostPaymentAndWriteOffOptions extends MarkClientInvoiceAsPaidOptions {
+  /** Required explanation — remaining balance is marked uncollectable. */
+  writeOffNote: string
+}
+
+/**
+ * Post a short payment and request write-off of the remaining balance in one step.
+ * Records the payment as confirmed (write-off queue is the Credyx approval gate)
+ * and sets the invoice to write_off_pending.
+ */
+export function postClientPaymentAndRequestWriteOff(
+  invoiceId: string,
+  authorName: string,
+  options: PostPaymentAndWriteOffOptions,
+  capabilities?: Pick<ClientCapabilities, 'canPostPayment' | 'canRequestWriteOff'>
+): PostPaymentResult | undefined {
+  const writeOffNoteText = options.writeOffNote.trim()
+  if (!writeOffNoteText) return undefined
+  if (!Number.isFinite(options.amountReceived) || options.amountReceived <= 0) return undefined
+
+  const invoice = getInvoiceById(invoiceId)
+  if (!invoice || !isPostableForPayment(invoice)) return undefined
+  if (!canCloseShortPaymentAsUncollectable(invoice)) return undefined
+  if (getPaymentsByInvoiceId(invoice.id).some((p) => p.status === 'pending')) return undefined
+
+  const caps = getClientCapabilities(getClientById(invoice.client_id)?.service_tier)
+  if (!(capabilities?.canPostPayment ?? caps.canPostPayment)) return undefined
+  if (!(capabilities?.canRequestWriteOff ?? caps.canRequestWriteOff)) return undefined
+
+  const priorReceived = getConfirmedPaymentTotal(invoice.id)
+  const projectedReceived = priorReceived + options.amountReceived
+  const shortfall = invoice.amount - projectedReceived
+  if (shortfall < 0.01) return undefined
+
+  const today = new Date().toISOString().split('T')[0]
+  const now = new Date().toISOString()
+  const paymentDate = options.paymentDate ?? today
+  const receivedDate = options.receivedDate ?? today
+  const paymentMethod = options.paymentMethod ?? 'check'
+
+  const payment = addPayment({
+    invoice_id: invoice.id,
+    invoice_number: invoice.invoice_number,
+    broker_name: invoice.broker_name,
+    amount: options.amountReceived,
+    payment_date: paymentDate,
+    received_date: receivedDate,
+    payment_method: paymentMethod,
+    payment_reference: options.paymentReference?.trim() || undefined,
+    status: 'confirmed',
+    posted_source: 'client',
+    posted_by: authorName,
+    confirmed_by: authorName,
+    confirmed_at: now,
+    notes: options.optionalNote?.trim() || undefined,
+    batch_id: invoice.batch_id,
+    batch_number: invoice.batch_number,
+    load_number: invoice.load_number,
+  })
+
+  const confirmNote: InvoiceNote = {
+    id: `note-close-confirm-${Date.now()}`,
+    note: `Payment reported by client — ${formatCurrency(options.amountReceived)} received (write-off of ${formatCurrency(shortfall)} requested)`,
+    created_by: authorName,
+    created_at: now,
+    type: 'client_note',
+  }
+  const writeOffNote: InvoiceNote = {
+    id: `note-close-writeoff-${Date.now() + 1}`,
+    note: `Write-off ${formatCurrency(shortfall)} — ${writeOffNoteText}`,
+    created_by: authorName,
+    created_at: new Date(Date.now() + 1000).toISOString(),
+    type: 'client_note',
+  }
+
+  const updated = updateInvoice(invoiceId, {
+    status: 'write_off_pending',
+    paid_amount: projectedReceived,
+    notes_history: [...(invoice.notes_history || []), confirmNote, writeOffNote],
+    write_off_request: {
+      requested_by: authorName,
+      requested_at: now,
+      client_note: writeOffNoteText,
+      received_amount: projectedReceived,
+      shortfall,
+    },
+    days_since_expected: 0,
+    updated_at: now,
+  })
+
+  if (!updated) return undefined
+
+  notifyAdminPaymentReported({
+    clientName: invoice.client_name,
+    invoiceNumber: invoice.invoice_number,
+    amount: options.amountReceived,
+  })
+  notifyAdminWriteOffRequested({
+    clientId: updated.client_id,
+    clientName: updated.client_name,
+    invoiceNumber: updated.invoice_number,
+    shortfall,
+  })
+
+  logAuditEvent(
+    'invoice_closed',
+    'invoice',
+    updated.id,
+    updated.invoice_number,
+    `${authorName} posted ${formatCurrency(options.amountReceived)} and requested write-off on ${updated.invoice_number} (${formatCurrency(shortfall)} uncollectable)`,
+    'client-portal',
+    authorName,
+    'Client',
+    undefined,
+    {
+      close_type: 'write_off_requested',
+      payment_id: payment.id,
+      received: projectedReceived,
+      shortfall,
+      with_payment_post: true,
+    }
+  )
+
+  return { payment, invoice: updated, variance: 'short' }
 }
 
 /** Confirm a pending payment and apply it to the invoice. */

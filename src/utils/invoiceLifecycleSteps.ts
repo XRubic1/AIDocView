@@ -20,15 +20,20 @@ export interface InvoiceLifecycleStep {
 export interface InvoiceLifecycleOptions {
   /** Credyx posted payment — carrier must confirm receipt. */
   awaitingReceipt?: boolean
+  /**
+   * Partial short pay — advance to the Paid step, labeled "Short paid"
+   * (Invoiced stays "Invoiced" and is marked done).
+   */
+  isShortPaid?: boolean
 }
 
 /**
- * Portal stepper: Submitted → Verified → Invoiced → Paid.
+ * Portal stepper: Submitted → Verified → Invoiced → Paid/Short paid.
  *
  * - Submitted: invoice packet received by Credyx
  * - Verified: in verification / approved; On Hold → Verified flashes red
  * - Invoiced: PPW sent to broker (open A/R stays here until paid)
- * - Paid: payment confirmed — or yellow "Confirm" when awaiting receipt
+ * - Paid: payment confirmed — or "Short paid" when partially short, or yellow "Confirm" when awaiting receipt
  */
 export function getInvoiceLifecycleSteps(
   invoice: Invoice,
@@ -42,6 +47,7 @@ export function getInvoiceLifecycleSteps(
   const isPending = status === 'pending'
   const ppwSent = hasPpwBeenSent(invoice)
   const awaitingReceipt = Boolean(options.awaitingReceipt)
+  const isShortPaid = Boolean(options.isShortPaid)
 
   const labels: { id: InvoiceLifecycleStepId; label: string }[] = [
     { id: 'submitted', label: 'Submitted' },
@@ -56,7 +62,9 @@ export function getInvoiceLifecycleSteps(
             ? 'Written off'
             : awaitingReceipt
               ? 'Confirm'
-              : 'Paid',
+              : isShortPaid
+                ? 'Short paid'
+                : 'Paid',
     },
   ]
 
@@ -71,9 +79,23 @@ export function getInvoiceLifecycleSteps(
     ]
   }
 
-  // Paid: full path complete (green).
+  // Short paid — same position as Paid, labeled Short paid (red current).
+  if (isShortPaid && !isClosed && !isPaid) {
+    return [
+      { ...labels[0], state: 'done' },
+      { ...labels[1], state: 'done' },
+      { ...labels[2], state: 'done' },
+      { ...labels[3], state: 'current' },
+    ]
+  }
+
+  // Paid: full path complete (green). Still label Short paid when applicable.
   if (isPaid) {
-    return labels.map((step) => ({ ...step, state: 'done' as const }))
+    return labels.map((step) => ({
+      ...step,
+      label: step.id === 'paid' && isShortPaid ? 'Short paid' : step.label,
+      state: 'done' as const,
+    }))
   }
 
   // Force closed / written off: full path complete (gray closed bar).

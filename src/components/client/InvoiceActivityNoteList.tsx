@@ -1,3 +1,14 @@
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CircleDollarSign,
+  FileText,
+  MessageSquare,
+  PauseCircle,
+  Send,
+  Shield,
+} from 'lucide-react'
+import type { ReactNode } from 'react'
 import { formatDate, formatCurrency } from '../../utils/format'
 
 export type ActivityNoteTone = 'neutral' | 'success' | 'warning' | 'error' | 'info'
@@ -150,8 +161,47 @@ export function declutterActivityEntries<T extends ActivityNoteListEntry>(
   })
 }
 
+/** Small icon for the timeline rail — keyed by kind / title. */
+function ActivityRowIcon({
+  entry,
+}: {
+  entry: ActivityNoteListEntry
+}): ReactNode {
+  const size = 12
+  const stroke = 2.25
+  const kind = (entry.kind || '').toLowerCase()
+  const title = entry.title.toLowerCase()
+
+  if (
+    kind === 'payment' ||
+    title.includes('payment') ||
+    title.includes('short correction')
+  ) {
+    return <CircleDollarSign size={size} strokeWidth={stroke} aria-hidden />
+  }
+  if (kind === 'send' || kind === 'send_failed' || title.includes('sent to broker')) {
+    return <Send size={size} strokeWidth={stroke} aria-hidden />
+  }
+  if (kind === 'approval' || title === 'approved') {
+    return <CheckCircle2 size={size} strokeWidth={stroke} aria-hidden />
+  }
+  if (kind === 'hold_reason' || title.includes('hold')) {
+    return <PauseCircle size={size} strokeWidth={stroke} aria-hidden />
+  }
+  if (kind === 'dispute' || kind === 'rejection' || title.includes('dispute')) {
+    return <AlertTriangle size={size} strokeWidth={stroke} aria-hidden />
+  }
+  if (kind === 'status_update' || title === 'status') {
+    return <Shield size={size} strokeWidth={stroke} aria-hidden />
+  }
+  if (kind === 'client_note' || kind === 'note' || title === 'note') {
+    return <MessageSquare size={size} strokeWidth={stroke} aria-hidden />
+  }
+  return <FileText size={size} strokeWidth={stroke} aria-hidden />
+}
+
 /**
- * Quiet flat feed — title + date, one body line. No source pills or card chrome.
+ * Clean activity timeline — rail + icon, title/date, one body line.
  */
 export function InvoiceActivityNoteList({
   entries,
@@ -181,31 +231,45 @@ export function InvoiceActivityNoteList({
             key={entry.id}
             className={`payment-confirmation-panel__note-row payment-confirmation-panel__note-row--${tone}`}
           >
-            <div className="payment-confirmation-panel__note-row-head">
-              <span className="payment-confirmation-panel__note-row-title">
-                {entry.title}
-                {entry.internal ? (
-                  <span
-                    className="payment-confirmation-panel__note-internal"
-                    title="Visible to Credyx only"
-                  >
-                    Internal
-                  </span>
-                ) : null}
+            <span className="payment-confirmation-panel__note-row-rail" aria-hidden>
+              <span className="payment-confirmation-panel__note-row-dot">
+                <ActivityRowIcon entry={entry} />
               </span>
-              <time
-                className="payment-confirmation-panel__note-row-date tabular-nums"
-                dateTime={entry.timestamp}
-              >
-                {formatDate(entry.timestamp)}
-              </time>
+            </span>
+            <div className="payment-confirmation-panel__note-row-content">
+              <div className="payment-confirmation-panel__note-row-head">
+                <span className="payment-confirmation-panel__note-row-title">
+                  {entry.title}
+                  {entry.source ? (
+                    <span
+                      className={`payment-confirmation-panel__note-row-source payment-confirmation-panel__note-row-source--${entry.source}`}
+                    >
+                      {entry.source === 'credyx' ? 'Credyx' : 'Carrier'}
+                    </span>
+                  ) : null}
+                  {entry.internal ? (
+                    <span
+                      className="payment-confirmation-panel__note-internal"
+                      title="Visible to Credyx only"
+                    >
+                      Internal
+                    </span>
+                  ) : null}
+                </span>
+                <time
+                  className="payment-confirmation-panel__note-row-date tabular-nums"
+                  dateTime={entry.timestamp}
+                >
+                  {formatDate(entry.timestamp)}
+                </time>
+              </div>
+              {entry.detail ? (
+                <p className="payment-confirmation-panel__note-row-detail">{entry.detail}</p>
+              ) : null}
+              {entry.meta ? (
+                <p className="payment-confirmation-panel__note-row-meta">{entry.meta}</p>
+              ) : null}
             </div>
-            {entry.detail ? (
-              <p className="payment-confirmation-panel__note-row-detail">{entry.detail}</p>
-            ) : null}
-            {entry.meta ? (
-              <p className="payment-confirmation-panel__note-row-meta">{entry.meta}</p>
-            ) : null}
           </li>
         )
       })}

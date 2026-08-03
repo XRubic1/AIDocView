@@ -427,17 +427,6 @@ export default function PaymentConfirmationPanel({
             </div>
           </div>
 
-          {visibleInvoice ? (
-            <InvoiceNoteCompose
-              newNote={newNote}
-              isAddingNote={isAddingNote}
-              onChange={setNewNote}
-              onSubmit={() => void handleAddNote()}
-              compact
-              collapsible
-            />
-          ) : null}
-
           <div className="payment-confirmation-panel__notes-scroll">
             <InvoiceActivityNoteList
               entries={filteredTimeline}
@@ -453,6 +442,17 @@ export default function PaymentConfirmationPanel({
               emptyColor={c.mutedLight}
             />
           </div>
+
+          {visibleInvoice ? (
+            <InvoiceNoteCompose
+              newNote={newNote}
+              isAddingNote={isAddingNote}
+              onChange={setNewNote}
+              onSubmit={() => void handleAddNote()}
+              compact
+              collapsible
+            />
+          ) : null}
         </section>
       </div>
 

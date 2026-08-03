@@ -32,13 +32,14 @@ type InvoiceSortField =
 function getBatchInvoiceStatusBadge(status: string) {
   const visibleStatus = toClientVisibleStatus(status as Invoice['status'])
   const classMap: Record<string, string> = {
-    pending: 'status-pill status-pill--pending',
-    approved: 'status-pill status-pill--pending',
+    approved: 'status-pill status-pill--open',
     paid: 'status-pill status-pill--approved',
     rejected: 'status-pill status-pill--overdue',
     force_closed: 'status-pill status-pill--overdue',
-    written_off: 'status-pill status-pill--hold',
+    written_off: 'status-pill status-pill--closed',
     hold: 'status-pill status-pill--hold',
+    overdue: 'status-pill status-pill--overdue',
+    pending: 'status-pill status-pill--pending',
   }
   const labels: Record<string, string> = {
     pending: 'Pending',

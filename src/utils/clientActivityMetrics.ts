@@ -227,7 +227,7 @@ export function computeConfirmPaymentActions(
       type: 'confirm_payment' as const,
       label: `Confirm payment · ${payment.invoice_number}`,
       detail: `${formatCompactAmount(payment.amount)} · ${payment.broker_name}`,
-      tone: 'amber' as const,
+      tone: 'blue' as const,
       navigateTo: `/client/payments?status=awaiting_receipt&paymentId=${encodeURIComponent(payment.id)}`,
     }))
     .slice(0, limit)

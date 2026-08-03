@@ -1,5 +1,7 @@
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -16,6 +18,7 @@ import {
 import type { Invoice } from '../../types/invoice'
 import type { EnrichedInvoice } from '../../utils/invoiceAging'
 import { formatCurrency } from '../../utils/format'
+import { AMOUNT_EPSILON } from '../../utils/paymentVariance'
 import {
   getInvoiceLifecycleSteps,
   type InvoiceLifecycleStep,
@@ -26,18 +29,23 @@ import {
   getCarrierInvoiceActionRequired,
   getInvoiceMobileInsights,
   getMobileInvoiceHeroAmount,
-  getMobileInvoiceStatusLabel,
   type InvoiceMobileInsight,
 } from '../../utils/invoiceMobileInsights'
+import {
+  invoiceListPriorityStatusKey,
+  invoiceListPriorityStatusLabel,
+} from '../../utils/invoiceListPriority'
 
 interface MobileInvoiceOverviewProps {
   invoice: Invoice
   enriched: EnrichedInvoice
   payDate?: string | null
-  /** Posted date while awaiting carrier confirmation — shown with (pending). */
+  /** Posted date while awaiting carrier confirmation. */
   pendingPayDate?: string | null
   receiptDaysLeft?: number | null
   hasAwaitingReceipt?: boolean
+  /** Credyx-posted amount awaiting carrier confirm. */
+  awaitingReceiptAmount?: number | null
   activityCount: number
   documentCount: number
   /** Shown after carrier uploads docs for Action Required. */
@@ -91,14 +99,17 @@ function InsightIcon({ icon }: { icon: InvoiceMobileInsight['icon'] }) {
   }
 }
 
-/** Minimal Submitted → Verified → Invoiced → Paid/Confirm/Closed stepper. */
+/** Minimal Submitted → Verified → Invoiced/Short paid → Paid/Confirm/Closed stepper. */
 function LifecycleStepper({
   steps,
   variant = 'default',
+  isShortPaid = false,
 }: {
   steps: InvoiceLifecycleStep[]
   /** paid = green complete; closed = gray complete */
   variant?: 'default' | 'paid' | 'closed'
+  /** Paid step labeled Short paid — red current styling. */
+  isShortPaid?: boolean
 }) {
   const allDone = steps.every((step) => step.state === 'done')
   const awaitingConfirm = steps.some((step) => step.state === 'confirm')
@@ -111,7 +122,7 @@ function LifecycleStepper({
         isPaidComplete ? ' is-paid-complete' : ''
       }${isClosedComplete ? ' is-closed-complete' : ''}${
         awaitingConfirm ? ' is-awaiting-confirm' : ''
-      }`}
+      }${isShortPaid ? ' is-short-paid' : ''}`}
       aria-label="Invoice progress"
     >
       {steps.map((step, index) => {
@@ -163,6 +174,7 @@ export default function MobileInvoiceOverview({
   pendingPayDate,
   receiptDaysLeft,
   hasAwaitingReceipt,
+  awaitingReceiptAmount = null,
   activityCount,
   documentCount,
   uploadConfirmation,
@@ -176,17 +188,112 @@ export default function MobileInvoiceOverview({
   overageAmount = null,
   awaitingShortAmount = null,
 }: MobileInvoiceOverviewProps) {
+  const pendingPosted =
+    hasAwaitingReceipt &&
+    awaitingReceiptAmount != null &&
+    awaitingReceiptAmount > AMOUNT_EPSILON
+      ? awaitingReceiptAmount
+      : null
+
+  /** Confirm-payment variance vs invoice face. */
+  const pendingFull =
+    pendingPosted != null && Math.abs(pendingPosted - invoice.amount) < AMOUNT_EPSILON
+  const pendingShort =
+    pendingPosted != null && pendingPosted < invoice.amount - AMOUNT_EPSILON
+  const pendingOver =
+    pendingPosted != null && pendingPosted > invoice.amount + AMOUNT_EPSILON
+
+  /** Settled short pay — remaining open balance. */
+  const shortPaidOpen =
+    !pendingPosted &&
+    shortfallAmount != null &&
+    shortfallAmount >= AMOUNT_EPSILON &&
+    shortfallAmount < invoice.amount - AMOUNT_EPSILON
+      ? shortfallAmount
+      : null
+
+  /** Open balance for short (settled or confirm-payment short). */
+  const shortOpenBalance = pendingShort
+    ? invoice.amount - pendingPosted!
+    : shortPaidOpen
+
+  /** Settled overpay difference (not full received). */
+  const settledOverage =
+    !pendingPosted &&
+    overageAmount != null &&
+    overageAmount >= AMOUNT_EPSILON
+      ? overageAmount
+      : null
+
+  /** Confirm-payment over difference. */
+  const pendingOverage = pendingOver ? pendingPosted! - invoice.amount : null
+
+  const isShortPaid = shortOpenBalance != null
+
   const steps = getInvoiceLifecycleSteps(invoice, {
     awaitingReceipt: hasAwaitingReceipt,
+    isShortPaid,
   })
-  const statusLabel = hasAwaitingReceipt
-    ? 'CONFIRM PAYMENT'
-    : getMobileInvoiceStatusLabel(enriched, invoice)
+  const statusLabel = pendingPosted
+    ? invoiceListPriorityStatusLabel({
+        awaitingReceipt: true,
+        status: invoice.status,
+        displayStatus: enriched.displayStatus,
+        isOverdue: enriched.isOverdue,
+      })
+    : isShortPaid
+      ? 'SHORT PAID'
+      : invoiceListPriorityStatusLabel({
+          awaitingReceipt: hasAwaitingReceipt,
+          status: invoice.status,
+          displayStatus: enriched.displayStatus,
+          isOverdue: enriched.isOverdue,
+        })
   const amount = getMobileInvoiceHeroAmount(invoice)
   const visibleDueDate = getClientVisibleDueDate(invoice)
-  const statusKey = hasAwaitingReceipt
+  const statusKey = pendingPosted
     ? 'confirm-payment'
-    : (enriched.displayStatus || invoice.status || 'pending').replace(/_/g, '-')
+    : isShortPaid
+      ? 'short-paid'
+      : invoiceListPriorityStatusKey({
+          awaitingReceipt: hasAwaitingReceipt,
+          status: invoice.status,
+          displayStatus: enriched.displayStatus,
+          isOverdue: enriched.isOverdue,
+        })
+
+  /**
+   * Hero layout:
+   * - Confirm short: invoice + shortfall above, received total as main
+   * - Confirmed short: invoice + shortfall above, open balance as main
+   * - Over: invoice + overage above, received total as main
+   * - Full confirm: invoice amount
+   */
+  const overageDiff = pendingOverage ?? settledOverage
+  const isOverHero = overageDiff != null
+  const overReceivedTotal = isOverHero ? invoice.amount + overageDiff! : null
+
+  /** Shortfall beside invoice (settled or confirm short). */
+  const shortfallDiff = shortOpenBalance
+  /** Confirm-pending short: large = amount received. */
+  const shortPendingReceived =
+    pendingShort && shortfallDiff != null
+      ? invoice.amount - shortfallDiff
+      : null
+
+  const heroAmount =
+    shortPendingReceived != null
+      ? shortPendingReceived
+      : shortPaidOpen != null
+        ? shortPaidOpen
+        : overReceivedTotal != null
+          ? overReceivedTotal
+          : pendingFull
+            ? invoice.amount
+            : amount
+
+  const showShortMarker = shortfallDiff != null
+  const showOverMarker = isOverHero
   const actionRequired = getCarrierInvoiceActionRequired(invoice)
   // After upload, replace Action Required with the reviewing confirmation.
   const showActionRequired = Boolean(actionRequired) && !uploadConfirmation
@@ -367,7 +474,12 @@ export default function MobileInvoiceOverview({
 
   return (
     <div className="mobile-invoice-overview">
-      <article className="mobile-invoice-overview__hero" aria-label="Invoice summary">
+      <article
+        className={`mobile-invoice-overview__hero${
+          isShortPaid ? ' is-short-paid' : ''
+        }`}
+        aria-label="Invoice summary"
+      >
         <div className="mobile-invoice-overview__hero-top">
           <span className="mobile-invoice-overview__eyebrow">Invoice</span>
           <span className="mobile-invoice-overview__inv-pill">
@@ -396,16 +508,54 @@ export default function MobileInvoiceOverview({
               {payDate
                 ? formatMobileInvoiceDate(payDate)
                 : pendingPayDate
-                  ? `${formatMobileInvoiceDate(pendingPayDate)} (pending)`
+                  ? formatMobileInvoiceDate(pendingPayDate)
                   : '—'}
             </dd>
           </div>
         </dl>
 
         <div className="mobile-invoice-overview__amount-row">
-          <p className="mobile-invoice-overview__amount tabular-nums">
-            {formatCurrency(amount)}
-          </p>
+          <div className="mobile-invoice-overview__amount-stack">
+            {/* Short: invoice + shortfall; received (confirm) or open balance (settled) */}
+            {showShortMarker && shortfallDiff != null ? (
+              <p className="mobile-invoice-overview__amount-face mobile-invoice-overview__amount-face--variance-row tabular-nums">
+                <span className="mobile-invoice-overview__amount-face-invoice">
+                  {formatCurrency(invoice.amount)}
+                </span>
+                <span
+                  className="mobile-invoice-overview__amount-face-mark is-short"
+                  title={
+                    pendingShort
+                      ? 'Short payment pending — amount received below'
+                      : 'Short paid — remaining open balance below'
+                  }
+                >
+                  <ArrowDown size={11} strokeWidth={2.5} aria-hidden />
+                  -{formatCurrency(shortfallDiff)} (short)
+                </span>
+              </p>
+            ) : null}
+            {/* Over: invoice + overage beside it; received total below */}
+            {showOverMarker && overageDiff != null ? (
+              <p className="mobile-invoice-overview__amount-face mobile-invoice-overview__amount-face--variance-row tabular-nums">
+                <span className="mobile-invoice-overview__amount-face-invoice">
+                  {formatCurrency(invoice.amount)}
+                </span>
+                <span
+                  className="mobile-invoice-overview__amount-face-mark is-over"
+                  title="Overpayment"
+                >
+                  <ArrowUp size={11} strokeWidth={2.5} aria-hidden />
+                  +{formatCurrency(overageDiff)} (over)
+                </span>
+              </p>
+            ) : null}
+            <div className="mobile-invoice-overview__amount-main">
+              <p className="mobile-invoice-overview__amount tabular-nums">
+                {formatCurrency(heroAmount)}
+              </p>
+            </div>
+          </div>
           <span
             className={`mobile-invoice-overview__status mobile-invoice-overview__status--${statusKey}`}
           >
@@ -416,6 +566,7 @@ export default function MobileInvoiceOverview({
 
         <LifecycleStepper
           steps={steps}
+          isShortPaid={isShortPaid}
           variant={
             invoice.status === 'paid'
               ? 'paid'

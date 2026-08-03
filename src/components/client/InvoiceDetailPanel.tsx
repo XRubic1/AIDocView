@@ -17,11 +17,13 @@ import {
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
-import { formatCurrency, formatDate } from '../../utils/format'
+import { formatCurrency } from '../../utils/format'
 import {
   addClientInvoiceNote,
   openClientInvoiceDispute,
   markClientInvoiceAsPaid,
+  postClientPaymentAndRequestWriteOff,
+  closeClientInvoiceAsUncollectable,
   uploadClientInvoiceDocuments,
   getOpenDisputes,
   getDisputeReasonLabel,
@@ -30,7 +32,6 @@ import {
 } from '../../services/clientInvoiceActions'
 import {
   addAdminInvoiceNote,
-  collectionStatusLabel,
   postInvoiceStatusNote,
   type InvoiceStatusNoteKind,
 } from '../../services/adminInvoiceNoteActions'
@@ -50,9 +51,6 @@ import ShortPaymentCloseModal from './ShortPaymentCloseModal'
 import OverpaymentAcceptModal from './OverpaymentAcceptModal'
 import {
   enrichInvoice,
-  getDaysOutstandingColor,
-  getDisplayInvoiceAgeDays,
-  isOpenArInvoice,
   isPostableForPayment,
 } from '../../utils/invoiceAging'
 import { useClientTheme } from '../../theme/ThemeContext'
@@ -64,7 +62,6 @@ import {
 } from '../../utils/paymentStatus'
 import { buildClientPaymentAuditTimeline, isPaymentRelatedInvoiceNote, isRedundantPaymentLifecycleNote, isClosedUncollectableNote, getPaymentNoteCategoryTitle } from '../../utils/clientPaymentAuditTimeline'
 import {
-  getClientDisplayBalanceState,
   getClientPostedPendingTotal,
   getInvoiceReceivedAmount,
   AMOUNT_EPSILON,
@@ -73,12 +70,9 @@ import {
   getUnconfirmedPaymentTotal,
   getUnconfirmedShortPaymentTotal,
 } from '../../data/mockPayments'
-import InvoiceBalanceSummary from './InvoiceBalanceSummary'
 import {
   NOTE_TYPE_LABELS,
   getInvoiceNoteEntries,
-  getInvoiceNotice,
-  getInvoiceRowStatusBadge,
   InvoiceNoteCompose,
 } from './invoiceDetailShared'
 import { useAuth } from '../../context/AuthContext'
@@ -99,7 +93,6 @@ import type { ClientDocument } from '../../types/clientDocument'
 import MobileInvoiceOverview from './MobileInvoiceOverview'
 import { InvoiceActivityNoteList, declutterActivityEntries } from './InvoiceActivityNoteList'
 import { getCarrierInvoiceActionRequired } from '../../utils/invoiceMobileInsights'
-import { hasPpwBeenSent } from '../../utils/ppwSent'
 import ConfirmPaymentReceiptModal from './ConfirmPaymentReceiptModal'
 
 type TimelineFilter = 'all' | 'activity' | 'notes' | 'payments' | 'send'
@@ -121,22 +114,11 @@ interface TimelineEntry {
   internal?: boolean
 }
 
-const SUMMARY_TONE_BY_STATUS: Record<string, string> = {
-  paid: 'payment-confirmation-panel__summary--confirmed',
-  approved: 'payment-confirmation-panel__summary--neutral',
-  hold: 'payment-confirmation-panel__summary--awaiting',
-  pending: 'payment-confirmation-panel__summary--pending',
-  overdue: 'payment-confirmation-panel__summary--disputed',
-  rejected: 'payment-confirmation-panel__summary--rejected',
-  force_closed: 'payment-confirmation-panel__summary--rejected',
-  written_off: 'payment-confirmation-panel__summary--neutral',
-}
-
 function noteTone(type?: string): TimelineTone {
   switch (type) {
     case 'approval':
-    case 'status_update':
       return 'success'
+    case 'status_update':
     case 'client_note':
       return 'info'
     case 'rejection':
@@ -326,8 +308,7 @@ export default function InvoiceDetailPanel({
   const canWriteOff =
     capabilities.canRequestWriteOff &&
     shortPayment?.resolution === 'open' &&
-    canCloseShortPaymentAsUncollectable(invoice) &&
-    !!onCloseAsUncollectable
+    canCloseShortPaymentAsUncollectable(invoice)
   const canAcceptOver =
     overpayment?.resolution === 'open' &&
     canAcceptOverpayment(invoice, payments) &&
@@ -354,7 +335,6 @@ export default function InvoiceDetailPanel({
     includeInternal: isAdminPortal,
   })
   const openDisputes = getOpenDisputes(visibleInvoice)
-  const collectionLabel = collectionStatusLabel(invoice.collection_status)
 
   const [newNote, setNewNote] = useState('')
   const [noteVisibility, setNoteVisibility] = useState<'client' | 'internal'>('client')
@@ -372,6 +352,8 @@ export default function InvoiceDetailPanel({
   const [showPaidModal, setShowPaidModal] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState('')
   const [paymentNote, setPaymentNote] = useState('')
+  const [writeOffRemaining, setWriteOffRemaining] = useState(false)
+  const [writeOffNote, setWriteOffNote] = useState('')
   const [isMarkingPaid, setIsMarkingPaid] = useState(false)
   const [paidError, setPaidError] = useState<string | null>(null)
   const [showUploadModal, setShowUploadModal] = useState(false)
@@ -433,27 +415,10 @@ export default function InvoiceDetailPanel({
   const brokerEmails = broker?.emails ?? []
   const canSendDocuments = isAdminPortal
 
-  const notice = getInvoiceNotice(
-    visibleInvoice,
-    enriched,
-    openDisputes.length,
-    capabilities.hasForceClose
-  )
-
   const receivedAmount = useMemo(() => {
     if (!showBalanceSummary) return 0
     return getInvoiceReceivedAmount(visibleInvoice, invoicePayments)
   }, [showBalanceSummary, visibleInvoice, invoicePayments])
-
-  const balanceState = useMemo(
-    () =>
-      getClientDisplayBalanceState(
-        visibleInvoice.amount,
-        receivedAmount,
-        pendingClientPosted
-      ),
-    [visibleInvoice.amount, receivedAmount, pendingClientPosted]
-  )
 
   const pendingConfirmation = useMemo(() => {
     if (!showBalanceSummary) return 0
@@ -904,12 +869,6 @@ export default function InvoiceDetailPanel({
     return () => window.clearTimeout(timer)
   }, [swipeMotion.phase])
 
-  const summaryToneClass =
-    SUMMARY_TONE_BY_STATUS[enriched.displayStatus || invoice.status] ||
-    (enriched.isOverdue
-      ? 'payment-confirmation-panel__summary--disputed'
-      : 'payment-confirmation-panel__summary--neutral')
-
   /** Latest confirmed payment date for display (Pay date). */
   const payDate = useMemo(() => {
     const confirmed = invoicePayments.filter((p) => p.status === 'confirmed')
@@ -931,15 +890,6 @@ export default function InvoiceDetailPanel({
   const pendingPayDate = awaitingReceiptPayment
     ? awaitingReceiptPayment.received_date || awaitingReceiptPayment.payment_date || null
     : null
-
-  /**
-   * Invoice calendar age — freezes on pay date once the invoice is paid
-   * so age no longer increases after settlement.
-   */
-  const invoiceAgeLabel = useMemo(() => {
-    const days = getDisplayInvoiceAgeDays(visibleInvoice, { payDate })
-    return `${days}d`
-  }, [visibleInvoice, payDate])
 
   const hasFooterActions =
     canPostPaymentAction ||
@@ -1166,6 +1116,15 @@ export default function InvoiceDetailPanel({
       return
     }
 
+    const remainingOpen = Math.max(0, invoice.amount - receivedAmount)
+    const shortfallAfterPost = remainingOpen - amountReceived
+    const requestingWriteOff = writeOffRemaining && shortfallAfterPost >= AMOUNT_EPSILON
+
+    if (requestingWriteOff && !writeOffNote.trim()) {
+      setPaidError('Add a note explaining why the remaining balance is uncollectable.')
+      return
+    }
+
     setIsMarkingPaid(true)
     setPaidError(null)
     try {
@@ -1173,10 +1132,28 @@ export default function InvoiceDetailPanel({
         amountReceived,
         optionalNote: paymentNote.trim() || undefined,
       }
-      if (onMarkAsPaid) {
+
+      if (requestingWriteOff) {
+        const updated = postClientPaymentAndRequestWriteOff(
+          invoice.id,
+          authorName,
+          { ...options, writeOffNote: writeOffNote.trim() },
+          {
+            canPostPayment: capabilities.canPostPayment,
+            canRequestWriteOff: capabilities.canRequestWriteOff,
+          }
+        )
+        if (!updated) {
+          setPaidError(
+            'Could not post payment and request write-off. Check that the invoice is open and eligible.'
+          )
+          return
+        }
+        showToast('Payment posted. Remaining balance marked uncollectable for Credyx review.', 'success')
+      } else if (onMarkAsPaid) {
         await onMarkAsPaid(invoice.id, options)
       } else {
-        const updated = markClientInvoiceAsPaid(invoice.id, clientName, options, {
+        const updated = markClientInvoiceAsPaid(invoice.id, authorName, options, {
           canPostPayment: capabilities.canPostPayment,
         })
         if (!updated) {
@@ -1189,6 +1166,8 @@ export default function InvoiceDetailPanel({
       setShowPaidModal(false)
       setPaymentAmount('')
       setPaymentNote('')
+      setWriteOffRemaining(false)
+      setWriteOffNote('')
       onInvoiceUpdated?.()
     } catch (error) {
       console.error('Failed to post payment:', error)
@@ -1202,15 +1181,30 @@ export default function InvoiceDetailPanel({
     const remaining = Math.max(0, invoice.amount - receivedAmount)
     setPaymentAmount(String(remaining > 0 ? remaining : invoice.amount))
     setPaymentNote('')
+    setWriteOffRemaining(false)
+    setWriteOffNote('')
     setPaidError(null)
     setShowPaidModal(true)
   }
 
   const handleCloseUncollectable = async (note: string) => {
-    if (!onCloseAsUncollectable || isClosing) return
+    if (isClosing) return
     setIsClosing(true)
     try {
-      await onCloseAsUncollectable(invoice.id, note)
+      if (onCloseAsUncollectable) {
+        await onCloseAsUncollectable(invoice.id, note)
+      } else {
+        const updated = closeClientInvoiceAsUncollectable(
+          invoice.id,
+          authorName,
+          { note },
+          payments,
+          { canRequestWriteOff: capabilities.canRequestWriteOff }
+        )
+        if (!updated) {
+          throw new Error('Could not request write-off')
+        }
+      }
       onInvoiceUpdated?.()
     } finally {
       setIsClosing(false)
@@ -1311,45 +1305,13 @@ export default function InvoiceDetailPanel({
               </button>
             ) : null}
             <div className="payment-confirmation-panel__header-main min-w-0">
-              <div className="payment-confirmation-panel__eyebrow-row">
-                <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
-                  {detailSurface === 'activity' ? 'Activity & notes' : 'Invoice details'}
-                </p>
-                {detailSurface === 'overview' ? (
-                  <div className="inline-flex items-center gap-1.5 flex-wrap">
-                    {awaitingReceiptPayment ? (
-                      <span className="status-pill status-pill--confirm-payment status-pill--compact">
-                        Confirm payment
-                      </span>
-                    ) : (
-                      getInvoiceRowStatusBadge(enriched, {
-                        compact: true,
-                        balance: balanceState,
-                        pendingClientPosted,
-                        confirmedReceived: receivedAmount,
-                      })
-                    )}
-                    {hasPpwBeenSent(visibleInvoice) ? (
-                      <span
-                        className="status-pill status-pill--compact inline-flex items-center gap-1"
-                        style={{ color: '#16a34a', borderColor: 'rgba(22, 163, 74, 0.35)' }}
-                        title="Paperwork sent to broker"
-                        data-onboard-target="invoicePpwSent"
-                      >
-                        <CircleCheck className="w-3 h-3" strokeWidth={2.5} />
-                        PPW sent
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-              <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
-                Invoice {visibleInvoice.invoice_number}
-                {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
+              <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
+                {detailSurface === 'activity' ? 'Activity & notes' : 'Invoice details'}
               </p>
-              {detailSurface === 'overview' ? (
-                <p className="payment-confirmation-panel__context-sub" style={{ color: c.secondary }}>
-                  {visibleInvoice.broker_name}
+              {detailSurface === 'activity' ? (
+                <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
+                  Invoice {visibleInvoice.invoice_number}
+                  {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
                 </p>
               ) : null}
             </div>
@@ -1406,312 +1368,115 @@ export default function InvoiceDetailPanel({
       </header>
 
       <div className="payment-confirmation-panel__body">
-        {isMobile ? (
-          <>
-            <div
-              className="payment-confirmation-panel__mobile-surface-tabs"
-              role="tablist"
-              aria-label="Invoice detail views"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={detailSurface === 'overview'}
-                className={`payment-confirmation-panel__mobile-surface-tab${
-                  detailSurface === 'overview'
-                    ? ' payment-confirmation-panel__mobile-surface-tab--active'
-                    : ''
-                }`}
-                onClick={() => setDetailSurface('overview')}
-              >
-                Overview
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={detailSurface === 'activity'}
-                className={`payment-confirmation-panel__mobile-surface-tab${
-                  detailSurface === 'activity'
-                    ? ' payment-confirmation-panel__mobile-surface-tab--active'
-                    : ''
-                }`}
-                onClick={() => setDetailSurface('activity')}
-              >
-                Activity
-                {allTimelineEntries.length > 0 ? (
-                  <span className="payment-confirmation-panel__mobile-surface-tab-count">
-                    {allTimelineEntries.length}
-                  </span>
-                ) : null}
-              </button>
-            </div>
-
-            {detailSurface === 'overview' ? (
-              <MobileInvoiceOverview
-                invoice={visibleInvoice}
-                enriched={enriched}
-                payDate={payDate}
-                pendingPayDate={pendingPayDate}
-                receiptDaysLeft={receiptDaysLeft}
-                hasAwaitingReceipt={Boolean(awaitingReceiptPayment)}
-                activityCount={allTimelineEntries.length}
-                documentCount={documentCount}
-                uploadConfirmation={uploadSuccess}
-                shortfallAmount={shortfallInclPending}
-                shortPayReason={shortPayReasonText}
-                overageAmount={overageInclPending}
-                awaitingShortAmount={awaitingShortAmount}
-                onOpenActivity={() => setDetailSurface('activity')}
-                onConfirmPayment={
-                  canConfirmPaymentAction
-                    ? () => setShowConfirmPaymentModal(true)
-                    : undefined
-                }
-                onViewDocuments={canViewDocuments ? onViewDocuments : undefined}
-                onUploadDocuments={
-                  enableClientActions ? () => setShowUploadModal(true) : undefined
-                }
-              />
-            ) : (
-              <section className="payment-confirmation-panel__notes payment-confirmation-panel__notes--mobile-surface">
-                <div className="payment-confirmation-panel__notes-head">
-                  <div
-                    className="payment-confirmation-panel__notes-filters payment-confirmation-panel__notes-filters--segmented"
-                    role="group"
-                    aria-label="Filter timeline"
-                  >
-                    {(
-                      [
-                        ['all', 'All', timelineFilterCounts.all],
-                        ['activity', 'Activity', timelineFilterCounts.activity],
-                        ['payments', 'Payments', timelineFilterCounts.payments],
-                      ] as const
-                    ).map(([key, label, count]) => (
-                      <button
-                        key={key}
-                        type="button"
-                        className={`payment-confirmation-panel__notes-filter ${
-                          timelineFilter === key
-                            ? 'payment-confirmation-panel__notes-filter--active'
-                            : ''
-                        }`}
-                        onClick={() => setTimelineFilter(key)}
-                        aria-pressed={timelineFilter === key}
-                      >
-                        {label}
-                        {count > 0 && (
-                          <span className="payment-confirmation-panel__notes-filter-count">
-                            {count}
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {notesEnabled && (
-                  <InvoiceNoteCompose
-                    newNote={newNote}
-                    isAddingNote={isAddingNote}
-                    onChange={setNewNote}
-                    onSubmit={handleAddNote}
-                    compact
-                    collapsible
-                    allowInternal={isAdminPortal}
-                    visibility={noteVisibility}
-                    onVisibilityChange={setNoteVisibility}
-                  />
-                )}
-
-                <div className="payment-confirmation-panel__notes-scroll">
-                  <InvoiceActivityNoteList
-                    entries={filteredTimeline}
-                    contextEntries={allTimelineEntries}
-                    emptyMessage={emptyMessage}
-                    emptyColor={c.mutedLight}
-                  />
-                </div>
-              </section>
-            )}
-          </>
-        ) : detailSurface === 'overview' ? (
-          <>
-        <section
-          className={`payment-confirmation-panel__summary ${summaryToneClass}`}
-          aria-label={`Invoice status: ${enriched.displayStatus || invoice.status}`}
+        <div
+          className="payment-confirmation-panel__mobile-surface-tabs"
+          role="tablist"
+          aria-label="Invoice detail views"
         >
-          {showBalanceSummary ? (
-            <InvoiceBalanceSummary
-              invoiceNumber={visibleInvoice.invoice_number}
-              brokerName={visibleInvoice.broker_name}
-              loadNumber={visibleInvoice.load_number}
-              invoiceAmount={visibleInvoice.amount}
-              receivedToDate={receivedAmount}
-              pendingConfirmation={pendingConfirmation}
-              pendingShortCorrection={pendingShortCorrection}
-              clientView
-              hideIdentity
-              writtenOff={
-                visibleInvoice.status === 'written_off' ||
-                visibleInvoice.status === 'write_off_pending'
-              }
-            />
-          ) : (
-            <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta mb-1">
-              <div className="payment-confirmation-panel__summary-cell payment-confirmation-panel__summary-cell--primary">
-                <dt>Amount</dt>
-                <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                  {formatCurrency(
-                    invoice.status === 'paid' && invoice.paid_amount != null
-                      ? invoice.paid_amount
-                      : invoice.amount
-                  )}
-                </dd>
-              </div>
-            </dl>
-          )}
-
-          <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta">
-            <div className="payment-confirmation-panel__summary-cell">
-              <dt>Invoice date</dt>
-              <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                {formatDate(invoice.invoice_date)}
-              </dd>
-            </div>
-            <div className="payment-confirmation-panel__summary-cell">
-              <dt>Pay date</dt>
-              <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                {payDate
-                  ? formatDate(payDate)
-                  : pendingPayDate
-                    ? `${formatDate(pendingPayDate)} (pending)`
-                    : '—'}
-              </dd>
-            </div>
-            <div className="payment-confirmation-panel__summary-cell">
-              <dt>Invoice age</dt>
-              <dd
-                className="tabular-nums payment-confirmation-panel__summary-value"
-                style={{
-                  color:
-                    isOpenArInvoice(invoice) && enriched.isOverdue
-                      ? getDaysOutstandingColor(enriched.overdueSeverity)
-                      : undefined,
-                }}
-              >
-                {invoiceAgeLabel}
-              </dd>
-            </div>
-            <div className="payment-confirmation-panel__summary-cell">
-              <dt>Due date</dt>
-              <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                {invoice.due_date ? formatDate(invoice.due_date) : '—'}
-              </dd>
-            </div>
-          </dl>
-
-          {isAdminPortal && collectionLabel && (
-            <p className="payment-confirmation-panel__summary-meta mt-1">
-              <span
-                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-                style={{
-                  backgroundColor:
-                    invoice.collection_status === 'W/P' ? c.stat.blue : c.stat.amber,
-                  color: c.primary,
-                }}
-              >
-                {collectionLabel}
-                {invoice.collection_date ? ` · ${formatDate(invoice.collection_date)}` : ''}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={detailSurface === 'overview'}
+            className={`payment-confirmation-panel__mobile-surface-tab${
+              detailSurface === 'overview'
+                ? ' payment-confirmation-panel__mobile-surface-tab--active'
+                : ''
+            }`}
+            onClick={() => setDetailSurface('overview')}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={detailSurface === 'activity'}
+            className={`payment-confirmation-panel__mobile-surface-tab${
+              detailSurface === 'activity'
+                ? ' payment-confirmation-panel__mobile-surface-tab--active'
+                : ''
+            }`}
+            onClick={() => setDetailSurface('activity')}
+          >
+            Activity
+            {allTimelineEntries.length > 0 ? (
+              <span className="payment-confirmation-panel__mobile-surface-tab-count">
+                {allTimelineEntries.length}
               </span>
-            </p>
-          )}
+            ) : null}
+          </button>
+        </div>
 
-          {(notice || awaitingReceiptPayment || uploadSuccess) && (
-            <p className="payment-confirmation-panel__summary-meta">
-              {notice?.message}
-              {awaitingReceiptPayment && (
-                <>
-                  {notice ? ' · ' : ''}
-                  Credyx posted {formatCurrency(awaitingReceiptPayment.amount)} — confirm receipt
-                  {receiptDaysLeft != null
-                    ? ` within ${receiptDaysLeft} day${receiptDaysLeft !== 1 ? 's' : ''}`
-                    : ''}
-                  .
-                </>
-              )}
-              {uploadSuccess && (
-                <>
-                  {(notice || awaitingReceiptPayment) ? ' · ' : ''}
-                  {uploadSuccess}
-                </>
-              )}
-            </p>
-          )}
-        </section>
-
-        <MobileInvoiceOverview
-          insightsOnly
-          invoice={visibleInvoice}
-          enriched={enriched}
-          payDate={payDate}
-          pendingPayDate={pendingPayDate}
-          receiptDaysLeft={receiptDaysLeft}
-          hasAwaitingReceipt={Boolean(awaitingReceiptPayment)}
-          activityCount={allTimelineEntries.length}
-          documentCount={documentCount}
-          uploadConfirmation={uploadSuccess}
-          shortfallAmount={shortfallInclPending}
-          shortPayReason={shortPayReasonText}
-          overageAmount={overageInclPending}
-          awaitingShortAmount={awaitingShortAmount}
-          onOpenActivity={() => setDetailSurface('activity')}
-          onConfirmPayment={
-            canConfirmPaymentAction
-              ? () => setShowConfirmPaymentModal(true)
-              : undefined
-          }
-          onViewDocuments={canViewDocuments ? onViewDocuments : undefined}
-          onUploadDocuments={
-            enableClientActions ? () => setShowUploadModal(true) : undefined
-          }
-        />
-          </>
+        {detailSurface === 'overview' ? (
+          <MobileInvoiceOverview
+            invoice={visibleInvoice}
+            enriched={enriched}
+            payDate={payDate}
+            pendingPayDate={pendingPayDate}
+            receiptDaysLeft={receiptDaysLeft}
+            hasAwaitingReceipt={Boolean(awaitingReceiptPayment)}
+            awaitingReceiptAmount={awaitingReceiptPayment?.amount ?? null}
+            activityCount={allTimelineEntries.length}
+            documentCount={documentCount}
+            uploadConfirmation={uploadSuccess}
+            shortfallAmount={shortfallInclPending}
+            shortPayReason={shortPayReasonText}
+            overageAmount={overageInclPending}
+            awaitingShortAmount={awaitingShortAmount}
+            onOpenActivity={() => setDetailSurface('activity')}
+            onConfirmPayment={
+              canConfirmPaymentAction
+                ? () => setShowConfirmPaymentModal(true)
+                : undefined
+            }
+            onViewDocuments={canViewDocuments ? onViewDocuments : undefined}
+            onUploadDocuments={
+              enableClientActions ? () => setShowUploadModal(true) : undefined
+            }
+          />
         ) : (
-        <section className="payment-confirmation-panel__notes payment-confirmation-panel__notes--sidebar-surface">
-          <div className="payment-confirmation-panel__notes-head">
-            <div
-              className="payment-confirmation-panel__notes-filters"
-              role="group"
-              aria-label="Filter timeline"
-            >
-              {(
-                [
-                  ['all', 'All', timelineFilterCounts.all],
-                  ['activity', 'Activity', timelineFilterCounts.activity],
-                  ['notes', 'Notes', timelineFilterCounts.notes],
-                  ['payments', 'Payments', timelineFilterCounts.payments],
-                  ['send', 'Send', timelineFilterCounts.send],
-                ] as const
-              ).map(([key, label, count]) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={`payment-confirmation-panel__notes-filter ${
-                    timelineFilter === key ? 'payment-confirmation-panel__notes-filter--active' : ''
-                  }`}
-                  onClick={() => setTimelineFilter(key)}
-                  aria-pressed={timelineFilter === key}
-                >
-                  {label}
-                  {count > 0 && (
-                    <span className="payment-confirmation-panel__notes-filter-count">{count}</span>
-                  )}
-                </button>
-              ))}
+          <section
+            className={`payment-confirmation-panel__notes ${
+              isMobile
+                ? 'payment-confirmation-panel__notes--mobile-surface'
+                : 'payment-confirmation-panel__notes--sidebar-surface payment-confirmation-panel__notes--sidebar-matches-mobile'
+            }`}
+          >
+            <div className="payment-confirmation-panel__notes-head">
+              <div
+                className="payment-confirmation-panel__notes-filters payment-confirmation-panel__notes-filters--segmented"
+                role="group"
+                aria-label="Filter timeline"
+              >
+                {(
+                  [
+                    ['all', 'All', timelineFilterCounts.all],
+                    ['activity', 'Activity', timelineFilterCounts.activity],
+                    ['payments', 'Payments', timelineFilterCounts.payments],
+                  ] as const
+                ).map(([key, label, count]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`payment-confirmation-panel__notes-filter ${
+                      timelineFilter === key
+                        ? 'payment-confirmation-panel__notes-filter--active'
+                        : ''
+                    }`}
+                    onClick={() => setTimelineFilter(key)}
+                    aria-pressed={timelineFilter === key}
+                  >
+                    {label}
+                    {count > 0 && (
+                      <span className="payment-confirmation-panel__notes-filter-count">
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          {isAdminPortal && notesEnabled && (
+            {isAdminPortal && notesEnabled && !isMobile && (
             <div
               className="invoice-admin-status-actions"
               style={{ borderColor: c.border, backgroundColor: c.card }}
@@ -1776,29 +1541,30 @@ export default function InvoiceDetailPanel({
             </div>
           )}
 
-          {notesEnabled && (
-            <InvoiceNoteCompose
-              newNote={newNote}
-              isAddingNote={isAddingNote}
-              onChange={setNewNote}
-              onSubmit={handleAddNote}
-              compact
-              collapsible
-              allowInternal={isAdminPortal}
-              visibility={noteVisibility}
-              onVisibilityChange={setNoteVisibility}
-            />
-          )}
+            <div className="payment-confirmation-panel__notes-scroll">
+              <InvoiceActivityNoteList
+                entries={filteredTimeline}
+                contextEntries={allTimelineEntries}
+                emptyMessage={emptyMessage}
+                emptyColor={c.mutedLight}
+              />
+            </div>
 
-          <div className="payment-confirmation-panel__notes-scroll">
-            <InvoiceActivityNoteList
-              entries={filteredTimeline}
-              contextEntries={allTimelineEntries}
-              emptyMessage={emptyMessage}
-              emptyColor={c.mutedLight}
-            />
-          </div>
-        </section>
+            {notesEnabled && (
+              <InvoiceNoteCompose
+                newNote={newNote}
+                isAddingNote={isAddingNote}
+                onChange={setNewNote}
+                onSubmit={handleAddNote}
+                compact={!isMobile}
+                collapsible={!isMobile}
+                mobileEasy={isMobile}
+                allowInternal={isAdminPortal}
+                visibility={noteVisibility}
+                onVisibilityChange={setNoteVisibility}
+              />
+            )}
+          </section>
         )}
       </div>
 
@@ -2164,49 +1930,126 @@ export default function InvoiceDetailPanel({
               </button>
             </div>
             <div className="invoice-dispute-modal-body">
-              <p className="text-sm mb-4" style={{ color: c.secondary }}>
-                Post payment for {invoice.invoice_number}. Invoice amount{' '}
-                <strong style={{ color: c.primary }}>{formatCurrency(invoice.amount)}</strong>.
-                Credyx will be notified and must approve before the payment is final. The invoice
-                will show as closed while approval is pending.
-              </p>
-              <label className="client-label" htmlFor="paid-amount-received">
-                Amount received
-              </label>
-              <input
-                id="paid-amount-received"
-                type="number"
-                min="0"
-                step="0.01"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                className="client-input w-full mb-4 tabular-nums"
-              />
-              {paymentAmount &&
-                parseFloat(paymentAmount) !== invoice.amount &&
-                Number.isFinite(parseFloat(paymentAmount)) && (
-                  <p className="text-xs mb-4" style={{ color: c.secondary }}>
-                    {parseFloat(paymentAmount) < invoice.amount
-                      ? `Short by ${formatCurrency(invoice.amount - parseFloat(paymentAmount))}`
-                      : `Over by ${formatCurrency(parseFloat(paymentAmount) - invoice.amount)}`}
-                  </p>
-                )}
-              <label className="client-label" htmlFor="paid-note">
-                Note (optional)
-              </label>
-              <textarea
-                id="paid-note"
-                value={paymentNote}
-                onChange={(e) => setPaymentNote(e.target.value)}
-                placeholder="Why the amount differs, check number, etc."
-                rows={3}
-                className="client-input w-full"
-              />
-              {paidError && (
-                <p className="text-sm mt-2" style={{ color: '#DC2626' }}>
-                  {paidError}
-                </p>
-              )}
+              {(() => {
+                const remainingOpen = Math.max(0, invoice.amount - receivedAmount)
+                const amountNum = parseFloat(paymentAmount)
+                const hasValidAmount = Number.isFinite(amountNum) && amountNum > 0
+                const shortfallAfterPost =
+                  hasValidAmount && amountNum < remainingOpen - AMOUNT_EPSILON
+                    ? remainingOpen - amountNum
+                    : 0
+                const canOfferWriteOff =
+                  capabilities.canRequestWriteOff &&
+                  canCloseShortPaymentAsUncollectable(invoice) &&
+                  shortfallAfterPost >= AMOUNT_EPSILON
+
+                return (
+                  <>
+                    <p className="text-sm mb-4" style={{ color: c.secondary }}>
+                      Post payment for {invoice.invoice_number}. Invoice amount{' '}
+                      <strong style={{ color: c.primary }}>{formatCurrency(invoice.amount)}</strong>
+                      {remainingOpen > 0 && remainingOpen < invoice.amount - AMOUNT_EPSILON && (
+                        <>
+                          {' '}
+                          · Open balance{' '}
+                          <strong style={{ color: c.primary }}>{formatCurrency(remainingOpen)}</strong>
+                        </>
+                      )}
+                      . Credyx will be notified and must approve before the payment is final.
+                    </p>
+                    <label className="client-label" htmlFor="paid-amount-received">
+                      Amount received
+                    </label>
+                    <input
+                      id="paid-amount-received"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={paymentAmount}
+                      onChange={(e) => {
+                        setPaymentAmount(e.target.value)
+                        // Clear write-off if the amount no longer creates a shortfall.
+                        const next = parseFloat(e.target.value)
+                        if (
+                          !Number.isFinite(next) ||
+                          next >= remainingOpen - AMOUNT_EPSILON
+                        ) {
+                          setWriteOffRemaining(false)
+                          setWriteOffNote('')
+                        }
+                      }}
+                      className="client-input w-full mb-4 tabular-nums"
+                    />
+                    {hasValidAmount && Math.abs(amountNum - remainingOpen) >= AMOUNT_EPSILON && (
+                      <p className="text-xs mb-4" style={{ color: c.secondary }}>
+                        {amountNum < remainingOpen
+                          ? `Short by ${formatCurrency(remainingOpen - amountNum)}`
+                          : `Over by ${formatCurrency(amountNum - remainingOpen)}`}
+                      </p>
+                    )}
+                    <label className="client-label" htmlFor="paid-note">
+                      Note (optional)
+                    </label>
+                    <textarea
+                      id="paid-note"
+                      value={paymentNote}
+                      onChange={(e) => setPaymentNote(e.target.value)}
+                      placeholder="Why the amount differs, check number, etc."
+                      rows={3}
+                      className="client-input w-full"
+                    />
+
+                    {canOfferWriteOff && (
+                      <div
+                        className="mt-4 rounded-lg border px-3 py-3 space-y-3"
+                        style={{ borderColor: c.border, backgroundColor: c.stat?.red ?? '#FEF2F2' }}
+                      >
+                        <label className="flex items-start gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={writeOffRemaining}
+                            onChange={(e) => {
+                              setWriteOffRemaining(e.target.checked)
+                              if (!e.target.checked) setWriteOffNote('')
+                              setPaidError(null)
+                            }}
+                          />
+                          <span className="text-sm" style={{ color: c.primary }}>
+                            Write off remaining{' '}
+                            <strong>{formatCurrency(shortfallAfterPost)}</strong> as uncollectable
+                          </span>
+                        </label>
+                        {writeOffRemaining && (
+                          <>
+                            <p className="text-xs leading-relaxed" style={{ color: c.error }}>
+                              This remaining balance will be marked as uncollectable and sent to Credyx
+                              for write-off approval. You will not continue chasing this amount.
+                            </p>
+                            <label className="client-label" htmlFor="paid-writeoff-note">
+                              Why is this uncollectable? (required)
+                            </label>
+                            <textarea
+                              id="paid-writeoff-note"
+                              value={writeOffNote}
+                              onChange={(e) => setWriteOffNote(e.target.value)}
+                              placeholder="e.g. Broker refused detention — accepting short pay."
+                              rows={3}
+                              className="client-input w-full"
+                            />
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {paidError && (
+                      <p className="text-sm mt-2" style={{ color: '#DC2626' }}>
+                        {paidError}
+                      </p>
+                    )}
+                  </>
+                )
+              })()}
             </div>
             <div className="invoice-dispute-modal-footer">
               <button
@@ -2220,18 +2063,24 @@ export default function InvoiceDetailPanel({
               <button
                 type="button"
                 onClick={handleMarkAsPaid}
-                disabled={isMarkingPaid}
+                disabled={isMarkingPaid || (writeOffRemaining && !writeOffNote.trim())}
                 className="dashboard-btn-primary"
                 style={{ height: 36, fontSize: 13 }}
               >
-                {isMarkingPaid ? 'Posting...' : 'Post payment'}
+                {isMarkingPaid
+                  ? writeOffRemaining
+                    ? 'Posting…'
+                    : 'Posting...'
+                  : writeOffRemaining
+                    ? 'Post & write off'
+                    : 'Post payment'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {showCloseModal && shortPayment && onCloseAsUncollectable && (
+      {showCloseModal && shortPayment && (
         <ShortPaymentCloseModal
           isOpen={showCloseModal}
           invoiceNumber={invoice.invoice_number}

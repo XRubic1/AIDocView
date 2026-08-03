@@ -1,11 +1,12 @@
 import {
-  Boxes,
   FileText,
   Home,
+  Sparkles,
   Upload,
   type LucideIcon,
 } from 'lucide-react'
 import type { Notification } from '../../types/notification'
+import { requestAssistantOpen } from '../../utils/assistantFabPlacement'
 import NotificationBell from '../NotificationBell'
 
 export interface ClientBottomNavBadges {
@@ -38,7 +39,7 @@ interface SideTab {
   badgeTone?: 'default' | 'danger'
 }
 
-/** Primary phone tabs — mirrors Credyx workflow, not a generic app shell. */
+/** Primary phone tabs — Batches lives in the menu; AI opens the assistant. */
 const SIDE_TABS: SideTab[] = [
   { id: 'home', label: 'Home', path: '/client/dashboard', icon: Home },
   {
@@ -48,13 +49,6 @@ const SIDE_TABS: SideTab[] = [
     icon: FileText,
     badgeKey: 'heldInvoices',
     badgeTone: 'danger',
-  },
-  {
-    id: 'batches',
-    label: 'Batches',
-    path: '/client/batches',
-    icon: Boxes,
-    badgeKey: 'pendingBatches',
   },
 ]
 
@@ -75,10 +69,10 @@ export default function ClientBottomNav({
   onMarkAllAsRead,
   onNotificationClick,
 }: ClientBottomNavProps) {
-  const leftTabs = SIDE_TABS.slice(0, 2)
-  const rightTabs = SIDE_TABS.slice(2)
+  const leftTabs = SIDE_TABS
   const uploadEnabled = showUpload && canUpload
   const uploadActive = Boolean(isNavActive('/client/batches?tab=create'))
+  const aiActive = Boolean(isNavActive('/client/assistant'))
   const showBell =
     showNotifications && onMarkAsRead && onMarkAllAsRead && onNotificationClick
 
@@ -98,11 +92,9 @@ export default function ClientBottomNav({
         data-onboard-target={
           tab.path === '/client/invoices'
             ? 'navInvoices'
-            : tab.path === '/client/batches'
-              ? 'navBatches'
-              : tab.path === '/client/dashboard'
-                ? 'navDashboard'
-                : undefined
+            : tab.path === '/client/dashboard'
+              ? 'navDashboard'
+              : undefined
         }
       >
         <span className="client-bottom-nav__icon-wrap">
@@ -157,7 +149,19 @@ export default function ClientBottomNav({
           </span>
         </div>
 
-        {rightTabs.map(renderTab)}
+        <button
+          type="button"
+          className={`client-bottom-nav__tab${aiActive ? ' client-bottom-nav__tab--active' : ''}`}
+          onClick={() => requestAssistantOpen()}
+          aria-label="Ask AI"
+          aria-current={aiActive ? 'page' : undefined}
+          data-onboard-target="navAssistant"
+        >
+          <span className="client-bottom-nav__icon-wrap">
+            <Sparkles className="client-bottom-nav__icon" strokeWidth={2} aria-hidden />
+          </span>
+          <span className="client-bottom-nav__label">AI</span>
+        </button>
 
         {showBell ? (
           <NotificationBell
