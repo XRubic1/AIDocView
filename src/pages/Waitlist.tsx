@@ -90,6 +90,32 @@ const BENEFITS = [
   },
 ]
 
+/** Credyx vs factoring compare panels (copy source: docs/marketing/CREDYX_VS_FACTORING.md §5). */
+const VS_FACTORING_PANELS = [
+  {
+    tag: 'Factoring company',
+    tagline: 'You\u2019re buying cash flow',
+    tone: 'factor' as const,
+    points: [
+      'They advance cash and own the invoice (NOA)',
+      'Fees are financing fees — discount, reserves, minimums',
+      'Collections protect their receivable — you see funded or not',
+      'Broker doesn\u2019t pay? Chargeback plus fees',
+    ],
+  },
+  {
+    tag: 'Credyx',
+    tagline: 'You\u2019re buying a back office',
+    tone: 'credyx' as const,
+    points: [
+      'You keep your invoices — brokers pay you directly',
+      'Small fee only when invoices are collected — no hidden fees',
+      'We work alongside you — clear asks, shared status, holds chased',
+      'No advance — nothing to claw back; uncollected means no % fee',
+    ],
+  },
+] as const
+
 const PLATFORM_FEATURES = [
   {
     icon: FileCheck,
@@ -584,9 +610,9 @@ export default function Waitlist() {
                 </div>
                 <img
                   src="/credyx-waitlist-dashboard.jpg"
-                  alt="Credyx desktop invoices view with open A/R, holds, and paid statuses"
-                  width={1440}
-                  height={900}
+                  alt="Credyx desktop invoices view with paid statuses and invoice details panel"
+                  width={1024}
+                  height={488}
                   loading="lazy"
                 />
               </div>
@@ -600,9 +626,9 @@ export default function Waitlist() {
                 <div className="cx-phone-frame">
                   <img
                     src="/credyx-waitlist-invoice.png"
-                    alt="Credyx invoice details on mobile with totals, dates, and activity"
-                    width={480}
-                    height={900}
+                    alt="Credyx invoice details on mobile with progress, dates, and activity"
+                    width={534}
+                    height={736}
                     loading="lazy"
                   />
                 </div>
@@ -786,6 +812,63 @@ export default function Waitlist() {
             <div className="reveal reveal-grow">
               <WaitlistPricingCompare />
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Credyx vs factoring ── */}
+      <section id="vs-factoring" className="cx-section cx-section--vs bordered">
+        <div className="cx-section-inner">
+          <div className="cx-vs-head centered reveal reveal-grow">
+            <p className="cx-eyebrow">Credyx vs factoring</p>
+            <h2 className="cx-section-title">
+              Factoring buys your invoices.{' '}
+              <span className="accent cx-hand-underline cx-hand-underline--v7">
+                We work for you.
+              </span>
+            </h2>
+            <p className="cx-section-sub">
+              Good factoring companies chase paperwork and run collections too — for the invoice
+              they bought. Credyx does that work for you: your invoices stay yours, brokers pay you
+              directly, and we work alongside you to keep packets moving.
+            </p>
+          </div>
+
+          <div className="cx-vs-grid reveal-stagger reveal">
+            {VS_FACTORING_PANELS.map((panel, index) => (
+              <div key={panel.tag} className="cx-vs-col">
+                {index === 1 && (
+                  <div className="cx-vs-divider" aria-hidden>
+                    <span>vs</span>
+                  </div>
+                )}
+                <div className={`cx-card cx-card--grow cx-vs-panel cx-vs-panel--${panel.tone}`}>
+                  <div className="cx-vs-panel-head">
+                    <span className="cx-vs-tag">{panel.tag}</span>
+                    <p className="cx-vs-tagline">{panel.tagline}</p>
+                  </div>
+                  <ul className="cx-vs-list">
+                    {panel.points.map((point) => (
+                      <li key={point}>
+                        <span className="cx-vs-mark" aria-hidden />
+                        <span>{point}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="cx-vs-closing reveal reveal-grow">
+            <p>
+              Need cash flow too? Keep your factor. Credyx integrates with factoring companies —
+              and your Credyx fee is <strong>lower</strong> when you use both.
+            </p>
+            <button type="button" className="cx-btn-primary" onClick={scrollToForm}>
+              Join the waitlist
+              <ArrowRight size={17} />
+            </button>
           </div>
         </div>
       </section>
