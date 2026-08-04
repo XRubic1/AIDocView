@@ -15,6 +15,7 @@ import {
   BookOpen,
   CalendarDays,
   MessageCircle,
+  Megaphone,
   type LucideIcon,
 } from 'lucide-react'
 import { getInitials, getClientUserDisplayName } from './clientNav'
@@ -68,6 +69,7 @@ export const adminNavSections: AdminNavSection[] = [
     items: [
       { label: 'Brokers', path: '/brokers', icon: Building2 },
       { label: 'Clients', path: '/clients', icon: Users },
+      { label: 'Waitlist', path: '/admin/waitlist', icon: Megaphone },
       { label: 'Users', path: '/users', icon: UserCog },
     ],
   },

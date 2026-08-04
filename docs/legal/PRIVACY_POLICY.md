@@ -29,7 +29,7 @@ Contact for privacy requests: **privacy@credyx.net**
 
 ### 1.3 Cookies and similar technologies
 
-We may use essential cookies or local storage required for login sessions and basic site function. We may add analytics or similar technologies later to understand site usage; if we do, we will update this Policy and, where required, provide additional notice or choices.
+We may use essential cookies or local storage required for login sessions and basic site function. On the waitlist / marketing site, we also collect **anonymous usage events** (for example page views, button clicks, and which sections were viewed) tied to a temporary session identifier stored in your browser, plus approximate **IP address and region** used to understand where traffic comes from. These events help us understand how visitors use the site. They do not include your name or email unless you submit the waitlist form separately.
 
 ---
 

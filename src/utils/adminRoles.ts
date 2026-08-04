@@ -53,6 +53,7 @@ const ROLE_PATH_PREFIXES: Record<AdminStaffRole, string[]> = {
     '/Audit',
     '/brokers',
     '/clients',
+    '/admin/waitlist',
   ],
   reports: [
     '/admin/dashboard',
@@ -65,6 +66,7 @@ const ROLE_PATH_PREFIXES: Record<AdminStaffRole, string[]> = {
     '/docs',
     '/force-close',
     '/Audit',
+    '/admin/waitlist',
   ],
   billing: [
     '/admin/dashboard',

@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, CheckCircle2 } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Loader2 } from 'lucide-react'
 import { EnrollField, enrollInputClass } from './EnrollField'
+import { submitWaitlistSignup } from '../../services/waitlistService'
+import { trackWebsiteEvent } from '../../services/websiteAnalytics'
 
 const FLEET_SIZE_OPTIONS = ['1-5', '6-10', '11-25', '26-50', '50+'] as const
 
@@ -33,10 +35,11 @@ const EMPTY_FORM: WaitlistFormData = {
   notes: '',
 }
 
-/** Single-step waitlist signup form (Phase 1 — local success state only). */
+/** Single-step waitlist signup form — persists leads to Supabase. */
 export function WaitlistForm() {
   const [formData, setFormData] = useState<WaitlistFormData>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
   const updateField = <K extends keyof WaitlistFormData>(key: K, value: WaitlistFormData[K]) => {
@@ -44,7 +47,7 @@ export function WaitlistForm() {
     if (error) setError(null)
   }
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     const companyName = formData.companyName.trim()
@@ -54,11 +57,36 @@ export function WaitlistForm() {
 
     if (!companyName || !contactName || !email || !fleetSize) {
       setError('Please fill in all required fields.')
+      trackWebsiteEvent('form_error', 'validation')
       return
     }
 
-    // Phase 1: no backend — show success UI only.
-    setSubmitted(true)
+    trackWebsiteEvent('form_submit', 'waitlist_form')
+    setIsSubmitting(true)
+    setError(null)
+
+    try {
+      await submitWaitlistSignup({
+        companyName,
+        contactName,
+        email,
+        phone: formData.phone,
+        fleetSize,
+        hearAbout: formData.hearAbout,
+        notes: formData.notes,
+      })
+      trackWebsiteEvent('form_success', 'waitlist_form')
+      setSubmitted(true)
+    } catch (err) {
+      trackWebsiteEvent('form_error', 'submit_failed')
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Something went wrong joining the waitlist. Please try again.'
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (submitted) {
@@ -86,6 +114,7 @@ export function WaitlistForm() {
               onChange={(e) => updateField('companyName', e.target.value)}
               className={enrollInputClass}
               placeholder="Acme Trucking LLC"
+              disabled={isSubmitting}
             />
           </EnrollField>
           <EnrollField label="Contact name">
@@ -97,6 +126,7 @@ export function WaitlistForm() {
               onChange={(e) => updateField('contactName', e.target.value)}
               className={enrollInputClass}
               placeholder="Jane Smith"
+              disabled={isSubmitting}
             />
           </EnrollField>
           <EnrollField label="Email">
@@ -108,6 +138,7 @@ export function WaitlistForm() {
               onChange={(e) => updateField('email', e.target.value)}
               className={enrollInputClass}
               placeholder="you@company.com"
+              disabled={isSubmitting}
             />
           </EnrollField>
           <EnrollField label="Phone" required={false}>
@@ -118,6 +149,7 @@ export function WaitlistForm() {
               onChange={(e) => updateField('phone', e.target.value)}
               className={enrollInputClass}
               placeholder="(555) 123-4567"
+              disabled={isSubmitting}
             />
           </EnrollField>
           <EnrollField label="Fleet size">
@@ -126,6 +158,7 @@ export function WaitlistForm() {
               value={formData.fleetSize}
               onChange={(e) => updateField('fleetSize', e.target.value)}
               className={enrollInputClass}
+              disabled={isSubmitting}
             >
               <option value="">Select fleet size</option>
               {FLEET_SIZE_OPTIONS.map((size) => (
@@ -140,6 +173,7 @@ export function WaitlistForm() {
               value={formData.hearAbout}
               onChange={(e) => updateField('hearAbout', e.target.value)}
               className={enrollInputClass}
+              disabled={isSubmitting}
             >
               <option value="">Select an option</option>
               {HEAR_ABOUT_OPTIONS.map((option) => (
@@ -158,14 +192,24 @@ export function WaitlistForm() {
             onChange={(e) => updateField('notes', e.target.value)}
             className={enrollInputClass}
             placeholder="Anything we should know?"
+            disabled={isSubmitting}
           />
         </EnrollField>
 
         {error && <p className="cx-form-error">{error}</p>}
 
-        <button type="submit" className="cx-btn-primary cx-waitlist-submit">
-          Join the waitlist
-          <ArrowRight size={16} />
+        <button type="submit" className="cx-btn-primary cx-waitlist-submit" disabled={isSubmitting}>
+          {isSubmitting ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Joining…
+            </>
+          ) : (
+            <>
+              Join the waitlist
+              <ArrowRight size={16} />
+            </>
+          )}
         </button>
 
         <p className="cx-form-privacy">

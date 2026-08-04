@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import '../styles/credyxMarketing.css'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
+import { useWebsiteAnalytics } from '../hooks/useWebsiteAnalytics'
+import { trackWebsiteEvent } from '../services/websiteAnalytics'
 import { MarketingHeader } from '../components/enroll/MarketingHeader'
 import { WaitlistForm } from '../components/enroll/WaitlistForm'
 import { WaitlistInvoiceProgress } from '../components/enroll/WaitlistInvoiceProgress'
@@ -351,15 +353,18 @@ export default function Waitlist() {
   const [buddyVisibleCount, setBuddyVisibleCount] = useState(0)
   const [buddyThinking, setBuddyThinking] = useState(false)
   useRevealOnScroll(rootRef)
+  useWebsiteAnalytics()
 
   const buddyExample = BUDDY_EXAMPLES[buddyExampleIndex]
   const buddyExampleCount = BUDDY_EXAMPLES.length
 
   const showPrevBuddyExample = () => {
+    trackWebsiteEvent('cta_click', 'buddy_prev')
     setBuddyExampleIndex((index) => (index - 1 + buddyExampleCount) % buddyExampleCount)
   }
 
   const showNextBuddyExample = () => {
+    trackWebsiteEvent('cta_click', 'buddy_next')
     setBuddyExampleIndex((index) => (index + 1) % buddyExampleCount)
   }
 
@@ -413,10 +418,12 @@ export default function Waitlist() {
   }, [buddyExampleIndex, buddyExample.messages.length])
 
   const scrollToForm = () => {
+    trackWebsiteEvent('cta_click', 'hero_join')
     document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
   }
 
   const scrollToPricing = () => {
+    trackWebsiteEvent('cta_click', 'hero_pricing')
     document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
   }
 
@@ -643,7 +650,14 @@ export default function Waitlist() {
 
           {!isMarketingOnly && (
             <div className="cx-proof-cta reveal reveal-grow">
-              <button type="button" className="cx-btn-secondary" onClick={() => navigate('/tour')}>
+              <button
+                type="button"
+                className="cx-btn-secondary"
+                onClick={() => {
+                  trackWebsiteEvent('cta_click', 'proof_tour')
+                  navigate('/tour')
+                }}
+              >
                 Take the product tour
                 <ArrowRight size={17} />
               </button>
@@ -768,7 +782,10 @@ export default function Waitlist() {
                     key={example.chip}
                     type="button"
                     className={`cx-buddy-chip${index === buddyExampleIndex ? ' active' : ''}`}
-                    onClick={() => setBuddyExampleIndex(index)}
+                    onClick={() => {
+                      trackWebsiteEvent('cta_click', `buddy_chip_${index}`)
+                      setBuddyExampleIndex(index)
+                    }}
                   >
                     {example.chip}
                   </button>
@@ -865,7 +882,14 @@ export default function Waitlist() {
               Need cash flow too? Keep your factor. Credyx integrates with factoring companies —
               and your Credyx fee is <strong>lower</strong> when you use both.
             </p>
-            <button type="button" className="cx-btn-primary" onClick={scrollToForm}>
+            <button
+              type="button"
+              className="cx-btn-primary"
+              onClick={() => {
+                trackWebsiteEvent('cta_click', 'vs_join')
+                document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
+              }}
+            >
               Join the waitlist
               <ArrowRight size={17} />
             </button>
@@ -931,22 +955,46 @@ export default function Waitlist() {
         <div className="cx-footer-links">
           {!isMarketingOnly && (
             <>
-              <button type="button" className="cx-footer-link" onClick={() => navigate('/tour')}>
+              <button
+                type="button"
+                className="cx-footer-link"
+                onClick={() => {
+                  trackWebsiteEvent('nav_click', 'footer_tour')
+                  navigate('/tour')
+                }}
+              >
                 Product tour
               </button>
               <button
                 type="button"
                 className="cx-footer-link"
-                onClick={() => navigate('/client/login')}
+                onClick={() => {
+                  trackWebsiteEvent('nav_click', 'footer_client_login')
+                  navigate('/client/login')
+                }}
               >
                 Client login
               </button>
             </>
           )}
-          <button type="button" className="cx-footer-link" onClick={() => navigate('/privacy')}>
+          <button
+            type="button"
+            className="cx-footer-link"
+            onClick={() => {
+              trackWebsiteEvent('nav_click', 'footer_privacy')
+              navigate('/privacy')
+            }}
+          >
             Privacy
           </button>
-          <button type="button" className="cx-footer-link" onClick={() => navigate('/terms')}>
+          <button
+            type="button"
+            className="cx-footer-link"
+            onClick={() => {
+              trackWebsiteEvent('nav_click', 'footer_terms')
+              navigate('/terms')
+            }}
+          >
             Terms
           </button>
         </div>

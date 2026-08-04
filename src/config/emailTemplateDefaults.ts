@@ -9,6 +9,7 @@ export type EmailTemplateId =
   | 'broker_packet'
   | 'broker_remittance_updated'
   | 'admin_enrollment_alert'
+  | 'waitlist_signup_alert'
   | 'credyx_batch_error'
   | 'carrier_batch_verified'
   | 'carrier_batch_holds'
@@ -107,6 +108,25 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
     subject: 'New enrollment — {{clientName}}',
     body_html: `<p>A new client enrolled: <strong>{{clientName}}</strong> ({{email}}).</p>
 <p>Review in the admin portal.</p>`,
+  },
+  {
+    id: 'waitlist_signup_alert',
+    name: 'Admin — waitlist signup',
+    description: 'Notifies Credyx ops when a carrier joins the waitlist.',
+    audience: 'admin',
+    placeholders: 'companyName, contactName, email, phone, fleetSize, hearAbout, notes',
+    subject: 'New waitlist signup — {{companyName}}',
+    body_html: `<p>A carrier joined the waitlist:</p>
+<ul>
+  <li><strong>Company:</strong> {{companyName}}</li>
+  <li><strong>Contact:</strong> {{contactName}}</li>
+  <li><strong>Email:</strong> {{email}}</li>
+  <li><strong>Phone:</strong> {{phone}}</li>
+  <li><strong>Fleet size:</strong> {{fleetSize}}</li>
+  <li><strong>Heard about us:</strong> {{hearAbout}}</li>
+</ul>
+<p><strong>Notes:</strong></p>
+<pre style="white-space:pre-wrap;font-family:sans-serif">{{notes}}</pre>`,
   },
   {
     id: 'credyx_batch_error',

@@ -13,6 +13,7 @@ type EmailTemplate =
   | 'broker_packet'
   | 'broker_remittance_updated'
   | 'admin_enrollment_alert'
+  | 'waitlist_signup_alert'
   | 'credyx_batch_error'
   | 'carrier_batch_verified'
   | 'carrier_batch_holds'
@@ -35,7 +36,10 @@ interface SendEmailPayload {
   attachments?: EmailAttachment[]
 }
 
-const PUBLIC_TEMPLATES = new Set<EmailTemplate>(['admin_enrollment_alert'])
+const PUBLIC_TEMPLATES = new Set<EmailTemplate>([
+  'admin_enrollment_alert',
+  'waitlist_signup_alert',
+])
 
 type FromAudience = 'broker' | 'carrier' | 'admin' | 'default'
 
@@ -43,7 +47,13 @@ type FromAudience = 'broker' | 'carrier' | 'admin' | 'default'
 function audienceForTemplate(template: EmailTemplate): FromAudience {
   if (template === 'broker_packet' || template.startsWith('broker_')) return 'broker'
   if (template.startsWith('carrier_') || template === 'client_invite') return 'carrier'
-  if (template === 'admin_enrollment_alert' || template.startsWith('credyx_')) return 'admin'
+  if (
+    template === 'admin_enrollment_alert' ||
+    template === 'waitlist_signup_alert' ||
+    template.startsWith('credyx_')
+  ) {
+    return 'admin'
+  }
   if (template === 'calendar_event_notice') return 'default'
   return 'default'
 }
@@ -194,6 +204,24 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
         html: renderTemplateString(
           `<p>A new client enrolled: <strong>{{clientName}}</strong> ({{email}}).</p>
 <p>Review in the admin portal.</p>`,
+          d
+        ),
+      }
+    case 'waitlist_signup_alert':
+      return {
+        subject: renderTemplateString('New waitlist signup — {{companyName}}', d),
+        html: renderTemplateString(
+          `<p>A carrier joined the waitlist:</p>
+<ul>
+  <li><strong>Company:</strong> {{companyName}}</li>
+  <li><strong>Contact:</strong> {{contactName}}</li>
+  <li><strong>Email:</strong> {{email}}</li>
+  <li><strong>Phone:</strong> {{phone}}</li>
+  <li><strong>Fleet size:</strong> {{fleetSize}}</li>
+  <li><strong>Heard about us:</strong> {{hearAbout}}</li>
+</ul>
+<p><strong>Notes:</strong></p>
+<pre style="white-space:pre-wrap;font-family:sans-serif">{{notes}}</pre>`,
           d
         ),
       }

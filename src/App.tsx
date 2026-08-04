@@ -12,6 +12,7 @@ import { ToastProvider } from './components/ui/ToastProvider'
 import {
   Accounting,
   AdminDashboard,
+  AdminWaitlist,
   AgingAR,
   AuditDashboard,
   AdminCalendar,
@@ -121,6 +122,7 @@ function App() {
 
               <Route element={<AdminProtectedLayout />}>
                 <Route path="/admin/dashboard" element={withRouteSuspense(AdminDashboard)} />
+                <Route path="/admin/waitlist" element={withRouteSuspense(AdminWaitlist)} />
                 <Route path="/batches" element={withRouteSuspense(Batches)} />
                 <Route path="/batches/create" element={withRouteSuspense(CreateBatch)} />
                 <Route path="/aging-ar" element={withRouteSuspense(AgingAR)} />

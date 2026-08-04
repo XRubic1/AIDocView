@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
+import { trackWebsiteEvent } from '../../services/websiteAnalytics'
 
 const isMarketingOnly = import.meta.env.VITE_MARKETING_ONLY === 'true'
 
@@ -23,6 +24,7 @@ export function MarketingHeader() {
   const onWaitlist = isWaitlistPath(location.pathname)
 
   const goWaitlistCta = () => {
+    trackWebsiteEvent('cta_click', 'nav_join')
     setMenuOpen(false)
     if (onWaitlist) {
       document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
@@ -32,6 +34,7 @@ export function MarketingHeader() {
   }
 
   const goSection = (id: string) => {
+    trackWebsiteEvent('nav_click', `nav_${id}`)
     setMenuOpen(false)
     if (onWaitlist) {
       document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
@@ -40,7 +43,8 @@ export function MarketingHeader() {
     navigate(isMarketingOnly ? `/#${id}` : `/waitlist#${id}`)
   }
 
-  const go = (path: string) => {
+  const go = (path: string, target: string) => {
+    trackWebsiteEvent('nav_click', target)
     setMenuOpen(false)
     navigate(path)
   }
@@ -51,6 +55,7 @@ export function MarketingHeader() {
         type="button"
         className="cx-nav-brand"
         onClick={() => {
+          trackWebsiteEvent('nav_click', 'nav_logo')
           setMenuOpen(false)
           if (onWaitlist) {
             window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -96,13 +101,21 @@ export function MarketingHeader() {
         </button>
         {!isMarketingOnly && (
           <>
-            <button type="button" className="cx-nav-link" onClick={() => go('/how-it-works')}>
+            <button
+              type="button"
+              className="cx-nav-link"
+              onClick={() => go('/how-it-works', 'nav_how_it_works')}
+            >
               How it works
             </button>
-            <button type="button" className="cx-nav-link" onClick={() => go('/tour')}>
+            <button type="button" className="cx-nav-link" onClick={() => go('/tour', 'nav_tour')}>
               Product tour
             </button>
-            <button type="button" className="cx-nav-link" onClick={() => go('/client/login')}>
+            <button
+              type="button"
+              className="cx-nav-link"
+              onClick={() => go('/client/login', 'nav_client_login')}
+            >
               Client login
             </button>
           </>

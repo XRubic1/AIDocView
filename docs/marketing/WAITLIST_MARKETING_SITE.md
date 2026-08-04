@@ -246,9 +246,9 @@ Align with [marketing rules](../../.cursor/rules/credyx-marketing-prompts.mdc).
 - [ ] Replace outdated copy vs enroll (workflow, banned phrases)
 
 ### Phase 2 — Waitlist backend
-- [ ] Migration: `waitlist_signups` table (RLS: insert anon, read admin)
-- [ ] `useWaitlistForm` hook + success/error states
-- [ ] Admin email template `waitlist_signup_alert`
+- [x] Migration: `waitlist_signups` table (RLS: insert anon, read admin)
+- [x] `WaitlistForm` + `waitlistService` success/error states
+- [x] Admin email template `waitlist_signup_alert`
 
 ### Phase 3 — Launch
 - [ ] Point Instagram / bio link to `/waitlist`

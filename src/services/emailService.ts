@@ -5,6 +5,7 @@ export type EmailTemplate =
   | 'broker_packet'
   | 'broker_remittance_updated'
   | 'admin_enrollment_alert'
+  | 'waitlist_signup_alert'
   | 'credyx_batch_error'
   | 'carrier_batch_verified'
   | 'carrier_batch_holds'
