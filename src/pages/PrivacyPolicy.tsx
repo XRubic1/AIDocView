@@ -75,8 +75,9 @@ export default function PrivacyPolicy() {
         <strong>anonymous usage events</strong> (for example page views, button clicks, and which
         sections were viewed) tied to a temporary session identifier stored in your browser, plus
         approximate <strong>IP address and region</strong> used to understand where traffic comes
-        from. These events help us understand how visitors use the site. They do not include your
-        name or email unless you submit the waitlist form separately.
+        from, and whether the visit was from a <strong>mobile or desktop</strong> device. These
+        events help us understand how visitors use the site. They do not include your name or email
+        unless you submit the waitlist form separately.
       </p>
 
       <h2>2. How we use information</h2>

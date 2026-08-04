@@ -14,6 +14,7 @@ type EmailTemplate =
   | 'broker_remittance_updated'
   | 'admin_enrollment_alert'
   | 'waitlist_signup_alert'
+  | 'waitlist_welcome'
   | 'credyx_batch_error'
   | 'carrier_batch_verified'
   | 'carrier_batch_holds'
@@ -39,6 +40,7 @@ interface SendEmailPayload {
 const PUBLIC_TEMPLATES = new Set<EmailTemplate>([
   'admin_enrollment_alert',
   'waitlist_signup_alert',
+  'waitlist_welcome',
 ])
 
 type FromAudience = 'broker' | 'carrier' | 'admin' | 'default'
@@ -46,6 +48,8 @@ type FromAudience = 'broker' | 'carrier' | 'admin' | 'default'
 /** Map template → audience for From / Reply-To secrets. */
 function audienceForTemplate(template: EmailTemplate): FromAudience {
   if (template === 'broker_packet' || template.startsWith('broker_')) return 'broker'
+  // Waitlist welcome goes from billing@ (broker From), not ops@.
+  if (template === 'waitlist_welcome') return 'broker'
   if (template.startsWith('carrier_') || template === 'client_invite') return 'carrier'
   if (
     template === 'admin_enrollment_alert' ||
@@ -222,6 +226,20 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
 </ul>
 <p><strong>Notes:</strong></p>
 <pre style="white-space:pre-wrap;font-family:sans-serif">{{notes}}</pre>`,
+          d
+        ),
+      }
+    case 'waitlist_welcome':
+      return {
+        subject: renderTemplateString("You're on the Credyx waitlist", d),
+        html: renderTemplateString(
+          `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
+  <p>Hi {{contactName}},</p>
+  <p>Thank you for joining the <strong>Credyx</strong> waitlist for <strong>{{companyName}}</strong>.</p>
+  <p>Founding access is reserved — we'll reach out when onboarding opens and keep you updated on next steps.</p>
+  <p style="color:#475569;font-size:14px;">Your back office, in one portal. Paid on time.</p>
+  <p style="margin-top:24px;">— The Credyx team<br/><span style="color:#64748b;font-size:13px;">Credyx A/R Solutions</span></p>
+</div>`,
           d
         ),
       }

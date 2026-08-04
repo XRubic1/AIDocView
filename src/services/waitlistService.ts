@@ -1,6 +1,7 @@
 import { requireSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { sendTransactionalEmail } from './emailService'
 import { getRuntimeEnvString } from '../platform/runtimeEnv'
+import { detectDeviceType, resolveVisitorGeo } from './websiteAnalytics'
 
 export interface WaitlistSignupInput {
   companyName: string
@@ -43,6 +44,10 @@ export async function submitWaitlistSignup(
     throw new Error('Please fill in all required fields.')
   }
 
+  // Capture visitor context so admin can mark same-IP sessions as Joined.
+  const geo = await resolveVisitorGeo()
+  const deviceType = detectDeviceType()
+
   const row = {
     company_name: companyName,
     contact_name: contactName,
@@ -51,6 +56,9 @@ export async function submitWaitlistSignup(
     fleet_size: fleetSize,
     hear_about: hearAbout,
     notes,
+    ip_address: geo.ip_address,
+    region: geo.region,
+    device_type: deviceType,
   }
 
   const { data, error } = await supabase
@@ -72,7 +80,12 @@ export async function submitWaitlistSignup(
     throw new Error(error.message || 'Failed to join waitlist.')
   }
 
-  // Alert ops — do not fail the signup if email delivery is down.
+  // Welcome the joiner + alert ops — do not fail the signup if email delivery is down.
+  void sendTransactionalEmail('waitlist_welcome', email, {
+    contactName,
+    companyName,
+  })
+
   void sendTransactionalEmail('waitlist_signup_alert', getAdminAlertEmail(), {
     companyName,
     contactName,

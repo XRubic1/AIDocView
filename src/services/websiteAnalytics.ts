@@ -28,6 +28,25 @@ interface QueuedEvent {
   meta: Record<string, string | number | boolean>
   ip_address: string | null
   region: string | null
+  device_type: 'mobile' | 'desktop'
+}
+
+/** Detect mobile vs desktop from UA + coarse viewport. */
+export function detectDeviceType(): 'mobile' | 'desktop' {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return 'desktop'
+  try {
+    const ua = navigator.userAgent || ''
+    const mobileUa =
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua)
+    // Treat touch phones/tablets as mobile; wide iPads in desktop mode still count mobile via UA.
+    if (mobileUa) return 'mobile'
+    if (window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 900) {
+      return 'mobile'
+    }
+    return 'desktop'
+  } catch {
+    return 'desktop'
+  }
 }
 
 let queue: QueuedEvent[] = []
@@ -93,7 +112,7 @@ function writeCachedGeo(geo: VisitorGeo): void {
  * Resolve public IP + region once per tab via geojs (CORS-friendly).
  * Falls back to nulls if the lookup fails.
  */
-async function resolveVisitorGeo(): Promise<VisitorGeo> {
+export async function resolveVisitorGeo(): Promise<VisitorGeo> {
   const existing = readCachedGeo()
   if (existing) return existing
   if (geoPromise) return geoPromise
@@ -169,6 +188,7 @@ export async function flushWebsiteEvents(): Promise<void> {
     ...event,
     ip_address: event.ip_address ?? geo.ip_address,
     region: event.region ?? geo.region,
+    device_type: event.device_type || detectDeviceType(),
   }))
 
   const supabase = getSupabase()
@@ -209,6 +229,7 @@ export function trackWebsiteEvent(
     meta: meta ?? {},
     ip_address: geo?.ip_address ?? null,
     region: geo?.region ?? null,
+    device_type: detectDeviceType(),
   }
 
   queue.push(event)

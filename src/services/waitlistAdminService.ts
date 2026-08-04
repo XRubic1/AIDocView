@@ -10,6 +10,9 @@ export interface WaitlistLead {
   hear_about: string | null
   notes: string | null
   status: string
+  ip_address: string | null
+  region: string | null
+  device_type: 'mobile' | 'desktop' | null
   created_at: string
 }
 
@@ -22,6 +25,7 @@ export interface WebsiteEventRow {
   target: string | null
   ip_address: string | null
   region: string | null
+  device_type: 'mobile' | 'desktop' | null
   meta: Record<string, unknown>
   created_at: string
 }
@@ -123,7 +127,7 @@ export async function fetchWaitlistLeads(limit = 100): Promise<WaitlistLead[]> {
   const { data, error } = await supabase
     .from('waitlist_signups')
     .select(
-      'id, company_name, contact_name, email, phone, fleet_size, hear_about, notes, status, created_at'
+      'id, company_name, contact_name, email, phone, fleet_size, hear_about, notes, status, ip_address, region, device_type, created_at'
     )
     .order('created_at', { ascending: false })
     .limit(limit)
@@ -138,6 +142,12 @@ export interface VisitorInteractionGroup {
   key: string
   ip_address: string | null
   region: string | null
+  /** Dominant / summary device label for the parent row. */
+  deviceLabel: string
+  /** True when this IP has a waitlist signup (or form_success). */
+  waitlistJoined: boolean
+  /** Matching lead email(s) when known. */
+  joinedEmails: string[]
   eventCount: number
   sessionCount: number
   firstSeen: string
@@ -145,9 +155,42 @@ export interface VisitorInteractionGroup {
   events: WebsiteEventRow[]
 }
 
-/** Group events by IP + region (newest visitors first). */
+/** Summarize devices used within a visitor group. */
+function summarizeDevices(rows: WebsiteEventRow[]): string {
+  const counts = { mobile: 0, desktop: 0, unknown: 0 }
+  for (const row of rows) {
+    if (row.device_type === 'mobile') counts.mobile += 1
+    else if (row.device_type === 'desktop') counts.desktop += 1
+    else counts.unknown += 1
+  }
+  const parts: string[] = []
+  if (counts.mobile) parts.push(counts.desktop || counts.unknown ? `Mobile (${counts.mobile})` : 'Mobile')
+  if (counts.desktop) parts.push(counts.mobile || counts.unknown ? `Desktop (${counts.desktop})` : 'Desktop')
+  if (counts.unknown && !counts.mobile && !counts.desktop) parts.push('Unknown device')
+  else if (counts.unknown && (counts.mobile || counts.desktop)) parts.push(`Unknown (${counts.unknown})`)
+  return parts.join(' · ') || 'Unknown device'
+}
+
+/** Build a set of IPs that already joined the waitlist. */
+export function buildJoinedIpIndex(leads: WaitlistLead[]): Map<string, string[]> {
+  const map = new Map<string, string[]>()
+  for (const lead of leads) {
+    const ip = lead.ip_address?.trim()
+    if (!ip) continue
+    const emails = map.get(ip) ?? []
+    emails.push(lead.email)
+    map.set(ip, emails)
+  }
+  return map
+}
+
+/**
+ * Group events by IP + region (newest visitors first).
+ * Marks `waitlistJoined` when the IP matches a signup lead, or the group has form_success.
+ */
 export function groupWebsiteEventsByVisitor(
-  events: WebsiteEventRow[]
+  events: WebsiteEventRow[],
+  joinedByIp: Map<string, string[]> = new Map()
 ): VisitorInteractionGroup[] {
   const map = new Map<string, WebsiteEventRow[]>()
 
@@ -168,10 +211,15 @@ export function groupWebsiteEventsByVisitor(
     const sessions = new Set(sorted.map((e) => e.session_id))
     const times = sorted.map((e) => new Date(e.occurred_at).getTime())
     const [ip, region] = key.split('||')
+    const joinedEmails = ip !== 'unknown' ? joinedByIp.get(ip) ?? [] : []
+    const hasFormSuccess = sorted.some((e) => e.event_name === 'form_success')
     groups.push({
       key,
       ip_address: ip === 'unknown' ? null : ip,
       region: region === 'Unknown region' ? null : region,
+      deviceLabel: summarizeDevices(sorted),
+      waitlistJoined: joinedEmails.length > 0 || hasFormSuccess,
+      joinedEmails,
       eventCount: sorted.length,
       sessionCount: sessions.size,
       firstSeen: new Date(Math.min(...times)).toISOString(),
@@ -196,7 +244,7 @@ export async function fetchWebsiteEvents(options: {
 
   let query = supabase
     .from('website_events')
-    .select('id, session_id, occurred_at, path, event_name, target, ip_address, region, meta, created_at')
+    .select('id, session_id, occurred_at, path, event_name, target, ip_address, region, device_type, meta, created_at')
     .order('occurred_at', { ascending: false })
     .limit(limit)
 

@@ -10,6 +10,7 @@ export type EmailTemplateId =
   | 'broker_remittance_updated'
   | 'admin_enrollment_alert'
   | 'waitlist_signup_alert'
+  | 'waitlist_welcome'
   | 'credyx_batch_error'
   | 'carrier_batch_verified'
   | 'carrier_batch_holds'
@@ -127,6 +128,21 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
 </ul>
 <p><strong>Notes:</strong></p>
 <pre style="white-space:pre-wrap;font-family:sans-serif">{{notes}}</pre>`,
+  },
+  {
+    id: 'waitlist_welcome',
+    name: 'Waitlist — thank you',
+    description: 'Sent automatically to the carrier when they join the Credyx waitlist.',
+    audience: 'carrier',
+    placeholders: 'contactName, companyName',
+    subject: "You're on the Credyx waitlist",
+    body_html: `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
+  <p>Hi {{contactName}},</p>
+  <p>Thank you for joining the <strong>Credyx</strong> waitlist for <strong>{{companyName}}</strong>.</p>
+  <p>Founding access is reserved — we'll reach out when onboarding opens and keep you updated on next steps.</p>
+  <p style="color:#475569;font-size:14px;">Your back office, in one portal. Paid on time.</p>
+  <p style="margin-top:24px;">— The Credyx team<br/><span style="color:#64748b;font-size:13px;">Credyx A/R Solutions</span></p>
+</div>`,
   },
   {
     id: 'credyx_batch_error',
