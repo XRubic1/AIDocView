@@ -2,7 +2,7 @@
 
 **Attached to the Carrier Master Service Agreement**
 
-**Credyx:** as defined in the Carrier Master Service Agreement (Credyx A/R Solutions)  
+**Credyx:** as defined in the Carrier Master Service Agreement (Electro Pionir DOOEL, d/b/a Credyx A/R Solutions)  
 **Client:** as identified in the MSA signature block  
 **Effective with MSA dated:** July 29, 2026
 

@@ -65,7 +65,7 @@ export default function ClientHeader({ clientName, navItems }: ClientHeaderProps
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-8">
             <div>
-              <CredyxWordmark variant="full" theme="admin" onClick={() => navigate('/client/dashboard')} />
+              <CredyxWordmark variant="full" theme="admin" onClick={() => navigate('/client/dashboard-v2')} />
               <p className="text-xs mt-1.5" style={{ color: '#819291' }}>{clientName}</p>
             </div>
             <nav className="hidden md:flex space-x-1">

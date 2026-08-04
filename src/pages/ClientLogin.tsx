@@ -15,7 +15,7 @@ export default function ClientLogin() {
       if (session.principal !== 'client' || !session.clientId) return
       const client = await fetchClientById(session.clientId)
       if (client?.status === 'active') {
-        navigate('/client/dashboard', { replace: true })
+        navigate('/client/dashboard-v2', { replace: true })
       }
     })()
   }, [navigate])
@@ -65,7 +65,7 @@ export default function ClientLogin() {
         return
       }
 
-      navigate('/client/dashboard')
+      navigate('/client/dashboard-v2')
     } catch {
       setError('An error occurred during login. Please try again.')
     } finally {

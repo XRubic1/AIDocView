@@ -382,7 +382,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
     // Onboarding route highlights Dashboard while the progressive tour is active.
     if (
-      pathOnly === '/client/dashboard' &&
+      (pathOnly === '/client/dashboard' || pathOnly === '/client/dashboard-v2') &&
       location.pathname.startsWith('/client/onboarding')
     ) {
       return true
@@ -390,7 +390,9 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
     const pathnameMatch =
       location.pathname === pathOnly ||
-      (pathOnly !== '/client/dashboard' && location.pathname.startsWith(`${pathOnly}/`))
+      (pathOnly !== '/client/dashboard' &&
+        pathOnly !== '/client/dashboard-v2' &&
+        location.pathname.startsWith(`${pathOnly}/`))
 
     if (!pathnameMatch) return false
 
@@ -416,7 +418,11 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       return
     }
     // During onboarding tour, keep "Dashboard" on the onboarding experience.
-    if (progressive && path.split('?')[0] === '/client/dashboard') {
+    if (
+      progressive &&
+      (path.split('?')[0] === '/client/dashboard' ||
+        path.split('?')[0] === '/client/dashboard-v2')
+    ) {
       navigate('/client/onboarding')
       return
     }
@@ -470,7 +476,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
               surface={resolvedTheme === 'dark' ? 'on-dark' : 'on-light'}
               onClick={() => {
                 if (isMobile) closeMobileDrawer()
-                navigate('/client/dashboard')
+                navigate('/client/dashboard-v2')
               }}
             />
           </div>
@@ -482,7 +488,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
             <CredyxWordmark
               variant="mark"
               theme="client"
-              onClick={() => navigate('/client/dashboard')}
+              onClick={() => navigate('/client/dashboard-v2')}
             />
           </div>
         )}
@@ -577,7 +583,8 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                                               ? 'navTutorials'
                                               : item.path === '/client/settings'
                                                 ? 'navSettings'
-                                                : item.path === '/client/dashboard'
+                                                : item.path === '/client/dashboard' ||
+                                                    item.path === '/client/dashboard-v2'
                                                   ? 'navDashboard'
                                                   : undefined
                       }
@@ -832,9 +839,9 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
               <Menu className="w-5 h-5" />
             </button>
 
-            <div className="flex-1 min-w-0 hidden lg:block">
-              <p className="text-sm font-medium truncate" style={{ color: t.secondary }}>
-                {resolvedClientName}
+            <div className="flex-1 min-w-0">
+              <p className="client-topbar__welcome truncate" style={{ color: t.primary }}>
+                Welcome back, {resolvedClientName}
               </p>
             </div>
 

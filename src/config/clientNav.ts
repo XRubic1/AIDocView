@@ -1,6 +1,7 @@
 import type { ClientCapabilities } from '../utils/clientCapabilities'
 import {
   LayoutDashboard,
+  LayoutPanelLeft,
   Boxes,
   FileText,
   FolderOpen,
@@ -37,7 +38,8 @@ export const clientNavSections: ClientNavSection[] = [
   {
     title: '',
     items: [
-      { label: 'Dashboard', path: '/client/dashboard', icon: LayoutDashboard },
+      { label: 'Dashboard', path: '/client/dashboard-v2', icon: LayoutDashboard },
+      { label: 'Classic dashboard', path: '/client/dashboard', icon: LayoutPanelLeft },
       { label: 'Batches', path: '/client/batches', icon: Boxes, badgeKey: 'pendingBatches' },
       {
         label: 'Invoices',

@@ -15,6 +15,7 @@ export function withRouteSuspense(
 
 // ——— Client portal ———
 export const ClientDashboard = lazy(() => import('../pages/ClientDashboard'))
+export const ClientDashboardV2 = lazy(() => import('../pages/ClientDashboardV2'))
 export const OnboardingDashboard = lazy(() => import('../pages/OnboardingDashboard'))
 export const ClientBatches = lazy(() => import('../pages/ClientBatches'))
 export const ClientInvoices = lazy(() => import('../pages/ClientInvoices'))

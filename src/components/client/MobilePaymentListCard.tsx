@@ -6,10 +6,18 @@ import {
   PAYMENT_STATUS_LABELS,
 } from '../../utils/paymentStatus'
 
+export type PaymentVarianceKind = 'short' | 'over'
+
 interface MobilePaymentListCardProps {
   payment: Payment
   /** Invoice face amount when known. */
   invoiceAmount?: number
+  /** Confirmed received toward this invoice (for variance context). */
+  confirmedReceived?: number
+  /** Invoice shortfall / overage vs face amount. */
+  variance?: PaymentVarianceKind | null
+  /** Absolute shortfall or overage amount. */
+  varianceAmount?: number
   selected?: boolean
   onClick: () => void
 }
@@ -25,11 +33,14 @@ function statusLabel(payment: Payment): string {
 
 /**
  * Spacious mobile payment row — mirrors invoice list cards.
- * Header: invoice# + status · Body: amount + broker · Footer: method · dates
+ * Surfaces short paid / overpaid so carriers can scan variance on the list.
  */
 export default function MobilePaymentListCard({
   payment,
   invoiceAmount,
+  confirmedReceived,
+  variance = null,
+  varianceAmount = 0,
   selected = false,
   onClick,
 }: MobilePaymentListCardProps) {
@@ -43,26 +54,52 @@ export default function MobilePaymentListCard({
         ? payment.payment_method.charAt(0).toUpperCase() + payment.payment_method.slice(1)
         : '—'
 
+  const showVariance = variance === 'short' || variance === 'over'
+  const varianceSigned =
+    variance === 'short'
+      ? `−${formatCurrency(varianceAmount)}`
+      : `+${formatCurrency(varianceAmount)}`
+
   return (
     <button
       type="button"
       className={`mobile-payment-list-card${selected ? ' is-selected' : ''}${
         awaiting ? ' is-confirm-payment' : ''
-      }${payment.status === 'disputed' ? ' is-disputed' : ''}`}
+      }${payment.status === 'disputed' ? ' is-disputed' : ''}${
+        variance === 'short' ? ' is-short-paid' : ''
+      }${variance === 'over' ? ' is-overpaid' : ''}`}
       onClick={onClick}
     >
       <div className="mobile-payment-list-card__header">
         <span className="mobile-payment-list-card__inv">#{payment.invoice_number}</span>
-        <span
-          className={`mobile-payment-list-card__status mobile-payment-list-card__status--${statusKey}`}
-        >
-          {statusLabel(payment)}
-        </span>
+        <div className="mobile-payment-list-card__badges">
+          {showVariance ? (
+            <span
+              className={`mobile-payment-list-card__variance mobile-payment-list-card__variance--${variance}`}
+            >
+              {variance === 'short' ? 'SHORT PAID' : 'OVERPAID'}
+            </span>
+          ) : null}
+          <span
+            className={`mobile-payment-list-card__status mobile-payment-list-card__status--${statusKey}`}
+          >
+            {statusLabel(payment)}
+          </span>
+        </div>
       </div>
 
-      <p className="mobile-payment-list-card__amount tabular-nums">
-        {formatCurrency(payment.amount)}
-      </p>
+      <div className="mobile-payment-list-card__amount-row">
+        <p className="mobile-payment-list-card__amount tabular-nums">
+          {formatCurrency(payment.amount)}
+        </p>
+        {showVariance ? (
+          <span
+            className={`mobile-payment-list-card__variance-amt tabular-nums mobile-payment-list-card__variance-amt--${variance}`}
+          >
+            {varianceSigned}
+          </span>
+        ) : null}
+      </div>
 
       <p className="mobile-payment-list-card__broker" title={payment.broker_name}>
         {payment.broker_name}
@@ -76,6 +113,12 @@ export default function MobilePaymentListCard({
           <>
             <span aria-hidden>·</span>
             <span>Inv {formatCurrency(invoiceAmount)}</span>
+          </>
+        ) : null}
+        {confirmedReceived != null && confirmedReceived > 0 && showVariance ? (
+          <>
+            <span aria-hidden>·</span>
+            <span>Recv {formatCurrency(confirmedReceived)}</span>
           </>
         ) : null}
         {daysLeft != null ? (

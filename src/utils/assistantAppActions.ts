@@ -23,7 +23,7 @@ const CLIENT_CATALOG: AssistantCatalogEntry[] = [
     id: 'client-dashboard',
     label: 'Open dashboard',
     description: 'Company KPIs and overview',
-    path: '/client/dashboard',
+    path: '/client/dashboard-v2',
     mode: 'client',
     keywords: ['dashboard', 'home', 'overview', 'kpi'],
   },

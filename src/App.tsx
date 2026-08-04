@@ -23,6 +23,7 @@ import {
   ClientBrokers,
   ClientCollections,
   ClientDashboard,
+  ClientDashboardV2,
   OnboardingDashboard,
   ClientDocuments,
   ClientInvoices,
@@ -93,6 +94,10 @@ function App() {
                 <Route
                   path="/client/dashboard"
                   element={withRouteSuspense(ClientDashboard, 'Loading dashboard…')}
+                />
+                <Route
+                  path="/client/dashboard-v2"
+                  element={withRouteSuspense(ClientDashboardV2, 'Loading dashboard…')}
                 />
                 <Route
                   path="/client/onboarding"

@@ -4,7 +4,10 @@
 
 This Carrier Master Service Agreement (the “**Agreement**”) is entered into as of the Effective Date between:
 
-**Service provider:** Credyx A/R Solutions (“**Credyx**,” “**we**,” “**us**,” or “**our**”)
+**Service provider:** **Electro Pionir DOOEL**, a limited liability company organized under the laws of the Republic of North Macedonia, doing business as **Credyx A/R Solutions** (“**Credyx**,” “**we**,” “**us**,” or “**our**”)
+
+**Registered office:** Oktomvriska Revolucija 22A lok.3, Skopje, Republic of North Macedonia  
+**Notices:** notices@credyx.net
 
 **Client:** the motor carrier / business identified in the signature block or enrollment record below (“**Client**,” “**you**,” or “**your**”)
 
@@ -205,7 +208,7 @@ TO THE MAXIMUM EXTENT PERMITTED BY LAW, CREDYX'S TOTAL AGGREGATE LIABILITY TO CL
 
 Some jurisdictions do not allow certain limitations; in those cases liability is limited to the fullest extent permitted by law. Nothing excludes liability that cannot be excluded under applicable law.
 
-**Counsel note:** Contracting as an individual does not create limited-liability-company protection for personal assets. Forming an entity is a separate step.
+**Counsel note:** Credyx is operated by Electro Pionir DOOEL. Confirm with counsel that the registered office, company registration number, and any required local formalities are correctly stated before relying on this Agreement with customers.
 
 ---
 
@@ -235,9 +238,14 @@ Credyx may propose updates to Exhibit A fees for future periods by written notic
 
 ## 17. Governing law and arbitration
 
-This Agreement is governed by the laws of the United States, without regard to conflict-of-law rules.
+This Agreement is governed by the laws of the **Republic of North Macedonia**, without regard to conflict-of-law rules.
 
-Any dispute arising out of or relating to this Agreement shall be finally resolved by binding arbitration conducted in English.
+Any dispute arising out of or relating to this Agreement shall be finally resolved by **binding arbitration** administered under the **UNCITRAL Arbitration Rules** (as in effect at the time the arbitration is commenced), as follows:
+
+1. **Number of arbitrators:** one (1).
+2. **Seat (legal place) of arbitration:** Skopje, Republic of North Macedonia.
+3. **Language:** English.
+4. **Appointing authority:** if the parties cannot agree on the sole arbitrator within thirty (30) days after a request for arbitration is received, the arbitrator shall be appointed by the Secretary-General of the Permanent Court of Arbitration at The Hague.
 
 Judgment on the arbitration award may be entered in any court of competent jurisdiction. Each party will bear its own attorneys' fees unless the arbitrator orders otherwise or applicable law requires a different allocation. Provisional or interim relief may be sought in a court of competent jurisdiction to protect rights pending the arbitration award, to the extent allowed by law.
 
@@ -253,8 +261,10 @@ This Agreement (including exhibits and any signed fee schedule) is the entire ag
 
 **Credyx / Service provider**
 
-Name: Credyx A/R Solutions  
+Legal entity: Electro Pionir DOOEL  
+Trading as: Credyx A/R Solutions  
 Signature: _______________________________  
+Name / title: _______________________________  
 Date: _______________
 
 **Client**

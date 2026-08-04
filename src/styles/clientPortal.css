@@ -220,6 +220,14 @@
   overflow: visible;
 }
 
+.client-portal .client-topbar__welcome {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+
 .client-portal .client-topbar__actions {
   display: flex;
   flex-wrap: nowrap;
@@ -10150,22 +10158,16 @@
   }
 }
 
-/* Mobile topbar: back | title | pager */
+/* Mobile topbar: back | spacer | pager arrows | menu */
 .client-portal .payment-confirmation-panel__header--mobile-topbar {
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   padding: 10px 12px;
   background: var(--cp-card);
 }
 
-.client-portal .payment-confirmation-panel__mobile-top-title {
+.client-portal .payment-confirmation-panel__mobile-top-spacer {
   flex: 1;
-  margin: 0;
-  text-align: center;
-  font-size: 0.9375rem;
-  font-weight: 700;
-  color: var(--cp-text);
-  letter-spacing: -0.01em;
   min-width: 0;
 }
 
@@ -10174,15 +10176,27 @@
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
-  margin-left: auto;
 }
 
 .client-portal .payment-confirmation-panel__mobile-pager-count {
-  min-width: 2.6rem;
+  flex-shrink: 0;
+  min-width: 2.4rem;
+  padding: 0 4px;
   text-align: center;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  font-weight: 650;
   letter-spacing: -0.01em;
+  color: var(--cp-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.client-portal .payment-confirmation-panel__mobile-menu-btn {
+  flex-shrink: 0;
+}
+
+/* Hide floating phone hamburger while invoice detail hosts its own menu control */
+.client-portal:has(.payment-confirmation-panel--mobile) .client-phone-menu-btn {
+  display: none;
 }
 
 .client-portal .payment-confirmation-panel__mobile-top-status {
@@ -10199,6 +10213,44 @@
 
 .client-portal .payment-confirmation-panel__mobile-identity {
   margin-bottom: 14px;
+}
+
+.client-portal .payment-confirmation-panel__mobile-identity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.client-portal .payment-confirmation-panel__mobile-identity-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .payment-confirmation-panel__mobile-identity-amount {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  color: var(--cp-text);
+}
+
+.client-portal .payment-confirmation-panel__mobile-identity-meta {
+  margin: 6px 0 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--cp-text);
+}
+
+.client-portal .payment-confirmation-panel__mobile-identity-broker {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  color: var(--cp-text-muted);
 }
 
 .client-portal .payment-confirmation-panel__mobile-heading {
@@ -10299,43 +10351,89 @@
   color: var(--cp-text);
 }
 
-/* Mint / soft summary band for mobile metrics */
-.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__summary--mobile-mint {
-  margin: 0 12px 10px;
-  padding: 10px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, #86efac 55%, var(--cp-border));
+/* Clean PayPal-like mobile overview card (no mint / tinted status wash) */
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__summary--mobile-clean {
+  margin: 12px 14px 10px;
+  padding: 18px 16px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--cp-border);
+  background: var(--cp-card);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
-.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__summary--confirmed.payment-confirmation-panel__summary--mobile-mint {
-  background: linear-gradient(180deg, #dcfce7 0%, #f0fdf4 100%);
+/* Overview tab — allow the summary card to scroll under the surface tabs */
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__body > .payment-confirmation-panel__summary {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-bottom: none;
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__mobile-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: color-mix(in srgb, var(--cp-text-muted) 14%, transparent);
+  color: var(--cp-text-muted);
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__mobile-status--confirmed {
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__mobile-status--awaiting-receipt {
+  background: rgba(22, 132, 254, 0.12);
+  color: #1684fe;
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__mobile-status--pending {
+  background: rgba(245, 158, 11, 0.14);
+  color: #d97706;
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__mobile-status--disputed {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
 }
 
 .client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__summary .invoice-balance-summary__figures {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  gap: 8px;
 }
 
 .client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__summary .invoice-balance-summary__fig {
-  padding: 8px 8px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.9);
+  padding: 10px 10px;
+  border-radius: 14px;
+  background: var(--cp-surface, #f8fafc);
+  border: 1px solid var(--cp-border);
 }
 
 .client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__summary-grid--meta {
-  margin-top: 10px;
+  margin-top: 12px;
   padding-top: 0;
   border-top: none;
   gap: 8px;
 }
 
 .client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__summary-cell {
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--cp-surface, #f8fafc);
+  border: 1px solid var(--cp-border);
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__summary-meta {
+  margin: 14px 2px 2px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--cp-text-muted);
 }
 
 .client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes-head {
@@ -10371,12 +10469,14 @@
 .client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__footer--mobile {
   padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
   gap: 8px;
+  background: var(--cp-card);
+  border-top: 1px solid var(--cp-border);
 }
 
 .client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__footer--mobile > div {
   display: flex;
   flex-wrap: nowrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__footer--mobile .dashboard-btn-primary,
@@ -10385,17 +10485,23 @@
 .client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__footer--mobile .payment-confirmation-panel__footer-confirm {
   flex: 1 1 0;
   min-width: 0;
-  height: 40px;
-  min-height: 40px;
-  max-height: 40px;
-  padding: 0 8px;
-  border-radius: 10px;
+  height: 44px;
+  min-height: 44px;
+  max-height: 44px;
+  padding: 0 10px;
+  border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 650;
   gap: 5px;
   white-space: nowrap;
   line-height: 1;
   box-sizing: border-box;
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__footer--mobile .payment-confirmation-panel__footer-dispute {
+  color: #dc2626 !important;
+  border-color: color-mix(in srgb, #ef4444 55%, var(--cp-border)) !important;
+  background: color-mix(in srgb, #ef4444 8%, var(--cp-card)) !important;
 }
 
 .client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__footer--mobile .dashboard-btn-primary svg,
@@ -11827,6 +11933,437 @@
   color: #fff;
 }
 
+/* Mobile payments — search + date range trigger */
+.client-portal .mobile-payments-search-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+
+.client-portal .mobile-payments-search-row .mobile-invoices-toolbar__search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.client-portal .mobile-payments-date__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  max-width: 46%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--cp-border);
+  border-radius: 12px;
+  background: var(--cp-surface, #f1f5f9);
+  color: var(--cp-text-muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.client-portal .mobile-payments-date__trigger.is-active,
+.client-portal .mobile-payments-date__trigger.is-open {
+  border-color: rgba(22, 132, 254, 0.45);
+  color: #1684fe;
+  background: rgba(22, 132, 254, 0.08);
+}
+
+.client-portal .mobile-payments-date__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Date range sheet — drops from the top (Invoice Management pattern) */
+.mobile-payments-date-sheet-root {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  pointer-events: auto;
+}
+
+.mobile-payments-date-sheet__backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.28s ease;
+}
+
+.mobile-payments-date-sheet-root.is-visible .mobile-payments-date-sheet__backdrop {
+  opacity: 1;
+}
+
+.mobile-payments-date-sheet {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: min(52vh, 420px);
+  border-radius: 0 0 20px 20px;
+  border: 1px solid var(--cp-border);
+  border-top: none;
+  background: var(--cp-card, #ffffff);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.22);
+  transform: translateY(-105%);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
+  overflow: hidden;
+  color: var(--cp-text);
+}
+
+.mobile-payments-date-sheet.is-custom {
+  max-height: min(72vh, 520px);
+}
+
+.mobile-payments-date-sheet-root.is-visible .mobile-payments-date-sheet {
+  transform: translateY(0);
+}
+
+.mobile-payments-date-sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 12px 8px;
+  border-bottom: 1px solid var(--cp-border);
+  flex-shrink: 0;
+}
+
+.mobile-payments-date-sheet__eyebrow {
+  margin: 0;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cp-text-muted);
+}
+
+.mobile-payments-date-sheet__title {
+  margin: 1px 0 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--cp-text);
+}
+
+.mobile-payments-date-sheet__close {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cp-border);
+  border-radius: 10px;
+  background: var(--cp-surface, #f8fafc);
+  color: var(--cp-text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+
+.mobile-payments-date-sheet__close:active {
+  transform: scale(0.96);
+  background: color-mix(in srgb, #ef4444 12%, var(--cp-surface, #f8fafc));
+  border-color: color-mix(in srgb, #ef4444 35%, var(--cp-border));
+  color: #dc2626;
+}
+
+.mobile-payments-date-sheet__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 12px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mobile-payments-date-sheet__presets {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.mobile-payments-date-sheet__presets::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-payments-date-sheet__chip {
+  flex: 1 0 auto;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--cp-border);
+  border-radius: 999px;
+  background: var(--cp-surface, #f8fafc);
+  color: var(--cp-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-payments-date-sheet__chip.is-selected {
+  background: rgba(22, 132, 254, 0.14);
+  border-color: rgba(22, 132, 254, 0.45);
+  color: #1684fe;
+}
+
+.mobile-payments-date-sheet__calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 8px 8px;
+  border-radius: 16px;
+  border: 1px solid var(--cp-border);
+  background: color-mix(in srgb, var(--cp-surface, #f8fafc) 88%, #1684fe 4%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.mobile-payments-date-sheet__cal-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.mobile-payments-date-sheet__cal-nav-main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mobile-payments-date-sheet__cal-title {
+  margin: 0;
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  color: var(--cp-text);
+}
+
+.mobile-payments-date-sheet__cal-nav-btn,
+.mobile-payments-date-sheet__cal-dismiss {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cp-text) 6%, transparent);
+  color: var(--cp-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mobile-payments-date-sheet__cal-dismiss {
+  color: var(--cp-text-muted);
+}
+
+.mobile-payments-date-sheet__cal-dismiss:active,
+.mobile-payments-date-sheet__cal-nav-btn:active {
+  transform: scale(0.94);
+  background: color-mix(in srgb, var(--cp-text) 12%, transparent);
+  color: var(--cp-text);
+}
+
+.mobile-payments-date-sheet__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cp-text-muted);
+  opacity: 0.85;
+  padding: 0 0 2px;
+}
+
+.mobile-payments-date-sheet__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  column-gap: 0;
+  row-gap: 2px;
+}
+
+.mobile-payments-date-sheet__day {
+  position: relative;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--cp-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 0;
+}
+
+.mobile-payments-date-sheet__day.is-empty {
+  pointer-events: none;
+  visibility: hidden;
+}
+
+/* Continuous range band behind day numbers */
+.mobile-payments-date-sheet__day.is-in-range::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  right: 0;
+  background: rgba(22, 132, 254, 0.16);
+  z-index: 0;
+}
+
+/* Soften week wrap edges (middle of a multi-week range) */
+.mobile-payments-date-sheet__day.is-in-range.is-week-start:not(.is-start)::before {
+  border-radius: 999px 0 0 999px;
+}
+
+.mobile-payments-date-sheet__day.is-in-range.is-week-end:not(.is-end)::before {
+  border-radius: 0 999px 999px 0;
+}
+
+/* Start/end: only half the cell continues the band */
+.mobile-payments-date-sheet__day.is-start.is-in-range:not(.is-end)::before {
+  left: 50%;
+  border-radius: 0;
+}
+
+.mobile-payments-date-sheet__day.is-end.is-in-range:not(.is-start)::before {
+  right: 50%;
+  border-radius: 0;
+}
+
+.mobile-payments-date-sheet__day.is-start.is-end.is-in-range::before {
+  display: none;
+}
+
+/* Start/end endpoint pill */
+.mobile-payments-date-sheet__day.is-start::after,
+.mobile-payments-date-sheet__day.is-end::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: #1684fe;
+  box-shadow: 0 2px 8px rgba(22, 132, 254, 0.35);
+  z-index: 1;
+}
+
+.mobile-payments-date-sheet__day-num {
+  position: relative;
+  z-index: 2;
+  line-height: 1;
+}
+
+.mobile-payments-date-sheet__day.is-start,
+.mobile-payments-date-sheet__day.is-end {
+  color: #fff;
+  font-weight: 750;
+}
+
+.mobile-payments-date-sheet__day:active:not(.is-empty) .mobile-payments-date-sheet__day-num {
+  transform: scale(0.92);
+}
+
+.mobile-payments-date-sheet__range-hint {
+  margin: 2px 0 0;
+  padding: 6px 10px;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--cp-text-muted);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cp-text) 4%, transparent);
+}
+
+.mobile-payments-date-sheet__footer {
+  flex-shrink: 0;
+  padding: 8px 12px 2px;
+}
+
+.mobile-payments-date-sheet__apply {
+  width: 100%;
+  height: 42px;
+  border: none;
+  border-radius: 999px;
+  background: #1684fe;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-payments-date-sheet__apply.is-secondary {
+  background: var(--cp-surface, #f1f5f9);
+  color: var(--cp-text);
+  border: 1px solid var(--cp-border);
+}
+
+.mobile-payments-date-sheet__apply:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mobile-payments-date-sheet__apply:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.mobile-payments-date-sheet__handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cp-text-muted) 35%, transparent);
+  margin: 2px auto 10px;
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-payments-date-sheet,
+  .mobile-payments-date-sheet__backdrop {
+    transition: none;
+  }
+}
+
 /* ── Mobile invoices list (open, easy to scan) ── */
 .client-portal .mobile-invoice-list {
   display: flex;
@@ -12009,12 +12546,12 @@
   opacity: 0.45;
 }
 
-/* Mobile payments list cards */
+/* Mobile payments list cards — match invoice list density & tokens */
 .client-portal .mobile-payment-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 12px 16px;
+  gap: 14px;
+  padding: 14px 14px 20px;
   overflow-y: auto;
   flex: 1 1 auto;
   min-height: 0;
@@ -12035,7 +12572,7 @@
   color: inherit;
   font: inherit;
   cursor: pointer;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color 0.12s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -12050,11 +12587,19 @@
 }
 
 .client-portal .mobile-payment-list-card.is-confirm-payment {
-  border-left: 3px solid #f59e0b;
+  border-left: 3px solid #1684fe;
 }
 
 .client-portal .mobile-payment-list-card.is-disputed {
   border-left: 3px solid #f97316;
+}
+
+.client-portal .mobile-payment-list-card.is-short-paid {
+  border-left: 3px solid #ef4444;
+}
+
+.client-portal .mobile-payment-list-card.is-overpaid {
+  border-left: 3px solid #10b981;
 }
 
 .client-portal .mobile-payment-list-card__header {
@@ -12064,28 +12609,56 @@
   gap: 12px;
 }
 
+.client-portal .mobile-payment-list-card__badges {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
 .client-portal .mobile-payment-list-card__inv {
   min-width: 0;
   font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--cp-text);
+  color: var(--cp-text-muted);
+}
+
+.client-portal .mobile-payment-list-card__variance {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.client-portal .mobile-payment-list-card__variance--short {
+  background: rgba(239, 68, 68, 0.14);
+  color: #dc2626;
+}
+
+.client-portal .mobile-payment-list-card__variance--over {
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
 }
 
 .client-portal .mobile-payment-list-card__status {
   flex-shrink: 0;
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 999px;
   font-size: 0.625rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.04em;
   background: color-mix(in srgb, var(--cp-text-muted) 16%, transparent);
   color: var(--cp-text-muted);
 }
 
 .client-portal .mobile-payment-list-card__status--awaiting-receipt {
-  background: color-mix(in srgb, #f59e0b 18%, transparent);
-  color: #d97706;
+  background: rgba(22, 132, 254, 0.12);
+  color: #1684fe;
 }
 
 .client-portal .mobile-payment-list-card__status--confirmed {
@@ -12109,13 +12682,35 @@
   color: #64748b;
 }
 
+.client-portal .mobile-payment-list-card__amount-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .client-portal .mobile-payment-list-card__amount {
   margin: 0;
   font-size: 1.375rem;
-  font-weight: 750;
+  font-weight: 800;
   letter-spacing: -0.03em;
   color: var(--cp-text);
   line-height: 1.15;
+}
+
+.client-portal .mobile-payment-list-card__variance-amt {
+  flex-shrink: 0;
+  font-size: 0.875rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.client-portal .mobile-payment-list-card__variance-amt--short {
+  color: #dc2626;
+}
+
+.client-portal .mobile-payment-list-card__variance-amt--over {
+  color: #059669;
 }
 
 .client-portal .mobile-payment-list-card__broker {

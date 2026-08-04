@@ -2,7 +2,7 @@
 
 **Effective date:** July 29, 2026
 
-These Website Terms of Use (“**Terms**”) govern your access to and use of the websites, waitlist, product tour, and related online properties operated by **Credyx A/R Solutions** (“**Credyx**,” “**we**,” “**us**,” or “**our**”) (collectively, the “**Site**”).
+These Website Terms of Use (“**Terms**”) govern your access to and use of the websites, waitlist, product tour, and related online properties operated by **Electro Pionir DOOEL**, doing business as **Credyx A/R Solutions** (“**Credyx**,” “**we**,” “**us**,” or “**our**”) (collectively, the “**Site**”).
 
 By accessing or using the Site, you agree to these Terms. If you do not agree, do not use the Site.
 
@@ -109,9 +109,14 @@ We may suspend or stop providing the Site (in whole or part) at any time. Provis
 
 ## 12. Governing law and disputes
 
-These Terms are governed by the laws of the United States, without regard to conflict-of-law rules.
+These Terms are governed by the laws of the **Republic of North Macedonia**, without regard to conflict-of-law rules.
 
-Any dispute arising out of or relating to these Terms or the Site shall be finally resolved by binding arbitration conducted in English.
+Any dispute arising out of or relating to these Terms or the Site shall be finally resolved by **binding arbitration** administered under the **UNCITRAL Arbitration Rules** (as in effect at the time the arbitration is commenced), as follows:
+
+1. **Number of arbitrators:** one (1).
+2. **Seat (legal place) of arbitration:** Skopje, Republic of North Macedonia.
+3. **Language:** English.
+4. **Appointing authority:** if the parties cannot agree on the sole arbitrator within thirty (30) days after a request for arbitration is received, the arbitrator shall be appointed by the Secretary-General of the Permanent Court of Arbitration at The Hague.
 
 Judgment on the arbitration award may be entered in any court of competent jurisdiction. Provisional or interim relief may be sought in a court of competent jurisdiction to protect rights pending the arbitration award, to the extent allowed by law.
 
@@ -132,5 +137,7 @@ If any provision is found unenforceable, the remaining provisions remain in effe
 ## 15. Contact
 
 **Credyx A/R Solutions**  
+Electro Pionir DOOEL  
+Registered office: Oktomvriska Revolucija 22A lok.3, Skopje, Republic of North Macedonia  
 Notices: **notices@credyx.net**  
 Privacy: **privacy@credyx.net**

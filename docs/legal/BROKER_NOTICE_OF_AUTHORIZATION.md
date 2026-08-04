@@ -6,6 +6,19 @@
 
 ---
 
+## Credyx identification
+
+| Field | Value |
+| --- | --- |
+| **Legal entity** | Electro Pionir DOOEL |
+| **Trading as** | Credyx A/R Solutions |
+| **Registered office** | Oktomvriska Revolucija 22A lok.3, Skopje, Republic of North Macedonia |
+| **Notices / invoice questions** | notices@credyx.net |
+
+Credyx is the accounts-receivable and back-office brand of **Electro Pionir DOOEL**. Credyx is **not** a factor, lender, or purchaser of Carrier’s invoices.
+
+---
+
 ## Carrier identification
 
 | Field | Value |
@@ -16,7 +29,7 @@
 | **DOT #** | _________________ |
 | **Effective date of this notice** | _______________ |
 
-The Carrier named above (the “**Carrier**”) agrees and confirms that **Credyx A/R Solutions** is authorized to act as Carrier’s accounts-receivable and back-office agent in dealings with you (the broker, shipper, payor, or your AP contacts).
+The Carrier named above (the “**Carrier**”) agrees and confirms that **Credyx A/R Solutions** (Electro Pionir DOOEL) is authorized to act as Carrier’s accounts-receivable and back-office agent in dealings with you (the broker, shipper, payor, or your AP contacts).
 
 **Credyx is not a factor, lender, or purchaser of Carrier’s invoices.** Unless a separate Notice of Assignment (NOA) from a third-party factor is attached to an invoice packet, this notice does **not** assign receivables to Credyx.
 
@@ -38,7 +51,7 @@ Carrier agrees and confirms that Credyx may, on Carrier’s behalf:
 5. **Provide remittance information** supplied by Carrier (see Section 3) so you know where payment must be sent.
 6. Keep Carrier informed of material developments known to Credyx.
 
-You may rely on communications from Credyx regarding the above as communications authorized by Carrier.
+You may rely on communications from Credyx regarding the above as communications authorized by Carrier, until this authorization is revoked as described in Section 4.
 
 ---
 
@@ -80,7 +93,15 @@ If Carrier is under a factoring agreement, invoice packets will include the appl
 
 ---
 
-## 4. How to treat this notice
+## 4. Duration and revocation
+
+- This notice is effective as of the Effective Date above and continues until Carrier (or Credyx on Carrier’s written instruction) delivers **written revocation** to you (email to your AP / billing contact is sufficient).
+- Until you receive such written revocation, you may continue to rely on this notice and on remittance / NOA materials included with invoice packets for this Carrier.
+- Revocation does not affect invoices already submitted before you received the revocation, except as Carrier separately instructs you in writing.
+
+---
+
+## 5. How to treat this notice
 
 - This notice confirms Carrier’s authorization for Credyx to perform the activities in Section 1.
 - It does **not** make Credyx a party to your carrier–broker agreement, and it does **not** transfer ownership of invoices to Credyx.
@@ -88,7 +109,7 @@ If Carrier is under a factoring agreement, invoice packets will include the appl
 
 ---
 
-## 5. Questions
+## 6. Questions
 
 For invoice or packet questions related to this Carrier, contact Credyx at the address or email used on the invoice packet, or **notices@credyx.net**.
 
@@ -96,9 +117,9 @@ For payment destination questions, use **only** the remittance / NOA attached to
 
 ---
 
-## 6. Carrier acknowledgement
+## 7. Carrier acknowledgement
 
-Carrier acknowledges that brokers and payors may rely on this notice and on remittance / NOA materials included with invoice packets.
+Carrier acknowledges that brokers and payors may rely on this notice and on remittance / NOA materials included with invoice packets until written revocation is received.
 
 **Carrier legal name:** _______________________________________________  
 

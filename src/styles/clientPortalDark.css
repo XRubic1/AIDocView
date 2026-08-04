@@ -707,6 +707,90 @@
   box-shadow: -8px 0 12px var(--cp-card, #0f172a);
 }
 
+.client-portal[data-theme='dark'] .mobile-payments-date__trigger {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: var(--cp-border);
+  color: var(--cp-text-muted);
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date__trigger.is-active,
+.client-portal[data-theme='dark'] .mobile-payments-date__trigger.is-open {
+  background: rgba(22, 132, 254, 0.16);
+  border-color: rgba(22, 132, 254, 0.4);
+  color: #60a5fa;
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet {
+  background: #0b1220;
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  color: #f8fafc;
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__close {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__chip {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__chip.is-selected {
+  background: rgba(22, 132, 254, 0.18);
+  border-color: rgba(22, 132, 254, 0.4);
+  color: #60a5fa;
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__calendar {
+  background: rgba(22, 132, 254, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__cal-nav-btn,
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__cal-dismiss {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: transparent;
+  color: #94a3b8;
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__range-hint {
+  background: rgba(255, 255, 255, 0.04);
+  color: #94a3b8;
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__close {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__apply.is-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__day {
+  color: #e2e8f0;
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__day.is-in-range::before {
+  background: rgba(22, 132, 254, 0.22);
+}
+
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__day.is-start,
+.client-portal[data-theme='dark'] .mobile-payments-date-sheet__day.is-end {
+  color: #fff;
+}
+
 .client-portal[data-theme='dark'] .mobile-invoice-overview__lifecycle-step.is-hold .mobile-invoice-overview__lifecycle-dot {
   background: #ef4444;
   border-color: #ef4444;
@@ -916,18 +1000,22 @@
   color: #60a5fa;
 }
 
-.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__summary--mobile-mint {
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__summary--mobile-clean {
+  background: var(--cp-card);
   border-color: var(--cp-border);
-}
-
-.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__summary--confirmed.payment-confirmation-panel__summary--mobile-mint {
-  background: linear-gradient(180deg, rgba(47, 169, 140, 0.22) 0%, rgba(47, 169, 140, 0.08) 100%);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
 }
 
 .client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__summary .invoice-balance-summary__fig,
 .client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__summary-cell {
-  background: rgba(15, 23, 42, 0.45);
+  background: color-mix(in srgb, var(--cp-surface) 80%, #0f172a);
   border-color: var(--cp-border);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__footer--mobile .payment-confirmation-panel__footer-dispute {
+  color: #f87171 !important;
+  border-color: rgba(248, 113, 113, 0.4) !important;
+  background: rgba(248, 113, 113, 0.1) !important;
 }
 
 .client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__notes--mobile-surface {

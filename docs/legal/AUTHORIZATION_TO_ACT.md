@@ -2,7 +2,7 @@
 
 **Attached to the Carrier Master Service Agreement**
 
-**Client** authorizes **Credyx A/R Solutions** (“**Credyx**”), as defined in the Carrier Master Service Agreement, to act as Client’s accounts-receivable and back-office agent as follows.
+**Client** authorizes **Electro Pionir DOOEL**, doing business as **Credyx A/R Solutions** (“**Credyx**”), as defined in the Carrier Master Service Agreement, to act as Client’s accounts-receivable and back-office agent as follows.
 
 ---
 
@@ -43,13 +43,13 @@ Client represents that:
 
 ## 4. Duration
 
-This authorization starts on the MSA Effective Date and continues until the MSA terminates, or until Client revokes it in writing (email sufficient). Revocation may limit or end Credyx’s ability to perform Managed or invoicing Services. Fees already incurred remain payable.
+This authorization starts on the MSA Effective Date and continues until the MSA terminates, or until Client revokes it in writing (email sufficient). Credyx may notify brokers/payors of revocation. Revocation may limit or end Credyx’s ability to perform Managed or invoicing Services. Fees already incurred remain payable.
 
 ---
 
 ## 5. Broker-facing notice
 
-Credyx may send brokers and payors a separate **Notice to Broker / Payor — Authorization of Credyx A/R Solutions** summarizing this authority, remittance rules, and that freight payments must not be sent to Credyx. That notice is for broker/payor communication; this Exhibit B remains the Client authorization under the MSA.
+Credyx may send brokers and payors a separate **Notice to Broker / Payor — Authorization of Credyx A/R Solutions** summarizing this authority, remittance rules, that freight payments must not be sent to Credyx, and that the notice remains effective until the broker receives written revocation. That notice is for broker/payor communication; this Exhibit B remains the Client authorization under the MSA.
 
 ---
 

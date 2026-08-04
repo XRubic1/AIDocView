@@ -11,6 +11,7 @@ export default function WebsiteTerms() {
       <p>
         These Website Terms of Use (“<strong>Terms</strong>”) govern your access to and use of the
         websites, waitlist, product tour, and related online properties operated by{' '}
+        <strong>Electro Pionir DOOEL</strong>, doing business as{' '}
         <strong>Credyx A/R Solutions</strong> (“<strong>Credyx</strong>,” “<strong>we</strong>,” “
         <strong>us</strong>,” or “<strong>our</strong>”) (collectively, the “
         <strong>Site</strong>”).
@@ -173,14 +174,31 @@ export default function WebsiteTerms() {
 
       <h2>12. Governing law and disputes</h2>
       <p>
-        These Terms are governed by the laws of <strong>North Macedonia</strong>, without regard to
-        conflict-of-law rules.
+        These Terms are governed by the laws of the <strong>Republic of North Macedonia</strong>,
+        without regard to conflict-of-law rules.
       </p>
       <p>
         Any dispute arising out of or relating to these Terms or the Site shall be finally resolved
-        by binding arbitration conducted in English. The seat of arbitration shall be Skopje, North
-        Macedonia.
+        by <strong>binding arbitration</strong> administered under the{' '}
+        <strong>UNCITRAL Arbitration Rules</strong> (as in effect at the time the arbitration is
+        commenced), as follows:
       </p>
+      <ol>
+        <li>
+          <strong>Number of arbitrators:</strong> one (1).
+        </li>
+        <li>
+          <strong>Seat (legal place) of arbitration:</strong> Skopje, Republic of North Macedonia.
+        </li>
+        <li>
+          <strong>Language:</strong> English.
+        </li>
+        <li>
+          <strong>Appointing authority:</strong> if the parties cannot agree on the sole arbitrator
+          within thirty (30) days after a request for arbitration is received, the arbitrator shall
+          be appointed by the Secretary-General of the Permanent Court of Arbitration at The Hague.
+        </li>
+      </ol>
       <p>
         Judgment on the arbitration award may be entered in any court of competent jurisdiction.
         Provisional or interim relief may be sought in a court of competent jurisdiction to protect
@@ -206,6 +224,10 @@ export default function WebsiteTerms() {
       <h2>15. Contact</h2>
       <p>
         <strong>Credyx A/R Solutions</strong>
+        <br />
+        Electro Pionir DOOEL
+        <br />
+        Registered office: Oktomvriska Revolucija 22A lok.3, Skopje, Republic of North Macedonia
         <br />
         Notices: <strong>notices@credyx.net</strong>
         <br />

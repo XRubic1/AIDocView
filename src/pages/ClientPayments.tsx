@@ -19,6 +19,7 @@ import {
   Loader2,
   ArrowUp,
   ArrowDown,
+  CalendarDays,
 } from 'lucide-react'
 import PaymentKpiCards from '../components/client/PaymentKpiCards'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
@@ -35,6 +36,7 @@ import PaymentConfirmationPanel from '../components/client/PaymentConfirmationPa
 import { useCompactDetailViewport, useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
 import MobilePaymentListCard from '../components/client/MobilePaymentListCard'
+import MobilePaymentDateRangeSheet from '../components/client/MobilePaymentDateRangeSheet'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
@@ -194,6 +196,16 @@ type PaymentStatusFilter =
   | 'rejected'
   | 'reversed'
 
+/** Mobile status pills — same pattern as the invoices list toolbar. */
+const PAYMENT_MOBILE_STATUS_FILTERS: { id: PaymentStatusFilter; label: string }[] = [
+  { id: 'awaiting_receipt', label: 'Confirm' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'confirmed', label: 'Confirmed' },
+  { id: 'disputed', label: 'Disputed' },
+  { id: 'rejected', label: 'Rejected' },
+  { id: 'all', label: 'All' },
+]
+
 function getPaymentStatusPill(status: string, payment?: Payment) {
   const label = PAYMENT_STATUS_LABELS[status as keyof typeof PAYMENT_STATUS_LABELS] ?? status
   const className =
@@ -292,6 +304,28 @@ export default function ClientPayments() {
   const [receiptDisputeUnderstand, setReceiptDisputeUnderstand] = useState(false)
   const historyTableRef = useRef<HTMLDivElement>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  /** Mobile filter row — show right-edge arrow while more pills are off-screen. */
+  const filterScrollRef = useRef<HTMLDivElement>(null)
+  const [canScrollFiltersMore, setCanScrollFiltersMore] = useState(false)
+
+  /** Update overflow arrow when the filter strip scrolls or resizes. */
+  const updateFilterScrollHint = useCallback(() => {
+    const el = filterScrollRef.current
+    if (!el) {
+      setCanScrollFiltersMore(false)
+      return
+    }
+    const remaining = el.scrollWidth - el.clientWidth - el.scrollLeft
+    setCanScrollFiltersMore(remaining > 8)
+  }, [])
+
+  /** Nudge the filter strip so the next pills come into view. */
+  const scrollFiltersMore = useCallback(() => {
+    const el = filterScrollRef.current
+    if (!el) return
+    el.scrollBy({ left: Math.min(160, el.clientWidth * 0.55), behavior: 'smooth' })
+  }, [])
+
   const [showPaymentDetail, setShowPaymentDetail] = useState(false)
   const [detailPanelClosing, setDetailPanelClosing] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
@@ -308,8 +342,8 @@ export default function ClientPayments() {
   }, [dateFrom, dateTo, methodFilter, statusFilter])
 
   /**
-   * Mobile default: open Filters with “Awaiting confirmation” selected
-   * so action-needed payments are front and center.
+   * Mobile default: surface Confirm (awaiting receipt) first — same idea as
+   * invoices prioritizing action-needed rows. Keep the filter panel closed.
    */
   useEffect(() => {
     if (!isMobile || mobileDefaultsAppliedRef.current) return
@@ -320,8 +354,54 @@ export default function ClientPayments() {
     if (!capabilities.canConfirmPaymentReceipt) return
     mobileDefaultsAppliedRef.current = true
     setStatusFilter('awaiting_receipt')
-    setFiltersOpen(true)
   }, [isMobile, capabilities.canConfirmPaymentReceipt, searchParams])
+
+  /** Counts for mobile status pills (from full payment set). */
+  const statusFilterCounts = useMemo(() => {
+    const counts: Record<PaymentStatusFilter, number> = {
+      all: payments.length,
+      pending: 0,
+      awaiting_receipt: 0,
+      disputed: 0,
+      confirmed: 0,
+      rejected: 0,
+      reversed: 0,
+    }
+    for (const payment of payments) {
+      const key = payment.status as PaymentStatusFilter
+      if (key in counts && key !== 'all') counts[key] += 1
+    }
+    return counts
+  }, [payments])
+
+  /** Pills shown on mobile — hide Confirm when the carrier cannot confirm receipts. */
+  const mobileStatusFilters = useMemo(
+    () =>
+      PAYMENT_MOBILE_STATUS_FILTERS.filter(
+        (f) => f.id !== 'awaiting_receipt' || capabilities.canConfirmPaymentReceipt
+      ),
+    [capabilities.canConfirmPaymentReceipt]
+  )
+
+  useEffect(() => {
+    if (!isMobile) return
+    const el = filterScrollRef.current
+    if (!el) return
+
+    updateFilterScrollHint()
+    el.addEventListener('scroll', updateFilterScrollHint, { passive: true })
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(updateFilterScrollHint)
+        : null
+    ro?.observe(el)
+    window.addEventListener('resize', updateFilterScrollHint)
+    return () => {
+      el.removeEventListener('scroll', updateFilterScrollHint)
+      ro?.disconnect()
+      window.removeEventListener('resize', updateFilterScrollHint)
+    }
+  }, [isMobile, updateFilterScrollHint, statusFilterCounts, mobileStatusFilters])
 
   const matchesDatePreset = useCallback(
     (preset: '30d' | '90d' | 'ytd') => {
@@ -341,6 +421,28 @@ export default function ClientPayments() {
     setDateFrom(range.start_date)
     setDateTo(range.end_date)
   }, [])
+
+  /** Current date-range mode for the mobile search dropdown. */
+  const mobileDateRangeValue = useMemo(() => {
+    if (!dateFrom && !dateTo) return 'all'
+    if (matchesDatePreset('30d')) return '30d'
+    if (matchesDatePreset('90d')) return '90d'
+    if (matchesDatePreset('ytd')) return 'ytd'
+    return 'custom'
+  }, [dateFrom, dateTo, matchesDatePreset])
+
+  const [mobileDateMenuOpen, setMobileDateMenuOpen] = useState(false)
+
+  const mobileDateRangeLabel = useMemo(() => {
+    if (mobileDateRangeValue === 'all') return 'All dates'
+    if (mobileDateRangeValue === '30d') return 'Last 30d'
+    if (mobileDateRangeValue === '90d') return 'Last 90d'
+    if (mobileDateRangeValue === 'ytd') return 'YTD'
+    if (dateFrom && dateTo) return `${formatDate(dateFrom)} – ${formatDate(dateTo)}`
+    if (dateFrom) return `From ${formatDate(dateFrom)}`
+    if (dateTo) return `Until ${formatDate(dateTo)}`
+    return 'Custom'
+  }, [mobileDateRangeValue, dateFrom, dateTo])
 
   const clearAllFilters = useCallback(() => {
     setDateFrom('')
@@ -569,8 +671,8 @@ export default function ClientPayments() {
       // Don't apply a status chip when restoring a specific payment detail.
       if (!paymentId) {
         setStatusFilter(statusParam as PaymentStatusFilter)
-        // Open the filters panel so Status (and tour spotlight) is visible.
-        setFiltersOpen(true)
+        // Desktop: open filters so Status (and tour spotlight) is visible.
+        if (!isMobile) setFiltersOpen(true)
       }
     }
 
@@ -627,6 +729,7 @@ export default function ClientPayments() {
     payments,
     invoiceAmountById,
     useFullPageDetail,
+    isMobile,
   ])
 
   // After restore clears filters, jump to the parent row’s page in the updated table.
@@ -1130,22 +1233,116 @@ export default function ClientPayments() {
           />
         ) : (
           <>
-        <PaymentKpiCards
-          payments={payments}
-          statusFilter={
-            statusFilter === 'all'
-              ? 'all'
-              : statusFilter === 'pending' ||
-                  statusFilter === 'confirmed' ||
-                  statusFilter === 'awaiting_receipt'
-                ? statusFilter
-                : 'all'
-          }
-          onStatusFilter={handleKpiStatusFilter}
-          showAwaitingConfirmation={capabilities.canConfirmPaymentReceipt}
-          prioritizeConfirm={isMobile}
-        />
+        {!isMobile ? (
+          <PaymentKpiCards
+            payments={payments}
+            statusFilter={
+              statusFilter === 'all'
+                ? 'all'
+                : statusFilter === 'pending' ||
+                    statusFilter === 'confirmed' ||
+                    statusFilter === 'awaiting_receipt'
+                  ? statusFilter
+                  : 'all'
+            }
+            onStatusFilter={handleKpiStatusFilter}
+            showAwaitingConfirmation={capabilities.canConfirmPaymentReceipt}
+          />
+        ) : null}
 
+        {isMobile ? (
+          <div
+            ref={historyTableRef}
+            className="mobile-invoices-toolbar shrink-0"
+            style={{ borderColor: c.border, backgroundColor: c.card }}
+          >
+            <div
+              className={`mobile-invoices-toolbar__filters-wrap${
+                canScrollFiltersMore ? ' has-more' : ''
+              }`}
+            >
+              <div
+                ref={filterScrollRef}
+                className="mobile-invoices-toolbar__filters"
+                role="group"
+                aria-label="Filter by status"
+              >
+                {mobileStatusFilters.map(({ id, label }) => {
+                  const count = statusFilterCounts[id]
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`mobile-invoices-toolbar__pill${
+                        statusFilter === id ? ' is-active' : ''
+                      }`}
+                      onClick={() => setStatusFilter(id)}
+                      aria-pressed={statusFilter === id}
+                      data-onboard-target={
+                        id === 'awaiting_receipt' ? 'paymentsAwaitingFilter' : undefined
+                      }
+                    >
+                      {label}
+                      <span className="mobile-invoices-toolbar__pill-count">{count}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              {canScrollFiltersMore ? (
+                <button
+                  type="button"
+                  className="mobile-invoices-toolbar__more"
+                  onClick={scrollFiltersMore}
+                  aria-label="Show more filters"
+                >
+                  <ChevronRight size={16} strokeWidth={2.25} aria-hidden />
+                </button>
+              ) : null}
+            </div>
+            <div className="mobile-payments-search-row">
+              <div className="mobile-invoices-toolbar__search">
+                <Search
+                  className="mobile-invoices-toolbar__search-icon"
+                  size={14}
+                  strokeWidth={2}
+                  style={{ color: c.secondary }}
+                />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="mobile-invoices-toolbar__search-input"
+                />
+              </div>
+
+              <button
+                type="button"
+                className={`mobile-payments-date__trigger${
+                  mobileDateRangeValue !== 'all' ? ' is-active' : ''
+                }${mobileDateMenuOpen ? ' is-open' : ''}`}
+                aria-haspopup="dialog"
+                aria-expanded={mobileDateMenuOpen}
+                onClick={() => setMobileDateMenuOpen(true)}
+              >
+                <CalendarDays size={14} strokeWidth={2.25} aria-hidden />
+                <span className="mobile-payments-date__label">{mobileDateRangeLabel}</span>
+              </button>
+            </div>
+
+            {mobileDateMenuOpen ? (
+              <MobilePaymentDateRangeSheet
+                activeValue={mobileDateRangeValue}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onApplyPreset={applyDatePreset}
+                onChangeFrom={setDateFrom}
+                onChangeTo={setDateTo}
+                onClose={() => setMobileDateMenuOpen(false)}
+              />
+            ) : null}
+          </div>
+        ) : (
         <div
           ref={historyTableRef}
           className="client-page-toolbar px-4 py-2 border-b shrink-0"
@@ -1182,36 +1379,6 @@ export default function ClientPayments() {
               )}
             </button>
           </div>
-
-          {isMobile && capabilities.canConfirmPaymentReceipt ? (
-            <div
-              className="client-payments-status-tabs"
-              role="tablist"
-              aria-label="Payment status"
-            >
-              {(
-                [
-                  { id: 'awaiting_receipt' as const, label: 'Confirm' },
-                  { id: 'pending' as const, label: 'Pending' },
-                  { id: 'confirmed' as const, label: 'Confirmed' },
-                  { id: 'all' as const, label: 'All' },
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={statusFilter === tab.id}
-                  className={`client-payments-status-tabs__btn${
-                    statusFilter === tab.id ? ' is-active' : ''
-                  }`}
-                  onClick={() => setStatusFilter(tab.id)}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
 
           <div
             className={`client-payments-filters-wrap ${
@@ -1390,6 +1557,7 @@ export default function ClientPayments() {
             </div>
           </div>
         </div>
+        )}
 
         {sortedPayments.length === 0 ? (
           <div className="payments-workspace-body flex-1 min-h-0">
@@ -1424,21 +1592,76 @@ export default function ClientPayments() {
             <div className="payments-list-panel">
             {isMobile ? (
               <div className="mobile-payment-list">
-                {paginatedGroups.map(({ payment, orphanChild }) => (
-                  <MobilePaymentListCard
-                    key={payment.id}
-                    payment={payment}
-                    invoiceAmount={
-                      orphanChild
-                        ? undefined
-                        : invoiceAmountById.get(payment.invoice_id)
+                {paginatedGroups.map(({ payment, children, orphanChild }) => {
+                  const invoiceAmount = orphanChild
+                    ? undefined
+                    : invoiceAmountById.get(payment.invoice_id)
+                  const confirmedReceived = invoiceConfirmedById.get(payment.invoice_id)
+                  let variance: 'short' | 'over' | null = null
+                  let varianceAmount = 0
+
+                  if (orphanChild) {
+                    if (isShortPaymentChild(payment)) {
+                      variance = 'short'
+                      varianceAmount = payment.amount
+                    } else {
+                      const invAmt = invoiceAmountById.get(payment.invoice_id)
+                      if (
+                        invAmt != null &&
+                        invAmt > 0 &&
+                        isOverpaymentChild(payment, payments, invAmt)
+                      ) {
+                        variance = 'over'
+                        varianceAmount = payment.amount
+                      }
                     }
-                    selected={selectedPayment?.id === payment.id}
-                    onClick={() => {
-                      handleViewPaymentDetail(payment)
-                    }}
-                  />
-                ))}
+                  } else {
+                    const invoiced = invoiceAmount ?? 0
+                    const received = confirmedReceived ?? 0
+                    const shortfall = Math.max(0, invoiced - received)
+                    const overage = Math.max(0, received - invoiced)
+                    const hasShortChild = children.some(isShortPaymentChild)
+                    const hasOverChild = children.some(
+                      (c) =>
+                        !isShortPaymentChild(c) &&
+                        !isInactivePaymentChild(c) &&
+                        invoiced > 0 &&
+                        isOverpaymentChild(c, payments, invoiced)
+                    )
+                    const isShort =
+                      hasShortChild ||
+                      (received > AMOUNT_EPSILON && shortfall > AMOUNT_EPSILON)
+                    const isOver = hasOverChild || overage > AMOUNT_EPSILON
+
+                    if (isShort) {
+                      variance = 'short'
+                      varianceAmount =
+                        shortfall > AMOUNT_EPSILON
+                          ? shortfall
+                          : children.find(isShortPaymentChild)?.amount ?? 0
+                    } else if (isOver) {
+                      variance = 'over'
+                      varianceAmount = overage > AMOUNT_EPSILON ? overage : payment.amount
+                    }
+                  }
+
+                  return (
+                    <MobilePaymentListCard
+                      key={payment.id}
+                      payment={payment}
+                      invoiceAmount={invoiceAmount}
+                      confirmedReceived={
+                        orphanChild ? undefined : confirmedReceived
+                      }
+                      variance={variance}
+                      varianceAmount={varianceAmount}
+                      selected={selectedPayment?.id === payment.id}
+                      onClick={() => {
+                        handleViewPaymentDetail(payment)
+                      }}
+                    />
+                  )
+                })}
               </div>
             ) : (
             <div className="client-table-scroll client-table-scroll--mobile-stack overflow-x-auto flex-1 min-h-0">

@@ -2,15 +2,16 @@
 
 Attorney-reviewable templates for Credyx. These are **drafts**, not finalized counsel-approved documents.
 
-**Note:** Credyx A/R Solutions operates as a branch of Electro Pionir DOOEL.
+**Note:** Credyx A/R Solutions is the trading name of **Electro Pionir DOOEL** (Republic of North Macedonia).
 
 ## Public vs signed-contract identity
 
 | Surface | What clients see |
 | --- | --- |
-| Marketing site `/privacy`, `/terms` | **Credyx A/R Solutions** only — no personal name |
-| MSA opening party line | **Credyx A/R Solutions** |
-| Rest of MSA, exhibits, signature block | **Credyx** / **Credyx A/R Solutions** only (defined term) |
+| Marketing site `/privacy`, `/terms` | **Credyx A/R Solutions** + legal entity **Electro Pionir DOOEL** in the operator / contact lines |
+| MSA opening party line | **Electro Pionir DOOEL**, d/b/a **Credyx A/R Solutions** |
+| Rest of MSA, exhibits, signature block | Defined term **Credyx**; signature block shows legal entity + trading as |
+| Broker Notice | Legal entity, trading as, registered office, notices email |
 
 
 ## Documents
@@ -29,7 +30,7 @@ Attorney-reviewable templates for Credyx. These are **drafts**, not finalized co
 | [CARRIER_MSA.md](./CARRIER_MSA.md) | **Main client agreement** — services, document rules, liability, term |
 | [FEE_SCHEDULE.md](./FEE_SCHEDULE.md) | **Exhibit A** — $99 platform + % of collections (or negotiated rate), payment processing, lock rules |
 | [AUTHORIZATION_TO_ACT.md](./AUTHORIZATION_TO_ACT.md) | **Exhibit B** — authority to email brokers / submit packets; not factoring |
-| [BROKER_NOTICE_OF_AUTHORIZATION.md](./BROKER_NOTICE_OF_AUTHORIZATION.md) | **Broker-facing notice** — send to brokers/payors; Carrier confirms Credyx may submit docs/invoices, follow up, and attach remittance/NOA; payments never to Credyx |
+| [BROKER_NOTICE_OF_AUTHORIZATION.md](./BROKER_NOTICE_OF_AUTHORIZATION.md) | **Broker-facing notice** — send to brokers/payors; Carrier confirms Credyx may submit docs/invoices, follow up, and attach remittance/NOA; payments never to Credyx; revocation by written notice |
 
 Yes: when a carrier starts, the **MSA + Fee Schedule + Authorization** are the pack that covers what Credyx does, what % (or flat) you charge, remittance rules, and limits of liability. Use the **Broker Notice** when informing brokers that Credyx is authorized to act for that Carrier.
 
@@ -37,12 +38,17 @@ Yes: when a carrier starts, the **MSA + Fee Schedule + Authorization** are the p
 
 | Field | Value |
 | --- | --- |
+| Legal entity | Electro Pionir DOOEL |
+| Trading as | Credyx A/R Solutions |
+| Registered office | Oktomvriska Revolucija 22A lok.3, Skopje, Republic of North Macedonia |
+| Governing law | Republic of North Macedonia |
+| Arbitration | UNCITRAL Rules; one arbitrator; seat Skopje; PCA Secretary-General appointing authority |
 | Effective date | July 29, 2026 |
 | Privacy contact | privacy@credyx.net |
 | Notices | notices@credyx.net |
 | Notice / cure periods in MSA | 30 days / 15 days (confirm with counsel if needed) |
 
-Public pages no longer show a "draft / LEGAL_ENTITY_NAME" banner. Party identification is **Credyx A/R Solutions**.
+Public pages identify the operator as Electro Pionir DOOEL, d/b/a Credyx A/R Solutions.
 
 ## Liability posture (draft)
 
@@ -68,10 +74,13 @@ Output: `docs/legal/pdf/`
 
 ## Still later
 
+- Optional company registration / tax ID on Broker Notice and MSA if counsel recommends it
+- Optional phone number on Broker Notice for broker verification callbacks
 - Enroll flow optional Terms/Privacy checkbox (client login already requires Terms + Privacy)
 - Cookie consent banner
-- Forming a separate legal entity for limited liability
+- Counsel check: commercial-collection licensing in target US states (Credyx never receives freight funds; still worth a one-time opinion)
 - Cyber / tech E&O insurance (recommended when storing W-9s and bank docs)
+- Optional later: US entity / merchant-of-record if Stripe self-serve billing is needed
 
 **MSA** is **not** accepted in-app. Send `docs/legal/pdf/Credyx-Carrier-MSA.pdf` (+ exhibits) for electronic signature separately.
 

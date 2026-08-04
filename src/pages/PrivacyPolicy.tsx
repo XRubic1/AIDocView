@@ -9,7 +9,8 @@ export default function PrivacyPolicy() {
       subtitle="Effective date: July 29, 2026"
     >
       <p>
-        This Privacy Policy explains how <strong>Credyx A/R Solutions</strong> (“
+        This Privacy Policy explains how <strong>Electro Pionir DOOEL</strong>, doing business as{' '}
+        <strong>Credyx A/R Solutions</strong> (“
         <strong>Credyx</strong>,” “<strong>we</strong>,” “<strong>us</strong>,” or “
         <strong>our</strong>”) collects, uses, shares, and protects information when you use our
         websites, waitlist, client portal, and related A/R back-office services (the “
@@ -202,6 +203,10 @@ export default function PrivacyPolicy() {
       <h2>12. Contact</h2>
       <p>
         <strong>Credyx A/R Solutions</strong>
+        <br />
+        Electro Pionir DOOEL
+        <br />
+        Registered office: Oktomvriska Revolucija 22A lok.3, Skopje, Republic of North Macedonia
         <br />
         Privacy: <strong>privacy@credyx.net</strong>
         <br />

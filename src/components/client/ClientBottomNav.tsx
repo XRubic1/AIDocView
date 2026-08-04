@@ -41,7 +41,7 @@ interface SideTab {
 
 /** Primary phone tabs — Batches lives in the menu; AI opens the assistant. */
 const SIDE_TABS: SideTab[] = [
-  { id: 'home', label: 'Home', path: '/client/dashboard', icon: Home },
+  { id: 'home', label: 'Home', path: '/client/dashboard-v2', icon: Home },
   {
     id: 'invoices',
     label: 'Invoices',
@@ -92,7 +92,7 @@ export default function ClientBottomNav({
         data-onboard-target={
           tab.path === '/client/invoices'
             ? 'navInvoices'
-            : tab.path === '/client/dashboard'
+            : tab.path === '/client/dashboard-v2' || tab.path === '/client/dashboard'
               ? 'navDashboard'
               : undefined
         }

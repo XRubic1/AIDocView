@@ -2,7 +2,7 @@
 
 **Effective date:** July 29, 2026
 
-This Privacy Policy explains how **Credyx A/R Solutions** (“**Credyx**,” “**we**,” “**us**,” or “**our**”) collects, uses, shares, and protects information when you use our websites, waitlist, client portal, and related A/R back-office services (the “**Services**”).
+This Privacy Policy explains how **Electro Pionir DOOEL**, doing business as **Credyx A/R Solutions** (“**Credyx**,” “**we**,” “**us**,” or “**our**”) collects, uses, shares, and protects information when you use our websites, waitlist, client portal, and related A/R back-office services (the “**Services**”).
 
 Credyx provides accounts receivable and back-office support for trucking carriers. We are **not** a factor, lender, cash-advance provider, or freight broker.
 
@@ -118,5 +118,7 @@ We may update this Privacy Policy from time to time. We will post the updated ve
 ## 12. Contact
 
 **Credyx A/R Solutions**  
+Electro Pionir DOOEL  
+Registered office: Oktomvriska Revolucija 22A lok.3, Skopje, Republic of North Macedonia  
 Privacy: **privacy@credyx.net**  
 Notices: **notices@credyx.net**

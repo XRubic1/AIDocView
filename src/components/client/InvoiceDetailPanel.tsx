@@ -14,6 +14,7 @@ import {
   Boxes,
   PanelRightOpen,
   Mail,
+  Menu,
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
@@ -1259,38 +1260,21 @@ export default function InvoiceDetailPanel({
 
         {isMobile ? (
           <>
-            <p className="payment-confirmation-panel__mobile-top-title">
-              {detailSurface === 'activity' ? 'Activity' : 'Invoice details'}
-            </p>
-            <div
-              className="payment-confirmation-panel__mobile-pager"
-              aria-label="Invoice pager"
+            <div className="payment-confirmation-panel__mobile-top-spacer" aria-hidden />
+            <span
+              className="payment-confirmation-panel__mobile-pager-count tabular-nums"
+              aria-label={`Invoice ${navIndex >= 0 ? navIndex + 1 : 1} of ${navigationInvoices.length || 1}`}
             >
-              <button
-                type="button"
-                className="payment-confirmation-panel__icon-btn"
-                disabled={!hasPrev || swipeMotion.phase === 'exit' || swipeMotion.phase === 'enter'}
-                onClick={() => goToAdjacentInvoice('prev')}
-                aria-label="Previous invoice"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span
-                className="payment-confirmation-panel__mobile-pager-count tabular-nums"
-                style={{ color: c.secondary }}
-              >
-                {navIndex >= 0 ? navIndex + 1 : 1}/{navigationInvoices.length || 1}
-              </span>
-              <button
-                type="button"
-                className="payment-confirmation-panel__icon-btn"
-                disabled={!hasNext || swipeMotion.phase === 'exit' || swipeMotion.phase === 'enter'}
-                onClick={() => goToAdjacentInvoice('next')}
-                aria-label="Next invoice"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+              {navIndex >= 0 ? navIndex + 1 : 1}/{navigationInvoices.length || 1}
+            </span>
+            <button
+              type="button"
+              className="payment-confirmation-panel__icon-btn payment-confirmation-panel__mobile-menu-btn"
+              onClick={() => window.dispatchEvent(new Event('credyx:open-client-menu'))}
+              aria-label="Open menu"
+            >
+              <Menu className="w-5 h-5" strokeWidth={1.75} aria-hidden />
+            </button>
           </>
         ) : (
           <>

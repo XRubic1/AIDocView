@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   FileText,
   Boxes,
+  Menu,
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
@@ -49,6 +50,7 @@ const SUMMARY_TONE_CLASS: Partial<Record<Payment['status'], string>> = {
 }
 
 type TimelineFilter = 'all' | 'activity' | 'notes' | 'payments'
+type DetailSurface = 'overview' | 'notes'
 
 export interface PaymentConfirmationPanelProps {
   variant: 'sidebar' | 'mobile'
@@ -86,11 +88,13 @@ export default function PaymentConfirmationPanel({
   const { clientName } = useClientSession()
   const isSidebar = variant === 'sidebar'
   const isMobile = variant === 'mobile'
+  const [detailSurface, setDetailSurface] = useState<DetailSurface>('overview')
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all')
   const [newNote, setNewNote] = useState('')
   const [isAddingNote, setIsAddingNote] = useState(false)
 
   useEffect(() => {
+    setDetailSurface('overview')
     setTimelineFilter('all')
     setNewNote('')
   }, [payment.id])
@@ -252,6 +256,7 @@ export default function PaymentConfirmationPanel({
       addClientInvoiceNote(visibleInvoice.id, newNote.trim(), clientName)
       setNewNote('')
       setTimelineFilter('notes')
+      if (isMobile) setDetailSurface('notes')
       onInvoiceUpdated?.()
     } catch (error) {
       console.error('Failed to add note:', error)
@@ -260,235 +265,366 @@ export default function PaymentConfirmationPanel({
     }
   }
 
+  const overviewSection = (
+    <section
+      className={`payment-confirmation-panel__summary ${
+        isMobile
+          ? 'payment-confirmation-panel__summary--mobile-clean'
+          : summaryToneClass
+      }`}
+      aria-label={`Payment status: ${statusLabel}`}
+    >
+      {isMobile ? (
+        <div className="payment-confirmation-panel__mobile-identity">
+          <div className="payment-confirmation-panel__mobile-identity-row">
+            <span className="payment-confirmation-panel__mobile-identity-label">Payment</span>
+            <span
+              className={`payment-confirmation-panel__mobile-status payment-confirmation-panel__mobile-status--${payment.status.replace(/_/g, '-')}`}
+            >
+              {statusLabel}
+            </span>
+          </div>
+          <p className="payment-confirmation-panel__mobile-identity-amount tabular-nums">
+            {displayPaymentAmount}
+          </p>
+          <p className="payment-confirmation-panel__mobile-identity-meta">
+            Invoice {payment.invoice_number}
+            {(payment.load_number || visibleInvoice?.load_number)
+              ? ` · Load ${payment.load_number || visibleInvoice?.load_number}`
+              : ''}
+          </p>
+          <p className="payment-confirmation-panel__mobile-identity-broker">
+            {payment.broker_name}
+          </p>
+        </div>
+      ) : null}
+
+      {visibleInvoice ? (
+        <InvoiceBalanceSummary
+          invoiceNumber={visibleInvoice.invoice_number}
+          brokerName={visibleInvoice.broker_name}
+          loadNumber={visibleInvoice.load_number}
+          invoiceAmount={visibleInvoice.amount}
+          receivedToDate={receivedAmount}
+          pendingConfirmation={pendingConfirmation}
+          pendingShortCorrection={pendingShortCorrection}
+          clientView
+          hideIdentity
+        />
+      ) : null}
+
+      <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta">
+        <div className="payment-confirmation-panel__summary-cell">
+          <dt>Date received</dt>
+          <dd className="tabular-nums payment-confirmation-panel__summary-value">
+            {formatDate(payment.received_date)}
+          </dd>
+        </div>
+        <div className="payment-confirmation-panel__summary-cell">
+          <dt>Reference #</dt>
+          <dd
+            className="tabular-nums truncate payment-confirmation-panel__summary-value"
+            title={payment.payment_reference}
+          >
+            {payment.payment_reference?.trim() || '—'}
+          </dd>
+        </div>
+        <div className="payment-confirmation-panel__summary-cell">
+          <dt>This payment</dt>
+          <dd className="tabular-nums payment-confirmation-panel__summary-value">
+            {displayPaymentAmount}
+          </dd>
+        </div>
+        <div className="payment-confirmation-panel__summary-cell">
+          <dt>Method</dt>
+          <dd className="payment-confirmation-panel__summary-value">
+            {METHOD_LABELS[payment.payment_method] || payment.payment_method}
+          </dd>
+        </div>
+      </dl>
+
+      {payment.status === 'pending' && !canConfirmOnInvoice ? (
+        <p className="payment-confirmation-panel__summary-meta">
+          Awaiting Credyx confirmation before it applies to the invoice.
+        </p>
+      ) : null}
+      {(payment.status === 'awaiting_receipt' || payment.status === 'confirmed') && (
+        <p className="payment-confirmation-panel__summary-meta">
+          {getPaymentTimingInfo(payment.payment_method).summary}
+        </p>
+      )}
+    </section>
+  )
+
+  const notesSection = (
+    <section
+      className={`payment-confirmation-panel__notes${
+        isMobile ? ' payment-confirmation-panel__notes--mobile-surface' : ''
+      }`}
+    >
+      <div className="payment-confirmation-panel__notes-head">
+        {!isMobile ? (
+          <h3 className="payment-confirmation-panel__notes-title" style={{ color: c.primary }}>
+            Activity &amp; notes
+          </h3>
+        ) : null}
+        <div
+          className={`payment-confirmation-panel__notes-filters${
+            isMobile ? ' payment-confirmation-panel__notes-filters--segmented' : ''
+          }`}
+          role="group"
+          aria-label="Filter timeline"
+        >
+          {(
+            [
+              ['all', 'All', timeline.length],
+              ['notes', 'Notes', noteEntries.length],
+              ['activity', 'Activity', activityEntries.length],
+              ['payments', 'Payments', paymentEntries.length],
+            ] as const
+          ).map(([key, label, count]) => (
+            <button
+              key={key}
+              type="button"
+              className={`payment-confirmation-panel__notes-filter ${
+                timelineFilter === key ? 'payment-confirmation-panel__notes-filter--active' : ''
+              }`}
+              onClick={() => setTimelineFilter(key)}
+              aria-pressed={timelineFilter === key}
+            >
+              {label}
+              {count > 0 && (
+                <span className="payment-confirmation-panel__notes-filter-count">{count}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="payment-confirmation-panel__notes-scroll">
+        <InvoiceActivityNoteList
+          entries={filteredTimeline}
+          emptyMessage={
+            timelineFilter === 'all'
+              ? 'No activity or notes recorded for this invoice yet.'
+              : timelineFilter === 'activity'
+                ? 'No invoice activity recorded yet.'
+                : timelineFilter === 'payments'
+                  ? 'No payment activity on this invoice yet.'
+                  : 'No notes recorded for this invoice yet.'
+          }
+          emptyColor={c.mutedLight}
+        />
+      </div>
+
+      {visibleInvoice ? (
+        <InvoiceNoteCompose
+          newNote={newNote}
+          isAddingNote={isAddingNote}
+          onChange={setNewNote}
+          onSubmit={() => void handleAddNote()}
+          compact={!isMobile}
+          collapsible={!isMobile}
+          mobileEasy={isMobile}
+        />
+      ) : null}
+    </section>
+  )
+
   const panelBody = (
     <>
       <header
-        className={`payment-confirmation-panel__header ${isSidebar ? 'payment-confirmation-panel__header--sidebar' : ''}`}
+        className={`payment-confirmation-panel__header ${
+          isSidebar ? 'payment-confirmation-panel__header--sidebar' : ''
+        } ${isMobile ? 'payment-confirmation-panel__header--mobile-topbar' : ''}`}
       >
         {isMobile ? (
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              if (detailSurface === 'notes') {
+                setDetailSurface('overview')
+                return
+              }
+              onClose()
+            }}
             className="payment-confirmation-panel__icon-btn"
-            aria-label="Back to payments"
+            aria-label={
+              detailSurface === 'notes' ? 'Back to payment overview' : 'Back to payments'
+            }
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
         ) : null}
 
-        <div className="payment-confirmation-panel__header-main min-w-0">
-          <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
-            Payment details
-          </p>
-          <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
-            Invoice {payment.invoice_number}
-            {(payment.load_number || visibleInvoice?.load_number) &&
-              ` · Load ${payment.load_number || visibleInvoice?.load_number}`}
-          </p>
-          <p className="payment-confirmation-panel__context-sub" style={{ color: c.secondary }}>
-            {payment.broker_name}
-          </p>
-        </div>
+        {isMobile ? (
+          <>
+            <div className="payment-confirmation-panel__mobile-top-spacer" aria-hidden />
+            <span
+              className="payment-confirmation-panel__mobile-pager-count tabular-nums"
+              aria-label={`Payment ${navIndex >= 0 ? navIndex + 1 : 1} of ${navigationPayments.length || 1}`}
+            >
+              {navIndex >= 0 ? navIndex + 1 : 1}/{navigationPayments.length || 1}
+            </span>
+            <button
+              type="button"
+              className="payment-confirmation-panel__icon-btn payment-confirmation-panel__mobile-menu-btn"
+              onClick={() => window.dispatchEvent(new Event('credyx:open-client-menu'))}
+              aria-label="Open menu"
+            >
+              <Menu className="w-5 h-5" strokeWidth={1.75} aria-hidden />
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="payment-confirmation-panel__header-main min-w-0">
+              <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
+                Payment details
+              </p>
+              <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
+                Invoice {payment.invoice_number}
+                {(payment.load_number || visibleInvoice?.load_number) &&
+                  ` · Load ${payment.load_number || visibleInvoice?.load_number}`}
+              </p>
+              <p className="payment-confirmation-panel__context-sub" style={{ color: c.secondary }}>
+                {payment.broker_name}
+              </p>
+            </div>
 
-        <div className="payment-confirmation-panel__header-actions">
-          {(isMobile || isSidebar) && (
-            <div className="payment-confirmation-panel__nav">
+            <div className="payment-confirmation-panel__header-actions">
+              {isSidebar ? (
+                <div className="payment-confirmation-panel__nav">
+                  <button
+                    type="button"
+                    className="payment-confirmation-panel__icon-btn"
+                    disabled={!hasPrev}
+                    onClick={() => hasPrev && onNavigatePayment(navigationPayments[navIndex - 1])}
+                    aria-label="Previous payment"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span
+                    className="payment-confirmation-panel__nav-count tabular-nums"
+                    style={{ color: c.secondary }}
+                  >
+                    {navIndex >= 0 ? navIndex + 1 : 1}/{navigationPayments.length || 1}
+                  </span>
+                  <button
+                    type="button"
+                    className="payment-confirmation-panel__icon-btn"
+                    disabled={!hasNext}
+                    onClick={() => hasNext && onNavigatePayment(navigationPayments[navIndex + 1])}
+                    aria-label="Next payment"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : null}
               <button
                 type="button"
+                onClick={onClose}
                 className="payment-confirmation-panel__icon-btn"
-                disabled={!hasPrev}
-                onClick={() => hasPrev && onNavigatePayment(navigationPayments[navIndex - 1])}
-                aria-label="Previous payment"
+                aria-label="Close payment details"
               >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span
-                className="payment-confirmation-panel__nav-count tabular-nums"
-                style={{ color: c.secondary }}
-              >
-                {navIndex >= 0 ? navIndex + 1 : 1}/{navigationPayments.length || 1}
-              </span>
-              <button
-                type="button"
-                className="payment-confirmation-panel__icon-btn"
-                disabled={!hasNext}
-                onClick={() => hasNext && onNavigatePayment(navigationPayments[navIndex + 1])}
-                aria-label="Next payment"
-              >
-                <ChevronRight className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="payment-confirmation-panel__icon-btn"
-            aria-label={isMobile ? 'Back to payments' : 'Close payment details'}
-          >
-            {!isMobile ? <X className="w-4 h-4" /> : null}
-          </button>
-        </div>
+          </>
+        )}
       </header>
 
       <div className="payment-confirmation-panel__body">
-        <section
-          className={`payment-confirmation-panel__summary ${summaryToneClass}`}
-          aria-label={`Payment status: ${statusLabel}`}
-        >
-          {visibleInvoice ? (
-            <InvoiceBalanceSummary
-              invoiceNumber={visibleInvoice.invoice_number}
-              brokerName={visibleInvoice.broker_name}
-              loadNumber={visibleInvoice.load_number}
-              invoiceAmount={visibleInvoice.amount}
-              receivedToDate={receivedAmount}
-              pendingConfirmation={pendingConfirmation}
-              pendingShortCorrection={pendingShortCorrection}
-              clientView
-              hideIdentity
-            />
-          ) : null}
-
-          <dl className="payment-confirmation-panel__summary-grid payment-confirmation-panel__summary-grid--meta">
-            <div className="payment-confirmation-panel__summary-cell">
-              <dt>Date received</dt>
-              <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                {formatDate(payment.received_date)}
-              </dd>
-            </div>
-            <div className="payment-confirmation-panel__summary-cell">
-              <dt>Reference #</dt>
-              <dd
-                className="tabular-nums truncate payment-confirmation-panel__summary-value"
-                title={payment.payment_reference}
-              >
-                {payment.payment_reference?.trim() || '—'}
-              </dd>
-            </div>
-            <div className="payment-confirmation-panel__summary-cell">
-              <dt>This payment</dt>
-              <dd className="tabular-nums payment-confirmation-panel__summary-value">
-                {displayPaymentAmount}
-              </dd>
-            </div>
-            <div className="payment-confirmation-panel__summary-cell">
-              <dt>Method</dt>
-              <dd className="payment-confirmation-panel__summary-value">
-                {METHOD_LABELS[payment.payment_method] || payment.payment_method}
-              </dd>
-            </div>
-          </dl>
-
-          {payment.status === 'pending' && !canConfirmOnInvoice ? (
-            <p className="payment-confirmation-panel__summary-meta">
-              Awaiting Credyx confirmation before it applies to the invoice.
-            </p>
-          ) : null}
-          {(payment.status === 'awaiting_receipt' || payment.status === 'confirmed') && (
-            <p className="payment-confirmation-panel__summary-meta">
-              {getPaymentTimingInfo(payment.payment_method).summary}
-            </p>
-          )}
-        </section>
-
-        <section className="payment-confirmation-panel__notes">
-          <div className="payment-confirmation-panel__notes-head">
-            <h3 className="payment-confirmation-panel__notes-title" style={{ color: c.primary }}>
-              Activity &amp; notes
-            </h3>
+        {isMobile ? (
+          <>
             <div
-              className="payment-confirmation-panel__notes-filters"
-              role="group"
-              aria-label="Filter timeline"
+              className="payment-confirmation-panel__mobile-surface-tabs"
+              role="tablist"
+              aria-label="Payment detail views"
             >
-              {(
-                [
-                  ['all', 'All', timeline.length],
-                  ['notes', 'Notes', noteEntries.length],
-                  ['activity', 'Activity', activityEntries.length],
-                  ['payments', 'Payments', paymentEntries.length],
-                ] as const
-              ).map(([key, label, count]) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={`payment-confirmation-panel__notes-filter ${
-                    timelineFilter === key ? 'payment-confirmation-panel__notes-filter--active' : ''
-                  }`}
-                  onClick={() => setTimelineFilter(key)}
-                  aria-pressed={timelineFilter === key}
-                >
-                  {label}
-                  {count > 0 && (
-                    <span className="payment-confirmation-panel__notes-filter-count">{count}</span>
-                  )}
-                </button>
-              ))}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailSurface === 'overview'}
+                className={`payment-confirmation-panel__mobile-surface-tab${
+                  detailSurface === 'overview'
+                    ? ' payment-confirmation-panel__mobile-surface-tab--active'
+                    : ''
+                }`}
+                onClick={() => setDetailSurface('overview')}
+              >
+                Overview
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={detailSurface === 'notes'}
+                className={`payment-confirmation-panel__mobile-surface-tab${
+                  detailSurface === 'notes'
+                    ? ' payment-confirmation-panel__mobile-surface-tab--active'
+                    : ''
+                }`}
+                onClick={() => setDetailSurface('notes')}
+              >
+                Notes
+                {timeline.length > 0 ? (
+                  <span className="payment-confirmation-panel__mobile-surface-tab-count">
+                    {timeline.length}
+                  </span>
+                ) : null}
+              </button>
             </div>
-          </div>
-
-          <div className="payment-confirmation-panel__notes-scroll">
-            <InvoiceActivityNoteList
-              entries={filteredTimeline}
-              emptyMessage={
-                timelineFilter === 'all'
-                  ? 'No activity or notes recorded for this invoice yet.'
-                  : timelineFilter === 'activity'
-                    ? 'No invoice activity recorded yet.'
-                    : timelineFilter === 'payments'
-                      ? 'No payment activity on this invoice yet.'
-                      : 'No notes recorded for this invoice yet.'
-              }
-              emptyColor={c.mutedLight}
-            />
-          </div>
-
-          {visibleInvoice ? (
-            <InvoiceNoteCompose
-              newNote={newNote}
-              isAddingNote={isAddingNote}
-              onChange={setNewNote}
-              onSubmit={() => void handleAddNote()}
-              compact
-              collapsible
-            />
-          ) : null}
-        </section>
+            {detailSurface === 'overview' ? overviewSection : notesSection}
+          </>
+        ) : (
+          <>
+            {overviewSection}
+            {notesSection}
+          </>
+        )}
       </div>
 
       {hasFooterActions ? (
-        <footer className="payment-confirmation-panel__footer shrink-0" style={{ borderColor: c.border }}>
+        <footer
+          className={`payment-confirmation-panel__footer shrink-0${
+            isMobile ? ' payment-confirmation-panel__footer--mobile' : ''
+          }`}
+          style={{ borderColor: c.border }}
+        >
           <div className="payment-confirmation-panel__footer-actions">
             {canConfirmOnInvoice ? (
-              <>
-                <button
-                  type="button"
-                  onClick={onConfirmReceipt}
-                  disabled={receiptActionLoading}
-                  className="dashboard-btn-primary dashboard-btn-compact flex-1 min-w-[100px] inline-flex items-center justify-center gap-1 disabled:opacity-50"
-                  data-onboard-target="paymentConfirmBtn"
-                >
-                  {receiptActionLoading ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    <CheckCircle className="w-3 h-3" />
-                  )}
-                  {awaitingOnInvoice.length > 1 && payment.status !== 'awaiting_receipt'
-                    ? `Confirm ${formatCurrency(confirmAmount)}`
-                    : `Confirm ${isShortCorrection ? 'correction' : 'received'}`}
-                </button>
-                <button
-                  type="button"
-                  onClick={onOpenDispute}
-                  disabled={receiptActionLoading || awaitingOnInvoice.length === 0}
-                  className="dashboard-btn-secondary dashboard-btn-compact flex-1 min-w-[88px] inline-flex items-center justify-center gap-1 disabled:opacity-50"
-                  style={{ color: c.error, borderColor: c.error }}
-                >
-                  <AlertTriangle className="w-3 h-3" />
-                  Dispute
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={onConfirmReceipt}
+                disabled={receiptActionLoading}
+                className="dashboard-btn-primary dashboard-btn-compact flex-1 min-w-[100px] inline-flex items-center justify-center gap-1 disabled:opacity-50"
+                data-onboard-target="paymentConfirmBtn"
+              >
+                {receiptActionLoading ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-3 h-3" />
+                )}
+                {awaitingOnInvoice.length > 1 && payment.status !== 'awaiting_receipt'
+                  ? `Confirm ${formatCurrency(confirmAmount)}`
+                  : `Confirm ${isShortCorrection ? 'correction' : 'received'}`}
+              </button>
             ) : null}
+            {/* Always offer Dispute — receipt dispute when awaiting, else open invoice */}
+            <button
+              type="button"
+              onClick={() => {
+                if (canConfirmOnInvoice && awaitingOnInvoice.length > 0) {
+                  onOpenDispute()
+                  return
+                }
+                handleGoToInvoice()
+              }}
+              disabled={receiptActionLoading || (!canConfirmOnInvoice && !visibleInvoice)}
+              className="dashboard-btn-secondary dashboard-btn-compact payment-confirmation-panel__footer-dispute flex-1 min-w-[88px] inline-flex items-center justify-center gap-1 disabled:opacity-50"
+            >
+              <AlertTriangle className="w-3 h-3" />
+              Dispute
+            </button>
             {visibleInvoice ? (
               <button
                 type="button"

@@ -4,7 +4,7 @@ import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
-import { FileText, Search, DollarSign, ChevronLeft, ChevronRight, AlertCircle, Check } from 'lucide-react'
+import { FileText, Search, DollarSign, ChevronLeft, ChevronRight, AlertCircle, Check, CalendarDays } from 'lucide-react'
 import DocumentViewer from '../components/DocumentViewer'
 import {
   getInvoiceRowStatusBadge,
@@ -13,6 +13,7 @@ import {
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
+import MobilePaymentDateRangeSheet from '../components/client/MobilePaymentDateRangeSheet'
 import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, getDisplayInvoiceAgeDays, isOpenArInvoice, AR_POLICY } from '../utils/invoiceAging'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
 import { useClientTheme } from '../theme/ThemeContext'
@@ -42,6 +43,7 @@ import {
 } from '../utils/paymentVariance'
 import { hasPpwBeenSent } from '../utils/ppwSent'
 import { compareInvoicesByListPriority } from '../utils/invoiceListPriority'
+import { getPresetRange } from '../utils/clientReports'
 
 type InvoiceSortField =
   | 'invoice_number'
@@ -206,6 +208,9 @@ export default function ClientInvoices() {
   )
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<InvoiceStatusFilter>('active')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [mobileDateMenuOpen, setMobileDateMenuOpen] = useState(false)
   const [showInvoiceDetail, setShowInvoiceDetail] = useState(false)
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
   const [detailPanelClosing, setDetailPanelClosing] = useState(false)
@@ -316,6 +321,10 @@ export default function ClientInvoices() {
       invoice.load_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       invoice.batch_number?.toLowerCase().includes(searchTerm.toLowerCase())
 
+    const invoiceDate = invoice.invoice_date?.slice(0, 10) ?? ''
+    const matchesDate =
+      (!dateFrom || invoiceDate >= dateFrom) && (!dateTo || invoiceDate <= dateTo)
+
     const balance =
       invoiceBalanceById.get(invoice.id) ??
       getClientDisplayBalanceState(invoice.amount, 0, 0)
@@ -324,12 +333,52 @@ export default function ClientInvoices() {
 
     return (
       matchesSearch &&
+      matchesDate &&
       matchesInvoiceStatusFilter(invoice, statusFilter, displayStatus, {
         awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
         isShortPaid: isInvoiceListShortPaid(invoice, balance),
       })
     )
   })
+
+  const matchesDatePreset = useCallback(
+    (preset: '30d' | '90d' | 'ytd') => {
+      const range = getPresetRange(preset)
+      return dateFrom === range.start_date && dateTo === range.end_date
+    },
+    [dateFrom, dateTo]
+  )
+
+  const applyDatePreset = useCallback((preset: '30d' | '90d' | 'ytd' | 'all') => {
+    if (preset === 'all') {
+      setDateFrom('')
+      setDateTo('')
+      return
+    }
+    const range = getPresetRange(preset)
+    setDateFrom(range.start_date)
+    setDateTo(range.end_date)
+  }, [])
+
+  /** Current date-range mode for the mobile sheet. */
+  const mobileDateRangeValue = useMemo(() => {
+    if (!dateFrom && !dateTo) return 'all' as const
+    if (matchesDatePreset('30d')) return '30d' as const
+    if (matchesDatePreset('90d')) return '90d' as const
+    if (matchesDatePreset('ytd')) return 'ytd' as const
+    return 'custom' as const
+  }, [dateFrom, dateTo, matchesDatePreset])
+
+  const mobileDateRangeLabel = useMemo(() => {
+    if (mobileDateRangeValue === 'all') return 'All dates'
+    if (mobileDateRangeValue === '30d') return 'Last 30d'
+    if (mobileDateRangeValue === '90d') return 'Last 90d'
+    if (mobileDateRangeValue === 'ytd') return 'YTD'
+    if (dateFrom && dateTo) return `${formatDate(dateFrom)} – ${formatDate(dateTo)}`
+    if (dateFrom) return `From ${formatDate(dateFrom)}`
+    if (dateTo) return `Until ${formatDate(dateTo)}`
+    return 'Custom'
+  }, [mobileDateRangeValue, dateFrom, dateTo])
 
   /** Counts per filter bucket (from full list, not search-narrowed). */
   const statusFilterCounts = useMemo(() => {
@@ -535,7 +584,7 @@ export default function ClientInvoices() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, statusFilter, pageSize, sortField, sortDir])
+  }, [searchTerm, statusFilter, dateFrom, dateTo, pageSize, sortField, sortDir])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -902,21 +951,49 @@ export default function ClientInvoices() {
                     </button>
                   ) : null}
                 </div>
-                <div className="mobile-invoices-toolbar__search">
-                  <Search
-                    className="mobile-invoices-toolbar__search-icon"
-                    size={14}
-                    strokeWidth={2}
-                    style={{ color: c.secondary }}
-                  />
-                  <input
-                    type="text"
-                    placeholder="Search..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="mobile-invoices-toolbar__search-input"
-                  />
+                <div className="mobile-payments-search-row">
+                  <div className="mobile-invoices-toolbar__search">
+                    <Search
+                      className="mobile-invoices-toolbar__search-icon"
+                      size={14}
+                      strokeWidth={2}
+                      style={{ color: c.secondary }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Search..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="mobile-invoices-toolbar__search-input"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    className={`mobile-payments-date__trigger${
+                      mobileDateRangeValue !== 'all' ? ' is-active' : ''
+                    }${mobileDateMenuOpen ? ' is-open' : ''}`}
+                    aria-haspopup="dialog"
+                    aria-expanded={mobileDateMenuOpen}
+                    onClick={() => setMobileDateMenuOpen(true)}
+                  >
+                    <CalendarDays size={14} strokeWidth={2.25} aria-hidden />
+                    <span className="mobile-payments-date__label">{mobileDateRangeLabel}</span>
+                  </button>
                 </div>
+
+                {mobileDateMenuOpen ? (
+                  <MobilePaymentDateRangeSheet
+                    eyebrow="Invoices"
+                    activeValue={mobileDateRangeValue}
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
+                    onApplyPreset={applyDatePreset}
+                    onChangeFrom={setDateFrom}
+                    onChangeTo={setDateTo}
+                    onClose={() => setMobileDateMenuOpen(false)}
+                  />
+                ) : null}
               </div>
             ) : (
               <div

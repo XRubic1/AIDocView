@@ -130,7 +130,7 @@ const CLIENT_PAGES: AssistantPageHelp[] = [
   {
     id: 'client-dashboard',
     mode: 'client',
-    paths: ['/client/dashboard', '/client'],
+    paths: ['/client/dashboard-v2', '/client/dashboard', '/client'],
     title: 'Dashboard',
     offer: 'what needs you today, holds, and expected payments',
     nudge: 'I can tell you what needs you today.',
