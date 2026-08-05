@@ -138,14 +138,18 @@ export const addBatch = (batchData: Omit<Batch, 'id' | 'minutes_since_submitted'
 export const addInvoicesForBatch = (
   batchId: string,
   batchNumber: string,
-  invoices: Omit<Invoice, 'id' | 'created_at' | 'batch_id' | 'batch_number'>[]
+  invoices: Omit<Invoice, 'id' | 'created_at' | 'batch_id' | 'batch_number'>[],
+  options?: { deferPersist?: boolean }
 ): Invoice[] => {
   const created = invoices.map((inv) =>
-    addInvoice({
-      ...inv,
-      batch_id: batchId,
-      batch_number: batchNumber,
-    })
+    addInvoice(
+      {
+        ...inv,
+        batch_id: batchId,
+        batch_number: batchNumber,
+      },
+      { deferPersist: options?.deferPersist }
+    )
   )
   updateBatchTotals(batchId)
   return created
