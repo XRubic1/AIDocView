@@ -1,15 +1,20 @@
 import { useEffect } from 'react'
-import { trackPageViewOnce, trackWebsiteEvent } from '../services/websiteAnalytics'
+import {
+  startTimeOnPageTracking,
+  trackPageViewOnce,
+  trackWebsiteEvent,
+} from '../services/websiteAnalytics'
 
 const SECTION_IDS = ['buddy', 'features', 'pricing', 'vs-factoring', 'waitlist-form'] as const
 
 /**
- * Waitlist/marketing analytics: page_view on mount + one-shot section_view
- * when key sections enter the viewport.
+ * Waitlist/marketing analytics: page_view on mount, time_on_page while open,
+ * and one-shot section_view when key sections enter the viewport.
  */
 export function useWebsiteAnalytics() {
   useEffect(() => {
     trackPageViewOnce()
+    const stopTimeOnPage = startTimeOnPageTracking()
 
     const seen = new Set<string>()
     const elements = SECTION_IDS.map((id) => document.getElementById(id)).filter(
@@ -17,7 +22,7 @@ export function useWebsiteAnalytics() {
     )
 
     if (!elements.length || typeof IntersectionObserver === 'undefined') {
-      return
+      return () => stopTimeOnPage()
     }
 
     const observer = new IntersectionObserver(
@@ -36,6 +41,9 @@ export function useWebsiteAnalytics() {
 
     elements.forEach((el) => observer.observe(el))
 
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      stopTimeOnPage()
+    }
   }, [])
 }

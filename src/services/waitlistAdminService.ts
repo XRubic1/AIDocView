@@ -39,6 +39,8 @@ export interface WaitlistAdminSummary {
   signupsAll: number
   signups7d: number
   pageViews7d: number
+  /** Average active time on page (ms) across sessions that reported time_on_page (7d). */
+  avgTimeOnPageMs7d: number | null
   topCtas: RankedCount[]
   topSections: RankedCount[]
   funnel: {
@@ -47,6 +49,40 @@ export interface WaitlistAdminSummary {
     formSubmits: number
     formSuccesses: number
   }
+}
+
+/** Format milliseconds as a short human duration (e.g. 1m 24s). */
+export function formatDurationMs(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return '—'
+  const totalSec = Math.round(ms / 1000)
+  if (totalSec < 60) return `${totalSec}s`
+  const minutes = Math.floor(totalSec / 60)
+  const seconds = totalSec % 60
+  if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remMin = minutes % 60
+  return remMin ? `${hours}h ${remMin}m` : `${hours}h`
+}
+
+/**
+ * Per session, keep the highest active_ms from time_on_page snapshots, then average.
+ */
+function averageSessionActiveMs(
+  rows: Array<{ event_name: string; session_id?: string; meta?: Record<string, unknown> }>
+): number | null {
+  const maxBySession = new Map<string, number>()
+  for (const row of rows) {
+    if (row.event_name !== 'time_on_page') continue
+    const active = Number(row.meta?.active_ms)
+    if (!Number.isFinite(active) || active <= 0) continue
+    const key = row.session_id?.trim() || `anon_${maxBySession.size}`
+    const prev = maxBySession.get(key) ?? 0
+    if (active > prev) maxBySession.set(key, active)
+  }
+  if (!maxBySession.size) return null
+  let sum = 0
+  for (const value of maxBySession.values()) sum += value
+  return Math.round(sum / maxBySession.size)
 }
 
 function daysAgoIso(days: number): string {
@@ -87,7 +123,7 @@ export async function fetchWaitlistAdminSummary(): Promise<WaitlistAdminSummary>
       .gte('created_at', since7d),
     supabase
       .from('website_events')
-      .select('event_name, target')
+      .select('event_name, target, session_id, meta')
       .gte('occurred_at', since7d)
       .limit(5000),
   ])
@@ -110,6 +146,7 @@ export async function fetchWaitlistAdminSummary(): Promise<WaitlistAdminSummary>
     signupsAll: signupsAllRes.count ?? 0,
     signups7d: signups7dRes.count ?? 0,
     pageViews7d: pageViews,
+    avgTimeOnPageMs7d: averageSessionActiveMs(events),
     topCtas: rankTargets(ctaClicks),
     topSections: rankTargets(sectionViews),
     funnel: {
@@ -150,6 +187,8 @@ export interface VisitorInteractionGroup {
   joinedEmails: string[]
   eventCount: number
   sessionCount: number
+  /** Max active time on page across this visitor's time_on_page events (ms). */
+  timeOnPageMs: number | null
   firstSeen: string
   lastSeen: string
   events: WebsiteEventRow[]
@@ -213,6 +252,13 @@ export function groupWebsiteEventsByVisitor(
     const [ip, region] = key.split('||')
     const joinedEmails = ip !== 'unknown' ? joinedByIp.get(ip) ?? [] : []
     const hasFormSuccess = sorted.some((e) => e.event_name === 'form_success')
+    let timeOnPageMs: number | null = null
+    for (const event of sorted) {
+      if (event.event_name !== 'time_on_page') continue
+      const active = Number(event.meta?.active_ms)
+      if (!Number.isFinite(active) || active <= 0) continue
+      if (timeOnPageMs == null || active > timeOnPageMs) timeOnPageMs = active
+    }
     groups.push({
       key,
       ip_address: ip === 'unknown' ? null : ip,
@@ -222,6 +268,7 @@ export function groupWebsiteEventsByVisitor(
       joinedEmails,
       eventCount: sorted.length,
       sessionCount: sessions.size,
+      timeOnPageMs,
       firstSeen: new Date(Math.min(...times)).toISOString(),
       lastSeen: new Date(Math.max(...times)).toISOString(),
       events: sorted,

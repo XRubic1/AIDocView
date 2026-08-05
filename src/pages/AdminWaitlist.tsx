@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   Globe2,
+  Timer,
 } from 'lucide-react'
 import { formatDate } from '../utils/format'
 import { useToast } from '../components/ui/ToastProvider'
@@ -17,6 +18,7 @@ import {
   fetchWaitlistAdminSummary,
   fetchWaitlistLeads,
   fetchWebsiteEvents,
+  formatDurationMs,
   groupWebsiteEventsByVisitor,
   buildJoinedIpIndex,
   type EventRange,
@@ -36,7 +38,19 @@ const EVENT_FILTERS = [
   'form_submit',
   'form_success',
   'form_error',
+  'time_on_page',
 ] as const
+
+/** Readable label for an interaction event row (shows duration for time_on_page). */
+function eventDetailLabel(event: WebsiteEventRow): string {
+  if (event.event_name === 'time_on_page') {
+    const active = Number(event.meta?.active_ms)
+    const reason = typeof event.meta?.reason === 'string' ? event.meta.reason : null
+    const duration = formatDurationMs(Number.isFinite(active) ? active : null)
+    return reason ? `${duration} (${reason})` : duration
+  }
+  return event.target || '—'
+}
 
 /** Admin waitlist leads + marketing interaction audit. */
 export default function AdminWaitlist() {
@@ -115,7 +129,7 @@ export default function AdminWaitlist() {
         ) : (
           <>
             {/* Summary cards */}
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <SummaryCard
                 icon={<Users size={18} />}
                 label="Signups (all)"
@@ -130,6 +144,11 @@ export default function AdminWaitlist() {
                 icon={<Eye size={18} />}
                 label="Page views (7d)"
                 value={String(summary?.pageViews7d ?? 0)}
+              />
+              <SummaryCard
+                icon={<Timer size={18} />}
+                label="Avg time on page (7d)"
+                value={formatDurationMs(summary?.avgTimeOnPageMs7d)}
               />
               <SummaryCard
                 icon={<MousePointerClick size={18} />}
@@ -321,6 +340,11 @@ export default function AdminWaitlist() {
                                     {group.sessionCount} session
                                     {group.sessionCount === 1 ? '' : 's'}
                                   </span>
+                                  {group.timeOnPageMs != null && (
+                                    <span title="Longest active time on page for this visitor">
+                                      Time on page {formatDurationMs(group.timeOnPageMs)}
+                                    </span>
+                                  )}
                                   <span>Last {formatDate(group.lastSeen)}</span>
                                 </span>
                               </span>
@@ -337,7 +361,7 @@ export default function AdminWaitlist() {
                                       <tr>
                                         <th className="px-3 py-2 font-medium">Time</th>
                                         <th className="px-3 py-2 font-medium">Event</th>
-                                        <th className="px-3 py-2 font-medium">Target</th>
+                                        <th className="px-3 py-2 font-medium">Detail</th>
                                         <th className="px-3 py-2 font-medium">Device</th>
                                         <th className="px-3 py-2 font-medium">Path</th>
                                         <th className="px-3 py-2 font-medium">Session</th>
@@ -356,7 +380,7 @@ export default function AdminWaitlist() {
                                             {event.event_name}
                                           </td>
                                           <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                                            {event.target || '—'}
+                                            {eventDetailLabel(event)}
                                           </td>
                                           <td className="px-3 py-2 capitalize text-slate-700 dark:text-slate-300">
                                             {event.device_type || '—'}

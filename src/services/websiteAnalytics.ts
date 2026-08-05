@@ -13,6 +13,12 @@ export type WebsiteEventName =
   | 'form_submit'
   | 'form_success'
   | 'form_error'
+  | 'time_on_page'
+
+/** Minimum active time before emitting a time_on_page event (filters bounce noise). */
+const TIME_ON_PAGE_MIN_MS = 1500
+/** Heartbeat so long visits still leave a duration if the tab never unloads cleanly. */
+const TIME_ON_PAGE_HEARTBEAT_MS = 30_000
 
 interface VisitorGeo {
   ip_address: string | null
@@ -258,4 +264,87 @@ export function trackPageViewOnce(): void {
   void resolveVisitorGeo().finally(() => {
     trackWebsiteEvent('page_view', null, meta)
   })
+}
+
+/**
+ * Track how long the visitor stays on the waitlist/marketing page.
+ * Counts only visible (active) time; pauses while the tab is hidden.
+ * Emits `time_on_page` on hide / unload / cleanup with `active_ms` + `duration_ms`.
+ * Returns a cleanup function for React effects.
+ */
+export function startTimeOnPageTracking(): () => void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return () => undefined
+  }
+
+  const wallStartedAt = Date.now()
+  let activeAccumulatedMs = 0
+  let segmentStartedAt: number | null =
+    document.visibilityState === 'visible' ? Date.now() : null
+  let lastEmittedActiveMs = 0
+  let stopped = false
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+
+  /** Active milliseconds so far (includes open visible segment). */
+  function currentActiveMs(): number {
+    const open = segmentStartedAt != null ? Date.now() - segmentStartedAt : 0
+    return activeAccumulatedMs + Math.max(0, open)
+  }
+
+  /** Persist a snapshot; admin should use max(active_ms) per session. */
+  function emit(reason: 'hidden' | 'unload' | 'heartbeat' | 'unmount'): void {
+    if (stopped) return
+    const activeMs = currentActiveMs()
+    if (activeMs < TIME_ON_PAGE_MIN_MS) return
+    // Skip duplicates / heartbeats with no meaningful progress.
+    if (activeMs <= lastEmittedActiveMs) return
+    if (reason === 'heartbeat' && activeMs - lastEmittedActiveMs < 1000) return
+
+    lastEmittedActiveMs = activeMs
+    trackWebsiteEvent('time_on_page', null, {
+      active_ms: Math.round(activeMs),
+      duration_ms: Math.round(Date.now() - wallStartedAt),
+      reason,
+    })
+    void flushWebsiteEvents()
+  }
+
+  function onVisibilityChange(): void {
+    if (document.visibilityState === 'hidden') {
+      if (segmentStartedAt != null) {
+        activeAccumulatedMs += Math.max(0, Date.now() - segmentStartedAt)
+        segmentStartedAt = null
+      }
+      emit('hidden')
+      return
+    }
+    if (document.visibilityState === 'visible' && segmentStartedAt == null) {
+      segmentStartedAt = Date.now()
+    }
+  }
+
+  function onPageHide(): void {
+    if (segmentStartedAt != null) {
+      activeAccumulatedMs += Math.max(0, Date.now() - segmentStartedAt)
+      segmentStartedAt = null
+    }
+    emit('unload')
+  }
+
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('pagehide', onPageHide)
+  heartbeatTimer = setInterval(() => emit('heartbeat'), TIME_ON_PAGE_HEARTBEAT_MS)
+
+  return () => {
+    if (stopped) return
+    if (segmentStartedAt != null) {
+      activeAccumulatedMs += Math.max(0, Date.now() - segmentStartedAt)
+      segmentStartedAt = null
+    }
+    emit('unmount')
+    stopped = true
+    if (heartbeatTimer) clearInterval(heartbeatTimer)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+    window.removeEventListener('pagehide', onPageHide)
+  }
 }
