@@ -37,8 +37,10 @@ export interface Invoice {
   /** Client acknowledged excess payment received (overpayment resolved). */
   overpayment_accepted_at?: string
   invoice_date: string
-  due_date: string
-  expected_payment_date: string
+  /** Set from broker Due by (days); omit when Due by is 0. */
+  due_date?: string
+  /** Typically mirrors due_date when broker Due by is set. */
+  expected_payment_date?: string
   status: 'pending' | 'approved' | 'rejected' | 'hold' | 'paid' | 'force_closed' | 'written_off' | 'write_off_pending'
   load_number?: string
   batch_id?: string

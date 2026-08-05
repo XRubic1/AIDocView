@@ -33,7 +33,9 @@ import {
 } from '../../services/clientInvoiceActions'
 import {
   addAdminInvoiceNote,
+  isCredyxRemovableNote,
   postInvoiceStatusNote,
+  removeAdminInvoiceNote,
   type InvoiceStatusNoteKind,
 } from '../../services/adminInvoiceNoteActions'
 import { getInvoiceDocuments } from '../../services/invoiceDocumentStore'
@@ -113,6 +115,8 @@ interface TimelineEntry {
   meta?: string
   /** Credyx-only note (admin timeline). */
   internal?: boolean
+  /** InvoiceNote id when this Credyx free-text note can be removed (admin). */
+  removableNoteId?: string
 }
 
 function noteTone(type?: string): TimelineTone {
@@ -186,6 +190,11 @@ export interface InvoiceDetailPanelProps {
     note: string,
     options?: { visibility?: 'client' | 'internal' }
   ) => void | Promise<void>
+  /** Admin: remove a Credyx free-text note by InvoiceNote id. Return false on failure. */
+  onRemoveNote?: (
+    invoiceId: string,
+    noteId: string
+  ) => boolean | void | Promise<boolean | void>
   onOpenDispute?: (invoiceId: string, reason: string, description: string) => void | Promise<void>
   onMarkAsPaid?: (invoiceId: string, options: ClientMarkPaidOptions) => void | Promise<void>
   onCloseAsUncollectable?: (invoiceId: string, note: string) => void | Promise<void>
@@ -220,6 +229,7 @@ export default function InvoiceDetailPanel({
   onViewDocuments,
   onInvoiceUpdated,
   onAddNote,
+  onRemoveNote,
   onOpenDispute,
   onMarkAsPaid,
   onCloseAsUncollectable,
@@ -342,7 +352,9 @@ export default function InvoiceDetailPanel({
   const [isAddingNote, setIsAddingNote] = useState(false)
   const [statusExtraNote, setStatusExtraNote] = useState('')
   const [statusDate, setStatusDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [statusBusy, setStatusBusy] = useState<InvoiceStatusNoteKind | null>(null)
+  /** Selected status action awaiting Confirm (does not post until confirmed). */
+  const [pendingStatusKind, setPendingStatusKind] = useState<InvoiceStatusNoteKind | null>(null)
+  const [statusBusy, setStatusBusy] = useState(false)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [showDisputeModal, setShowDisputeModal] = useState(false)
   const [disputeReason, setDisputeReason] = useState<string>(DISPUTE_REASON_OPTIONS[0].value)
@@ -528,12 +540,14 @@ export default function InvoiceDetailPanel({
         kind: typeKey,
         source,
         internal: entry.visibility === 'internal',
+        removableNoteId:
+          isAdminPortal && isCredyxRemovableNote(entry) ? entry.id : undefined,
       })
     }
     return entries.sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     )
-  }, [openDisputes, noteEntries])
+  }, [openDisputes, noteEntries, isAdminPortal])
 
   /** Payment lifecycle + payment-related free-text notes. */
   const paymentTimelineEntries = useMemo((): TimelineEntry[] => {
@@ -557,6 +571,8 @@ export default function InvoiceDetailPanel({
         kind: 'payment',
         source,
         internal: entry.visibility === 'internal',
+        removableNoteId:
+          isAdminPortal && isCredyxRemovableNote(entry) ? entry.id : undefined,
       })
     }
 
@@ -631,7 +647,7 @@ export default function InvoiceDetailPanel({
         )
       })
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-  }, [noteEntries, invoicePayments, visibleInvoice])
+  }, [noteEntries, invoicePayments, visibleInvoice, isAdminPortal])
 
   const noteTimelineEntries = useMemo((): TimelineEntry[] => {
     return noteEntries
@@ -654,9 +670,11 @@ export default function InvoiceDetailPanel({
           kind: typeKey,
           source,
           internal: entry.visibility === 'internal',
+          removableNoteId:
+            isAdminPortal && isCredyxRemovableNote(entry) ? entry.id : undefined,
         }
       })
-  }, [noteEntries])
+  }, [noteEntries, isAdminPortal])
 
   const sendEntries = useMemo((): TimelineEntry[] => {
     const history = invoice.document_send_history || []
@@ -1043,14 +1061,48 @@ export default function InvoiceDetailPanel({
     }
   }
 
-  const handlePostStatus = async (kind: InvoiceStatusNoteKind) => {
-    if (statusBusy) return
+  const handleRemoveNote = async (noteId: string) => {
+    if (!isAdminPortal || !noteId) return
+    try {
+      if (onRemoveNote) {
+        const result = await onRemoveNote(invoice.id, noteId)
+        if (result === false) return
+      } else {
+        const updated = removeAdminInvoiceNote(invoice.id, noteId)
+        if (!updated) {
+          showToast('Only Credyx notes can be removed', 'error')
+          return
+        }
+        onInvoiceUpdated?.()
+      }
+      showToast('Note removed', 'success')
+    } catch (error) {
+      console.error('Failed to remove note:', error)
+      showToast('Failed to remove note', 'error')
+    }
+  }
+
+  const handleSelectStatus = (kind: InvoiceStatusNoteKind) => {
     setStatusError(null)
-    if ((kind === 'will_pay' || kind === 'call_back') && !statusDate) {
-      setStatusError('Pick a date for Will Pay / Call Back')
+    setPendingStatusKind((prev) => (prev === kind ? null : kind))
+  }
+
+  const handleConfirmStatus = async () => {
+    if (!pendingStatusKind || statusBusy) return
+    setStatusError(null)
+    const kind = pendingStatusKind
+    if (
+      (kind === 'will_pay' || kind === 'call_back' || kind === 'set_due_date') &&
+      !statusDate
+    ) {
+      setStatusError(
+        kind === 'set_due_date'
+          ? 'Pick a due date'
+          : 'Pick a date for Will Pay / Call Back'
+      )
       return
     }
-    setStatusBusy(kind)
+    setStatusBusy(true)
     try {
       const updated = postInvoiceStatusNote(invoice.id, {
         kind,
@@ -1063,12 +1115,17 @@ export default function InvoiceDetailPanel({
         return
       }
       setStatusExtraNote('')
+      setPendingStatusKind(null)
       onInvoiceUpdated?.()
+      showToast(
+        kind === 'set_due_date' ? 'Due date set' : 'Status note posted',
+        'success'
+      )
     } catch (error) {
       console.error('Failed to post status note:', error)
       setStatusError('Could not post status. Please try again.')
     } finally {
-      setStatusBusy(null)
+      setStatusBusy(false)
     }
   }
 
@@ -1470,7 +1527,7 @@ export default function InvoiceDetailPanel({
                   Status notes
                 </p>
                 <p className="text-[10px]" style={{ color: c.mutedLight }}>
-                  Carrier can see these · updates Will Pay / Call Back internally
+                  Select an action, then Confirm · carrier can see these notes
                 </p>
               </div>
               <div className="invoice-admin-status-actions__row">
@@ -1492,31 +1549,61 @@ export default function InvoiceDetailPanel({
                 />
               </div>
               <div className="invoice-admin-status-actions__btns">
-                <button
-                  type="button"
-                  className="dashboard-btn-secondary !py-1 !px-2 !text-xs"
-                  disabled={statusBusy !== null}
-                  onClick={() => void handlePostStatus('will_pay')}
-                >
-                  {statusBusy === 'will_pay' ? 'Saving…' : 'Will Pay'}
-                </button>
-                <button
-                  type="button"
-                  className="dashboard-btn-secondary !py-1 !px-2 !text-xs"
-                  disabled={statusBusy !== null}
-                  onClick={() => void handlePostStatus('call_back')}
-                >
-                  {statusBusy === 'call_back' ? 'Saving…' : 'Call Back'}
-                </button>
-                <button
-                  type="button"
-                  className="dashboard-btn-secondary !py-1 !px-2 !text-xs"
-                  disabled={statusBusy !== null}
-                  onClick={() => void handlePostStatus('payment_confirmed')}
-                >
-                  {statusBusy === 'payment_confirmed' ? 'Saving…' : 'Payment confirmed'}
-                </button>
+                {(
+                  [
+                    ['will_pay', 'Will Pay'],
+                    ['call_back', 'Call Back'],
+                    ['payment_confirmed', 'Payment confirmed'],
+                    ['set_due_date', 'Set due date'],
+                  ] as const
+                ).map(([kind, label]) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    className={`dashboard-btn-secondary !py-1 !px-2 !text-xs${
+                      pendingStatusKind === kind
+                        ? ' invoice-admin-status-actions__btn--selected'
+                        : ''
+                    }`}
+                    disabled={statusBusy}
+                    aria-pressed={pendingStatusKind === kind}
+                    onClick={() => handleSelectStatus(kind)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
+              {pendingStatusKind ? (
+                <div className="invoice-admin-status-actions__confirm-row">
+                  <button
+                    type="button"
+                    className="dashboard-btn-primary !py-1 !px-3 !text-xs"
+                    disabled={statusBusy}
+                    onClick={() => void handleConfirmStatus()}
+                  >
+                    {statusBusy ? 'Saving…' : 'Confirm'}
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-btn-secondary !py-1 !px-2 !text-xs"
+                    disabled={statusBusy}
+                    onClick={() => {
+                      setPendingStatusKind(null)
+                      setStatusError(null)
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <span className="text-[10px]" style={{ color: c.mutedLight }}>
+                    {pendingStatusKind === 'will_pay' && 'Will post Will Pay'}
+                    {pendingStatusKind === 'call_back' && 'Will post Call Back'}
+                    {pendingStatusKind === 'payment_confirmed' &&
+                      'Will post Payment status confirmed'}
+                    {pendingStatusKind === 'set_due_date' &&
+                      'Will set invoice due date'}
+                  </span>
+                </div>
+              ) : null}
               {statusError && (
                 <p className="text-[11px]" style={{ color: c.error }}>
                   {statusError}
@@ -1531,6 +1618,7 @@ export default function InvoiceDetailPanel({
                 contextEntries={allTimelineEntries}
                 emptyMessage={emptyMessage}
                 emptyColor={c.mutedLight}
+                onRemoveNote={isAdminPortal ? handleRemoveNote : undefined}
               />
             </div>
 

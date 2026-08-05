@@ -17,21 +17,25 @@ import {
 } from '../../utils/invoiceDuplicateChecks'
 import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
 import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
+import { resolveDueDatesFromBroker } from '../../utils/invoiceDueDate'
 
 async function resolveAndPersistBroker(
   brokerName: string
-): Promise<{ broker_id: string; broker_name: string }> {
+): Promise<{ broker_id: string; broker_name: string; payment_terms_days?: number }> {
   const result = resolveBrokerId(brokerName)
-  if (!result.broker_id || !isSupabaseConfigured()) return result
   const broker = mockBrokers.find((b) => b.id === result.broker_id)
-  if (!broker) return result
+  const payment_terms_days = broker?.payment_terms_days
+  if (!result.broker_id || !isSupabaseConfigured()) {
+    return { ...result, payment_terms_days }
+  }
+  if (!broker) return { ...result, payment_terms_days }
   try {
     await persistBroker(broker)
   } catch (err) {
     console.warn('[submitHandoffInvoices] broker persist failed', err)
-    return { broker_id: '', broker_name: result.broker_name }
+    return { broker_id: '', broker_name: result.broker_name, payment_terms_days }
   }
-  return result
+  return { ...result, payment_terms_days }
 }
 
 export interface HandoffInvoiceInput {
@@ -121,8 +125,7 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
       if (path) documentStoragePaths[docId] = path
     }
 
-    const due = new Date()
-    due.setDate(due.getDate() + 30)
+    const dueDates = resolveDueDatesFromBroker(broker.payment_terms_days)
 
     invoiceFields.push({
       invoice_number: invoiceNumber,
@@ -132,8 +135,7 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
       broker_name: broker.broker_name,
       amount: parseFloat(inv.amount || '0'),
       invoice_date: inv.invoice_date,
-      due_date: due.toISOString().split('T')[0],
-      expected_payment_date: due.toISOString().split('T')[0],
+      ...dueDates,
       status: 'pending' as const,
       load_number: inv.load_number,
       notes: inv.notes,

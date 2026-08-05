@@ -32,10 +32,10 @@ export interface Broker {
   mc_number?: string
   dot_number?: string
   notes?: string
-  payment_terms_days?: number // Payment terms in days (e.g., 30 for Net 30)
+  payment_terms_days?: number // Due by (days): 0 = no auto due date; N = today + N
   /**
    * Days after PPW was sent before Credyx asks the broker for payment status.
-   * Distinct from Net terms (when payment is due).
+   * Distinct from Due by (when payment is due).
    */
   payment_status_inquiry_days?: number
   /** How Credyx should chase payment status. */

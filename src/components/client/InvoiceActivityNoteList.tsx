@@ -7,8 +7,10 @@ import {
   PauseCircle,
   Send,
   Shield,
+  Trash2,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useState } from 'react'
 import { formatDate, formatCurrency } from '../../utils/format'
 
 export type ActivityNoteTone = 'neutral' | 'success' | 'warning' | 'error' | 'info'
@@ -24,6 +26,8 @@ export type ActivityNoteListEntry = {
   internal?: boolean
   tone?: ActivityNoteTone
   kind?: string
+  /** When set with onRemoveNote, show a remove control (Credyx free-text notes). */
+  removableNoteId?: string
 }
 
 interface InvoiceActivityNoteListProps {
@@ -32,6 +36,8 @@ interface InvoiceActivityNoteListProps {
   contextEntries?: ActivityNoteListEntry[]
   emptyMessage: string
   emptyColor?: string
+  /** Admin-only: remove a Credyx free-text note by its InvoiceNote id. */
+  onRemoveNote?: (noteId: string) => void
 }
 
 /** Add thousands separators to bare $ amounts already embedded in prose. */
@@ -136,13 +142,29 @@ export function declutterActivityEntries<T extends ActivityNoteListEntry>(
       }
     }
 
-    // Document sent: quieter detail
-    if (e.kind === 'send' || /^document sent/i.test(e.title)) {
+    // Document sent: keep recipient email, capitalize delivery status
+    if (e.kind === 'send' || e.kind === 'send_failed' || /^document sent/i.test(e.title)) {
       title = 'Sent to broker'
       if (detail) {
-        // "ap@tql.example · delivered" → "Delivered"
-        if (/delivered/i.test(detail)) detail = 'Delivered'
-        else if (/failed/i.test(detail)) detail = 'Failed'
+        // "ap@tql.example · delivered" → "ap@tql.example · Delivered"
+        const sep = detail.lastIndexOf(' · ')
+        if (sep >= 0) {
+          const email = detail.slice(0, sep).trim()
+          const status = detail.slice(sep + 3).trim()
+          const statusLabel =
+            /^delivered$/i.test(status)
+              ? 'Delivered'
+              : /^failed$/i.test(status)
+                ? 'Failed'
+                : /^sent$/i.test(status)
+                  ? 'Sent'
+                  : status
+          detail = email ? `${email} · ${statusLabel}` : statusLabel
+        } else if (/^delivered$/i.test(detail)) {
+          detail = 'Delivered'
+        } else if (/^failed$/i.test(detail)) {
+          detail = 'Failed'
+        }
       }
     }
 
@@ -202,14 +224,17 @@ function ActivityRowIcon({
 
 /**
  * Clean activity timeline — rail + icon, title/date, one body line.
+ * Removable Credyx notes require Confirm delete before calling onRemoveNote.
  */
 export function InvoiceActivityNoteList({
   entries,
   contextEntries,
   emptyMessage,
   emptyColor,
+  onRemoveNote,
 }: InvoiceActivityNoteListProps) {
   const rows = declutterActivityEntries(entries, contextEntries ?? entries)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
   if (rows.length === 0) {
     return (
@@ -226,10 +251,15 @@ export function InvoiceActivityNoteList({
     <ol className="payment-confirmation-panel__notes-list payment-confirmation-panel__notes-list--feed">
       {rows.map((entry) => {
         const tone = entry.tone || 'neutral'
+        const canRemove = Boolean(onRemoveNote && entry.removableNoteId)
+        const isPendingDelete =
+          canRemove && pendingDeleteId === entry.removableNoteId
         return (
           <li
             key={entry.id}
-            className={`payment-confirmation-panel__note-row payment-confirmation-panel__note-row--${tone}`}
+            className={`payment-confirmation-panel__note-row payment-confirmation-panel__note-row--${tone}${
+              isPendingDelete ? ' payment-confirmation-panel__note-row--pending-delete' : ''
+            }`}
           >
             <span className="payment-confirmation-panel__note-row-rail" aria-hidden>
               <span className="payment-confirmation-panel__note-row-dot">
@@ -256,18 +286,56 @@ export function InvoiceActivityNoteList({
                     </span>
                   ) : null}
                 </span>
-                <time
-                  className="payment-confirmation-panel__note-row-date tabular-nums"
-                  dateTime={entry.timestamp}
-                >
-                  {formatDate(entry.timestamp)}
-                </time>
+                <span className="payment-confirmation-panel__note-row-aside">
+                  <time
+                    className="payment-confirmation-panel__note-row-date tabular-nums"
+                    dateTime={entry.timestamp}
+                  >
+                    {formatDate(entry.timestamp)}
+                  </time>
+                  {canRemove && !isPendingDelete ? (
+                    <button
+                      type="button"
+                      className="payment-confirmation-panel__note-row-remove"
+                      title="Remove note"
+                      aria-label="Remove Credyx note"
+                      onClick={() => setPendingDeleteId(entry.removableNoteId!)}
+                    >
+                      <Trash2 size={12} strokeWidth={2.25} aria-hidden />
+                    </button>
+                  ) : null}
+                </span>
               </div>
               {entry.detail ? (
                 <p className="payment-confirmation-panel__note-row-detail">{entry.detail}</p>
               ) : null}
               {entry.meta ? (
                 <p className="payment-confirmation-panel__note-row-meta">{entry.meta}</p>
+              ) : null}
+              {isPendingDelete ? (
+                <div className="payment-confirmation-panel__note-row-delete-confirm">
+                  <span className="payment-confirmation-panel__note-row-delete-label">
+                    Delete this note?
+                  </span>
+                  <button
+                    type="button"
+                    className="payment-confirmation-panel__note-row-delete-yes"
+                    onClick={() => {
+                      const id = entry.removableNoteId!
+                      setPendingDeleteId(null)
+                      onRemoveNote?.(id)
+                    }}
+                  >
+                    Confirm delete
+                  </button>
+                  <button
+                    type="button"
+                    className="payment-confirmation-panel__note-row-delete-no"
+                    onClick={() => setPendingDeleteId(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
               ) : null}
             </div>
           </li>

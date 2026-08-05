@@ -51,6 +51,16 @@ function clampToTodayOrLater(dateKey: string, asOf = new Date()): string {
   return dateKey < today ? today : dateKey
 }
 
+/** Normalize invoice collection_date to YYYY-MM-DD. */
+function normalizeDateKey(raw?: string): string | null {
+  if (!raw?.trim()) return null
+  const t = raw.trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10)
+  const d = new Date(t)
+  if (Number.isNaN(d.getTime())) return null
+  return toDateKey(d)
+}
+
 function chaseDueDate(item: ChaseQueueItem, asOf: Date): string {
   const today = todayKey(asOf)
   if (item.status === 'needs_attention') return today
@@ -128,8 +138,102 @@ function mapChaseItem(item: ChaseQueueItem, asOf: Date): AssistantCalendarEvent 
   }
 }
 
+/** Credyx-only Call Back from invoice collection_status / collection_date. */
+function mapCallBackEvent(inv: Invoice): AssistantCalendarEvent | null {
+  if (inv.collection_status !== 'C/B') return null
+  if (!isOpenArInvoice(inv)) return null
+  const dueDate = normalizeDateKey(inv.collection_date)
+  if (!dueDate) return null
+
+  return {
+    id: `live-callback-${inv.id}`,
+    type: 'call',
+    title: 'Call Back',
+    invoiceNumber: inv.invoice_number,
+    invoiceId: inv.id,
+    brokerName: `${inv.broker_name} · ${inv.client_name}`,
+    dueDate,
+    dueLabel: formatShortDate(dueDate),
+    owner: 'credyx_staff',
+    status: 'pending',
+    detail: `Scheduled call back with ${inv.broker_name} for invoice #${inv.invoice_number} (${inv.client_name}).`,
+    amountLabel: formatCurrency(inv.amount),
+  }
+}
+
+/** Credyx-only Will Pay from invoice collection_status / collection_date. */
+function mapWillPayEvent(inv: Invoice): AssistantCalendarEvent | null {
+  if (inv.collection_status !== 'W/P') return null
+  if (!isOpenArInvoice(inv)) return null
+  const dueDate = normalizeDateKey(inv.collection_date)
+  if (!dueDate) return null
+
+  return {
+    id: `live-willpay-${inv.id}`,
+    type: 'expected_payment',
+    title: 'Will Pay',
+    invoiceNumber: inv.invoice_number,
+    invoiceId: inv.id,
+    brokerName: `${inv.broker_name} · ${inv.client_name}`,
+    dueDate,
+    dueLabel: formatShortDate(dueDate),
+    owner: 'credyx_staff',
+    status: 'pending',
+    detail: `Broker said they will pay invoice #${inv.invoice_number} (${inv.client_name}) by ${formatShortDate(dueDate)}.`,
+    amountLabel: formatCurrency(inv.amount),
+  }
+}
+
+/** Parse MM/DD/YYYY from a status note body into YYYY-MM-DD. */
+function parseUsDateFromStatusNote(note: string): string | null {
+  const m = note.match(/·\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+  if (!m) return null
+  const month = Number(m[1])
+  const day = Number(m[2])
+  const year = Number(m[3])
+  if (!month || !day || !year) return null
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+/**
+ * Credyx-only Payment status confirmed — latest status note lands on its dated day
+ * (or the day it was posted when no date was chosen).
+ */
+function mapPaymentConfirmedEvent(inv: Invoice): AssistantCalendarEvent | null {
+  if (!isOpenArInvoice(inv)) return null
+
+  const latest = [...(inv.notes_history || [])]
+    .filter(
+      (n) =>
+        n.type === 'status_update' && /payment status confirmed/i.test(n.note)
+    )
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
+
+  if (!latest) return null
+
+  const dueDate =
+    parseUsDateFromStatusNote(latest.note) || normalizeDateKey(latest.created_at)
+  if (!dueDate) return null
+
+  return {
+    id: `live-payconfirm-${inv.id}`,
+    type: 'payment_status_check',
+    title: 'Payment status confirmed',
+    invoiceNumber: inv.invoice_number,
+    invoiceId: inv.id,
+    brokerName: `${inv.broker_name} · ${inv.client_name}`,
+    dueDate,
+    dueLabel: formatShortDate(dueDate),
+    owner: 'credyx_staff',
+    status: 'pending',
+    detail: `Payment status confirmed for invoice #${inv.invoice_number} (${inv.client_name}).`,
+    amountLabel: formatCurrency(inv.amount),
+  }
+}
+
 /**
  * Derive Credyx chase + aging review events from live invoices/brokers.
+ * Will Pay / Call Back / Payment confirmed land here only (admin calendar) — never on the carrier calendar.
  */
 export function deriveAdminCalendarEvents(
   invoices: Invoice[],
@@ -141,6 +245,16 @@ export function deriveAdminCalendarEvents(
 
   for (const item of chase.slice(0, 60)) {
     events.push(mapChaseItem(item, asOf))
+  }
+
+  // Collection status notes — Credyx staff only.
+  for (const inv of invoices) {
+    const cb = mapCallBackEvent(inv)
+    if (cb) events.push(cb)
+    const wp = mapWillPayEvent(inv)
+    if (wp) events.push(wp)
+    const pc = mapPaymentConfirmedEvent(inv)
+    if (pc) events.push(pc)
   }
 
   // Aging reviews — open A/R that crossed collections overdue band (not already in chase).

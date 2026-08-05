@@ -5,6 +5,8 @@ import { Broker, BrokerEmail, BrokerPhone } from '../types/broker'
 import { Phone, Mail, MapPin, Search, X, Plus, Trash2, ArrowLeft } from 'lucide-react'
 import { useToast } from '../components/ui/ToastProvider'
 import BrokerPaymentHistoryPanel from '../components/brokers/BrokerPaymentHistoryPanel'
+import { formatPhoneNumber } from '../utils/formatPhoneNumber'
+import { applyEmailDomain, canSuggestEmailDomain, extractEmailDomain } from '../utils/emailDomain'
 import '../styles/clientPortal.css'
 
 const EMAIL_CATEGORY_LABELS: Record<string, string> = {
@@ -50,13 +52,15 @@ export default function Brokers() {
     mc_number: '',
     dot_number: '',
     notes: '',
-    payment_terms_days: 30,
+    payment_terms_days: 0,
     payment_status_inquiry_days: 15,
     preferred_contact: 'either',
   })
   const [emails, setEmails] = useState<BrokerEmail[]>([])
   const [phones, setPhones] = useState<BrokerPhone[]>([])
   const [isSaving, setIsSaving] = useState(false)
+  /** When on, extra emails show a gray `@domain` hint — Tab accepts it. */
+  const [autoFillEmailDomain, setAutoFillEmailDomain] = useState(true)
 
   const filteredBrokers = brokers.filter((broker) => {
     if (searchTerm === '') return true
@@ -96,7 +100,7 @@ export default function Brokers() {
     mc_number: '',
     dot_number: '',
     notes: '',
-    payment_terms_days: 30,
+    payment_terms_days: 0,
     payment_status_inquiry_days: 15,
     preferred_contact: 'either',
   })
@@ -108,7 +112,7 @@ export default function Brokers() {
       contact_person: broker.contact_person || '',
       email: broker.email || '',
       phone: broker.phone || '',
-      fax: broker.fax || '',
+      fax: broker.fax ? formatPhoneNumber(broker.fax) : '',
       address: broker.address || '',
       city: broker.city || '',
       state: broker.state || '',
@@ -116,7 +120,7 @@ export default function Brokers() {
       mc_number: broker.mc_number || '',
       dot_number: broker.dot_number || '',
       notes: broker.notes || '',
-      payment_terms_days: broker.payment_terms_days ?? 30,
+      payment_terms_days: broker.payment_terms_days ?? 0,
       payment_status_inquiry_days: broker.payment_status_inquiry_days ?? 15,
       preferred_contact: broker.preferred_contact ?? 'either',
     })
@@ -129,9 +133,9 @@ export default function Brokers() {
     )
     setPhones(
       broker.phones?.length
-        ? broker.phones.map((p) => ({ ...p }))
+        ? broker.phones.map((p) => ({ ...p, phone: formatPhoneNumber(p.phone) }))
         : broker.phone
-          ? [{ phone: broker.phone, category: 'accounts_payable' }]
+          ? [{ phone: formatPhoneNumber(broker.phone), category: 'accounts_payable' }]
           : []
     )
   }
@@ -141,6 +145,7 @@ export default function Brokers() {
     setFormData(emptyBrokerForm())
     setEmails([])
     setPhones([])
+    setAutoFillEmailDomain(true)
     setShowFormModal(true)
   }
 
@@ -148,6 +153,7 @@ export default function Brokers() {
     if (!selectedBroker) return
     setEditingBrokerId(selectedBroker.id)
     populateFormFromBroker(selectedBroker)
+    setAutoFillEmailDomain(true)
     setShowFormModal(true)
   }
 
@@ -157,11 +163,14 @@ export default function Brokers() {
     setFormData(emptyBrokerForm())
     setEmails([])
     setPhones([])
+    setAutoFillEmailDomain(true)
   }
 
   const handleInputChange = (field: keyof Broker, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
+
+  const sharedEmailDomain = extractEmailDomain(emails[0]?.email ?? '')
 
   const handleAddEmail = () => {
     setEmails([...emails, { email: '', category: 'accounting' }])
@@ -173,8 +182,25 @@ export default function Brokers() {
 
   const handleEmailChange = (index: number, field: 'email' | 'category', value: string) => {
     const updated = [...emails]
-    updated[index] = { ...updated[index], [field]: value as BrokerEmail['category'] }
+    if (field === 'category') {
+      updated[index] = { ...updated[index], category: value as BrokerEmail['category'] }
+    } else {
+      // Keep raw typing — domain is only applied when the user accepts the Tab suggestion.
+      updated[index] = { ...updated[index], email: value }
+    }
     setEmails(updated)
+  }
+
+  /** Accept the gray `@domain` suggestion into the actual value. */
+  const acceptEmailDomainSuggestion = (index: number) => {
+    if (!autoFillEmailDomain || !sharedEmailDomain || index === 0) return
+    setEmails((prev) => {
+      const current = prev[index]?.email ?? ''
+      if (!canSuggestEmailDomain(current, sharedEmailDomain, true)) return prev
+      const next = [...prev]
+      next[index] = { ...next[index], email: applyEmailDomain(current, sharedEmailDomain) }
+      return next
+    })
   }
 
   const handleAddPhone = () => {
@@ -187,7 +213,8 @@ export default function Brokers() {
 
   const handlePhoneChange = (index: number, field: 'phone' | 'category', value: string) => {
     const updated = [...phones]
-    updated[index] = { ...updated[index], [field]: value as BrokerPhone['category'] }
+    const nextValue = field === 'phone' ? formatPhoneNumber(value) : (value as BrokerPhone['category'])
+    updated[index] = { ...updated[index], [field]: nextValue }
     setPhones(updated)
   }
 
@@ -267,13 +294,31 @@ export default function Brokers() {
     return parts.join(', ') || '-'
   }
 
-  const inputClass = 'client-input w-full text-sm'
+  /** Short city/state for the list (full address stays in the detail panel). */
+  const formatListLocation = (broker: Broker) => {
+    const parts = [broker.city, broker.state].filter(Boolean)
+    return parts.join(', ') || '—'
+  }
+
+  const formatDueBy = (days?: number) => {
+    if (days == null || days <= 0) return '—'
+    return `Net ${days}`
+  }
+
+  const inputClass = 'client-input broker-form-field text-sm'
+  const labelClass = 'block text-xs min-w-0 w-full'
+  const formRowClass = 'flex flex-col gap-1.5 min-w-0 w-full'
+  const formSelectClass = 'client-input broker-form-field text-sm'
+  const sectionClass =
+    'broker-form-section rounded-xl border border-slate-200 bg-white p-4 sm:p-5 space-y-3 min-w-0 shadow-sm'
+  const sectionTitleClass =
+    'text-[11px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-100 pb-2'
 
   return (
     <AdminLayout flushMain>
-      <div className="flex flex-col min-h-0 h-full overflow-hidden">
+      <div className="admin-brokers-page flex flex-col min-h-0 h-full overflow-hidden">
         <div className="client-page-toolbar shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200">
-          <div className="relative flex-1 min-w-[200px] max-w-md">
+          <div className="relative flex-1 min-w-0 max-w-md">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
             <input
               type="text"
@@ -283,7 +328,7 @@ export default function Brokers() {
               className="client-input w-full pl-8 pr-3 py-1.5 text-sm"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <p className="text-xs text-slate-500 tabular-nums">
               {filteredBrokers.length} broker{filteredBrokers.length !== 1 ? 's' : ''}
             </p>
@@ -298,103 +343,104 @@ export default function Brokers() {
           </div>
         </div>
 
-        <div className="client-table-scroll flex-1 min-h-0 overflow-auto">
+        <div className="client-table-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           {filteredBrokers.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-slate-500">
               <p className="text-sm font-medium">No brokers found</p>
               <p className="text-xs mt-1">Try adjusting your search</p>
             </div>
           ) : (
-            <table className="dashboard-table dashboard-table--compact w-full min-w-[900px]">
+            <table className="dashboard-table dashboard-table--compact w-full">
               <thead>
                 <tr>
-                  <th>Broker</th>
-                  <th>Contact</th>
-                  <th>Email</th>
-                  <th>Phone</th>
-                  <th>Terms</th>
-                  <th>Location</th>
-                  <th>MC</th>
-                  <th>DOT</th>
-                  <th></th>
+                  <th className="admin-brokers-col-name">Broker</th>
+                  <th className="hidden md:table-cell admin-brokers-col-contact">Contact</th>
+                  <th className="hidden lg:table-cell admin-brokers-col-email">Email</th>
+                  <th className="hidden md:table-cell admin-brokers-col-phone">Phone</th>
+                  <th className="admin-brokers-col-terms">Due by</th>
+                  <th className="hidden lg:table-cell admin-brokers-col-loc">Location</th>
+                  <th className="admin-brokers-col-mc">MC</th>
+                  <th className="hidden xl:table-cell admin-brokers-col-dot">DOT</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredBrokers.map((broker) => {
                   const email = primaryEmail(broker)
                   const phone = primaryPhone(broker)
-                  const extraEmails = (broker.emails?.length ?? 0) > 1 ? broker.emails!.length - 1 : 0
-                  const extraPhones = (broker.phones?.length ?? 0) > 1 ? broker.phones!.length - 1 : 0
+                  const formattedPhone = phone ? formatPhoneNumber(phone) : ''
+                  const extraEmails =
+                    (broker.emails?.length ?? 0) > 1 ? broker.emails!.length - 1 : 0
+                  const extraPhones =
+                    (broker.phones?.length ?? 0) > 1 ? broker.phones!.length - 1 : 0
                   return (
                     <tr
                       key={broker.id}
                       className="dashboard-table-row--clickable"
                       onClick={() => handleBrokerClick(broker)}
                     >
-                      <td>
-                        <p className="font-medium text-slate-900">{broker.name}</p>
+                      <td className="admin-brokers-col-name">
+                        <p className="font-medium text-slate-900 truncate min-w-0">
+                          {broker.name}
+                        </p>
                       </td>
-                      <td className="text-slate-600">{broker.contact_person || '—'}</td>
-                      <td>
+                      <td className="hidden md:table-cell text-slate-600 admin-brokers-col-contact">
+                        <span className="truncate block min-w-0">
+                          {broker.contact_person || '—'}
+                        </span>
+                      </td>
+                      <td className="hidden lg:table-cell admin-brokers-col-email">
                         {email ? (
                           <a
                             href={`mailto:${email}`}
                             onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900"
+                            className="inline-flex items-center gap-1 min-w-0 max-w-full text-slate-700 hover:text-slate-900"
+                            title={email}
                           >
-                            <Mail className="w-3 h-3 shrink-0" />
-                            <span className="truncate max-w-[160px]">{email}</span>
+                            <Mail className="w-3 h-3 shrink-0 text-slate-400" />
+                            <span className="truncate min-w-0">{email}</span>
                             {extraEmails > 0 ? (
-                              <span className="text-[10px] text-slate-400">+{extraEmails}</span>
+                              <span className="text-[10px] text-slate-400 shrink-0">
+                                +{extraEmails}
+                              </span>
                             ) : null}
                           </a>
                         ) : (
                           '—'
                         )}
                       </td>
-                      <td>
-                        {phone ? (
+                      <td className="hidden md:table-cell admin-brokers-col-phone">
+                        {formattedPhone ? (
                           <a
-                            href={`tel:${phone}`}
+                            href={`tel:${formattedPhone}`}
                             onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900"
+                            className="inline-flex items-center gap-1 min-w-0 max-w-full text-slate-700 hover:text-slate-900"
+                            title={formattedPhone}
                           >
-                            <Phone className="w-3 h-3 shrink-0" />
-                            <span>{phone}</span>
+                            <Phone className="w-3 h-3 shrink-0 text-slate-400" />
+                            <span className="truncate min-w-0 tabular-nums">{formattedPhone}</span>
                             {extraPhones > 0 ? (
-                              <span className="text-[10px] text-slate-400">+{extraPhones}</span>
+                              <span className="text-[10px] text-slate-400 shrink-0">
+                                +{extraPhones}
+                              </span>
                             ) : null}
                           </a>
                         ) : (
                           '—'
                         )}
                       </td>
-                      <td className="tabular-nums text-slate-600">
-                        Net {broker.payment_terms_days ?? 30}
+                      <td className="tabular-nums text-slate-600 admin-brokers-col-terms">
+                        {formatDueBy(broker.payment_terms_days)}
                       </td>
-                      <td className="text-slate-600">
-                        {formatAddress(broker) !== '-' ? (
-                          <span className="inline-flex items-center gap-1">
-                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span className="truncate max-w-[140px]">{formatAddress(broker)}</span>
-                          </span>
-                        ) : (
-                          '—'
-                        )}
+                      <td className="hidden lg:table-cell text-slate-600 admin-brokers-col-loc">
+                        <span className="truncate block min-w-0">
+                          {formatListLocation(broker)}
+                        </span>
                       </td>
-                      <td className="tabular-nums text-slate-600">{broker.mc_number || '—'}</td>
-                      <td className="tabular-nums text-slate-600">{broker.dot_number || '—'}</td>
-                      <td>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleBrokerClick(broker)
-                          }}
-                          className="dashboard-btn-secondary dashboard-btn-compact"
-                        >
-                          Open
-                        </button>
+                      <td className="tabular-nums text-slate-600 admin-brokers-col-mc">
+                        {broker.mc_number || '—'}
+                      </td>
+                      <td className="hidden xl:table-cell tabular-nums text-slate-600 admin-brokers-col-dot">
+                        {broker.dot_number || '—'}
                       </td>
                     </tr>
                   )
@@ -406,7 +452,7 @@ export default function Brokers() {
       </div>
 
       {selectedBroker && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-stretch justify-center p-3 sm:p-4">
+        <div className="fixed inset-0 z-[70] bg-slate-900/40 flex items-stretch justify-center p-3 sm:p-4">
           <div className="bg-white w-full max-w-4xl h-full max-h-[calc(100vh-1.5rem)] rounded-lg border border-slate-200 shadow-xl overflow-hidden flex flex-col">
             <div className="shrink-0 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between gap-3">
               <div className="min-w-0 flex items-center gap-2.5">
@@ -423,7 +469,9 @@ export default function Brokers() {
                     {selectedBroker.name}
                   </h2>
                   <p className="text-xs text-slate-500 truncate mt-0.5">
-                    Net {selectedBroker.payment_terms_days ?? 30}
+                    {selectedBroker.payment_terms_days && selectedBroker.payment_terms_days > 0
+                      ? `Due by ${selectedBroker.payment_terms_days}d`
+                      : 'No auto due'}
                     {selectedBroker.contact_person ? ` · ${selectedBroker.contact_person}` : ''}
                   </p>
                 </div>
@@ -549,10 +597,12 @@ export default function Brokers() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-px rounded-lg border border-slate-200 overflow-hidden bg-slate-200">
                   <div className="bg-white px-3 py-2">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
-                      Payment terms
+                      Due by
                     </p>
                     <p className="text-sm font-medium text-slate-900 mt-0.5 tabular-nums">
-                      Net {selectedBroker.payment_terms_days ?? 30}
+                      {selectedBroker.payment_terms_days && selectedBroker.payment_terms_days > 0
+                        ? `${selectedBroker.payment_terms_days} days`
+                        : 'Not set (0)'}
                     </p>
                   </div>
                   <div className="bg-white px-3 py-2">
@@ -631,48 +681,47 @@ export default function Brokers() {
       )}
 
       {showFormModal && (
-        <div className="fixed inset-0 z-[60] bg-slate-900/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="shrink-0 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">
-                {editingBrokerId ? 'Edit broker' : 'Add broker'}
-              </h2>
+        <div className="fixed inset-0 z-[80] bg-slate-900/50 overflow-hidden">
+          <div className="broker-form-modal bg-white w-full h-full flex flex-col">
+            <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-slate-200 flex items-center justify-between gap-3 bg-slate-50/80">
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-slate-900 truncate">
+                  {editingBrokerId ? 'Edit broker' : 'Add broker'}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5 truncate">
+                  {editingBrokerId
+                    ? 'Update contact, address, and collections preferences'
+                    : 'Fill in each section — required fields are marked'}
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={handleCloseFormModal}
-                className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
+                className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-white shrink-0"
                 aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={(e) => void handleSubmit(e)} className="flex-1 min-h-0 flex flex-col">
-              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 text-sm">
-                <section className="space-y-2.5">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Basic
-                  </h3>
-                  <label className="block text-xs">
-                    <span className="font-medium text-slate-600 uppercase tracking-wide">
-                      Broker name <span className="text-red-600">*</span>
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      value={formData.name || ''}
-                      onChange={(e) => handleInputChange('name', e.target.value)}
-                      className={`${inputClass} mt-1`}
-                    />
-                  </label>
-                </section>
-
-                <section className="space-y-2.5">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Contact
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <label className="block text-xs">
+            <form onSubmit={(e) => void handleSubmit(e)} className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <div className="broker-form-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain text-sm">
+                <div className="broker-form-grid">
+                  <section className={sectionClass}>
+                    <h3 className={sectionTitleClass}>Identity</h3>
+                    <label className={labelClass}>
+                      <span className="font-medium text-slate-600 uppercase tracking-wide">
+                        Broker name <span className="text-red-600">*</span>
+                      </span>
+                      <input
+                        type="text"
+                        required
+                        value={formData.name || ''}
+                        onChange={(e) => handleInputChange('name', e.target.value)}
+                        className={`${inputClass} mt-1`}
+                      />
+                    </label>
+                    <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
                         Contact person
                       </span>
@@ -683,133 +732,30 @@ export default function Brokers() {
                         className={`${inputClass} mt-1`}
                       />
                     </label>
-                    <label className="block text-xs">
+                    <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">Fax</span>
                       <input
                         type="tel"
                         value={formData.fax || ''}
-                        onChange={(e) => handleInputChange('fax', e.target.value)}
+                        onChange={(e) => handleInputChange('fax', formatPhoneNumber(e.target.value))}
+                        placeholder="(555) 123-4567"
                         className={`${inputClass} mt-1`}
                       />
                     </label>
-                  </div>
+                  </section>
 
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">
-                        Emails
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleAddEmail}
-                        className="dashboard-btn-secondary dashboard-btn-compact inline-flex items-center gap-1"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Add
-                      </button>
-                    </div>
-                    <div className="space-y-1.5">
-                      {emails.map((emailItem, index) => (
-                        <div key={index} className="flex items-center gap-1.5">
-                          <input
-                            type="email"
-                            value={emailItem.email}
-                            onChange={(e) => handleEmailChange(index, 'email', e.target.value)}
-                            placeholder="email@example.com"
-                            className={`${inputClass} flex-1`}
-                          />
-                          <select
-                            value={emailItem.category}
-                            onChange={(e) => handleEmailChange(index, 'category', e.target.value)}
-                            className="client-input text-sm w-32 shrink-0"
-                          >
-                            <option value="accounting">Accounting</option>
-                            <option value="paperwork">Paperwork</option>
-                            <option value="noa">NOA</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveEmail(index)}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-200"
-                            aria-label="Remove email"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                      {emails.length === 0 ? (
-                        <p className="text-xs text-slate-500">No emails yet.</p>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">
-                        Phones
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleAddPhone}
-                        className="dashboard-btn-secondary dashboard-btn-compact inline-flex items-center gap-1"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Add
-                      </button>
-                    </div>
-                    <div className="space-y-1.5">
-                      {phones.map((phoneItem, index) => (
-                        <div key={index} className="flex items-center gap-1.5">
-                          <input
-                            type="tel"
-                            value={phoneItem.phone}
-                            onChange={(e) => handlePhoneChange(index, 'phone', e.target.value)}
-                            placeholder="(555) 123-4567"
-                            className={`${inputClass} flex-1`}
-                          />
-                          <select
-                            value={phoneItem.category}
-                            onChange={(e) => handlePhoneChange(index, 'category', e.target.value)}
-                            className="client-input text-sm w-40 shrink-0"
-                          >
-                            <option value="accounts_payable">Accounts Payable</option>
-                            <option value="accounts_receivable">Accounts Receivable</option>
-                            <option value="rate_verification">Rate Verification</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => handleRemovePhone(index)}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-200"
-                            aria-label="Remove phone"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                      {phones.length === 0 ? (
-                        <p className="text-xs text-slate-500">No phones yet.</p>
-                      ) : null}
-                    </div>
-                  </div>
-                </section>
-
-                <section className="space-y-2.5">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Address
-                  </h3>
-                  <label className="block text-xs">
-                    <span className="font-medium text-slate-600 uppercase tracking-wide">
-                      Street
-                    </span>
-                    <input
-                      type="text"
-                      value={formData.address || ''}
-                      onChange={(e) => handleInputChange('address', e.target.value)}
-                      className={`${inputClass} mt-1`}
-                    />
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <label className="block text-xs">
+                  <section className={sectionClass}>
+                    <h3 className={sectionTitleClass}>Address</h3>
+                    <label className={labelClass}>
+                      <span className="font-medium text-slate-600 uppercase tracking-wide">Street</span>
+                      <input
+                        type="text"
+                        value={formData.address || ''}
+                        onChange={(e) => handleInputChange('address', e.target.value)}
+                        className={`${inputClass} mt-1`}
+                      />
+                    </label>
+                    <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">City</span>
                       <input
                         type="text"
@@ -818,35 +764,31 @@ export default function Brokers() {
                         className={`${inputClass} mt-1`}
                       />
                     </label>
-                    <label className="block text-xs">
-                      <span className="font-medium text-slate-600 uppercase tracking-wide">
-                        State
-                      </span>
-                      <input
-                        type="text"
-                        value={formData.state || ''}
-                        onChange={(e) => handleInputChange('state', e.target.value)}
-                        className={`${inputClass} mt-1`}
-                      />
-                    </label>
-                    <label className="block text-xs">
-                      <span className="font-medium text-slate-600 uppercase tracking-wide">ZIP</span>
-                      <input
-                        type="text"
-                        value={formData.zip || ''}
-                        onChange={(e) => handleInputChange('zip', e.target.value)}
-                        className={`${inputClass} mt-1`}
-                      />
-                    </label>
-                  </div>
-                </section>
+                    <div className="grid grid-cols-2 gap-3 min-w-0">
+                      <label className={labelClass}>
+                        <span className="font-medium text-slate-600 uppercase tracking-wide">State</span>
+                        <input
+                          type="text"
+                          value={formData.state || ''}
+                          onChange={(e) => handleInputChange('state', e.target.value)}
+                          className={`${inputClass} mt-1`}
+                        />
+                      </label>
+                      <label className={labelClass}>
+                        <span className="font-medium text-slate-600 uppercase tracking-wide">ZIP</span>
+                        <input
+                          type="text"
+                          value={formData.zip || ''}
+                          onChange={(e) => handleInputChange('zip', e.target.value)}
+                          className={`${inputClass} mt-1`}
+                        />
+                      </label>
+                    </div>
+                  </section>
 
-                <section className="space-y-2.5">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    License
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <label className="block text-xs">
+                  <section className={sectionClass}>
+                    <h3 className={sectionTitleClass}>License</h3>
+                    <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
                         MC number
                       </span>
@@ -857,7 +799,7 @@ export default function Brokers() {
                         className={`${inputClass} mt-1`}
                       />
                     </label>
-                    <label className="block text-xs">
+                    <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
                         DOT number
                       </span>
@@ -868,29 +810,28 @@ export default function Brokers() {
                         className={`${inputClass} mt-1`}
                       />
                     </label>
-                  </div>
-                </section>
+                  </section>
 
-                <section className="space-y-2.5">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Collections preferences
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <label className="block text-xs">
+                  <section className={sectionClass}>
+                    <h3 className={sectionTitleClass}>Collections</h3>
+                    <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
-                        Payment terms (days)
+                        Due by (days)
                       </span>
                       <input
                         type="number"
                         min={0}
-                        value={formData.payment_terms_days ?? 30}
+                        value={formData.payment_terms_days ?? 0}
                         onChange={(e) =>
                           handleInputChange('payment_terms_days', parseInt(e.target.value, 10) || 0)
                         }
                         className={`${inputClass} mt-1 tabular-nums`}
                       />
+                      <span className="mt-1 block text-[10px] text-slate-500 leading-snug">
+                        0 = no automatic invoice due date
+                      </span>
                     </label>
-                    <label className="block text-xs">
+                    <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
                         Status inquiry (days after PPW)
                       </span>
@@ -907,7 +848,7 @@ export default function Brokers() {
                         className={`${inputClass} mt-1 tabular-nums`}
                       />
                     </label>
-                    <label className="block text-xs">
+                    <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
                         Preferred contact
                       </span>
@@ -926,23 +867,194 @@ export default function Brokers() {
                         <option value="phone">Phone only</option>
                       </select>
                     </label>
-                  </div>
-                </section>
+                  </section>
 
-                <section className="space-y-2.5">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Notes
-                  </h3>
-                  <textarea
-                    value={formData.notes || ''}
-                    onChange={(e) => handleInputChange('notes', e.target.value)}
-                    rows={3}
-                    className={inputClass}
-                  />
-                </section>
+                  <section className={`${sectionClass} broker-form-section--tall`}>
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Emails
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={handleAddEmail}
+                        className="dashboard-btn-secondary dashboard-btn-compact inline-flex items-center gap-1 shrink-0"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add
+                      </button>
+                    </div>
+                    {emails.length > 0 ? (
+                      <label
+                        className={`flex items-start gap-2 text-xs text-slate-600 ${
+                          sharedEmailDomain ? 'cursor-pointer' : 'opacity-60'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 shrink-0"
+                          checked={autoFillEmailDomain}
+                          disabled={!sharedEmailDomain}
+                          onChange={(e) => setAutoFillEmailDomain(e.target.checked)}
+                        />
+                        <span className="leading-snug min-w-0">
+                          {sharedEmailDomain
+                            ? `Suggest @${sharedEmailDomain} — press Tab to fill`
+                            : 'Suggest domain (enter a full first email first)'}
+                        </span>
+                      </label>
+                    ) : null}
+                    <div className="space-y-2">
+                      {emails.map((emailItem, index) => {
+                        const showDomainSuggest =
+                          index > 0 &&
+                          canSuggestEmailDomain(
+                            emailItem.email,
+                            sharedEmailDomain,
+                            autoFillEmailDomain
+                          )
+
+                        return (
+                          <div
+                            key={index}
+                            className={`${formRowClass} rounded-lg border border-slate-200 p-2.5 bg-slate-50/70`}
+                          >
+                            <div className="relative min-w-0 w-full">
+                              {showDomainSuggest && sharedEmailDomain ? (
+                                <div
+                                  aria-hidden
+                                  className="pointer-events-none absolute inset-0 z-0 flex items-center overflow-hidden px-3 text-[13px] font-medium"
+                                >
+                                  <span className="invisible whitespace-pre">{emailItem.email}</span>
+                                  <span className="text-slate-400 select-none">
+                                    @{sharedEmailDomain}
+                                  </span>
+                                </div>
+                              ) : null}
+                              <input
+                                type="text"
+                                inputMode="email"
+                                autoComplete="off"
+                                value={emailItem.email}
+                                onChange={(e) => handleEmailChange(index, 'email', e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (!showDomainSuggest) return
+                                  const el = e.currentTarget
+                                  const atEnd =
+                                    el.selectionStart === el.value.length &&
+                                    el.selectionEnd === el.value.length
+                                  if (e.key === 'Tab' || (e.key === 'ArrowRight' && atEnd)) {
+                                    e.preventDefault()
+                                    acceptEmailDomainSuggestion(index)
+                                  }
+                                }}
+                                placeholder={
+                                  index > 0 && autoFillEmailDomain && sharedEmailDomain
+                                    ? `name  (Tab → @${sharedEmailDomain})`
+                                    : 'email@example.com'
+                                }
+                                className={`${inputClass} relative z-10 ${
+                                  showDomainSuggest ? '!bg-transparent' : ''
+                                }`}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <select
+                                value={emailItem.category}
+                                onChange={(e) =>
+                                  handleEmailChange(index, 'category', e.target.value)
+                                }
+                                className={`${formSelectClass} flex-1`}
+                              >
+                                <option value="accounting">Accounting</option>
+                                <option value="paperwork">Paperwork</option>
+                                <option value="noa">NOA</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveEmail(index)}
+                                className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-slate-200 shrink-0"
+                                aria-label="Remove email"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {emails.length === 0 ? (
+                        <p className="text-xs text-slate-500">No emails yet.</p>
+                      ) : null}
+                    </div>
+                  </section>
+
+                  <section className={`${sectionClass} broker-form-section--tall`}>
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Phones
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={handleAddPhone}
+                        className="dashboard-btn-secondary dashboard-btn-compact inline-flex items-center gap-1 shrink-0"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {phones.map((phoneItem, index) => (
+                        <div
+                          key={index}
+                          className={`${formRowClass} rounded-lg border border-slate-200 p-2.5 bg-slate-50/70`}
+                        >
+                          <input
+                            type="tel"
+                            value={phoneItem.phone}
+                            onChange={(e) => handlePhoneChange(index, 'phone', e.target.value)}
+                            placeholder="(555) 123-4567"
+                            className={inputClass}
+                          />
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <select
+                              value={phoneItem.category}
+                              onChange={(e) => handlePhoneChange(index, 'category', e.target.value)}
+                              className={`${formSelectClass} flex-1`}
+                            >
+                              <option value="accounts_payable">Accounts Payable</option>
+                              <option value="accounts_receivable">Accounts Receivable</option>
+                              <option value="rate_verification">Rate Verification</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleRemovePhone(index)}
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-slate-200 shrink-0"
+                              aria-label="Remove phone"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {phones.length === 0 ? (
+                        <p className="text-xs text-slate-500">No phones yet.</p>
+                      ) : null}
+                    </div>
+                  </section>
+
+                  <section className={`${sectionClass} broker-form-section--notes`}>
+                    <h3 className={sectionTitleClass}>Notes</h3>
+                    <textarea
+                      value={formData.notes || ''}
+                      onChange={(e) => handleInputChange('notes', e.target.value)}
+                      rows={4}
+                      placeholder="Internal notes about this broker…"
+                      className={inputClass}
+                    />
+                  </section>
+                </div>
               </div>
 
-              <div className="shrink-0 px-4 py-2.5 border-t border-slate-200 flex items-center justify-end gap-2">
+              <div className="shrink-0 px-4 sm:px-6 py-3 border-t border-slate-200 bg-slate-50/80 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={handleCloseFormModal}
@@ -963,6 +1075,7 @@ export default function Brokers() {
           </div>
         </div>
       )}
+
     </AdminLayout>
   )
 }

@@ -17,7 +17,7 @@ import { useToast } from '../components/ui/ToastProvider'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
-import { addAdminInvoiceNote } from '../services/adminInvoiceNoteActions'
+import { addAdminInvoiceNote, removeAdminInvoiceNote } from '../services/adminInvoiceNoteActions'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
 import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
@@ -882,6 +882,15 @@ export default function AdminInvoices() {
             visibility: options?.visibility ?? 'client',
           })
           bump()
+        },
+        onRemoveNote: (invoiceId: string, noteId: string) => {
+          const updated = removeAdminInvoiceNote(invoiceId, noteId)
+          if (!updated) {
+            showToast('Only Credyx notes can be removed', 'error')
+            return false
+          }
+          bump()
+          return true
         },
         payments,
         enableClientActions: false,

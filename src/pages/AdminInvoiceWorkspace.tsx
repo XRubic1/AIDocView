@@ -7,7 +7,7 @@ import EmptyState from '../components/ui/EmptyState'
 import { useToast } from '../components/ui/ToastProvider'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
-import { addAdminInvoiceNote } from '../services/adminInvoiceNoteActions'
+import { addAdminInvoiceNote, removeAdminInvoiceNote } from '../services/adminInvoiceNoteActions'
 import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import { useAuth } from '../context/AuthContext'
@@ -202,6 +202,15 @@ export default function AdminInvoiceWorkspace() {
                   options?.visibility === 'internal' ? 'Internal note added' : 'Note added',
                   'success'
                 )
+              }}
+              onRemoveNote={(invoiceId, noteId) => {
+                const updated = removeAdminInvoiceNote(invoiceId, noteId)
+                if (!updated) {
+                  showToast('Only Credyx notes can be removed', 'error')
+                  return false
+                }
+                bump()
+                return true
               }}
               payments={payments}
               enableClientActions={false}

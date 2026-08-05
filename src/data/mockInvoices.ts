@@ -47,14 +47,13 @@ export function addInvoice(
   options?: { deferPersist?: boolean }
 ): Invoice {
   const now = new Date().toISOString()
-  const due = new Date()
-  due.setDate(due.getDate() + 30)
   const invoice: Invoice = {
     ...data,
     id: data.id ?? `inv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     created_at: data.created_at ?? now,
-    due_date: data.due_date ?? due.toISOString().split('T')[0],
-    expected_payment_date: data.expected_payment_date ?? due.toISOString().split('T')[0],
+    // Due dates only when caller supplies them (broker Due by > 0) — never invent +30.
+    due_date: data.due_date || undefined,
+    expected_payment_date: data.expected_payment_date || undefined,
     status: data.status ?? 'pending',
     documents_count: data.documents_count ?? 0,
   }

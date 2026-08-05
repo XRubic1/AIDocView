@@ -122,8 +122,12 @@ function filterEvents(
     return list.filter(
       (e) =>
         isChaseType(e.type) ||
+        e.id.startsWith('live-callback-') ||
+        e.id.startsWith('live-payconfirm-') ||
         (e.type === 'reminder' &&
-          (e.id.startsWith('admin-evt-') || e.id.startsWith('live-chase-')))
+          (e.id.startsWith('admin-evt-') ||
+            e.id.startsWith('live-chase-') ||
+            e.id.startsWith('live-callback-')))
     )
   }
   if (filter === 'meeting') return list.filter((e) => e.type === 'meeting')

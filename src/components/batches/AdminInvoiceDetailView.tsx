@@ -14,7 +14,8 @@ import { sendBrokerPacketForInvoice } from '../../utils/paperworkSender'
 import { useAuth } from '../../context/AuthContext'
 import { getAdminUserDisplayName } from '../../config/adminNav'
 import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
-import { addAdminInvoiceNote } from '../../services/adminInvoiceNoteActions'
+import { addAdminInvoiceNote, isCredyxRemovableNote, removeAdminInvoiceNote } from '../../services/adminInvoiceNoteActions'
+import { notifyTenantDataUpdated } from '../../services/supabase/tenantDataLiveSync'
 import {
   saveInvoiceDocuments,
   updateInvoiceDocumentMetadata,
@@ -115,6 +116,7 @@ export default function AdminInvoiceDetailView({
     broker_name: invoice?.broker_name || '',
   })
   const [newNote, setNewNote] = useState('')
+  const [pendingDeleteNoteId, setPendingDeleteNoteId] = useState<string | null>(null)
   const [brokerSearchTerm, setBrokerSearchTerm] = useState('')
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false)
   const [clientSearchTerm, setClientSearchTerm] = useState('')
@@ -174,6 +176,7 @@ export default function AdminInvoiceDetailView({
       if (updated) {
         setCurrentInvoice(updated)
         setRefreshKey((prev) => prev + 1)
+        notifyTenantDataUpdated(['invoices'], updated.client_id)
       }
     }
     
@@ -667,26 +670,20 @@ export default function AdminInvoiceDetailView({
   const handleRemoveNote = (noteId: string) => {
     if (!currentInvoice) return
 
-    const updatedNotesHistory = (currentInvoice.notes_history || []).filter((n) => n.id !== noteId)
-    const updatedNotes = updatedNotesHistory.length > 0
-      ? updatedNotesHistory.map((n) => n.note).join('\n')
-      : undefined
-
-    const finalInvoice = {
-      ...currentInvoice,
-      notes_history: updatedNotesHistory.length > 0 ? updatedNotesHistory : undefined,
-      notes: updatedNotes,
+    const target = (currentInvoice.notes_history || []).find((n) => n.id === noteId)
+    if (!target || !isCredyxRemovableNote(target)) {
+      showToast('Only Credyx notes can be removed', 'error')
+      return
     }
 
-    const saved = updateInvoice(currentInvoice.id, {
-      notes_history: updatedNotesHistory.length > 0 ? updatedNotesHistory : undefined,
-      notes: updatedNotes,
-    })
-
-    setCurrentInvoice(saved ?? finalInvoice)
-    if (invoice && saved) {
-      Object.assign(invoice, saved)
+    const saved = removeAdminInvoiceNote(currentInvoice.id, noteId)
+    if (!saved) {
+      showToast('Failed to remove note', 'error')
+      return
     }
+
+    setCurrentInvoice(saved)
+    if (invoice) Object.assign(invoice, saved)
     setRefreshKey((prev) => prev + 1)
   }
 
@@ -2690,20 +2687,47 @@ export default function AdminInvoiceDetailView({
                             {noteItem.note}
                           </p>
                         </div>
-                        <button
-                          onClick={() => handleRemoveNote(noteItem.id)}
-                          className="p-0.5 flex-shrink-0 transition-colors"
-                          style={{ color: '#819291' }}
-                          title="Remove note"
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = '#C2A558'
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = '#819291'
-                          }}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        {isCredyxRemovableNote(noteItem) ? (
+                          pendingDeleteNoteId === noteItem.id ? (
+                            <div className="flex flex-col gap-1 flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleRemoveNote(noteItem.id)
+                                  setPendingDeleteNoteId(null)
+                                }}
+                                className="text-[10px] px-1.5 py-0.5 rounded border"
+                                style={{ color: '#b91c1c', borderColor: '#fca5a5' }}
+                              >
+                                Confirm delete
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDeleteNoteId(null)}
+                                className="text-[10px] px-1.5 py-0.5 rounded border"
+                                style={{ color: '#819291', borderColor: '#819291' }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setPendingDeleteNoteId(noteItem.id)}
+                              className="p-0.5 flex-shrink-0 transition-colors"
+                              style={{ color: '#819291' }}
+                              title="Remove note"
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = '#C2A558'
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = '#819291'
+                              }}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )
+                        ) : null}
                       </div>
                     ))}
                 </div>

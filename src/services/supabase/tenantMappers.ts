@@ -14,8 +14,8 @@ export interface InvoiceRow {
   paid_amount: number | string | null
   overpayment_accepted_at: string | null
   invoice_date: string
-  due_date: string
-  expected_payment_date: string
+  due_date: string | null
+  expected_payment_date: string | null
   status: Invoice['status']
   load_number: string | null
   batch_id: string | null
@@ -133,8 +133,8 @@ export function invoiceRowToInvoice(row: InvoiceRow): Invoice {
     paid_amount: row.paid_amount != null ? num(row.paid_amount) : undefined,
     overpayment_accepted_at: row.overpayment_accepted_at ?? undefined,
     invoice_date: row.invoice_date,
-    due_date: row.due_date,
-    expected_payment_date: row.expected_payment_date,
+    due_date: row.due_date ?? undefined,
+    expected_payment_date: row.expected_payment_date ?? undefined,
     status: row.status,
     load_number: row.load_number ?? undefined,
     batch_id: row.batch_id ?? undefined,
@@ -249,8 +249,8 @@ export function invoiceToRow(invoice: Invoice): InvoiceRow {
     paid_amount: invoice.paid_amount ?? null,
     overpayment_accepted_at: invoice.overpayment_accepted_at ?? null,
     invoice_date: invoice.invoice_date,
-    due_date: invoice.due_date,
-    expected_payment_date: invoice.expected_payment_date,
+    due_date: invoice.due_date ?? null,
+    expected_payment_date: invoice.expected_payment_date ?? null,
     status: invoice.status,
     load_number: invoice.load_number ?? null,
     batch_id: invoice.batch_id ?? null,

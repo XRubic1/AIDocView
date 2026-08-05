@@ -1,8 +1,9 @@
 /**
  * Wipe + reseed demo A/R data for a carrier portal demo account.
  *
- * Dates are always relative to "today" (last ~4 months), so demos stay fresh
- * when you re-run the script months later.
+ * All dates are relative to a fixed seed "today" (SEED_AS_OF). Nothing in the
+ * demo data is allowed to fall after that calendar day — invoices, payments,
+ * notes, collection dates, deadlines, batch timestamps, etc.
  *
  * Usage:
  *   npm run seed-demo -- "ABC Trucking"
@@ -58,7 +59,10 @@ function readPositionalArgs(): {
   return { clientName, dryRun, wipeOnly }
 }
 
-// ─── Date helpers (relative to today) ────────────────────────────────────────
+// ─── Date helpers (relative to fixed seed "today") ───────────────────────────
+
+/** Fixed demo as-of date — no seeded activity may occur after this day. */
+const SEED_AS_OF = new Date(2026, 7, 5) // Aug 5, 2026
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
@@ -75,19 +79,53 @@ function addDays(base: Date, days: number): Date {
   return d
 }
 
-/** Day `day` of the month that is `monthsAgo` months before today (clamped). */
-function dateInMonth(monthsAgo: number, day: number): Date {
-  const now = new Date()
-  const d = new Date(now.getFullYear(), now.getMonth() - monthsAgo, 1)
-  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
-  d.setDate(Math.min(Math.max(1, day), last))
-  return d
+/** Never return a calendar day after the seed as-of date. */
+function clampToAsOf(d: Date, asOf: Date = SEED_AS_OF): Date {
+  const a = new Date(asOf)
+  a.setHours(23, 59, 59, 999)
+  return d.getTime() > a.getTime() ? new Date(asOf) : d
 }
 
-function isoAt(date: Date, hour = 14, minute = 0): string {
-  const d = new Date(date)
+/** Clamp a YYYY-MM-DD string to ≤ as-of. */
+function clampDateStr(value: string | null | undefined, asOf: Date = SEED_AS_OF): string | null {
+  if (value == null) return null
+  const max = toDateStr(asOf)
+  return value > max ? max : value
+}
+
+/** Day `day` of the month that is `monthsAgo` months before asOf (clamped to asOf). */
+function dateInMonth(monthsAgo: number, day: number, asOf: Date = SEED_AS_OF): Date {
+  const d = new Date(asOf.getFullYear(), asOf.getMonth() - monthsAgo, 1)
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  // Current month: never schedule invoice days after the as-of day.
+  const maxDay = monthsAgo === 0 ? Math.min(asOf.getDate(), last) : last
+  d.setDate(Math.min(Math.max(1, day), maxDay))
+  return clampToAsOf(d, asOf)
+}
+
+function isoAt(date: Date, hour = 14, minute = 0, asOf: Date = SEED_AS_OF): string {
+  const d = new Date(clampToAsOf(date, asOf))
   d.setHours(hour, minute, 0, 0)
+  // If local wall-clock still lands after as-of end-of-day, pin to as-of noon.
+  const asOfEnd = new Date(asOf)
+  asOfEnd.setHours(23, 59, 59, 999)
+  if (d.getTime() > asOfEnd.getTime()) {
+    const pinned = new Date(asOf)
+    pinned.setHours(Math.min(hour, 12), minute, 0, 0)
+    return pinned.toISOString()
+  }
   return d.toISOString()
+}
+
+/** Clamp an existing ISO timestamp so it never falls after as-of. */
+function clampIso(iso: string | null | undefined, asOf: Date = SEED_AS_OF): string | null {
+  if (iso == null) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const asOfEnd = new Date(asOf)
+  asOfEnd.setHours(23, 59, 59, 999)
+  if (d.getTime() <= asOfEnd.getTime()) return iso
+  return isoAt(asOf, d.getHours(), d.getMinutes(), asOf)
 }
 
 function daysBetween(from: Date, to: Date): number {
@@ -180,8 +218,9 @@ interface DemoInvoiceSpec {
   /** Net terms days (used when daysPastExpected is omitted) */
   termsDays: number
   /**
-   * Days past expected payment as of today (drives Aging A/R + overdue).
-   * Positive = past due; 0 = due today; negative = due in N days.
+   * Days past expected payment as of seed as-of (drives Aging A/R + overdue).
+   * Positive = past due; 0 = due on as-of day.
+   * Values that would put due after as-of are clamped to as-of.
    * When set, overrides invoice_date + termsDays for due/expected.
    */
   daysPastExpected?: number
@@ -203,7 +242,7 @@ interface DemoVaultDocSpec {
   category: 'broker' | 'compliance' | 'other'
   document_type: string
   notes?: string
-  /** Days until expiration reminder (omit = no expiry). */
+  /** Days until expiration reminder (omit = no expiry). Must stay ≤ SEED_AS_OF when resolved. */
   expiresInDays?: number
   /** Only seed when client.factoring is true. */
   factoringOnly?: boolean
@@ -225,7 +264,6 @@ const VAULT_DOC_SPECS: DemoVaultDocSpec[] = [
     category: 'compliance',
     document_type: 'coi',
     notes: 'Liability + cargo coverage verified.',
-    expiresInDays: 320,
   },
   {
     key: 'mc-authority',
@@ -476,13 +514,13 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     docsSent: true,
   },
 
-  // ── Current month ──
+  // ── Current month (all invoice days ≤ seed as-of day = Aug 5) ──
   {
     key: 'm0-paid-recent',
     invoiceNumber: '2400',
     loadNumber: 'LD-90990',
     monthsAgo: 0,
-    day: 5,
+    day: 3,
     termsDays: 15,
     paidDaysAgo: 2, // payment in last 7 days
     amount: 1650,
@@ -496,9 +534,9 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     invoiceNumber: '2401',
     loadNumber: 'LD-91001',
     monthsAgo: 0,
-    day: 2,
+    day: 1,
     termsDays: 30,
-    daysPastExpected: -14,
+    daysPastExpected: 0, // due today — current aging bucket
     amount: 2250,
     brokerIndex: 1,
     batch: 0,
@@ -510,9 +548,9 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     invoiceNumber: '2402',
     loadNumber: 'LD-91014',
     monthsAgo: 0,
-    day: 8,
+    day: 2,
     termsDays: 30,
-    daysPastExpected: -7,
+    daysPastExpected: 0,
     amount: 1890,
     brokerIndex: 3,
     batch: 0,
@@ -524,7 +562,7 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     invoiceNumber: '2403',
     loadNumber: 'LD-91028',
     monthsAgo: 0,
-    day: 12,
+    day: 2,
     termsDays: 30,
     daysPastExpected: 6,
     amount: 3400,
@@ -538,9 +576,9 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     invoiceNumber: '2404',
     loadNumber: 'LD-91040',
     monthsAgo: 0,
-    day: 15,
+    day: 4,
     termsDays: 30,
-    daysPastExpected: -10,
+    daysPastExpected: 0,
     amount: 1425,
     brokerIndex: 0,
     batch: 0,
@@ -552,9 +590,9 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     invoiceNumber: '2405',
     loadNumber: 'LD-91055',
     monthsAgo: 0,
-    day: 18,
+    day: 4,
     termsDays: 30,
-    daysPastExpected: -12,
+    daysPastExpected: 0,
     amount: 2675,
     brokerIndex: 1,
     batch: 0,
@@ -566,9 +604,9 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     invoiceNumber: '2406',
     loadNumber: 'LD-91070',
     monthsAgo: 0,
-    day: 20,
+    day: 5,
     termsDays: 30,
-    daysPastExpected: -3,
+    daysPastExpected: 0,
     amount: 980,
     brokerIndex: 3,
     batch: 0,
@@ -576,13 +614,13 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     docsSent: true,
   },
 
-  // ── Payment variance showcase (current month) ──
+  // ── Payment variance showcase (current month, days ≤ 5) ──
   {
     key: 'm0-short-confirmed',
     invoiceNumber: '2407',
     loadNumber: 'LD-91082',
     monthsAgo: 0,
-    day: 10,
+    day: 1,
     termsDays: 30,
     daysPastExpected: 4,
     amount: 2800,
@@ -596,7 +634,7 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     invoiceNumber: '2408',
     loadNumber: 'LD-91090',
     monthsAgo: 0,
-    day: 11,
+    day: 2,
     termsDays: 30,
     daysPastExpected: 2,
     amount: 2100,
@@ -610,7 +648,7 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     invoiceNumber: '2409',
     loadNumber: 'LD-91102',
     monthsAgo: 0,
-    day: 13,
+    day: 3,
     termsDays: 30,
     daysPastExpected: 1,
     amount: 1950,
@@ -624,7 +662,7 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     invoiceNumber: '2410',
     loadNumber: 'LD-91114',
     monthsAgo: 0,
-    day: 14,
+    day: 4,
     termsDays: 30,
     daysPastExpected: 3,
     amount: 3200,
@@ -638,7 +676,7 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     invoiceNumber: '2411',
     loadNumber: 'LD-91126',
     monthsAgo: 0,
-    day: 16,
+    day: 5,
     termsDays: 30,
     daysPastExpected: 9,
     amount: 2500,
@@ -715,13 +753,14 @@ function buildVaultDocuments(
   factoring: boolean,
   today: Date
 ): Json[] {
-  const uploadedAt = isoAt(addDays(today, -45), 10, 20)
-  const approvedAt = isoAt(addDays(today, -44), 14, 5)
+  const uploadedAt = isoAt(addDays(today, -45), 10, 20, today)
+  const approvedAt = isoAt(addDays(today, -44), 14, 5, today)
 
   return VAULT_DOC_SPECS.filter((spec) => !spec.factoringOnly || factoring).map((spec, index) => {
+    // Expiry must not land after seed as-of (0 = expires today).
     const expires_at =
       typeof spec.expiresInDays === 'number'
-        ? isoAt(addDays(today, spec.expiresInDays), 0, 0)
+        ? isoAt(addDays(today, -Math.abs(spec.expiresInDays)), 0, 0, today)
         : null
 
     return {
@@ -765,13 +804,14 @@ function buildInvoice(
   broker: DemoBroker,
   today: Date
 ): BuiltInvoice {
-  const invDate = dateInMonth(spec.monthsAgo, spec.day)
-  let due = addDays(invDate, spec.termsDays)
+  const invDate = dateInMonth(spec.monthsAgo, spec.day, today)
+  let due = clampToAsOf(addDays(invDate, spec.termsDays), today)
   let expected = new Date(due)
 
   // Explicit aging target (relative to today) — keeps Aging A/R chart realistic
   if (typeof spec.daysPastExpected === 'number') {
-    expected = addDays(today, -spec.daysPastExpected)
+    // Negative daysPastExpected would put due after as-of — clamp to today (current bucket).
+    expected = clampToAsOf(addDays(today, -spec.daysPastExpected), today)
     due = new Date(expected)
   }
 
@@ -952,7 +992,8 @@ function buildInvoice(
       broker_contacted = true
       last_broker_contact = lastChase
       collection_status = 'C/B'
-      collection_date = toDateStr(addDays(today, 3))
+      // Callback / follow-up scheduled for as-of day (never in the future).
+      collection_date = toDateStr(today)
       break
     }
     case 'force_closed': {
@@ -1117,7 +1158,8 @@ function buildInvoice(
     case 'awaiting_confirm': {
       status = 'approved'
       const payDate = addDays(today, -2)
-      const deadline = addDays(today, 5)
+      // Confirmation deadline is as-of (action due today — never after seed day).
+      const deadline = today
       notes.push(
         note(
           `note-${spec.key}-posted`,
@@ -1168,7 +1210,7 @@ function buildInvoice(
       const shortfall = 450
       const paidAmt = Math.round((spec.amount - shortfall) * 100) / 100
       const payDate = addDays(today, -1)
-      const deadline = addDays(today, 4)
+      const deadline = today
       notes.push(
         note(
           `note-${spec.key}-short`,
@@ -1290,7 +1332,7 @@ function buildInvoice(
       const overage = 125
       const paidAmt = Math.round((spec.amount + overage) * 100) / 100
       const payDate = addDays(today, -1)
-      const deadline = addDays(today, 5)
+      const deadline = today
       notes.push(
         note(
           `note-${spec.key}-over`,
@@ -1574,7 +1616,7 @@ function buildInvoice(
     case 'will_pay': {
       status = 'approved'
       collection_status = 'W/P'
-      collection_date = toDateStr(addDays(today, 5))
+      collection_date = toDateStr(today)
       broker_contacted = true
       last_broker_contact = isoAt(addDays(today, -3), 14, 0)
       notes.push(
@@ -1592,7 +1634,7 @@ function buildInvoice(
     case 'callback': {
       status = 'approved'
       collection_status = 'C/B'
-      collection_date = toDateStr(addDays(today, 2))
+      collection_date = toDateStr(today)
       broker_contacted = true
       last_broker_contact = isoAt(addDays(today, -1), 15, 45)
       notes.push(
@@ -1636,6 +1678,38 @@ function buildInvoice(
     days_since_expected = daysBetween(expected, today)
   }
 
+  const asOfIso = isoAt(today, 12, 0, today)
+
+  // Final pass: no invoice / note / payment timestamp may land after seed as-of.
+  const clampedNotes = notes.map((n) => ({
+    ...n,
+    created_at: clampIso(String(n.created_at ?? ''), today) ?? asOfIso,
+  }))
+  const clampedDisputes = disputes.map((d) => ({
+    ...d,
+    created_at: clampIso(String(d.created_at ?? ''), today) ?? asOfIso,
+    resolved_at: d.resolved_at
+      ? clampIso(String(d.resolved_at), today)
+      : d.resolved_at,
+    responded_at: d.responded_at
+      ? clampIso(String(d.responded_at), today)
+      : d.responded_at,
+  }))
+  const clampedSendHistory = document_send_history.map((s) => ({
+    ...s,
+    sent_at: clampIso(String(s.sent_at ?? ''), today) ?? asOfIso,
+  }))
+  const clampedWriteOff =
+    write_off_request == null
+      ? null
+      : {
+          ...write_off_request,
+          requested_at: clampIso(String(write_off_request.requested_at ?? ''), today),
+          resolved_at: write_off_request.resolved_at
+            ? clampIso(String(write_off_request.resolved_at), today)
+            : write_off_request.resolved_at,
+        }
+
   const row: Json = {
     id: invoiceId,
     invoice_number: spec.invoiceNumber,
@@ -1645,16 +1719,19 @@ function buildInvoice(
     broker_name: broker.name,
     amount: spec.amount,
     paid_amount,
-    overpayment_accepted_at,
-    write_off_request,
-    invoice_date: toDateStr(invDate),
-    due_date: toDateStr(due),
-    expected_payment_date: toDateStr(expected),
+    overpayment_accepted_at: clampIso(
+      overpayment_accepted_at == null ? null : String(overpayment_accepted_at),
+      today
+    ),
+    write_off_request: clampedWriteOff,
+    invoice_date: clampDateStr(toDateStr(invDate), today),
+    due_date: clampDateStr(toDateStr(due), today),
+    expected_payment_date: clampDateStr(toDateStr(expected), today),
     status,
     load_number: spec.loadNumber,
     batch_id: batchId,
     batch_number: batchNumber,
-    reviewed_at: status === 'pending' ? null : approvedAt,
+    reviewed_at: status === 'pending' ? null : clampIso(approvedAt, today),
     reviewed_by: status === 'pending' ? null : OPS,
     approved_by:
       status === 'approved' ||
@@ -1668,24 +1745,27 @@ function buildInvoice(
       status === 'paid' ||
       status === 'force_closed' ||
       status === 'written_off'
-        ? approvedAt
+        ? clampIso(approvedAt, today)
         : null,
     hold_reason,
     notes: hold_reason,
-    notes_history: notes,
-    disputes,
+    notes_history: clampedNotes,
+    disputes: clampedDisputes,
     documents_count: spec.docsSent === false ? 1 : 4,
     broker_contacted,
-    last_broker_contact,
+    last_broker_contact: clampIso(
+      last_broker_contact == null ? null : String(last_broker_contact),
+      today
+    ),
     days_since_expected,
-    document_send_history,
+    document_send_history: clampedSendHistory,
     remittance_snapshot: null,
-    collection_date,
+    collection_date: clampDateStr(collection_date, today),
     collection_status,
     verification_status: 'Email',
     contact_persons: ['AP Desk', 'Dispatcher'],
     selected_contact_person: 'AP Desk',
-    ai_confirmed_at: isoAt(invDate, 10, 45),
+    ai_confirmed_at: clampIso(isoAt(invDate, 10, 45, today), today),
     ai_confirmed_by: CARRIER_CONTACT,
     ai_review_status: status === 'pending' ? 'running' : 'ready',
     ai_review_summary:
@@ -1694,19 +1774,100 @@ function buildInvoice(
       fee_type: 'percentage',
       fee_percentage: 1,
       billing_mode: 'billable',
-      locked_at: createdAt,
+      locked_at: clampIso(createdAt, today),
     },
-    created_at: createdAt,
-    updated_at: new Date().toISOString(),
+    created_at: clampIso(createdAt, today),
+    updated_at: asOfIso,
   }
 
-  return { row, payments }
+  const clampedPayments = payments.map((p) => ({
+    ...p,
+    payment_date: clampDateStr(String(p.payment_date ?? ''), today),
+    received_date: clampDateStr(String(p.received_date ?? ''), today),
+    confirmed_at: p.confirmed_at ? clampIso(String(p.confirmed_at), today) : p.confirmed_at,
+    client_confirmed_at: p.client_confirmed_at
+      ? clampIso(String(p.client_confirmed_at), today)
+      : p.client_confirmed_at,
+    client_confirmation_deadline: p.client_confirmation_deadline
+      ? clampDateStr(String(p.client_confirmation_deadline), today)
+      : p.client_confirmation_deadline,
+  }))
+
+  return { row, payments: clampedPayments }
+}
+
+/** Walk every seeded invoice/payment and fail if any calendar day is after as-of. */
+function collectDateViolations(today: Date): string[] {
+  const max = toDateStr(today)
+  const violations: string[] = []
+
+  const checkYmd = (label: string, value: unknown) => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(value)) return
+    const day = value.slice(0, 10)
+    if (day > max) violations.push(`${label}=${day}`)
+  }
+  const checkIso = (label: string, value: unknown) => {
+    if (typeof value !== 'string' || !value.includes('T')) return
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return
+    if (toDateStr(d) > max) violations.push(`${label}=${value}`)
+  }
+  const walk = (label: string, value: unknown) => {
+    if (value == null) return
+    if (typeof value === 'string') {
+      checkYmd(label, value)
+      checkIso(label, value)
+      return
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item, i) => walk(`${label}[${i}]`, item))
+      return
+    }
+    if (typeof value === 'object') {
+      for (const [k, v] of Object.entries(value as Json)) {
+        walk(`${label}.${k}`, v)
+      }
+    }
+  }
+
+  for (const spec of INVOICE_SPECS) {
+    const broker = DEMO_BROKERS[spec.brokerIndex % DEMO_BROKERS.length]
+    const built = buildInvoice(
+      spec,
+      'client-verify',
+      'Verify Client',
+      `batch-${DEMO_TAG}-m${spec.batch}`,
+      `VER-M${spec.batch}`,
+      broker,
+      today
+    )
+    walk(`inv:${spec.key}`, built.row)
+    built.payments.forEach((p, i) => walk(`inv:${spec.key}.pay[${i}]`, p))
+  }
+
+  walk('vault', buildVaultDocuments('client-verify', false, today))
+  return violations
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   loadEnvFile()
+
+  const today = new Date(SEED_AS_OF)
+  today.setHours(12, 0, 0, 0)
+
+  // Offline date audit — no Supabase required.
+  if (hasFlag('--verify-dates') || process.argv.includes('verify-dates')) {
+    const violations = collectDateViolations(today)
+    if (violations.length) {
+      console.error(`Seed date violations after ${toDateStr(today)}:`)
+      for (const v of violations) console.error(`  - ${v}`)
+      process.exit(1)
+    }
+    console.log(`OK — all seeded dates are ≤ ${toDateStr(today)} (${INVOICE_SPECS.length} invoices)`)
+    return
+  }
 
   const baseUrl = process.env.VITE_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -1722,12 +1883,9 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  const today = new Date()
-  today.setHours(12, 0, 0, 0)
-
   console.log(`\nCredyx demo seed`)
-  console.log(`  As of:     ${toDateStr(today)}`)
-  console.log(`  Window:    last 4 months (relative)`)
+  console.log(`  As of:     ${toDateStr(today)} (fixed seed day — no dates after this)`)
+  console.log(`  Window:    last 4 months (relative to as-of)`)
   console.log(`  Client:    ${clientIdArg ?? clientNameArg}`)
   console.log(`  Dry run:   ${dryRun}`)
   console.log(`  Wipe only: ${wipeOnly}\n`)
@@ -1895,7 +2053,7 @@ async function main(): Promise<void> {
       email: b.email,
       phone: '555-0100',
       payment_terms_days: 30,
-      updated_at: new Date().toISOString(),
+      updated_at: isoAt(today, 12, 0),
     }
     const res = await rest(baseUrl, serviceKey, 'brokers?on_conflict=id', {
       method: 'POST',
@@ -1975,7 +2133,7 @@ async function main(): Promise<void> {
       approved_count: specs.filter((s) => s.scenario !== 'hold_dispute').length,
       rejected_count: 0,
       created_at: isoAt(submitted, 10, 0),
-      updated_at: new Date().toISOString(),
+      updated_at: isoAt(today, 12, 0),
     }
   })
 
@@ -2060,7 +2218,7 @@ async function main(): Promise<void> {
   console.log(`  Payments: ${paymentRows.length}`)
   console.log(`  Vault:    ${vaultRows.length} approved docs (setup complete)`)
   console.log('  Mix:', byScenario)
-  console.log('\nRe-run anytime to refresh dates to the latest 4 months:')
+  console.log('\nRe-run anytime to refresh demo A/R (dates stay relative to seed as-of 2026-08-05):')
   console.log(`  npm run seed-demo -- "${clientName}"`)
   console.log('')
 }

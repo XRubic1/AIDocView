@@ -69,7 +69,7 @@ describe('declutterActivityEntries', () => {
     expect(pay?.meta).toBeUndefined()
 
     const send = out.find((e) => e.title === 'Sent to broker')
-    expect(send?.detail).toBe('Delivered')
+    expect(send?.detail).toBe('ap@tql.example · Delivered')
     expect(send?.meta).toBe('4 files')
   })
 })

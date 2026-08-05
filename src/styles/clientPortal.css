@@ -2904,6 +2904,56 @@
   gap: 6px;
 }
 
+.client-portal .invoice-admin-status-actions__btn--selected {
+  border-color: var(--cp-accent, #1684fe) !important;
+  color: var(--cp-accent, #1684fe) !important;
+  background: color-mix(in srgb, #1684fe 10%, transparent) !important;
+}
+
+.client-portal .invoice-admin-status-actions__confirm-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.client-portal .payment-confirmation-panel__note-row-delete-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.client-portal .payment-confirmation-panel__note-row-delete-label {
+  font-size: 0.6875rem;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .payment-confirmation-panel__note-row-delete-yes,
+.client-portal .payment-confirmation-panel__note-row-delete-no {
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--cp-border);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--cp-card, #fff);
+  color: var(--cp-text);
+}
+
+.client-portal .payment-confirmation-panel__note-row-delete-yes {
+  border-color: color-mix(in srgb, #ef4444 40%, var(--cp-border));
+  color: #dc2626;
+  background: color-mix(in srgb, #ef4444 8%, transparent);
+}
+
+.client-portal .payment-confirmation-panel__note-row--pending-delete {
+  background: color-mix(in srgb, #ef4444 4%, transparent);
+}
+
 .client-portal .payment-confirmation-panel__note-internal {
   display: inline-flex;
   align-items: center;
@@ -3590,6 +3640,7 @@
 .client-portal .client-main--flush .client-short-payments-page,
 .client-portal .client-main--flush .client-documents-page,
 .client-portal .client-main--flush .client-brokers-page,
+.client-portal .client-main--flush .admin-brokers-page,
 .client-portal .client-main--flush .client-settings-page,
 .client-portal .client-main--flush .client-reports-page,
 .client-portal .client-main--flush .assistant-page {
@@ -9683,7 +9734,8 @@
 }
 
 /* ── Brokers page ── */
-.client-portal .client-brokers-page {
+.client-portal .client-brokers-page,
+.client-portal .admin-brokers-page {
   flex: 1 1 0;
   height: 0;
   display: flex;
@@ -9693,6 +9745,132 @@
   border: none;
   border-radius: 0;
   box-shadow: none;
+}
+
+/* Admin brokers list — fit viewport, no horizontal scroll */
+.client-portal .admin-brokers-page .client-table-scroll {
+  overflow-x: hidden;
+}
+
+.client-portal .admin-brokers-page .dashboard-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.client-portal .admin-brokers-page .dashboard-table th,
+.client-portal .admin-brokers-page .dashboard-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.client-portal .admin-brokers-page .admin-brokers-col-name {
+  width: 22%;
+}
+
+.client-portal .admin-brokers-page .admin-brokers-col-contact {
+  width: 14%;
+}
+
+.client-portal .admin-brokers-page .admin-brokers-col-email {
+  width: 20%;
+}
+
+.client-portal .admin-brokers-page .admin-brokers-col-phone {
+  width: 14%;
+}
+
+.client-portal .admin-brokers-page .admin-brokers-col-terms {
+  width: 8%;
+}
+
+.client-portal .admin-brokers-page .admin-brokers-col-loc {
+  width: 12%;
+}
+
+.client-portal .admin-brokers-page .admin-brokers-col-mc {
+  width: 10%;
+}
+
+.client-portal .admin-brokers-page .admin-brokers-col-dot {
+  width: 10%;
+}
+
+/* Edit/Add broker modal — full-screen, sectioned layout */
+.client-portal .broker-form-modal {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+}
+
+.client-portal .broker-form-scroll {
+  padding: 16px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--cp-bg, #f8fafc) 88%, #e2e8f0);
+}
+
+@media (min-width: 640px) {
+  .client-portal .broker-form-scroll {
+    padding: 20px 24px;
+  }
+}
+
+.client-portal .broker-form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+@media (min-width: 900px) {
+  .client-portal .broker-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .client-portal .broker-form-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+  }
+
+  .client-portal .broker-form-section--notes {
+    grid-column: 1 / -1;
+  }
+}
+
+.client-portal .broker-form-section--tall {
+  min-height: 12rem;
+}
+
+.client-portal .broker-form-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.client-portal .broker-form-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--cp-border, #cbd5e1) 80%, #94a3b8);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.client-portal .broker-form-field,
+.client-portal .broker-form-modal select.broker-form-field {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .client-portal .broker-pay-rating {
@@ -10855,12 +11033,47 @@
   color: #475569;
 }
 
+.client-portal .payment-confirmation-panel__note-row-aside {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .client-portal .payment-confirmation-panel__note-row-date {
   flex-shrink: 0;
   font-size: 0.6875rem;
   font-weight: 500;
   color: var(--cp-text-muted);
   opacity: 0.9;
+}
+
+.client-portal .payment-confirmation-panel__note-row-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cp-text-muted);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.client-portal .payment-confirmation-panel__note-row:hover .payment-confirmation-panel__note-row-remove,
+.client-portal .payment-confirmation-panel__note-row-remove:focus-visible {
+  opacity: 1;
+}
+
+.client-portal .payment-confirmation-panel__note-row-remove:hover,
+.client-portal .payment-confirmation-panel__note-row-remove:focus-visible {
+  color: #dc2626;
+  background: color-mix(in srgb, #ef4444 10%, transparent);
 }
 
 .client-portal .payment-confirmation-panel__note-row-detail {

@@ -20,6 +20,7 @@ import { buildPaymentConfirmationNote } from './clientInvoiceActions'
 import { logAuditEvent } from '../utils/auditLogger'
 import { isPostableForPayment, isAdminPostableForPayment } from '../utils/invoiceAging'
 import { formatCurrency } from '../utils/format'
+import { resolveDueDatesFromBroker } from '../utils/invoiceDueDate'
 import {
   notifyAdminPaymentReported,
   notifyAdminWriteOffRequested,
@@ -819,9 +820,7 @@ function buildAdHocInvoicePayload(
     (b) => b.name.toLowerCase() === input.brokerName.trim().toLowerCase()
   )
   const today = new Date().toISOString().split('T')[0]
-  const due = new Date()
-  due.setDate(due.getDate() + 30)
-  const dueStr = due.toISOString().split('T')[0]
+  const dueDates = resolveDueDatesFromBroker(broker?.payment_terms_days)
 
   return {
     invoice_number: input.invoiceNumber.trim(),
@@ -831,8 +830,7 @@ function buildAdHocInvoicePayload(
     broker_name: input.brokerName.trim(),
     amount: input.amount,
     invoice_date: today,
-    due_date: dueStr,
-    expected_payment_date: dueStr,
+    ...dueDates,
     status: 'approved',
     approved_at: new Date().toISOString(),
     approved_by: authorName,

@@ -13,12 +13,14 @@ export const formatCurrency = (amount: number): string => {
 }
 
 /**
- * Formats a date string to MM/DD/YYYY format
- * @param dateString - ISO date string
- * @returns Formatted date string
+ * Formats a date string to MM/DD/YYYY format.
+ * Empty / missing dates render as an em dash.
  */
-export const formatDate = (dateString: string): string => {
-  return new Date(dateString).toLocaleDateString('en-US', {
+export const formatDate = (dateString?: string | null): string => {
+  if (!dateString?.trim()) return '—'
+  const d = new Date(dateString)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('en-US', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

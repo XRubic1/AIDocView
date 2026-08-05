@@ -1,5 +1,6 @@
 import { addBroker, mockBrokers } from '../data/mockBrokers'
 import { getNextClientInvoiceNumber } from '../utils/clientInvoiceNumbers'
+import { resolveDueDatesFromBroker } from '../utils/invoiceDueDate'
 import type { CredyxInvoiceDraft } from '../types/credyxBatch'
 import type { Invoice } from '../types/invoice'
 import { buildInvoiceDraftFromGroup } from '../products/docSort/services/docSortInvoice'
@@ -77,8 +78,8 @@ export function draftToInvoiceFields(
   clientId: string,
   clientName: string
 ): Omit<Invoice, 'id' | 'created_at' | 'batch_id' | 'batch_number'> {
-  const due = new Date()
-  due.setDate(due.getDate() + 30)
+  const broker = mockBrokers.find((b) => b.id === draft.broker_id)
+  const dueDates = resolveDueDatesFromBroker(broker?.payment_terms_days)
   const docCount =
     draft.document_doc_ids.length + (draft.invoice_pdf ? 1 : 0)
 
@@ -90,8 +91,7 @@ export function draftToInvoiceFields(
     broker_name: draft.broker_name,
     amount: draft.amount,
     invoice_date: draft.invoice_date,
-    due_date: due.toISOString().split('T')[0],
-    expected_payment_date: due.toISOString().split('T')[0],
+    ...dueDates,
     status: 'pending',
     load_number: draft.load_number,
     documents_count: docCount,
