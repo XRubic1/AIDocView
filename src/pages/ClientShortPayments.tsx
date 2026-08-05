@@ -631,7 +631,7 @@ export default function ClientShortPayments() {
                               </button>
                               {row.resolution === 'open' &&
                                 capabilities.canRequestWriteOff &&
-                                canCloseShortPaymentAsUncollectable(row.invoice, payments) && (
+                                canCloseShortPaymentAsUncollectable(row.invoice, clientPayments) && (
                                 <button
                                   type="button"
                                   onClick={() => setCloseTarget(row)}
