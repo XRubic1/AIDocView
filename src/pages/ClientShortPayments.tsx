@@ -30,6 +30,7 @@ import {
   type SortDir,
 } from '../utils/clientListPage'
 import {
+  canCloseShortPaymentAsUncollectable,
   filterShortPaymentsByResolution,
   listShortPayments,
   type ShortPaymentRecord,
@@ -628,7 +629,9 @@ export default function ClientShortPayments() {
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
-                              {row.resolution === 'open' && capabilities.canRequestWriteOff && (
+                              {row.resolution === 'open' &&
+                                capabilities.canRequestWriteOff &&
+                                canCloseShortPaymentAsUncollectable(row.invoice, payments) && (
                                 <button
                                   type="button"
                                   onClick={() => setCloseTarget(row)}

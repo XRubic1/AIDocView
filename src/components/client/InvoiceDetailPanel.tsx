@@ -44,6 +44,7 @@ import { markAssistantInvoiceDocsUploaded } from '../../utils/assistantTaskStore
 import {
   buildShortPaymentRecord,
   canCloseShortPaymentAsUncollectable,
+  canOfferWriteOffWithPostedShortfall,
 } from '../../utils/shortPayments'
 import {
   buildOverpaymentRecord,
@@ -317,9 +318,7 @@ export default function InvoiceDetailPanel({
     invoicePayments.length > 0 ? buildOverpaymentRecord(visibleInvoice, invoicePayments) : null
 
   const canWriteOff =
-    capabilities.canRequestWriteOff &&
-    shortPayment?.resolution === 'open' &&
-    canCloseShortPaymentAsUncollectable(invoice)
+    capabilities.canRequestWriteOff && canCloseShortPaymentAsUncollectable(invoice, payments)
   const canAcceptOver =
     overpayment?.resolution === 'open' &&
     canAcceptOverpayment(invoice, payments) &&
@@ -2012,8 +2011,7 @@ export default function InvoiceDetailPanel({
                     : 0
                 const canOfferWriteOff =
                   capabilities.canRequestWriteOff &&
-                  canCloseShortPaymentAsUncollectable(invoice) &&
-                  shortfallAfterPost >= AMOUNT_EPSILON
+                  canOfferWriteOffWithPostedShortfall(invoice, payments, shortfallAfterPost)
 
                 return (
                   <>

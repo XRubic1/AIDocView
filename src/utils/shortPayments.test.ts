@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canCloseShortPaymentAsUncollectable,
   getInvoiceAppliedForVariance,
   isShortPaymentInvoice,
   listShortPayments,
@@ -63,5 +64,23 @@ describe('shortPayments — list all variances', () => {
     const rows = listShortPayments([invoice], payments)
     expect(rows).toHaveLength(1)
     expect(rows[0].shortfall_amount).toBe(1000)
+  })
+})
+
+describe('shortPayments — write-off eligibility', () => {
+  it('blocks write-off while remittance awaits confirmation', () => {
+    const invoice = inv()
+    const payments = [pay({ status: 'awaiting_receipt', amount: 2550 })]
+    expect(canCloseShortPaymentAsUncollectable(invoice, payments)).toBe(false)
+  })
+
+  it('allows write-off only after short payment is confirmed', () => {
+    const invoice = inv()
+    const payments = [pay({ status: 'confirmed', amount: 2550 })]
+    expect(canCloseShortPaymentAsUncollectable(invoice, payments)).toBe(true)
+  })
+
+  it('blocks write-off when nothing is confirmed yet', () => {
+    expect(canCloseShortPaymentAsUncollectable(inv(), [])).toBe(false)
   })
 })

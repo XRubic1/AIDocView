@@ -6,7 +6,6 @@ import {
   canCloseShortPaymentAsUncollectable,
   getInvoiceReceivedAmount,
   getShortfallAmount,
-  isShortPaymentInvoice,
 } from '../utils/shortPayments'
 import {
   canAcceptOverpayment,
@@ -229,13 +228,13 @@ export function closeClientInvoiceAsUncollectable(
 
   const caps = getClientCapabilities(getClientById(invoice.client_id)?.service_tier)
   if (!(capabilities?.canRequestWriteOff ?? caps.canRequestWriteOff)) return undefined
-  if (!canCloseShortPaymentAsUncollectable(invoice)) return undefined
+  if (!canCloseShortPaymentAsUncollectable(invoice, payments)) return undefined
   if (payments.some((p) => p.invoice_id === invoiceId && p.status === 'pending')) return undefined
 
   const received = getInvoiceReceivedAmount(invoice, payments)
-  if (!isShortPaymentInvoice(invoice, payments)) return undefined
-
+  if (received <= 0.01) return undefined
   const shortfall = getShortfallAmount(invoice, received)
+  if (shortfall < 0.01) return undefined
   const now = new Date().toISOString()
   const confirmNote: InvoiceNote = {
     id: `note-close-confirm-${Date.now()}`,

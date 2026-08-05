@@ -12,7 +12,7 @@ import {
   type PostPaymentResult,
 } from '../../services/clientPaymentService'
 import { isPostableForPayment } from '../../utils/invoiceAging'
-import { canCloseShortPaymentAsUncollectable } from '../../utils/shortPayments'
+import { canOfferWriteOffWithPostedShortfall } from '../../utils/shortPayments'
 import {
   getInvoicePostStatusClass,
   getInvoicePostStatusLabel,
@@ -120,8 +120,7 @@ export default function PostPaymentForm({
     selectionMode === 'existing' &&
     !!selected &&
     capabilities.canRequestWriteOff &&
-    canCloseShortPaymentAsUncollectable(selected) &&
-    shortfallAfterPost >= AMOUNT_EPSILON
+    canOfferWriteOffWithPostedShortfall(selected, payments, shortfallAfterPost)
 
   const selectInvoice = useCallback((invoice: Invoice) => {
     if (!isPostableForPayment(invoice)) {

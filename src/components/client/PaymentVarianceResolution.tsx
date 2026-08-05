@@ -48,7 +48,9 @@ export default function PaymentVarianceResolution({
 
   const isShort = result.variance === 'short'
   const canResolveShort =
-    isShort && isShortPaymentInvoice(invoice, payments) && canCloseShortPaymentAsUncollectable(invoice)
+    isShort &&
+    isShortPaymentInvoice(invoice, payments) &&
+    canCloseShortPaymentAsUncollectable(invoice, payments)
   const canResolveOver = !isShort && canAcceptOverpayment(invoice, payments)
 
   const handleResolve = async () => {

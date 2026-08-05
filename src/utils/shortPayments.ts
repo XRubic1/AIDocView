@@ -60,7 +60,8 @@ export function isShortPaymentInvoice(invoice: Invoice, payments: Payment[]): bo
   return getShortfallAmount(invoice, applied) >= AMOUNT_EPSILON
 }
 
-export function canCloseShortPaymentAsUncollectable(invoice: Invoice): boolean {
+/** Invoice status allows a write-off request (not already closed / pending). */
+export function isWriteOffStatusEligible(invoice: Invoice): boolean {
   if (
     invoice.status === 'written_off' ||
     invoice.status === 'write_off_pending' ||
@@ -69,6 +70,41 @@ export function canCloseShortPaymentAsUncollectable(invoice: Invoice): boolean {
     return false
   }
   return invoice.status === 'approved' || invoice.status === 'paid'
+}
+
+/** True when any remittance on the invoice still awaits carrier confirmation. */
+export function hasAwaitingReceiptPayment(invoiceId: string, payments: Payment[]): boolean {
+  return payments.some((p) => p.invoice_id === invoiceId && p.status === 'awaiting_receipt')
+}
+
+/**
+ * Carrier may write off a shortfall only after remittance is confirmed.
+ * Awaiting-receipt short pays stay in Confirm — write-off is hidden until then.
+ */
+export function canCloseShortPaymentAsUncollectable(
+  invoice: Invoice,
+  payments: Payment[] = []
+): boolean {
+  if (!isWriteOffStatusEligible(invoice)) return false
+  if (hasAwaitingReceiptPayment(invoice.id, payments)) return false
+
+  const confirmed = getInvoiceReceivedAmount(invoice, payments)
+  if (confirmed <= AMOUNT_EPSILON) return false
+  return getShortfallAmount(invoice, confirmed) >= AMOUNT_EPSILON
+}
+
+/**
+ * Offer "write off remaining" while posting a short payment (payment will be confirmed
+ * in the same step). Still blocked if another remittance awaits confirmation.
+ */
+export function canOfferWriteOffWithPostedShortfall(
+  invoice: Invoice,
+  payments: Payment[],
+  shortfallAfterPost: number
+): boolean {
+  if (!isWriteOffStatusEligible(invoice)) return false
+  if (hasAwaitingReceiptPayment(invoice.id, payments)) return false
+  return shortfallAfterPost >= AMOUNT_EPSILON
 }
 
 export function getShortPaymentResolution(invoice: Invoice): ShortPaymentResolution {

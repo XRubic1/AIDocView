@@ -25,7 +25,10 @@ import {
   notifyAdminPaymentReported,
   notifyAdminWriteOffRequested,
 } from './adminNotificationService'
-import { canCloseShortPaymentAsUncollectable } from '../utils/shortPayments'
+import {
+  hasAwaitingReceiptPayment,
+  isWriteOffStatusEligible,
+} from '../utils/shortPayments'
 import { notifyClientPaymentPosted, type ClientPaymentNotifyKind } from '../data/mockNotifications'
 import {
   buildReceiptConfirmationDeadline,
@@ -958,8 +961,10 @@ export function postClientPaymentAndRequestWriteOff(
 
   const invoice = getInvoiceById(invoiceId)
   if (!invoice || !isPostableForPayment(invoice)) return undefined
-  if (!canCloseShortPaymentAsUncollectable(invoice)) return undefined
-  if (getPaymentsByInvoiceId(invoice.id).some((p) => p.status === 'pending')) return undefined
+  const existingPayments = getPaymentsByInvoiceId(invoice.id)
+  if (!isWriteOffStatusEligible(invoice)) return undefined
+  if (hasAwaitingReceiptPayment(invoice.id, existingPayments)) return undefined
+  if (existingPayments.some((p) => p.status === 'pending')) return undefined
 
   const caps = getClientCapabilities(getClientById(invoice.client_id)?.service_tier)
   if (!(capabilities?.canPostPayment ?? caps.canPostPayment)) return undefined
