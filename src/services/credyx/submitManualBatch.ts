@@ -1,5 +1,5 @@
-import { addBatch, addInvoicesForBatch, generateBatchNumber, updateBatch } from '../../data/mockBatches'
-import { updateInvoice } from '../../data/mockInvoices'
+import { addBatch, addInvoicesForBatch, generateBatchNumber, updateBatch, updateBatchTotals } from '../../data/mockBatches'
+import { deleteInvoice } from '../../data/mockInvoices'
 import { mergeBatchFiles } from '../../data/batchFileStore'
 import { resolveBrokerId } from '../../integrations/docSortToCredyx'
 import { getClientById } from '../../services/clientRegistry'
@@ -160,35 +160,41 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
     })
   }
 
-  const created = addInvoicesForBatch(batch.id, batchNumber, invoiceFields)
+  const created = addInvoicesForBatch(batch.id, batchNumber, invoiceFields, {
+    deferPersist: true,
+  })
 
   if (fileMap.size > 0) {
     mergeBatchFiles(batch.id, fileMap)
   }
 
   if (isSupabaseConfigured()) {
-    for (let i = 0; i < created.length; i++) {
-      const invoice = created[i]
-      const docFiles = docsByInvoiceIndex[i]
-      let storagePaths: Record<string, string> | undefined
+    try {
+      for (let i = 0; i < created.length; i++) {
+        const invoice = created[i]
+        const docFiles = docsByInvoiceIndex[i]
+        let storagePaths: Record<string, string> | undefined
 
-      if (docFiles.size > 0) {
-        storagePaths = await uploadBatchInvoiceDocuments(
-          clientId,
-          batch.id,
-          invoice.id,
-          docFiles
-        )
-        updateInvoice(invoice.id, { document_storage_paths: storagePaths })
-        Object.assign(invoice, { document_storage_paths: storagePaths })
-      }
+        if (docFiles.size > 0) {
+          storagePaths = await uploadBatchInvoiceDocuments(
+            clientId,
+            batch.id,
+            invoice.id,
+            docFiles
+          )
+          // Keep storage paths on the in-memory row before the single persist write.
+          Object.assign(invoice, { document_storage_paths: storagePaths })
+        }
 
-      try {
         await persistInvoice(invoice)
-      } catch (err) {
-        console.error('[submitManualBatch] invoice persist failed:', err)
-        throw err instanceof Error ? err : new Error('Could not save invoice to database')
       }
+    } catch (err) {
+      console.error('[submitManualBatch] invoice persist failed:', err)
+      for (const invoice of created) {
+        deleteInvoice(invoice.id)
+      }
+      updateBatchTotals(batch.id)
+      throw err instanceof Error ? err : new Error('Could not save invoice to database')
     }
   }
 

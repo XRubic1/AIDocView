@@ -2,8 +2,9 @@ import {
   addInvoicesForBatch,
   getBatchById,
   updateBatch,
+  updateBatchTotals,
 } from '../../data/mockBatches'
-import { updateInvoice } from '../../data/mockInvoices'
+import { deleteInvoice, getInvoicesByBatchId } from '../../data/mockInvoices'
 import { resolveBrokerId } from '../../integrations/docSortToCredyx'
 import { getClientById } from '../../services/clientRegistry'
 import { isSupabaseConfigured } from '../../lib/supabase'
@@ -17,6 +18,14 @@ import {
 } from '../../utils/invoiceDuplicateChecks'
 import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
 import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
+import type { Invoice } from '../../types/invoice'
+
+/** Roll back in-memory (and DB) invoices created during a failed handoff submit. */
+function rollbackCreatedInvoices(created: Invoice[]): void {
+  for (const invoice of created) {
+    deleteInvoice(invoice.id)
+  }
+}
 
 async function resolveAndPersistBroker(
   brokerName: string
@@ -64,19 +73,25 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
     throw new Error('Batch not found')
   }
 
-  const totalAmount = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0)
   const client = getClientById(clientId)
   // Fee calc pulls live from the carrier account (trial/active included).
+  // Include invoices already on the batch so totals are not overwritten by only the new rows.
+  const existingOnBatch = getInvoicesByBatchId(batchId)
   const feeTerms = snapshotFeeTermsFromClient(client) ?? client?.fee_terms
-  const draftForCalc = invoices.map((inv) => ({
-    amount: parseFloat(inv.amount || '0'),
-    status: 'pending' as const,
-  }))
+  const draftForCalc = [
+    ...existingOnBatch.map((inv) => ({
+      amount: inv.amount,
+      status: inv.status,
+    })),
+    ...invoices.map((inv) => ({
+      amount: parseFloat(inv.amount || '0'),
+      status: 'pending' as const,
+    })),
+  ]
   const feeCalculation = calculateBatchFeeCalculation(draftForCalc, feeTerms)
 
+  // Totals are refreshed by addInvoicesForBatch → updateBatchTotals after create.
   const batch = updateBatch(batchId, {
-    total_invoices: invoices.length,
-    total_amount: totalAmount,
     status: 'ready_to_post',
     submitted_at: existingBatch.submitted_at,
     upload_mode: 'manual',
@@ -145,20 +160,23 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
     })
   }
 
-  const created = addInvoicesForBatch(batch.id, batch.batch_number, invoiceFields)
+  // Defer persist so we do not double-write or leave orphans if DB save fails.
+  // Callers can clear their local queue before awaiting — memory rows appear immediately,
+  // but failed persists roll back so Ready+(new) duplicates cannot stick.
+  const created = addInvoicesForBatch(batch.id, batch.batch_number, invoiceFields, {
+    deferPersist: true,
+  })
 
   if (isSupabaseConfigured()) {
-    for (const invoice of created) {
-      try {
+    try {
+      for (const invoice of created) {
         await persistInvoice(invoice)
-      } catch (err) {
-        console.error('[submitHandoffInvoices] invoice persist failed:', err)
-        throw err instanceof Error ? err : new Error('Could not save invoice to database')
       }
-    }
-  } else {
-    for (const invoice of created) {
-      updateInvoice(invoice.id, invoice)
+    } catch (err) {
+      console.error('[submitHandoffInvoices] invoice persist failed:', err)
+      rollbackCreatedInvoices(created)
+      updateBatchTotals(batchId)
+      throw err instanceof Error ? err : new Error('Could not save invoice to database')
     }
   }
 
