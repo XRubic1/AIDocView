@@ -21,6 +21,7 @@ import {
 import { getSupabase, isSupabaseConfigured, requireSupabase } from '../lib/supabase'
 import { updateClient, getClientById } from './clientRegistry'
 import { persistOrThrow } from './persistHelper'
+import { logAuditEvent } from '../utils/auditLogger'
 import type {
   BillHistoryEvent,
   BillingFeeTermsSnapshot,
@@ -644,8 +645,29 @@ export async function markBillPaid(billId: string): Promise<ClientBill | undefin
     const standing = getBillingStanding(client)
     if (standing !== 'locked') {
       await updateClient(client.id, { status: 'active' })
+      logAuditEvent(
+        'account_unlocked',
+        'client',
+        client.id,
+        client.name,
+        `Account unlocked after bill ${bill.id} marked paid`,
+        'admin',
+        'Admin',
+        'Admin'
+      )
     }
   }
+
+  logAuditEvent(
+    'payment_received',
+    'client',
+    bill.client_id,
+    client?.name ?? bill.client_id,
+    `Bill ${bill.period} marked paid`,
+    'admin',
+    'Admin',
+    'Admin'
+  )
 
   return updated
 }

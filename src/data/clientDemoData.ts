@@ -142,7 +142,7 @@ export function buildClientDashboardData(
       amount: inv.amount,
       status: inv.status,
       invoice_date: inv.invoice_date,
-      due_date: inv.due_date,
+      due_date: inv.due_date ?? inv.expected_payment_date ?? inv.invoice_date,
     }))
 
   const recent_activity: ClientDashboardData['recent_activity'] = []

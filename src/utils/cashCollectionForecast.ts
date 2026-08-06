@@ -118,7 +118,8 @@ function predictPaymentDate(
   asOf: Date
 ): string {
   const todayKey = toDateKey(asOf)
-  const baseExpected = invoice.expected_payment_date || invoice.due_date
+  const baseExpected =
+    invoice.expected_payment_date || invoice.due_date || invoice.invoice_date || todayKey
   let predicted = addDays(new Date(baseExpected), brokerLagDays)
   const predictedKey = toDateKey(predicted)
 
@@ -185,7 +186,8 @@ export function computeCashCollectionForecast(
       invoice_number: invoice.invoice_number,
       broker_name: invoice.broker_name,
       amount: openBalance,
-      expected_date: invoice.expected_payment_date,
+      expected_date:
+        invoice.expected_payment_date || invoice.due_date || invoice.invoice_date || predicted_date,
       predicted_date,
       days_until,
     })

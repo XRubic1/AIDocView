@@ -20,6 +20,8 @@ import {
   getInvoiceRowStatusBadge,
   InvoiceDisputeBadges,
 } from './invoiceDetailShared'
+import { invoiceHasDisputedPayment } from '../../utils/paymentStatus'
+import { isReceiptDisputeHold } from '../../services/paymentReceiptConfirmationService'
 
 export {
   NOTE_TYPE_LABELS,
@@ -212,6 +214,9 @@ export default function InvoiceDetailWorkspace({
                     invoice.amount,
                     getInvoiceReceivedAmount(invoice, payments)
                   )
+                  const paymentDisputed =
+                    invoiceHasDisputedPayment(invoice.id, payments) ||
+                    isReceiptDisputeHold(invoice)
                   return (
                     <button
                       key={invoice.id}
@@ -229,8 +234,12 @@ export default function InvoiceDetailWorkspace({
                           {invoice.invoice_number}
                         </span>
                         <div className="flex items-center gap-1 shrink-0 max-w-[58%] justify-end flex-wrap">
-                          {getInvoiceRowStatusBadge(enriched, { compact: true, balance })}
-                          <InvoiceDisputeBadges invoice={invoice} />
+                          {getInvoiceRowStatusBadge(enriched, {
+                            compact: true,
+                            balance,
+                            paymentDisputed,
+                          })}
+                          {!paymentDisputed && <InvoiceDisputeBadges invoice={invoice} />}
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-2 text-xs">

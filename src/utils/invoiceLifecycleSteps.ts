@@ -1,5 +1,6 @@
 import type { Invoice } from '../types/invoice'
 import { hasPpwBeenSent } from './ppwSent'
+import { isReceiptDisputeHold } from '../services/paymentReceiptConfirmationService'
 
 export type InvoiceLifecycleStepId = 'submitted' | 'verified' | 'invoiced' | 'paid'
 /**
@@ -25,6 +26,28 @@ export interface InvoiceLifecycleOptions {
    * (Invoiced stays "Invoiced" and is marked done).
    */
   isShortPaid?: boolean
+  /** Carrier disputed a Credyx-posted remittance — not a paperwork hold. */
+  paymentDisputed?: boolean
+}
+
+/**
+ * Lifecycle stage label for list/detail status (Verified / Invoiced / Paid).
+ * Receipt-dispute holds are treated as open A/R past verification, not Verified-on-hold.
+ */
+export function getInvoiceLifecycleStatusLabel(invoice: Invoice): string {
+  const receiptHold = isReceiptDisputeHold(invoice)
+  const status = receiptHold ? 'approved' : invoice.status
+
+  if (status === 'paid') return 'Paid'
+  if (status === 'force_closed') return 'Force closed'
+  if (status === 'written_off' || status === 'write_off_pending') return 'Written off'
+  if (status === 'rejected') return 'Rejected'
+  // Paperwork hold stays on Verified.
+  if (status === 'hold') return 'Verified'
+  // Invoiced once PPW went to the broker (receipt-dispute legacy hold counts as invoiced).
+  if (hasPpwBeenSent(invoice) || receiptHold) return 'Invoiced'
+  // Pending or approved without PPW — still on Verified.
+  return 'Verified'
 }
 
 /**
@@ -39,13 +62,16 @@ export function getInvoiceLifecycleSteps(
   invoice: Invoice,
   options: InvoiceLifecycleOptions = {}
 ): InvoiceLifecycleStep[] {
-  const status = invoice.status
+  const receiptHold = isReceiptDisputeHold(invoice)
+  const paymentDisputed = Boolean(options.paymentDisputed) || receiptHold
+  // Payment receipt disputes must not look like verification holds.
+  const status = receiptHold ? 'approved' : invoice.status
   const isPaid = status === 'paid'
   const isClosed = status === 'force_closed' || status === 'written_off'
-  const isHold = status === 'hold'
+  const isHold = status === 'hold' && !paymentDisputed
   const isRejected = status === 'rejected'
   const isPending = status === 'pending'
-  const ppwSent = hasPpwBeenSent(invoice)
+  const ppwSent = hasPpwBeenSent(invoice) || receiptHold
   const awaitingReceipt = Boolean(options.awaitingReceipt)
   const isShortPaid = Boolean(options.isShortPaid)
 
@@ -67,6 +93,17 @@ export function getInvoiceLifecycleSteps(
                 : 'Paid',
     },
   ]
+
+  // Payment disputed (not confirmed): stay on Invoiced — list shows stage + Disputed.
+  // Paid invoices with a disputed short correction keep the Paid complete path.
+  if (paymentDisputed && !isClosed && !awaitingReceipt && !isPaid) {
+    return [
+      { ...labels[0], state: 'done' },
+      { ...labels[1], state: 'done' },
+      { ...labels[2], state: 'current' },
+      { ...labels[3], state: 'upcoming' },
+    ]
+  }
 
   // Awaiting receipt: path through Invoiced is done; Paid flashes yellow Confirm
   // (includes short corrections on already-paid invoices).
@@ -137,7 +174,8 @@ export function getInvoiceLifecycleSteps(
   const verifiedDone =
     Boolean(invoice.reviewed_at || invoice.approved_at) ||
     status === 'approved' ||
-    status === 'write_off_pending'
+    status === 'write_off_pending' ||
+    receiptHold
 
   // PPW sent → stay on Invoiced (awaiting payment). Do NOT advance current to Paid.
   if (ppwSent) {

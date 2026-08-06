@@ -20,6 +20,7 @@ import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
 import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
 import { assertClientSetupComplete } from '../../utils/clientSetupDocuments'
 import { resolveDueDatesFromBroker } from '../../utils/invoiceDueDate'
+import { assertCapability, getClientCapabilities } from '../../utils/clientCapabilities'
 
 
 async function resolveAndPersistBroker(
@@ -68,7 +69,13 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
   }
 
   const client = getClientById(clientId)
+  // Admin create-batch paths skip capability + setup gates.
   if (!skipSetupGate) {
+    assertCapability(
+      getClientCapabilities(client?.service_tier ?? 'self_service'),
+      'canCreateBatch',
+      'Manual batch submission'
+    )
     assertClientSetupComplete(clientId, client)
   }
 

@@ -11554,6 +11554,35 @@
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
 }
 
+/* Payment receipt disputed — stage + Disputed stack */
+.client-portal .mobile-invoice-overview__status--disputed {
+  border-color: color-mix(in srgb, #ef4444 55%, var(--cp-border));
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 10px;
+  align-items: flex-start;
+}
+
+.client-portal .mobile-invoice-overview__status--disputed .mobile-invoice-overview__status-dot {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+  margin-top: 4px;
+}
+
+.client-portal .mobile-invoice-overview__status-text {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.15;
+}
+
+.client-portal .mobile-invoice-overview__status-sub {
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  opacity: 0.95;
+}
+
 /* Confirm payment — blue */
 .client-portal .mobile-invoice-overview__status--confirm-payment {
   border-color: color-mix(in srgb, #1684fe 55%, var(--cp-border));
@@ -12654,7 +12683,9 @@
 
 .client-portal .mobile-invoice-list-card__status {
   display: inline-flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
   flex-shrink: 0;
   padding: 4px 10px;
   border-radius: 999px;
@@ -12663,6 +12694,15 @@
   font-size: 0.625rem;
   font-weight: 800;
   letter-spacing: 0.05em;
+  line-height: 1.15;
+  text-align: right;
+}
+
+.client-portal .mobile-invoice-list-card__status-sub {
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  opacity: 0.95;
 }
 
 .client-portal .mobile-invoice-list-card__status--paid {
@@ -12700,6 +12740,17 @@
 .client-portal .mobile-invoice-list-card__status--on-hold {
   background: rgba(245, 158, 11, 0.14);
   color: #d97706;
+}
+
+/* Payment receipt disputed — red stack (stage + DISPUTED) */
+.client-portal .mobile-invoice-list-card__status--disputed {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border-radius: 10px;
+}
+
+.client-portal .mobile-invoice-list-card.is-disputed {
+  border-color: rgba(239, 68, 68, 0.28);
 }
 
 /* Confirm payment — blue */

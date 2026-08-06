@@ -512,7 +512,7 @@ export default function HowItWorks() {
                 $99<span className="text-sm font-normal">/mo app</span>
               </p>
               <p className="text-sm font-medium" style={{ color: '#C2A558' }}>
-                + $299/mo managed service
+                + A/R collection % from Fee Terms
               </p>
             </div>
           </div>

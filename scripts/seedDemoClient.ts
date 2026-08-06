@@ -1,15 +1,19 @@
 /**
  * Wipe + reseed demo A/R data for a carrier portal demo account.
  *
- * All dates are relative to a fixed seed "today" (SEED_AS_OF). Nothing in the
- * demo data is allowed to fall after that calendar day — invoices, payments,
- * notes, collection dates, deadlines, batch timestamps, etc.
+ * All *recorded* dates are relative to a fixed seed "today" (SEED_AS_OF).
+ * Invoice dates, payments, notes, collection dates, and batch timestamps must
+ * not fall after that calendar day.
+ *
+ * Exception: `client_confirmation_deadline` is an action-due date and may sit
+ * after as-of (matches CLIENT_RECEIPT_CONFIRMATION_DAYS = 30 in the app).
  *
  * Usage:
  *   npm run seed-demo -- "ABC Trucking"
  *   npm run seed-demo -- --client-id client-xxx
  *   npm run seed-demo -- "ABC Trucking" dry-run
  *   npm run seed-demo -- "ABC Trucking" wipe-only   # delete A/R only (no reseed)
+ *   npm run seed-demo -- verify-dates
  *
  * Requires SUPABASE_SERVICE_ROLE_KEY + VITE_SUPABASE_URL in .env
  */
@@ -202,6 +206,12 @@ type ScenarioKind =
   | 'over_confirmed'
   | 'chargeback'
   | 'short_writeoff'
+  | 'write_off_pending'
+  | 'client_pending_pay'
+  | 'receipt_disputed'
+  | 'payment_reversed'
+  | 'pending_review'
+  | 'rejected_review'
   | 'will_pay'
   | 'callback'
   | 'resolved_dispute'
@@ -211,7 +221,7 @@ interface DemoInvoiceSpec {
   key: string
   invoiceNumber: string
   loadNumber: string
-  /** 0 = current month … 3 = three months ago */
+  /** 0 = current month … 3 = three months ago (−1 = review-pipeline batch) */
   monthsAgo: number
   /** Day of that month for invoice_date */
   day: number
@@ -228,13 +238,15 @@ interface DemoInvoiceSpec {
   paidDaysAgo?: number
   amount: number
   brokerIndex: number
-  /** Which submitted batch bucket (monthsAgo of that batch) */
+  /** Which batch bucket (monthsAgo of that batch; −1 = review pipeline) */
   batch: number
   scenario: ScenarioKind
   docsSent?: boolean
+  /** Seed a failed PPW send (and optional delivered resend). */
+  failedDocSend?: boolean
 }
 
-/** Approved vault docs so Document Vault setup reads as complete (everything on file). */
+/** Vault docs — mostly approved; optional pending / expiry for queue demos. */
 interface DemoVaultDocSpec {
   key: string
   name: string
@@ -242,10 +254,37 @@ interface DemoVaultDocSpec {
   category: 'broker' | 'compliance' | 'other'
   document_type: string
   notes?: string
-  /** Days until expiration reminder (omit = no expiry). Must stay ≤ SEED_AS_OF when resolved. */
+  /** Days before as-of that the doc expires (0 = expires as-of day). Omit = no expiry. */
   expiresInDays?: number
   /** Only seed when client.factoring is true. */
   factoringOnly?: boolean
+  approvalStatus?: 'approved' | 'pending'
+}
+
+/** Locked fee terms by batch month (varies trial / flat / percentage). */
+function feeTermsForBatch(monthsAgo: number, lockedAt: string): Json {
+  if (monthsAgo === 4) {
+    return {
+      fee_type: 'percentage',
+      fee_percentage: 1,
+      billing_mode: 'trial',
+      locked_at: lockedAt,
+    }
+  }
+  if (monthsAgo === 2) {
+    return {
+      fee_type: 'flat',
+      flat_fee_amount: 50,
+      billing_mode: 'billable',
+      locked_at: lockedAt,
+    }
+  }
+  return {
+    fee_type: 'percentage',
+    fee_percentage: 1,
+    billing_mode: 'billable',
+    locked_at: lockedAt,
+  }
 }
 
 const VAULT_DOC_SPECS: DemoVaultDocSpec[] = [
@@ -263,7 +302,8 @@ const VAULT_DOC_SPECS: DemoVaultDocSpec[] = [
     file_name: 'COI.pdf',
     category: 'compliance',
     document_type: 'coi',
-    notes: 'Liability + cargo coverage verified.',
+    notes: 'Liability + cargo coverage — expires as of seed day (reminder demo).',
+    expiresInDays: 0,
   },
   {
     key: 'mc-authority',
@@ -294,6 +334,15 @@ const VAULT_DOC_SPECS: DemoVaultDocSpec[] = [
     category: 'broker',
     document_type: 'bank_letter',
     notes: 'Confirms ACH remittance account on file.',
+  },
+  {
+    key: 'ifta-pending',
+    name: 'IFTA Permit',
+    file_name: 'IFTA-Permit.pdf',
+    category: 'compliance',
+    document_type: 'other',
+    notes: 'Uploaded by carrier — awaiting Credyx approval.',
+    approvalStatus: 'pending',
   },
   {
     key: 'noa',
@@ -685,6 +734,93 @@ const INVOICE_SPECS: DemoInvoiceSpec[] = [
     scenario: 'short_writeoff', // short $400 written off as uncollectable
     docsSent: true,
   },
+
+  // ── Coverage gaps (admin queues + review pipeline) ──
+  {
+    key: 'm0-wo-pending',
+    invoiceNumber: '2412',
+    loadNumber: 'LD-91138',
+    monthsAgo: 0,
+    day: 3,
+    termsDays: 30,
+    daysPastExpected: 6,
+    amount: 2750,
+    brokerIndex: 2,
+    batch: 0,
+    scenario: 'write_off_pending', // client requested; Credyx not yet approved
+    docsSent: true,
+  },
+  {
+    key: 'm0-client-pay',
+    invoiceNumber: '2413',
+    loadNumber: 'LD-91150',
+    monthsAgo: 0,
+    day: 4,
+    termsDays: 30,
+    daysPastExpected: 2,
+    amount: 1850,
+    brokerIndex: 0,
+    batch: 0,
+    scenario: 'client_pending_pay', // self-service payment awaiting Credyx approval
+    docsSent: true,
+  },
+  {
+    key: 'm0-receipt-dispute',
+    invoiceNumber: '2414',
+    loadNumber: 'LD-91162',
+    monthsAgo: 0,
+    day: 2,
+    termsDays: 30,
+    daysPastExpected: 3,
+    amount: 2400,
+    brokerIndex: 3,
+    batch: 0,
+    scenario: 'receipt_disputed', // managed receipt dispute — Invoiced + Disputed
+    docsSent: true,
+  },
+  {
+    key: 'm0-pay-reversed',
+    invoiceNumber: '2415',
+    loadNumber: 'LD-91174',
+    monthsAgo: 0,
+    day: 1,
+    termsDays: 30,
+    daysPastExpected: 5,
+    amount: 1600,
+    brokerIndex: 1,
+    batch: 0,
+    scenario: 'payment_reversed', // unprocessed wrong posting
+    docsSent: true,
+    failedDocSend: true,
+  },
+  {
+    key: 'm0-pending-review',
+    invoiceNumber: '2416',
+    loadNumber: 'LD-91186',
+    monthsAgo: 0,
+    day: 5,
+    termsDays: 30,
+    daysPastExpected: 0,
+    amount: 2200,
+    brokerIndex: 0,
+    batch: -1,
+    scenario: 'pending_review',
+    docsSent: false,
+  },
+  {
+    key: 'm0-rejected-review',
+    invoiceNumber: '2417',
+    loadNumber: 'LD-91198',
+    monthsAgo: 0,
+    day: 4,
+    termsDays: 30,
+    daysPastExpected: 0,
+    amount: 1900,
+    brokerIndex: 2,
+    batch: -1,
+    scenario: 'rejected_review',
+    docsSent: false,
+  },
 ]
 
 // ─── Builders ────────────────────────────────────────────────────────────────
@@ -704,7 +840,7 @@ function sendRecord(
   email: string,
   at: string,
   docs: string[],
-  status: 'sent' | 'delivered' = 'delivered'
+  status: 'sent' | 'delivered' | 'failed' = 'delivered'
 ) {
   return {
     email_address: email,
@@ -747,7 +883,7 @@ function normalizePayment(partial: Json): Json {
   return { ...emptyPaymentSkeleton(), ...partial }
 }
 
-/** Build approved vault rows so setup checklist is complete. */
+/** Build vault rows — mostly approved; pending + expiry demos included. */
 function buildVaultDocuments(
   clientId: string,
   factoring: boolean,
@@ -763,6 +899,7 @@ function buildVaultDocuments(
         ? isoAt(addDays(today, -Math.abs(spec.expiresInDays)), 0, 0, today)
         : null
 
+    const pending = spec.approvalStatus === 'pending'
     return {
       id: `cdoc-${DEMO_TAG}-${spec.key}`,
       client_id: clientId,
@@ -774,12 +911,12 @@ function buildVaultDocuments(
       size: 165_000 + index * 12_000,
       mime_type: 'application/pdf',
       storage_path: null,
-      uploaded_at: uploadedAt,
+      uploaded_at: pending ? isoAt(addDays(today, -1), 11, 10, today) : uploadedAt,
       uploaded_by: CARRIER_CONTACT,
       expires_at,
-      approval_status: 'approved',
-      approved_by: OPS,
-      approved_at: approvedAt,
+      approval_status: pending ? 'pending' : 'approved',
+      approved_by: pending ? null : OPS,
+      approved_at: pending ? null : approvedAt,
       rejection_reason: null,
       uploaded_by_role: 'client',
     }
@@ -858,19 +995,48 @@ function buildInvoice(
 
   if (spec.docsSent !== false && spec.scenario !== 'hold_dispute') {
     const sentAt = isoAt(addDays(invDate, 2), 15, 20)
-    document_send_history = [sendRecord(broker.email, sentAt, docs)]
-    notes.push(
-      note(
-        `note-${spec.key}-ppw`,
-        `PPW sent to ${broker.name} AP (${broker.email}) — invoice, BOL, POD, rate con.`,
-        OPS,
-        sentAt,
-        'status_update',
-        'client'
+    if (spec.failedDocSend) {
+      const failedAt = isoAt(addDays(invDate, 2), 14, 50)
+      const resentAt = isoAt(addDays(invDate, 2), 16, 10)
+      document_send_history = [
+        sendRecord(broker.email, failedAt, docs, 'failed'),
+        sendRecord(broker.email, resentAt, docs, 'delivered'),
+      ]
+      notes.push(
+        note(
+          `note-${spec.key}-ppw-fail`,
+          `PPW send to ${broker.name} failed (mailbox rejected). Retrying…`,
+          OPS,
+          failedAt,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-ppw`,
+          `PPW resent to ${broker.name} AP (${broker.email}) — delivered.`,
+          OPS,
+          resentAt,
+          'status_update',
+          'client'
+        )
       )
-    )
-    broker_contacted = true
-    last_broker_contact = sentAt
+      broker_contacted = true
+      last_broker_contact = resentAt
+    } else {
+      document_send_history = [sendRecord(broker.email, sentAt, docs)]
+      notes.push(
+        note(
+          `note-${spec.key}-ppw`,
+          `PPW sent to ${broker.name} AP (${broker.email}) — invoice, BOL, POD, rate con.`,
+          OPS,
+          sentAt,
+          'status_update',
+          'client'
+        )
+      )
+      broker_contacted = true
+      last_broker_contact = sentAt
+    }
   }
 
   switch (spec.scenario) {
@@ -1113,6 +1279,14 @@ function buildInvoice(
           'client'
         )
       )
+      disputes.push({
+        id: `dispute-${DEMO_TAG}-${spec.key}`,
+        reason: 'missing_documents',
+        description: 'Missing BOL — packet incomplete at verification.',
+        status: 'open',
+        created_by: OPS,
+        created_at: holdAt,
+      })
       // No PPW / no broker dispute — hold is internal until docs are complete.
       document_send_history = []
       broker_contacted = false
@@ -1158,8 +1332,8 @@ function buildInvoice(
     case 'awaiting_confirm': {
       status = 'approved'
       const payDate = addDays(today, -2)
-      // Confirmation deadline is as-of (action due today — never after seed day).
-      const deadline = today
+      // Action-due date may sit after as-of (matches CLIENT_RECEIPT_CONFIRMATION_DAYS).
+      const deadline = addDays(payDate, 30)
       notes.push(
         note(
           `note-${spec.key}-posted`,
@@ -1210,7 +1384,7 @@ function buildInvoice(
       const shortfall = 450
       const paidAmt = Math.round((spec.amount - shortfall) * 100) / 100
       const payDate = addDays(today, -1)
-      const deadline = today
+      const deadline = addDays(payDate, 30)
       notes.push(
         note(
           `note-${spec.key}-short`,
@@ -1332,7 +1506,7 @@ function buildInvoice(
       const overage = 125
       const paidAmt = Math.round((spec.amount + overage) * 100) / 100
       const payDate = addDays(today, -1)
-      const deadline = today
+      const deadline = addDays(payDate, 30)
       notes.push(
         note(
           `note-${spec.key}-over`,
@@ -1613,6 +1787,268 @@ function buildInvoice(
       )
       break
     }
+    case 'write_off_pending': {
+      // Confirmed short; write-off requested — waiting on Credyx approval queue.
+      status = 'write_off_pending'
+      const shortfall = 350
+      const paidAmt = Math.round((spec.amount - shortfall) * 100) / 100
+      const payDate = addDays(today, -8)
+      const payIso = isoAt(payDate, 12, 0)
+      const requestedAt = isoAt(addDays(today, -1), 10, 20)
+      paid_amount = paidAmt
+      write_off_request = {
+        requested_by: CARRIER_CONTACT,
+        requested_at: requestedAt,
+        client_note: `Broker shorted $${money(shortfall)} for a lumper we already paid. Please write off the balance.`,
+        received_amount: paidAmt,
+        shortfall,
+      }
+      notes.push(
+        note(
+          `note-${spec.key}-short`,
+          `${broker.name} remitted $${money(paidAmt)} of $${money(spec.amount)}. Short by $${money(shortfall)}.`,
+          OPS,
+          payIso,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-confirm`,
+          `Confirmed receipt of $${money(paidAmt)}.`,
+          CARRIER_CONTACT,
+          isoAt(payDate, 15, 0),
+          'client_note',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-wo-req`,
+          `Write-off requested on remaining $${money(shortfall)} — awaiting Credyx approval.`,
+          CARRIER_CONTACT,
+          requestedAt,
+          'client_note',
+          'client'
+        )
+      )
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: paidAmt,
+          payment_date: toDateStr(payDate),
+          received_date: toDateStr(payDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}`,
+          status: 'confirmed',
+          notes: 'Short pay — lumper already paid by carrier',
+          posted_source: 'credyx',
+          posted_by: OPS,
+          confirmed_by: OPS,
+          confirmed_at: payIso,
+          client_confirmed_at: isoAt(payDate, 15, 0),
+          client_confirmed_by: CARRIER_CONTACT,
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
+      break
+    }
+    case 'client_pending_pay': {
+      // Carrier self-posted a payment — awaits Credyx approval queue.
+      status = 'approved'
+      const payDate = addDays(today, -1)
+      const payIso = isoAt(payDate, 13, 40)
+      notes.push(
+        note(
+          `note-${spec.key}-client-pay`,
+          `Carrier posted $${money(spec.amount)} received from ${broker.name} — awaiting Credyx approval.`,
+          CARRIER_CONTACT,
+          payIso,
+          'client_note',
+          'client'
+        )
+      )
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: spec.amount,
+          payment_date: toDateStr(payDate),
+          received_date: toDateStr(payDate),
+          payment_method: 'ach',
+          payment_reference: `CLIENT-${spec.invoiceNumber}`,
+          status: 'pending',
+          notes: 'Self-service posting — pending Credyx review.',
+          posted_source: 'client',
+          posted_by: CARRIER_CONTACT,
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
+      break
+    }
+    case 'receipt_disputed': {
+      // Credyx-posted remittance disputed by carrier — keep Invoiced lifecycle status.
+      status = 'approved'
+      hold_reason = null
+      const payDate = addDays(today, -3)
+      const payIso = isoAt(payDate, 11, 0)
+      const disputeAt = isoAt(addDays(today, -1), 9, 30)
+      notes.push(
+        note(
+          `note-${spec.key}-posted`,
+          `Posted $${money(spec.amount)} from ${broker.name}. Please confirm receipt.`,
+          OPS,
+          payIso,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-dispute`,
+          'Payment receipt dispute: Funds not received — carrier bank shows no deposit.',
+          CARRIER_CONTACT,
+          disputeAt,
+          'dispute',
+          'client'
+        )
+      )
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: spec.amount,
+          payment_date: toDateStr(payDate),
+          received_date: toDateStr(payDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}`,
+          status: 'disputed',
+          notes: 'Receipt disputed — funds not in carrier account.',
+          posted_source: 'credyx',
+          posted_by: OPS,
+          client_confirmation_deadline: toDateStr(addDays(payDate, 30)),
+          dispute: {
+            id: `pay-dispute-${DEMO_TAG}-${spec.key}`,
+            reason: 'funds_not_received',
+            description: 'No ACH deposit in our operating account for this remittance.',
+            status: 'open',
+            created_by: CARRIER_CONTACT,
+            created_at: disputeAt,
+          },
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
+      break
+    }
+    case 'payment_reversed': {
+      // Wrong posting unprocessed — invoice still open; correction trail demoable.
+      status = 'approved'
+      const payDate = addDays(today, -5)
+      const payIso = isoAt(payDate, 10, 0)
+      const reversedAt = isoAt(addDays(today, -2), 14, 15)
+      notes.push(
+        note(
+          `note-${spec.key}-posted`,
+          `Posted $${money(spec.amount)} — later found to be applied to the wrong invoice.`,
+          OPS,
+          payIso,
+          'status_update',
+          'client'
+        ),
+        note(
+          `note-${spec.key}-rev`,
+          `Payment unprocessed / reversed — $${money(spec.amount)} removed. Invoice remains open.`,
+          OPS,
+          reversedAt,
+          'status_update',
+          'client'
+        )
+      )
+      payments.push(
+        normalizePayment({
+          id: `pay-${DEMO_TAG}-${spec.key}`,
+          client_id: clientId,
+          invoice_id: invoiceId,
+          invoice_number: spec.invoiceNumber,
+          broker_name: broker.name,
+          amount: spec.amount,
+          payment_date: toDateStr(payDate),
+          received_date: toDateStr(payDate),
+          payment_method: 'ach',
+          payment_reference: `ACH-${spec.invoiceNumber}-REV`,
+          status: 'reversed',
+          notes: 'Unprocessed — posted to wrong invoice',
+          posted_source: 'credyx',
+          posted_by: OPS,
+          confirmed_by: OPS,
+          confirmed_at: payIso,
+          reversed_at: reversedAt,
+          reversed_by: OPS,
+          reversal_reason: 'Posted to wrong invoice — unprocessed',
+          reversal_type: 'unprocessed',
+          payment_kind: 'normal',
+          batch_id: batchId,
+          batch_number: batchNumber,
+          load_number: spec.loadNumber,
+        })
+      )
+      break
+    }
+    case 'pending_review': {
+      // Awaiting Credyx review — Pending tab + AI running.
+      status = 'pending'
+      const approvalIdx = notes.findIndex((n) => (n as { id?: string }).id === `note-${spec.key}-review`)
+      if (approvalIdx >= 0) notes.splice(approvalIdx, 1)
+      notes.push(
+        note(
+          `note-${spec.key}-queue`,
+          'Packet received — AI review running. Credyx will verify docs before broker submission.',
+          OPS,
+          isoAt(invDate, 11, 0),
+          'note',
+          'client'
+        )
+      )
+      document_send_history = []
+      broker_contacted = false
+      last_broker_contact = null
+      break
+    }
+    case 'rejected_review': {
+      // Failed review — Closed bucket + AI needs_work.
+      status = 'rejected'
+      const approvalIdx = notes.findIndex((n) => (n as { id?: string }).id === `note-${spec.key}-review`)
+      if (approvalIdx >= 0) notes.splice(approvalIdx, 1)
+      const rejectedAt = isoAt(addDays(invDate, 1), 15, 0)
+      notes.push(
+        note(
+          `note-${spec.key}-reject`,
+          'Rejected at review — rate confirmation does not match load number. Resubmit with the correct rate con.',
+          OPS,
+          rejectedAt,
+          'status_update',
+          'client'
+        )
+      )
+      document_send_history = []
+      broker_contacted = false
+      last_broker_contact = null
+      break
+    }
     case 'will_pay': {
       status = 'approved'
       collection_status = 'W/P'
@@ -1731,20 +2167,23 @@ function buildInvoice(
     load_number: spec.loadNumber,
     batch_id: batchId,
     batch_number: batchNumber,
-    reviewed_at: status === 'pending' ? null : clampIso(approvedAt, today),
+    reviewed_at:
+      status === 'pending' ? null : clampIso(status === 'rejected' ? isoAt(addDays(invDate, 1), 15, 0) : approvedAt, today),
     reviewed_by: status === 'pending' ? null : OPS,
     approved_by:
       status === 'approved' ||
       status === 'paid' ||
       status === 'force_closed' ||
-      status === 'written_off'
+      status === 'written_off' ||
+      status === 'write_off_pending'
         ? OPS
         : null,
     approved_at:
       status === 'approved' ||
       status === 'paid' ||
       status === 'force_closed' ||
-      status === 'written_off'
+      status === 'written_off' ||
+      status === 'write_off_pending'
         ? clampIso(approvedAt, today)
         : null,
     hold_reason,
@@ -1767,15 +2206,15 @@ function buildInvoice(
     selected_contact_person: 'AP Desk',
     ai_confirmed_at: clampIso(isoAt(invDate, 10, 45, today), today),
     ai_confirmed_by: CARRIER_CONTACT,
-    ai_review_status: status === 'pending' ? 'running' : 'ready',
+    ai_review_status:
+      status === 'pending' ? 'running' : status === 'rejected' ? 'needs_work' : 'ready',
     ai_review_summary:
-      status === 'pending' ? 'Review in progress' : 'All required docs present',
-    fee_terms: {
-      fee_type: 'percentage',
-      fee_percentage: 1,
-      billing_mode: 'billable',
-      locked_at: clampIso(createdAt, today),
-    },
+      status === 'pending'
+        ? 'Review in progress'
+        : status === 'rejected'
+          ? 'Rate con does not match load — needs corrected docs'
+          : 'All required docs present',
+    fee_terms: feeTermsForBatch(spec.batch < 0 ? 0 : spec.batch, clampIso(createdAt, today) ?? createdAt),
     created_at: clampIso(createdAt, today),
     updated_at: asOfIso,
   }
@@ -1788,9 +2227,9 @@ function buildInvoice(
     client_confirmed_at: p.client_confirmed_at
       ? clampIso(String(p.client_confirmed_at), today)
       : p.client_confirmed_at,
-    client_confirmation_deadline: p.client_confirmation_deadline
-      ? clampDateStr(String(p.client_confirmation_deadline), today)
-      : p.client_confirmation_deadline,
+    // Deadlines are action-due dates — do not clamp to as-of.
+    client_confirmation_deadline: p.client_confirmation_deadline ?? null,
+    reversed_at: p.reversed_at ? clampIso(String(p.reversed_at), today) : p.reversed_at,
   }))
 
   return { row, payments: clampedPayments }
@@ -1807,7 +2246,8 @@ function collectDateViolations(today: Date): string[] {
     if (day > max) violations.push(`${label}=${day}`)
   }
   const checkIso = (label: string, value: unknown) => {
-    if (typeof value !== 'string' || !value.includes('T')) return
+    // Require a real ISO timestamp (YYYY-MM-DDThh…), not strings that merely contain "T".
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return
     const d = new Date(value)
     if (Number.isNaN(d.getTime())) return
     if (toDateStr(d) > max) violations.push(`${label}=${value}`)
@@ -1825,6 +2265,8 @@ function collectDateViolations(today: Date): string[] {
     }
     if (typeof value === 'object') {
       for (const [k, v] of Object.entries(value as Json)) {
+        // Action-due dates may sit after as-of (see header comment).
+        if (k === 'client_confirmation_deadline') continue
         walk(`${label}.${k}`, v)
       }
     }
@@ -1843,6 +2285,17 @@ function collectDateViolations(today: Date): string[] {
     )
     walk(`inv:${spec.key}`, built.row)
     built.payments.forEach((p, i) => walk(`inv:${spec.key}.pay[${i}]`, p))
+
+    // Confirm awaiting receipts keep a future deadline (P0 regression guard).
+    for (const [i, p] of built.payments.entries()) {
+      if (p.status !== 'awaiting_receipt') continue
+      const deadline = String(p.client_confirmation_deadline ?? '').slice(0, 10)
+      if (!deadline || deadline <= max) {
+        violations.push(
+          `inv:${spec.key}.pay[${i}].client_confirmation_deadline must be after as-of (got ${deadline || 'null'})`
+        )
+      }
+    }
   }
 
   walk('vault', buildVaultDocuments('client-verify', false, today))
@@ -1865,7 +2318,7 @@ async function main(): Promise<void> {
       for (const v of violations) console.error(`  - ${v}`)
       process.exit(1)
     }
-    console.log(`OK — all seeded dates are ≤ ${toDateStr(today)} (${INVOICE_SPECS.length} invoices)`)
+    console.log(`OK — recorded dates ≤ ${toDateStr(today)}; confirmation deadlines after as-of (${INVOICE_SPECS.length} invoices)`)
     return
   }
 
@@ -1966,7 +2419,7 @@ async function main(): Promise<void> {
   if (!wipeOnly) {
     console.log(`Will insert:`)
     console.log(`  brokers:   ${DEMO_BROKERS.length} (upsert)`)
-    console.log(`  batches:   5`)
+    console.log(`  batches:   7`)
     console.log(`  invoices:  ${INVOICE_SPECS.length}`)
     console.log(
       `  payments:  ${INVOICE_SPECS.filter((s) =>
@@ -1979,10 +2432,14 @@ async function main(): Promise<void> {
           'over_confirmed',
           'chargeback',
           'short_writeoff',
+          'write_off_pending',
+          'client_pending_pay',
+          'receipt_disputed',
+          'payment_reversed',
         ].includes(s.scenario)
       ).length}+ (chargeback adds a correction row)`
     )
-    console.log(`  vault docs:${vaultDocsPreview.length} (approved — setup complete)`)
+    console.log(`  vault docs:${vaultDocsPreview.length} (approved + pending/expiry demos)`)
   }
 
   if (dryRun) {
@@ -2066,50 +2523,83 @@ async function main(): Promise<void> {
     }
   }
 
-  // 3) Batches — one per month; all processed same day as submitted
+  // 3) Batches — monthly submitted + review/draft pipeline demos
   // Current-month batch is always processed within the last 7 days (dashboard activity).
   console.log('Creating batches…')
   const year = today.getFullYear()
-  const batches: { id: string; batch_number: string; monthsAgo: number; status: string }[] = [
+  const batches: {
+    id: string
+    batch_number: string
+    monthsAgo: number
+    status: string
+    upload_mode?: string
+    sort_status?: string
+  }[] = [
     {
       id: `batch-${DEMO_TAG}-m4`,
       batch_number: `${batchCode}-${year}-M4`,
       monthsAgo: 4,
       status: 'submitted',
+      upload_mode: 'manual',
     },
     {
       id: `batch-${DEMO_TAG}-m3`,
       batch_number: `${batchCode}-${year}-M3`,
       monthsAgo: 3,
       status: 'submitted',
+      upload_mode: 'manual',
     },
     {
       id: `batch-${DEMO_TAG}-m2`,
       batch_number: `${batchCode}-${year}-M2`,
       monthsAgo: 2,
       status: 'submitted',
+      upload_mode: 'manual',
     },
     {
       id: `batch-${DEMO_TAG}-m1`,
       batch_number: `${batchCode}-${year}-M1`,
       monthsAgo: 1,
       status: 'submitted',
+      upload_mode: 'handoff',
     },
     {
       id: `batch-${DEMO_TAG}-m0`,
       batch_number: `${batchCode}-${year}-M0`,
       monthsAgo: 0,
       status: 'submitted',
+      upload_mode: 'manual',
+    },
+    {
+      id: `batch-${DEMO_TAG}-review`,
+      batch_number: `${batchCode}-${year}-REVIEW`,
+      monthsAgo: -1,
+      status: 'verification',
+      upload_mode: 'ai',
+      sort_status: 'ready',
+    },
+    {
+      id: `batch-${DEMO_TAG}-draft`,
+      batch_number: `${batchCode}-${year}-DRAFT`,
+      monthsAgo: -2,
+      status: 'draft',
+      upload_mode: 'ai',
+      sort_status: 'pending',
     },
   ]
 
   const batchRows = batches.map((b) => {
     // M0 = processed ~3 days ago; older months stay on their calendar month
     const submitted =
-      b.monthsAgo === 0 ? addDays(today, -3) : dateInMonth(b.monthsAgo, 5)
+      b.monthsAgo === 0
+        ? addDays(today, -3)
+        : b.monthsAgo < 0
+          ? addDays(today, -1)
+          : dateInMonth(b.monthsAgo, 5)
     const specs = INVOICE_SPECS.filter((s) => s.batch === b.monthsAgo)
     const total = specs.reduce((sum, s) => sum + s.amount, 0)
-    const processedAt = isoAt(submitted, 15, 30) // same-day process
+    const isOpenPipeline = b.status !== 'submitted'
+    const processedAt = isOpenPipeline ? null : isoAt(submitted, 15, 30)
     return {
       id: b.id,
       batch_number: b.batch_number,
@@ -2122,16 +2612,20 @@ async function main(): Promise<void> {
       submitted_at: isoAt(submitted, 11, 0),
       in_use: false,
       in_use_by: null,
-      fee_terms: {
-        fee_type: 'percentage',
-        fee_percentage: 1,
-        billing_mode: 'billable',
-        locked_at: isoAt(submitted, 10, 0),
-      },
+      upload_mode: b.upload_mode ?? null,
+      sort_status: b.sort_status ?? null,
+      fee_terms: isOpenPipeline ? null : feeTermsForBatch(b.monthsAgo, isoAt(submitted, 10, 0)),
       reviewed_at: processedAt,
-      reviewed_by: OPS,
-      approved_count: specs.filter((s) => s.scenario !== 'hold_dispute').length,
-      rejected_count: 0,
+      reviewed_by: processedAt ? OPS : null,
+      approved_count: isOpenPipeline
+        ? 0
+        : specs.filter(
+            (s) =>
+              s.scenario !== 'hold_dispute' &&
+              s.scenario !== 'pending_review' &&
+              s.scenario !== 'rejected_review'
+          ).length,
+      rejected_count: specs.filter((s) => s.scenario === 'rejected_review').length,
       created_at: isoAt(submitted, 10, 0),
       updated_at: isoAt(today, 12, 0),
     }

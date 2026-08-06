@@ -77,7 +77,7 @@ export default function DocumentReviewResults({
 
       {!aiEnabled && (
         <p className="text-xs rounded p-2" style={{ backgroundColor: '#FFF8E1', color: '#113543' }}>
-          Add <code>VITE_OPENAI_API_KEY</code> to a <code>.env</code> file to enable AI document review.
+          Deploy the openai-proxy Edge Function with OPENAI_API_KEY to enable AI document review.
         </p>
       )}
 

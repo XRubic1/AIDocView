@@ -114,7 +114,9 @@ export function computeActivityMetrics(
   const overdueInvoiceIds = invoices
     .filter((invoice) => {
       if (invoice.status === 'paid' || invoice.status === 'force_closed') return false
-      const due = new Date(invoice.due_date).getTime()
+      const dueRaw = invoice.due_date || invoice.expected_payment_date
+      if (!dueRaw) return false
+      const due = new Date(dueRaw).getTime()
       return Number.isFinite(due) && due < Date.now()
     })
     .map((invoice) => invoice.id)

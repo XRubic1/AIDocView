@@ -17,6 +17,8 @@ export type InvoiceListPriorityInput = {
   awaitingReceipt?: boolean
   /** Partial payment received — remaining open balance. */
   isShortPaid?: boolean
+  /** Carrier disputed a Credyx-posted remittance (not a paperwork hold). */
+  paymentDisputed?: boolean
   status?: string
   displayStatus?: string
   isOverdue?: boolean
@@ -42,13 +44,19 @@ export function getInvoiceListPriorityBucket(
   if (input.awaitingReceipt) return 'confirm'
 
   const raw = (input.displayStatus || input.status || '').toLowerCase()
-  if (raw === 'hold' || raw === 'on_hold' || raw === 'on-hold') return 'hold'
+  // Payment receipt disputes are not paperwork holds — keep them with open A/R.
+  if (
+    !input.paymentDisputed &&
+    (raw === 'hold' || raw === 'on_hold' || raw === 'on-hold')
+  ) {
+    return 'hold'
+  }
 
   // Short paid sits directly under Confirm (still open A/R with a partial payment).
   if (input.isShortPaid) return 'short_paid'
 
   if (input.isOverdue || raw === 'overdue') return 'overdue'
-  if (raw === 'approved' || raw === 'open') return 'open'
+  if (raw === 'approved' || raw === 'open' || input.paymentDisputed) return 'open'
   return 'other'
 }
 

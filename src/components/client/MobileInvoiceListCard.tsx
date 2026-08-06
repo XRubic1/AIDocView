@@ -9,6 +9,7 @@ import {
   invoiceListPriorityStatusKey,
   invoiceListPriorityStatusLabel,
 } from '../../utils/invoiceListPriority'
+import { getInvoiceLifecycleStatusLabel } from '../../utils/invoiceLifecycleSteps'
 import { getClientVisibleDueDate } from '../../utils/ppwSent'
 
 interface MobileInvoiceListCardProps {
@@ -18,6 +19,8 @@ interface MobileInvoiceListCardProps {
   pendingPayDate?: string | null
   /** Credyx posted payment — carrier needs to confirm receipt. */
   awaitingReceipt?: boolean
+  /** Carrier disputed a Credyx-posted remittance. */
+  paymentDisputed?: boolean
   /** Partial payment received — remaining open balance. */
   isShortPaid?: boolean
   /** Remaining open A/R — shown as the list amount when short paid. */
@@ -32,12 +35,14 @@ interface MobileInvoiceListCardProps {
 /**
  * Spacious mobile invoice row — easy to scan, not cramped.
  * Status: Confirm (blue) → Short paid (red) → Open (gray) → On hold (amber) → Overdue (red).
+ * Payment disputes show lifecycle stage + DISPUTED underneath (not On hold).
  */
 export default function MobileInvoiceListCard({
   invoice,
   payDate,
   pendingPayDate,
   awaitingReceipt = false,
+  paymentDisputed = false,
   isShortPaid = false,
   openAmount = null,
   selected = false,
@@ -48,12 +53,17 @@ export default function MobileInvoiceListCard({
   const priorityInput = {
     awaitingReceipt,
     isShortPaid,
+    paymentDisputed,
     status: invoice.status,
     displayStatus: invoice.displayStatus,
     isOverdue: invoice.isOverdue,
   }
-  const statusLabel = invoiceListPriorityStatusLabel(priorityInput)
-  const statusKey = invoiceListPriorityStatusKey(priorityInput)
+  const statusLabel = paymentDisputed
+    ? getInvoiceLifecycleStatusLabel(invoice).toUpperCase()
+    : invoiceListPriorityStatusLabel(priorityInput)
+  const statusKey = paymentDisputed
+    ? 'disputed'
+    : invoiceListPriorityStatusKey(priorityInput)
   // Short paid: show remaining open balance, not the full invoice face amount.
   const amount =
     isShortPaid && openAmount != null && openAmount > 0
@@ -77,7 +87,9 @@ export default function MobileInvoiceListCard({
         invoice.isForceCloseEligible ? ' is-force-close' : ''
       }${statusKey === 'confirm-payment' ? ' is-confirm-payment' : ''}${
         statusKey === 'hold' ? ' is-hold' : ''
-      }${statusKey === 'short-paid' ? ' is-short-paid' : ''}`}
+      }${statusKey === 'disputed' ? ' is-disputed' : ''}${
+        statusKey === 'short-paid' ? ' is-short-paid' : ''
+      }`}
       data-onboard-target={onboardTarget}
       onClick={onClick}
     >
@@ -87,6 +99,9 @@ export default function MobileInvoiceListCard({
           className={`mobile-invoice-list-card__status mobile-invoice-list-card__status--${statusKey}`}
         >
           {statusLabel}
+          {paymentDisputed ? (
+            <span className="mobile-invoice-list-card__status-sub">DISPUTED</span>
+          ) : null}
         </span>
       </div>
 

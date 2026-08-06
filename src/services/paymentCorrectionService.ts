@@ -87,7 +87,7 @@ export function reversePayment(
   recomputeInvoiceFromConfirmed(sourceInvoice, adminName, noteSuffix)
 
   logAuditEvent(
-    'payment_received',
+    opts.reversalType === 'unprocessed' ? 'payment_unprocessed' : 'payment_received',
     'invoice',
     payment.invoice_id,
     payment.invoice_number,
@@ -158,11 +158,11 @@ export function movePaymentFunds(
   const loadLabel = original.load_number ?? '—'
   const sourceNote: InvoiceNote = {
     id: `note-move-src-${Date.now()}`,
-    note: `Funds moved to invoice ${target.invoice_number} (load ${target.load_number ?? '—'}) due to: ${reason.trim()}`,
+    note: `Funds moved to Invoice ${target.invoice_number} (Load ${target.load_number ?? '—'}) due to: ${reason.trim()}`,
     created_by: adminName,
     created_at: new Date().toISOString(),
-    type: 'note',
-    visibility: 'internal',
+    type: 'client_note',
+    visibility: 'client',
   }
 
   const targetNote: InvoiceNote = {
@@ -195,6 +195,24 @@ export function movePaymentFunds(
       amount: original.amount,
     })
   }
+
+  logAuditEvent(
+    'payment_moved',
+    'invoice',
+    target.id,
+    target.invoice_number,
+    `${adminName} moved ${formatCurrency(original.amount)} from ${original.invoice_number} to ${target.invoice_number}`,
+    'admin-portal',
+    adminName,
+    'Admin',
+    undefined,
+    {
+      from_payment_id: original.id,
+      to_payment_id: repost.id,
+      from_invoice_id: original.invoice_id,
+      to_invoice_id: target.id,
+    }
+  )
 
   return { original, repost }
 }

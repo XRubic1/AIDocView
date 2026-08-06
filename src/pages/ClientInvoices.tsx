@@ -44,6 +44,7 @@ import {
 import { hasPpwBeenSent } from '../utils/ppwSent'
 import { compareInvoicesByListPriority } from '../utils/invoiceListPriority'
 import { getPresetRange } from '../utils/clientReports'
+import { isReceiptDisputeHold } from '../services/paymentReceiptConfirmationService'
 
 type InvoiceSortField =
   | 'invoice_number'
@@ -102,10 +103,16 @@ function matchesInvoiceStatusFilter(
   invoice: EnrichedInvoice,
   filter: InvoiceStatusFilter,
   displayStatus: string,
-  options?: { awaitingReceipt?: boolean; isShortPaid?: boolean }
+  options?: {
+    awaitingReceipt?: boolean
+    isShortPaid?: boolean
+    paymentDisputed?: boolean
+  }
 ): boolean {
   const awaitingReceipt = Boolean(options?.awaitingReceipt)
   const isShortPaid = Boolean(options?.isShortPaid)
+  const paymentDisputed =
+    Boolean(options?.paymentDisputed) || isReceiptDisputeHold(invoice)
   switch (filter) {
     case 'confirm':
       return awaitingReceipt
@@ -114,19 +121,26 @@ function matchesInvoiceStatusFilter(
     case 'active':
       // Paid invoices with a Credyx short/payment awaiting confirm stay in Active.
       if (awaitingReceipt) return true
+      // Legacy receipt-dispute holds stay in Active (excluded from On hold below).
+      if (isReceiptDisputeHold(invoice)) return true
       return displayStatus !== 'paid' && !CLOSED_DISPLAY_STATUSES.has(displayStatus)
     case 'overdue':
       return Boolean(invoice.isOverdue)
     case 'approved':
       // Open filter = unpaid open A/R that is not short-paid (short paid has its own chip).
       if (isShortPaid && !awaitingReceipt) return false
+      // Receipt-dispute hold is still open A/R (Invoiced + Disputed).
+      if (isReceiptDisputeHold(invoice)) return true
       return displayStatus === filter
     case 'paid':
-      return displayStatus === filter
+      return displayStatus === filter && !isReceiptDisputeHold(invoice)
     case 'closed':
       return CLOSED_DISPLAY_STATUSES.has(displayStatus)
     case 'pending':
+      return displayStatus === filter || invoice.status === filter
     case 'hold':
+      // Paperwork holds only — payment receipt disputes show as Disputed, not On hold.
+      if (paymentDisputed || isReceiptDisputeHold(invoice)) return false
       return displayStatus === filter || invoice.status === filter
     default:
       return true
@@ -276,8 +290,17 @@ export default function ClientInvoices() {
     return ids
   }, [payments, capabilities.canConfirmPaymentReceipt])
 
+  /** Invoice IDs where the carrier disputed a Credyx-posted remittance. */
+  const disputedPaymentInvoiceIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const payment of payments) {
+      if (payment.status === 'disputed') ids.add(payment.invoice_id)
+    }
+    return ids
+  }, [payments])
+
   const enrichedInvoices = useMemo(() => {
-    const base = enrichInvoices(invoices)
+    const base = enrichInvoices(invoices, new Date(), capabilities)
     // Freeze age at confirmed pay date for paid invoices (list + sort).
     return base.map((invoice) => {
       if (invoice.status !== 'paid') return invoice
@@ -288,7 +311,7 @@ export default function ClientInvoices() {
         }),
       }
     })
-  }, [invoices, payDateByInvoiceId])
+  }, [invoices, payDateByInvoiceId, capabilities])
 
   const invoiceBalanceById = useMemo(() => {
     const map = new Map<string, InvoiceBalanceState>()
@@ -337,6 +360,7 @@ export default function ClientInvoices() {
       matchesInvoiceStatusFilter(invoice, statusFilter, displayStatus, {
         awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
         isShortPaid: isInvoiceListShortPaid(invoice, balance),
+        paymentDisputed: disputedPaymentInvoiceIds.has(invoice.id),
       })
     )
   })
@@ -406,6 +430,7 @@ export default function ClientInvoices() {
           matchesInvoiceStatusFilter(invoice, id, displayStatus, {
             awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
             isShortPaid: isInvoiceListShortPaid(invoice, balance),
+            paymentDisputed: disputedPaymentInvoiceIds.has(invoice.id),
           })
         ) {
           counts[id] += 1
@@ -414,7 +439,13 @@ export default function ClientInvoices() {
     }
 
     return counts
-  }, [enrichedInvoices, invoiceBalanceById, invoicePendingById, awaitingReceiptInvoiceIds])
+  }, [
+    enrichedInvoices,
+    invoiceBalanceById,
+    invoicePendingById,
+    awaitingReceiptInvoiceIds,
+    disputedPaymentInvoiceIds,
+  ])
 
   useEffect(() => {
     if (!isMobileViewport) return
@@ -442,6 +473,8 @@ export default function ClientInvoices() {
     const priorityInput = (invoice: EnrichedInvoice) => ({
       awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
       isShortPaid: isInvoiceListShortPaid(invoice, invoiceBalanceById.get(invoice.id)),
+      paymentDisputed:
+        disputedPaymentInvoiceIds.has(invoice.id) || isReceiptDisputeHold(invoice),
       status: invoice.status,
       displayStatus: invoice.displayStatus,
       isOverdue: invoice.isOverdue,
@@ -514,6 +547,7 @@ export default function ClientInvoices() {
     sortDir,
     invoiceBalanceById,
     awaitingReceiptInvoiceIds,
+    disputedPaymentInvoiceIds,
     isMobileViewport,
   ])
 
@@ -1082,6 +1116,10 @@ export default function ClientInvoices() {
                           payDate={payDateByInvoiceId.get(invoice.id) ?? null}
                           pendingPayDate={pendingPayDateByInvoiceId.get(invoice.id) ?? null}
                           awaitingReceipt={awaitingReceiptInvoiceIds.has(invoice.id)}
+                          paymentDisputed={
+                            disputedPaymentInvoiceIds.has(invoice.id) ||
+                            isReceiptDisputeHold(invoice)
+                          }
                           isShortPaid={shortPaid}
                           openAmount={shortPaid ? balance.signedBalance : null}
                           selected={selectedInvoice?.id === invoice.id}
@@ -1316,8 +1354,15 @@ export default function ClientInvoices() {
                                           invoicePendingById.get(invoice.id)?.pending,
                                         confirmedReceived:
                                           invoicePendingById.get(invoice.id)?.confirmed,
+                                        paymentDisputed: disputedPaymentInvoiceIds.has(
+                                          invoice.id
+                                        ),
                                       })}
-                                      <InvoiceDisputeBadges invoice={invoice} />
+                                      {/* Invoice-level (docs) disputes — skip when payment dispute stack already shows Disputed */}
+                                      {!disputedPaymentInvoiceIds.has(invoice.id) &&
+                                        !isReceiptDisputeHold(invoice) && (
+                                          <InvoiceDisputeBadges invoice={invoice} />
+                                        )}
                                     </>
                                   )}
                                   {invoice.isForceCloseEligible &&

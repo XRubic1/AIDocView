@@ -817,7 +817,11 @@ export default function PaymentPosting() {
                   <tr>
                     <th>Invoice</th>
                     <th>Client</th>
+                    <th>Broker</th>
+                    <th className="text-right">Invoice $</th>
+                    <th className="text-right">Received</th>
                     <th className="text-right">Shortfall</th>
+                    <th>Requested</th>
                     <th>Client note</th>
                     <th className="text-right">Actions</th>
                   </tr>
@@ -825,17 +829,46 @@ export default function PaymentPosting() {
                 <tbody>
                   {writeOffs.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="text-center py-10" style={{ color: c.mutedLight }}>
+                      <td colSpan={9} className="text-center py-10" style={{ color: c.mutedLight }}>
                         No pending write-offs
                       </td>
                     </tr>
                   ) : (
-                    writeOffs.map((inv) => (
+                    writeOffs.map((inv) => {
+                      const requestedAt = inv.write_off_request?.requested_at
+                      const ageDays = requestedAt
+                        ? Math.max(
+                            0,
+                            Math.floor(
+                              (Date.now() - new Date(requestedAt).getTime()) / (1000 * 60 * 60 * 24)
+                            )
+                          )
+                        : null
+                      return (
                       <tr key={inv.id}>
-                        <td className="font-medium">{inv.invoice_number}</td>
+                        <td className="font-medium">
+                          <Link
+                            to={`/admin/invoices?invoice=${inv.id}`}
+                            className="text-teal-700 hover:underline"
+                            title="Open invoice detail"
+                          >
+                            {inv.invoice_number}
+                          </Link>
+                        </td>
                         <td>{inv.client_name}</td>
+                        <td>{inv.broker_name || '—'}</td>
+                        <td className="text-right tabular-nums">{formatCurrency(inv.amount)}</td>
+                        <td className="text-right tabular-nums">
+                          {formatCurrency(inv.write_off_request?.received_amount ?? 0)}
+                        </td>
                         <td className="text-right tabular-nums">
                           {formatCurrency(inv.write_off_request?.shortfall ?? 0)}
+                        </td>
+                        <td className="tabular-nums text-xs whitespace-nowrap">
+                          {requestedAt ? formatDate(requestedAt) : '—'}
+                          {ageDays != null ? (
+                            <span className="block text-slate-500">{ageDays}d ago</span>
+                          ) : null}
                         </td>
                         <td className="max-w-xs truncate">{inv.write_off_request?.client_note}</td>
                         <td className="text-right whitespace-nowrap">
@@ -861,7 +894,8 @@ export default function PaymentPosting() {
                           </button>
                         </td>
                       </tr>
-                    ))
+                      )
+                    })
                   )}
                 </tbody>
               </table>

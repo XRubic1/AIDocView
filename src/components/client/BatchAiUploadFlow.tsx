@@ -433,8 +433,8 @@ export default function BatchAiUploadFlow({
             AI upload requires configuration
           </p>
           <p className="text-xs mt-1 max-w-md" style={{ color: c.secondary }}>
-            Add <code className="px-1 py-0.5 rounded bg-slate-100">VITE_OPENAI_API_KEY</code> to your
-            .env file, or switch to manual batch entry.
+            AI review requires the openai-proxy Edge Function (OPENAI_API_KEY
+            secret). Switch to manual batch entry if AI is unavailable.
           </p>
           <button type="button" className="dashboard-btn-secondary mt-4" onClick={onCancel}>
             Choose another method

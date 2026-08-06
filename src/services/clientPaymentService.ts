@@ -1156,7 +1156,7 @@ export function rejectClientPayment(
   }
 
   logAuditEvent(
-    'payment_received',
+    'payment_rejected',
     'invoice',
     payment.invoice_id,
     payment.invoice_number,
@@ -1165,7 +1165,7 @@ export function rejectClientPayment(
     adminName,
     'Admin',
     undefined,
-    { action: 'rejected', reason: opts.reason.trim() }
+    { reason: opts.reason.trim() }
   )
 
   return payment

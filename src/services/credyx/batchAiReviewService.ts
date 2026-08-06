@@ -51,7 +51,9 @@ export async function runBatchAiReview(
   onProgress?: (p: BatchAiReviewProgress) => void
 ): Promise<InvoiceAiReviewOutcome[]> {
   if (!isAIReviewEnabled()) {
-    throw new Error('Add VITE_OPENAI_API_KEY to your .env file to run AI review.')
+    throw new Error(
+      'AI review requires Supabase configuration. Deploy the openai-proxy Edge Function with OPENAI_API_KEY.'
+    )
   }
 
   const invoices = getInvoicesByBatchId(batchId)

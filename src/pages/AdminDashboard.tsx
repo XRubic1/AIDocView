@@ -17,6 +17,7 @@ import { PendingBatch, CollectionsAlert, AgingAR } from '../types/admin'
 import { formatCurrency } from '../utils/format'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
+import { getClientById } from '../services/clientRegistry'
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
@@ -71,7 +72,8 @@ export default function AdminDashboard() {
           client_name: inv.client_name,
           broker_name: inv.broker_name,
           amount: inv.amount,
-          expected_payment_date: inv.expected_payment_date,
+          expected_payment_date:
+            inv.expected_payment_date || inv.due_date || inv.invoice_date,
           days_since_expected: inv.days_since_expected || 0,
           client_response: (inv.broker_contacted ? 'not_received' : 'no_response') as CollectionsAlert['client_response'],
           broker_contacted: inv.broker_contacted || false,
@@ -81,20 +83,22 @@ export default function AdminDashboard() {
       .slice(0, 10)
   }, [allInvoices])
   
-  // Calculate force close rate
+  // Force-close rate — managed-tier clients only (self-service has no force-close).
   const forceCloseRate = useMemo(() => {
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-    
-    const recentInvoices = allInvoices.filter(inv => {
+
+    const recentManaged = allInvoices.filter((inv) => {
+      const client = getClientById(inv.client_id)
+      if (client?.service_tier !== 'managed') return false
       const updatedAt = inv.updated_at ? new Date(inv.updated_at) : new Date(inv.created_at)
       return updatedAt >= thirtyDaysAgo
     })
-    
-    if (recentInvoices.length === 0) return 0
-    
-    const forceClosed = recentInvoices.filter(inv => inv.status === 'force_closed').length
-    return ((forceClosed / recentInvoices.length) * 100).toFixed(1)
+
+    if (recentManaged.length === 0) return 0
+
+    const forceClosed = recentManaged.filter((inv) => inv.status === 'force_closed').length
+    return ((forceClosed / recentManaged.length) * 100).toFixed(1)
   }, [allInvoices])
   
   // Calculate average review time

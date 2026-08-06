@@ -21,8 +21,16 @@ import { isShortPayment } from '../types/payment'
 
 export const CLIENT_RECEIPT_CONFIRMATION_DAYS = 30
 
-const RECEIPT_DISPUTE_HOLD_REASON =
+/** Legacy hold_reason stamped when older builds forced receipt disputes onto invoice hold. */
+export const RECEIPT_DISPUTE_HOLD_REASON =
   'Payment receipt dispute — funds on hold until Credyx resolves'
+
+/** True when an invoice was (or still is) held only because of a payment receipt dispute. */
+export function isReceiptDisputeHold(invoice: Pick<Invoice, 'status' | 'hold_reason'>): boolean {
+  return (
+    invoice.status === 'hold' && invoice.hold_reason === RECEIPT_DISPUTE_HOLD_REASON
+  )
+}
 
 /**
  * Receipt confirmation applies a Credyx-posted payment that already exists.
@@ -197,16 +205,18 @@ export function openPaymentReceiptDispute(
 
   const disputeNote: InvoiceNote = {
     id: `note-pay-dispute-${Date.now()}`,
-    note: `Payment receipt dispute: ${reasonLabel} — ${description.trim()}. Funds on hold.`,
+    note: `Payment receipt dispute: ${reasonLabel} — ${description.trim()}.`,
     created_by: clientName,
     created_at: new Date().toISOString(),
     type: 'dispute',
     visibility: 'client',
   }
 
+  // Keep lifecycle status (Verified / Invoiced / Paid) — dispute lives on the payment.
+  // Clear a legacy receipt-dispute hold so the invoices tab does not show On Hold.
   const updated = updateInvoice(invoice.id, {
-    status: 'hold',
-    hold_reason: RECEIPT_DISPUTE_HOLD_REASON,
+    status: isReceiptDisputeHold(invoice) ? 'approved' : invoice.status,
+    hold_reason: isReceiptDisputeHold(invoice) ? undefined : invoice.hold_reason,
     notes_history: [...(invoice.notes_history || []), disputeNote],
     updated_at: new Date().toISOString(),
   })
@@ -312,9 +322,9 @@ export function resolvePaymentReceiptDispute(
     }
 
     const updated = updateInvoice(invoice.id, {
-      status: invoice.hold_reason === RECEIPT_DISPUTE_HOLD_REASON ? 'approved' : invoice.status,
-      hold_reason:
-        invoice.hold_reason === RECEIPT_DISPUTE_HOLD_REASON ? undefined : invoice.hold_reason,
+      // Lift legacy receipt-dispute holds back to open A/R when Credyx re-queues confirm.
+      status: isReceiptDisputeHold(invoice) ? 'approved' : invoice.status,
+      hold_reason: isReceiptDisputeHold(invoice) ? undefined : invoice.hold_reason,
       notes_history: [...(invoice.notes_history || []), resolveNote],
       updated_at: now,
     })
@@ -370,8 +380,8 @@ export function resolvePaymentReceiptDispute(
   }
 
   const updated = updateInvoice(invoice.id, {
-    status: invoice.hold_reason === RECEIPT_DISPUTE_HOLD_REASON ? 'approved' : invoice.status,
-    hold_reason: invoice.hold_reason === RECEIPT_DISPUTE_HOLD_REASON ? undefined : invoice.hold_reason,
+    status: isReceiptDisputeHold(invoice) ? 'approved' : invoice.status,
+    hold_reason: isReceiptDisputeHold(invoice) ? undefined : invoice.hold_reason,
     notes_history: [...(invoice.notes_history || []), rejectNote],
     updated_at: now,
   })

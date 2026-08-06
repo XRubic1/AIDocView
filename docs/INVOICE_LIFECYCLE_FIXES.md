@@ -63,12 +63,12 @@ future; the "nothing after 8/5" rule should only govern things that already happ
 
 **Fix (seed only):**
 
-- [ ] In `scripts/seedDemoClient.ts`, set `deadline = addDays(payDate, 30)` in the
+- [x] In `scripts/seedDemoClient.ts`, set `deadline = addDays(payDate, 30)` in the
       `awaiting_confirm`, `short_awaiting`, and `over_awaiting` scenarios (matches
       `CLIENT_RECEIPT_CONFIRMATION_DAYS = 30` used by the app for real postings).
-- [ ] Exempt `client_confirmation_deadline` from the final clamp pass in
+- [x] Exempt `client_confirmation_deadline` from the final clamp pass in
       `buildInvoice` (currently `clampDateStr` drags it back to 8/5).
-- [ ] Exclude `client_confirmation_deadline` from the `verify-dates` walker (or assert
+- [x] Exclude `client_confirmation_deadline` from the `verify-dates` walker (or assert
       it is **after** as-of instead).
 - [ ] Re-seed: `npm run seed-demo -- "ABC Trucking"`.
 

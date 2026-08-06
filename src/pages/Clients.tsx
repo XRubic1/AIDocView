@@ -26,6 +26,7 @@ import AdminClientVaultPanel from '../components/admin/AdminClientVaultPanel'
 import ClientCalendarPanel from '../components/admin/ClientCalendarPanel'
 import { useToast } from '../components/ui/ToastProvider'
 import { syncClientBatchFees } from '../services/batchFeeSync'
+import { logAuditEvent } from '../utils/auditLogger'
 import { getClientDocuments } from '../services/clientDocumentService'
 import {
   defaultRemittanceBlastVaultIds,
@@ -1160,12 +1161,25 @@ export default function Clients() {
                         checked={selectedClient.factoring ?? false}
                         onChange={(e) => {
                           void (async () => {
+                            const previous = selectedClient.factoring ?? false
+                            const next = e.target.checked
                             const updated = await updateClient(selectedClient.id, {
-                              factoring: e.target.checked,
+                              factoring: next,
                             })
                             if (updated) {
                               setSelectedClient(updated)
                               refreshClients()
+                              logAuditEvent(
+                                'client_updated',
+                                'client',
+                                selectedClient.id,
+                                selectedClient.name,
+                                `Factoring ${next ? 'enabled' : 'disabled'} for ${selectedClient.name}`,
+                                'admin',
+                                'Admin',
+                                'Admin',
+                                [{ field: 'factoring', old_value: previous, new_value: next }]
+                              )
                             }
                           })()
                         }}

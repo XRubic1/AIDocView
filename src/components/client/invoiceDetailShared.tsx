@@ -5,7 +5,9 @@ import {
   getDisputeReasonLabel,
   getInvoiceDisputeRowBadge,
 } from '../../services/clientInvoiceActions'
+import { isReceiptDisputeHold } from '../../services/paymentReceiptConfirmationService'
 import { enrichInvoice, getOverdueSeverityLabel, AR_POLICY } from '../../utils/invoiceAging'
+import { getInvoiceLifecycleStatusLabel } from '../../utils/invoiceLifecycleSteps'
 import {
   getClientInvoiceStatusParts,
   type InvoiceBalanceState,
@@ -71,6 +73,9 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     short_paid: 'status-pill status-pill--short-paid',
     force_closed: 'status-pill status-pill--closed',
     written_off: 'status-pill status-pill--closed',
+    // Lifecycle stage labels (payment dispute stack)
+    verified: 'status-pill status-pill--pending',
+    invoiced: 'status-pill status-pill--open',
   }
   const labels: Record<string, string> = {
     pending: 'Pending',
@@ -82,11 +87,42 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     short_paid: 'Short paid',
     force_closed: 'Force closed',
     written_off: 'Written Off',
+    verified: 'Verified',
+    invoiced: 'Invoiced',
   }
   const base = classMap[status] || 'status-pill status-pill--pending'
   return (
     <span className={options?.compact ? `${base} status-pill--compact` : base}>
       {labels[status] || status}
+    </span>
+  )
+}
+
+/** Lifecycle stage + Disputed stack for payment receipt disputes. */
+export function getInvoicePaymentDisputeStatusBadge(
+  invoice: Invoice,
+  options?: { compact?: boolean }
+) {
+  const stage = getInvoiceLifecycleStatusLabel(invoice)
+  const stageKey = stage.toLowerCase().replace(/\s+/g, '_')
+  const statusKey =
+    stageKey === 'verified' || stageKey === 'invoiced' || stageKey === 'paid'
+      ? stageKey
+      : stageKey === 'force_closed'
+        ? 'force_closed'
+        : stageKey === 'written_off'
+          ? 'written_off'
+          : 'approved'
+
+  return (
+    <span className="inline-flex flex-col items-start gap-0.5 min-w-0">
+      {getInvoiceStatusBadge(statusKey, options)}
+      <span
+        className={`status-pill status-pill--overdue${options?.compact ? ' status-pill--compact' : ''}`}
+        title="Payment receipt disputed"
+      >
+        Disputed
+      </span>
     </span>
   )
 }
@@ -120,6 +156,7 @@ export function getInvoiceVarianceBadge(
  * Primary + variance status for client invoice lists/detail.
  * Pass balance so Open/Paid reflects confirmed received (e.g. overpay → Paid + Overpaid).
  * Short-paid invoices show Short paid as the primary status (not Open + Short paid).
+ * Payment receipt disputes show lifecycle stage (Verified / Invoiced / Paid) + Disputed.
  */
 export function getInvoiceRowStatusBadge(
   invoice: Invoice & { displayStatus?: string; isOverdue?: boolean },
@@ -128,8 +165,16 @@ export function getInvoiceRowStatusBadge(
     balance?: InvoiceBalanceState
     pendingClientPosted?: number
     confirmedReceived?: number
+    /** Carrier disputed a Credyx-posted remittance. */
+    paymentDisputed?: boolean
   }
 ) {
+  const paymentDisputed =
+    Boolean(options?.paymentDisputed) || isReceiptDisputeHold(invoice)
+  if (paymentDisputed) {
+    return getInvoicePaymentDisputeStatusBadge(invoice, options)
+  }
+
   if (!options?.balance) {
     const raw = invoice.displayStatus || invoice.status
     const status =
@@ -195,6 +240,12 @@ export function getInvoiceNotice(
       type: 'force_closed',
       message:
         'This invoice was force closed by Credyx after collections outreach — the broker did not remit. It is removed from open A/R.',
+    }
+  }
+  if (isReceiptDisputeHold(invoice)) {
+    return {
+      type: 'dispute',
+      message: 'Payment receipt disputed — Credyx is reviewing.',
     }
   }
   if (invoice.status === 'hold') {

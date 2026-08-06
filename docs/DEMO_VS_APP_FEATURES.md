@@ -5,17 +5,13 @@
 > statuses/features exist, which the demo uses, which it skips, and which "statuses"
 > in the client portal are derived display buckets rather than stored values.
 >
-> Audited: 2026-08-05 · Companion doc: `docs/INVOICE_LIFECYCLE_FIXES.md`
+> Audited: 2026-08-05 · Updated: 2026-08-06 · Companion: `docs/INVOICE_LIFECYCLE_FIXES.md`
 
-**Headline finding:** the demo does **not** write any status outside the app's type
-unions — every stored value is valid. The confusion comes from three things:
-
-1. Client-portal pills (*Confirm payment, Short paid, Open, Overdue, Active, Closed*)
-   are **derived buckets**, not stored invoice statuses.
-2. The demo **skips entire lifecycle stages** (review/pending states, approval queues),
-   so several app screens are permanently empty in the demo.
-3. The demo writes some **admin-only / dormant fields** that the client portal never
-   renders, which can look like phantom features.
+**Headline finding:** the demo writes **only valid** stored statuses. After the
+2026-08-06 seed expansion, lifecycle queues that were empty (write-off approval,
+pending payments, receipt disputes, invoice/batch review) now have demo rows.
+Remaining gaps are niche (`payment_kind: 'over'`, dispute `under_review` /
+`closed`, batch `approval` / `processing` mid-states).
 
 ---
 
@@ -26,14 +22,14 @@ Stored union (`src/types/invoice.ts`):
 
 | Status | App behavior | Demo | Notes |
 |---|---|---|---|
-| `approved` | Open A/R, ages, chase eligible | ✅ 13 invoices | Bulk of the demo |
-| `paid` | Closed, fee billable | ✅ 7 | Includes overpaid-confirmed #2409 |
-| `hold` | Amber pill, blocks posting | ✅ 2 | Dispute-driven holds |
-| `force_closed` | Managed-only close, fee billable, exits aging | ✅ 1 | #2001 |
-| `written_off` | Fee-exempt, masked write-off | ✅ 1 | #2411 (pre-resolved) |
-| `pending` | Awaiting Credyx review | ❌ never seeded | **"Pending 0" tab is always empty** |
-| `rejected` | Failed review, in Closed bucket | ❌ never seeded | Rejection flow not demoable |
-| `write_off_pending` | Awaiting Credyx approval; client sees "Written off" | ❌ never seeded | **Admin write-off approval queue starts empty** — #2411 ships already approved. Reachable at runtime by requesting a write-off. |
+| `approved` | Open A/R, ages, chase eligible | ✅ bulk | Open / overdue / confirm / short / etc. |
+| `paid` | Closed, fee billable | ✅ | Includes overpaid-confirmed #2409 |
+| `hold` | Amber pill, blocks posting | ✅ | #2203 missing BOL + #2414 receipt dispute |
+| `force_closed` | Managed-only close, fee billable, exits aging | ✅ | #2001 |
+| `written_off` | Fee-exempt, masked write-off | ✅ | #2411 (approved) |
+| `write_off_pending` | Awaiting Credyx approval; client sees "Written off" | ✅ | **#2412** — admin write-off queue |
+| `pending` | Awaiting Credyx review | ✅ | **#2416** — Pending tab + AI `running` |
+| `rejected` | Failed review, in Closed bucket | ✅ | **#2417** — AI `needs_work` |
 
 ### Client-portal pills are derived, not stored
 
@@ -61,15 +57,14 @@ Union (`src/types/payment.ts`):
 
 | Status | App behavior | Demo |
 |---|---|---|
-| `confirmed` | Applied to received totals | ✅ 12 rows |
-| `awaiting_receipt` | Managed carrier must confirm (30-day auto-confirm) | ✅ 4 rows |
-| `pending` | **Client-posted payment awaiting Credyx approval** — the whole self-service posting flow | ❌ never seeded |
-| `disputed` | Receipt dispute → invoice goes on hold, admin resolves | ❌ never seeded |
-| `rejected` | Dispute resolved against posting / payment reversed out | ❌ never seeded |
-| `reversed` | Payment corrections (moved / unprocessed) | ❌ never seeded |
+| `confirmed` | Applied to received totals | ✅ |
+| `awaiting_receipt` | Managed carrier must confirm (30-day auto-confirm) | ✅ 4 rows — deadlines = payDate+30 (not clamped to as-of) |
+| `pending` | Client-posted payment awaiting Credyx approval | ✅ **#2413** |
+| `disputed` | Receipt dispute → invoice hold, admin resolves | ✅ **#2414** |
+| `reversed` | Payment corrections (unprocessed / moved) | ✅ **#2415** (`reversal_type: unprocessed`) |
+| `rejected` | Dispute resolved against posting | ❌ still not seeded (reachable by resolving #2414 as reject) |
 
-Payment kinds: `normal` ✅ · `short` ✅ (chargeback #2410) · `over` ❌ (overpay
-correction rows never demoed — demo overpays are single inflated `normal` payments).
+Payment kinds: `normal` ✅ · `short` ✅ (chargeback #2410) · `over` ❌ (overpays remain single inflated `normal` rows).
 `short_pay_reason`: `chargeback` ✅ · `wrong_amount` ❌.
 
 ---
@@ -80,25 +75,24 @@ Union (`src/types/admin.ts` `PendingBatch`):
 `draft · ready_to_post · verification · approval · submitted · processing · documents_uploaded`
 plus AI `sort_status`: `pending · sorting · ready · failed`.
 
-The demo seeds **only `submitted`** (all five batches, reviewed same day). Never
-demoable from seed data: batch review pipeline (verification → approval), drafts,
-processing, AI DocSort states, `upload_mode` (`ai` / `manual` / `handoff` — unset).
+| Status / field | Demo |
+|---|---|
+| `submitted` | ✅ five monthly batches (M0–M4) |
+| `verification` | ✅ **REVIEW** batch (#2416/#2417) — `upload_mode: ai`, `sort_status: ready` |
+| `draft` | ✅ **DRAFT** batch — empty, `sort_status: pending` |
+| `ready_to_post` / `approval` / `processing` | ❌ not seeded |
+| `upload_mode` | ✅ `manual` / `handoff` / `ai` |
+| Fee terms | ✅ M4 **trial** · M2 **$50 flat** · others **1% billable** |
 
 ---
 
 ## 4. Dispute & doc statuses
 
-- **Invoice disputes** (`open · under_review · resolved · closed`): demo uses `open`
-  (hold scenarios) and `resolved` (#2204). `under_review` / `closed` never appear.
-- **Payment receipt disputes**: feature exists (`openPaymentReceiptDispute` → invoice
-  hold → admin resolve/requeue) but no seeded example.
-- **Document send** (`sent · delivered · failed`): demo uses `delivered` only; no
-  failed sends, no multi-part packets.
-- **Vault docs** (`approval_status`): demo seeds all `approved` — the pending-approval
-  and rejection review flow (managed setup gate) starts empty. No expiring docs.
-- **AI review** (`not_run · running · ready · needs_work`): demo writes `ready` on
-  everything (`running` only for `pending` invoices, which don't exist — see §1).
-  `needs_work` — the interesting admin state — is never shown.
+- **Invoice disputes** (`open · under_review · resolved · closed`): ✅ `open` (hold #2203) + `resolved` (#2204). `under_review` / `closed` never appear.
+- **Payment receipt disputes**: ✅ #2414 (`funds_not_received`, status `open`, invoice hold).
+- **Document send** (`sent · delivered · failed`): ✅ `delivered` everywhere; ✅ `failed` + resent `delivered` on #2415.
+- **Vault docs** (`approval_status`): ✅ mostly `approved`; ✅ **IFTA pending** approval; ✅ COI **expires as-of day** (reminder surface).
+- **AI review** (`not_run · running · ready · needs_work`): ✅ `running` on pending #2416 · `needs_work` on rejected #2417 · `ready` elsewhere.
 
 ---
 
@@ -117,7 +111,7 @@ client-facing demo scripts:
 | `ai_confirmed_at/by` | Set on all | Admin AI review context |
 
 Client-invisible by design: `write_off_pending` masking and `write_off_request`
-stripping (`toClientVisibleInvoice`) both work correctly in the demo.
+stripping (`toClientVisibleInvoice`) both work correctly in the demo (#2411 + #2412).
 
 ---
 
@@ -126,45 +120,39 @@ stripping (`toClientVisibleInvoice`) both work correctly in the demo.
 | App feature | Demo coverage |
 |---|---|
 | Invoice aging buckets + overdue chase | ✅ Good spread (current → 91+) |
-| PPW send history + broker follow-up notes | ✅ |
-| Receipt confirmation (managed) | ✅ 4 invoices (⚠️ P0 deadline bug — see lifecycle doc) |
-| Short pay → confirm → write-off request | ✅/⚠️ end state seeded, queue stage skipped |
+| PPW send history + broker follow-up notes | ✅ (+ failed send/resend on #2415) |
+| Receipt confirmation (managed) | ✅ 4 invoices — deadlines stay 30 days out |
+| Short pay → confirm → write-off request | ✅ #2411 done · #2412 pending queue |
 | Overpayment accept | ✅ #2408/#2409 |
 | Chargeback correction | ✅ #2410 |
 | Force close (managed) | ✅ #2001 |
-| Fee terms snapshot (1% billable) | ✅ uniform — no trial/flat/exempt variety |
+| Fee terms snapshot | ✅ trial / flat / 1% variety across batches |
 | Collection statuses C/B / W/P (admin) | ✅ |
 | Invoice disputes | ✅ open + resolved |
-| **Client-posted payments (pending approval)** | ❌ not seeded |
-| **Payment receipt disputes** | ❌ not seeded |
-| **Payment corrections (move / unprocess / reverse)** | ❌ not seeded |
-| **Write-off approval queue (admin)** | ❌ starts empty |
-| **Invoice review pipeline (pending / rejected)** | ❌ not seeded |
-| **Batch review pipeline (verification / approval / drafts / AI sort)** | ❌ only `submitted` |
-| **Vault doc approval flow / expiry reminders** | ❌ all pre-approved, no expiries |
-| **AI review `needs_work`** | ❌ everything `ready` |
+| Client-posted payments (pending approval) | ✅ #2413 |
+| Payment receipt disputes | ✅ #2414 |
+| Payment corrections (unprocess / reverse) | ✅ #2415 |
+| Write-off approval queue (admin) | ✅ #2412 |
+| Invoice review pipeline (pending / rejected) | ✅ #2416 / #2417 |
+| Batch review pipeline (verification / drafts / AI sort) | ✅ REVIEW + DRAFT batches |
+| Vault doc approval flow / expiry reminders | ✅ pending IFTA + expiring COI |
+| AI review `needs_work` | ✅ #2417 |
 
 ---
 
-## 7. Recommendations
+## 7. Remaining optional polish
 
-Ranked by demo value; all are seed-only changes unless noted.
+Ranked by demo value; all are seed-only.
 
-1. **Seed one `write_off_pending` invoice** (client already requested, Credyx not yet
-   approved) so the admin write-off queue and the client-side "Written off (masked)"
-   state are both demoable. Keep #2411 as the completed example.
-2. **Seed one client-posted `pending` payment** on an open invoice — exercises the
-   Credyx payment-posting approval queue and the self-service story.
-3. **Seed one `disputed` receipt payment** (invoice on hold with
-   `hold_reason` = receipt dispute) — currently a dead feature in demos.
-4. **Seed one `pending` + one `rejected` invoice** in the current-month batch so the
-   review pipeline and the Pending/Closed tabs populate honestly (also makes
-   `ai_review_status: 'running'` and `needs_work` reachable).
-5. **Vary fee terms** across batches (one trial batch, one flat-fee) so accounting
-   screens don't show a uniform 1%.
-6. Optional: one `failed` document send + resend, one vault doc `pending` approval,
-   one expiring COI — each lights up an existing notification/queue surface.
-7. When writing demo scripts/marketing: reference stored statuses or derived pill
+1. Seed a `payment_kind: 'over'` correction child (today overpays are inflated `normal` rows).
+2. Seed `short_pay_reason: 'wrong_amount'` alongside the existing chargeback.
+3. Seed payment status `rejected` (or resolve #2414 live in the admin demo script).
+4. Seed dispute statuses `under_review` / `closed`.
+5. Seed batch mid-states `approval` / `processing` / `ready_to_post` if those screens need static data.
+6. When writing demo scripts/marketing: reference stored statuses or derived pill
    names from §1 only. Do not use stage names that don't exist in the app (e.g.
    "invoice verified" is a *step label*, not a status; "delivered" is not an invoice
    state — see `.cursor/rules/credyx-marketing-prompts.mdc` stepper rules).
+
+**Re-seed after pull:** `npm run seed-demo -- "ABC Trucking"`  
+**Date audit:** `npm run seed-demo -- verify-dates`

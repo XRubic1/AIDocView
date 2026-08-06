@@ -35,7 +35,8 @@ export default function CollectionsInvoiceModal({
   // Calculate days since expected payment date
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const expectedDate = new Date(invoice.expected_payment_date)
+  const expectedRaw = invoice.expected_payment_date || invoice.due_date
+  const expectedDate = expectedRaw ? new Date(expectedRaw) : today
   expectedDate.setHours(0, 0, 0, 0)
   const diffTime = today.getTime() - expectedDate.getTime()
   const daysSinceExpected = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)))

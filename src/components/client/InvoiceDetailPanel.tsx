@@ -63,6 +63,7 @@ import { toClientVisibleInvoice } from '../../utils/clientInvoiceView'
 import {
   getAwaitingReceiptPaymentForInvoice,
   getReceiptConfirmationDaysLeft,
+  invoiceHasDisputedPayment,
 } from '../../utils/paymentStatus'
 import { buildClientPaymentAuditTimeline, isPaymentRelatedInvoiceNote, isRedundantPaymentLifecycleNote, isClosedUncollectableNote, getPaymentNoteCategoryTitle } from '../../utils/clientPaymentAuditTimeline'
 import {
@@ -330,6 +331,10 @@ export default function InvoiceDetailPanel({
         ? getAwaitingReceiptPaymentForInvoice(invoice.id, payments)
         : undefined,
     [capabilities.canConfirmPaymentReceipt, invoice.id, payments]
+  )
+  const paymentDisputed = useMemo(
+    () => invoiceHasDisputedPayment(invoice.id, payments),
+    [invoice.id, payments]
   )
   const floatPayment = useMemo(() => {
     const candidates = invoicePayments.filter(
@@ -1455,6 +1460,7 @@ export default function InvoiceDetailPanel({
             receiptDaysLeft={receiptDaysLeft}
             hasAwaitingReceipt={Boolean(awaitingReceiptPayment)}
             awaitingReceiptAmount={awaitingReceiptPayment?.amount ?? null}
+            paymentDisputed={paymentDisputed}
             activityCount={allTimelineEntries.length}
             documentCount={documentCount}
             uploadConfirmation={uploadSuccess}

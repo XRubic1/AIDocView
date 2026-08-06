@@ -50,3 +50,11 @@ export function getAwaitingReceiptPaymentForInvoice(
 ): Payment | undefined {
   return payments.find((p) => p.invoice_id === invoiceId && p.status === 'awaiting_receipt')
 }
+
+/** True when the carrier has an open payment-receipt dispute on this invoice. */
+export function invoiceHasDisputedPayment(
+  invoiceId: string,
+  payments: Payment[]
+): boolean {
+  return payments.some((p) => p.invoice_id === invoiceId && p.status === 'disputed')
+}

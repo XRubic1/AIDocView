@@ -52,7 +52,7 @@ export default function BatchAiReviewPanel({ batchId, onComplete }: BatchAiRevie
   if (!isAIReviewEnabled()) {
     return (
       <p className="text-xs" style={{ color: '#819291' }}>
-        Configure VITE_OPENAI_API_KEY to enable AI review.
+        Configure the openai-proxy Edge Function to enable AI review.
       </p>
     )
   }

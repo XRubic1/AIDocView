@@ -32,6 +32,7 @@ import {
   getDisplayAgingBucketId,
   getDisplayAgingBucketLabel,
   getOverdueSeverity,
+  isForceCloseApplicable,
   isOpenArInvoice,
 } from '../utils/invoiceAging'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
@@ -117,11 +118,11 @@ export default function ClientCollections() {
   }, [clientInvoices, payments])
 
   const openArInvoices = useMemo(() => {
-    return enrichInvoices(clientInvoices).filter((inv) => {
+    return enrichInvoices(clientInvoices, new Date(), capabilities).filter((inv) => {
       if (!isOpenArInvoice(inv)) return false
       return (openBalanceById.get(inv.id) ?? inv.amount) > AMOUNT_EPSILON
     })
-  }, [clientInvoices, openBalanceById])
+  }, [clientInvoices, openBalanceById, capabilities])
 
   const [viewMode, setViewMode] = useState<ViewMode>('invoices')
   const [brokerDrillDown, setBrokerDrillDown] = useState<string | null>(null)
@@ -198,10 +199,12 @@ export default function ClientCollections() {
           cmp =
             (openBalanceById.get(a.id) ?? a.amount) - (openBalanceById.get(b.id) ?? b.amount)
           break
-        case 'expected_payment_date':
-          cmp =
-            new Date(a.expected_payment_date).getTime() - new Date(b.expected_payment_date).getTime()
+        case 'expected_payment_date': {
+          const aDate = a.expected_payment_date || a.due_date || ''
+          const bDate = b.expected_payment_date || b.due_date || ''
+          cmp = new Date(aDate || 0).getTime() - new Date(bDate || 0).getTime()
           break
+        }
         case 'days_outstanding':
           cmp = a.invoiceAgeDays - b.invoiceAgeDays
           break
@@ -453,9 +456,12 @@ export default function ClientCollections() {
     const isSelected = selectedInvoice?.id === invoice.id
     const bucketId = getDisplayAgingBucketId(invoice.daysOutstanding)
     const isOverdue = invoice.daysOutstanding >= AR_POLICY.collectionsOverdueDays
-    const isForceCloseRow =
-      capabilities.hasForceClose && invoice.isForceCloseEligible
-    const severity = getOverdueSeverity(invoice.daysOutstanding, isOverdue)
+    const isForceCloseRow = isForceCloseApplicable(invoice, capabilities)
+    const severity = getOverdueSeverity(
+      invoice.daysOutstanding,
+      isOverdue,
+      capabilities.hasForceClose
+    )
 
     return (
       <tr
@@ -522,6 +528,17 @@ export default function ClientCollections() {
                 here; contact Credyx for broker outreach and force-close actions.
               </section>
             )}
+            {capabilities.canRunInvoiceOps &&
+              !capabilities.hasForceClose &&
+              openArInvoices.some((inv) => inv.isForceCloseEligible) && (
+                <section
+                  className="shrink-0 px-4 py-2.5 border-b text-sm"
+                  style={{ borderColor: c.border, backgroundColor: c.stat.amber, color: c.secondary }}
+                >
+                  Some invoices are aged 90+ days — awaiting your action (post payment, write-off
+                  request, or dispute). Self-service plans do not use Credyx force-close.
+                </section>
+              )}
             <section
               className="flex items-center justify-between gap-3 px-4 py-2 border-b shrink-0"
               style={{ borderColor: c.border, backgroundColor: c.stat.slate }}

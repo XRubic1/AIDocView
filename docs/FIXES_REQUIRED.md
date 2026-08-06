@@ -2,233 +2,183 @@
 
 > Result of verifying the implemented work against `docs/features/` specs and
 > `docs/LAUNCH_READINESS.md`, plus a deep trace of the batch submission workflow.
-> Status: tests pass (32/32) but **the production build fails (107 TS errors)** and
-> several features are broken at runtime.
 >
-> Verified: 2026-07-07
+> **Re-verified: 2026-08-06** — production build is green (`tsc --noEmit` = 0 errors).
+> Most P0 runtime bugs from the original 2026-07-07 audit are fixed. Remaining
+> items are ops steps, polish, and a short P1/P2 tail.
+>
+> Original finding (2026-07-07): tests passed but build failed with 107 TS errors.
 
 Priority key: **P0** = broken now / blocks build or revenue integrity · **P1** = spec
 violation or data loss · **P2** = polish / follow-up.
+
+Checkbox legend: `[x]` fixed in code · `[ ]` still open · `[~]` partial / ops-only.
 
 ---
 
 ## 1. P0 — Build is broken
 
-`npm run build` runs `tsc && vite build`; `tsc --noEmit` currently reports
-**107 errors across 35 files**, so nothing can build or pass the new CI workflow.
+**Status: FIXED** — `tsc --noEmit` reports **0 errors** (was 107 across 35 files).
 
-Errors that are also **real bugs** (fix these first, they overlap §2–§3):
-
-- [ ] `src/components/batches/AccountingModal.tsx` (213, 279, 319, 329, 337) —
-      `formatCurrency` used but never imported → **runtime crash** when the modal opens.
-- [ ] `src/components/batches/AdminInvoiceDetailView.tsx:74` — `useAuth().user` does
-      not exist; `AuthContext` exposes `session`/`resolved`. Audit actor/userId broken.
-- [ ] `src/components/client/BatchStatusWidget.tsx:31` — compares batch status to
-      `'approved'`, which isn't in `PendingBatch['status']` (batches end as
-      `submitted`) → "Processed" count always under-reports.
-- [ ] `src/components/client/RateConFieldEditor.tsx:3`,
-      `RateConTrainingSection.tsx:3` — invalid named re-exports (build blockers).
-- [ ] `src/pages/ClientBatches.tsx:1370–1371` — incompatible manual-form handler types.
-- [ ] `src/services/supabase/tenantMappers.ts:281` — `batch.in_use` nullability.
-
-The remaining errors are mostly noise (unused imports/vars, `null` vs `undefined`)
-in: `tenantPersist.ts`, `extractBatchFields.ts`, `invoiceBilledMatch.ts`,
-`multiInvoiceValidation.ts`, `paymentCorrectionService.ts`, `SimpleUploadModal.tsx`,
-`paperworkSender.ts`, `Settings.tsx` (unused `useEffect`), and ~25 more files —
-mechanical cleanup, but all must go for the build to pass.
+- [x] `AccountingModal.tsx` — `formatCurrency` imported; modal no longer crashes.
+- [x] `AdminInvoiceDetailView.tsx` — uses `useAuth().resolved` / `session` (not `.user`).
+- [x] `BatchStatusWidget.tsx` — processed batches use `status === 'submitted'`.
+- [x] `RateConFieldEditor` / `RateConTrainingSection` — valid re-exports.
+- [x] `ClientBatches.tsx` — manual-form handler types compatible.
+- [x] `tenantMappers.ts` — `batch.in_use` nullability (`?? false`).
+- [x] Remaining mechanical TS noise (optional dates / `null` vs `undefined`) cleared
+      including `DashboardInvoiceList`, `CollectionsInvoiceModal`, `clientDemoData`,
+      `AdminDashboard`, `ClientCollections`, `cashCollectionForecast`,
+      `clientActivityMetrics`.
 
 ---
 
 ## 2. P0 — Batch submission workflow (confirmed broken at runtime)
 
-- [ ] **Accounting modal crashes on open** — missing `formatCurrency` import (§1).
-      Blocks accounting from Ready to Post / Verification / Approval tabs.
-- [ ] **Managed doc handoff discards files.** `ManagedDocHandoffView.tsx:32–57`
-      sends the admin notification with file *names* only — no storage upload, no
-      `setBatchFiles`. The created batch has `total_invoices: 0`, and
-      `ReadyToPostTab` requires invoices > 0 to advance → handoff batches are stuck
-      forever with no documents. Errors are also swallowed (`catch { /* ignore */ }`).
-      Fix: upload files to the `batch-documents` bucket + give admins tooling to build
-      invoices from a handoff batch.
-- [ ] **AI batch submit never uploads documents.** `submitAiBatch`
-      (`batchIntakePipeline.ts:127–135`) only calls the in-memory `setBatchFiles`,
-      unlike `submitManualBatch.ts:162–176` which calls
-      `uploadBatchInvoiceDocuments`. Documents are lost on refresh; admin AI review
-      (`batchAiReviewService.ts:57–78`) then finds zero documents. Fix: mirror the
-      manual path (upload + `document_storage_paths`).
-- [ ] **Draft batches vanish on login/token refresh.** Auth hydration calls
-      `clearTenantStores()` → `clearBatches()`; draft rows are memory-only
-      (`tenantPersist.ts:198–201` skips drafts) and the IndexedDB recovery function
-      `listDraftRecordsForClient` (`clientBatchDraftStore.ts:119–129`) is **never
-      called anywhere**. "Continue draft" fails silently. Fix: rebuild draft rows from
-      IndexedDB on portal load, or persist drafts to Supabase.
-- [ ] **Admin invoice edits in Ready to Post don't persist.**
-      `AdminInvoiceDetailView.tsx:495–512` `handleSave` mutates the prop object and
-      `console.log`s — never calls `updateInvoice`/persist. Broker assignment and
-      field edits are lost on reload.
-- [ ] **Accounting fee recalc not written back** — `AccountingModal.tsx:67–75`
-      updates local state only; never calls `updateBatch`/`syncBatchFees`.
+**Status: FIXED** (fee open-time recalc still local-only — acceptable).
+
+- [x] **Accounting modal crashes on open** — `formatCurrency` import present.
+- [x] **Managed doc handoff discards files** — uploads via `uploadBatchInvoiceDocuments`;
+      admin handoff workspace builds invoices from documents.
+- [x] **AI batch submit never uploads documents** — `submitAiBatch` uploads + sets
+      `document_storage_paths` (mirrors manual path).
+- [x] **Draft batches vanish on login** — `restoreClientDraftBatches` /
+      `listDraftRecordsForClient` wired from `hydrateStores`.
+- [x] **Admin invoice edits in Ready to Post don't persist** — `handleSave` uses
+      `updateInvoiceAsync`.
+- [~] **Accounting fee recalc not written back** — save path persists via
+      `applyBatchFeeTerms` / `syncClientBatchFees`; open-time `useEffect` still updates
+      local display only (no silent write on open).
 
 ---
 
 ## 3. P0 — Security actions
 
-- [ ] **Rotate the OpenAI API key.** `.env` contains a live `sk-proj-…` key that was
-      used from browser code. Rotate it at OpenAI, set the new key only as the
-      `openai-proxy` edge function secret, and delete `VITE_OPENAI_API_KEY` from
-      `.env`.
-- [ ] **Port `reviewExplainChatService.ts` to the proxy** — it still calls OpenAI
-      directly from the browser with the `VITE_` key (`:35–58`). Also remove
-      `getOpenAIApiKey()` from `config/aiReview.ts:207` and the stale
-      "set VITE_OPENAI_API_KEY" copy in `BatchAiUploadFlow.tsx`,
-      `BatchAiReviewPanel.tsx`, `LoadReviewWorkbench.tsx` (replace with proxy
-      deployment guidance).
-- [ ] **Edge function authorization** — `openai-proxy` and `send-email`
-      (`broker_packet` template) accept any authenticated user, including clients.
-      Restrict to admin where appropriate; add spend limits on the proxy.
+- [~] **Rotate the OpenAI API key.** `.env` no longer contains `VITE_OPENAI_API_KEY`.
+      **Ops:** confirm the key was rotated at OpenAI and set only as the
+      `openai-proxy` Edge Function secret `OPENAI_API_KEY`.
+- [x] **Port `reviewExplainChatService` to the proxy** — uses `postOpenAIChatCompletions`.
+      Stale “set `VITE_OPENAI_API_KEY`” UI copy scrubbed in main batch/AI flows
+      (`BatchAiUploadFlow`, `BatchAiReviewPanel`, `LoadReviewWorkbench`,
+      `ReviewExplainChat`, `DocumentReviewResults`, `batchAiReviewService`).
+      `getOpenAIApiKey()` remains as a deprecated/legacy helper for eval paths.
+- [~] **Edge function authorization** — `send-email` restricts broker/Credyx templates
+      to admin; public templates (incl. enrollment alert) allowed. `openai-proxy`
+      still allows any authenticated admin **or** linked client — **no spend limits**.
+      Tighten further if needed.
 
 ---
 
 ## 4. P0 — Revenue-integrity spec violations
 
-- [ ] **Clients can self-confirm pending payments.** `ClientPayments.tsx:826–980`
-      exposes Confirm + an inline confirm form calling `confirmClientPayment()`.
-      Spec 02's entire control (and the collected-based billing from spec 07) depends
-      on Credyx being the only confirmer. Remove the client-side confirm path.
-- [ ] **Fake-confirm on failure** — when `confirmClientPayment` returns `undefined`,
-      `ClientPayments.tsx:305–319` marks the payment confirmed locally anyway.
-- [ ] **Admin can force-close Self-Service invoices.** `AdminInvoiceDetailView.tsx`
-      (~180–234, 2415) always offers Force Close, no tier check, no service guard —
-      spec 03's admin half. Also scope the dashboard force-close rate
-      (`AdminDashboard.tsx:83–95`) to managed clients.
-- [ ] **Capability bypasses in services** — no guard on:
-      `markClientInvoiceAsPaid`, `postClientPaymentOnNewInvoice`
-      (`canPostPayment`/`canCreateAdHocInvoice`), `closeClientInvoiceAsUncollectable`
-      (`canRequestWriteOff`), `submitManualBatch` (`canCreateBatch`), and any path
-      applying `force_closed` (`hasForceClose`).
+- [x] **Clients can self-confirm pending payments** — client pending confirm path
+      removed; Credyx admin confirms. Client may only confirm **awaiting_receipt**
+      when `canConfirmPaymentReceipt` (managed).
+- [x] **Fake-confirm on failure** — zero/failed confirms show error; no local success.
+- [x] **Admin can force-close Self-Service invoices** — Force Close gated to managed
+      tier in `AdminInvoiceDetailView`. Dashboard force-close rate scoped to managed
+      clients (`AdminDashboard`).
+- [x] **Capability bypasses in services** — guards on mark-paid / post / write-off;
+      `submitManualBatch` now asserts `canCreateBatch` (admin paths use `skipSetupGate`).
 
 ---
 
 ## 5. P1 — Spec gaps by feature
 
 ### Spec 02 — Payment posting
-- [ ] `rejected` status missing from client payment chips
-      (`ClientPayments.tsx:62–67`); `rejection_reason` never shown.
-- [ ] Reject logs `payment_received` with `action: 'rejected'` — should be a
-      distinct `payment_rejected` audit event.
-- [ ] No dedicated "reported, awaiting confirmation" success state after client post.
+- [x] `rejected` status chip + `rejection_reason` tooltip on client payments.
+- [x] Reject logs distinct `payment_rejected` audit event.
+- [ ] No dedicated "reported, awaiting confirmation" success state after client post
+      (form clears; toast only).
 
 ### Spec 03 — Force-close
-- [ ] `getOverdueSeverity()` still returns `force_close` (purple styling) for
-      self-service 90+ day invoices — severity needs tier awareness.
-- [ ] `isForceCloseApplicable()` wrapper is dead code — either use it everywhere or
-      remove it.
-- [ ] Admin collections queues: no "aged — awaiting client action" framing for
-      self-service.
+- [x] `getOverdueSeverity()` is tier-aware (`hasForceClose`); self-service 90+ day
+      invoices use `critical`, not purple `force_close`.
+- [x] `isForceCloseApplicable()` used in `ClientCollections` (and capability gates
+      elsewhere).
+- [x] Self-service collections banner: “aged — awaiting client action” when 90+ day
+      open A/R exists.
 
 ### Spec 04 — Capability gating
-- [ ] Managed clients can no longer open disputes (spec says disputes stay allowed) —
-      `enableClientActions={canRunInvoiceOps}` on `ClientInvoices.tsx:620` and
-      `ClientBatches.tsx:1450` gates dispute too. Needs a separate `canOpenDispute`
-      or carve-out.
-- [ ] `updateClientTier` has no audit log (`clientRegistry.ts:234–248`).
-- [ ] `ClientReports.tsx` has no tier awareness for force-close metrics.
+- [x] Managed disputes stay allowed via separate `canOpenDispute`.
+- [x] `updateClientTier` audit-logged.
+- [ ] `ClientReports.tsx` still has no dedicated force-close / tier metric framing.
 
 ### Spec 06 — Payment corrections
-- [ ] Note wording diverges from the required format
-      ("Funds moved from Invoice {n} (Load {load}) due to: {note}"): source note is
-      `visibility: 'internal'` (client can't see it), target note drops the Load
-      segment (`paymentCorrectionService.ts:137–153`); unprocess writes
-      "Reversed $X — {reason}" instead of "Payment of {amount} unprocessed due to:".
-- [ ] Missing guards: same-client check, source-invoice status validation *before*
-      reversing (currently reverses first, then validates target), block when source
-      is written_off/force_closed.
-- [ ] `overpayment_accepted_at` not cleared when a reversal undoes an overpayment.
-- [ ] No admin notification on client-initiated corrections; no `payment_moved` /
-      `payment_unprocessed` audit event types.
+- [x] Target + source notes use required Load wording; source note is client-visible.
+- [x] Unprocess wording: `Payment of {amount} unprocessed due to:`.
+- [x] Same-client check; `force_closed` source blocked; `overpayment_accepted_at`
+      cleared on reverse; moved-to payment link fields set.
+- [x] `payment_moved` / `payment_unprocessed` audit types; client-path admin notify.
 - [ ] No orphaned ad-hoc invoice cleanup on unprocess.
-- [ ] Reversed rows have no link to the moved-to payment/invoice.
+- [ ] Source status validation order still reverses before some target checks
+      (written_off sources intentionally allowed).
 
 ### Spec 07 — A/R billing
-- [ ] **`servicePlans.ts:29` still has `service_fee_monthly: 299`** and marketing
-      still advertises it (`PlanCard.tsx:31–34`, `HowItWorks.tsx:516`); enroll pages
-      have no A/R-percentage pricing copy.
-- [ ] **No admin UI for `factoring` / `ar_rate_override`** (DB columns + mappers
-      exist; `Clients.tsx` has no controls). Factoring changes also need audit logs.
-- [ ] 1/2-month overdue reminders compute standing but send no notifications/emails;
-      the 2-month "will be locked" warning only shows on the Settings billing panel,
-      not portal-wide.
-- [ ] `markBillPaid` unlock isn't audit-logged (`arBillingService.ts:387–392`).
-- [ ] Billing tests don't cover reversal credits, force-close adjustments, or
-      pending-exclusion (only 2 tests).
+- [x] `$299/mo` removed from `HowItWorks` managed card (A/R % copy).
+      `servicePlans` no longer hardcodes `service_fee_monthly: 299`.
+- [~] Factoring checkbox in `Clients.tsx` **with audit**; **no `ar_rate_override` UI**.
+- [~] Portal lock via `ClientRouteGuard` when locked; warning still mainly on
+      Settings billing panel; **no dunning emails**.
+- [x] `markBillPaid` unlock + bill-paid audit-logged.
+- [ ] Billing tests still thin on reversal credits / force-close / pending-exclusion.
 
-### Spec 01 — Write-off approval (near-complete; polish)
-- [ ] Admin queue rows missing broker, invoice/received amounts, request age, and a
-      link to invoice detail (`PaymentPosting.tsx:555–610`).
-- [ ] `write_off_request` isn't stripped by `toClientVisibleInvoice()` — not rendered,
-      but present in client-side payloads.
-- [ ] `writeOffApprovalService` uses sync `updateInvoice` (fire-and-forget persist) —
-      switch to the awaited path.
+### Spec 01 — Write-off approval
+- [x] Admin write-off queue shows broker, invoice/received amounts, request age, and
+      invoice detail link (`PaymentPosting`).
+- [x] `write_off_request` stripped by `toClientVisibleInvoice()`.
+- [x] `writeOffApprovalService` uses awaited `updateInvoiceAsync`.
 
 ---
 
 ## 6. P1 — Onboarding, email, persistence remainders
 
-- [ ] **Anonymous enrollment admin-alert email fails** — `useEnrollForm.ts:71` calls
-      `sendTransactionalEmail('admin_enrollment_alert')` but `send-email` requires an
-      admin role for that template → 403, silently swallowed. Allow that template for
-      anon (rate-limited) or move the alert server-side.
-- [ ] **Stub email reports success** — without `RESEND_API_KEY`, `send-email` returns
-      `{ ok: true, stub: true }` and `paperworkSender.ts:36` marks history
-      `delivered` *before* sending. Treat stub as failure in prod; set status from
-      the actual result.
-- [ ] Broker packet emails send **no document attachments** (body only).
-- [ ] No dunning/billing emails (ties to spec 07 reminders).
-- [ ] `sessionService.ts:14–18` resolves `clientId` from JWT only — no
-      `client_auth_links` fallback (the SQL helper has one). Stale JWTs after linking
-      can't log in until refresh.
-- [ ] Remaining fire-and-forget persists: sync `updateInvoice()`
-      (used by `AdminDashboard.tsx:354–358` broker-contact and the write-off service),
-      `mockBatches`/`mockBrokers`/`mockNotifications`, default `logAuditEvent`
-      (`logAuditEventAsync` exists but is unused).
-- [ ] Hardcoded audit actors `'user-1'`/`'Admin User'` in `ApprovalTab.tsx:89–139`
-      (and elsewhere) — should come from the authenticated session.
+- [x] **Anonymous enrollment admin-alert** — `admin_enrollment_alert` is a public
+      template on `send-email`.
+- [~] **Stub email** — client treats stub as failure; history may still default
+      `delivered` briefly before result rewrite in `paperworkSender`.
+- [x] Broker packet emails include document attachments.
+- [ ] No dunning/billing reminder emails.
+- [x] `sessionService` — `resolveSessionWithLinks` falls back to `client_auth_links`
+      when JWT lacks `client_id` (used from `AuthContext`).
+- [ ] Remaining fire-and-forget persists: sync `updateInvoice` in some admin paths;
+      `logAuditEventAsync` still largely unused.
+- [~] Hardcoded audit actors `'Admin User'` still appear in places; many flows use
+      session-derived names.
 
 ---
 
 ## 7. P2 — Not yet addressed from the launch doc
 
-- [ ] Admin Users page still mock (`useState(mockUsers)`, dead Edit button, roles
-      unenforced beyond binary admin).
-- [ ] `AgingAR.tsx:30–50` approve/reject/hold/contact still `console.log` stubs.
-- [ ] `Accounting.tsx:152` export still `alert('will be implemented')`.
-- [ ] `Settings.tsx` doesn't load persisted AR policy on mount (save works; form
-      shows hardcoded defaults). SMTP/security tabs still decorative.
-- [ ] ~30 `console.log`s remain; many flows still use `alert()` instead of toasts.
+- [x] Admin Users page uses real `listAdminStaffUsers` (not mock-only).
+- [ ] `AgingAR.tsx` approve/reject/hold/contact still `console.log` stubs.
+- [ ] `Accounting.tsx` export still stub (“will be implemented”).
+- [~] `Settings.tsx` loads AR policy on mount; SMTP/security tabs still decorative.
+- [ ] Console noise / `alert()` leftovers in various flows.
 - [ ] Audit log hydration still capped at 10k rows.
 
 ---
 
-## 8. Deployment checklist (code is done; these are ops steps)
+## 8. Deployment checklist (ops — code ready)
 
-- [ ] Apply migration `20260707180000_credyx_rls_production.sql` (and the two after
-      it) to the Supabase project — **RLS is only fixed once this is applied**.
+- [ ] Apply migration `20260707180000_credyx_rls_production.sql` (and later ones) to
+      the Supabase project — **RLS is only fixed once this is applied**.
 - [ ] Run `scripts/createAdmin.ts` (service role) to provision the first admin.
-- [ ] Deploy edge functions: `openai-proxy` (secret: `OPENAI_API_KEY` — the *new*
-      rotated key), `send-email` (secret: `RESEND_API_KEY`), `provision-client-auth`.
-- [ ] Confirm `.env` in production hosting contains only `VITE_SUPABASE_URL` +
+- [ ] Deploy edge functions: `openai-proxy` (secret: rotated `OPENAI_API_KEY`),
+      `send-email` (`RESEND_API_KEY`), `provision-client-auth`.
+- [ ] Confirm production hosting env contains only `VITE_SUPABASE_URL` +
       `VITE_SUPABASE_PUBLISHABLE_KEY` (no OpenAI key).
 - [ ] End-to-end smoke test: enroll → admin approve → invite email → client login →
       manual batch submit → admin pipeline → payment posting → billing run.
 
 ---
 
-## Suggested order of attack
+## Suggested order of attack (remaining)
 
-1. §1 build errors (start with the six real-bug ones) — unblocks CI/build.
-2. §2 batch workflow breakage — handoff files, AI document upload, drafts, admin save.
-3. §3 security actions — key rotation is a five-minute task; do it immediately.
-4. §4 revenue-integrity violations — client self-confirm, force-close guard,
-   capability bypasses.
-5. §5–§6 spec gaps and email/persistence remainders.
-6. §7 polish, then §8 deployment.
+1. ~~§1 build errors~~ — **done**.
+2. ~~§2 batch workflow breakage~~ — **done**.
+3. §3 ops — rotate/confirm OpenAI key + deploy proxy; optional spend limits.
+4. ~~§4 revenue-integrity~~ — **done** in code.
+5. Remaining §5–§6: post-payment success UX, `ar_rate_override` UI, dunning emails,
+   ad-hoc cleanup on unprocess, billing test coverage.
+6. §7 polish (`AgingAR` / Accounting export stubs), then §8 deployment + smoke test.

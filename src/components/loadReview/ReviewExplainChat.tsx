@@ -72,7 +72,7 @@ export default function ReviewExplainChat({
     }
 
     if (!isAIReviewEnabled()) {
-      setError('Add VITE_OPENAI_API_KEY to your .env file.')
+      setError('AI chat requires the openai-proxy Edge Function.')
       return
     }
 

@@ -22,7 +22,7 @@ function isAdminUser(user: User | null): boolean {
   return user?.app_metadata?.role === 'admin'
 }
 
-/** Resolve principal type and client_id from a Supabase session. */
+/** Resolve principal type and client_id from a Supabase session (JWT claims only). */
 export function resolveSession(session: Session | null): ResolvedSession {
   const user = session?.user ?? null
   const isAdmin = isAdminUser(user)
@@ -33,6 +33,35 @@ export function resolveSession(session: Session | null): ResolvedSession {
   else if (clientId) principal = 'client'
 
   return { session, user, principal, clientId, isAdmin }
+}
+
+/**
+ * Resolve session, falling back to client_auth_links when JWT lacks client_id
+ * (e.g. stale token after an admin linked the user).
+ */
+export async function resolveSessionWithLinks(
+  session: Session | null
+): Promise<ResolvedSession> {
+  const base = resolveSession(session)
+  if (base.clientId || base.isAdmin || !base.user) return base
+
+  try {
+    const supabase = requireSupabase()
+    const { data, error } = await supabase
+      .from('client_auth_links')
+      .select('client_id')
+      .eq('user_id', base.user.id)
+      .limit(1)
+      .maybeSingle()
+    if (error || !data?.client_id) return base
+    return {
+      ...base,
+      clientId: data.client_id as string,
+      principal: 'client',
+    }
+  } catch {
+    return base
+  }
 }
 
 /** Fetch current session from Supabase. */

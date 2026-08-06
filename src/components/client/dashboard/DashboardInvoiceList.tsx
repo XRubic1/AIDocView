@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Invoice } from '../../../types/invoice'
 import { formatCurrency } from '../../../utils/format'
+import { isReceiptDisputeHold } from '../../../services/paymentReceiptConfirmationService'
 
 type DashboardInvoiceListProps = {
   invoices: Invoice[]
@@ -11,13 +12,17 @@ type DashboardInvoiceListProps = {
 
 function statusPill(invoice: Invoice): { label: string; tone: string } {
   const now = Date.now()
-  const due = new Date(invoice.due_date).getTime()
+  const due = invoice.due_date ? new Date(invoice.due_date).getTime() : NaN
   const isOverdue =
     invoice.status !== 'paid' &&
     invoice.status !== 'force_closed' &&
     Number.isFinite(due) &&
     due < now
 
+  // Payment receipt disputes must not look like paperwork holds.
+  if (isReceiptDisputeHold(invoice)) {
+    return { label: 'Disputed', tone: 'danger' }
+  }
   if (invoice.status === 'hold') return { label: 'Held', tone: 'warn' }
   if (isOverdue) return { label: 'Overdue', tone: 'danger' }
   if (invoice.status === 'paid') return { label: 'Paid', tone: 'success' }
@@ -34,7 +39,7 @@ function selectInvoiceRows(invoices: Invoice[], limit: number): Invoice[] {
     .sort((a, b) => {
       const score = (inv: Invoice) => {
         if (inv.status === 'hold') return 0
-        const due = new Date(inv.due_date).getTime()
+        const due = inv.due_date ? new Date(inv.due_date).getTime() : NaN
         if (inv.status !== 'paid' && Number.isFinite(due) && due < now) return 1
         if (inv.status === 'paid') return 3
         return 2

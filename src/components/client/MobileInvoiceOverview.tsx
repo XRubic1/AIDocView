@@ -21,8 +21,10 @@ import { formatCurrency } from '../../utils/format'
 import { AMOUNT_EPSILON } from '../../utils/paymentVariance'
 import {
   getInvoiceLifecycleSteps,
+  getInvoiceLifecycleStatusLabel,
   type InvoiceLifecycleStep,
 } from '../../utils/invoiceLifecycleSteps'
+import { isReceiptDisputeHold } from '../../services/paymentReceiptConfirmationService'
 import { getClientVisibleDueDate } from '../../utils/ppwSent'
 import {
   formatMobileInvoiceDate,
@@ -69,6 +71,8 @@ interface MobileInvoiceOverviewProps {
   overageAmount?: number | null
   /** Awaiting short-correction amount (shows Short paid confirm card). */
   awaitingShortAmount?: number | null
+  /** Carrier disputed a Credyx-posted remittance. */
+  paymentDisputed?: boolean
 }
 
 /** Icon for a mobile insight row. */
@@ -187,6 +191,7 @@ export default function MobileInvoiceOverview({
   shortPayReason = null,
   overageAmount = null,
   awaitingShortAmount = null,
+  paymentDisputed = false,
 }: MobileInvoiceOverviewProps) {
   const pendingPosted =
     hasAwaitingReceipt &&
@@ -229,12 +234,16 @@ export default function MobileInvoiceOverview({
   const pendingOverage = pendingOver ? pendingPosted! - invoice.amount : null
 
   const isShortPaid = shortOpenBalance != null
+  const hasPaymentDispute = paymentDisputed || isReceiptDisputeHold(invoice)
 
   const steps = getInvoiceLifecycleSteps(invoice, {
     awaitingReceipt: hasAwaitingReceipt,
     isShortPaid,
+    paymentDisputed: hasPaymentDispute,
   })
-  const statusLabel = pendingPosted
+  const statusLabel = hasPaymentDispute
+    ? getInvoiceLifecycleStatusLabel(invoice).toUpperCase()
+    : pendingPosted
     ? invoiceListPriorityStatusLabel({
         awaitingReceipt: true,
         status: invoice.status,
@@ -251,7 +260,9 @@ export default function MobileInvoiceOverview({
         })
   const amount = getMobileInvoiceHeroAmount(invoice)
   const visibleDueDate = getClientVisibleDueDate(invoice)
-  const statusKey = pendingPosted
+  const statusKey = hasPaymentDispute
+    ? 'disputed'
+    : pendingPosted
     ? 'confirm-payment'
     : isShortPaid
       ? 'short-paid'
@@ -560,7 +571,12 @@ export default function MobileInvoiceOverview({
             className={`mobile-invoice-overview__status mobile-invoice-overview__status--${statusKey}`}
           >
             <span className="mobile-invoice-overview__status-dot" aria-hidden />
-            {statusLabel}
+            <span className="mobile-invoice-overview__status-text">
+              {statusLabel}
+              {hasPaymentDispute ? (
+                <span className="mobile-invoice-overview__status-sub">Disputed</span>
+              ) : null}
+            </span>
           </span>
         </div>
 

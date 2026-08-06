@@ -149,9 +149,20 @@ export function isForceCloseApplicable(
   return capabilities.hasForceClose && isForceCloseEligible(invoice, asOf)
 }
 
-export function getOverdueSeverity(daysOutstanding: number, isOverdue: boolean): OverdueSeverity {
+/**
+ * Overdue severity for styling.
+ * Pass hasForceClose=false for self-service so 90+ day invoices stay "critical"
+ * instead of purple force-close framing.
+ */
+export function getOverdueSeverity(
+  daysOutstanding: number,
+  isOverdue: boolean,
+  hasForceClose = true
+): OverdueSeverity {
   if (!isOverdue) return 'none'
-  if (daysOutstanding >= AR_POLICY.forceCloseDays) return 'force_close'
+  if (daysOutstanding >= AR_POLICY.forceCloseDays) {
+    return hasForceClose ? 'force_close' : 'critical'
+  }
   if (daysOutstanding >= AR_POLICY.criticalDays) return 'critical'
   if (daysOutstanding >= AR_POLICY.clientUrgentDays) return 'urgent'
   return 'overdue'
@@ -175,12 +186,17 @@ export function getAgingBucket(invoice: Invoice, daysOutstanding: number): Aging
   return 'over_91'
 }
 
-export function enrichInvoice(invoice: Invoice, asOf: Date = new Date()): EnrichedInvoice {
+export function enrichInvoice(
+  invoice: Invoice,
+  asOf: Date = new Date(),
+  capabilities?: Pick<ClientCapabilities, 'hasForceClose'>
+): EnrichedInvoice {
   const invoiceAgeDays = getDisplayInvoiceAgeDays(invoice, { asOf: asOf })
   const daysOutstanding = getDaysOutstanding(invoice, asOf)
   const isOverdue = isInvoiceOverdue(invoice, asOf)
+  const hasForceClose = capabilities?.hasForceClose ?? true
   const isForceCloseEligibleFlag = isForceCloseEligible(invoice, asOf)
-  const overdueSeverity = getOverdueSeverity(daysOutstanding, isOverdue)
+  const overdueSeverity = getOverdueSeverity(daysOutstanding, isOverdue, hasForceClose)
 
   let displayStatus: InvoiceDisplayStatus = invoice.status
   if (isOverdue) {
@@ -199,8 +215,12 @@ export function enrichInvoice(invoice: Invoice, asOf: Date = new Date()): Enrich
   }
 }
 
-export function enrichInvoices(invoices: Invoice[], asOf: Date = new Date()): EnrichedInvoice[] {
-  return invoices.map((invoice) => enrichInvoice(invoice, asOf))
+export function enrichInvoices(
+  invoices: Invoice[],
+  asOf: Date = new Date(),
+  capabilities?: Pick<ClientCapabilities, 'hasForceClose'>
+): EnrichedInvoice[] {
+  return invoices.map((invoice) => enrichInvoice(invoice, asOf, capabilities))
 }
 
 export function getOverdueSeverityLabel(severity: OverdueSeverity): string {

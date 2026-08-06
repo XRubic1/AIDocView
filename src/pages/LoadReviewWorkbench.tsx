@@ -275,7 +275,7 @@ export default function LoadReviewWorkbench() {
 
     if (!isAIReviewEnabled()) {
 
-      setReviewError('Add VITE_OPENAI_API_KEY to your .env file.')
+      setReviewError('AI review requires the openai-proxy Edge Function.')
 
       return
 
@@ -628,9 +628,9 @@ export default function LoadReviewWorkbench() {
 
           <p className="text-sm" style={{ color: ff.text }}>
 
-            Add <code className="text-xs px-1 rounded" style={{ backgroundColor: ff.bg3, color: ff.accent }}>VITE_OPENAI_API_KEY</code> to{' '}
+            Deploy the <code className="text-xs px-1 rounded" style={{ backgroundColor: ff.bg3, color: ff.accent }}>openai-proxy</code> Edge Function with{' '}
 
-            <code className="text-xs px-1 rounded" style={{ backgroundColor: ff.bg3, color: ff.accent }}>.env</code> and restart.
+            <code className="text-xs px-1 rounded" style={{ backgroundColor: ff.bg3, color: ff.accent }}>OPENAI_API_KEY</code> and restart.
 
           </p>
 
