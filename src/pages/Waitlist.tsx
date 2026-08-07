@@ -476,6 +476,39 @@ export default function Waitlist() {
               </button>
             </div>
           </div>
+
+          {/* Client portal preview — fills the right side on desktop */}
+          <div className="cx-hero-visual hero-enter hero-enter-6" aria-hidden="true">
+            <div className="cx-hero-visual-frame">
+              <div className="cx-browser cx-hero-dash">
+                <div className="cx-browser-bar">
+                  <span />
+                  <span />
+                  <span />
+                  <div className="cx-browser-url">app.credyx.com / dashboard</div>
+                </div>
+                <img
+                  src="/credyx-hero-dashboard.png"
+                  alt=""
+                  width={1440}
+                  height={900}
+                  loading="eager"
+                />
+              </div>
+
+              <div className="cx-hero-phone-wrap">
+                <div className="cx-phone-frame">
+                  <img
+                    src="/credyx-hero-mobile.png"
+                    alt=""
+                    width={534}
+                    height={980}
+                    loading="eager"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -512,20 +545,30 @@ export default function Waitlist() {
                     }`}
                     aria-hidden="true"
                   >
-                    {/* Horizontal wiggle (wide desktop) */}
+                    {/* Clean horizontal connector (wide desktop) */}
                     <svg
                       className="cx-process-arrow cx-process-arrow--h"
-                      viewBox="0 0 44 28"
+                      viewBox="0 0 48 24"
                       fill="none"
+                      aria-hidden
                     >
                       <path
                         className="cx-process-arrow-path"
                         pathLength="1"
-                        d="M2 14 C10 4, 16 24, 22 14 S34 4, 38 14 M33 8 L40 14 L33 20"
+                        d="M2 12 H34"
                         stroke="currentColor"
-                        strokeWidth="2.4"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        className="cx-process-arrow-head"
+                        pathLength="1"
+                        d="M28 6 L38 12 L28 18"
+                        stroke="currentColor"
+                        strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
+                        fill="none"
                       />
                     </svg>
                     {/* Side connector with slight hand-drawn variance per step */}
@@ -643,9 +686,9 @@ export default function Waitlist() {
                   Mobile · Invoice details, activity, and payment status
                 </figcaption>
               </figure>
-
-              <WaitlistInvoiceProgress />
             </div>
+
+            <WaitlistInvoiceProgress />
           </div>
 
           {!isMarketingOnly && (
