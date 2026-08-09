@@ -4,7 +4,7 @@ import {
   updateBatch,
 } from '../../data/mockBatches'
 import { updateInvoice } from '../../data/mockInvoices'
-import { resolveBrokerId } from '../../integrations/docSortToCredyx'
+import { resolveOrCreateBroker } from '../../utils/brokerResolve'
 import { getClientById } from '../../services/clientRegistry'
 import { isSupabaseConfigured } from '../../lib/supabase'
 import { persistBroker, persistInvoice } from '../../services/supabase/tenantPersist'
@@ -20,9 +20,28 @@ import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
 import { resolveDueDatesFromBroker } from '../../utils/invoiceDueDate'
 
 async function resolveAndPersistBroker(
-  brokerName: string
+  brokerName: string,
+  brokerId?: string
 ): Promise<{ broker_id: string; broker_name: string; payment_terms_days?: number }> {
-  const result = resolveBrokerId(brokerName)
+  if (brokerId) {
+    const existing = mockBrokers.find((b) => b.id === brokerId)
+    if (existing) {
+      if (isSupabaseConfigured()) {
+        try {
+          await persistBroker(existing)
+        } catch (err) {
+          console.warn('[submitHandoffInvoices] broker persist failed', err)
+        }
+      }
+      return {
+        broker_id: existing.id,
+        broker_name: existing.name,
+        payment_terms_days: existing.payment_terms_days,
+      }
+    }
+  }
+
+  const result = resolveOrCreateBroker(brokerName)
   const broker = mockBrokers.find((b) => b.id === result.broker_id)
   const payment_terms_days = broker?.payment_terms_days
   if (!result.broker_id || !isSupabaseConfigured()) {
@@ -42,6 +61,7 @@ export interface HandoffInvoiceInput {
   invoice_number?: string
   load_number: string
   broker_name: string
+  broker_id?: string
   amount: string
   invoice_date: string
   notes?: string
@@ -110,7 +130,7 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
 
   for (let index = 0; index < invoices.length; index++) {
     const inv = invoices[index]
-    const broker = await resolveAndPersistBroker(inv.broker_name)
+    const broker = await resolveAndPersistBroker(inv.broker_name, inv.broker_id)
     const invoiceNumber = assertInvoiceNumberAvailable(
       clientId,
       resolvedNumbers[index],

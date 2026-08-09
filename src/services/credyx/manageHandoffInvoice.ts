@@ -1,6 +1,6 @@
 import { getBatchById, updateBatchTotals } from '../../data/mockBatches'
 import { deleteInvoice, getInvoiceById, updateInvoice } from '../../data/mockInvoices'
-import { resolveBrokerId } from '../../integrations/docSortToCredyx'
+import { resolveOrCreateBroker } from '../../utils/brokerResolve'
 import { isSupabaseConfigured } from '../../lib/supabase'
 import { persistBroker, persistInvoice } from '../../services/supabase/tenantPersist'
 import { mockBrokers } from '../../data/mockBrokers'
@@ -8,11 +8,26 @@ import { clearClientTenantCache } from '../../data/clientDemoData'
 import type { Invoice } from '../../types/invoice'
 import { assertInvoiceNumberAvailable } from '../../utils/invoiceDuplicateChecks'
 
-/** Resolve a broker by name and persist it when Supabase is configured. */
+/** Resolve a broker by id or name and persist it when Supabase is configured. */
 async function resolveAndPersistBroker(
-  brokerName: string
+  brokerName: string,
+  brokerId?: string
 ): Promise<{ broker_id: string; broker_name: string }> {
-  const result = resolveBrokerId(brokerName)
+  if (brokerId) {
+    const existing = mockBrokers.find((b) => b.id === brokerId)
+    if (existing) {
+      if (isSupabaseConfigured()) {
+        try {
+          await persistBroker(existing)
+        } catch (err) {
+          console.warn('[manageHandoffInvoice] broker persist failed', err)
+        }
+      }
+      return { broker_id: existing.id, broker_name: existing.name }
+    }
+  }
+
+  const result = resolveOrCreateBroker(brokerName)
   if (!result.broker_id || !isSupabaseConfigured()) return result
   const broker = mockBrokers.find((b) => b.id === result.broker_id)
   if (!broker) return result
@@ -30,6 +45,7 @@ export interface EditHandoffInvoiceInput {
   invoice_number: string
   load_number: string
   broker_name: string
+  broker_id?: string
   amount: string
   invoice_date: string
   notes?: string
@@ -53,7 +69,7 @@ export async function updateHandoffInvoice(
     [existing.id]
   )
 
-  const broker = await resolveAndPersistBroker(input.broker_name)
+  const broker = await resolveAndPersistBroker(input.broker_name, input.broker_id)
 
   // Keep storage paths only for the documents still attached to this invoice.
   const mergedPaths: Record<string, string> = {}

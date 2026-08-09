@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Building2,
   Search,
@@ -10,8 +11,10 @@ import {
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import BrokerPayRatingBadge from '../components/client/BrokerPayRatingBadge'
+import BrokerRiskLevelChip from '../components/client/BrokerRiskLevelChip'
 import BrokerDetailPanel from '../components/client/BrokerDetailPanel'
 import { useClientSession } from '../hooks/useClientSession'
+import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import { useClientTheme } from '../theme/ThemeContext'
 import { getClientInvoices, getClientPayments } from '../data/clientDemoData'
 import type { Payment } from '../types/payment'
@@ -34,11 +37,14 @@ type BrokerSortField =
   | 'broker_name'
   | 'mc_number'
   | 'rating'
+  | 'risk_level'
   | 'avg_days_to_pay'
+  | 'open_invoices'
   | 'open_ar'
   | 'collection_rate'
 
 const RATING_ORDER: Record<BrokerPayRating, number> = { red: 0, yellow: 1, green: 2 }
+const RISK_ORDER: Record<string, number> = { high: 0, medium: 1, unrated: 2, low: 3 }
 
 function buildClientInvoices(clientId: string, clientName: string): Invoice[] {
   return getClientInvoices(clientId, clientName)
@@ -50,7 +56,9 @@ function buildClientPayments(clientId: string, clientName: string): Payment[] {
 
 export default function ClientBrokers() {
   const c = useClientTheme()
+  const navigate = useNavigate()
   const { clientId, clientName } = useClientSession()
+  const tenantRevision = useTenantDataRevision()
   const [notesRefreshKey, setNotesRefreshKey] = useState(0)
   const [searchTerm, setSearchTerm] = useState('')
   const [ratingFilter, setRatingFilter] = useState<BrokerPayRating | 'all'>('all')
@@ -60,6 +68,14 @@ export default function ClientBrokers() {
   const [sortField, setSortField] = useState<BrokerSortField>('rating')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
+  /** Open Aging A/R filtered to this broker. */
+  const goToAgingForBroker = useCallback(
+    (brokerName: string) => {
+      navigate(`/client/collections?broker=${encodeURIComponent(brokerName)}`)
+    },
+    [navigate]
+  )
+
   const invoices = useMemo(
     () => buildClientInvoices(clientId, clientName),
     [clientId, clientName]
@@ -68,7 +84,7 @@ export default function ClientBrokers() {
 
   const directory = useMemo(
     () => buildClientBrokerDirectory(clientId, invoices, payments),
-    [clientId, invoices, payments, notesRefreshKey]
+    [clientId, invoices, payments, notesRefreshKey, tenantRevision]
   )
 
   const mcQuery = normalizeMcQuery(searchTerm)
@@ -112,8 +128,16 @@ export default function ClientBrokers() {
         case 'rating':
           cmp = RATING_ORDER[a.rating] - RATING_ORDER[b.rating]
           break
+        case 'risk_level':
+          cmp =
+            (RISK_ORDER[a.risk?.risk_level ?? 'unrated'] ?? 9) -
+            (RISK_ORDER[b.risk?.risk_level ?? 'unrated'] ?? 9)
+          break
         case 'avg_days_to_pay':
           cmp = (a.score?.avg_days_to_pay ?? 999) - (b.score?.avg_days_to_pay ?? 999)
+          break
+        case 'open_invoices':
+          cmp = (a.score?.open_invoices ?? 0) - (b.score?.open_invoices ?? 0)
           break
         case 'open_ar':
           cmp = (a.score?.open_ar ?? 0) - (b.score?.open_ar ?? 0)
@@ -346,8 +370,15 @@ export default function ClientBrokers() {
                       onSort={handleSort}
                     />
                     <ClientSortableHeader
+                      field="risk_level"
+                      label="Broker risk"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                    />
+                    <ClientSortableHeader
                       field="avg_days_to_pay"
-                      label="Avg pay"
+                      label="Avg pay (you)"
                       sortField={sortField}
                       sortDir={sortDir}
                       onSort={handleSort}
@@ -355,8 +386,17 @@ export default function ClientBrokers() {
                       align="right"
                     />
                     <ClientSortableHeader
+                      field="open_invoices"
+                      label="Open invoices"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                      className="text-right"
+                      align="right"
+                    />
+                    <ClientSortableHeader
                       field="open_ar"
-                      label="Open A/R"
+                      label="Your open A/R"
                       sortField={sortField}
                       sortDir={sortDir}
                       onSort={handleSort}
@@ -365,7 +405,7 @@ export default function ClientBrokers() {
                     />
                     <ClientSortableHeader
                       field="collection_rate"
-                      label="Collection"
+                      label="Paid (you)"
                       sortField={sortField}
                       sortDir={sortDir}
                       onSort={handleSort}
@@ -379,8 +419,10 @@ export default function ClientBrokers() {
                 <tbody>
                   {paginatedBrokers.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-10 text-sm" style={{ color: c.secondary }}>
-                        No brokers match your search
+                      <td colSpan={10} className="text-center py-10 text-sm" style={{ color: c.secondary }}>
+                        {directory.length === 0
+                          ? 'No brokers with invoices yet'
+                          : 'No brokers match your search'}
                       </td>
                     </tr>
                   ) : (
@@ -388,17 +430,18 @@ export default function ClientBrokers() {
                       <tr
                         key={broker.broker_id}
                         className={`cursor-pointer ${selectedBrokerId === broker.broker_id ? 'batch-highlight-row' : ''}`}
-                        onClick={() => setSelectedBrokerId(broker.broker_id)}
+                        onClick={() => goToAgingForBroker(broker.broker_name)}
+                        title="Open Aging A/R for this broker"
                       >
                         <ClientListTd variant="primary" className="font-semibold">
-                          <span className="inline-flex items-center gap-2 min-w-0">
+                          <span className="inline-flex items-center gap-2 min-w-0 flex-wrap">
                             <span className="truncate">{broker.broker_name}</span>
-                            {!broker.has_worked_with_client && (
+                            {broker.is_new && (
                               <span
                                 className="text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0"
                                 style={{ backgroundColor: c.stat.slate, color: c.mutedLight }}
                               >
-                                New
+                                NEW
                               </span>
                             )}
                           </span>
@@ -409,22 +452,38 @@ export default function ClientBrokers() {
                         <ClientListTd variant="status">
                           <BrokerPayRatingBadge rating={broker.rating} size="sm" />
                         </ClientListTd>
+                        <ClientListTd variant="status">
+                          {broker.risk ? (
+                            <BrokerRiskLevelChip level={broker.risk.risk_level} size="sm" />
+                          ) : (
+                            <span style={{ color: c.mutedLight }}>—</span>
+                          )}
+                        </ClientListTd>
                         <ClientListTd
                           variant="desktop"
-                          label="Avg pay"
+                          label="Avg pay (you)"
                           className="text-right tabular-nums"
                           style={{ color: c.secondary }}
                         >
-                          {broker.score?.avg_days_to_pay != null
-                            ? `${broker.score.avg_days_to_pay}d`
-                            : '—'}
+                          {broker.score?.avg_days_invoice_to_pay != null
+                            ? `${broker.score.avg_days_invoice_to_pay}d`
+                            : broker.score?.avg_days_to_pay != null
+                              ? `${broker.score.avg_days_to_pay}d`
+                              : '—'}
+                        </ClientListTd>
+                        <ClientListTd
+                          variant="amount"
+                          className="text-right tabular-nums font-medium"
+                          style={{ color: c.primary }}
+                        >
+                          {broker.score?.open_invoices ?? 0}
                         </ClientListTd>
                         <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
                           {broker.score ? formatCurrency(broker.score.open_ar) : '—'}
                         </ClientListTd>
                         <ClientListTd
                           variant="desktop"
-                          label="Collection"
+                          label="Paid (you)"
                           className="text-right tabular-nums"
                           style={{ color: c.secondary }}
                         >
@@ -454,7 +513,7 @@ export default function ClientBrokers() {
                             }}
                             className="p-1.5 rounded-lg transition-colors hover:bg-slate-100"
                             style={{ color: c.info }}
-                            title="View broker"
+                            title="View broker profile"
                           >
                             <Eye className="w-4 h-4" />
                           </button>

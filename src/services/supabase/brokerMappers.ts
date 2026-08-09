@@ -19,6 +19,8 @@ export interface BrokerRow {
   payment_terms_days: number | null
   payment_status_inquiry_days?: number | null
   preferred_contact?: string | null
+  is_new?: boolean | null
+  carrier_notes?: string | null
   created_at?: string
   updated_at?: string
 }
@@ -48,8 +50,23 @@ export function brokerRowToBroker(row: BrokerRow): Broker {
     payment_terms_days: row.payment_terms_days ?? undefined,
     payment_status_inquiry_days: row.payment_status_inquiry_days ?? undefined,
     preferred_contact: asPreferredContact(row.preferred_contact),
+    is_new: Boolean(row.is_new),
+    carrier_notes: row.carrier_notes ?? undefined,
   }
 }
+
+/**
+ * Carrier-safe mapper: never includes Broker.notes (internal Credyx warnings).
+ * Does include is_new + carrier_notes (Credyx → carrier).
+ */
+export function brokerRowToPublicBroker(row: BrokerRow): Broker {
+  const broker = brokerRowToBroker(row)
+  return { ...broker, notes: undefined }
+}
+
+/** Columns safe to select for carrier portal hydrate (excludes internal notes). */
+export const BROKER_PUBLIC_SELECT =
+  'id, name, contact_person, email, emails, phone, phones, fax, address, city, state, zip, mc_number, dot_number, payment_terms_days, payment_status_inquiry_days, preferred_contact, is_new, carrier_notes, created_at, updated_at'
 
 export function brokerToRow(broker: Broker): BrokerRow {
   return {
@@ -71,5 +88,7 @@ export function brokerToRow(broker: Broker): BrokerRow {
     payment_terms_days: broker.payment_terms_days ?? null,
     payment_status_inquiry_days: broker.payment_status_inquiry_days ?? null,
     preferred_contact: broker.preferred_contact ?? null,
+    is_new: Boolean(broker.is_new),
+    carrier_notes: broker.carrier_notes ?? null,
   }
 }

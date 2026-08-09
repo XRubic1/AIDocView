@@ -17,6 +17,7 @@ import {
   subscribeAdminNotifications,
 } from '../services/adminNotificationService'
 import { getAllClients } from '../services/clientRegistry'
+import { countPendingBrokerRiskReviews } from '../data/brokerRiskStore'
 import { getAllBatches } from '../data/mockBatches'
 import { getInitials, getAdminUserDisplayName } from '../config/adminNav'
 import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
@@ -114,6 +115,10 @@ export default function AdminLayout({
 
   const pendingPaymentCount = useMemo(() => listPendingPayments().length, [tenantRevision])
   const pendingWriteOffCount = useMemo(() => listPendingWriteOffs().length, [tenantRevision])
+  const pendingBrokerRiskCount = useMemo(
+    () => countPendingBrokerRiskReviews(),
+    [tenantRevision]
+  )
 
   const notificationCompanies = useMemo(
     () =>
@@ -127,6 +132,7 @@ export default function AdminLayout({
     pendingBatches: pendingBatchCount,
     pendingPayments: pendingPaymentCount,
     pendingWriteOffs: pendingWriteOffCount,
+    pendingBrokerRisk: pendingBrokerRiskCount,
   }
 
   const isNavActive = (path: string) => {

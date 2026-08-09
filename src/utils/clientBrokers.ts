@@ -7,10 +7,18 @@ import type {
   ClientBrokerNote,
   ClientBrokerProfile,
 } from '../types/clientBroker'
-import { toClientBrokerRiskView } from '../types/clientBroker'
+import { carrierSafeRiskSummary, toClientBrokerRiskView } from '../types/clientBroker'
 import { computeBrokerScores, type BrokerScoreRow } from './clientReports'
 import { ensureBrokerRiskProfile } from '../services/brokerRiskService'
 import { formatRiskFreshness } from './computeBrokerRiskProfile'
+import {
+  collectTermsPaymentSignals,
+  countNoteFlags,
+  DEFAULT_BROKER_RISK_POLICY,
+  evaluateRiskFromSignals,
+  normalizeBrokerNameKey,
+  pickCanonicalBroker,
+} from './brokerRiskPolicy'
 
 const NOTES_STORAGE_PREFIX = 'credyx_client_broker_notes_'
 
@@ -37,19 +45,45 @@ export function findBrokerByMc(mcQuery: string): Broker | undefined {
   )
 }
 
-/** Traffic-light pay rating from scorecard metrics. */
-export function getBrokerPayRating(score: BrokerScoreRow | null): BrokerPayRating {
+/**
+ * Traffic-light pay rating — terms-aware (Net 45 paying ~45d is green).
+ * Prefer score.late_payment_count / open_overdue_past_terms when present.
+ */
+export function getBrokerPayRating(
+  score: BrokerScoreRow | null,
+  options?: { paymentTermsDays?: number | null; hasWorked?: boolean }
+): BrokerPayRating {
   if (!score) return 'yellow'
+  const hasWorked =
+    options?.hasWorked ??
+    (score.open_invoices > 0 ||
+      score.invoiced_in_range > 0 ||
+      (score.late_payment_count ?? 0) > 0)
 
-  const avg = score.avg_days_to_pay
-  const hasOverdue = score.overdue_count > 0
-  const highOverdue = score.overdue_amount >= 5_000 || score.overdue_count >= 2
+  const signals = {
+    payment_terms_days:
+      options?.paymentTermsDays ??
+      score.payment_terms_days ??
+      30,
+    late_payment_count: score.late_payment_count ?? 0,
+    max_days_past_terms: score.max_days_past_terms ?? null,
+    avg_days_past_terms: null,
+    open_overdue_past_terms: score.open_overdue_past_terms ?? 0,
+    open_overdue_amount: score.overdue_amount,
+    open_urgent_past_terms:
+      (score.max_days_past_terms ?? 0) >= DEFAULT_BROKER_RISK_POLICY.high_single_late_days
+        ? Math.max(score.open_overdue_past_terms ?? 0, 0)
+        : 0,
+    paid_sample_size: Math.max(score.invoiced_in_range, 0),
+    avg_days_invoice_to_pay: score.avg_days_invoice_to_pay ?? null,
+  }
 
-  if (highOverdue || (avg !== null && avg > 12)) return 'red'
-  if (hasOverdue || (avg !== null && avg > 5) || score.collection_rate < 75) return 'yellow'
-  if (avg !== null && avg <= 3 && !hasOverdue && score.collection_rate >= 90) return 'green'
-  if (!hasOverdue && (avg === null || avg <= 7)) return 'green'
-  return 'yellow'
+  const evaluation = evaluateRiskFromSignals({
+    hasWorked,
+    signals,
+    noteFlagCount: 0,
+  })
+  return evaluation.pay_rating
 }
 
 export function getBrokerPayRatingLabel(rating: BrokerPayRating): string {
@@ -58,14 +92,16 @@ export function getBrokerPayRatingLabel(rating: BrokerPayRating): string {
   return 'Slow / risk'
 }
 
-/** Mock AI-style summary from broker metrics and notes. */
+/** Rules narrative from broker metrics and notes (legacy helper). */
 export function generateBrokerAiSummary(
   brokerName: string,
   score: BrokerScoreRow | null,
   rating: BrokerPayRating,
   notes: ClientBrokerNote[],
-  hasWorked: boolean
+  hasWorked: boolean,
+  paymentTermsDays?: number | null
 ): string {
+  const net = paymentTermsDays ?? score?.payment_terms_days ?? 30
   const noteHints = notes
     .slice(0, 2)
     .map((n) => n.text)
@@ -81,21 +117,27 @@ export function generateBrokerAiSummary(
   }
 
   if (rating === 'green') {
-    return `${brokerName} pays consistently — average ${score.avg_days_to_pay ?? 0} days from expected date with ${score.collection_rate.toFixed(0)}% collection rate on your loads. Low overdue exposure.`
+    const avg =
+      score.avg_days_invoice_to_pay != null
+        ? ` averaging ${score.avg_days_invoice_to_pay} days from invoice`
+        : ''
+    return `${brokerName} pays within Net ${net}${avg} with ${score.collection_rate.toFixed(0)}% collection rate on your loads. Low overdue exposure past terms.`
   }
 
   if (rating === 'yellow') {
     const parts = [
-      `${brokerName} shows mixed payment behavior on your account.`,
-      score.avg_days_to_pay !== null ? `Average pay lag is ${score.avg_days_to_pay} days.` : '',
-      score.overdue_count > 0
-        ? `${score.overdue_count} open invoice${score.overdue_count > 1 ? 's' : ''} currently overdue.`
+      `${brokerName} shows mixed payment behavior vs Net ${net}.`,
+      (score.late_payment_count ?? 0) > 0
+        ? `${score.late_payment_count} payment(s) arrived after terms.`
+        : '',
+      (score.open_overdue_past_terms ?? score.overdue_count) > 0
+        ? `${score.open_overdue_past_terms ?? score.overdue_count} open invoice(s) currently past terms.`
         : 'Monitor new loads until recent invoices clear.',
     ]
     return parts.filter(Boolean).join(' ')
   }
 
-  return `${brokerName} is a higher-risk payer for your fleet — ${formatCurrencyShort(score.overdue_amount)} overdue across ${score.overdue_count} invoice${score.overdue_count !== 1 ? 's' : ''}${score.avg_days_to_pay !== null ? ` with ${score.avg_days_to_pay}d average lag` : ''}. Consider tighter terms or reduced volume.`
+  return `${brokerName} is a higher-risk payer vs Net ${net} — ${formatCurrencyShort(score.overdue_amount)} past terms. Consider tighter terms or reduced volume.`
 }
 
 function formatCurrencyShort(amount: number): string {
@@ -177,68 +219,107 @@ function brokerIdFromName(name: string): string {
   return match?.id ?? `broker-name-${name.toLowerCase().replace(/\s+/g, '-')}`
 }
 
-/** Build full broker directory for a client. */
+/** Build broker directory for a client — only brokers with invoices for this carrier. */
 export function buildClientBrokerDirectory(
   clientId: string,
   invoices: Invoice[],
   payments: Payment[]
 ): ClientBrokerProfile[] {
-  const scores = computeBrokerScores(invoices, payments, ALL_TIME_RANGE)
+  const termsByName: Record<string, number | null | undefined> = {}
+  for (const b of mockBrokers) {
+    termsByName[b.name] = b.payment_terms_days
+  }
+
+  const scores = computeBrokerScores(invoices, payments, ALL_TIME_RANGE, new Date(), termsByName)
   const scoreByName = new Map(scores.map((s) => [s.broker_name, s]))
 
-  const brokerNamesFromData = new Set(invoices.map((i) => i.broker_name))
-  const directoryBrokers: Array<Broker | { id: string; name: string }> = [
-    ...mockBrokers,
-    ...[...brokerNamesFromData]
-      .filter((name) => !mockBrokers.some((b) => b.name === name))
-      .map((name) => ({ id: brokerIdFromName(name), name })),
-  ]
+  const invoiceBrokerIds = invoices.map((i) => i.broker_id).filter(Boolean)
 
-  const seen = new Set<string>()
+  // Collapse duplicate catalog rows that share a display name.
+  const byName = new Map<string, Broker>()
+  for (const b of mockBrokers) {
+    const key = normalizeBrokerNameKey(b.name)
+    const prev = byName.get(key)
+    if (!prev) {
+      byName.set(key, b)
+      continue
+    }
+    const picked = pickCanonicalBroker([prev, b], invoiceBrokerIds)
+    if (picked) byName.set(key, picked)
+  }
 
-  return directoryBrokers
-    .filter((b) => {
-      if (seen.has(b.id)) return false
-      seen.add(b.id)
-      return true
-    })
-    .map((broker) => {
-      const fullBroker = 'mc_number' in broker ? (broker as Broker) : undefined
-      const score = scoreByName.get(broker.name) ?? null
-      const hasWorked = score !== null && (score.open_invoices > 0 || score.invoiced_in_range > 0)
-      const notes = getBrokerNotes(clientId, broker.id)
-      const rating = getBrokerPayRating(score)
+  // Only brokers this carrier has invoiced — never the full Credyx catalog.
+  const namesFromInvoices = new Map<string, string>()
+  for (const inv of invoices) {
+    const key = normalizeBrokerNameKey(inv.broker_name)
+    if (!namesFromInvoices.has(key)) namesFromInvoices.set(key, inv.broker_name)
+  }
+
+  return [...namesFromInvoices.entries()]
+    .map(([nameKey, brokerName]) => {
+      const catalog = byName.get(nameKey)
+      const brokerId = catalog?.id ?? brokerIdFromName(brokerName)
+      const score = scoreByName.get(brokerName) ?? scoreByName.get(catalog?.name ?? '') ?? null
+      const hasWorked =
+        score !== null && (score.open_invoices > 0 || score.invoiced_in_range > 0)
+      const notes = getBrokerNotes(clientId, brokerId)
+      const termsDays = catalog?.payment_terms_days ?? score?.payment_terms_days ?? null
+      const brokerInvoices = invoices.filter(
+        (i) => normalizeBrokerNameKey(i.broker_name) === nameKey
+      )
+      const brokerPayments = payments.filter(
+        (p) => normalizeBrokerNameKey(p.broker_name) === nameKey
+      )
+      const termsSignals = collectTermsPaymentSignals({
+        invoices: brokerInvoices,
+        payments: brokerPayments,
+        paymentTermsDays: termsDays,
+      })
+      const rating = getBrokerPayRating(score, {
+        paymentTermsDays: termsDays,
+        hasWorked: true,
+      })
       const riskProfile = ensureBrokerRiskProfile({
         clientId,
-        brokerId: broker.id,
-        brokerName: broker.name,
-        mcNumber: fullBroker?.mc_number ?? null,
+        brokerId,
+        brokerName,
+        mcNumber: catalog?.mc_number ?? null,
         score,
         rating,
         notes,
-        hasWorked,
+        adminNotes: catalog?.notes,
+        invoices: brokerInvoices,
+        hasWorked: true,
+        paymentTermsDays: termsDays,
+        termsSignals,
+        isNewBroker: Boolean(catalog?.is_new),
         trigger: 'backfill',
       })
       const freshness = formatRiskFreshness(riskProfile, notes)
+      const riskView = toClientBrokerRiskView(
+        riskProfile,
+        freshness.analyzedAtLabel,
+        freshness.notesRecencyLabel
+      )
 
       return {
-        broker_id: broker.id,
-        broker_name: broker.name,
-        mc_number: fullBroker?.mc_number ?? null,
-        dot_number: fullBroker?.dot_number ?? null,
-        payment_terms_days: fullBroker?.payment_terms_days ?? null,
-        city: fullBroker?.city ?? null,
-        state: fullBroker?.state ?? null,
-        has_worked_with_client: hasWorked,
-        in_credyx_network: Boolean(fullBroker),
+        broker_id: brokerId,
+        broker_name: brokerName,
+        mc_number: catalog?.mc_number ?? null,
+        dot_number: catalog?.dot_number ?? null,
+        payment_terms_days: termsDays,
+        city: catalog?.city ?? null,
+        state: catalog?.state ?? null,
+        address: catalog?.address ?? null,
+        is_new: Boolean(catalog?.is_new),
+        carrier_notes: catalog?.carrier_notes?.trim() || null,
+        has_worked_with_client: true,
+        in_credyx_network: Boolean(catalog),
+        paid_sample_size: termsSignals.paid_sample_size,
         score,
         rating,
-        ai_summary: riskProfile.summary_text,
-        risk: toClientBrokerRiskView(
-          riskProfile,
-          freshness.analyzedAtLabel,
-          freshness.notesRecencyLabel
-        ),
+        ai_summary: carrierSafeRiskSummary(riskProfile, brokerName),
+        risk: riskView,
         notes,
       }
     })
@@ -264,3 +345,6 @@ export function lookupBrokerByMc(
   const directory = buildClientBrokerDirectory(clientId, invoices, payments)
   return directory.find((b) => b.broker_id === broker.id) ?? null
 }
+
+/** Re-export for callers that flag notes. */
+export { countNoteFlags }

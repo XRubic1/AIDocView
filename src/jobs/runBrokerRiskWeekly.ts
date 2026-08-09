@@ -7,6 +7,8 @@ import type { BrokerRiskTrigger } from '../types/brokerRisk'
 import type { OpsJobRun } from '../types/opsJob'
 import type { ClientBrokerNote, BrokerPayRating } from '../types/clientBroker'
 import type { BrokerScoreRow } from '../utils/clientReports'
+import type { BrokerTermsPaymentSignals } from '../utils/brokerRiskPolicy'
+import type { Invoice } from '../types/invoice'
 
 export type BrokerRiskJobTarget = {
   brokerId: string
@@ -15,7 +17,12 @@ export type BrokerRiskJobTarget = {
   score: BrokerScoreRow | null
   rating: BrokerPayRating
   notes: ClientBrokerNote[]
+  adminNotes?: string | null
+  invoices?: Invoice[]
   hasWorked: boolean
+  paymentTermsDays?: number | null
+  termsSignals?: BrokerTermsPaymentSignals | null
+  isNewBroker?: boolean
 }
 
 export type RunBrokerRiskWeeklyResult = {
@@ -28,9 +35,8 @@ function newJobId(): string {
 }
 
 /**
- * Weekly broker-risk batch skeleton (Phase 0).
+ * Broker-risk batch (rules-v2).
  * Processes broker-by-broker; failures are counted without aborting the run.
- * Persists ops_job_runs locally (Supabase table ready for service-role writes later).
  */
 export function runBrokerRiskWeekly(args: {
   clientId: string
@@ -58,8 +64,7 @@ export function runBrokerRiskWeekly(args: {
 
   for (const target of args.brokers) {
     try {
-      // Skip brokers with no activity signal unless forced (cost bound for weekly job).
-      if (!args.force && !target.hasWorked && target.notes.length === 0) {
+      if (!args.force && !target.hasWorked && target.notes.length === 0 && !target.isNewBroker) {
         run.skipped_count += 1
         continue
       }
@@ -71,7 +76,12 @@ export function runBrokerRiskWeekly(args: {
         score: target.score,
         rating: target.rating,
         notes: target.notes,
+        adminNotes: target.adminNotes,
+        invoices: target.invoices,
         hasWorked: target.hasWorked,
+        paymentTermsDays: target.paymentTermsDays,
+        termsSignals: target.termsSignals,
+        isNewBroker: target.isNewBroker,
         force: args.force ?? true,
         trigger: args.trigger ?? 'weekly',
       })

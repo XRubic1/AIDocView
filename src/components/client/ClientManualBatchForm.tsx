@@ -1,31 +1,26 @@
 import { FileText, Plus, Trash2, Upload, Receipt } from 'lucide-react'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
+import BrokerPicker, { type BrokerPickerValue } from '../brokers/BrokerPicker'
 
 export interface ManualBatchInvoiceFormData {
   invoice_number: string
   load_number: string
+  broker_id: string
   broker_name: string
   broker_address: string
+  /** Carrier requested a broker not yet in the directory. */
+  pending_new_broker?: boolean
   amount: string
   invoice_date: string
   notes: string
   documents?: { id: string; name: string; size: number }[]
 }
 
-interface BrokerSuggestion {
-  id: string
-  name: string
-}
-
 interface ClientManualBatchFormProps {
   formData: ManualBatchInvoiceFormData
   onFormChange: (field: keyof ManualBatchInvoiceFormData, value: string) => void
-  brokerSuggestions: BrokerSuggestion[]
-  showBrokerSuggestions: boolean
-  onBrokerFocus: () => void
-  onBrokerBlur: () => void
-  onBrokerSelect: (broker: BrokerSuggestion) => void
+  onBrokerChange: (next: BrokerPickerValue) => void
   onAddInvoice: () => void
   invoices: ManualBatchInvoiceFormData[]
   onViewDocuments: (invoice: ManualBatchInvoiceFormData) => void
@@ -44,11 +39,7 @@ interface ClientManualBatchFormProps {
 export default function ClientManualBatchForm({
   formData,
   onFormChange,
-  brokerSuggestions,
-  showBrokerSuggestions,
-  onBrokerFocus,
-  onBrokerBlur,
-  onBrokerSelect,
+  onBrokerChange,
   onAddInvoice,
   invoices,
   onViewDocuments,
@@ -117,34 +108,22 @@ export default function ClientManualBatchForm({
               )}
             </div>
 
-            <div className="client-manual-batch__field client-manual-batch__field--full relative">
-              <label className="client-label">
+            <div className="client-manual-batch__field client-manual-batch__field--full">
+              <label className="client-label" htmlFor="manual-batch-broker">
                 Broker <span className="client-manual-batch__required">*</span>
               </label>
-              <input
-                type="text"
-                required
-                value={formData.broker_name}
-                onChange={(e) => onFormChange('broker_name', e.target.value)}
-                onFocus={onBrokerFocus}
-                onBlur={onBrokerBlur}
-                placeholder="Search broker name…"
-                className="client-input"
+              <BrokerPicker
+                id="manual-batch-broker"
+                mode="carrier"
+                value={{
+                  broker_id: formData.broker_id,
+                  broker_name: formData.broker_name,
+                  pending_new: formData.pending_new_broker,
+                  broker_address: formData.broker_address,
+                }}
+                onChange={onBrokerChange}
+                placeholder="Select or request a broker…"
               />
-              {showBrokerSuggestions && brokerSuggestions.length > 0 && (
-                <div className="client-manual-batch__suggestions">
-                  {brokerSuggestions.map((broker) => (
-                    <button
-                      key={broker.id}
-                      type="button"
-                      onClick={() => onBrokerSelect(broker)}
-                      className="client-manual-batch__suggestion-item"
-                    >
-                      {broker.name}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
 
             <div className="client-manual-batch__field client-manual-batch__field--full">

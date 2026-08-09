@@ -18,11 +18,16 @@ import {
   Megaphone,
   Bell,
   Briefcase,
+  ShieldAlert,
   type LucideIcon,
 } from 'lucide-react'
 import { getInitials, getClientUserDisplayName } from './clientNav'
 
-export type AdminNavBadgeKey = 'pendingBatches' | 'pendingPayments' | 'pendingWriteOffs'
+export type AdminNavBadgeKey =
+  | 'pendingBatches'
+  | 'pendingPayments'
+  | 'pendingWriteOffs'
+  | 'pendingBrokerRisk'
 
 export interface AdminNavItem {
   label: string
@@ -47,6 +52,12 @@ export const adminNavSections: AdminNavSection[] = [
       { label: 'Invoices', path: '/invoices', icon: FileText, badgeKeys: ['pendingPayments', 'pendingWriteOffs'] },
       { label: 'Aging A/R', path: '/aging-ar', icon: BarChart3 },
       { label: 'Collections', path: '/collections', icon: Phone },
+      {
+        label: 'Broker Risk',
+        path: '/admin/broker-risk',
+        icon: ShieldAlert,
+        badgeKey: 'pendingBrokerRisk',
+      },
       { label: 'Calendar', path: '/admin/calendar', icon: CalendarDays },
       { label: 'Assistant', path: '/admin/assistant', icon: MessageCircle },
       { label: 'Work Queue', path: '/admin/work-queue', icon: Briefcase },

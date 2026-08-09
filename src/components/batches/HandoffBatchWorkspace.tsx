@@ -10,7 +10,6 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { mockBrokers } from '../../data/mockBrokers'
 import { submitHandoffInvoices } from '../../services/credyx/submitHandoffInvoices'
 import {
   deleteHandoffInvoice,
@@ -45,10 +44,13 @@ import {
 import type { Invoice } from '../../types/invoice'
 import { useToast } from '../ui/ToastProvider'
 import { useClientTheme } from '../../theme/ThemeContext'
+import BrokerPicker from '../brokers/BrokerPicker'
+import BrokerInternalNotesBanner from '../brokers/BrokerInternalNotesBanner'
 
 interface HandoffInvoiceDraft {
   invoice_number: string
   load_number: string
+  broker_id: string
   broker_name: string
   amount: string
   invoice_date: string
@@ -59,6 +61,7 @@ interface HandoffInvoiceDraft {
 const emptyDraft = (clientId: string, reserved: string[]): HandoffInvoiceDraft => ({
   invoice_number: getNextClientInvoiceNumber(clientId, reserved),
   load_number: '',
+  broker_id: '',
   broker_name: '',
   amount: '',
   invoice_date: new Date().toISOString().split('T')[0],
@@ -99,8 +102,6 @@ export default function HandoffBatchWorkspace({
   const [queue, setQueue] = useState<HandoffInvoiceDraft[]>([])
   const [form, setForm] = useState<HandoffInvoiceDraft>(() => emptyDraft(clientId, []))
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
-  const [brokerSuggestions, setBrokerSuggestions] = useState<typeof mockBrokers>([])
-  const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
   // Id of the existing invoice being edited inline (null when creating new).
@@ -339,22 +340,15 @@ export default function HandoffBatchWorkspace({
   }, [clientId, form.load_number, editingInvoiceId])
 
   const handleField = (field: keyof HandoffInvoiceDraft, value: string) => {
-    setForm((prev) => {
-      const next = { ...prev, [field]: value }
-      if (field === 'broker_name') {
-        const filtered = value.trim()
-          ? mockBrokers.filter((b) => b.name.toLowerCase().includes(value.toLowerCase()))
-          : []
-        setBrokerSuggestions(filtered)
-        setShowBrokerSuggestions(filtered.length > 0)
-      }
-      return next
-    })
+    setForm((prev) => ({ ...prev, [field]: value }))
   }
 
-  const handleBrokerSelect = (broker: (typeof mockBrokers)[0]) => {
-    setForm((prev) => ({ ...prev, broker_name: broker.name }))
-    setShowBrokerSuggestions(false)
+  const handleBrokerChange = (next: { broker_id: string; broker_name: string }) => {
+    setForm((prev) => ({
+      ...prev,
+      broker_id: next.broker_id,
+      broker_name: next.broker_name,
+    }))
   }
 
   const toggleDocSelection = (docId: string) => {
@@ -367,7 +361,6 @@ export default function HandoffBatchWorkspace({
   const resetForm = useCallback(() => {
     setEditingInvoiceId(null)
     setEditingQueueIndex(null)
-    setShowBrokerSuggestions(false)
     setForm(emptyDraft(clientId, queue.map((inv) => inv.invoice_number)))
     selectNextUnassignedDocument(queuedDocIds)
   }, [clientId, queue, queuedDocIds, selectNextUnassignedDocument])
@@ -379,6 +372,7 @@ export default function HandoffBatchWorkspace({
     setForm({
       invoice_number: invoice.invoice_number,
       load_number: invoice.load_number ?? '',
+      broker_id: invoice.broker_id ?? '',
       broker_name: invoice.broker_name ?? '',
       amount: invoice.amount != null ? String(invoice.amount) : '',
       invoice_date: invoice.invoice_date ?? new Date().toISOString().split('T')[0],
@@ -386,7 +380,6 @@ export default function HandoffBatchWorkspace({
       document_doc_ids: invoice.document_doc_ids ?? [],
     })
     setSelectedDocIds(invoice.document_doc_ids ?? [])
-    setShowBrokerSuggestions(false)
   }
 
   /** Load a queued (unsaved) invoice into the form for editing. */
@@ -397,12 +390,11 @@ export default function HandoffBatchWorkspace({
     setEditingQueueIndex(index)
     setForm({ ...inv })
     setSelectedDocIds([...inv.document_doc_ids])
-    setShowBrokerSuggestions(false)
   }
 
   const handleAddInvoice = () => {
     if (!form.broker_name.trim() || !form.amount.trim()) {
-      showToast('Broker name and amount are required.', 'error')
+      showToast('Broker and amount are required.', 'error')
       return
     }
     if (selectedDocIds.length === 0) {
@@ -451,7 +443,6 @@ export default function HandoffBatchWorkspace({
     }
 
     setForm(emptyDraft(clientId, nextQueue.map((inv) => inv.invoice_number)))
-    setShowBrokerSuggestions(false)
     selectNextUnassignedDocument(occupied)
   }
 
@@ -495,6 +486,7 @@ export default function HandoffBatchWorkspace({
         invoice_number: form.invoice_number,
         load_number: form.load_number,
         broker_name: form.broker_name,
+        broker_id: form.broker_id || undefined,
         amount: form.amount,
         invoice_date: form.invoice_date,
         notes: form.notes,
@@ -967,37 +959,23 @@ export default function HandoffBatchWorkspace({
                 </p>
               )}
             </div>
-            <div className="relative sm:col-span-2">
+            <div className="sm:col-span-2">
               <label className="block text-xs font-medium mb-1" style={{ color: c.secondary }}>
                 Broker <span style={{ color: c.warning }}>*</span>
               </label>
-              <input
-                type="text"
-                value={form.broker_name}
-                onChange={(e) => handleField('broker_name', e.target.value)}
-                onFocus={() => brokerSuggestions.length > 0 && setShowBrokerSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowBrokerSuggestions(false), 200)}
-                className="w-full text-sm px-3 py-2 rounded-lg border"
-                style={{ borderColor: c.border, color: c.primary }}
+              <BrokerPicker
+                mode="admin"
+                value={{
+                  broker_id: form.broker_id,
+                  broker_name: form.broker_name,
+                }}
+                onChange={handleBrokerChange}
+                placeholder="Select or create a broker…"
               />
-              {showBrokerSuggestions && brokerSuggestions.length > 0 && (
-                <div
-                  className="absolute z-20 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-40 overflow-y-auto"
-                  style={{ borderColor: c.border }}
-                >
-                  {brokerSuggestions.map((broker) => (
-                    <button
-                      key={broker.id}
-                      type="button"
-                      onClick={() => handleBrokerSelect(broker)}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                      style={{ color: c.primary }}
-                    >
-                      {broker.name}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <BrokerInternalNotesBanner
+                brokerId={form.broker_id}
+                brokerName={form.broker_name}
+              />
             </div>
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: c.secondary }}>

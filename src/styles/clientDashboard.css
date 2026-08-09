@@ -5510,12 +5510,36 @@ body.cd-charts-resizing * {
 .cd-broker-risk__name {
   flex: 1 1 auto;
   min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   font-size: 0.625rem;
   font-weight: 600;
   color: var(--cd-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.cd-broker-risk__flag {
+  flex-shrink: 0;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+
+.cd-broker-risk__flag--medium {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.cd-broker-risk__flag--high {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .cd-broker-risk__meta {

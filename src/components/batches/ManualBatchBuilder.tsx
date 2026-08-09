@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState } from 'react'
-import { mockBrokers } from '../../data/mockBrokers'
 import { submitManualBatch } from '../../services/credyx/submitManualBatch'
 import { formatCurrency } from '../../utils/format'
 import {
@@ -16,6 +15,8 @@ import {
 } from '../../utils/invoiceDuplicateChecks'
 import { Pencil, Trash2 } from 'lucide-react'
 import { useToast } from '../ui/ToastProvider'
+import BrokerPicker from '../brokers/BrokerPicker'
+import BrokerInternalNotesBanner from '../brokers/BrokerInternalNotesBanner'
 
 interface InvoiceDocument {
   id: string
@@ -27,6 +28,7 @@ interface InvoiceDocument {
 interface ManualInvoiceRow {
   invoice_number: string
   load_number: string
+  broker_id: string
   broker_name: string
   broker_address: string
   amount: string
@@ -38,6 +40,7 @@ interface ManualInvoiceRow {
 const emptyForm = (): ManualInvoiceRow => ({
   invoice_number: '',
   load_number: '',
+  broker_id: '',
   broker_name: '',
   broker_address: '',
   amount: '',
@@ -74,8 +77,6 @@ export default function ManualBatchBuilder({
     ...emptyForm(),
     invoice_number: nextFormInvoiceNumber(clientId, []),
   }))
-  const [brokerSuggestions, setBrokerSuggestions] = useState<typeof mockBrokers>([])
-  const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
 
@@ -106,29 +107,20 @@ export default function ManualBatchBuilder({
   }, [clientId, form.load_number])
 
   const handleField = (field: keyof ManualInvoiceRow, value: string) => {
-    setForm((prev) => {
-      const next = { ...prev, [field]: value }
-      if (field === 'broker_name') {
-        const filtered = value.trim()
-          ? mockBrokers.filter((b) => b.name.toLowerCase().includes(value.toLowerCase()))
-          : []
-        setBrokerSuggestions(filtered)
-        setShowBrokerSuggestions(filtered.length > 0)
-      }
-      return next
-    })
+    setForm((prev) => ({ ...prev, [field]: value }))
   }
 
-  const handleBrokerSelect = (broker: (typeof mockBrokers)[0]) => {
-    const address = broker.address
-      ? `${broker.address}${broker.city ? `, ${broker.city}` : ''}${broker.state ? `, ${broker.state}` : ''}${broker.zip ? ` ${broker.zip}` : ''}`.trim()
-      : ''
+  const handleBrokerChange = (next: {
+    broker_id: string
+    broker_name: string
+    broker_address?: string
+  }) => {
     setForm((prev) => ({
       ...prev,
-      broker_name: broker.name,
-      broker_address: address,
+      broker_id: next.broker_id,
+      broker_name: next.broker_name,
+      broker_address: next.broker_address ?? prev.broker_address,
     }))
-    setShowBrokerSuggestions(false)
   }
 
   const handleDocSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,8 +137,8 @@ export default function ManualBatchBuilder({
   }
 
   const handleAddInvoice = () => {
-    if (!form.broker_name || !form.broker_address || !form.amount) {
-      showToast('Broker name, broker address, and amount are required.', 'error')
+    if (!form.broker_id || !form.broker_name || !form.broker_address || !form.amount) {
+      showToast('Select a broker (with address) and enter an amount.', 'error')
       return
     }
     const reserved = invoices
@@ -176,7 +168,6 @@ export default function ManualBatchBuilder({
       ...emptyForm(),
       invoice_number: nextFormInvoiceNumber(clientId, nextInvoices),
     })
-    setShowBrokerSuggestions(false)
   }
 
   const startEditInvoice = (index: number) => {
@@ -184,7 +175,6 @@ export default function ManualBatchBuilder({
     if (!inv) return
     setEditingIndex(index)
     setForm({ ...inv })
-    setShowBrokerSuggestions(false)
   }
 
   const cancelEdit = () => {
@@ -193,7 +183,6 @@ export default function ManualBatchBuilder({
       ...emptyForm(),
       invoice_number: nextFormInvoiceNumber(clientId, invoices),
     })
-    setShowBrokerSuggestions(false)
   }
 
   const handleSubmit = async () => {
@@ -236,6 +225,7 @@ export default function ManualBatchBuilder({
         invoices: invoices.map((inv) => ({
           invoice_number: inv.invoice_number,
           load_number: inv.load_number,
+          broker_id: inv.broker_id,
           broker_name: inv.broker_name,
           amount: inv.amount,
           invoice_date: inv.invoice_date,
@@ -324,37 +314,25 @@ export default function ManualBatchBuilder({
               </p>
             )}
           </div>
-          <div className="relative">
+          <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1" style={{ color: '#113543' }}>
               Broker <span style={{ color: '#C2A558' }}>*</span>
             </label>
-            <input
-              type="text"
-              value={form.broker_name}
-              onChange={(e) => handleField('broker_name', e.target.value)}
-              onFocus={() => brokerSuggestions.length > 0 && setShowBrokerSuggestions(true)}
-              onBlur={() => setTimeout(() => setShowBrokerSuggestions(false), 200)}
-              className="w-full px-3 py-2 text-sm border rounded"
-              style={inputStyle}
+            <BrokerPicker
+              mode="admin"
+              value={{
+                broker_id: form.broker_id,
+                broker_name: form.broker_name,
+                broker_address: form.broker_address,
+              }}
+              onChange={handleBrokerChange}
+              inputClassName="w-full px-3 py-2 text-sm border rounded"
+              placeholder="Select or create a broker…"
             />
-            {showBrokerSuggestions && brokerSuggestions.length > 0 && (
-              <div
-                className="absolute z-10 w-full mt-1 bg-white border rounded shadow-lg max-h-48 overflow-y-auto"
-                style={{ borderColor: '#819291' }}
-              >
-                {brokerSuggestions.map((broker) => (
-                  <button
-                    key={broker.id}
-                    type="button"
-                    onClick={() => handleBrokerSelect(broker)}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                    style={{ color: '#113543' }}
-                  >
-                    {broker.name}
-                  </button>
-                ))}
-              </div>
-            )}
+            <BrokerInternalNotesBanner
+              brokerId={form.broker_id}
+              brokerName={form.broker_name}
+            />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: '#113543' }}>

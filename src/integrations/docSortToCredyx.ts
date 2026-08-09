@@ -1,32 +1,26 @@
-import { addBroker, mockBrokers } from '../data/mockBrokers'
+import { mockBrokers } from '../data/mockBrokers'
 import { getNextClientInvoiceNumber } from '../utils/clientInvoiceNumbers'
 import { resolveDueDatesFromBroker } from '../utils/invoiceDueDate'
+import {
+  matchBrokerByName,
+  resolveOrCreateBroker,
+  type BrokerResolveResult,
+} from '../utils/brokerResolve'
 import type { CredyxInvoiceDraft } from '../types/credyxBatch'
 import type { Invoice } from '../types/invoice'
 import { buildInvoiceDraftFromGroup } from '../products/docSort/services/docSortInvoice'
 import { generateInvoicePDFFile, type InvoicePDFInput } from '../utils/generateInvoicePDF'
 import type { DocSortLoadGroup, DocSortFingerprint } from '../products/docSort/types'
-/** Resolve broker id from extracted name (fuzzy contains match). */
-export function resolveBrokerId(brokerName: string): { broker_id: string; broker_name: string } {
-  const trimmed = brokerName.trim()
-  if (!trimmed) {
-    return { broker_id: '', broker_name: 'Unknown Broker' }
-  }
-  const lower = trimmed.toLowerCase()
-  const match = mockBrokers.find(
-    (b) =>
-      b.name.toLowerCase() === lower ||
-      lower.includes(b.name.toLowerCase()) ||
-      b.name.toLowerCase().includes(lower)
-  )
-  if (match) {
-    return { broker_id: match.id, broker_name: match.name }
-  }
-  const broker = addBroker({
-    id: `broker-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    name: trimmed,
-  })
-  return { broker_id: broker.id, broker_name: broker.name }
+
+export type { BrokerResolveResult }
+export { matchBrokerByName, resolveOrCreateBroker }
+
+/**
+ * @deprecated Prefer matchBrokerByName (carriers) or resolveOrCreateBroker (admin).
+ * Kept as an alias to resolveOrCreateBroker for admin/legacy call sites.
+ */
+export function resolveBrokerId(brokerName: string): BrokerResolveResult {
+  return resolveOrCreateBroker(brokerName)
 }
 
 function isoDateFromUs(usDate: string): string {
@@ -48,7 +42,8 @@ export async function buildCredyxDraftFromGroup(
 ): Promise<CredyxInvoiceDraft> {
   const pdfInput = buildInvoiceDraftFromGroup(group)
   const invoicePdf = await generateInvoicePDFFile(pdfInput)
-  const broker = resolveBrokerId(pdfInput.brokerName)
+  // Carrier path: match only — unknown names stay pending for Credyx to link.
+  const broker = matchBrokerByName(pdfInput.brokerName || '')
   const amount = pdfInput.invoiceAmount ?? 0
 
   return {
@@ -133,7 +128,7 @@ export async function createManualCredyxDraft(
     invoice_number: generateNextDraftInvoiceNumber(clientId, existing),
     load_number: '',
     broker_name: '',
-    broker_id: 'broker-unknown',
+    broker_id: '',
     amount: 0,
     invoice_date,
     carrier_name: 'Carrier',

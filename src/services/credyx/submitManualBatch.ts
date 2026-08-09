@@ -1,7 +1,7 @@
 import { addBatch, addInvoicesForBatch, generateBatchNumber, updateBatch } from '../../data/mockBatches'
 import { updateInvoice } from '../../data/mockInvoices'
 import { mergeBatchFiles } from '../../data/batchFileStore'
-import { resolveBrokerId } from '../../integrations/docSortToCredyx'
+import { matchBrokerByName, resolveOrCreateBroker } from '../../utils/brokerResolve'
 import { getClientById } from '../../services/clientRegistry'
 import { isSupabaseConfigured } from '../../lib/supabase'
 import {
@@ -21,23 +21,49 @@ import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
 import { assertClientSetupComplete } from '../../utils/clientSetupDocuments'
 import { resolveDueDatesFromBroker } from '../../utils/invoiceDueDate'
 import { assertCapability, getClientCapabilities } from '../../utils/clientCapabilities'
-
+import { notifyAdminBrokerRequested } from '../adminNotificationService'
 
 async function resolveAndPersistBroker(
-  brokerName: string
-): Promise<{ broker_id: string; broker_name: string; payment_terms_days?: number }> {
-  const result = resolveBrokerId(brokerName)
-  const broker = mockBrokers.find((b) => b.id === result.broker_id)
+  brokerName: string,
+  options: { allowCreate: boolean; brokerId?: string }
+): Promise<{ broker_id: string; broker_name: string; payment_terms_days?: number; pending_new?: boolean }> {
+  // Prefer an explicit directory id from the picker.
+  if (options.brokerId) {
+    const existing = mockBrokers.find((b) => b.id === options.brokerId)
+    if (existing) {
+      if (isSupabaseConfigured()) {
+        try {
+          await persistBroker(existing)
+        } catch (err) {
+          console.warn('[submitManualBatch] broker persist failed', err)
+        }
+      }
+      return {
+        broker_id: existing.id,
+        broker_name: existing.name,
+        payment_terms_days: existing.payment_terms_days,
+      }
+    }
+  }
+
+  const result = options.allowCreate
+    ? resolveOrCreateBroker(brokerName)
+    : matchBrokerByName(brokerName)
+
+  const broker = result.broker_id
+    ? mockBrokers.find((b) => b.id === result.broker_id)
+    : undefined
   const payment_terms_days = broker?.payment_terms_days
-  if (!result.broker_id || !isSupabaseConfigured()) {
+
+  if (!result.broker_id || !isSupabaseConfigured() || !broker) {
     return { ...result, payment_terms_days }
   }
-  if (!broker) return { ...result, payment_terms_days }
+
   try {
     await persistBroker(broker)
   } catch (err) {
     console.warn('[submitManualBatch] broker persist failed, saving invoice without broker_id', err)
-    return { broker_id: '', broker_name: result.broker_name, payment_terms_days }
+    return { broker_id: '', broker_name: result.broker_name, payment_terms_days, pending_new: true }
   }
   return { ...result, payment_terms_days }
 }
@@ -46,6 +72,10 @@ export interface ManualInvoiceInput {
   invoice_number: string
   load_number: string
   broker_name: string
+  /** When set, use this directory broker (no auto-create). */
+  broker_id?: string
+  /** Carrier requested a broker not yet in the directory. */
+  pending_new_broker?: boolean
   amount: string
   invoice_date: string
   notes?: string
@@ -57,7 +87,7 @@ export interface SubmitManualBatchInput {
   clientName: string
   invoices: ManualInvoiceInput[]
   existingBatchId?: string
-  /** Admin create-batch paths skip the vault setup gate. */
+  /** Admin create-batch paths skip the vault setup gate and may create brokers. */
   skipSetupGate?: boolean
 }
 
@@ -77,6 +107,21 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
       'Manual batch submission'
     )
     assertClientSetupComplete(clientId, client)
+  }
+
+  // Carriers must select a directory broker or explicitly request a new one.
+  if (!skipSetupGate) {
+    for (const inv of invoices) {
+      const name = inv.broker_name?.trim()
+      if (!name) {
+        throw new Error('Each invoice needs a broker — select one or request a new broker.')
+      }
+      const hasId = Boolean(inv.broker_id?.trim())
+      const pending = Boolean(inv.pending_new_broker) || (!hasId && Boolean(name))
+      if (!hasId && !pending) {
+        throw new Error(`Select or request a broker for invoice ${inv.invoice_number || '(new)'}.`)
+      }
+    }
   }
 
   const totalAmount = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount || '0'), 0)
@@ -133,11 +178,25 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
   const fileMap = new Map<string, File>()
   const docsByInvoiceIndex: Map<string, File>[] = invoices.map(() => new Map())
   const reservedNumbers: string[] = []
+  const pendingBrokerNames: string[] = []
 
   const invoiceFields = []
   for (let index = 0; index < invoices.length; index++) {
     const inv = invoices[index]
-    const broker = await resolveAndPersistBroker(inv.broker_name)
+    const allowCreate = Boolean(skipSetupGate)
+    const broker = await resolveAndPersistBroker(inv.broker_name, {
+      allowCreate,
+      brokerId: inv.broker_id,
+    })
+    // Carrier pending-new: keep name, empty id (Credyx links later).
+    const pendingNew =
+      !skipSetupGate &&
+      (Boolean(inv.pending_new_broker) || Boolean(broker.pending_new) || !broker.broker_id)
+
+    if (pendingNew && inv.broker_name.trim()) {
+      pendingBrokerNames.push(inv.broker_name.trim())
+    }
+
     const invoiceNumber = assertInvoiceNumberAvailable(
       clientId,
       resolvedNumbers[index],
@@ -155,8 +214,8 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
       invoice_number: invoiceNumber,
       client_id: clientId,
       client_name: clientName,
-      broker_id: broker.broker_id,
-      broker_name: broker.broker_name,
+      broker_id: pendingNew ? '' : broker.broker_id,
+      broker_name: broker.broker_name || inv.broker_name,
       amount: parseFloat(inv.amount || '0'),
       invoice_date: inv.invoice_date,
       ...dueDates,
@@ -199,6 +258,17 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
         throw err instanceof Error ? err : new Error('Could not save invoice to database')
       }
     }
+  }
+
+  const uniquePending = [...new Set(pendingBrokerNames)]
+  if (uniquePending.length > 0) {
+    notifyAdminBrokerRequested({
+      clientId,
+      clientName,
+      batchId: batch.id,
+      batchNumber: batch.batch_number,
+      brokerNames: uniquePending,
+    })
   }
 
   clearClientTenantCache(clientId)

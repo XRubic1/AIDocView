@@ -1,13 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import AdminLayout from '../components/AdminLayout'
 import { mockBrokers, addBroker, updateBroker } from '../data/mockBrokers'
 import { Broker, BrokerEmail, BrokerPhone } from '../types/broker'
 import { Phone, Mail, MapPin, Search, X, Plus, Trash2, ArrowLeft } from 'lucide-react'
 import { useToast } from '../components/ui/ToastProvider'
 import BrokerPaymentHistoryPanel from '../components/brokers/BrokerPaymentHistoryPanel'
+import BrokerRiskAuditTimeline from '../components/brokers/BrokerRiskAuditTimeline'
+import { listLatestBrokerRiskProfiles } from '../data/brokerRiskStore'
+import { hydrateAuditLogsFromSupabase } from '../services/supabase/hydrateStores'
 import { formatPhoneNumber } from '../utils/formatPhoneNumber'
 import { applyEmailDomain, canSuggestEmailDomain, extractEmailDomain } from '../utils/emailDomain'
 import '../styles/clientPortal.css'
+import '../styles/brokerPicker.css'
 
 const EMAIL_CATEGORY_LABELS: Record<string, string> = {
   accounting: 'Accounting',
@@ -37,6 +41,23 @@ export default function Brokers() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null)
   const [showFormModal, setShowFormModal] = useState(false)
+  const [auditRefresh, setAuditRefresh] = useState(0)
+
+  // Load audit trail when viewing a broker.
+  useEffect(() => {
+    if (!selectedBroker) return
+    void hydrateAuditLogsFromSupabase()
+      .then(() => setAuditRefresh((n) => n + 1))
+      .catch(console.error)
+  }, [selectedBroker?.id])
+
+  const selectedBrokerRiskProfile = useMemo(() => {
+    if (!selectedBroker) return null
+    return (
+      listLatestBrokerRiskProfiles().find((p) => p.broker_id === selectedBroker.id) ?? null
+    )
+  }, [selectedBroker, auditRefresh])
+
   /** When set, the form saves via updateBroker instead of addBroker. */
   const [editingBrokerId, setEditingBrokerId] = useState<string | null>(null)
   const [formData, setFormData] = useState<Partial<Broker>>({
@@ -100,6 +121,8 @@ export default function Brokers() {
     mc_number: '',
     dot_number: '',
     notes: '',
+    carrier_notes: '',
+    is_new: false,
     payment_terms_days: 0,
     payment_status_inquiry_days: 15,
     preferred_contact: 'either',
@@ -120,6 +143,8 @@ export default function Brokers() {
       mc_number: broker.mc_number || '',
       dot_number: broker.dot_number || '',
       notes: broker.notes || '',
+      carrier_notes: broker.carrier_notes || '',
+      is_new: Boolean(broker.is_new),
       payment_terms_days: broker.payment_terms_days ?? 0,
       payment_status_inquiry_days: broker.payment_status_inquiry_days ?? 15,
       preferred_contact: broker.preferred_contact ?? 'either',
@@ -166,7 +191,7 @@ export default function Brokers() {
     setAutoFillEmailDomain(true)
   }
 
-  const handleInputChange = (field: keyof Broker, value: string | number) => {
+  const handleInputChange = (field: keyof Broker, value: string | number | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
@@ -242,6 +267,8 @@ export default function Brokers() {
       mc_number: formData.mc_number?.trim() || undefined,
       dot_number: formData.dot_number?.trim() || undefined,
       notes: formData.notes?.trim() || undefined,
+      carrier_notes: formData.carrier_notes?.trim() || undefined,
+      is_new: Boolean(formData.is_new),
       payment_terms_days: formData.payment_terms_days,
       payment_status_inquiry_days: formData.payment_status_inquiry_days ?? 15,
       preferred_contact: formData.preferred_contact ?? 'either',
@@ -656,16 +683,40 @@ export default function Brokers() {
 
               <BrokerPaymentHistoryPanel broker={selectedBroker} />
 
+              {selectedBroker.is_new ? (
+                <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  Marked NEW for carriers — elevated risk until payment history builds.
+                </p>
+              ) : null}
+
+              {selectedBroker.carrier_notes ? (
+                <section>
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
+                    Carrier-visible Credyx notes
+                  </h3>
+                  <p className="text-sm text-slate-800 rounded border border-blue-200 bg-blue-50 px-3 py-2">
+                    {selectedBroker.carrier_notes}
+                  </p>
+                </section>
+              ) : null}
+
               {selectedBroker.notes ? (
                 <section>
                   <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                    Notes
+                    Internal notes
                   </h3>
                   <p className="text-sm text-slate-800 rounded border border-slate-200 bg-slate-50 px-3 py-2">
                     {selectedBroker.notes}
                   </p>
                 </section>
               ) : null}
+
+              <BrokerRiskAuditTimeline
+                brokerId={selectedBroker.id}
+                brokerName={selectedBroker.name}
+                profile={selectedBrokerRiskProfile}
+                refreshKey={auditRefresh}
+              />
             </div>
 
             <div className="shrink-0 px-4 py-2.5 border-t border-slate-200 bg-white flex flex-wrap items-center justify-end gap-2">
@@ -1042,12 +1093,41 @@ export default function Brokers() {
                   </section>
 
                   <section className={`${sectionClass} broker-form-section--notes`}>
-                    <h3 className={sectionTitleClass}>Notes</h3>
+                    <h3 className={sectionTitleClass}>Credyx NEW + carrier notes</h3>
+                    <label className="flex items-start gap-2 text-sm text-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={Boolean(formData.is_new)}
+                        onChange={(e) => handleInputChange('is_new', e.target.checked)}
+                      />
+                      <span>
+                        <span className="font-semibold">Mark as NEW</span>
+                        <span className="block text-xs text-slate-500 mt-0.5">
+                          Carrier portal shows NEW and treats thin / no payment history as elevated risk
+                          (e.g. old MC on file since 2016 with no pays through Credyx).
+                        </span>
+                      </span>
+                    </label>
+                    <label className={formRowClass}>
+                      <span className="text-xs font-medium text-slate-600">Carrier-visible Credyx notes</span>
+                      <textarea
+                        value={formData.carrier_notes || ''}
+                        onChange={(e) => handleInputChange('carrier_notes', e.target.value)}
+                        rows={3}
+                        placeholder="Shown to carriers — e.g. Limited remittance history; start with smaller loads…"
+                        className={inputClass}
+                      />
+                    </label>
+                  </section>
+
+                  <section className={`${sectionClass} broker-form-section--notes`}>
+                    <h3 className={sectionTitleClass}>Internal notes (admin only)</h3>
                     <textarea
                       value={formData.notes || ''}
                       onChange={(e) => handleInputChange('notes', e.target.value)}
                       rows={4}
-                      placeholder="Internal notes about this broker…"
+                      placeholder="Internal notes about this broker — never shown to carriers…"
                       className={inputClass}
                     />
                   </section>

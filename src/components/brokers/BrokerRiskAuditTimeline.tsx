@@ -1,0 +1,89 @@
+import { useMemo } from 'react'
+import { History } from 'lucide-react'
+import type { BrokerRiskProfile } from '../../types/brokerRisk'
+import {
+  brokerRiskAuditActionLabel,
+  listBrokerRiskAuditLogs,
+  synthesizeBrokerRiskAuditFromProfile,
+} from '../../utils/brokerRiskAudit'
+import { getClientById } from '../../services/clientRegistry'
+
+interface BrokerRiskAuditTimelineProps {
+  brokerId: string
+  brokerName: string
+  /** When set, only show events for this carrier. */
+  clientId?: string | null
+  /** Used to seed timeline before audit rows exist. */
+  profile?: BrokerRiskProfile | null
+  /** Remount / refresh key. */
+  refreshKey?: number | string
+  className?: string
+  compact?: boolean
+}
+
+/** Admin timeline: marked risky, risk removed, notes, flagged for review. */
+export default function BrokerRiskAuditTimeline({
+  brokerId,
+  brokerName,
+  clientId,
+  profile,
+  refreshKey = 0,
+  className = '',
+  compact = false,
+}: BrokerRiskAuditTimelineProps) {
+  const events = useMemo(() => {
+    void refreshKey
+    const logs = listBrokerRiskAuditLogs({ brokerId, clientId, limit: 40 })
+    if (logs.length > 0) return logs
+    const clientName = profile ? getClientById(profile.client_id)?.name : null
+    return synthesizeBrokerRiskAuditFromProfile(profile, brokerName, clientName)
+  }, [brokerId, brokerName, clientId, profile, refreshKey])
+
+  return (
+    <section className={`broker-risk-audit ${className}`.trim()}>
+      <div className="broker-risk-audit__head">
+        <History className="broker-risk-audit__icon" aria-hidden />
+        <h3 className="broker-risk-audit__title">Risk audit</h3>
+      </div>
+      {events.length === 0 ? (
+        <p className="broker-risk-audit__empty">No risk decisions logged yet.</p>
+      ) : (
+        <ul className={`broker-risk-audit__list${compact ? ' is-compact' : ''}`}>
+          {events.map((ev) => {
+            const note =
+              (typeof ev.metadata?.review_note === 'string' && ev.metadata.review_note) ||
+              ev.changes?.find((c) => c.field === 'review_note')?.new_value
+            const clientLabel =
+              typeof ev.metadata?.client_name === 'string' && ev.metadata.client_name
+                ? ev.metadata.client_name
+                : null
+            const toLevel =
+              typeof ev.metadata?.to_level === 'string' ? ev.metadata.to_level : null
+
+            return (
+              <li key={ev.id} className={`broker-risk-audit__item broker-risk-audit__item--${ev.action}`}>
+                <div className="broker-risk-audit__row">
+                  <span className="broker-risk-audit__badge">
+                    {brokerRiskAuditActionLabel(ev.action)}
+                    {toLevel && ev.action !== 'broker_risk_cleared'
+                      ? ` · ${String(toLevel)}`
+                      : ''}
+                  </span>
+                  <time className="broker-risk-audit__time" dateTime={ev.timestamp}>
+                    {new Date(ev.timestamp).toLocaleString()}
+                  </time>
+                </div>
+                <p className="broker-risk-audit__desc">{ev.description}</p>
+                <p className="broker-risk-audit__meta">
+                  {ev.user_name}
+                  {clientLabel && !clientId ? ` · ${clientLabel}` : ''}
+                </p>
+                {note ? <p className="broker-risk-audit__note">“{String(note)}”</p> : null}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
+}

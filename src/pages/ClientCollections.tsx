@@ -418,6 +418,11 @@ export default function ClientCollections() {
     setSearchTerm('')
     setBrokerDrillDown(null)
     setCurrentPage(1)
+    if (searchParams.has('broker')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('broker')
+      setSearchParams(next, { replace: true })
+    }
   }
 
   useEffect(() => {
@@ -425,6 +430,17 @@ export default function ClientCollections() {
       setBrokerDrillDown(null)
     }
   }, [searchTerm, brokerDrillDown])
+
+  // Deep-link from Brokers tab: /client/collections?broker=Name
+  useEffect(() => {
+    const broker = searchParams.get('broker')?.trim()
+    if (!broker) return
+    setViewMode('invoices')
+    setSearchTerm(broker)
+    setBrokerDrillDown(broker)
+    setBucketFilter('all')
+    setCurrentPage(1)
+  }, [searchParams])
 
   const inputCompactStyle = {
     backgroundColor: c.card,

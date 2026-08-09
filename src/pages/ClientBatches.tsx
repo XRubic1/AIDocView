@@ -3,7 +3,6 @@ import { Link, useSearchParams, useLocation } from 'react-router-dom'
 import { AlertCircle } from 'lucide-react'
 import { useClientSession } from '../hooks/useClientSession'
 import { getAllBatches, getBatchById, getClientDraftBatch } from '../data/mockBatches'
-import { mockBrokers } from '../data/mockBrokers'
 import { getInvoicesByBatchId, getInvoiceById } from '../data/mockInvoices'
 import BatchAiUploadFlow, { type RestoredAiDraftSession } from '../components/client/BatchAiUploadFlow'
 import { submitManualBatch } from '../services/credyx/submitManualBatch'
@@ -105,7 +104,7 @@ function formInvoiceToInvoice(
     invoice_number: form.invoice_number,
     client_id: clientId,
     client_name: clientName,
-    broker_id: '',
+    broker_id: form.broker_id || '',
     broker_name: form.broker_name,
     amount: parseFloat(form.amount || '0'),
     invoice_date: form.invoice_date || new Date().toISOString().split('T')[0],
@@ -188,8 +187,10 @@ export default function ClientBatches() {
   const [invoiceFormData, setInvoiceFormData] = useState<InvoiceFormData>({
     invoice_number: '',
     load_number: '',
+    broker_id: '',
     broker_name: '',
     broker_address: '',
+    pending_new_broker: false,
     amount: '',
     invoice_date: new Date().toISOString().split('T')[0],
     notes: '',
@@ -238,8 +239,6 @@ export default function ClientBatches() {
     }
   }, [searchParams])
 
-  const [brokerSuggestions, setBrokerSuggestions] = useState<typeof mockBrokers>([])
-  const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false)
   const [showDocumentUploadModal, setShowDocumentUploadModal] = useState(false)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
   const [viewerDocumentsFromStore, setViewerDocumentsFromStore] = useState<
@@ -299,13 +298,14 @@ export default function ClientBatches() {
     setInvoiceFormData({
       invoice_number: `INV-${year}-001`,
       load_number: '',
+      broker_id: '',
       broker_name: '',
       broker_address: '',
+      pending_new_broker: false,
       amount: '',
       invoice_date: new Date().toISOString().split('T')[0],
       notes: '',
     })
-    setShowBrokerSuggestions(false)
   }, [])
 
   const handleDeleteDraft = useCallback(
@@ -577,38 +577,34 @@ export default function ClientBatches() {
 
   const handleInvoiceInputChange = (field: keyof InvoiceFormData, value: string) => {
     setInvoiceFormData((prev) => ({ ...prev, [field]: value }))
-    
-    // Auto-complete broker suggestions when typing broker name
-    if (field === 'broker_name') {
-      if (value.trim()) {
-        const filtered = mockBrokers.filter((broker) =>
-          broker.name.toLowerCase().includes(value.toLowerCase())
-        )
-        setBrokerSuggestions(filtered)
-        setShowBrokerSuggestions(filtered.length > 0)
-      } else {
-        setBrokerSuggestions([])
-        setShowBrokerSuggestions(false)
-      }
-    }
   }
 
-  const handleBrokerSelect = (broker: typeof mockBrokers[0]) => {
-    const address = broker.address
-      ? `${broker.address}${broker.city ? `, ${broker.city}` : ''}${broker.state ? `, ${broker.state}` : ''}${broker.zip ? ` ${broker.zip}` : ''}`.trim()
-      : ''
-    
+  const handleBrokerChange = (next: {
+    broker_id: string
+    broker_name: string
+    pending_new?: boolean
+    broker_address?: string
+  }) => {
     setInvoiceFormData((prev) => ({
       ...prev,
-      broker_name: broker.name,
-      broker_address: address,
+      broker_id: next.broker_id,
+      broker_name: next.broker_name,
+      pending_new_broker: Boolean(next.pending_new),
+      broker_address: next.broker_address ?? (next.pending_new ? '' : prev.broker_address),
     }))
-    setShowBrokerSuggestions(false)
   }
 
   const handleAddInvoice = () => {
-    if (!invoiceFormData.broker_name || !invoiceFormData.broker_address || !invoiceFormData.amount) {
-      showToast('Broker name, broker address, and amount are required', 'error')
+    const hasBroker =
+      Boolean(invoiceFormData.broker_id) ||
+      (Boolean(invoiceFormData.pending_new_broker) && Boolean(invoiceFormData.broker_name.trim()))
+    if (!hasBroker || !invoiceFormData.amount) {
+      showToast('Select or request a broker, and enter an amount', 'error')
+      return
+    }
+    // Address is optional for pending-new brokers (Credyx completes the profile later).
+    if (invoiceFormData.broker_id && !invoiceFormData.broker_address.trim()) {
+      showToast('Broker address is required for directory brokers', 'error')
       return
     }
 
@@ -647,7 +643,6 @@ export default function ClientBatches() {
   const closeDocumentUploadModal = () => {
     documentUploadInFlightRef.current = false
     setDocumentUploadSaving(false)
-    setShowBrokerSuggestions(false)
     setShowDocumentUploadModal(false)
     setCurrentInvoiceForDocuments(null)
     setCurrentInvoiceIndex(null)
@@ -660,8 +655,10 @@ export default function ClientBatches() {
     setInvoiceFormData({
       invoice_number: nextInvoiceNumber,
       load_number: '',
+      broker_id: '',
       broker_name: '',
       broker_address: '',
+      pending_new_broker: false,
       amount: '',
       invoice_date: new Date().toISOString().split('T')[0],
       notes: '',
@@ -1242,7 +1239,9 @@ export default function ClientBatches() {
         invoices: currentBatchInvoices.map((inv) => ({
           invoice_number: inv.invoice_number,
           load_number: inv.load_number,
+          broker_id: inv.broker_id,
           broker_name: inv.broker_name,
+          pending_new_broker: inv.pending_new_broker,
           amount: inv.amount,
           invoice_date: inv.invoice_date,
           notes: inv.notes,
@@ -1524,15 +1523,7 @@ export default function ClientBatches() {
                 formData={invoiceFormData}
                 draftBatchNumber={activeDraftBatch?.batch_number}
                 onFormChange={handleInvoiceInputChange}
-                brokerSuggestions={brokerSuggestions}
-                showBrokerSuggestions={showBrokerSuggestions}
-                onBrokerFocus={() => {
-                  if (brokerSuggestions.length > 0) setShowBrokerSuggestions(true)
-                }}
-                onBrokerBlur={() => {
-                  setTimeout(() => setShowBrokerSuggestions(false), 200)
-                }}
-                onBrokerSelect={handleBrokerSelect}
+                onBrokerChange={handleBrokerChange}
                 onAddInvoice={handleAddInvoice}
                 invoices={currentBatchInvoices}
                 onViewDocuments={handleViewDocuments}

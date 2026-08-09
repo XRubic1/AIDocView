@@ -4,6 +4,7 @@ import DocumentViewer from '../DocumentViewer'
 import ClientInvoiceDocumentUploadModal, {
   type UploadModalDocument,
 } from './ClientInvoiceDocumentUploadModal'
+import BrokerPicker from '../brokers/BrokerPicker'
 import { DOCSORT_AI_DISCLAIMER_SHORT } from '../../products/docSort/constants/aiDisclaimer'
 import { isManualCredyxDraft } from '../../integrations/docSortToCredyx'
 import type { BatchIntakeDraft, CredyxInvoiceDraft } from '../../types/credyxBatch'
@@ -24,6 +25,8 @@ interface BatchAiConfirmPanelProps {
   clientId: string
   /** When true (Credyx admin), warn if other carriers reused the load #. */
   crossCarrierLoadWarnings?: boolean
+  /** Carrier vs Credyx admin broker picker behavior. */
+  brokerPickerMode?: 'carrier' | 'admin'
   onUpdateDraft: (draftId: string, patch: Partial<CredyxInvoiceDraft>) => void
   onConfirmDraft: (draftId: string) => void
   onUnconfirmDraft: (draftId: string) => void
@@ -71,6 +74,7 @@ export default function BatchAiConfirmPanel({
   draft,
   clientId,
   crossCarrierLoadWarnings = false,
+  brokerPickerMode = 'carrier',
   onUpdateDraft,
   onConfirmDraft,
   onUnconfirmDraft,
@@ -236,7 +240,11 @@ export default function BatchAiConfirmPanel({
     return map
   }, [draft.invoices, clientId, crossCarrierLoadWarnings, warnMode])
 
-  /** Block confirm when invoice # is taken; load warnings are informational only. */
+  /** True when the invoice has a directory broker or a pending-new name. */
+  const hasBrokerSelection = (inv: CredyxInvoiceDraft): boolean =>
+    Boolean(inv.broker_id?.trim()) || Boolean(inv.broker_name?.trim())
+
+  /** Block confirm when invoice # is taken or broker is empty; load warnings are informational only. */
   const tryConfirmDraft = (inv: CredyxInvoiceDraft): boolean => {
     const feedback = fieldFeedback.get(inv.draftId)
     if (feedback?.invoiceError) {
@@ -246,6 +254,14 @@ export default function BatchAiConfirmPanel({
     const num = inv.invoice_number?.trim()
     if (!num) {
       window.alert('Invoice number is required before confirming')
+      return false
+    }
+    if (!hasBrokerSelection(inv)) {
+      window.alert(
+        brokerPickerMode === 'admin'
+          ? 'Select or create a broker before confirming'
+          : 'Select an existing broker or request a new broker before confirming'
+      )
       return false
     }
     onConfirmDraft(inv.draftId)
@@ -566,12 +582,22 @@ export default function BatchAiConfirmPanel({
                       )}
                     </td>
                     <td>
-                      <input
-                        type="text"
-                        value={inv.broker_name}
+                      <BrokerPicker
+                        mode={brokerPickerMode}
+                        compact
                         disabled={inv.confirmed}
-                        onChange={(e) => onUpdateDraft(inv.draftId, { broker_name: e.target.value })}
-                        className="client-ai-confirm__input client-ai-confirm__input--wide"
+                        inputClassName="client-ai-confirm__input client-ai-confirm__input--wide"
+                        value={{
+                          broker_id: inv.broker_id,
+                          broker_name: inv.broker_name,
+                          pending_new: Boolean(inv.broker_name && !inv.broker_id),
+                        }}
+                        onChange={(next) =>
+                          onUpdateDraft(inv.draftId, {
+                            broker_id: next.broker_id,
+                            broker_name: next.broker_name,
+                          })
+                        }
                       />
                     </td>
                     <td>
@@ -597,14 +623,19 @@ export default function BatchAiConfirmPanel({
                           className={`client-ai-confirm__action-btn${inv.confirmed ? ' client-ai-confirm__action-btn--confirmed' : ''}`}
                           onClick={() => toggleConfirm(inv)}
                           disabled={
-                            !inv.confirmed && (inv.amount <= 0 || Boolean(feedback?.invoiceError))
+                            !inv.confirmed &&
+                            (inv.amount <= 0 ||
+                              Boolean(feedback?.invoiceError) ||
+                              !hasBrokerSelection(inv))
                           }
                           title={
                             feedback?.invoiceError
                               ? feedback.invoiceError
-                              : inv.confirmed
-                                ? 'Click to edit'
-                                : 'Confirm invoice'
+                              : !hasBrokerSelection(inv)
+                                ? 'Select or request a broker first'
+                                : inv.confirmed
+                                  ? 'Click to edit'
+                                  : 'Confirm invoice'
                           }
                         >
                           {inv.confirmed ? <Check className="w-3.5 h-3.5" /> : 'Confirm'}

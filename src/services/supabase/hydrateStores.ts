@@ -4,8 +4,10 @@ import { hydrateInvoices, clearInvoices } from '../../data/mockInvoices'
 import { hydrateBatches, clearBatches } from '../../data/mockBatches'
 import { hydratePayments, clearPayments } from '../../data/mockPayments'
 import { hydrateBrokers } from '../../data/mockBrokers'
+import { clearBrokerRiskStore } from '../../data/brokerRiskStore'
 import { hydrateNotifications, clearNotifications } from '../../data/mockNotifications'
 import { hydrateClientDocuments, clearClientDocuments } from '../../data/mockClientDocuments'
+import { hydrateBrokerRiskFromSupabase } from './brokerRiskPersist'
 import { registerClientDocumentStoragePath } from '../clientDocumentService'
 import {
   batchRowToBatch,
@@ -15,7 +17,12 @@ import {
   type InvoiceRow,
   type PaymentRow,
 } from './tenantMappers'
-import { brokerRowToBroker, type BrokerRow } from './brokerMappers'
+import {
+  brokerRowToBroker,
+  brokerRowToPublicBroker,
+  BROKER_PUBLIC_SELECT,
+  type BrokerRow,
+} from './brokerMappers'
 import {
   auditLogRowToAuditLog,
   clientDocumentRowToClientDocument,
@@ -62,6 +69,7 @@ export function clearTenantStores(): void {
   clearClientDocuments()
   clearClientBills()
   clearReimbursementLedger()
+  clearBrokerRiskStore()
   resetClientRegistryCache()
   lastHydratedPrincipal = null
   lastHydratedClientId = null
@@ -170,6 +178,12 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
     }
 
     try {
+      await hydrateBrokerRiskFromSupabase()
+    } catch (err) {
+      errors.push(`broker_risk: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
       const policy = await loadArPolicy()
       applyArPolicy(policy)
     } catch (err) {
@@ -189,7 +203,7 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
       supabase.from('invoices').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
       supabase.from('batches').select('*').eq('client_id', clientId).order('submitted_at', { ascending: false }),
       supabase.from('payments').select('*').eq('client_id', clientId).order('received_date', { ascending: false }),
-      supabase.from('brokers').select('*').order('name', { ascending: true }),
+      supabase.from('brokers').select(BROKER_PUBLIC_SELECT).order('name', { ascending: true }),
       supabase.from('notifications').select('*').eq('client_id', clientId).order('timestamp', { ascending: false }),
       supabase.from('client_documents').select('*').eq('client_id', clientId).order('uploaded_at', { ascending: false }),
     ])
@@ -211,7 +225,8 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
 
     if (brokersRes.error) errors.push(`brokers: ${brokersRes.error.message}`)
     else if (brokersRes.data) {
-      hydrateBrokers((brokersRes.data as BrokerRow[]).map(brokerRowToBroker))
+      // Carriers never receive Broker.notes (internal Credyx warnings).
+      hydrateBrokers((brokersRes.data as BrokerRow[]).map(brokerRowToPublicBroker))
     }
 
     if (notificationsRes.error) errors.push(`notifications: ${notificationsRes.error.message}`)
@@ -241,6 +256,12 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
       await hydrateReimbursementLedgerFromSupabase(clientId)
     } catch (err) {
       errors.push(`reimbursement_ledger: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      await hydrateBrokerRiskFromSupabase(clientId)
+    } catch (err) {
+      errors.push(`broker_risk: ${err instanceof Error ? err.message : String(err)}`)
     }
 
     try {

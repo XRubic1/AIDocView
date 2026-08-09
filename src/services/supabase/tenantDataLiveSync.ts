@@ -12,10 +12,11 @@ import {
   type InvoiceRow,
   type PaymentRow,
 } from './tenantMappers'
+import { hydrateBrokerRiskFromSupabase } from './brokerRiskPersist'
 
 export const TENANT_DATA_UPDATED_EVENT = 'credyx-tenant-data-updated'
 
-export type TenantDataTable = 'batches' | 'payments' | 'invoices'
+export type TenantDataTable = 'batches' | 'payments' | 'invoices' | 'broker_risk_profiles'
 
 const POLL_INTERVAL_MS = 45_000
 
@@ -27,6 +28,7 @@ type SyncScope = {
 let syncScope: SyncScope | null = null
 let realtimeChannel: RealtimeChannel | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let brokerRiskHydrateInFlight = false
 
 function emitTenantDataUpdated(tables: TenantDataTable[], clientId?: string | null): void {
   if (typeof window === 'undefined') return
@@ -51,6 +53,26 @@ export function notifyTenantDataUpdated(
 ): void {
   emitTenantDataUpdated(tables, clientId)
   touchClientCache(clientId)
+}
+
+/** Pull broker risk profiles so Publish / Clear reach the carrier portal. */
+async function syncBrokerRiskFromServer(scope: SyncScope): Promise<boolean> {
+  if (brokerRiskHydrateInFlight) return false
+  brokerRiskHydrateInFlight = true
+  try {
+    await hydrateBrokerRiskFromSupabase(
+      scope.principal === 'client' ? scope.clientId : null
+    )
+    return true
+  } catch (err) {
+    console.warn(
+      '[tenantDataLiveSync] broker risk hydrate failed',
+      err instanceof Error ? err.message : err
+    )
+    return false
+  } finally {
+    brokerRiskHydrateInFlight = false
+  }
 }
 
 function handleBatchChange(
@@ -142,9 +164,21 @@ async function refreshTenantDataFromServer(scope: SyncScope): Promise<void> {
   } else if (scope.clientId) {
     const clientId = scope.clientId
     const [batchesRes, paymentsRes, invoicesRes] = await Promise.all([
-      supabase.from('batches').select('*').eq('client_id', clientId).order('submitted_at', { ascending: false }),
-      supabase.from('payments').select('*').eq('client_id', clientId).order('received_date', { ascending: false }),
-      supabase.from('invoices').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
+      supabase
+        .from('batches')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('submitted_at', { ascending: false }),
+      supabase
+        .from('payments')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('received_date', { ascending: false }),
+      supabase
+        .from('invoices')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false }),
     ])
 
     if (batchesRes.data) {
@@ -160,6 +194,10 @@ async function refreshTenantDataFromServer(scope: SyncScope): Promise<void> {
       tables.push('invoices')
     }
     refreshClientTenantCacheFromStores(clientId)
+  }
+
+  if (await syncBrokerRiskFromServer(scope)) {
+    tables.push('broker_risk_profiles')
   }
 
   if (tables.length > 0) {
@@ -181,7 +219,7 @@ function stopPolling(): void {
 }
 
 /**
- * Subscribe to batches, payments, and invoices for live cross-session sync.
+ * Subscribe to batches, payments, invoices, and broker risk for live cross-session sync.
  * Admin sees all tenants; client sessions are filtered by client_id.
  */
 export function ensureTenantDataLiveSync(
@@ -216,6 +254,8 @@ export function ensureTenantDataLiveSync(
   const paymentFilter =
     principal === 'client' && clientId ? { filter: `client_id=eq.${clientId}` } : {}
   const invoiceFilter =
+    principal === 'client' && clientId ? { filter: `client_id=eq.${clientId}` } : {}
+  const brokerRiskFilter =
     principal === 'client' && clientId ? { filter: `client_id=eq.${clientId}` } : {}
 
   channel
@@ -252,6 +292,22 @@ export function ensureTenantDataLiveSync(
         )
       }
     )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'broker_risk_profiles',
+        ...brokerRiskFilter,
+      },
+      () => {
+        void (async () => {
+          if (!(await syncBrokerRiskFromServer(nextScope))) return
+          emitTenantDataUpdated(['broker_risk_profiles'], nextScope.clientId)
+          touchClientCache(nextScope.clientId)
+        })()
+      }
+    )
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         stopPolling()
@@ -276,7 +332,7 @@ export function stopTenantDataLiveSync(): void {
   syncScope = null
 }
 
-/** Subscribe to tenant data updates (batches, payments, invoices). */
+/** Subscribe to tenant data updates (batches, payments, invoices, broker risk). */
 export function subscribeTenantDataUpdates(onUpdate: () => void): () => void {
   if (typeof window === 'undefined') return () => undefined
   const handler = () => onUpdate()

@@ -10320,6 +10320,30 @@
   height: 6px;
 }
 
+.client-portal .broker-detail-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.client-portal .broker-detail-info-grid dt {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.15rem;
+}
+
+.client-portal .broker-detail-info-grid dd {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.client-portal .broker-detail-stat.col-span-2 {
+  grid-column: 1 / -1;
+}
+
 .client-portal .broker-detail-panel {
   width: 100%;
   max-width: 380px;
@@ -10361,6 +10385,46 @@
 }
 
 .client-portal .broker-detail-panel__section {
+  margin-bottom: 16px;
+}
+
+.client-portal .broker-detail-status {
+  border: 1px solid;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.client-portal .broker-detail-status__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.client-portal .broker-detail-status__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.client-portal .broker-detail-status__detail {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  opacity: 0.9;
+}
+
+.client-portal .broker-detail-status__bullets {
+  margin: 8px 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.client-portal .broker-detail-actions {
+  display: flex;
+  gap: 8px;
   margin-bottom: 16px;
 }
 
@@ -15849,6 +15913,16 @@
 .client-portal .assistant-risk-chip--unrated {
   background: var(--cp-stat-slate-bg);
   color: var(--cp-secondary);
+}
+
+.client-portal .broker-risk-level-chip--sm {
+  font-size: 0.625rem;
+  padding: 0.15rem 0.45rem;
+}
+
+.client-portal .broker-risk-level-chip--md {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.55rem;
 }
 
 .client-portal .assistant-risk-card__confidence {

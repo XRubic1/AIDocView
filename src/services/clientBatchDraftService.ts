@@ -30,8 +30,10 @@ import {
 export type ManualDraftInvoiceInput = {
   invoice_number: string
   load_number: string
+  broker_id?: string
   broker_name: string
   broker_address: string
+  pending_new_broker?: boolean
   amount: string
   invoice_date: string
   notes: string
@@ -316,8 +318,10 @@ export async function saveManualDraftWithFiles(
     storedInvoices.push({
       invoice_number: inv.invoice_number,
       load_number: inv.load_number,
+      broker_id: inv.broker_id || '',
       broker_name: inv.broker_name,
       broker_address: inv.broker_address,
+      pending_new_broker: Boolean(inv.pending_new_broker),
       amount: inv.amount,
       invoice_date: inv.invoice_date,
       notes: inv.notes,
@@ -374,8 +378,10 @@ export async function loadManualDraftSnapshot(batchId: string): Promise<{
   invoices: Array<{
     invoice_number: string
     load_number: string
+    broker_id: string
     broker_name: string
     broker_address: string
+    pending_new_broker: boolean
     amount: string
     invoice_date: string
     notes: string
@@ -404,8 +410,10 @@ export async function loadManualDraftSnapshot(batchId: string): Promise<{
     invoices.push({
       invoice_number: inv.invoice_number,
       load_number: inv.load_number,
+      broker_id: inv.broker_id || '',
       broker_name: inv.broker_name,
       broker_address: inv.broker_address,
+      pending_new_broker: Boolean(inv.pending_new_broker),
       amount: inv.amount,
       invoice_date: inv.invoice_date,
       notes: inv.notes,
@@ -413,8 +421,13 @@ export async function loadManualDraftSnapshot(batchId: string): Promise<{
     })
   }
 
+  const form = record.manual.invoiceFormData
   return {
-    invoiceFormData: record.manual.invoiceFormData,
+    invoiceFormData: {
+      ...form,
+      broker_id: form.broker_id || '',
+      pending_new_broker: Boolean(form.pending_new_broker),
+    },
     invoices,
   }
 }

@@ -40,6 +40,15 @@ export interface Broker {
   payment_status_inquiry_days?: number
   /** How Credyx should chase payment status. */
   preferred_contact?: BrokerPreferredContact
+  /**
+   * Credyx marks this broker NEW for carriers (thin / no payment history).
+   * Surfaces as elevated risk until enough pays are on file.
+   */
+  is_new?: boolean
+  /**
+   * Credyx notes visible to carriers (distinct from internal `notes`).
+   */
+  carrier_notes?: string
 }
 
 

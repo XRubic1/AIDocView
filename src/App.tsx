@@ -15,6 +15,7 @@ import {
   AdminWaitlist,
   AdminNotifications,
   AdminWorkQueue,
+  AdminBrokerRisk,
   AgingAR,
   AuditDashboard,
   AdminCalendar,
@@ -127,6 +128,7 @@ function App() {
                 <Route path="/admin/waitlist" element={withRouteSuspense(AdminWaitlist)} />
                 <Route path="/admin/notifications" element={withRouteSuspense(AdminNotifications)} />
                 <Route path="/admin/work-queue" element={withRouteSuspense(AdminWorkQueue)} />
+                <Route path="/admin/broker-risk" element={withRouteSuspense(AdminBrokerRisk)} />
                 <Route path="/batches" element={withRouteSuspense(Batches)} />
                 <Route path="/batches/create" element={withRouteSuspense(CreateBatch)} />
                 <Route path="/aging-ar" element={withRouteSuspense(AgingAR)} />

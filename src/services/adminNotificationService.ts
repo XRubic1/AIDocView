@@ -378,6 +378,43 @@ export interface DocHandoffNotificationInput {
   notes?: string
 }
 
+export interface BrokerRequestedNotificationInput {
+  clientId: string
+  clientName: string
+  batchId: string
+  batchNumber: string
+  /** Broker names carriers requested that are not yet in the directory. */
+  brokerNames: string[]
+}
+
+/** Carrier requested broker(s) not in the Credyx directory — needs linking. */
+export function notifyAdminBrokerRequested(
+  input: BrokerRequestedNotificationInput
+): Notification {
+  const names =
+    input.brokerNames.length <= 2
+      ? input.brokerNames.join(', ')
+      : `${input.brokerNames.slice(0, 2).join(', ')} +${input.brokerNames.length - 2} more`
+
+  return pushNotification({
+    id: `admin-notif-broker-req-${input.batchId}-${Date.now()}`,
+    type: 'batch_submitted',
+    title: 'New broker requested',
+    message: `${input.clientName} requested broker(s) on ${input.batchNumber}: ${names}`,
+    timestamp: new Date().toISOString(),
+    read: false,
+    link: `/batches?batchId=${encodeURIComponent(input.batchId)}`,
+    link_label: 'Open batch',
+    batch_id: input.batchId,
+    batch_number: input.batchNumber,
+    metadata: {
+      client_id: input.clientId,
+      client_name: input.clientName,
+      broker_names: input.brokerNames,
+    },
+  })
+}
+
 export function notifyAdminDocHandoff(input: DocHandoffNotificationInput): Notification {
   const fileList =
     input.fileNames.length <= 2
@@ -586,6 +623,75 @@ export function notifyAdminCalendarEvent(
       client_id: input.clientId,
       client_name: input.clientName,
       calendar: true,
+    },
+  })
+}
+
+export interface BrokerRiskUrgentNotificationInput {
+  clientId: string
+  clientName: string
+  brokerId: string
+  brokerName: string
+  /** Worst days past this broker's Net terms. */
+  daysPastTerms: number
+  netTerms: number
+}
+
+/**
+ * Urgent broker risk (21+ days past Net terms) — Credyx must review what is going on.
+ * Deduped per carrier+broker while an unread alert already exists.
+ */
+export function notifyAdminBrokerRiskUrgent(
+  input: BrokerRiskUrgentNotificationInput
+): Notification {
+  const stableId = `admin-notif-broker-risk-urgent-${input.clientId}-${input.brokerId}`
+  const existing = adminNotifications.find((n) => n.id === stableId)
+  const message = `${input.brokerName} for ${input.clientName}: ${input.daysPastTerms}d past Net ${input.netTerms} — urgent review required. Check what is going on.`
+
+  if (existing && !existing.read) {
+    const refreshed: Notification = {
+      ...existing,
+      title: 'Urgent broker risk review',
+      message,
+      timestamp: new Date().toISOString(),
+      link: '/admin/broker-risk',
+      link_label: 'Open Broker Risk',
+      metadata: {
+        ...(existing.metadata ?? {}),
+        client_id: input.clientId,
+        client_name: input.clientName,
+        broker_id: input.brokerId,
+        broker_name: input.brokerName,
+        days_past_terms: input.daysPastTerms,
+        net_terms: input.netTerms,
+        urgent: true,
+      },
+    }
+    mergeNotification(refreshed)
+    void persistOrThrow('admin_notification', () => persistAdminNotification(refreshed)).catch(
+      (err) => console.error('[adminNotifications] persist failed', err)
+    )
+    broadcastNotification(refreshed)
+    return refreshed
+  }
+
+  return pushNotification({
+    id: stableId,
+    type: 'overdue_alert',
+    title: 'Urgent broker risk review',
+    message,
+    timestamp: new Date().toISOString(),
+    read: false,
+    link: '/admin/broker-risk',
+    link_label: 'Open Broker Risk',
+    metadata: {
+      client_id: input.clientId,
+      client_name: input.clientName,
+      broker_id: input.brokerId,
+      broker_name: input.brokerName,
+      days_past_terms: input.daysPastTerms,
+      net_terms: input.netTerms,
+      urgent: true,
     },
   })
 }

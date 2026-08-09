@@ -33,6 +33,13 @@ export function updateBroker(brokerId: string, patch: Partial<Broker>): Broker |
     delete broker.phones
     broker.phone = patch.phone
   }
+  // Empty string clears optional text fields (notes).
+  if ('notes' in patch && !patch.notes?.trim()) {
+    delete broker.notes
+  }
+  if ('carrier_notes' in patch && !patch.carrier_notes?.trim()) {
+    delete broker.carrier_notes
+  }
   void persistBroker(broker).catch(console.error)
   return broker
 }

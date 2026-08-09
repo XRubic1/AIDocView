@@ -10,8 +10,8 @@ import type { DocSortProgress } from '../../products/docSort/types'
 import BatchAiConfirmPanel from './BatchAiConfirmPanel'
 import {
   createManualCredyxDraft,
+  matchBrokerByName,
   regenerateDraftInvoicePdf,
-  resolveBrokerId,
 } from '../../integrations/docSortToCredyx'
 import {
   assignUnmatchedDocument,
@@ -261,12 +261,21 @@ export default function BatchAiUploadFlow({
 
   const updateDraft = (draftId: string, patch: Partial<CredyxInvoiceDraft>) => {
     let nextPatch = patch
-    if ('broker_name' in patch && patch.broker_name !== undefined) {
-      const broker = resolveBrokerId(patch.broker_name)
-      nextPatch = {
-        ...patch,
-        broker_id: broker.broker_id,
-        broker_name: broker.broker_name,
+    // Prefer explicit broker_id from BrokerPicker; otherwise match-only (no auto-create).
+    if ('broker_id' in patch || 'broker_name' in patch) {
+      if (patch.broker_id) {
+        nextPatch = {
+          ...patch,
+          broker_id: patch.broker_id,
+          broker_name: patch.broker_name ?? '',
+        }
+      } else if (patch.broker_name !== undefined) {
+        const broker = matchBrokerByName(patch.broker_name)
+        nextPatch = {
+          ...patch,
+          broker_id: broker.broker_id,
+          broker_name: broker.broker_name,
+        }
       }
     }
 
@@ -458,6 +467,7 @@ export default function BatchAiUploadFlow({
           draft={draft}
           clientId={clientId}
           crossCarrierLoadWarnings={crossCarrierLoadWarnings}
+          brokerPickerMode={skipSetupGate ? 'admin' : 'carrier'}
           onUpdateDraft={updateDraft}
           onConfirmDraft={confirmDraft}
           onUnconfirmDraft={unconfirmDraft}

@@ -11,6 +11,7 @@ import {
   isOpenArInvoice,
 } from './invoiceAging'
 import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from './paymentVariance'
+import { collectTermsPaymentSignals } from './brokerRiskPolicy'
 
 /** Open balance for aging — uses provided payments or the in-memory store. */
 function openArBalance(invoice: Invoice, payments?: Payment[]): number {
@@ -45,6 +46,13 @@ export type BrokerScoreRow = {
   share_of_ar: number
   overdue_amount: number
   overdue_count: number
+  /** Broker Net terms used when computing terms-aware fields (null if unknown). */
+  payment_terms_days?: number | null
+  /** Payments received after terms due date. */
+  late_payment_count?: number
+  max_days_past_terms?: number | null
+  open_overdue_past_terms?: number
+  avg_days_invoice_to_pay?: number | null
 }
 
 export type CashFlowMonth = {
@@ -213,7 +221,9 @@ export function computeBrokerScores(
   invoices: Invoice[],
   payments: Payment[],
   range: DateRange,
-  asOf = new Date()
+  asOf = new Date(),
+  /** Optional map of broker_name → Net terms days for terms-aware late metrics. */
+  termsByBrokerName?: Record<string, number | null | undefined>
 ): BrokerScoreRow[] {
   const enriched = enrichInvoices(invoices, asOf)
   const openByBroker = new Map<string, { ar: number; count: number; overdue: number; overdueCount: number }>()
@@ -272,6 +282,15 @@ export function computeBrokerScores(
       }
 
       const open = openByBroker.get(broker_name)
+      const brokerInvoices = invoices.filter((i) => i.broker_name === broker_name)
+      const brokerPayments = payments.filter((p) => p.broker_name === broker_name)
+      const terms = termsByBrokerName?.[broker_name]
+      const termsSignals = collectTermsPaymentSignals({
+        invoices: brokerInvoices,
+        payments: brokerPayments,
+        paymentTermsDays: terms,
+        asOf,
+      })
 
       return {
         broker_name,
@@ -288,6 +307,11 @@ export function computeBrokerScores(
         share_of_ar: totalOpenAr > 0 ? ((open?.ar ?? 0) / totalOpenAr) * 100 : 0,
         overdue_amount: open?.overdue ?? 0,
         overdue_count: open?.overdueCount ?? 0,
+        payment_terms_days: termsSignals.payment_terms_days,
+        late_payment_count: termsSignals.late_payment_count,
+        max_days_past_terms: termsSignals.max_days_past_terms,
+        open_overdue_past_terms: termsSignals.open_overdue_past_terms,
+        avg_days_invoice_to_pay: termsSignals.avg_days_invoice_to_pay,
       }
     })
     .filter((b) => b.open_ar > 0 || b.invoiced_in_range > 0)

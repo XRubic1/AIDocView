@@ -1,5 +1,15 @@
 import { useState } from 'react'
-import { X, Sparkles, StickyNote, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import {
+  X,
+  StickyNote,
+  Trash2,
+  Building2,
+  Wallet,
+  BarChart3,
+  ShieldCheck,
+  ShieldAlert,
+} from 'lucide-react'
 import type { ClientBrokerProfile } from '../../types/clientBroker'
 import { deleteBrokerNote, saveBrokerNote } from '../../utils/clientBrokers'
 import { formatCurrency } from '../../utils/format'
@@ -13,18 +23,53 @@ interface BrokerDetailPanelProps {
   onNotesChange: () => void
 }
 
-function riskLevelLabel(level: string): string {
-  if (level === 'low') return 'Low'
-  if (level === 'high') return 'High'
-  if (level === 'unrated') return 'Unrated'
-  return 'Medium'
+type RiskTone = 'none' | 'watch' | 'flagged' | 'urgent'
+
+/** One-line carrier risk status — no essays. */
+function carrierRiskStatus(broker: ClientBrokerProfile): {
+  tone: RiskTone
+  title: string
+  detail: string | null
+} {
+  const level = broker.risk?.risk_level
+  const pending = Boolean(broker.risk?.pending_review)
+
+  if (!level || level === 'low' || level === 'unrated') {
+    return { tone: 'none', title: 'No risk', detail: null }
+  }
+
+  if (broker.is_new) {
+    return {
+      tone: level === 'high' ? 'urgent' : 'flagged',
+      title: level === 'high' ? 'High risk · NEW' : 'Elevated · NEW',
+      detail: 'Limited payment history.',
+    }
+  }
+
+  if (pending) {
+    return {
+      tone: level === 'high' ? 'urgent' : 'flagged',
+      title: level === 'high' ? 'High risk · under review' : 'Medium risk · under review',
+      detail: 'Credyx is confirming details.',
+    }
+  }
+
+  if (level === 'high') {
+    return {
+      tone: 'urgent',
+      title: 'High risk',
+      detail: broker.risk?.recommendation?.trim() || 'Use caution on new loads.',
+    }
+  }
+
+  return {
+    tone: 'flagged',
+    title: 'Medium risk',
+    detail: broker.risk?.recommendation?.trim() || 'Watch payment timing.',
+  }
 }
 
-function confidenceLabel(level: string): string {
-  return level.charAt(0).toUpperCase() + level.slice(1)
-}
-
-/** Side panel — Broker Risk cache, pay stats, and client notes. */
+/** Side panel — clear status first, short facts, notes. */
 export default function BrokerDetailPanel({
   broker,
   clientId,
@@ -32,6 +77,7 @@ export default function BrokerDetailPanel({
   onNotesChange,
 }: BrokerDetailPanelProps) {
   const c = useClientTheme()
+  const navigate = useNavigate()
   const [noteText, setNoteText] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -52,6 +98,33 @@ export default function BrokerDetailPanel({
     onNotesChange()
   }
 
+  const location = [broker.city, broker.state].filter(Boolean).join(', ')
+  const risk = carrierRiskStatus(broker)
+  const openInvoices = broker.score?.open_invoices ?? 0
+  const openAr = broker.score?.open_ar ?? 0
+  const showBullets =
+    risk.tone !== 'none' &&
+    !broker.risk?.pending_review &&
+    (broker.risk?.bullets?.length ?? 0) > 0
+
+  const statusBg =
+    risk.tone === 'none'
+      ? c.stat.green
+      : risk.tone === 'urgent'
+        ? c.stat.red
+        : risk.tone === 'flagged'
+          ? c.stat.amber
+          : c.stat.slate
+
+  const statusColor =
+    risk.tone === 'none'
+      ? c.success
+      : risk.tone === 'urgent'
+        ? c.error
+        : risk.tone === 'flagged'
+          ? c.warning
+          : c.secondary
+
   return (
     <div className="broker-detail-panel" role="dialog" aria-label={`${broker.broker_name} details`}>
       <div className="broker-detail-panel__header">
@@ -59,9 +132,16 @@ export default function BrokerDetailPanel({
           <h2 className="text-base font-bold truncate" style={{ color: c.primary }}>
             {broker.broker_name}
           </h2>
-          <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
-            {broker.mc_number ?? 'MC not on file'}
-            {broker.payment_terms_days != null && ` · Net ${broker.payment_terms_days}`}
+          <p className="text-xs mt-0.5 truncate" style={{ color: c.secondary }}>
+            {[
+              broker.mc_number ? `MC ${broker.mc_number}` : null,
+              broker.payment_terms_days != null && broker.payment_terms_days > 0
+                ? `Net ${broker.payment_terms_days}`
+                : null,
+              location || null,
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'Broker profile'}
           </p>
         </div>
         <button
@@ -75,112 +155,70 @@ export default function BrokerDetailPanel({
       </div>
 
       <div className="broker-detail-panel__body">
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <BrokerPayRatingBadge rating={broker.rating} />
-          {!broker.has_worked_with_client && (
-            <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: c.stat.slate, color: c.secondary }}>
-              No loads with you yet
-            </span>
-          )}
+        {/* Status — read in 2 seconds */}
+        <div
+          className="broker-detail-status"
+          style={{ backgroundColor: statusBg, borderColor: c.border }}
+        >
+          <div className="broker-detail-status__row">
+            {risk.tone === 'none' ? (
+              <ShieldCheck className="w-5 h-5 shrink-0" style={{ color: statusColor }} />
+            ) : (
+              <ShieldAlert className="w-5 h-5 shrink-0" style={{ color: statusColor }} />
+            )}
+            <div className="min-w-0">
+              <p className="broker-detail-status__title" style={{ color: statusColor }}>
+                {risk.title}
+              </p>
+              {risk.detail ? (
+                <p className="broker-detail-status__detail" style={{ color: c.primary }}>
+                  {risk.detail}
+                </p>
+              ) : null}
+            </div>
+            <BrokerPayRatingBadge rating={broker.rating} size="sm" />
+          </div>
+          {showBullets ? (
+            <ul className="broker-detail-status__bullets" style={{ color: c.primary }}>
+              {broker.risk!.bullets.slice(0, 3).map((bullet) => (
+                <li key={bullet}>{bullet}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
 
-        <section className="broker-detail-panel__section">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Sparkles className="w-3.5 h-3.5" style={{ color: c.info }} />
-            <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
-              Broker Risk
-            </h3>
-          </div>
+        <div className="broker-detail-actions">
+          <button
+            type="button"
+            className="dashboard-btn-primary text-xs py-2 px-3 inline-flex items-center justify-center gap-1.5 flex-1"
+            onClick={() =>
+              navigate(
+                `/client/collections?broker=${encodeURIComponent(broker.broker_name)}`
+              )
+            }
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            Aging A/R
+            {openInvoices > 0 ? ` (${openInvoices})` : ''}
+          </button>
+        </div>
 
-          {broker.risk ? (
-            <div className="broker-risk-block">
-              <div className="broker-risk-block__head">
-                <span className={`assistant-risk-chip assistant-risk-chip--${broker.risk.risk_level}`}>
-                  Risk: {riskLevelLabel(broker.risk.risk_level)}
-                </span>
-                <span className="broker-risk-block__confidence" style={{ color: c.secondary }}>
-                  Confidence: {confidenceLabel(broker.risk.confidence)}
-                </span>
-              </div>
-              <p className="broker-risk-block__freshness" style={{ color: c.secondary }}>
-                Analyzed {broker.risk.analyzed_at_label} · {broker.risk.invoice_count} invoices ·
-                notes as recent as {broker.risk.notes_recency_label}
-              </p>
-              <p className="text-sm leading-relaxed mt-2" style={{ color: c.primary }}>
-                {broker.ai_summary}
-              </p>
-              {broker.risk.bullets.length > 0 && (
-                <ul className="broker-risk-block__bullets" style={{ color: c.primary }}>
-                  {broker.risk.bullets.map((bullet) => (
-                    <li key={bullet}>{bullet}</li>
-                  ))}
-                </ul>
-              )}
-              <p className="broker-risk-block__rec" style={{ color: c.secondary }}>
-                {broker.risk.recommendation}
-              </p>
-              <p className="broker-risk-block__meta" style={{ color: c.mutedLight }}>
-                Pay rating stays separate from Broker Risk · {broker.risk.model_version}
-              </p>
-            </div>
-          ) : (
-            <p className="text-sm leading-relaxed" style={{ color: c.primary }}>
-              {broker.ai_summary}
-            </p>
-          )}
-        </section>
-
-        {broker.score && (
-          <section className="broker-detail-panel__section grid grid-cols-2 gap-2">
-            <div className="broker-detail-stat" style={{ backgroundColor: c.stat.blue }}>
-              <p className="broker-detail-stat__label" style={{ color: c.secondary }}>
-                Avg pay lag
-              </p>
-              <p className="broker-detail-stat__value tabular-nums" style={{ color: c.primary }}>
-                {broker.score.avg_days_to_pay !== null ? `${broker.score.avg_days_to_pay}d` : '—'}
-              </p>
-            </div>
-            <div className="broker-detail-stat" style={{ backgroundColor: c.stat.green }}>
-              <p className="broker-detail-stat__label" style={{ color: c.secondary }}>
-                Collection rate
-              </p>
-              <p className="broker-detail-stat__value tabular-nums" style={{ color: c.primary }}>
-                {broker.score.invoiced_in_range > 0
-                  ? `${broker.score.collection_rate.toFixed(0)}%`
-                  : '—'}
-              </p>
-            </div>
-            <div className="broker-detail-stat" style={{ backgroundColor: c.stat.amber }}>
-              <p className="broker-detail-stat__label" style={{ color: c.secondary }}>
-                Open A/R
-              </p>
-              <p className="broker-detail-stat__value tabular-nums" style={{ color: c.primary }}>
-                {formatCurrency(broker.score.open_ar)}
-              </p>
-            </div>
-            <div className="broker-detail-stat" style={{ backgroundColor: c.stat.red }}>
-              <p className="broker-detail-stat__label" style={{ color: c.secondary }}>
-                Overdue
-              </p>
-              <p className="broker-detail-stat__value tabular-nums" style={{ color: c.primary }}>
-                {formatCurrency(broker.score.overdue_amount)}
-              </p>
-            </div>
-          </section>
-        )}
-
+        {/* Notes first — works the same for No risk / Medium / High */}
         <section className="broker-detail-panel__section">
           <div className="flex items-center gap-1.5 mb-2">
             <StickyNote className="w-3.5 h-3.5" style={{ color: c.warning }} />
-            <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
+            <h3
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: c.secondary }}
+            >
               Your notes
             </h3>
           </div>
           <textarea
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
-            rows={3}
-            placeholder="e.g. Delayed payment on last 3 loads, requires follow-up…"
+            rows={2}
+            placeholder="Quick note — works for any broker…"
             className="client-input w-full text-sm resize-none mb-2"
             style={{ borderColor: c.border, color: c.primary }}
           />
@@ -214,6 +252,94 @@ export default function BrokerDetailPanel({
             </ul>
           )}
         </section>
+
+        <section className="broker-detail-panel__section">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Wallet className="w-3.5 h-3.5" style={{ color: c.info }} />
+            <h3
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: c.secondary }}
+            >
+              With your company
+            </h3>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="broker-detail-stat" style={{ backgroundColor: c.stat.blue }}>
+              <p className="broker-detail-stat__label" style={{ color: c.secondary }}>
+                Open invoices
+              </p>
+              <p className="broker-detail-stat__value tabular-nums" style={{ color: c.primary }}>
+                {openInvoices}
+              </p>
+            </div>
+            <div className="broker-detail-stat" style={{ backgroundColor: c.stat.amber }}>
+              <p className="broker-detail-stat__label" style={{ color: c.secondary }}>
+                Open A/R
+              </p>
+              <p className="broker-detail-stat__value tabular-nums" style={{ color: c.primary }}>
+                {formatCurrency(openAr)}
+              </p>
+            </div>
+            <div className="broker-detail-stat" style={{ backgroundColor: c.stat.green }}>
+              <p className="broker-detail-stat__label" style={{ color: c.secondary }}>
+                Avg days to pay
+              </p>
+              <p className="broker-detail-stat__value tabular-nums" style={{ color: c.primary }}>
+                {broker.score?.avg_days_invoice_to_pay != null
+                  ? `${broker.score.avg_days_invoice_to_pay}d`
+                  : broker.score?.avg_days_to_pay != null
+                    ? `${broker.score.avg_days_to_pay}d`
+                    : '—'}
+              </p>
+            </div>
+            <div className="broker-detail-stat" style={{ backgroundColor: c.stat.slate }}>
+              <p className="broker-detail-stat__label" style={{ color: c.secondary }}>
+                Paid rate
+              </p>
+              <p className="broker-detail-stat__value tabular-nums" style={{ color: c.primary }}>
+                {broker.score && broker.score.invoiced_in_range > 0
+                  ? `${broker.score.collection_rate.toFixed(0)}%`
+                  : '—'}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {(broker.carrier_notes || location || broker.dot_number) && (
+          <section className="broker-detail-panel__section">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Building2 className="w-3.5 h-3.5" style={{ color: c.info }} />
+              <h3
+                className="text-xs font-semibold uppercase tracking-wide"
+                style={{ color: c.secondary }}
+              >
+                Details
+              </h3>
+            </div>
+            <dl className="broker-detail-info-grid">
+              {broker.dot_number ? (
+                <div>
+                  <dt style={{ color: c.secondary }}>DOT</dt>
+                  <dd style={{ color: c.primary }}>{broker.dot_number}</dd>
+                </div>
+              ) : null}
+              {location ? (
+                <div>
+                  <dt style={{ color: c.secondary }}>Location</dt>
+                  <dd style={{ color: c.primary }}>{location}</dd>
+                </div>
+              ) : null}
+            </dl>
+            {broker.carrier_notes ? (
+              <p
+                className="mt-2 text-sm leading-snug p-2.5 rounded-lg border"
+                style={{ borderColor: c.border, backgroundColor: c.stat.blue, color: c.primary }}
+              >
+                {broker.carrier_notes}
+              </p>
+            ) : null}
+          </section>
+        )}
       </div>
     </div>
   )

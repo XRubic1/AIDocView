@@ -37,8 +37,11 @@ export interface AiDraftSnapshot {
 export interface ManualDraftInvoiceSnapshot {
   invoice_number: string
   load_number: string
+  broker_id: string
   broker_name: string
   broker_address: string
+  /** Carrier requested a broker not yet in the directory. */
+  pending_new_broker?: boolean
   amount: string
   invoice_date: string
   notes: string

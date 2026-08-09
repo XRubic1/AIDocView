@@ -25,6 +25,7 @@ import { calculateBatchFeeCalculation } from '../../utils/invoiceFees'
 import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
 import { getClientById } from '../clientRegistry'
 import { assertClientSetupComplete } from '../../utils/clientSetupDocuments'
+import { notifyAdminBrokerRequested } from '../adminNotificationService'
 
 function filesToUploads(files: File[]): DocSortUpload[] {
   return files.map((file) => ({
@@ -170,6 +171,23 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
   })
 
   const invoices = addInvoicesForBatch(batch.id, batchNumber, invoiceFields)
+
+  const pendingBrokerNames = [
+    ...new Set(
+      drafts
+        .filter((d) => d.broker_name.trim() && !d.broker_id)
+        .map((d) => d.broker_name.trim())
+    ),
+  ]
+  if (pendingBrokerNames.length > 0 && !skipSetupGate) {
+    notifyAdminBrokerRequested({
+      clientId,
+      clientName,
+      batchId: batch.id,
+      batchNumber: batch.batch_number,
+      brokerNames: pendingBrokerNames,
+    })
+  }
 
   const storeMap = new Map(fileById)
   drafts.forEach((draft) => {

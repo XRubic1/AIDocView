@@ -4,6 +4,7 @@ import { formatDate } from '../../utils/format'
 import { X, Check, AlertCircle, Phone, Mail, FileText, User, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Download, Printer, Edit2, Save, Upload, Trash2, GripVertical } from 'lucide-react'
 import { Invoice } from '../../types/invoice'
 import ContactBrokerModal from '../brokers/ContactBrokerModal'
+import BrokerInternalNotesBanner from '../brokers/BrokerInternalNotesBanner'
 import { mockBrokers } from '../../data/mockBrokers'
 import { getAllClients, getClientById } from '../../services/clientRegistry'
 import jsPDF from 'jspdf'
@@ -2126,6 +2127,11 @@ export default function AdminInvoiceDetailView({
                   </div>
                 </div>
               )}
+
+              <BrokerInternalNotesBanner
+                brokerId={isEditing ? editedInvoice.broker_id : currentInvoice.broker_id}
+                brokerName={isEditing ? editedInvoice.broker_name : currentInvoice.broker_name}
+              />
               
               <div className="grid grid-cols-3 gap-x-3 gap-y-2">
                 <div className="relative">
