@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { History } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { History, X } from 'lucide-react'
 import type { BrokerRiskProfile } from '../../types/brokerRisk'
 import {
   brokerRiskAuditActionLabel,
@@ -19,6 +19,11 @@ interface BrokerRiskAuditTimelineProps {
   refreshKey?: number | string
   className?: string
   compact?: boolean
+  /**
+   * Render as a button (next to Add note). Click opens the timeline.
+   * Default: always-visible section.
+   */
+  asButton?: boolean
 }
 
 /** Admin timeline: marked risky, risk removed, notes, flagged for review. */
@@ -30,7 +35,10 @@ export default function BrokerRiskAuditTimeline({
   refreshKey = 0,
   className = '',
   compact = false,
+  asButton = false,
 }: BrokerRiskAuditTimelineProps) {
+  const [open, setOpen] = useState(false)
+
   const events = useMemo(() => {
     void refreshKey
     const logs = listBrokerRiskAuditLogs({ brokerId, clientId, limit: 40 })
@@ -39,16 +47,12 @@ export default function BrokerRiskAuditTimeline({
     return synthesizeBrokerRiskAuditFromProfile(profile, brokerName, clientName)
   }, [brokerId, brokerName, clientId, profile, refreshKey])
 
-  return (
-    <section className={`broker-risk-audit ${className}`.trim()}>
-      <div className="broker-risk-audit__head">
-        <History className="broker-risk-audit__icon" aria-hidden />
-        <h3 className="broker-risk-audit__title">Risk audit</h3>
-      </div>
+  const list = (
+    <>
       {events.length === 0 ? (
         <p className="broker-risk-audit__empty">No risk decisions logged yet.</p>
       ) : (
-        <ul className={`broker-risk-audit__list${compact ? ' is-compact' : ''}`}>
+        <ul className={`broker-risk-audit__list${compact || asButton ? ' is-compact' : ''}`}>
           {events.map((ev) => {
             const note =
               (typeof ev.metadata?.review_note === 'string' && ev.metadata.review_note) ||
@@ -61,7 +65,10 @@ export default function BrokerRiskAuditTimeline({
               typeof ev.metadata?.to_level === 'string' ? ev.metadata.to_level : null
 
             return (
-              <li key={ev.id} className={`broker-risk-audit__item broker-risk-audit__item--${ev.action}`}>
+              <li
+                key={ev.id}
+                className={`broker-risk-audit__item broker-risk-audit__item--${ev.action}`}
+              >
                 <div className="broker-risk-audit__row">
                   <span className="broker-risk-audit__badge">
                     {brokerRiskAuditActionLabel(ev.action)}
@@ -84,6 +91,51 @@ export default function BrokerRiskAuditTimeline({
           })}
         </ul>
       )}
+    </>
+  )
+
+  if (asButton) {
+    return (
+      <div className={`broker-risk-audit broker-risk-audit--button ${className}`.trim()}>
+        <button
+          type="button"
+          className={`broker-risk-audit__toggle${open ? ' is-open' : ''}`}
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+        >
+          <History className="w-3 h-3" aria-hidden />
+          Risk audit
+          {events.length > 0 ? (
+            <span className="broker-risk-audit__count">{events.length}</span>
+          ) : null}
+        </button>
+        {open ? (
+          <div className="broker-risk-audit__panel">
+            <div className="broker-risk-audit__panel-head">
+              <span>Risk audit</span>
+              <button
+                type="button"
+                className="broker-risk-audit__close"
+                onClick={() => setOpen(false)}
+                aria-label="Close risk audit"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            {list}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <section className={`broker-risk-audit ${className}`.trim()}>
+      <div className="broker-risk-audit__head">
+        <History className="broker-risk-audit__icon" aria-hidden />
+        <h3 className="broker-risk-audit__title">Risk audit</h3>
+      </div>
+      {list}
     </section>
   )
 }

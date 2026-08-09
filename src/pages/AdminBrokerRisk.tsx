@@ -19,6 +19,7 @@ import { hydrateAuditLogsFromSupabase } from '../services/supabase/hydrateStores
 import { useAuth } from '../context/AuthContext'
 import { getAdminUserDisplayName } from '../config/adminNav'
 import { mockBrokers } from '../data/mockBrokers'
+import { findBrokerByName } from '../utils/brokerResolve'
 import { mockInvoices } from '../data/mockInvoices'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import {
@@ -165,9 +166,19 @@ export default function AdminBrokerRisk() {
   const selected: BrokerRiskProfile | null =
     rows.find((r) => r.id === selectedId) ?? rows[0] ?? null
 
-  const broker = selected
-    ? mockBrokers.find((b) => b.id === selected.broker_id)
-    : undefined
+  /** Catalog broker — resolve by id, then name slug used by risk profiles. */
+  const broker = useMemo(() => {
+    if (!selected) return undefined
+    const byId = mockBrokers.find((b) => b.id === selected.broker_id)
+    if (byId) return byId
+    if (selected.broker_id.startsWith('broker-name-')) {
+      const slugName = selected.broker_id
+        .replace(/^broker-name-/, '')
+        .replace(/-/g, ' ')
+      return findBrokerByName(slugName)
+    }
+    return undefined
+  }, [selected, tick, tenantRevision])
   const client = selected ? getClientById(selected.client_id) : undefined
 
   // Prefill review note when switching brokers (published / cleared / pending).
@@ -553,10 +564,27 @@ export default function AdminBrokerRisk() {
                 </div>
 
                 <BrokerInternalNotesBanner
-                  brokerId={selected.broker_id}
-                  brokerName={broker?.name}
+                  brokerId={broker?.id ?? selected.broker_id}
+                  brokerName={
+                    broker?.name ??
+                    (selected.broker_id.startsWith('broker-name-')
+                      ? selected.broker_id
+                          .replace(/^broker-name-/, '')
+                          .replace(/-/g, ' ')
+                      : undefined)
+                  }
                   editable
                   onSaved={() => setTick((t) => t + 1)}
+                  topActions={
+                    <BrokerRiskAuditTimeline
+                      brokerId={broker?.id ?? selected.broker_id}
+                      brokerName={broker?.name ?? selected.broker_id}
+                      clientId={selected.client_id}
+                      profile={selected}
+                      refreshKey={tick}
+                      asButton
+                    />
+                  }
                 />
 
                 {verdict && (
@@ -628,16 +656,6 @@ export default function AdminBrokerRisk() {
                         No problem notes (routine PPW notes hidden).
                       </p>
                     )}
-
-                    <BrokerRiskAuditTimeline
-                      brokerId={selected.broker_id}
-                      brokerName={broker?.name ?? selected.broker_id}
-                      clientId={selected.client_id}
-                      profile={selected}
-                      refreshKey={tick}
-                      compact
-                      className="admin-broker-risk__audit"
-                    />
                   </div>
 
                   <div className="admin-broker-risk__col">

@@ -111,82 +111,203 @@
   min-height: 32px;
 }
 
-.broker-internal-notes-banner {
+/* Compact broker note bar (admin) — Add note → composer */
+.broker-note-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.broker-note-bar__top {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  margin: 8px 0 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid #fbbf24;
-  background: #fffbeb;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.broker-note-bar__empty {
+  margin: 0;
+  font-size: 0.68rem;
+  color: #94a3b8;
+  line-height: 1.3;
+  padding-top: 2px;
+}
+
+.broker-note-bar__actions-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.broker-note-bar__add {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 0.65rem;
+  font-weight: 650;
+  color: #334155;
+  background: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  height: 24px;
+}
+
+.broker-note-bar__add:hover {
+  border-color: #1684fe;
+  color: #1684fe;
+}
+
+.broker-note-bar__line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.7rem;
+  line-height: 1.3;
+  color: #475569;
+  white-space: pre-wrap;
+  max-height: 2.6em;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+}
+
+.broker-note-bar__line strong {
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.broker-note-bar__line--internal {
   color: #92400e;
 }
 
-.broker-internal-notes-banner__icon {
-  width: 16px;
-  height: 16px;
+.broker-note-bar__line--carrier {
+  color: #1d4ed8;
+}
+
+.broker-note-bar__icon {
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
   margin-top: 1px;
+}
+
+.broker-note-bar__line--internal .broker-note-bar__icon {
   color: #d97706;
 }
 
-.broker-internal-notes-banner__label {
-  margin: 0 0 2px;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+.broker-note-bar__line--carrier .broker-note-bar__icon {
+  color: #2563eb;
 }
 
-.broker-internal-notes-banner__text {
-  margin: 0;
-  font-size: 0.8125rem;
-  line-height: 1.4;
-  white-space: pre-wrap;
-}
-
-.broker-internal-notes-banner__edit {
+.broker-note-bar__composer {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 4px;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid #e2e8f0;
 }
 
-.broker-internal-notes-banner__input {
-  width: 100%;
-  resize: vertical;
-  min-height: 52px;
-  border: 1px solid #f59e0b;
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 0.8125rem;
-  line-height: 1.35;
-  color: #78350f;
-  background: #fff;
+.broker-note-bar__composer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #92400e;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
-.broker-internal-notes-banner__input:focus {
-  outline: none;
-  border-color: #d97706;
-  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.2);
-}
-
-.broker-internal-notes-banner__save {
-  align-self: flex-start;
+.broker-note-bar__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
-  border-radius: 6px;
-  padding: 5px 10px;
+  background: transparent;
+  color: #94a3b8;
+  padding: 2px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.broker-note-bar__close:hover {
+  color: #475569;
+  background: #e2e8f0;
+}
+
+.broker-note-bar__input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 8px;
   font-size: 0.72rem;
+  line-height: 1.3;
+  color: #0f172a;
+  background: #fff;
+  height: 28px;
+}
+
+.broker-note-bar__input:focus {
+  outline: none;
+  border-color: #1684fe;
+  box-shadow: 0 0 0 2px rgba(22, 132, 254, 0.15);
+}
+
+.broker-note-bar__actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.broker-note-bar__btn {
+  border: none;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 0.65rem;
   font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.broker-note-bar__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.broker-note-bar__btn--internal {
   background: #b45309;
   color: #fff;
-  cursor: pointer;
 }
 
-.broker-internal-notes-banner__save:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.broker-note-bar__btn--carrier {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+/* Legacy class used by batch builders — map to compact bar */
+.broker-internal-notes-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #fbbf24;
+  background: #fffbeb;
+  color: #92400e;
 }
 
 /* Broker risk audit timeline (admin) */
@@ -197,6 +318,91 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.broker-risk-audit--button {
+  margin: 0;
+  padding: 0;
+  border: none;
+  position: relative;
+}
+
+.broker-risk-audit__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 0.65rem;
+  font-weight: 650;
+  color: #334155;
+  background: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  height: 24px;
+}
+
+.broker-risk-audit__toggle:hover,
+.broker-risk-audit__toggle.is-open {
+  border-color: #1684fe;
+  color: #1684fe;
+}
+
+.broker-risk-audit__count {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.58rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.broker-risk-audit__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  width: min(320px, 70vw);
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.broker-risk-audit__panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.broker-risk-audit__close {
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  padding: 2px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.broker-risk-audit__close:hover {
+  color: #475569;
+  background: #f1f5f9;
 }
 
 .broker-risk-audit__head {

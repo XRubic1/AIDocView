@@ -1,5 +1,6 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { mergeBatch, removeBatchFromStore } from '../../data/mockBatches'
+import { mergeBroker } from '../../data/mockBrokers'
 import { mergeInvoice, removeInvoiceFromStore } from '../../data/mockInvoices'
 import { mergePayment, removePaymentFromStore } from '../../data/mockPayments'
 import { refreshClientTenantCacheFromStores } from '../../data/clientDemoData'
@@ -12,11 +13,21 @@ import {
   type InvoiceRow,
   type PaymentRow,
 } from './tenantMappers'
+import {
+  brokerRowToBroker,
+  brokerRowToPublicBroker,
+  type BrokerRow,
+} from './brokerMappers'
 import { hydrateBrokerRiskFromSupabase } from './brokerRiskPersist'
 
 export const TENANT_DATA_UPDATED_EVENT = 'credyx-tenant-data-updated'
 
-export type TenantDataTable = 'batches' | 'payments' | 'invoices' | 'broker_risk_profiles'
+export type TenantDataTable =
+  | 'batches'
+  | 'payments'
+  | 'invoices'
+  | 'broker_risk_profiles'
+  | 'brokers'
 
 const POLL_INTERVAL_MS = 45_000
 
@@ -135,6 +146,22 @@ function handleInvoiceChange(
   touchClientCache(row.client_id)
 }
 
+function handleBrokerChange(
+  eventType: string,
+  row: BrokerRow | null,
+  principal: 'admin' | 'client'
+): void {
+  if (eventType === 'DELETE' || !row?.id) {
+    emitTenantDataUpdated(['brokers'])
+    return
+  }
+  // Carriers never receive internal notes over the wire.
+  const broker =
+    principal === 'client' ? brokerRowToPublicBroker(row) : brokerRowToBroker(row)
+  mergeBroker(broker)
+  emitTenantDataUpdated(['brokers'])
+}
+
 async function refreshTenantDataFromServer(scope: SyncScope): Promise<void> {
   if (!isSupabaseConfigured()) return
   const supabase = getSupabase()
@@ -143,10 +170,11 @@ async function refreshTenantDataFromServer(scope: SyncScope): Promise<void> {
   const tables: TenantDataTable[] = []
 
   if (scope.principal === 'admin') {
-    const [batchesRes, paymentsRes, invoicesRes] = await Promise.all([
+    const [batchesRes, paymentsRes, invoicesRes, brokersRes] = await Promise.all([
       supabase.from('batches').select('*').order('submitted_at', { ascending: false }),
       supabase.from('payments').select('*').order('received_date', { ascending: false }),
       supabase.from('invoices').select('*').order('created_at', { ascending: false }),
+      supabase.from('brokers').select('*').order('name', { ascending: true }),
     ])
 
     if (batchesRes.data) {
@@ -161,9 +189,13 @@ async function refreshTenantDataFromServer(scope: SyncScope): Promise<void> {
       for (const row of invoicesRes.data as InvoiceRow[]) mergeInvoice(invoiceRowToInvoice(row))
       tables.push('invoices')
     }
+    if (brokersRes.data) {
+      for (const row of brokersRes.data as BrokerRow[]) mergeBroker(brokerRowToBroker(row))
+      tables.push('brokers')
+    }
   } else if (scope.clientId) {
     const clientId = scope.clientId
-    const [batchesRes, paymentsRes, invoicesRes] = await Promise.all([
+    const [batchesRes, paymentsRes, invoicesRes, brokersRes] = await Promise.all([
       supabase
         .from('batches')
         .select('*')
@@ -179,6 +211,13 @@ async function refreshTenantDataFromServer(scope: SyncScope): Promise<void> {
         .select('*')
         .eq('client_id', clientId)
         .order('created_at', { ascending: false }),
+      // Public broker columns only (includes carrier_notes, excludes internal notes).
+      supabase
+        .from('brokers')
+        .select(
+          'id, name, contact_person, email, emails, phone, phones, fax, address, city, state, zip, mc_number, dot_number, payment_terms_days, payment_status_inquiry_days, preferred_contact, is_new, carrier_notes, created_at, updated_at'
+        )
+        .order('name', { ascending: true }),
     ])
 
     if (batchesRes.data) {
@@ -192,6 +231,12 @@ async function refreshTenantDataFromServer(scope: SyncScope): Promise<void> {
     if (invoicesRes.data) {
       for (const row of invoicesRes.data as InvoiceRow[]) mergeInvoice(invoiceRowToInvoice(row))
       tables.push('invoices')
+    }
+    if (brokersRes.data) {
+      for (const row of brokersRes.data as BrokerRow[]) {
+        mergeBroker(brokerRowToPublicBroker(row))
+      }
+      tables.push('brokers')
     }
     refreshClientTenantCacheFromStores(clientId)
   }
@@ -306,6 +351,17 @@ export function ensureTenantDataLiveSync(
           emitTenantDataUpdated(['broker_risk_profiles'], nextScope.clientId)
           touchClientCache(nextScope.clientId)
         })()
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'brokers' },
+      (payload) => {
+        handleBrokerChange(
+          payload.eventType,
+          payload.new as BrokerRow | null,
+          nextScope.principal
+        )
       }
     )
     .subscribe((status) => {

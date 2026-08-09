@@ -203,6 +203,26 @@ export default function BrokerDetailPanel({
           </button>
         </div>
 
+        {broker.carrier_notes ? (
+          <section className="broker-detail-panel__section">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Building2 className="w-3.5 h-3.5" style={{ color: c.info }} />
+              <h3
+                className="text-xs font-semibold uppercase tracking-wide"
+                style={{ color: c.secondary }}
+              >
+                Credyx note
+              </h3>
+            </div>
+            <p
+              className="text-sm leading-snug p-2.5 rounded-lg border"
+              style={{ borderColor: c.border, backgroundColor: c.stat.blue, color: c.primary }}
+            >
+              {broker.carrier_notes}
+            </p>
+          </section>
+        ) : null}
+
         {/* Notes first — works the same for No risk / Medium / High */}
         <section className="broker-detail-panel__section">
           <div className="flex items-center gap-1.5 mb-2">
@@ -305,7 +325,7 @@ export default function BrokerDetailPanel({
           </div>
         </section>
 
-        {(broker.carrier_notes || location || broker.dot_number) && (
+        {(location || broker.dot_number) && (
           <section className="broker-detail-panel__section">
             <div className="flex items-center gap-1.5 mb-2">
               <Building2 className="w-3.5 h-3.5" style={{ color: c.info }} />
@@ -330,14 +350,6 @@ export default function BrokerDetailPanel({
                 </div>
               ) : null}
             </dl>
-            {broker.carrier_notes ? (
-              <p
-                className="mt-2 text-sm leading-snug p-2.5 rounded-lg border"
-                style={{ borderColor: c.border, backgroundColor: c.stat.blue, color: c.primary }}
-              >
-                {broker.carrier_notes}
-              </p>
-            ) : null}
           </section>
         )}
       </div>

@@ -781,10 +781,11 @@
   white-space: nowrap;
 }
 
-/* BrokerInternalNotesBanner — keep compact in flush layout */
+/* Broker note bar — keep compact in flush layout */
+.admin-broker-risk .broker-note-bar,
 .admin-broker-risk .broker-internal-notes-banner {
   flex-shrink: 0;
-  margin-bottom: 0.45rem;
+  margin: 0 0 0.35rem;
 }
 
 @media (max-width: 1100px) {
