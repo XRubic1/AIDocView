@@ -254,6 +254,60 @@ export function markAllAdminNotificationsRead(): void {
   emitUpdated()
 }
 
+/** Mark every notification for a carrier as read. */
+export function markAdminNotificationsReadForClient(clientId: string): void {
+  const id = clientId.trim()
+  if (!id) return
+  let changed = false
+  adminNotifications = adminNotifications.map((n) => {
+    if (n.read) return n
+    const metaId = typeof n.metadata?.client_id === 'string' ? n.metadata.client_id : ''
+    if (metaId !== id) return n
+    changed = true
+    const next = { ...n, read: true }
+    void persistOrThrow('admin_notification', () => persistAdminNotification(next)).catch(console.error)
+    broadcastNotification(next)
+    return next
+  })
+  if (changed) emitUpdated()
+}
+
+async function deleteAdminNotificationRow(id: string): Promise<void> {
+  if (!isSupabaseConfigured()) return
+  const supabase = getSupabase()
+  if (!supabase) return
+  const { error } = await supabase.from('admin_notifications').delete().eq('id', id)
+  if (error) throw error
+}
+
+/** Remove a notification from the admin inbox (local + Supabase). */
+export function dismissAdminNotification(id: string): void {
+  const existing = adminNotifications.find((n) => n.id === id)
+  if (!existing) return
+  adminNotifications = adminNotifications.filter((n) => n.id !== id)
+  emitUpdated()
+  void persistOrThrow('admin_notification', () => deleteAdminNotificationRow(id)).catch(console.error)
+}
+
+/** Remove all notifications for a carrier. */
+export function dismissAdminNotificationsForClient(clientId: string): void {
+  const id = clientId.trim()
+  if (!id) return
+  const toRemove = adminNotifications.filter((n) => {
+    const metaId = typeof n.metadata?.client_id === 'string' ? n.metadata.client_id : ''
+    return metaId === id
+  })
+  if (toRemove.length === 0) return
+  const removeIds = new Set(toRemove.map((n) => n.id))
+  adminNotifications = adminNotifications.filter((n) => !removeIds.has(n.id))
+  emitUpdated()
+  toRemove.forEach((n) => {
+    void persistOrThrow('admin_notification', () => deleteAdminNotificationRow(n.id)).catch(
+      console.error
+    )
+  })
+}
+
 export interface ClientDocumentUploadNotificationInput {
   invoiceId: string
   invoiceNumber: string
@@ -499,6 +553,7 @@ export function notifyAdminClientInvoiceNote(
       client_id: input.clientId,
       client_name: input.clientName,
       author_name: input.authorName,
+      note_text: input.noteText.trim(),
     },
   })
 }

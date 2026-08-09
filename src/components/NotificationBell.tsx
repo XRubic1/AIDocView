@@ -4,14 +4,22 @@ import { Bell, X, Check, FileText, DollarSign, AlertCircle, Clock, MessageSquare
 import { Notification } from '../types/notification'
 import { formatRelativeTime } from '../utils/format'
 import { useClientTheme } from '../theme/ThemeContext'
+import { AdminNotificationCompanyList } from './admin/AdminNotificationCompanyList'
 
 interface NotificationBellProps {
   notifications: Notification[]
   onMarkAsRead: (id: string) => void
   onMarkAllAsRead: () => void
   onNotificationClick: (notification: Notification) => void
+  /** Optional footer action (admin “View all” inbox). */
+  onViewAll?: () => void
   /** `bottom-nav` opens a bottom sheet (~80vh) with blurred backdrop. */
   variant?: 'default' | 'bottom-nav'
+  /**
+   * Admin-only: when provided, groups notifications under each company
+   * with Disputes / Payments / Notes counts.
+   */
+  companies?: Array<{ id: string; name: string }>
 }
 
 export default function NotificationBell({
@@ -19,7 +27,9 @@ export default function NotificationBell({
   onMarkAsRead,
   onMarkAllAsRead,
   onNotificationClick,
+  onViewAll,
   variant = 'default',
+  companies,
 }: NotificationBellProps) {
   const t = useClientTheme()
   const [isOpen, setIsOpen] = useState(false)
@@ -28,6 +38,7 @@ export default function NotificationBell({
   const sheetRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const isBottomNav = variant === 'bottom-nav'
+  const isAdminGrouped = Boolean(companies && companies.length > 0)
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
@@ -226,7 +237,15 @@ export default function NotificationBell({
       </div>
 
       <div className={`notification-panel__list overflow-y-auto flex-1 min-h-0${isBottomNav ? ' notification-sheet__list' : ''}`}>
-        {notifications.length === 0 ? (
+        {isAdminGrouped && companies ? (
+          <AdminNotificationCompanyList
+            notifications={notifications}
+            companies={companies}
+            isBottomNav={isBottomNav}
+            onMarkAsRead={onMarkAsRead}
+            onActivate={handleNotificationActivate}
+          />
+        ) : notifications.length === 0 ? (
           <div className="p-8 text-center">
             <Bell className="w-12 h-12 mx-auto mb-4" style={{ color: t.mutedLight }} />
             <p className="text-sm" style={{ color: t.muted }}>
@@ -438,17 +457,22 @@ export default function NotificationBell({
         )}
       </div>
 
-      {notifications.length > 0 && !isBottomNav && (
+      {(notifications.length > 0 || isAdminGrouped) && !isBottomNav && (
         <div className="p-3 border-t text-center shrink-0" style={{ borderColor: t.border }}>
           <button
             type="button"
             className="text-sm font-medium transition-colors"
             style={{ color: t.primary }}
+            onClick={() => {
+              onViewAll?.()
+              closeSheet()
+            }}
           >
-            View All Notifications
+            {isAdminGrouped ? 'Open notification inbox' : 'View All Notifications'}
           </button>
         </div>
       )}
+
     </>
   )
 
@@ -550,7 +574,9 @@ export default function NotificationBell({
 
       {!isBottomNav && isOpen ? (
         <div
-          className="absolute right-0 mt-2 w-96 z-50 max-h-[600px] overflow-hidden flex flex-col border rounded-lg shadow-xl"
+          className={`absolute right-0 mt-2 z-50 max-h-[600px] overflow-hidden flex flex-col border rounded-lg shadow-xl ${
+            isAdminGrouped ? 'w-[28rem]' : 'w-96'
+          }`}
           style={{
             borderColor: t.border,
             backgroundColor: t.card,

@@ -1,9 +1,12 @@
-
+import { useMemo, useState } from 'react'
 import { Phone } from 'lucide-react'
 import DashboardPanel from '../client/dashboard/DashboardPanel'
+import ClientSortableHeader from '../client/ClientSortableHeader'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { formatCurrency } from '../../utils/format'
 import { CollectionsAlert } from '../../types/admin'
+import type { SortDir } from '../../utils/clientListPage'
+import { compareByClientName } from '../../utils/compareByClientName'
 
 interface CollectionsQueueProps {
   alerts: CollectionsAlert[]
@@ -12,6 +15,8 @@ interface CollectionsQueueProps {
   onMarkContacted?: (invoiceId: string) => void
 }
 
+type SortField = 'client_name' | 'amount' | 'days_since_expected'
+
 export function CollectionsQueue({
   alerts,
   onInvoiceClick,
@@ -19,6 +24,31 @@ export function CollectionsQueue({
   onMarkContacted,
 }: CollectionsQueueProps) {
   const c = useClientTheme()
+  const [sortField, setSortField] = useState<SortField>('days_since_expected')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
+  const onSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortField(field)
+    setSortDir(field === 'client_name' ? 'asc' : 'desc')
+  }
+
+  const sortedAlerts = useMemo(() => {
+    return [...alerts].sort((a, b) => {
+      if (sortField === 'client_name') {
+        return compareByClientName(a.client_name, b.client_name, sortDir)
+      }
+      if (sortField === 'amount') {
+        const cmp = a.amount - b.amount
+        return sortDir === 'asc' ? cmp : -cmp
+      }
+      const cmp = a.days_since_expected - b.days_since_expected
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [alerts, sortField, sortDir])
 
   const getResponseBadge = (response: string) => {
     const classMap: Record<string, string> = {
@@ -63,18 +93,40 @@ export function CollectionsQueue({
           <thead>
             <tr>
               <th>Inv#</th>
-              <th>Client</th>
+              <ClientSortableHeader
+                field="client_name"
+                label="Client"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={onSort}
+              />
               <th>Broker</th>
-              <th className="text-right">Amount</th>
+              <ClientSortableHeader
+                field="amount"
+                label="Amount"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={onSort}
+                align="right"
+                className="text-right"
+              />
               <th>Expected Date</th>
-              <th className="text-center">Days Since</th>
+              <ClientSortableHeader
+                field="days_since_expected"
+                label="Days Since"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={onSort}
+                align="center"
+                className="text-center"
+              />
               <th>Response</th>
               <th className="text-center">Contacted</th>
               <th className="text-center">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {alerts.map((alert) => (
+            {sortedAlerts.map((alert) => (
               <tr
                 key={alert.invoice_id}
                 className={onInvoiceClick ? 'cursor-pointer' : ''}
@@ -125,7 +177,7 @@ export function CollectionsQueue({
                           e.stopPropagation()
                           onMarkContacted?.(alert.invoice_id)
                         }}
-                        className="dashboard-btn-primary !h-7 !px-2 !text-xs"
+                        className="dashboard-btn-secondary !h-7 !px-2 !text-xs"
                       >
                         Mark
                       </button>

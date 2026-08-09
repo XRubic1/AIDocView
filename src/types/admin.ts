@@ -43,6 +43,7 @@ export interface PendingBatch {
 export interface CollectionsAlert {
   invoice_id: string
   inv_number: string
+  client_id: string
   client_name: string
   broker_name: string
   amount: number

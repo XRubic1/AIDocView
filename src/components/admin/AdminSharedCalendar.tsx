@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Plus, Video } from 'lucide-react'
 import type { Client } from '../../types/client'
 import type { Invoice } from '../../types/invoice'
@@ -181,6 +182,7 @@ export default function AdminSharedCalendar({
   includeChaseTasks = true,
 }: AdminSharedCalendarProps) {
   const tenantRevision = useTenantDataRevision()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const loadEvents = (): SharedCalendarEvent[] => {
     const shared = getAllSharedCalendarEvents()
@@ -194,7 +196,7 @@ export default function AdminSharedCalendar({
 
   const [events, setEvents] = useState<SharedCalendarEvent[]>(() => loadEvents())
   const [clients, setClients] = useState<Client[]>(() => getAllClients())
-  const [clientFilter, setClientFilter] = useState('')
+  const [clientFilter, setClientFilter] = useState(() => searchParams.get('client') || '')
   const [filter, setFilter] = useState<AdminCalFilter>('all')
   const [cursorMonth, setCursorMonth] = useState(() => startOfMonth(new Date()))
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()))
@@ -202,6 +204,24 @@ export default function AdminSharedCalendar({
   const [addOpen, setAddOpen] = useState(false)
   const [addClientId, setAddClientId] = useState('')
   const [invoices, setInvoices] = useState<Invoice[]>([])
+
+  useEffect(() => {
+    const fromUrl = searchParams.get('client') || ''
+    setClientFilter(fromUrl)
+  }, [searchParams])
+
+  const updateClientFilter = (nextClient: string) => {
+    setClientFilter(nextClient)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (nextClient) next.set('client', nextClient)
+        else next.delete('client')
+        return next
+      },
+      { replace: true }
+    )
+  }
 
   const refresh = () => {
     setEvents(loadEvents())
@@ -337,7 +357,7 @@ export default function AdminSharedCalendar({
             <select
               className="client-input admin-shared-cal__client-select"
               value={clientFilter}
-              onChange={(e) => setClientFilter(e.target.value)}
+              onChange={(e) => updateClientFilter(e.target.value)}
               aria-label="Filter by client"
             >
               <option value="">All clients</option>

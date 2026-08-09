@@ -2,6 +2,7 @@
  * Chase queue panel for Collections — Credyx works items by hand until AI inbox exists.
  */
 import { useMemo, useState } from 'react'
+import ClientSortableHeader from '../client/ClientSortableHeader'
 import { mockBrokers } from '../../data/mockBrokers'
 import { mockInvoices } from '../../data/mockInvoices'
 import {
@@ -15,6 +16,8 @@ import {
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useToast } from '../ui/ToastProvider'
 import { useClientTheme } from '../../theme/ThemeContext'
+import type { SortDir } from '../../utils/clientListPage'
+import { compareByClientName } from '../../utils/compareByClientName'
 
 function statusLabel(status: ChaseQueueItem['status']): string {
   switch (status) {
@@ -31,20 +34,53 @@ function statusLabel(status: ChaseQueueItem['status']): string {
   }
 }
 
+type SortField = 'client_name' | 'amount' | 'days_since_ppw'
+
 export default function CollectionsChasePanel({
   onOpenInvoice,
+  clientFilter = '',
 }: {
   onOpenInvoice?: (invoiceId: string) => void
+  /** When set, only show chase items for this client_id. */
+  clientFilter?: string
 }) {
   const c = useClientTheme()
   const { showToast } = useToast()
   const [version, setVersion] = useState(0)
   const [expectedDraft, setExpectedDraft] = useState<Record<string, string>>({})
+  const [sortField, setSortField] = useState<SortField>('days_since_ppw')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const queue = useMemo(
     () => buildCollectionsChaseQueue(mockInvoices, mockBrokers),
     [version]
   )
+
+  const onSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortField(field)
+    setSortDir(field === 'client_name' ? 'asc' : 'desc')
+  }
+
+  const visibleQueue = useMemo(() => {
+    const rows = clientFilter
+      ? queue.filter((item) => item.invoice.client_id === clientFilter)
+      : queue
+    return [...rows].sort((a, b) => {
+      if (sortField === 'client_name') {
+        return compareByClientName(a.invoice.client_name, b.invoice.client_name, sortDir)
+      }
+      if (sortField === 'amount') {
+        const cmp = a.invoice.amount - b.invoice.amount
+        return sortDir === 'asc' ? cmp : -cmp
+      }
+      const cmp = a.daysSincePpw - b.daysSincePpw
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [queue, clientFilter, sortField, sortDir])
 
   const handleInquiry = async (item: ChaseQueueItem) => {
     if (!item.broker) {
@@ -107,7 +143,7 @@ export default function CollectionsChasePanel({
           collections inbox AI is live.
         </p>
       </div>
-      {queue.length === 0 ? (
+      {visibleQueue.length === 0 ? (
         <div className="p-6 text-sm text-center" style={{ color: '#819291' }}>
           No invoices due for payment-status chase right now.
         </div>
@@ -117,9 +153,32 @@ export default function CollectionsChasePanel({
             <thead>
               <tr className="border-b" style={{ borderColor: '#819291' }}>
                 <th className="text-left py-2 px-3">Invoice</th>
+                <ClientSortableHeader
+                  field="client_name"
+                  label="Client"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  className="text-left py-2 px-3"
+                />
                 <th className="text-left py-2 px-3">Broker</th>
-                <th className="text-right py-2 px-3">Amount</th>
-                <th className="text-left py-2 px-3">Days since PPW</th>
+                <ClientSortableHeader
+                  field="amount"
+                  label="Amount"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  align="right"
+                  className="text-right py-2 px-3"
+                />
+                <ClientSortableHeader
+                  field="days_since_ppw"
+                  label="Days since PPW"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  className="text-left py-2 px-3"
+                />
                 <th className="text-left py-2 px-3">Status</th>
                 <th className="text-left py-2 px-3">Contact</th>
                 <th className="text-left py-2 px-3">Set expected</th>
@@ -127,7 +186,7 @@ export default function CollectionsChasePanel({
               </tr>
             </thead>
             <tbody>
-              {queue.map((item) => (
+              {visibleQueue.map((item) => (
                 <tr key={item.invoice.id} className="border-b" style={{ borderColor: '#e5e7eb' }}>
                   <td className="py-2 px-3 font-medium" style={{ color: c.primary }}>
                     <button
@@ -140,6 +199,9 @@ export default function CollectionsChasePanel({
                     <div className="text-xs" style={{ color: c.secondary }}>
                       PPW {formatDate(item.ppwSentAt)}
                     </div>
+                  </td>
+                  <td className="py-2 px-3" style={{ color: c.secondary }}>
+                    {item.invoice.client_name}
                   </td>
                   <td className="py-2 px-3" style={{ color: c.secondary }}>
                     {item.broker?.name ?? item.invoice.broker_name}

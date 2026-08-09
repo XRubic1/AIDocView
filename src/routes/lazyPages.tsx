@@ -32,6 +32,8 @@ export const ClientTutorials = lazy(() => import('../pages/ClientTutorials'))
 // ——— Admin portal ———
 export const AdminDashboard = lazy(() => import('../pages/AdminDashboard'))
 export const AdminWaitlist = lazy(() => import('../pages/AdminWaitlist'))
+export const AdminNotifications = lazy(() => import('../pages/AdminNotifications'))
+export const AdminWorkQueue = lazy(() => import('../pages/AdminWorkQueue'))
 export const Batches = lazy(() => import('../pages/Batches'))
 export const CreateBatch = lazy(() => import('../pages/CreateBatch'))
 export const AgingAR = lazy(() => import('../pages/AgingAR'))

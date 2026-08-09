@@ -16,6 +16,8 @@ import {
   CalendarDays,
   MessageCircle,
   Megaphone,
+  Bell,
+  Briefcase,
   type LucideIcon,
 } from 'lucide-react'
 import { getInitials, getClientUserDisplayName } from './clientNav'
@@ -47,6 +49,8 @@ export const adminNavSections: AdminNavSection[] = [
       { label: 'Collections', path: '/collections', icon: Phone },
       { label: 'Calendar', path: '/admin/calendar', icon: CalendarDays },
       { label: 'Assistant', path: '/admin/assistant', icon: MessageCircle },
+      { label: 'Work Queue', path: '/admin/work-queue', icon: Briefcase },
+      { label: 'Notifications', path: '/admin/notifications', icon: Bell },
       { label: 'Docs', path: '/docs', icon: BookOpen },
     ],
   },

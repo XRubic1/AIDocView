@@ -45,6 +45,8 @@ const ROLE_PATH_PREFIXES: Record<AdminStaffRole, string[]> = {
     '/collections',
     '/admin/calendar',
     '/admin/assistant',
+    '/admin/work-queue',
+    '/admin/notifications',
     '/docs',
     '/force-close',
     '/accounting',
@@ -63,6 +65,8 @@ const ROLE_PATH_PREFIXES: Record<AdminStaffRole, string[]> = {
     '/collections',
     '/admin/calendar',
     '/admin/assistant',
+    '/admin/work-queue',
+    '/admin/notifications',
     '/docs',
     '/force-close',
     '/Audit',
@@ -75,6 +79,8 @@ const ROLE_PATH_PREFIXES: Record<AdminStaffRole, string[]> = {
     '/billing',
     '/admin/calendar',
     '/admin/assistant',
+    '/admin/work-queue',
+    '/admin/notifications',
   ],
   payment_posting: [
     '/admin/dashboard',
@@ -82,6 +88,8 @@ const ROLE_PATH_PREFIXES: Record<AdminStaffRole, string[]> = {
     '/invoices',
     '/invoice-search',
     '/batches',
+    '/admin/work-queue',
+    '/admin/notifications',
   ],
 }
 

@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import AdminLayout from '../components/AdminLayout'
 import { mockBrokers } from '../data/mockBrokers'
 import { mockInvoices } from '../data/mockInvoices'
@@ -9,16 +10,58 @@ import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
 import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
 import CollectionsChasePanel from '../components/collections/CollectionsChasePanel'
+import { getAllClients } from '../services/clientRegistry'
 
 export default function Collections() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null)
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+  const [clientFilter, setClientFilter] = useState(() => searchParams.get('client') || '')
+
+  const clients = useMemo(
+    () =>
+      getAllClients()
+        .map((client) => ({ id: client.id, name: client.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    []
+  )
+
+  useEffect(() => {
+    setClientFilter(searchParams.get('client') || '')
+  }, [searchParams])
+
+  // Deep-link ?invoice= opens that invoice under its broker
+  useEffect(() => {
+    const invoiceParam = searchParams.get('invoice')
+    if (!invoiceParam) return
+    const inv = mockInvoices.find((i) => i.id === invoiceParam || i.invoice_number === invoiceParam)
+    if (!inv) return
+    const broker = mockBrokers.find((b) => b.id === inv.broker_id)
+    if (broker) setSelectedBroker(broker)
+    setSelectedInvoice(inv)
+  }, [searchParams])
+
+  const updateClientFilter = (nextClient: string) => {
+    setClientFilter(nextClient)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (nextClient) next.set('client', nextClient)
+        else next.delete('client')
+        return next
+      },
+      { replace: true }
+    )
+  }
 
   // Get brokers with invoice counts
   const brokersWithCounts = useMemo(() => {
     // Get all invoices (excluding hold and pending)
     const allInvoices = mockInvoices.filter(
-      (inv) => inv.status !== 'hold' && inv.status !== 'pending'
+      (inv) =>
+        inv.status !== 'hold' &&
+        inv.status !== 'pending' &&
+        (!clientFilter || inv.client_id === clientFilter)
     )
     
     // Group invoices by broker
@@ -55,28 +98,48 @@ export default function Collections() {
         openInvoices,
       }
     })
-  }, [])
+  }, [clientFilter])
 
   // Get invoices for selected broker
   const brokerInvoices = useMemo(() => {
     if (!selectedBroker) return []
     return mockInvoices.filter(
-      (inv) => inv.broker_id === selectedBroker.id &&
-               inv.status !== 'hold' && 
-               inv.status !== 'pending'
+      (inv) =>
+        inv.broker_id === selectedBroker.id &&
+        inv.status !== 'hold' &&
+        inv.status !== 'pending' &&
+        (!clientFilter || inv.client_id === clientFilter)
     )
-  }, [selectedBroker])
+  }, [selectedBroker, clientFilter])
 
   return (
     <AdminLayout userName="Admin User" userRole="Administrator">
       <div className="max-w-[1400px] mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>Collections</h1>
-          <p style={{ color: '#819291' }}>Manage broker invoices and collections</p>
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>Collections</h1>
+            <p style={{ color: '#819291' }}>Manage broker invoices and collections</p>
+          </div>
+          {!selectedBroker ? (
+            <select
+              value={clientFilter}
+              onChange={(e) => updateClientFilter(e.target.value)}
+              className="client-input min-w-[200px]"
+              aria-label="Filter by client"
+            >
+              <option value="">All clients</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
 
         {!selectedBroker && (
           <CollectionsChasePanel
+            clientFilter={clientFilter}
             onOpenInvoice={(invoiceId) => {
               const inv = mockInvoices.find((i) => i.id === invoiceId)
               if (inv) {

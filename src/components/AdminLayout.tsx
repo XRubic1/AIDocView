@@ -16,6 +16,7 @@ import {
   markAllAdminNotificationsRead,
   subscribeAdminNotifications,
 } from '../services/adminNotificationService'
+import { getAllClients } from '../services/clientRegistry'
 import { getAllBatches } from '../data/mockBatches'
 import { getInitials, getAdminUserDisplayName } from '../config/adminNav'
 import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
@@ -113,6 +114,14 @@ export default function AdminLayout({
 
   const pendingPaymentCount = useMemo(() => listPendingPayments().length, [tenantRevision])
   const pendingWriteOffCount = useMemo(() => listPendingWriteOffs().length, [tenantRevision])
+
+  const notificationCompanies = useMemo(
+    () =>
+      getAllClients()
+        .map((c) => ({ id: c.id, name: c.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [tenantRevision]
+  )
 
   const badges: Record<string, number> = {
     pendingBatches: pendingBatchCount,
@@ -429,11 +438,13 @@ export default function AdminLayout({
             </div>
             <NotificationBell
               notifications={notifications}
+              companies={notificationCompanies}
               onMarkAsRead={markAdminNotificationRead}
               onMarkAllAsRead={markAllAdminNotificationsRead}
               onNotificationClick={(notification) => {
                 if (notification.link) navigate(notification.link)
               }}
+              onViewAll={() => navigate('/admin/notifications')}
             />
           </div>
         </header>

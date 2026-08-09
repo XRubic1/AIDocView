@@ -73,6 +73,13 @@ interface MobileInvoiceOverviewProps {
   awaitingShortAmount?: number | null
   /** Carrier disputed a Credyx-posted remittance. */
   paymentDisputed?: boolean
+  /**
+   * Admin only: client-reported payment awaiting Credyx confirmation.
+   * Shows PENDING status + confirm CTA (not shown on carrier portal).
+   */
+  adminPendingPayment?: { amount: number; brokerName?: string } | null
+  /** Admin: open confirm-pending-payment flow. */
+  onConfirmAdminPendingPayment?: () => void
 }
 
 /** Icon for a mobile insight row. */
@@ -192,7 +199,13 @@ export default function MobileInvoiceOverview({
   overageAmount = null,
   awaitingShortAmount = null,
   paymentDisputed = false,
+  adminPendingPayment = null,
+  onConfirmAdminPendingPayment,
 }: MobileInvoiceOverviewProps) {
+  const hasAdminPending = Boolean(
+    adminPendingPayment && adminPendingPayment.amount > AMOUNT_EPSILON
+  )
+
   const pendingPosted =
     hasAwaitingReceipt &&
     awaitingReceiptAmount != null &&
@@ -241,7 +254,9 @@ export default function MobileInvoiceOverview({
     isShortPaid,
     paymentDisputed: hasPaymentDispute,
   })
-  const statusLabel = hasPaymentDispute
+  const statusLabel = hasAdminPending
+    ? 'PENDING'
+    : hasPaymentDispute
     ? getInvoiceLifecycleStatusLabel(invoice).toUpperCase()
     : pendingPosted
     ? invoiceListPriorityStatusLabel({
@@ -260,7 +275,9 @@ export default function MobileInvoiceOverview({
         })
   const amount = getMobileInvoiceHeroAmount(invoice)
   const visibleDueDate = getClientVisibleDueDate(invoice)
-  const statusKey = hasPaymentDispute
+  const statusKey = hasAdminPending
+    ? 'pending-payment'
+    : hasPaymentDispute
     ? 'disputed'
     : pendingPosted
     ? 'confirm-payment'
@@ -328,6 +345,10 @@ export default function MobileInvoiceOverview({
       onConfirmPayment()
       return
     }
+    if (insight.action === 'confirm_payment' && onConfirmAdminPendingPayment) {
+      onConfirmAdminPendingPayment()
+      return
+    }
     if (insight.action === 'activity') {
       onOpenActivity()
       return
@@ -352,6 +373,48 @@ export default function MobileInvoiceOverview({
       }`}
       aria-label="Invoice notifications"
     >
+      {hasAdminPending && adminPendingPayment ? (
+        <li>
+          <button
+            type="button"
+            className={`mobile-invoice-overview__insight is-alert${
+              onConfirmAdminPendingPayment ? ' is-interactive' : ''
+            }`}
+            onClick={() => onConfirmAdminPendingPayment?.()}
+            disabled={!onConfirmAdminPendingPayment}
+            aria-label={`Pending payment ${formatCurrency(adminPendingPayment.amount)}. Confirm payment.`}
+          >
+            <span className="mobile-invoice-overview__insight-icon is-alert" aria-hidden>
+              <DollarSign size={18} strokeWidth={2} />
+            </span>
+            <span className="mobile-invoice-overview__insight-copy">
+              <span className="mobile-invoice-overview__insight-title">Pending payment</span>
+              <span className="mobile-invoice-overview__insight-sub is-alert">
+                Carrier reported {formatCurrency(adminPendingPayment.amount)}
+                {adminPendingPayment.brokerName
+                  ? ` · ${adminPendingPayment.brokerName}`
+                  : ''}
+                {' — confirm to apply'}
+              </span>
+            </span>
+            {onConfirmAdminPendingPayment ? (
+              <span className="mobile-invoice-overview__insight-badge" aria-hidden>
+                Confirm
+              </span>
+            ) : (
+              <span className="mobile-invoice-overview__insight-spacer" aria-hidden />
+            )}
+            {onConfirmAdminPendingPayment ? (
+              <ChevronRight
+                className="mobile-invoice-overview__insight-chevron"
+                size={16}
+                strokeWidth={2}
+                aria-hidden
+              />
+            ) : null}
+          </button>
+        </li>
+      ) : null}
       {uploadConfirmation ? (
         <li>
           <div

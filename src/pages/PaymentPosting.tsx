@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   Search,
   Plus,
@@ -67,6 +67,9 @@ import {
 import InvoiceBalanceSummary from '../components/client/InvoiceBalanceSummary'
 import Spinner from '../components/ui/Spinner'
 import EmptyState from '../components/ui/EmptyState'
+import ClientSortableHeader from '../components/client/ClientSortableHeader'
+import { compareByClientName } from '../utils/compareByClientName'
+import type { SortDir } from '../utils/clientListPage'
 
 type Tab =
   | 'pending'
@@ -284,12 +287,16 @@ export default function PaymentPosting() {
   const { resolved } = useAuth()
   const { capabilities: adminCapabilities } = useAdminCapabilities()
   const adminName = getAdminUserDisplayName(resolved.user?.email ?? null)
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [tab, setTab] = useState<Tab>('pending')
   const [refreshKey, setRefreshKey] = useState(0)
   const tenantRevision = useTenantDataRevision()
   const dataRevision = refreshKey + tenantRevision
   const bump = () => setRefreshKey((k) => k + 1)
+  const [clientFilter, setClientFilter] = useState(() => searchParams.get('client') || '')
+  const [clientSortDir, setClientSortDir] = useState<SortDir>('asc')
+  const [clientSortActive, setClientSortActive] = useState(false)
 
   const pending = useMemo(() => listPendingPayments(), [dataRevision])
   const awaitingReceipt = useMemo(() => listAwaitingReceiptPayments(), [dataRevision])
@@ -301,6 +308,91 @@ export default function PaymentPosting() {
     [dataRevision]
   )
   const allInvoices = useMemo(() => [...mockInvoices], [dataRevision])
+  const clients = useMemo(
+    () =>
+      getAllClients()
+        .map((client) => ({ id: client.id, name: client.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [dataRevision]
+  )
+
+  useEffect(() => {
+    setClientFilter(searchParams.get('client') || '')
+  }, [searchParams])
+
+  const paymentClientId = useCallback((payment: Payment) => {
+    return getInvoiceById(payment.invoice_id)?.client_id ?? ''
+  }, [])
+
+  const paymentClientName = useCallback((payment: Payment) => {
+    return getInvoiceById(payment.invoice_id)?.client_name ?? ''
+  }, [])
+
+  const matchesClient = useCallback(
+    (clientId: string | undefined) => !clientFilter || clientId === clientFilter,
+    [clientFilter]
+  )
+
+  const sortPaymentsByClient = useCallback(
+    (rows: Payment[]) => {
+      if (!clientSortActive) return rows
+      return [...rows].sort((a, b) =>
+        compareByClientName(paymentClientName(a), paymentClientName(b), clientSortDir)
+      )
+    },
+    [clientSortActive, clientSortDir, paymentClientName]
+  )
+
+  const filteredPending = useMemo(
+    () =>
+      sortPaymentsByClient(
+        pending.filter((p) => matchesClient(paymentClientId(p)))
+      ),
+    [pending, matchesClient, paymentClientId, sortPaymentsByClient]
+  )
+  const filteredAwaiting = useMemo(
+    () =>
+      sortPaymentsByClient(
+        awaitingReceipt.filter((p) => matchesClient(paymentClientId(p)))
+      ),
+    [awaitingReceipt, matchesClient, paymentClientId, sortPaymentsByClient]
+  )
+  const filteredDisputes = useMemo(
+    () =>
+      sortPaymentsByClient(
+        receiptDisputes.filter((p) => matchesClient(paymentClientId(p)))
+      ),
+    [receiptDisputes, matchesClient, paymentClientId, sortPaymentsByClient]
+  )
+  const filteredWriteOffs = useMemo(() => {
+    const rows = writeOffs.filter((inv) => matchesClient(inv.client_id))
+    if (!clientSortActive) return rows
+    return [...rows].sort((a, b) =>
+      compareByClientName(a.client_name, b.client_name, clientSortDir)
+    )
+  }, [writeOffs, matchesClient, clientSortActive, clientSortDir])
+
+  const updateClientFilter = (nextClient: string) => {
+    setClientFilter(nextClient)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (nextClient) next.set('client', nextClient)
+        else next.delete('client')
+        return next
+      },
+      { replace: true }
+    )
+  }
+
+  const onClientSort = () => {
+    if (!clientSortActive) {
+      setClientSortActive(true)
+      setClientSortDir('asc')
+      return
+    }
+    setClientSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+  }
 
   // Pending payment modals
   const [confirmTarget, setConfirmTarget] = useState<Payment | null>(null)
@@ -544,24 +636,57 @@ export default function PaymentPosting() {
     }
   }
 
+  const filteredConfirmed = useMemo(() => {
+    const rows = confirmed.filter((p) => matchesClient(paymentClientId(p)))
+    if (!clientSortActive) return rows
+    return [...rows].sort((a, b) =>
+      compareByClientName(paymentClientName(a), paymentClientName(b), clientSortDir)
+    )
+  }, [confirmed, matchesClient, paymentClientId, paymentClientName, clientSortActive, clientSortDir])
+
   const tabItems: { id: Tab; label: string; count?: number }[] = [
-    { id: 'pending', label: 'Pending payments', count: pending.length },
-    { id: 'awaiting', label: 'Awaiting confirmation', count: awaitingReceipt.length },
-    { id: 'receipt_disputes', label: 'Receipt disputes', count: receiptDisputes.length },
-    { id: 'writeoffs', label: 'Write-offs', count: writeOffs.length },
+    { id: 'pending', label: 'Pending payments', count: filteredPending.length },
+    { id: 'awaiting', label: 'Awaiting confirmation', count: filteredAwaiting.length },
+    { id: 'receipt_disputes', label: 'Receipt disputes', count: filteredDisputes.length },
+    { id: 'writeoffs', label: 'Write-offs', count: filteredWriteOffs.length },
     { id: 'recalc', label: 'Recalc', count: arRecalcIssues.length },
     { id: 'corrections', label: 'Corrections' },
     { id: 'post', label: 'Post payment' },
     { id: 'post_short', label: 'Post short payment' },
   ]
 
+  const clientHeader = (
+    <ClientSortableHeader
+      field="client_name"
+      label="Client"
+      sortField={clientSortActive ? 'client_name' : ('' as 'client_name')}
+      sortDir={clientSortDir}
+      onSort={() => onClientSort()}
+    />
+  )
+
   return (
     <AdminLayout flushMain>
       <div className="admin-payment-posting-page overflow-hidden flex flex-col min-h-0 h-full">
         <div
-          className="client-page-tabs-bar shrink-0 px-4 py-2 border-b"
+          className="client-page-tabs-bar shrink-0 px-4 py-2 border-b space-y-2"
           style={{ borderColor: c.border, backgroundColor: c.card }}
         >
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={clientFilter}
+              onChange={(e) => updateClientFilter(e.target.value)}
+              className="client-input min-w-[180px] text-sm"
+              aria-label="Filter by client"
+            >
+              <option value="">All clients</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="page-tabs flex flex-wrap gap-1">
             {tabItems.map((t) => (
               <button
@@ -584,7 +709,7 @@ export default function PaymentPosting() {
                 <thead>
                   <tr>
                     <th>Invoice</th>
-                    <th>Client</th>
+                    {clientHeader}
                     <th>Broker</th>
                     <th className="text-right">Amount</th>
                     <th>Method</th>
@@ -594,14 +719,14 @@ export default function PaymentPosting() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pending.length === 0 ? (
+                  {filteredPending.length === 0 ? (
                     <tr>
                       <td colSpan={8}>
                         <EmptyState title="No pending payments" hint="Client-reported payments appear here for review." />
                       </td>
                     </tr>
                   ) : (
-                    pending.map((p) => {
+                    filteredPending.map((p) => {
                       const preview = getPendingVariancePreview(p)
                       const invoice = preview?.invoice
                       return (
@@ -683,7 +808,7 @@ export default function PaymentPosting() {
                 <thead>
                   <tr>
                     <th>Invoice</th>
-                    <th>Client</th>
+                    {clientHeader}
                     <th>Broker</th>
                     <th className="text-right">Amount</th>
                     <th>Method</th>
@@ -693,7 +818,7 @@ export default function PaymentPosting() {
                   </tr>
                 </thead>
                 <tbody>
-                  {awaitingReceipt.length === 0 ? (
+                  {filteredAwaiting.length === 0 ? (
                     <tr>
                       <td colSpan={8}>
                         <EmptyState
@@ -703,7 +828,7 @@ export default function PaymentPosting() {
                       </td>
                     </tr>
                   ) : (
-                    awaitingReceipt.map((p) => {
+                    filteredAwaiting.map((p) => {
                       const inv = getInvoiceById(p.invoice_id)
                       const daysLeft = getReceiptConfirmationDaysLeft(p)
                       return (
@@ -756,7 +881,7 @@ export default function PaymentPosting() {
                 <thead>
                   <tr>
                     <th>Invoice</th>
-                    <th>Client</th>
+                    {clientHeader}
                     <th className="text-right">Amount</th>
                     <th>Reason</th>
                     <th>Disputed</th>
@@ -764,7 +889,7 @@ export default function PaymentPosting() {
                   </tr>
                 </thead>
                 <tbody>
-                  {receiptDisputes.length === 0 ? (
+                  {filteredDisputes.length === 0 ? (
                     <tr>
                       <td colSpan={6}>
                         <EmptyState
@@ -774,7 +899,7 @@ export default function PaymentPosting() {
                       </td>
                     </tr>
                   ) : (
-                    receiptDisputes.map((p) => {
+                    filteredDisputes.map((p) => {
                       const inv = getInvoiceById(p.invoice_id)
                       return (
                         <tr key={p.id}>
@@ -816,7 +941,7 @@ export default function PaymentPosting() {
                 <thead>
                   <tr>
                     <th>Invoice</th>
-                    <th>Client</th>
+                    {clientHeader}
                     <th>Broker</th>
                     <th className="text-right">Invoice $</th>
                     <th className="text-right">Received</th>
@@ -827,14 +952,14 @@ export default function PaymentPosting() {
                   </tr>
                 </thead>
                 <tbody>
-                  {writeOffs.length === 0 ? (
+                  {filteredWriteOffs.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="text-center py-10" style={{ color: c.mutedLight }}>
                         No pending write-offs
                       </td>
                     </tr>
                   ) : (
-                    writeOffs.map((inv) => {
+                    filteredWriteOffs.map((inv) => {
                       const requestedAt = inv.write_off_request?.requested_at
                       const ageDays = requestedAt
                         ? Math.max(
@@ -917,7 +1042,7 @@ export default function PaymentPosting() {
                 <thead>
                   <tr>
                     <th>Invoice</th>
-                    <th>Client</th>
+                    {clientHeader}
                     <th className="text-right">Amount</th>
                     <th>Method</th>
                     <th>Received</th>
@@ -925,14 +1050,14 @@ export default function PaymentPosting() {
                   </tr>
                 </thead>
                 <tbody>
-                  {confirmed.length === 0 ? (
+                  {filteredConfirmed.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="text-center py-10" style={{ color: c.mutedLight }}>
                         No confirmed payments to correct
                       </td>
                     </tr>
                   ) : (
-                    confirmed.map((p) => {
+                    filteredConfirmed.map((p) => {
                       const inv = getInvoiceById(p.invoice_id)
                       return (
                         <tr key={p.id}>

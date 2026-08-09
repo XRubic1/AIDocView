@@ -10,6 +10,7 @@ import {
   subscribeAdminNotifications,
 } from '../../services/adminNotificationService'
 import { syncAdminNotificationsForOpenReceiptDisputes } from '../../services/paymentReceiptConfirmationService'
+import { getAllClients } from '../../services/clientRegistry'
 import { Notification } from '../../types/notification'
 import CredyxWordmark from '../CredyxWordmark'
 import { signOutAdmin } from '../../services/adminAuthService'
@@ -97,6 +98,9 @@ export function Header({ userName, userRole = 'Admin' }: HeaderProps) {
           <div className="flex items-center space-x-4">
             <NotificationBell
               notifications={notifications}
+              companies={getAllClients()
+                .map((c) => ({ id: c.id, name: c.name }))
+                .sort((a, b) => a.name.localeCompare(b.name))}
               onMarkAsRead={markAdminNotificationRead}
               onMarkAllAsRead={markAllAdminNotificationsRead}
               onNotificationClick={(notification) => {

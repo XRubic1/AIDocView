@@ -58,6 +58,7 @@ import {
   type SortDir,
 } from '../utils/clientListPage'
 import { openAdminInvoiceWorkspace } from '../utils/openAdminInvoiceWorkspace'
+import { getAllClients } from '../services/clientRegistry'
 
 type SortField =
   | 'invoice_number'
@@ -133,6 +134,7 @@ export default function AdminInvoices() {
   const dataRevision = refreshKey + tenantRevision
 
   const [searchTerm, setSearchTerm] = useState('')
+  const [clientFilter, setClientFilter] = useState(() => searchParams.get('client') || '')
   const [statusFilter, setStatusFilter] = useState<AdminInvoiceStatusFilter>(() => {
     const raw = searchParams.get('status')
     if (raw && STATUS_FILTERS.includes(raw as AdminInvoiceStatusFilter)) {
@@ -153,6 +155,13 @@ export default function AdminInvoices() {
   const invoices = useMemo(() => [...mockInvoices], [dataRevision])
   const payments = useMemo(() => [...mockPayments], [dataRevision])
   const enriched = useMemo(() => enrichAdminInvoices(invoices), [invoices])
+  const clients = useMemo(
+    () =>
+      getAllClients()
+        .map((client) => ({ id: client.id, name: client.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [dataRevision]
+  )
 
   const queueIndex = useMemo(
     () =>
@@ -168,6 +177,7 @@ export default function AdminInvoices() {
   const filtered = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
     return enriched.filter((invoice) => {
+      if (clientFilter && invoice.client_id !== clientFilter) return false
       const flags = queueIndex.byInvoiceId.get(invoice.id)
       if (!matchesAdminInvoiceStatusFilter(invoice, statusFilter, flags)) return false
       if (!q) return true
@@ -179,7 +189,7 @@ export default function AdminInvoices() {
         (invoice.batch_number ?? '').toLowerCase().includes(q)
       )
     })
-  }, [enriched, searchTerm, statusFilter, queueIndex])
+  }, [enriched, searchTerm, statusFilter, queueIndex, clientFilter])
 
   const sorted = useMemo(() => {
     const rows = [...filtered]
@@ -190,7 +200,7 @@ export default function AdminInvoices() {
           cmp = a.invoice_number.localeCompare(b.invoice_number, undefined, { numeric: true })
           break
         case 'client_name':
-          cmp = a.client_name.localeCompare(b.client_name)
+          cmp = a.client_name.localeCompare(b.client_name, undefined, { sensitivity: 'base' })
           break
         case 'broker_name':
           cmp = a.broker_name.localeCompare(b.broker_name)
@@ -220,7 +230,7 @@ export default function AdminInvoices() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, statusFilter, pageSize])
+  }, [searchTerm, statusFilter, clientFilter, pageSize])
 
   const selectedInvoice = useMemo(() => {
     if (!selectedInvoiceId) return null
@@ -251,12 +261,14 @@ export default function AdminInvoices() {
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
-  // Deep-link ?invoice= / ?status=
+  // Deep-link ?invoice= / ?status= / ?client=
   useEffect(() => {
     const status = searchParams.get('status')
     if (status && STATUS_FILTERS.includes(status as AdminInvoiceStatusFilter)) {
       setStatusFilter(status as AdminInvoiceStatusFilter)
     }
+    const client = searchParams.get('client') || ''
+    setClientFilter(client)
     const invoiceParam = searchParams.get('invoice') || searchParams.get('highlight_invoice')
     if (!invoiceParam || openedDeepLinkRef.current === invoiceParam) return
     const hit =
@@ -269,6 +281,19 @@ export default function AdminInvoices() {
     const index = sorted.findIndex((inv) => inv.id === hit.id)
     if (index >= 0) setCurrentPage(Math.floor(index / pageSize) + 1)
   }, [searchParams, enriched, sorted, pageSize])
+
+  const updateClientFilter = (nextClient: string) => {
+    setClientFilter(nextClient)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (nextClient) next.set('client', nextClient)
+        else next.delete('client')
+        return next
+      },
+      { replace: true }
+    )
+  }
 
   const onSort = (field: SortField) => {
     if (sortField === field) {
@@ -602,6 +627,20 @@ export default function AdminInvoices() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <Filter className="w-3.5 h-3.5" style={{ color: c.secondary }} />
+            <select
+              value={clientFilter}
+              onChange={(e) => updateClientFilter(e.target.value)}
+              className="client-input w-full md:w-auto min-w-[160px]"
+              style={inputStyle}
+              aria-label="Filter by client"
+            >
+              <option value="">All clients</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as AdminInvoiceStatusFilter)}

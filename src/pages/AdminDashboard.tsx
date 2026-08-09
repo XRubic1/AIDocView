@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AdminLayout from '../components/AdminLayout'
 import { SummaryCards } from '../components/admin/SummaryCards'
 import { CollectionsQueue } from '../components/admin/CollectionsQueue'
+import { ClientWorkQueuePanel } from '../components/admin/ClientWorkQueuePanel'
 import { QuickActions } from '../components/admin/QuickActions'
 import { ARTrendChart } from '../components/admin/charts/ARTrendChart'
 import { AgingDistributionChart } from '../components/admin/charts/AgingDistributionChart'
@@ -17,16 +18,40 @@ import { PendingBatch, CollectionsAlert, AgingAR } from '../types/admin'
 import { formatCurrency } from '../utils/format'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
-import { getClientById } from '../services/clientRegistry'
+import { getAllClients, getClientById } from '../services/clientRegistry'
+import { buildClientWorkSummaries } from '../utils/clientWorkQueue'
+import { useClientTheme } from '../theme/ThemeContext'
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
+  const c = useClientTheme()
   const tenantRevision = useTenantDataRevision()
   const { capabilities } = useAdminCapabilities()
-  
+  const [widgetClientFilter, setWidgetClientFilter] = useState('')
+
   // Get all real data (re-read when realtime updates land)
   const allBatches = useMemo(() => getAllBatches(), [tenantRevision])
   const allInvoices = useMemo(() => [...mockInvoices], [tenantRevision])
+  const clients = useMemo(
+    () =>
+      getAllClients()
+        .map((client) => ({ id: client.id, name: client.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [tenantRevision]
+  )
+  const workSummaries = useMemo(
+    () =>
+      buildClientWorkSummaries({
+        invoices: allInvoices,
+        batches: allBatches.filter(
+          (batch): batch is PendingBatch =>
+            batch.status === 'ready_to_post' ||
+            batch.status === 'verification' ||
+            batch.status === 'approval'
+        ),
+      }),
+    [allInvoices, allBatches]
+  )
   
   // Calculate pending batches from real data
   const pendingBatches = useMemo(() => {
@@ -69,6 +94,7 @@ export default function AdminDashboard() {
       .map(inv => ({
           invoice_id: inv.id,
           inv_number: inv.invoice_number,
+          client_id: inv.client_id,
           client_name: inv.client_name,
           broker_name: inv.broker_name,
           amount: inv.amount,
@@ -202,6 +228,7 @@ export default function AdminDashboard() {
       relatedId?: string
       relatedType?: 'batch' | 'invoice'
       timestamp?: string
+      clientId?: string
     }> = []
     
     // Stale batches (in same stage >48 hours)
@@ -220,6 +247,7 @@ export default function AdminDashboard() {
           relatedId: batch.id,
           relatedType: 'batch',
           timestamp: batch.submitted_at,
+          clientId: batch.client_id,
         })
       }
     })
@@ -240,13 +268,14 @@ export default function AdminDashboard() {
           relatedId: inv.id,
           relatedType: 'invoice',
           timestamp: inv.created_at,
+          clientId: inv.client_id,
         })
       })
     
     return alerts.sort((a, b) => {
       const severityOrder = { high: 0, medium: 1, low: 2 }
       return severityOrder[a.severity] - severityOrder[b.severity]
-    }).slice(0, 10)
+    })
   }, [allBatches, allInvoices])
 
   // Calculate Batch Pipeline
@@ -287,10 +316,11 @@ export default function AdminDashboard() {
       description: string
       priority: 'high' | 'medium' | 'low'
       relatedId?: string
+      clientId?: string
     }> = []
     
     // Batches to review (oldest first)
-    pendingBatches.slice(0, 5).forEach(batch => {
+    pendingBatches.forEach(batch => {
       const hoursSinceSubmitted = (new Date().getTime() - new Date(batch.submitted_at).getTime()) / (1000 * 60 * 60)
       actions.push({
         id: `batch-${batch.id}`,
@@ -299,6 +329,7 @@ export default function AdminDashboard() {
         description: `${batch.client_name} - ${batch.total_invoices} invoices`,
         priority: hoursSinceSubmitted > 24 ? 'high' : 'medium',
         relatedId: batch.id,
+        clientId: batch.client_id,
       })
     })
     
@@ -308,7 +339,6 @@ export default function AdminDashboard() {
         const daysSinceExpected = inv.days_since_expected || 0
         return daysSinceExpected >= 15 && !inv.broker_contacted && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off'
       })
-      .slice(0, 5)
       .forEach(inv => {
         actions.push({
           id: `call-${inv.id}`,
@@ -317,14 +347,29 @@ export default function AdminDashboard() {
           description: `${inv.broker_name} - ${inv.days_since_expected} days overdue`,
           priority: (inv.days_since_expected || 0) > 30 ? 'high' : 'medium',
           relatedId: inv.id,
+          clientId: inv.client_id,
         })
       })
     
     return actions.sort((a, b) => {
       const priorityOrder = { high: 0, medium: 1, low: 2 }
       return priorityOrder[a.priority] - priorityOrder[b.priority]
-    }).slice(0, 8)
+    })
   }, [pendingBatches, allInvoices])
+
+  const filteredCriticalAlerts = useMemo(() => {
+    const rows = widgetClientFilter
+      ? criticalAlerts.filter((alert) => alert.clientId === widgetClientFilter)
+      : criticalAlerts
+    return rows.slice(0, 10)
+  }, [criticalAlerts, widgetClientFilter])
+
+  const filteredTodaysActions = useMemo(() => {
+    const rows = widgetClientFilter
+      ? todaysActions.filter((action) => action.clientId === widgetClientFilter)
+      : todaysActions
+    return rows.slice(0, 8)
+  }, [todaysActions, widgetClientFilter])
 
   const handleCardClick = (cardType: string) => {
     switch (cardType) {
@@ -421,6 +466,8 @@ export default function AdminDashboard() {
             onCreateUser={() => navigate('/users?add=1')}
           />
 
+          <ClientWorkQueuePanel summaries={workSummaries} />
+
           {/* Main Content Grid - 2 Column Layout */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {/* Left Column - 2/3 width */}
@@ -449,11 +496,33 @@ export default function AdminDashboard() {
               {/* Batch Pipeline */}
               <BatchPipeline stages={batchPipeline} onStageClick={handleStageClick} />
 
+              <div
+                className="flex items-center gap-2 px-1"
+              >
+                <label className="text-xs font-medium shrink-0" style={{ color: c.secondary }}>
+                  Alerts &amp; actions
+                </label>
+                <select
+                  value={widgetClientFilter}
+                  onChange={(e) => setWidgetClientFilter(e.target.value)}
+                  className="client-input flex-1 text-xs"
+                  style={{ height: 32 }}
+                  aria-label="Filter alerts and actions by client"
+                >
+                  <option value="">All clients</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Critical Alerts */}
-              <CriticalAlerts alerts={criticalAlerts} onAlertClick={handleAlertClick} />
+              <CriticalAlerts alerts={filteredCriticalAlerts} onAlertClick={handleAlertClick} />
 
               {/* Today's Actions */}
-              <TodaysActions actions={todaysActions} onActionClick={handleActionClick} />
+              <TodaysActions actions={filteredTodaysActions} onActionClick={handleActionClick} />
             </div>
           </div>
       </div>

@@ -38,6 +38,9 @@ import {
   removeAdminInvoiceNote,
   type InvoiceStatusNoteKind,
 } from '../../services/adminInvoiceNoteActions'
+import {
+  confirmClientPayment,
+} from '../../services/clientPaymentService'
 import { getInvoiceDocuments } from '../../services/invoiceDocumentStore'
 import InvoiceDocumentUploadModal from './InvoiceDocumentUploadModal'
 import { markAssistantInvoiceDocsUploaded } from '../../utils/assistantTaskStore'
@@ -332,6 +335,12 @@ export default function InvoiceDetailPanel({
         : undefined,
     [capabilities.canConfirmPaymentReceipt, invoice.id, payments]
   )
+  /** Client-reported payment waiting for Credyx admin confirmation. */
+  const adminPendingPayment = useMemo(() => {
+    if (!isAdminPortal) return undefined
+    return invoicePayments.find((p) => p.status === 'pending')
+  }, [isAdminPortal, invoicePayments])
+  const canConfirmAdminPending = Boolean(adminPendingPayment)
   const paymentDisputed = useMemo(
     () => invoiceHasDisputedPayment(invoice.id, payments),
     [invoice.id, payments]
@@ -377,6 +386,13 @@ export default function InvoiceDetailPanel({
   const [isUploadingDocs, setIsUploadingDocs] = useState(false)
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
   const [showConfirmPaymentModal, setShowConfirmPaymentModal] = useState(false)
+  const [showAdminConfirmPendingModal, setShowAdminConfirmPendingModal] = useState(false)
+  const [adminConfirmMethod, setAdminConfirmMethod] = useState<Payment['payment_method']>('ach')
+  const [adminConfirmReference, setAdminConfirmReference] = useState('')
+  const [adminConfirmReceivedDate, setAdminConfirmReceivedDate] = useState(
+    () => new Date().toISOString().slice(0, 10)
+  )
+  const [adminConfirmBusy, setAdminConfirmBusy] = useState(false)
   const [showCloseModal, setShowCloseModal] = useState(false)
   const [showAcceptOverModal, setShowAcceptOverModal] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
@@ -918,6 +934,7 @@ export default function InvoiceDetailPanel({
     canPostPaymentAction ||
     canViewPaymentAction ||
     canConfirmPaymentAction ||
+    canConfirmAdminPending ||
     canAcceptOver ||
     canWriteOff ||
     enableClientActions ||
@@ -1468,6 +1485,29 @@ export default function InvoiceDetailPanel({
             shortPayReason={shortPayReasonText}
             overageAmount={overageInclPending}
             awaitingShortAmount={awaitingShortAmount}
+            adminPendingPayment={
+              adminPendingPayment
+                ? {
+                    amount: adminPendingPayment.amount,
+                    brokerName: adminPendingPayment.broker_name,
+                  }
+                : null
+            }
+            onConfirmAdminPendingPayment={
+              canConfirmAdminPending
+                ? () => {
+                    if (!adminPendingPayment) return
+                    setAdminConfirmMethod(adminPendingPayment.payment_method || 'ach')
+                    setAdminConfirmReference(adminPendingPayment.payment_reference ?? '')
+                    setAdminConfirmReceivedDate(
+                      adminPendingPayment.received_date ||
+                        adminPendingPayment.payment_date ||
+                        new Date().toISOString().slice(0, 10)
+                    )
+                    setShowAdminConfirmPendingModal(true)
+                  }
+                : undefined
+            }
             onOpenActivity={() => setDetailSurface('activity')}
             onConfirmPayment={
               canConfirmPaymentAction
@@ -1653,6 +1693,25 @@ export default function InvoiceDetailPanel({
           style={{ borderColor: c.border }}
         >
           <div className="flex flex-wrap gap-2 w-full">
+            {canConfirmAdminPending && adminPendingPayment && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminConfirmMethod(adminPendingPayment.payment_method || 'ach')
+                  setAdminConfirmReference(adminPendingPayment.payment_reference ?? '')
+                  setAdminConfirmReceivedDate(
+                    adminPendingPayment.received_date ||
+                      adminPendingPayment.payment_date ||
+                      new Date().toISOString().slice(0, 10)
+                  )
+                  setShowAdminConfirmPendingModal(true)
+                }}
+                className="confirm-payment-receipt-modal__confirm-btn payment-confirmation-panel__footer-confirm flex-1 min-w-0 inline-flex items-center justify-center gap-1.5"
+              >
+                <CircleCheck className="w-3 h-3 shrink-0" />
+                <span>Confirm payment</span>
+              </button>
+            )}
             {canConfirmPaymentAction && awaitingReceiptPayment && (
               <button
                 type="button"
@@ -1969,6 +2028,136 @@ export default function InvoiceDetailPanel({
             showToast('Payment confirmed. Thank you.', 'success')
           }}
         />
+      )}
+
+      {showAdminConfirmPendingModal && adminPendingPayment && (
+        <div
+          className="invoice-dispute-modal-overlay"
+          onClick={() => !adminConfirmBusy && setShowAdminConfirmPendingModal(false)}
+          role="presentation"
+        >
+          <div
+            className="invoice-dispute-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="admin-confirm-pending-title"
+          >
+            <div className="invoice-dispute-modal-header">
+              <h3
+                id="admin-confirm-pending-title"
+                className="text-base font-semibold"
+                style={{ color: c.primary }}
+              >
+                Confirm pending payment — {visibleInvoice.invoice_number}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAdminConfirmPendingModal(false)}
+                disabled={adminConfirmBusy}
+                className="p-1 rounded hover:bg-black/5"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" style={{ color: c.secondary }} />
+              </button>
+            </div>
+            <div className="invoice-dispute-modal-body space-y-3">
+              <p className="text-sm" style={{ color: c.secondary }}>
+                Carrier reported{' '}
+                <span className="font-semibold tabular-nums" style={{ color: c.primary }}>
+                  {formatCurrency(adminPendingPayment.amount)}
+                </span>
+                {adminPendingPayment.broker_name
+                  ? ` from ${adminPendingPayment.broker_name}`
+                  : ''}
+                . Confirm to apply this payment to the invoice.
+              </p>
+              <label className="block text-xs font-medium" style={{ color: c.secondary }}>
+                Method
+                <select
+                  value={adminConfirmMethod}
+                  onChange={(e) =>
+                    setAdminConfirmMethod(e.target.value as Payment['payment_method'])
+                  }
+                  className="client-input mt-1 w-full"
+                  disabled={adminConfirmBusy}
+                >
+                  <option value="ach">ACH</option>
+                  <option value="wire">Wire</option>
+                  <option value="check">Check</option>
+                  <option value="credit_card">Card</option>
+                </select>
+              </label>
+              <label className="block text-xs font-medium" style={{ color: c.secondary }}>
+                Received date
+                <input
+                  type="date"
+                  value={adminConfirmReceivedDate}
+                  onChange={(e) => setAdminConfirmReceivedDate(e.target.value)}
+                  className="client-input mt-1 w-full"
+                  disabled={adminConfirmBusy}
+                />
+              </label>
+              <label className="block text-xs font-medium" style={{ color: c.secondary }}>
+                Reference (optional)
+                <input
+                  type="text"
+                  value={adminConfirmReference}
+                  onChange={(e) => setAdminConfirmReference(e.target.value)}
+                  className="client-input mt-1 w-full"
+                  placeholder="Check # / wire ref"
+                  disabled={adminConfirmBusy}
+                />
+              </label>
+            </div>
+            <div className="invoice-dispute-modal-footer">
+              <button
+                type="button"
+                onClick={() => setShowAdminConfirmPendingModal(false)}
+                disabled={adminConfirmBusy}
+                className="dashboard-btn-secondary"
+                style={{ height: 36, fontSize: 13 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={adminConfirmBusy}
+                className="dashboard-btn-primary inline-flex items-center gap-1.5"
+                style={{ height: 36, fontSize: 13 }}
+                onClick={() => {
+                  if (!adminPendingPayment || adminConfirmBusy) return
+                  setAdminConfirmBusy(true)
+                  try {
+                    const result = confirmClientPayment(
+                      {
+                        paymentId: adminPendingPayment.id,
+                        paymentMethod: adminConfirmMethod,
+                        paymentReference: adminConfirmReference.trim() || undefined,
+                        receivedDate: adminConfirmReceivedDate,
+                      },
+                      authorName
+                    )
+                    if (result) {
+                      showToast(
+                        `Confirmed ${formatCurrency(result.payment.amount)} on ${result.invoice.invoice_number}`,
+                        'success'
+                      )
+                      setShowAdminConfirmPendingModal(false)
+                      onInvoiceUpdated?.()
+                    } else {
+                      showToast('Could not confirm payment', 'error')
+                    }
+                  } finally {
+                    setAdminConfirmBusy(false)
+                  }
+                }}
+              >
+                <CircleCheck className="w-3.5 h-3.5" />
+                {adminConfirmBusy ? 'Confirming…' : 'Confirm payment'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showUploadModal && (

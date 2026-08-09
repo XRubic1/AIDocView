@@ -13,6 +13,8 @@ import {
   Accounting,
   AdminDashboard,
   AdminWaitlist,
+  AdminNotifications,
+  AdminWorkQueue,
   AgingAR,
   AuditDashboard,
   AdminCalendar,
@@ -123,6 +125,8 @@ function App() {
               <Route element={<AdminProtectedLayout />}>
                 <Route path="/admin/dashboard" element={withRouteSuspense(AdminDashboard)} />
                 <Route path="/admin/waitlist" element={withRouteSuspense(AdminWaitlist)} />
+                <Route path="/admin/notifications" element={withRouteSuspense(AdminNotifications)} />
+                <Route path="/admin/work-queue" element={withRouteSuspense(AdminWorkQueue)} />
                 <Route path="/batches" element={withRouteSuspense(Batches)} />
                 <Route path="/batches/create" element={withRouteSuspense(CreateBatch)} />
                 <Route path="/aging-ar" element={withRouteSuspense(AgingAR)} />
