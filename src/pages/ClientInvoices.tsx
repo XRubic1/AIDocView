@@ -45,6 +45,7 @@ import { hasPpwBeenSent } from '../utils/ppwSent'
 import { compareInvoicesByListPriority } from '../utils/invoiceListPriority'
 import { getPresetRange } from '../utils/clientReports'
 import { isReceiptDisputeHold } from '../services/paymentReceiptConfirmationService'
+import { invoiceHasOpenDisputedStatus } from '../utils/clientInvoiceDisputeStatus'
 
 type InvoiceSortField =
   | 'invoice_number'
@@ -129,7 +130,7 @@ function matchesInvoiceStatusFilter(
     case 'approved':
       // Open filter = unpaid open A/R that is not short-paid (short paid has its own chip).
       if (isShortPaid && !awaitingReceipt) return false
-      // Receipt-dispute hold is still open A/R (Invoiced + Disputed).
+      // Receipt-dispute hold is still open A/R (Open Disputed).
       if (isReceiptDisputeHold(invoice)) return true
       return displayStatus === filter
     case 'paid':
@@ -1358,11 +1359,12 @@ export default function ClientInvoices() {
                                           invoice.id
                                         ),
                                       })}
-                                      {/* Invoice-level (docs) disputes — skip when payment dispute stack already shows Disputed */}
-                                      {!disputedPaymentInvoiceIds.has(invoice.id) &&
-                                        !isReceiptDisputeHold(invoice) && (
-                                          <InvoiceDisputeBadges invoice={invoice} />
-                                        )}
+                                      {/* Skip companion Disputed when primary status is already Open Disputed */}
+                                      {!invoiceHasOpenDisputedStatus(invoice, {
+                                        paymentDisputed:
+                                          disputedPaymentInvoiceIds.has(invoice.id) ||
+                                          isReceiptDisputeHold(invoice),
+                                      }) && <InvoiceDisputeBadges invoice={invoice} />}
                                     </>
                                   )}
                                   {invoice.isForceCloseEligible &&

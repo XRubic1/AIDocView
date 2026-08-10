@@ -1,7 +1,6 @@
 import { getPaymentById } from '../data/mockPayments'
 import {
   getDisputeReasonLabel,
-  getOpenDisputes,
 } from '../services/clientInvoiceActions'
 import { getPaymentReceiptDisputeLabel } from '../services/paymentReceiptConfirmationService'
 import type { AuditLog } from '../types/audit'
@@ -176,13 +175,18 @@ function buildClosedUncollectableEntries(
 
 /**
  * System-generated notes that mirror payment / dispute lifecycle events.
- * Prefer the structured payment activity entry so the timeline shows one row, not two.
+ * Prefer the structured payment / dispute activity entry so the timeline shows one row, not two.
  */
 export function isRedundantPaymentLifecycleNote(note: string, type?: InvoiceNote['type']): boolean {
   const text = note.toLowerCase()
 
-  // Typed dispute note written alongside payment.dispute on open.
-  if (type === 'dispute' && /payment receipt dispute/.test(text)) return true
+  // Typed dispute notes written alongside structured invoice.disputes / payment.dispute.
+  if (
+    type === 'dispute' &&
+    (/^dispute opened:/.test(text) || /payment receipt dispute/.test(text))
+  ) {
+    return true
+  }
 
   return (
     /payment receipt dispute resolved/.test(text) ||
@@ -520,8 +524,8 @@ export function buildClientPaymentAuditTimeline(
   // Same note entries / fallbacks as invoice details.
   getClientInvoiceNoteEntries(invoice).forEach((note) => pushInvoiceNote(entries, note))
 
-  // Open invoice disputes (Activity) — same as InvoiceDetailPanel.
-  for (const dispute of getOpenDisputes(invoice)) {
+  // Invoice disputes (Activity) — same as InvoiceDetailPanel; notes are skipped as redundant.
+  for (const dispute of invoice.disputes || []) {
     entries.push({
       id: `invoice-dispute-${dispute.id}`,
       timestamp: dispute.created_at,

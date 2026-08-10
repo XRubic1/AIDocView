@@ -7,6 +7,7 @@ import { isClientVisibleHold, clientVisibleNotesForInvoice } from './clientInvoi
 import { deriveHoldExplanation } from './assistantHoldExplanation'
 import { AMOUNT_EPSILON } from './paymentVariance'
 import { invoiceListPriorityStatusLabel } from './invoiceListPriority'
+import { getInvoiceDisputeOverviewNote } from './clientInvoiceDisputeStatus'
 
 export type InvoiceInsightTone = 'default' | 'alert' | 'success' | 'info'
 export type InvoiceInsightIcon =
@@ -61,6 +62,10 @@ export interface InvoiceMobileInsightsInput {
    * When set, confirm UI shows as Short paid with the carrier-facing note.
    */
   awaitingShortAmount?: number | null
+  /** Payment-receipt dispute description when invoice.disputes is empty. */
+  paymentDisputeDescription?: string | null
+  /** Carrier disputed a Credyx-posted remittance. */
+  paymentDisputed?: boolean
 }
 
 /** Medium date for insight subtitles (e.g. May 15, 2024). */
@@ -147,6 +152,8 @@ export function getInvoiceMobileInsights(
     shortPayReason = null,
     overageAmount = null,
     awaitingShortAmount = null,
+    paymentDisputeDescription = null,
+    paymentDisputed = false,
   } = input
 
   const insights: InvoiceMobileInsight[] = []
@@ -169,6 +176,22 @@ export function getInvoiceMobileInsights(
       : '')
   const overReason =
     overage > 0 ? 'Broker paid more than the invoice total' : ''
+
+  // Dispute note first — top of overview tab.
+  const disputeNote = getInvoiceDisputeOverviewNote(invoice, paymentDisputeDescription, {
+    paymentDisputed,
+  })
+  if (disputeNote) {
+    insights.push({
+      id: 'dispute',
+      title: disputeNote.title,
+      subtitle: disputeNote.note,
+      tone: 'alert',
+      icon: 'alert',
+      badge: openDisputes.length > 1 ? openDisputes.length : undefined,
+      action: 'activity',
+    })
+  }
 
   if (invoice.status === 'force_closed') {
     insights.push({
@@ -352,18 +375,6 @@ export function getInvoiceMobileInsights(
       tone: enriched.isOverdue ? 'alert' : 'default',
       icon: 'dollar',
       action: 'none',
-    })
-  }
-
-  if (openDisputes.length > 0) {
-    insights.push({
-      id: 'dispute',
-      title: openDisputes.length === 1 ? 'Open dispute' : `${openDisputes.length} open disputes`,
-      subtitle: openDisputes[0]?.description?.trim() || 'Under review with Credyx',
-      tone: 'alert',
-      icon: 'alert',
-      badge: openDisputes.length,
-      action: 'activity',
     })
   }
 

@@ -28,6 +28,7 @@ export type AdminNavBadgeKey =
   | 'pendingPayments'
   | 'pendingWriteOffs'
   | 'pendingBrokerRisk'
+  | 'pendingBrokerSnapshot'
 
 export interface AdminNavItem {
   label: string
@@ -57,6 +58,12 @@ export const adminNavSections: AdminNavSection[] = [
         path: '/admin/broker-risk',
         icon: ShieldAlert,
         badgeKey: 'pendingBrokerRisk',
+      },
+      {
+        label: 'Broker Snapshot',
+        path: '/admin/broker-snapshot',
+        icon: Building2,
+        badgeKey: 'pendingBrokerSnapshot',
       },
       { label: 'Calendar', path: '/admin/calendar', icon: CalendarDays },
       { label: 'Assistant', path: '/admin/assistant', icon: MessageCircle },

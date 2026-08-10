@@ -14,6 +14,10 @@ import {
 } from '../../utils/paymentVariance'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { clientVisibleNotes } from '../../utils/clientInvoiceView'
+import {
+  getOpenDisputedStatusLabel,
+  invoiceHasOpenDisputedStatus,
+} from '../../utils/clientInvoiceDisputeStatus'
 
 export const NOTE_TYPE_LABELS: Record<string, string> = {
   note: 'Note',
@@ -73,7 +77,9 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     short_paid: 'status-pill status-pill--short-paid',
     force_closed: 'status-pill status-pill--closed',
     written_off: 'status-pill status-pill--closed',
-    // Lifecycle stage labels (payment dispute stack)
+    // Open A/R with active dispute — never "Invoiced"
+    open_disputed: 'status-pill status-pill--overdue',
+    // Lifecycle stage labels (paid/closed payment-dispute stack only)
     verified: 'status-pill status-pill--pending',
     invoiced: 'status-pill status-pill--open',
   }
@@ -87,8 +93,10 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     short_paid: 'Short paid',
     force_closed: 'Force closed',
     written_off: 'Written Off',
+    open_disputed: getOpenDisputedStatusLabel(),
     verified: 'Verified',
-    invoiced: 'Invoiced',
+    // Legacy key — open A/R must show Open, not Invoiced
+    invoiced: 'Open',
   }
   const base = classMap[status] || 'status-pill status-pill--pending'
   return (
@@ -98,16 +106,24 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
   )
 }
 
-/** Lifecycle stage + Disputed stack for payment receipt disputes. */
+/**
+ * Payment receipt dispute status.
+ * Open A/R → single "Open Disputed" (never Invoiced + Disputed).
+ * Paid / closed keep stage + Disputed stack.
+ */
 export function getInvoicePaymentDisputeStatusBadge(
   invoice: Invoice,
   options?: { compact?: boolean }
 ) {
+  if (invoiceHasOpenDisputedStatus(invoice, { paymentDisputed: true })) {
+    return getInvoiceStatusBadge('open_disputed', options)
+  }
+
   const stage = getInvoiceLifecycleStatusLabel(invoice)
   const stageKey = stage.toLowerCase().replace(/\s+/g, '_')
   const statusKey =
-    stageKey === 'verified' || stageKey === 'invoiced' || stageKey === 'paid'
-      ? stageKey
+    stageKey === 'paid'
+      ? 'paid'
       : stageKey === 'force_closed'
         ? 'force_closed'
         : stageKey === 'written_off'
@@ -156,7 +172,7 @@ export function getInvoiceVarianceBadge(
  * Primary + variance status for client invoice lists/detail.
  * Pass balance so Open/Paid reflects confirmed received (e.g. overpay → Paid + Overpaid).
  * Short-paid invoices show Short paid as the primary status (not Open + Short paid).
- * Payment receipt disputes show lifecycle stage (Verified / Invoiced / Paid) + Disputed.
+ * Open A/R with a dispute shows "Open Disputed" (never Invoiced).
  */
 export function getInvoiceRowStatusBadge(
   invoice: Invoice & { displayStatus?: string; isOverdue?: boolean },
@@ -176,6 +192,9 @@ export function getInvoiceRowStatusBadge(
   }
 
   if (!options?.balance) {
+    if (invoiceHasOpenDisputedStatus(invoice)) {
+      return getInvoiceStatusBadge('open_disputed', options)
+    }
     const raw = invoice.displayStatus || invoice.status
     const status =
       invoice.isOverdue && (raw === 'approved' || raw === 'pending') ? 'overdue' : raw
@@ -194,6 +213,14 @@ export function getInvoiceRowStatusBadge(
     (parts.status === 'approved' || parts.status === 'overdue' || parts.status === 'paid')
   ) {
     return getInvoiceStatusBadge('short_paid', options)
+  }
+
+  // Open A/R + invoice dispute → single Open Disputed (companion Disputed badge skipped).
+  if (
+    invoiceHasOpenDisputedStatus(invoice) &&
+    (parts.status === 'approved' || parts.status === 'overdue')
+  ) {
+    return getInvoiceStatusBadge('open_disputed', options)
   }
 
   const status =

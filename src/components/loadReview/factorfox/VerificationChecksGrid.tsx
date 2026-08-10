@@ -144,6 +144,20 @@ export default function VerificationChecksGrid({ result }: VerificationChecksGri
         'No suspected fake signatures on the bill of lading.',
     },
     {
+      label: 'Broker not shipper and receiver',
+      ok: !cross.flags.some((f) => f.field === 'bol_broker_as_shipper_and_receiver'),
+      detail:
+        cross.flags.find((f) => f.field === 'bol_broker_as_shipper_and_receiver')?.message ??
+        'Broker is not listed as both shipper and receiver on the BOL.',
+    },
+    {
+      label: 'Shipper & receiver facilities',
+      ok: !cross.flags.some((f) => f.field === 'bol_missing_shipper_receiver_facilities'),
+      detail:
+        cross.flags.find((f) => f.field === 'bol_missing_shipper_receiver_facilities')?.message ??
+        'BOL shows usable shipper and receiver facility details.',
+    },
+    {
       label: 'Multi-stop BOL coverage',
       ok: checkOk(cross.multi_stop_coverage.status),
       detail: cross.multi_stop_coverage.details,

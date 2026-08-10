@@ -21,7 +21,6 @@ import { formatCurrency } from '../../utils/format'
 import { AMOUNT_EPSILON } from '../../utils/paymentVariance'
 import {
   getInvoiceLifecycleSteps,
-  getInvoiceLifecycleStatusLabel,
   type InvoiceLifecycleStep,
 } from '../../utils/invoiceLifecycleSteps'
 import { isReceiptDisputeHold } from '../../services/paymentReceiptConfirmationService'
@@ -37,6 +36,10 @@ import {
   invoiceListPriorityStatusKey,
   invoiceListPriorityStatusLabel,
 } from '../../utils/invoiceListPriority'
+import {
+  getOpenDisputedStatusLabelUpper,
+  invoiceHasOpenDisputedStatus,
+} from '../../utils/clientInvoiceDisputeStatus'
 
 interface MobileInvoiceOverviewProps {
   invoice: Invoice
@@ -73,6 +76,8 @@ interface MobileInvoiceOverviewProps {
   awaitingShortAmount?: number | null
   /** Carrier disputed a Credyx-posted remittance. */
   paymentDisputed?: boolean
+  /** Payment-receipt dispute note for overview (when invoice.disputes is empty). */
+  paymentDisputeDescription?: string | null
   /**
    * Admin only: client-reported payment awaiting Credyx confirmation.
    * Shows PENDING status + confirm CTA (not shown on carrier portal).
@@ -199,6 +204,7 @@ export default function MobileInvoiceOverview({
   overageAmount = null,
   awaitingShortAmount = null,
   paymentDisputed = false,
+  paymentDisputeDescription = null,
   adminPendingPayment = null,
   onConfirmAdminPendingPayment,
 }: MobileInvoiceOverviewProps) {
@@ -248,6 +254,9 @@ export default function MobileInvoiceOverview({
 
   const isShortPaid = shortOpenBalance != null
   const hasPaymentDispute = paymentDisputed || isReceiptDisputeHold(invoice)
+  const showOpenDisputed = invoiceHasOpenDisputedStatus(invoice, {
+    paymentDisputed: hasPaymentDispute,
+  })
 
   const steps = getInvoiceLifecycleSteps(invoice, {
     awaitingReceipt: hasAwaitingReceipt,
@@ -256,8 +265,8 @@ export default function MobileInvoiceOverview({
   })
   const statusLabel = hasAdminPending
     ? 'PENDING'
-    : hasPaymentDispute
-    ? getInvoiceLifecycleStatusLabel(invoice).toUpperCase()
+    : showOpenDisputed
+    ? getOpenDisputedStatusLabelUpper()
     : pendingPosted
     ? invoiceListPriorityStatusLabel({
         awaitingReceipt: true,
@@ -277,7 +286,7 @@ export default function MobileInvoiceOverview({
   const visibleDueDate = getClientVisibleDueDate(invoice)
   const statusKey = hasAdminPending
     ? 'pending-payment'
-    : hasPaymentDispute
+    : showOpenDisputed
     ? 'disputed'
     : pendingPosted
     ? 'confirm-payment'
@@ -338,6 +347,8 @@ export default function MobileInvoiceOverview({
     shortPayReason,
     overageAmount,
     awaitingShortAmount,
+    paymentDisputeDescription,
+    paymentDisputed: hasPaymentDispute,
   })
 
   const handleInsight = (insight: InvoiceMobileInsight) => {
@@ -636,9 +647,6 @@ export default function MobileInvoiceOverview({
             <span className="mobile-invoice-overview__status-dot" aria-hidden />
             <span className="mobile-invoice-overview__status-text">
               {statusLabel}
-              {hasPaymentDispute ? (
-                <span className="mobile-invoice-overview__status-sub">Disputed</span>
-              ) : null}
             </span>
           </span>
         </div>

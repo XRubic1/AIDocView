@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Eye,
   CircleDot,
+  Shield,
 } from 'lucide-react'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
@@ -27,6 +28,7 @@ import {
   lookupBrokerByMc,
   normalizeMcQuery,
 } from '../utils/clientBrokers'
+import McLookupModal from '../components/client/McLookupModal'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
@@ -38,6 +40,7 @@ type BrokerSortField =
   | 'mc_number'
   | 'rating'
   | 'risk_level'
+  | 'payment_terms'
   | 'avg_days_to_pay'
   | 'open_invoices'
   | 'open_ar'
@@ -67,6 +70,8 @@ export default function ClientBrokers() {
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<BrokerSortField>('rating')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [mcLookupOpen, setMcLookupOpen] = useState(false)
+  const [mcLookupInitial, setMcLookupInitial] = useState('')
 
   /** Open Aging A/R filtered to this broker. */
   const goToAgingForBroker = useCallback(
@@ -93,7 +98,28 @@ export default function ClientBrokers() {
     return lookupBrokerByMc(clientId, searchTerm, invoices, payments)
   }, [clientId, searchTerm, mcQuery, invoices, payments, notesRefreshKey])
 
-  const mcNotFound = mcQuery.length >= 4 && !findBrokerByMc(searchTerm)
+  const catalogBroker = useMemo(() => {
+    if (!mcQuery || mcQuery.length < 4) return undefined
+    return findBrokerByMc(searchTerm)
+  }, [searchTerm, mcQuery, tenantRevision])
+
+  const mcNotFound = mcQuery.length >= 4 && !catalogBroker
+  const suggestAuthorityLookup =
+    Boolean(mcQuery) &&
+    mcQuery.replace(/\D/g, '').length >= 4 &&
+    (mcNotFound ||
+      (mcLookup != null && (mcLookup.is_new || !mcLookup.has_worked_with_client)) ||
+      (catalogBroker != null && mcLookup == null))
+
+  const openMcLookup = useCallback(
+    (prefill?: string) => {
+      const fromArg = prefill?.trim()
+      const fromSearch = mcQuery.replace(/\D/g, '').length >= 4 ? mcQuery : ''
+      setMcLookupInitial(fromArg || fromSearch)
+      setMcLookupOpen(true)
+    },
+    [mcQuery]
+  )
 
   const ratingCounts = useMemo(() => {
     const counts = { green: 0, yellow: 0, red: 0 }
@@ -135,6 +161,9 @@ export default function ClientBrokers() {
           break
         case 'avg_days_to_pay':
           cmp = (a.score?.avg_days_to_pay ?? 999) - (b.score?.avg_days_to_pay ?? 999)
+          break
+        case 'payment_terms':
+          cmp = (a.payment_terms_days ?? 9999) - (b.payment_terms_days ?? 9999)
           break
         case 'open_invoices':
           cmp = (a.score?.open_invoices ?? 0) - (b.score?.open_invoices ?? 0)
@@ -282,6 +311,14 @@ export default function ClientBrokers() {
                 style={inputCompactStyle}
               />
             </div>
+            <button
+              type="button"
+              onClick={() => openMcLookup()}
+              className="dashboard-btn-secondary text-xs py-1.5 px-3 shrink-0 inline-flex items-center justify-center gap-1.5"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              MC Lookup
+            </button>
             {ratingFilter !== 'all' && (
               <button
                 type="button"
@@ -315,6 +352,16 @@ export default function ClientBrokers() {
                 </p>
               </div>
               <BrokerPayRatingBadge rating={mcLookup.rating} />
+              {(mcLookup.is_new || !mcLookup.has_worked_with_client) && mcLookup.mc_number && (
+                <button
+                  type="button"
+                  onClick={() => openMcLookup(mcLookup.mc_number ?? undefined)}
+                  className="dashboard-btn-secondary text-xs py-1.5 px-3 shrink-0 inline-flex items-center gap-1"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  Authority
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setSelectedBrokerId(mcLookup.broker_id)}
@@ -325,18 +372,34 @@ export default function ClientBrokers() {
             </div>
           )}
 
-          {mcNotFound && (
+          {suggestAuthorityLookup && !mcLookup && (
             <div
-              className="broker-mc-lookup mt-2 p-3 rounded-lg border"
-              style={{ borderColor: c.border, backgroundColor: c.stat.amber }}
+              className="broker-mc-lookup mt-2 p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center gap-3"
+              style={{
+                borderColor: c.border,
+                backgroundColor: mcNotFound ? c.stat.amber : c.stat.blue,
+              }}
             >
-              <p className="text-sm font-medium" style={{ color: c.primary }}>
-                MC {mcQuery} not found in Credyx network
-              </p>
-              <p className="text-xs mt-1" style={{ color: c.secondary }}>
-                Verify the MC number before booking. Brokers outside the network won&apos;t show pay
-                history here.
-              </p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium" style={{ color: c.primary }}>
+                  {mcNotFound
+                    ? `MC ${mcQuery} not found in Credyx network`
+                    : `MC ${normalizeMcQuery(catalogBroker?.mc_number ?? mcQuery)} — limited Credyx history`}
+                </p>
+                <p className="text-xs mt-1" style={{ color: c.secondary }}>
+                  Open MC Lookup for full authority, fleet, and insurance details from BrokerSnapshot.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  openMcLookup(catalogBroker?.mc_number ?? mcQuery)
+                }
+                className="dashboard-btn-primary text-xs py-1.5 px-3 shrink-0 inline-flex items-center gap-1.5"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                MC Lookup
+              </button>
             </div>
           )}
         </div>
@@ -375,6 +438,15 @@ export default function ClientBrokers() {
                       sortField={sortField}
                       sortDir={sortDir}
                       onSort={handleSort}
+                    />
+                    <ClientSortableHeader
+                      field="payment_terms"
+                      label="Net"
+                      sortField={sortField}
+                      sortDir={sortDir}
+                      onSort={handleSort}
+                      className="text-right hidden sm:table-cell"
+                      align="right"
                     />
                     <ClientSortableHeader
                       field="avg_days_to_pay"
@@ -419,7 +491,7 @@ export default function ClientBrokers() {
                 <tbody>
                   {paginatedBrokers.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="text-center py-10 text-sm" style={{ color: c.secondary }}>
+                      <td colSpan={11} className="text-center py-10 text-sm" style={{ color: c.secondary }}>
                         {directory.length === 0
                           ? 'No brokers with invoices yet'
                           : 'No brokers match your search'}
@@ -458,6 +530,16 @@ export default function ClientBrokers() {
                           ) : (
                             <span style={{ color: c.mutedLight }}>—</span>
                           )}
+                        </ClientListTd>
+                        <ClientListTd
+                          variant="desktop"
+                          label="Net"
+                          className="text-right tabular-nums"
+                          style={{ color: c.secondary }}
+                        >
+                          {broker.payment_terms_days != null && broker.payment_terms_days > 0
+                            ? `Net ${broker.payment_terms_days}`
+                            : '—'}
                         </ClientListTd>
                         <ClientListTd
                           variant="desktop"
@@ -592,6 +674,12 @@ export default function ClientBrokers() {
           )}
         </div>
       </div>
+
+      <McLookupModal
+        open={mcLookupOpen}
+        initialMc={mcLookupInitial}
+        onClose={() => setMcLookupOpen(false)}
+      />
     </>
   )
 }

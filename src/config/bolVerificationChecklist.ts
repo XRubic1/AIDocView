@@ -57,6 +57,20 @@ export const BOL_AI_VISION_CHECKS: BolVerificationStep[] = [
     outcome: 'review',
   },
   {
+    id: 'ai_broker_both_ends',
+    name: 'Broker as shipper and receiver',
+    description:
+      'Flags when the rate-con broker appears as both ship-from and ship-to on the BOL (stolen-ID / fraud risk).',
+    outcome: 'review',
+  },
+  {
+    id: 'ai_missing_facilities',
+    name: 'Shipper & receiver facilities present',
+    description:
+      'Flags when the BOL lacks usable shipper and receiver facility addresses (blank, “as directed”, or name-only).',
+    outcome: 'review',
+  },
+  {
     id: 'ai_shipper_carrier_sig',
     name: 'Shipper & carrier signatures',
     description: 'Informational only by default — missing pickup/driver signatures do not fail the load.',
@@ -66,6 +80,13 @@ export const BOL_AI_VISION_CHECKS: BolVerificationStep[] = [
 
 /** Programmatic gates after the AI audit (not toggleable here). */
 export const BOL_VERDICT_GATES: BolVerificationStep[] = [
+  {
+    id: 'gate_identity_risk',
+    name: 'Stolen-ID / risky party layout',
+    description:
+      'Programmatic checks: broker as both shipper and receiver, or missing shipper+receiver facilities → WARNING → Needs review (not auto-approved).',
+    outcome: 'review',
+  },
   {
     id: 'gate_cross_error',
     name: 'Cross-validation ERROR flags',

@@ -16,6 +16,8 @@ import {
   isPositiveBolAuditSnippet,
 } from '../utils/bolAuditSanitizer'
 import { shouldRelaxCrossCheckDateSingleDelivery } from '../utils/reviewRulesEngine'
+import { isBuiltInRuleEnabled } from '../utils/reviewRulesStore'
+import { evaluateBolIdentityRiskFlags } from '../utils/bolIdentityRiskChecks'
 import { brokersFuzzyMatch } from '../utils/brokerFuzzyMatch'
 import { destinationsMatch, formatRateConStop } from '../utils/locationMatch'
 import {
@@ -310,6 +312,18 @@ export function runCrossValidation(input: CrossValidationInput): CrossValidation
           'The delivery address on the rate confirmation does not match the ship-to address on the bill of lading.',
       })
     }
+  }
+
+  // Stolen-ID / fraud paperwork: broker both ends, or no real shipper+receiver facilities.
+  if (bol) {
+    const identityRisk = evaluateBolIdentityRiskFlags({
+      brokerName: rate?.broker_name,
+      shipFrom: bol.ship_from,
+      shipTo: bol.ship_to,
+      checkBrokerBothEnds: isBuiltInRuleEnabled('bol_broker_both_ends_risk'),
+      checkMissingFacilities: isBuiltInRuleEnabled('bol_missing_facilities_risk'),
+    })
+    identityRisk.flags.forEach((flag) => flags.push(flag))
   }
 
   const hasError = flags.some((flag) => flag.level === 'ERROR')

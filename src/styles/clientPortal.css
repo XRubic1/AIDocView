@@ -17507,3 +17507,77 @@
     transition: none;
   }
 }
+
+/* MC Lookup (BrokerSnapshot) modal — compact, no-scroll result board */
+.client-portal .mc-lookup-modal {
+  max-height: min(92vh, 640px);
+}
+
+.client-portal .mc-lookup-modal__facts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  overflow: hidden;
+}
+
+.client-portal .mc-lookup-modal__facts-col {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.client-portal .mc-lookup-modal__facts-col + .mc-lookup-modal__facts-col {
+  border-top: 1px solid #e2e8f0;
+}
+
+.client-portal .mc-lookup-modal__col-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.client-portal .mc-lookup-modal__cell {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.client-portal .mc-lookup-modal__cell--span {
+  grid-template-columns: 72px 1fr;
+}
+
+.client-portal .mc-lookup-modal__label {
+  font-weight: 500;
+}
+
+.client-portal .mc-lookup-modal__value {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+@media (min-width: 768px) {
+  .client-portal .mc-lookup-modal__facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .client-portal .mc-lookup-modal__facts-col + .mc-lookup-modal__facts-col {
+    border-top: none;
+    border-left: 1px solid #e2e8f0;
+  }
+}
+
+@media (max-width: 767px) {
+  .client-portal .mc-lookup-modal__body {
+    overflow-y: auto;
+    max-height: min(70vh, 520px);
+  }
+}
+
+

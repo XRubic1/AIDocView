@@ -116,6 +116,26 @@ export const BUILT_IN_REVIEW_RULES: BuiltInReviewRuleDefinition[] = [
     defaultEnabled: true,
   },
   {
+    id: 'bol_broker_both_ends_risk',
+    name: 'Broker as shipper and receiver → review',
+    category: 'bol',
+    description:
+      'If the rate-con broker appears as both ship-from and ship-to on the BOL, flag high fraud / stolen-ID risk and force Needs review.',
+    rationale:
+      'Legitimate BOLs show real shipper and receiver facilities. Broker on both ends is a common freight-fraud pattern.',
+    defaultEnabled: true,
+  },
+  {
+    id: 'bol_missing_facilities_risk',
+    name: 'Missing shipper & receiver facilities → review',
+    category: 'bol',
+    description:
+      'If the BOL has no usable shipper facility and no usable receiver facility (blank, “as directed”, or name-only), flag high fraud risk and force Needs review.',
+    rationale:
+      'Loads without real pickup and delivery facilities cannot be trusted as delivery proof.',
+    defaultEnabled: true,
+  },
+  {
     id: 'broker_fuzzy_match',
     name: 'Broker name fuzzy match',
     category: 'general',

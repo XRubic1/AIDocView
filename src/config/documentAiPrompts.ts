@@ -112,6 +112,11 @@ Rules:
 - authenticity: flag NOTED if signature looks traced, stamped, or digitally overlaid.
 - delivery_exceptions: NOTED for damage/shortage/protest notes; else NONE.
 - reference_numbers: all visible load/BOL/PO numbers.
+- ship_from / ship_to: copy the full shipper and consignee facility lines (company + address). Do not leave blank if printed on the form.
+- STOLEN-ID / FRAUD RISK (always check):
+  1) If the rate-con broker name appears as BOTH shipper/ship-from AND receiver/consignee/ship-to, add a WARNING flag (field hint: broker_as_shipper_and_receiver) — very high risk.
+  2) If there is no usable shipper facility AND no usable receiver facility (blank, "as directed", name-only with no address/warehouse/DC), add a WARNING flag (field hint: missing_shipper_receiver_facilities) — very high risk.
+  3) Broker on only one end, or one missing facility, still note as WARNING for human review.
 
 JSON only:
 {"bol_audit":{"destination_match":"PASS","destination_notes":"","legibility":"PASS","legibility_notes":"","page_count":"PASS","page_count_notes":"","signatures":{"carrier":"PRESENT","shipper":"PRESENT","receiver":"PRESENT","receiver_date":"PRESENT","receiver_authenticity":"NONE","shipper_authenticity":"NONE","carrier_authenticity":"NONE","rule_applied":null,"receiver_localization":{"page":1,"x":0.62,"y":0.81,"w":0.18,"h":0.04,"description":"ink signature in consignee box","mark_kind":"ink_signature"},"shipper_localization":null,"carrier_localization":null},"ship_from":"","ship_to":"","load_number":"","reference_numbers":[],"delivery_exceptions":{"damages":"NONE","shortage":"NONE","protest":"NONE","notes":""},"overall":"APPROVED","flags":[]}}`
@@ -154,6 +159,7 @@ MATCHING RULES:
 - AMOUNT: invoice vs rate con within $0.01 unless overage explained
 - CARRIER: do not flag on first mismatch — check shipper/consignee/DBA roles; WARNING if unresolved
 - MULTI-STOP: each rate con destination needs BOL coverage
+- FRAUD / STOLEN-ID: WARNING if broker appears as both ship_from and ship_to on BOL; WARNING if BOL lacks usable shipper AND receiver facilities
 
 Return JSON only:
 {

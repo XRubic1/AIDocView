@@ -22,6 +22,7 @@ import {
 } from './invoiceDetailShared'
 import { invoiceHasDisputedPayment } from '../../utils/paymentStatus'
 import { isReceiptDisputeHold } from '../../services/paymentReceiptConfirmationService'
+import { invoiceHasOpenDisputedStatus } from '../../utils/clientInvoiceDisputeStatus'
 
 export {
   NOTE_TYPE_LABELS,
@@ -239,7 +240,9 @@ export default function InvoiceDetailWorkspace({
                             balance,
                             paymentDisputed,
                           })}
-                          {!paymentDisputed && <InvoiceDisputeBadges invoice={invoice} />}
+                          {!invoiceHasOpenDisputedStatus(invoice, { paymentDisputed }) && (
+                            <InvoiceDisputeBadges invoice={invoice} />
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-2 text-xs">

@@ -21,7 +21,7 @@ function statusPill(invoice: Invoice): { label: string; tone: string } {
 
   // Payment receipt disputes must not look like paperwork holds.
   if (isReceiptDisputeHold(invoice)) {
-    return { label: 'Disputed', tone: 'danger' }
+    return { label: 'Open Disputed', tone: 'danger' }
   }
   if (invoice.status === 'hold') return { label: 'Held', tone: 'warn' }
   if (isOverdue) return { label: 'Overdue', tone: 'danger' }

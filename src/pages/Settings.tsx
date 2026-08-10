@@ -11,7 +11,14 @@ import {
   Check,
   Lock,
 } from 'lucide-react'
-import { saveArPolicy, loadArPolicy, applyArPolicy } from '../services/platformSettingsService'
+import {
+  saveArPolicy,
+  loadArPolicy,
+  applyArPolicy,
+  loadBrokerSnapshotTtl,
+  saveBrokerSnapshotTtl,
+  DEFAULT_BROKER_SNAPSHOT_TTL,
+} from '../services/platformSettingsService'
 import { useToast } from '../components/ui/ToastProvider'
 import Spinner from '../components/ui/Spinner'
 import EmailTemplatesPanel from '../components/admin/EmailTemplatesPanel'
@@ -221,6 +228,11 @@ export default function Settings() {
     backupFrequency: 'daily',
   })
 
+  const [brokerSnapshotTtl, setBrokerSnapshotTtl] = useState({
+    cacheTtlDays: String(DEFAULT_BROKER_SNAPSHOT_TTL.cacheTtlDays),
+    insuranceWatchTtlDays: String(DEFAULT_BROKER_SNAPSHOT_TTL.insuranceWatchTtlDays),
+  })
+
   useEffect(() => {
     void loadArPolicy().then((policy) => {
       setInvoiceSettings((prev) => ({
@@ -235,6 +247,12 @@ export default function Settings() {
         },
       }))
       applyArPolicy(policy)
+    })
+    void loadBrokerSnapshotTtl().then((ttl) => {
+      setBrokerSnapshotTtl({
+        cacheTtlDays: String(ttl.cacheTtlDays),
+        insuranceWatchTtlDays: String(ttl.insuranceWatchTtlDays),
+      })
     })
   }, [])
 
@@ -266,6 +284,18 @@ export default function Settings() {
             Number(invoiceSettings.agingBuckets.bucket4) || 60,
             Number(invoiceSettings.agingBuckets.bucket5) || 90,
           ] as typeof import('../utils/invoiceAging').AR_POLICY.agingBuckets,
+        })
+      }
+      if (activeTab === 'system') {
+        const savedTtl = await saveBrokerSnapshotTtl({
+          cacheTtlDays: Number(brokerSnapshotTtl.cacheTtlDays) || DEFAULT_BROKER_SNAPSHOT_TTL.cacheTtlDays,
+          insuranceWatchTtlDays:
+            Number(brokerSnapshotTtl.insuranceWatchTtlDays) ||
+            DEFAULT_BROKER_SNAPSHOT_TTL.insuranceWatchTtlDays,
+        })
+        setBrokerSnapshotTtl({
+          cacheTtlDays: String(savedTtl.cacheTtlDays),
+          insuranceWatchTtlDays: String(savedTtl.insuranceWatchTtlDays),
         })
       }
       setSaved(true)
@@ -672,6 +702,52 @@ export default function Settings() {
                     checked={systemSettings.autoBackup}
                     onChange={(v) => setSystemSettings((p) => ({ ...p, autoBackup: v }))}
                   />
+                </div>
+
+                <p className="client-label mt-5 mb-1" style={{ color: c.secondary }}>
+                  Broker Snapshot (MC Lookup cache)
+                </p>
+                <p className="text-xs mb-3" style={{ color: c.mutedLight }}>
+                  Shared cache so many carriers looking up the same MC do not each burn a Snapshot API
+                  call. After the window expires, the next lookup refreshes Snapshot and queues Credyx
+                  field changes.
+                </p>
+                <div className="client-settings-grid client-settings-grid--preferences">
+                  <SettingsField
+                    label="Normal cache TTL (days)"
+                    hint="Default refresh window when insurance looks fine (1–365)."
+                  >
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={brokerSnapshotTtl.cacheTtlDays}
+                      onChange={(e) =>
+                        setBrokerSnapshotTtl((p) => ({ ...p, cacheTtlDays: e.target.value }))
+                      }
+                      className="client-input w-full"
+                      style={inputStyle}
+                    />
+                  </SettingsField>
+                  <SettingsField
+                    label="Insurance-watch TTL (days)"
+                    hint="Shorter window when insurance is missing, cancelled, or weak."
+                  >
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={brokerSnapshotTtl.insuranceWatchTtlDays}
+                      onChange={(e) =>
+                        setBrokerSnapshotTtl((p) => ({
+                          ...p,
+                          insuranceWatchTtlDays: e.target.value,
+                        }))
+                      }
+                      className="client-input w-full"
+                      style={inputStyle}
+                    />
+                  </SettingsField>
                 </div>
               </SettingsTabPanel>
             )}

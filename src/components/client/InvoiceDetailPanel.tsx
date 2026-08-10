@@ -26,7 +26,6 @@ import {
   postClientPaymentAndRequestWriteOff,
   closeClientInvoiceAsUncollectable,
   uploadClientInvoiceDocuments,
-  getOpenDisputes,
   getDisputeReasonLabel,
   DISPUTE_REASON_OPTIONS,
   type ClientMarkPaidOptions,
@@ -345,6 +344,10 @@ export default function InvoiceDetailPanel({
     () => invoiceHasDisputedPayment(invoice.id, payments),
     [invoice.id, payments]
   )
+  const paymentDisputeDescription = useMemo(() => {
+    const disputed = invoicePayments.find((p) => p.status === 'disputed')
+    return disputed?.dispute?.description?.trim() || null
+  }, [invoicePayments])
   const floatPayment = useMemo(() => {
     const candidates = invoicePayments.filter(
       (p) => p.status === 'awaiting_receipt' || p.status === 'confirmed' || p.status === 'pending'
@@ -358,7 +361,6 @@ export default function InvoiceDetailPanel({
   const noteEntries = getInvoiceNoteEntries(visibleInvoice, {
     includeInternal: isAdminPortal,
   })
-  const openDisputes = getOpenDisputes(visibleInvoice)
 
   const [newNote, setNewNote] = useState('')
   const [noteVisibility, setNoteVisibility] = useState<'client' | 'internal'>('client')
@@ -531,7 +533,8 @@ export default function InvoiceDetailPanel({
 
   const activityEntries = useMemo((): TimelineEntry[] => {
     const entries: TimelineEntry[] = []
-    for (const dispute of openDisputes) {
+    // Structured disputes only — skip matching "Dispute opened:" notes below.
+    for (const dispute of visibleInvoice.disputes || []) {
       entries.push({
         id: `dispute-${dispute.id}`,
         title: getDisputeReasonLabel(dispute.reason),
@@ -548,7 +551,7 @@ export default function InvoiceDetailPanel({
     for (const entry of noteEntries) {
       const typeKey = entry.type || 'note'
       if (typeKey === 'note' || typeKey === 'client_note') continue
-      // Payment receipt disputes are shown once under Payments via payment.dispute.
+      // Payment / invoice dispute lifecycle notes are shown once via structured rows.
       if (isRedundantPaymentLifecycleNote(entry.note, entry.type)) continue
       const source = noteSource(typeKey)
       entries.push({
@@ -567,7 +570,7 @@ export default function InvoiceDetailPanel({
     return entries.sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     )
-  }, [openDisputes, noteEntries, isAdminPortal])
+  }, [visibleInvoice.disputes, noteEntries, isAdminPortal])
 
   /** Payment lifecycle + payment-related free-text notes. */
   const paymentTimelineEntries = useMemo((): TimelineEntry[] => {
@@ -1478,6 +1481,7 @@ export default function InvoiceDetailPanel({
             hasAwaitingReceipt={Boolean(awaitingReceiptPayment)}
             awaitingReceiptAmount={awaitingReceiptPayment?.amount ?? null}
             paymentDisputed={paymentDisputed}
+            paymentDisputeDescription={paymentDisputeDescription}
             activityCount={allTimelineEntries.length}
             documentCount={documentCount}
             uploadConfirmation={uploadSuccess}

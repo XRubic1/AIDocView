@@ -31,7 +31,8 @@ export interface InvoiceLifecycleOptions {
 }
 
 /**
- * Lifecycle stage label for list/detail status (Verified / Invoiced / Paid).
+ * Lifecycle stage label for stepper / paid-dispute stacks (Verified / Invoiced / Paid).
+ * Open A/R client status must use Open / Open Disputed — never this as list status.
  * Receipt-dispute holds are treated as open A/R past verification, not Verified-on-hold.
  */
 export function getInvoiceLifecycleStatusLabel(invoice: Invoice): string {
@@ -94,7 +95,7 @@ export function getInvoiceLifecycleSteps(
     },
   ]
 
-  // Payment disputed (not confirmed): stay on Invoiced — list shows stage + Disputed.
+  // Payment disputed (not confirmed): stay on Invoiced step — list/detail show Open Disputed.
   // Paid invoices with a disputed short correction keep the Paid complete path.
   if (paymentDisputed && !isClosed && !awaitingReceipt && !isPaid) {
     return [

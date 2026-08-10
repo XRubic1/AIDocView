@@ -9,7 +9,10 @@ import {
   invoiceListPriorityStatusKey,
   invoiceListPriorityStatusLabel,
 } from '../../utils/invoiceListPriority'
-import { getInvoiceLifecycleStatusLabel } from '../../utils/invoiceLifecycleSteps'
+import {
+  getOpenDisputedStatusLabelUpper,
+  invoiceHasOpenDisputedStatus,
+} from '../../utils/clientInvoiceDisputeStatus'
 import { getClientVisibleDueDate } from '../../utils/ppwSent'
 
 interface MobileInvoiceListCardProps {
@@ -35,7 +38,7 @@ interface MobileInvoiceListCardProps {
 /**
  * Spacious mobile invoice row — easy to scan, not cramped.
  * Status: Confirm (blue) → Short paid (red) → Open (gray) → On hold (amber) → Overdue (red).
- * Payment disputes show lifecycle stage + DISPUTED underneath (not On hold).
+ * Open A/R disputes show "OPEN DISPUTED" (never Invoiced).
  */
 export default function MobileInvoiceListCard({
   invoice,
@@ -58,10 +61,11 @@ export default function MobileInvoiceListCard({
     displayStatus: invoice.displayStatus,
     isOverdue: invoice.isOverdue,
   }
-  const statusLabel = paymentDisputed
-    ? getInvoiceLifecycleStatusLabel(invoice).toUpperCase()
+  const showOpenDisputed = invoiceHasOpenDisputedStatus(invoice, { paymentDisputed })
+  const statusLabel = showOpenDisputed
+    ? getOpenDisputedStatusLabelUpper()
     : invoiceListPriorityStatusLabel(priorityInput)
-  const statusKey = paymentDisputed
+  const statusKey = showOpenDisputed
     ? 'disputed'
     : invoiceListPriorityStatusKey(priorityInput)
   // Short paid: show remaining open balance, not the full invoice face amount.
@@ -99,9 +103,6 @@ export default function MobileInvoiceListCard({
           className={`mobile-invoice-list-card__status mobile-invoice-list-card__status--${statusKey}`}
         >
           {statusLabel}
-          {paymentDisputed ? (
-            <span className="mobile-invoice-list-card__status-sub">DISPUTED</span>
-          ) : null}
         </span>
       </div>
 
