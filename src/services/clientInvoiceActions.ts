@@ -254,7 +254,7 @@ export function closeClientInvoiceAsUncollectable(
   const notesHistory = [...(invoice.notes_history || []), confirmNote, writeOffNote]
 
   const updated = updateInvoice(invoiceId, {
-    status: 'write_off_pending',
+    status: 'written_off',
     paid_amount: received,
     notes_history: notesHistory,
     write_off_request: {
@@ -263,7 +263,11 @@ export function closeClientInvoiceAsUncollectable(
       client_note: options.note.trim(),
       received_amount: received,
       shortfall,
+      resolved_at: now,
+      resolved_by: authorName,
+      resolution: 'approved',
     },
+    days_since_expected: 0,
     updated_at: now,
   })
 
@@ -280,12 +284,12 @@ export function closeClientInvoiceAsUncollectable(
       'invoice',
       updated.id,
       updated.invoice_number,
-      `${authorName} requested write-off on ${updated.invoice_number} (${formatCurrency(shortfall)} balance)`,
+      `${authorName} wrote off ${formatCurrency(shortfall)} on ${updated.invoice_number}`,
       'client-portal',
       authorName,
       'Client',
       undefined,
-      { close_type: 'write_off_requested', received, shortfall }
+      { close_type: 'written_off', received, shortfall }
     )
   }
 

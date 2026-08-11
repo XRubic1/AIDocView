@@ -14,12 +14,16 @@ import { formatRelativeTime } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
 import {
   ADMIN_NOTIFICATION_CATEGORY_LABELS,
+  ADMIN_NOTIFICATION_CATEGORY_ORDER,
   categorizeAdminNotification,
+  filterNotificationsByCategory,
   getNotificationNoteText,
   groupAdminNotificationsByCompany,
+  pickDefaultAdminNotificationCategory,
   type AdminNotificationCategory,
   type AdminNotificationCompanyGroup,
 } from '../../utils/adminNotificationGroups'
+import { AdminNotificationSectionIcon } from './AdminNotificationSectionIcon'
 
 type Props = {
   notifications: Notification[]
@@ -28,14 +32,6 @@ type Props = {
   onActivate: (notification: Notification) => void
   isBottomNav?: boolean
 }
-
-const CATEGORY_ORDER: AdminNotificationCategory[] = [
-  'disputes',
-  'payments',
-  'notes',
-  'docs',
-  'other',
-]
 
 /**
  * Admin notification list grouped under each company with scannable counts.
@@ -53,6 +49,9 @@ export function AdminNotificationCompanyList({
     [notifications, companies]
   )
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [expandedSectionByCompany, setExpandedSectionByCompany] = useState<
+    Record<string, AdminNotificationCategory | null>
+  >({})
 
   // Keep a sensible expanded company as notifications load/update
   useEffect(() => {
@@ -63,6 +62,23 @@ export function AdminNotificationCompanyList({
     setExpandedId((prev) => {
       if (prev && groups.some((g) => g.companyId === prev)) return prev
       return groups.find((g) => g.unread > 0)?.companyId ?? groups[0].companyId
+    })
+  }, [groups])
+
+  useEffect(() => {
+    setExpandedSectionByCompany((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const group of groups) {
+        const current = next[group.companyId]
+        const stillValid =
+          current &&
+          group.notifications.some((n) => categorizeAdminNotification(n) === current)
+        if (stillValid) continue
+        next[group.companyId] = pickDefaultAdminNotificationCategory(group.notifications)
+        changed = true
+      }
+      return changed ? next : prev
     })
   }, [groups])
 
@@ -86,10 +102,18 @@ export function AdminNotificationCompanyList({
             key={group.companyId}
             group={group}
             expanded={expanded}
+            expandedSection={expandedSectionByCompany[group.companyId] ?? null}
             isBottomNav={isBottomNav}
             onToggle={() =>
               setExpandedId((prev) => (prev === group.companyId ? null : group.companyId))
             }
+            onSelectSection={(category) => {
+              setExpandedId(group.companyId)
+              setExpandedSectionByCompany((prev) => ({
+                ...prev,
+                [group.companyId]: prev[group.companyId] === category ? null : category,
+              }))
+            }}
             onMarkAsRead={onMarkAsRead}
             onActivate={onActivate}
           />
@@ -102,20 +126,24 @@ export function AdminNotificationCompanyList({
 function CompanyGroup({
   group,
   expanded,
+  expandedSection,
   isBottomNav,
   onToggle,
+  onSelectSection,
   onMarkAsRead,
   onActivate,
 }: {
   group: AdminNotificationCompanyGroup
   expanded: boolean
+  expandedSection: AdminNotificationCategory | null
   isBottomNav: boolean
   onToggle: () => void
+  onSelectSection: (category: AdminNotificationCategory) => void
   onMarkAsRead: (id: string) => void
   onActivate: (notification: Notification) => void
 }) {
   const t = useClientTheme()
-  const countChips = CATEGORY_ORDER.filter((key) => group.counts[key] > 0)
+  const sections = ADMIN_NOTIFICATION_CATEGORY_ORDER.filter((key) => group.counts[key] > 0)
 
   return (
     <section
@@ -157,13 +185,16 @@ function CompanyGroup({
           />
         </span>
 
-        {countChips.length > 0 ? (
+        {sections.length > 0 ? (
           <span className="admin-notif-group__counts">
-            {countChips.map((key) => (
+            {sections.map((key) => (
               <span
                 key={key}
-                className={`admin-notif-group__chip admin-notif-group__chip--${key}`}
+                className={`admin-notif-group__chip admin-notif-group__chip--${key}${
+                  expanded && expandedSection === key ? ' is-active' : ''
+                }`}
               >
+                <AdminNotificationSectionIcon category={key} size="sm" />
                 {ADMIN_NOTIFICATION_CATEGORY_LABELS[key]} {group.counts[key]}
               </span>
             ))}
@@ -173,41 +204,79 @@ function CompanyGroup({
 
       {expanded ? (
         <div className="admin-notif-group__body">
-          {group.notePreviews.length > 0 ? (
-            <div className="admin-notif-notes">
-              <p className="admin-notif-notes__label">Notes</p>
-              {group.notePreviews.map((note) => {
-                const source = group.notifications.find((n) => n.id === note.id)
-                return (
-                  <button
-                    key={note.id}
-                    type="button"
-                    className={`admin-notif-notes__card${note.unread ? ' is-unread' : ''}`}
-                    onClick={() => {
-                      if (source) onActivate(source)
-                    }}
-                  >
-                    <MessageSquare className="admin-notif-notes__icon" aria-hidden />
-                    <span className="admin-notif-notes__text">{note.text}</span>
-                    <span className="admin-notif-notes__time">
-                      {formatRelativeTime(note.timestamp)}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          ) : null}
+          <div className="admin-notif-sections">
+            {sections.map((category) => {
+              const items = filterNotificationsByCategory(group.notifications, category)
+              const unread = items.filter((n) => !n.read).length
+              const open = expandedSection === category
 
-          <div className="admin-notif-group__items">
-            {group.notifications.map((notification) => (
-              <NotificationRow
-                key={notification.id}
-                notification={notification}
-                isBottomNav={isBottomNav}
-                onMarkAsRead={onMarkAsRead}
-                onActivate={onActivate}
-              />
-            ))}
+              return (
+                <section
+                  key={category}
+                  className={`admin-notif-section${open ? ' is-open' : ''}`}
+                >
+                  <button
+                    type="button"
+                    className="admin-notif-section__header"
+                    aria-expanded={open}
+                    onClick={() => onSelectSection(category)}
+                  >
+                    <AdminNotificationSectionIcon category={category} />
+                    <span className="admin-notif-section__label">
+                      {ADMIN_NOTIFICATION_CATEGORY_LABELS[category]}
+                    </span>
+                    <span className="admin-notif-section__count">{items.length}</span>
+                    {unread > 0 ? (
+                      <span className="admin-notif-section__unread">{unread} new</span>
+                    ) : null}
+                    <ChevronDown
+                      className={`admin-notif-section__chevron${open ? ' is-open' : ''}`}
+                      aria-hidden
+                    />
+                  </button>
+
+                  {open ? (
+                    <div className="admin-notif-section__body">
+                      {category === 'notes' && group.notePreviews.length > 0 ? (
+                        <div className="admin-notif-notes">
+                          {group.notePreviews.map((note) => {
+                            const source = group.notifications.find((n) => n.id === note.id)
+                            return (
+                              <button
+                                key={note.id}
+                                type="button"
+                                className={`admin-notif-notes__card${note.unread ? ' is-unread' : ''}`}
+                                onClick={() => {
+                                  if (source) onActivate(source)
+                                }}
+                              >
+                                <MessageSquare className="admin-notif-notes__icon" aria-hidden />
+                                <span className="admin-notif-notes__text">{note.text}</span>
+                                <span className="admin-notif-notes__time">
+                                  {formatRelativeTime(note.timestamp)}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div className="admin-notif-group__items">
+                          {items.map((notification) => (
+                            <NotificationRow
+                              key={notification.id}
+                              notification={notification}
+                              isBottomNav={isBottomNav}
+                              onMarkAsRead={onMarkAsRead}
+                              onActivate={onActivate}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </section>
+              )
+            })}
           </div>
         </div>
       ) : null}
@@ -233,13 +302,13 @@ function NotificationRow({
 
   const icon =
     category === 'disputes' ? (
-      <AlertCircle className="w-4 h-4" />
+      <AlertCircle className="w-3.5 h-3.5" />
     ) : category === 'payments' ? (
-      <DollarSign className="w-4 h-4" />
+      <DollarSign className="w-3.5 h-3.5" />
     ) : category === 'notes' ? (
-      <MessageSquare className="w-4 h-4" />
+      <MessageSquare className="w-3.5 h-3.5" />
     ) : (
-      <FileText className="w-4 h-4" />
+      <FileText className="w-3.5 h-3.5" />
     )
 
   return (
@@ -273,8 +342,9 @@ function NotificationRow({
             >
               {notification.title}
             </span>
-            <span className={`admin-notif-item__tag admin-notif-item__tag--${category}`}>
-              {ADMIN_NOTIFICATION_CATEGORY_LABELS[category]}
+            <span className="admin-notif-item__meta" style={isBottomNav ? undefined : { color: t.muted }}>
+              <Clock className="w-3 h-3" aria-hidden />
+              {formatRelativeTime(notification.timestamp)}
             </span>
           </span>
           {noteText ? (
@@ -287,13 +357,6 @@ function NotificationRow({
               {notification.message}
             </span>
           )}
-          <span className="admin-notif-item__meta" style={isBottomNav ? undefined : { color: t.muted }}>
-            <Clock className="w-3 h-3" aria-hidden />
-            {formatRelativeTime(notification.timestamp)}
-            {notification.link_label ? (
-              <span className="admin-notif-item__link">{notification.link_label} →</span>
-            ) : null}
-          </span>
         </span>
       </button>
       {unread ? (

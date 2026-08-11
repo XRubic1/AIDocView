@@ -39,6 +39,7 @@ import {
   ClientTutorials,
   Clients,
   Collections,
+  CollectionsInvoicePopup,
   AdminDocs,
   CreateBatch,
   DocSortLandingPage,
@@ -148,6 +149,10 @@ function App() {
                 <Route path="/admin/calendar" element={withRouteSuspense(AdminCalendar)} />
                 <Route path="/admin/assistant" element={withRouteSuspense(AdminAssistant)} />
                 <Route path="/collections" element={withRouteSuspense(Collections)} />
+                <Route
+                  path="/collections/invoice/:invoiceId"
+                  element={withRouteSuspense(CollectionsInvoicePopup)}
+                />
                 <Route path="/docs" element={withRouteSuspense(AdminDocs)} />
                 <Route path="/force-close" element={withRouteSuspense(AdminDocs)} />
                 <Route path="/accounting" element={withRouteSuspense(Accounting)} />

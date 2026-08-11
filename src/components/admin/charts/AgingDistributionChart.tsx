@@ -13,7 +13,7 @@ export function AgingDistributionChart({ aging }: AgingDistributionChartProps) {
   const c = useClientTheme()
 
   const data = [
-    { name: '1-15 days', value: aging['1_15'], color: c.success },
+    { name: '0–15 days', value: aging['1_15'], color: c.success },
     { name: '16-30 days', value: aging['16_30'], color: c.chart.cyan },
     { name: '31-45 days', value: aging['31_45'], color: c.chart.amber },
     { name: '46-60 days', value: aging['46_60'], color: c.chart.orange },

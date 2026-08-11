@@ -1,4 +1,4 @@
-import { getPaymentById } from '../data/mockPayments'
+import { getConfirmedPaymentTotal, getPaymentById } from '../data/mockPayments'
 import {
   getDisputeReasonLabel,
 } from '../services/clientInvoiceActions'
@@ -195,7 +195,9 @@ export function isRedundantPaymentLifecycleNote(note: string, type?: InvoiceNote
     /credyx posted short payment correction/.test(text) ||
     /please confirm receipt within \d+ days/.test(text) ||
     /invoice closed pending confirmation/.test(text) ||
-    /payment of .+ posted(?:\.|$)/.test(text)
+    /payment of .+ posted(?:\.|$)/.test(text) ||
+    // Carrier post already has a Payment Posted activity row.
+    /payment confirmed by client/.test(text)
   )
 }
 
@@ -325,12 +327,28 @@ function paymentTone(status: Payment['status']): PaymentAuditTone {
   }
 }
 
-function pushPaymentActivity(entries: PaymentAuditTimelineEntry[], payment: Payment) {
+function pushPaymentActivity(
+  entries: PaymentAuditTimelineEntry[],
+  payment: Payment,
+  invoice?: Invoice,
+  options?: { attachVariance?: boolean }
+) {
   const method = METHOD_LABELS[payment.payment_method] ?? payment.payment_method
   const credyxForceConfirmed =
     payment.status === 'confirmed' && payment.client_confirmed_by === CREDYX_FORCE_CONFIRM_ACTOR
   let detail = `${formatCurrency(payment.amount)} · ${method}`
   if (payment.payment_reference) detail += ` · Ref ${payment.payment_reference}`
+  if (
+    options?.attachVariance &&
+    invoice &&
+    payment.status === 'confirmed' &&
+    payment.payment_kind !== 'short'
+  ) {
+    const totalReceived = getConfirmedPaymentTotal(invoice.id)
+    const diff = invoice.amount - totalReceived
+    if (diff > 0.01) detail += ` · short by ${formatCurrency(diff)}`
+    else if (diff < -0.01) detail += ` · over by ${formatCurrency(Math.abs(diff))}`
+  }
   const paymentMeta = payment.notes?.trim() || undefined
 
   // Show the funds post event — not current status as a fake "confirmed" history item.
@@ -541,7 +559,19 @@ export function buildClientPaymentAuditTimeline(
     })
   }
 
-  invoicePayments.forEach((payment) => pushPaymentActivity(entries, payment))
+  const latestConfirmedId = [...invoicePayments]
+    .filter((p) => p.status === 'confirmed' && p.payment_kind !== 'short')
+    .sort((a, b) => {
+      const aDate = a.received_date || a.payment_date || ''
+      const bDate = b.received_date || b.payment_date || ''
+      return bDate.localeCompare(aDate)
+    })[0]?.id
+
+  invoicePayments.forEach((payment) =>
+    pushPaymentActivity(entries, payment, invoice, {
+      attachVariance: payment.id === latestConfirmedId,
+    })
+  )
 
   const paymentIds = new Set(invoicePayments.map((p) => p.id))
   if (focusPaymentId) paymentIds.add(focusPaymentId)

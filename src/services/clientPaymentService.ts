@@ -16,7 +16,6 @@ import type { ShortPayReason } from '../types/payment'
 import type { ClientCapabilities } from '../utils/clientCapabilities'
 import { getClientCapabilities } from '../utils/clientCapabilities'
 import { getClientById } from './clientRegistry'
-import { buildPaymentConfirmationNote } from './clientInvoiceActions'
 import { logAuditEvent } from '../utils/auditLogger'
 import { isPostableForPayment, isAdminPostableForPayment } from '../utils/invoiceAging'
 import { formatCurrency } from '../utils/format'
@@ -25,10 +24,6 @@ import {
   notifyAdminPaymentReported,
   notifyAdminWriteOffRequested,
 } from './adminNotificationService'
-import {
-  hasAwaitingReceiptPayment,
-  isWriteOffStatusEligible,
-} from '../utils/shortPayments'
 import { notifyClientPaymentPosted, type ClientPaymentNotifyKind } from '../data/mockNotifications'
 import {
   buildReceiptConfirmationDeadline,
@@ -140,22 +135,23 @@ function applyPaymentToInvoice(
     invoice.status === 'written_off' || invoice.status === 'write_off_pending'
   const wasOnHold = invoice.status === 'hold'
 
-  const noteText = wasWrittenOff
-    ? `${buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)} Invoice reopened from write-off.`
-    : buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)
-
-  const paidNote: InvoiceNote = {
-    id: `note-posted-${Date.now()}`,
-    note: noteText,
-    created_by: authorName,
-    created_at: new Date().toISOString(),
-    type: 'client_note',
-  }
+  // Payment row is the timeline note — do not also append a confirmation invoice note.
+  const reopenNote: InvoiceNote | null = wasWrittenOff
+    ? {
+        id: `note-posted-${Date.now()}`,
+        note: `Invoice reopened from write-off. ${noteSuffix}`.trim(),
+        created_by: authorName,
+        created_at: new Date().toISOString(),
+        type: 'client_note',
+      }
+    : null
 
   return updateInvoice(invoice.id, {
     status: isShort ? 'approved' : 'paid',
     paid_amount: totalReceived,
-    notes_history: [...(invoice.notes_history || []), paidNote],
+    notes_history: reopenNote
+      ? [...(invoice.notes_history || []), reopenNote]
+      : invoice.notes_history,
     days_since_expected: isShort ? invoice.days_since_expected : 0,
     overpayment_accepted_at: isOver ? undefined : invoice.overpayment_accepted_at,
     write_off_request: wasWrittenOff ? undefined : invoice.write_off_request,
@@ -177,22 +173,22 @@ async function applyPaymentToInvoiceAsync(
     invoice.status === 'written_off' || invoice.status === 'write_off_pending'
   const wasOnHold = invoice.status === 'hold'
 
-  const noteText = wasWrittenOff
-    ? `${buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)} Invoice reopened from write-off.`
-    : buildPaymentConfirmationNote(invoice.amount, totalReceived, noteSuffix)
-
-  const paidNote: InvoiceNote = {
-    id: `note-posted-${Date.now()}`,
-    note: noteText,
-    created_by: authorName,
-    created_at: new Date().toISOString(),
-    type: 'client_note',
-  }
+  const reopenNote: InvoiceNote | null = wasWrittenOff
+    ? {
+        id: `note-posted-${Date.now()}`,
+        note: `Invoice reopened from write-off. ${noteSuffix}`.trim(),
+        created_by: authorName,
+        created_at: new Date().toISOString(),
+        type: 'client_note',
+      }
+    : null
 
   return updateInvoiceAsync(invoice.id, {
     status: isShort ? 'approved' : 'paid',
     paid_amount: totalReceived,
-    notes_history: [...(invoice.notes_history || []), paidNote],
+    notes_history: reopenNote
+      ? [...(invoice.notes_history || []), reopenNote]
+      : invoice.notes_history,
     days_since_expected: isShort ? invoice.days_since_expected : 0,
     overpayment_accepted_at: isOver ? undefined : invoice.overpayment_accepted_at,
     write_off_request: wasWrittenOff ? undefined : invoice.write_off_request,
@@ -201,34 +197,33 @@ async function applyPaymentToInvoiceAsync(
   })
 }
 
-/**
- * Post a broker payment against an invoice — client posts create pending payments.
- */
-export function postClientPayment(
-  input: PostClientPaymentInput,
-  authorName: string,
+/** Invoice eligible for a client-posted payment (blocks while a legacy pending row exists). */
+function getEligibleInvoiceForClientPost(
+  invoiceId: string,
   capabilities?: Pick<ClientCapabilities, 'canPostPayment'>
-): PostPaymentResult | undefined {
-  const invoice = getInvoiceById(input.invoiceId)
+): Invoice | undefined {
+  const invoice = getInvoiceById(invoiceId)
   if (!invoice || !isPostableForPayment(invoice)) return undefined
 
   const caps = getClientCapabilities(getClientById(invoice.client_id)?.service_tier)
   const canPost = capabilities?.canPostPayment ?? caps.canPostPayment
   if (!canPost) return undefined
   if (getPaymentsByInvoiceId(invoice.id).some((p) => p.status === 'pending')) return undefined
-  if (!Number.isFinite(input.amount) || input.amount <= 0) return undefined
-  if (!input.paymentDate || !input.receivedDate) return undefined
+  return invoice
+}
 
-  const pendingNote: InvoiceNote = {
-    id: `note-pending-${Date.now()}`,
-    note: `Payment of ${formatCurrency(input.amount)} posted — invoice closed pending Credyx approval.`,
-    created_by: authorName,
-    created_at: new Date().toISOString(),
-    type: 'client_note',
-    visibility: 'client',
-  }
+function isValidClientPaymentInput(input: PostClientPaymentInput): boolean {
+  return Number.isFinite(input.amount) && input.amount > 0 && !!input.paymentDate && !!input.receivedDate
+}
 
-  const payment = addPayment({
+/** Client posts apply immediately — confirmed on the account with no Credyx approval gate. */
+function buildClientPostedPaymentPayload(
+  invoice: Invoice,
+  input: PostClientPaymentInput,
+  authorName: string
+): Omit<Payment, 'id'> {
+  const now = new Date().toISOString()
+  return {
     invoice_id: invoice.id,
     invoice_number: invoice.invoice_number,
     broker_name: invoice.broker_name,
@@ -237,25 +232,41 @@ export function postClientPayment(
     received_date: input.receivedDate,
     payment_method: input.paymentMethod,
     payment_reference: input.paymentReference?.trim() || undefined,
-    status: 'pending',
+    status: 'confirmed',
     posted_source: 'client',
     posted_by: authorName,
+    confirmed_by: authorName,
+    confirmed_at: now,
     notes: input.notes?.trim() || undefined,
     batch_id: invoice.batch_id,
     batch_number: invoice.batch_number,
     load_number: invoice.load_number,
-  })
+  }
+}
 
-  const updated = updateInvoice(invoice.id, {
-    notes_history: [...(invoice.notes_history || []), pendingNote],
-    updated_at: new Date().toISOString(),
-  })
-  if (!updated) return undefined
+function clientPostNoteSuffix(input: PostClientPaymentInput): string {
+  return input.notes?.trim()
+    ? `Posted ${formatCurrency(input.amount)} via ${input.paymentMethod.toUpperCase()}. ${input.notes.trim()}`
+    : `Posted ${formatCurrency(input.amount)} via ${input.paymentMethod.toUpperCase()}`
+}
 
+function varianceFromTotals(invoiceAmount: number, totalReceived: number): PostPaymentResult['variance'] {
+  if (totalReceived < invoiceAmount - 0.01) return 'short'
+  if (totalReceived > invoiceAmount + 0.01) return 'over'
+  return 'full'
+}
+
+function logClientPaymentPosted(
+  updated: Invoice,
+  payment: Payment,
+  authorName: string,
+  variance: PostPaymentResult['variance'],
+  totalReceived: number
+): void {
   notifyAdminPaymentReported({
-    clientName: invoice.client_name,
-    invoiceNumber: invoice.invoice_number,
-    amount: input.amount,
+    clientName: updated.client_name,
+    invoiceNumber: updated.invoice_number,
+    amount: payment.amount,
   })
 
   logAuditEvent(
@@ -263,15 +274,40 @@ export function postClientPayment(
     'invoice',
     updated.id,
     updated.invoice_number,
-    `${authorName} reported ${formatCurrency(input.amount)} on ${updated.invoice_number} (pending)`,
+    `${authorName} posted ${formatCurrency(payment.amount)} on ${updated.invoice_number}`,
     'client-portal',
     authorName,
     'Client',
     undefined,
-    { payment_id: payment.id, status: 'pending' }
+    {
+      payment_id: payment.id,
+      status: 'confirmed',
+      variance,
+      total_received: totalReceived,
+    }
   )
+}
 
-  return { payment, invoice: updated, variance: 'full' }
+/**
+ * Post a broker payment against an invoice.
+ * Client posts are confirmed immediately and update paid_amount / invoice status.
+ */
+export function postClientPayment(
+  input: PostClientPaymentInput,
+  authorName: string,
+  capabilities?: Pick<ClientCapabilities, 'canPostPayment'>
+): PostPaymentResult | undefined {
+  const invoice = getEligibleInvoiceForClientPost(input.invoiceId, capabilities)
+  if (!invoice || !isValidClientPaymentInput(input)) return undefined
+
+  const payment = addPayment(buildClientPostedPaymentPayload(invoice, input, authorName))
+  const totalReceived = getConfirmedPaymentTotal(invoice.id)
+  const variance = varianceFromTotals(invoice.amount, totalReceived)
+  const updated = applyPaymentToInvoice(invoice, totalReceived, authorName, clientPostNoteSuffix(input))
+  if (!updated) return undefined
+
+  logClientPaymentPosted(updated, payment, authorName, variance, totalReceived)
+  return { payment, invoice: updated, variance }
 }
 
 /** Awaited client post — use after ad-hoc invoice create so payment persist follows invoice save. */
@@ -280,69 +316,76 @@ export async function postClientPaymentAsync(
   authorName: string,
   capabilities?: Pick<ClientCapabilities, 'canPostPayment'>
 ): Promise<PostPaymentResult | undefined> {
-  const invoice = getInvoiceById(input.invoiceId)
-  if (!invoice || !isPostableForPayment(invoice)) return undefined
+  const invoice = getEligibleInvoiceForClientPost(input.invoiceId, capabilities)
+  if (!invoice || !isValidClientPaymentInput(input)) return undefined
 
-  const caps = getClientCapabilities(getClientById(invoice.client_id)?.service_tier)
-  const canPost = capabilities?.canPostPayment ?? caps.canPostPayment
-  if (!canPost) return undefined
-  if (getPaymentsByInvoiceId(invoice.id).some((p) => p.status === 'pending')) return undefined
-  if (!Number.isFinite(input.amount) || input.amount <= 0) return undefined
-  if (!input.paymentDate || !input.receivedDate) return undefined
-
-  const pendingNote: InvoiceNote = {
-    id: `note-pending-${Date.now()}`,
-    note: `Payment of ${formatCurrency(input.amount)} posted — invoice closed pending Credyx approval.`,
-    created_by: authorName,
-    created_at: new Date().toISOString(),
-    type: 'client_note',
-    visibility: 'client',
-  }
-
-  const payment = await addPaymentAsync({
-    invoice_id: invoice.id,
-    invoice_number: invoice.invoice_number,
-    broker_name: invoice.broker_name,
-    amount: input.amount,
-    payment_date: input.paymentDate,
-    received_date: input.receivedDate,
-    payment_method: input.paymentMethod,
-    payment_reference: input.paymentReference?.trim() || undefined,
-    status: 'pending',
-    posted_source: 'client',
-    posted_by: authorName,
-    notes: input.notes?.trim() || undefined,
-    batch_id: invoice.batch_id,
-    batch_number: invoice.batch_number,
-    load_number: invoice.load_number,
-  })
-
-  const updated = await updateInvoiceAsync(invoice.id, {
-    notes_history: [...(invoice.notes_history || []), pendingNote],
-    updated_at: new Date().toISOString(),
-  })
+  const payment = await addPaymentAsync(buildClientPostedPaymentPayload(invoice, input, authorName))
+  const totalReceived = getConfirmedPaymentTotal(invoice.id)
+  const variance = varianceFromTotals(invoice.amount, totalReceived)
+  const updated = await applyPaymentToInvoiceAsync(
+    invoice,
+    totalReceived,
+    authorName,
+    clientPostNoteSuffix(input)
+  )
   if (!updated) return undefined
 
-  notifyAdminPaymentReported({
-    clientName: invoice.client_name,
-    invoiceNumber: invoice.invoice_number,
-    amount: input.amount,
+  logClientPaymentPosted(updated, payment, authorName, variance, totalReceived)
+  return { payment, invoice: updated, variance }
+}
+
+export interface PostClientShortPaymentInput extends PostClientPaymentInput {
+  parentPaymentId: string
+  shortPayReason?: ShortPayReason
+}
+
+/**
+ * Client short-payment correction against a confirmed payment (typically on a closed invoice).
+ * Reduces applied received immediately — remaining shortfall stays in open A/R unless written off.
+ */
+export function postClientShortPayment(
+  input: PostClientShortPaymentInput,
+  authorName: string,
+  capabilities?: Pick<ClientCapabilities, 'canPostPayment'>
+): PostPaymentResult | undefined {
+  const invoice = getEligibleInvoiceForClientPost(input.invoiceId, capabilities)
+  if (!invoice || !isValidClientPaymentInput(input)) return undefined
+
+  const parent = getPaymentById(input.parentPaymentId)
+  if (!parent || parent.invoice_id !== invoice.id || parent.status !== 'confirmed') {
+    return undefined
+  }
+  if (parent.parent_payment_id || parent.payment_kind === 'short') return undefined
+
+  const confirmedReceived = getConfirmedPaymentTotal(invoice.id)
+  if (input.amount > confirmedReceived + 0.01) return undefined
+
+  const shortPayReason: ShortPayReason = input.shortPayReason ?? 'wrong_amount'
+  const reasonLabel = shortPayReason === 'chargeback' ? 'Chargeback' : 'Wrong amount posted'
+  const parentRef = parent.payment_reference
+    ? ` (ref ${parent.payment_reference})`
+    : ` on ${formatDateShort(parent.received_date)}`
+  const noteSuffix = input.notes?.trim()
+    ? `Short payment — ${reasonLabel} of ${formatCurrency(input.amount)} against payment${parentRef}. ${input.notes.trim()}`
+    : `Short payment — ${reasonLabel} of ${formatCurrency(input.amount)} against payment${parentRef}`
+
+  const now = new Date().toISOString()
+  const payment = addPayment({
+    ...buildClientPostedPaymentPayload(invoice, input, authorName),
+    confirmed_at: now,
+    notes: input.notes?.trim() || undefined,
+    parent_payment_id: parent.id,
+    payment_kind: 'short',
+    short_pay_reason: shortPayReason,
   })
 
-  logAuditEvent(
-    'payment_received',
-    'invoice',
-    updated.id,
-    updated.invoice_number,
-    `${authorName} reported ${formatCurrency(input.amount)} on ${updated.invoice_number} (pending)`,
-    'client-portal',
-    authorName,
-    'Client',
-    undefined,
-    { payment_id: payment.id, status: 'pending' }
-  )
+  const totalReceived = getConfirmedPaymentTotal(invoice.id)
+  const variance = varianceFromTotals(invoice.amount, totalReceived)
+  const updated = applyPaymentToInvoice(invoice, totalReceived, authorName, noteSuffix)
+  if (!updated) return undefined
 
-  return { payment, invoice: updated, variance: 'full' }
+  logClientPaymentPosted(updated, payment, authorName, variance, totalReceived)
+  return { payment, invoice: updated, variance }
 }
 
 /** Admin posts a payment — managed clients require receipt confirmation within 30 days. */
@@ -914,7 +957,7 @@ export interface MarkClientInvoiceAsPaidOptions {
 
 /**
  * Mark invoice paid — routes through postClientPayment so every path writes
- * a Payment row and updates the invoice via applyPaymentToInvoice.
+ * a confirmed Payment row and updates the invoice via applyPaymentToInvoice.
  */
 export function markClientInvoiceAsPaid(
   invoiceId: string,
@@ -945,99 +988,55 @@ export interface PostPaymentAndWriteOffOptions extends MarkClientInvoiceAsPaidOp
 }
 
 /**
- * Post a short payment and request write-off of the remaining balance in one step.
- * Records the payment as confirmed (write-off queue is the Credyx approval gate)
- * and sets the invoice to write_off_pending.
+ * Mark remaining shortfall as written off immediately so it does not stay in open A/R.
  */
-export function postClientPaymentAndRequestWriteOff(
+export function applyClientWriteOff(
   invoiceId: string,
   authorName: string,
-  options: PostPaymentAndWriteOffOptions,
-  capabilities?: Pick<ClientCapabilities, 'canPostPayment' | 'canRequestWriteOff'>
-): PostPaymentResult | undefined {
-  const writeOffNoteText = options.writeOffNote.trim()
-  if (!writeOffNoteText) return undefined
-  if (!Number.isFinite(options.amountReceived) || options.amountReceived <= 0) return undefined
+  writeOffNoteText: string,
+  capabilities?: Pick<ClientCapabilities, 'canRequestWriteOff'>
+): Invoice | undefined {
+  const note = writeOffNoteText.trim()
+  if (!note) return undefined
 
   const invoice = getInvoiceById(invoiceId)
-  if (!invoice || !isPostableForPayment(invoice)) return undefined
-  const existingPayments = getPaymentsByInvoiceId(invoice.id)
-  if (!isWriteOffStatusEligible(invoice)) return undefined
-  if (hasAwaitingReceiptPayment(invoice.id, existingPayments)) return undefined
-  if (existingPayments.some((p) => p.status === 'pending')) return undefined
+  if (!invoice || invoice.status === 'write_off_pending') return undefined
 
   const caps = getClientCapabilities(getClientById(invoice.client_id)?.service_tier)
-  if (!(capabilities?.canPostPayment ?? caps.canPostPayment)) return undefined
   if (!(capabilities?.canRequestWriteOff ?? caps.canRequestWriteOff)) return undefined
 
-  const priorReceived = getConfirmedPaymentTotal(invoice.id)
-  const projectedReceived = priorReceived + options.amountReceived
-  const shortfall = invoice.amount - projectedReceived
+  const received = getConfirmedPaymentTotal(invoice.id)
+  const shortfall = invoice.amount - received
   if (shortfall < 0.01) return undefined
 
-  const today = new Date().toISOString().split('T')[0]
   const now = new Date().toISOString()
-  const paymentDate = options.paymentDate ?? today
-  const receivedDate = options.receivedDate ?? today
-  const paymentMethod = options.paymentMethod ?? 'check'
-
-  const payment = addPayment({
-    invoice_id: invoice.id,
-    invoice_number: invoice.invoice_number,
-    broker_name: invoice.broker_name,
-    amount: options.amountReceived,
-    payment_date: paymentDate,
-    received_date: receivedDate,
-    payment_method: paymentMethod,
-    payment_reference: options.paymentReference?.trim() || undefined,
-    status: 'confirmed',
-    posted_source: 'client',
-    posted_by: authorName,
-    confirmed_by: authorName,
-    confirmed_at: now,
-    notes: options.optionalNote?.trim() || undefined,
-    batch_id: invoice.batch_id,
-    batch_number: invoice.batch_number,
-    load_number: invoice.load_number,
-  })
-
-  const confirmNote: InvoiceNote = {
-    id: `note-close-confirm-${Date.now()}`,
-    note: `Payment reported by client — ${formatCurrency(options.amountReceived)} received (write-off of ${formatCurrency(shortfall)} requested)`,
+  const writeOffNote: InvoiceNote = {
+    id: `note-close-writeoff-${Date.now()}`,
+    note: `Write-off ${formatCurrency(shortfall)} — ${note}`,
     created_by: authorName,
     created_at: now,
     type: 'client_note',
   }
-  const writeOffNote: InvoiceNote = {
-    id: `note-close-writeoff-${Date.now() + 1}`,
-    note: `Write-off ${formatCurrency(shortfall)} — ${writeOffNoteText}`,
-    created_by: authorName,
-    created_at: new Date(Date.now() + 1000).toISOString(),
-    type: 'client_note',
-  }
 
   const updated = updateInvoice(invoiceId, {
-    status: 'write_off_pending',
-    paid_amount: projectedReceived,
-    notes_history: [...(invoice.notes_history || []), confirmNote, writeOffNote],
+    status: 'written_off',
+    paid_amount: received,
+    notes_history: [...(invoice.notes_history || []), writeOffNote],
     write_off_request: {
       requested_by: authorName,
       requested_at: now,
-      client_note: writeOffNoteText,
-      received_amount: projectedReceived,
+      client_note: note,
+      received_amount: received,
       shortfall,
+      resolved_at: now,
+      resolved_by: authorName,
+      resolution: 'approved',
     },
     days_since_expected: 0,
     updated_at: now,
   })
-
   if (!updated) return undefined
 
-  notifyAdminPaymentReported({
-    clientName: invoice.client_name,
-    invoiceNumber: invoice.invoice_number,
-    amount: options.amountReceived,
-  })
   notifyAdminWriteOffRequested({
     clientId: updated.client_id,
     clientName: updated.client_name,
@@ -1050,24 +1049,58 @@ export function postClientPaymentAndRequestWriteOff(
     'invoice',
     updated.id,
     updated.invoice_number,
-    `${authorName} posted ${formatCurrency(options.amountReceived)} and requested write-off on ${updated.invoice_number} (${formatCurrency(shortfall)} uncollectable)`,
+    `${authorName} wrote off ${formatCurrency(shortfall)} on ${updated.invoice_number}`,
     'client-portal',
     authorName,
     'Client',
     undefined,
-    {
-      close_type: 'write_off_requested',
-      payment_id: payment.id,
-      received: projectedReceived,
-      shortfall,
-      with_payment_post: true,
-    }
+    { close_type: 'written_off', received, shortfall }
   )
 
-  return { payment, invoice: updated, variance: 'short' }
+  return updated
 }
 
-/** Confirm a pending payment and apply it to the invoice. */
+/**
+ * Post a short payment and write off the remaining balance in one step.
+ * Remaining is written off immediately so it does not stay in open A/R.
+ */
+export function postClientPaymentAndRequestWriteOff(
+  invoiceId: string,
+  authorName: string,
+  options: PostPaymentAndWriteOffOptions,
+  capabilities?: Pick<ClientCapabilities, 'canPostPayment' | 'canRequestWriteOff'>
+): PostPaymentResult | undefined {
+  const writeOffNoteText = options.writeOffNote.trim()
+  if (!writeOffNoteText) return undefined
+  if (!Number.isFinite(options.amountReceived) || options.amountReceived <= 0) return undefined
+
+  const invoice = getInvoiceById(invoiceId)
+  if (!invoice) return undefined
+  const projectedReceived = getConfirmedPaymentTotal(invoice.id) + options.amountReceived
+  if (invoice.amount - projectedReceived < 0.01) return undefined
+
+  const posted = postClientPayment(
+    {
+      invoiceId,
+      amount: options.amountReceived,
+      paymentDate: options.paymentDate ?? new Date().toISOString().split('T')[0],
+      receivedDate: options.receivedDate ?? new Date().toISOString().split('T')[0],
+      paymentMethod: options.paymentMethod ?? 'check',
+      paymentReference: options.paymentReference?.trim() || undefined,
+      notes: options.optionalNote?.trim() || undefined,
+    },
+    authorName,
+    capabilities
+  )
+  if (!posted) return undefined
+
+  const writtenOff = applyClientWriteOff(invoiceId, authorName, writeOffNoteText, capabilities)
+  if (!writtenOff) return undefined
+
+  return { payment: posted.payment, invoice: writtenOff, variance: 'short' }
+}
+
+/** Confirm a leftover pending payment (legacy client posts) and apply it to the invoice. */
 export function confirmClientPayment(
   input: ConfirmClientPaymentInput,
   authorName: string
@@ -1118,7 +1151,7 @@ export function confirmClientPayment(
   return { payment, invoice: updated }
 }
 
-/** List pending client-reported payments for admin queue. */
+/** List leftover pending client-reported payments (new client posts confirm immediately). */
 export function listPendingPayments(): Payment[] {
   return mockPayments.filter((p) => p.status === 'pending')
 }

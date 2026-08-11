@@ -94,15 +94,15 @@ export function canCloseShortPaymentAsUncollectable(
 }
 
 /**
- * Offer "write off remaining" while posting a short payment (payment will be confirmed
- * in the same step). Still blocked if another remittance awaits confirmation.
+ * Offer "mark as write-off" while posting a short payment (payment is confirmed
+ * in the same step). Remaining shortfall leaves open A/R unless this is checked.
  */
 export function canOfferWriteOffWithPostedShortfall(
   invoice: Invoice,
   payments: Payment[],
   shortfallAfterPost: number
 ): boolean {
-  if (!isWriteOffStatusEligible(invoice)) return false
+  if (invoice.status === 'write_off_pending' || invoice.status === 'rejected') return false
   if (hasAwaitingReceiptPayment(invoice.id, payments)) return false
   return shortfallAfterPost >= AMOUNT_EPSILON
 }

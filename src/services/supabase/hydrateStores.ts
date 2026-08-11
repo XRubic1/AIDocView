@@ -39,7 +39,14 @@ import {
   hydrateReimbursementLedgerFromSupabase,
 } from '../reimbursementAccountService'
 import { hydrateAdminNotifications } from '../adminNotificationService'
-import { loadArPolicy, applyArPolicy } from '../platformSettingsService'
+import {
+  loadArPolicy,
+  applyArPolicy,
+  loadCollectionsPolicy,
+  applyCollectionsPolicy,
+  loadBrokerRiskPolicy,
+  applyBrokerRiskPolicy,
+} from '../platformSettingsService'
 import { resolveSession } from '../sessionService'
 import {
   ensureTenantDataLiveSync,
@@ -188,6 +195,20 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
       applyArPolicy(policy)
     } catch (err) {
       errors.push(`ar_policy: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      const collectionsPolicy = await loadCollectionsPolicy()
+      applyCollectionsPolicy(collectionsPolicy)
+    } catch (err) {
+      errors.push(`collections_policy: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      const brokerRiskPolicy = await loadBrokerRiskPolicy()
+      applyBrokerRiskPolicy(brokerRiskPolicy)
+    } catch (err) {
+      errors.push(`broker_risk_policy: ${err instanceof Error ? err.message : String(err)}`)
     }
   } else if (principal === 'client' && clientId) {
     await hydrateClientRegistry({ scope: 'client', clientId })

@@ -722,7 +722,7 @@ export default function PaymentPosting() {
                   {filteredPending.length === 0 ? (
                     <tr>
                       <td colSpan={8}>
-                        <EmptyState title="No pending payments" hint="Client-reported payments appear here for review." />
+                        <EmptyState title="No pending payments" hint="Older client-reported payments that still need review appear here. New client posts apply immediately." />
                       </td>
                     </tr>
                   ) : (

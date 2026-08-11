@@ -13,7 +13,8 @@ import { TodaysActions } from '../components/admin/widgets/TodaysActions'
 import ManagedIntakeWidget from '../components/admin/ManagedIntakeWidget'
 import BatchStatusWidget from '../components/client/BatchStatusWidget'
 import { getAllBatches } from '../data/mockBatches'
-import { mockInvoices, updateInvoice } from '../data/mockInvoices'
+import { mockInvoices } from '../data/mockInvoices'
+import { markBrokerContactedForCollections } from '../utils/collectionsChase'
 import { PendingBatch, CollectionsAlert, AgingAR } from '../types/admin'
 import { formatCurrency } from '../utils/format'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
@@ -21,6 +22,7 @@ import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
 import { getAllClients, getClientById } from '../services/clientRegistry'
 import { buildClientWorkSummaries } from '../utils/clientWorkQueue'
 import { useClientTheme } from '../theme/ThemeContext'
+import { getAgingArBucketKey, getInvoiceAgeDays } from '../utils/invoiceAging'
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
@@ -163,20 +165,8 @@ export default function AdminDashboard() {
     allInvoices
       .filter(inv => inv.status !== 'hold' && inv.status !== 'pending' && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off')
       .forEach(inv => {
-        const days = inv.days_since_expected || 0
-        if (days >= 1 && days <= 15) {
-          aging['1_15'] += inv.amount
-        } else if (days >= 16 && days <= 30) {
-          aging['16_30'] += inv.amount
-        } else if (days >= 31 && days <= 45) {
-          aging['31_45'] += inv.amount
-        } else if (days >= 46 && days <= 60) {
-          aging['46_60'] += inv.amount
-        } else if (days >= 61 && days <= 90) {
-          aging['61_90'] += inv.amount
-        } else if (days > 90) {
-          aging.over_91 += inv.amount
-        }
+        const bucket = getAgingArBucketKey(getInvoiceAgeDays(inv))
+        aging[bucket] += inv.amount
         aging.total += inv.amount
       })
     
@@ -403,10 +393,7 @@ export default function AdminDashboard() {
   }
 
   const handleMarkContacted = (invoiceId: string) => {
-    updateInvoice(invoiceId, {
-      broker_contacted: true,
-      last_broker_contact: new Date().toISOString(),
-    })
+    void markBrokerContactedForCollections(invoiceId)
   }
 
   const handleAlertClick = (alert: any) => {

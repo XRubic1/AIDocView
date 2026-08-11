@@ -5,13 +5,17 @@
 import type { Invoice } from '../types/invoice'
 import type { Broker } from '../types/broker'
 import { getDaysSincePpwSent, getPpwSentAt } from './ppwSent'
-import { updateInvoice, updateInvoiceAsync } from '../data/mockInvoices'
+import { getInvoiceById, updateInvoice, updateInvoiceAsync } from '../data/mockInvoices'
 import { sendTransactionalEmail } from '../services/emailService'
 import { resolveBrokerPaperworkEmail } from './paperworkSender'
 import { formatCurrency } from './format'
+import { COLLECTIONS_POLICY } from './collectionsPolicy'
 
+/** Fallback inquiry age — live value is COLLECTIONS_POLICY.defaultInquiryDays. */
 export const DEFAULT_INQUIRY_DAYS = 15
+/** @deprecated Use COLLECTIONS_POLICY.followupAfterDays */
 export const FOLLOWUP_AFTER_DAYS = 3
+/** @deprecated Use COLLECTIONS_POLICY.needsAttentionAfterDays */
 export const NEEDS_ATTENTION_AFTER_DAYS = 5
 
 export type ChaseQueueStatus =
@@ -33,7 +37,7 @@ export interface ChaseQueueItem {
 
 function resolveInquiryDays(broker: Broker | undefined): number {
   const n = broker?.payment_status_inquiry_days
-  return typeof n === 'number' && n >= 0 ? n : DEFAULT_INQUIRY_DAYS
+  return typeof n === 'number' && n >= 0 ? n : COLLECTIONS_POLICY.defaultInquiryDays
 }
 
 /** Classify chase status for one invoice. */
@@ -58,8 +62,8 @@ export function getChaseStatus(invoice: Invoice, broker: Broker | undefined, now
   }
 
   const daysSinceInquiry = Math.floor((nowMs - lastInquiry) / (1000 * 60 * 60 * 24))
-  if (daysSinceInquiry >= NEEDS_ATTENTION_AFTER_DAYS) return 'needs_attention'
-  if (daysSinceInquiry >= FOLLOWUP_AFTER_DAYS) return 'due_for_followup'
+  if (daysSinceInquiry >= COLLECTIONS_POLICY.needsAttentionAfterDays) return 'needs_attention'
+  if (daysSinceInquiry >= COLLECTIONS_POLICY.followupAfterDays) return 'due_for_followup'
   return 'awaiting_response'
 }
 
@@ -125,9 +129,26 @@ export async function markBrokerContactedForCollections(
   opts: { asInquiry?: boolean; asFollowup?: boolean } = {}
 ): Promise<Invoice | undefined> {
   const now = new Date().toISOString()
+  const inv = getInvoiceById(invoiceId)
+  const noteText = opts.asInquiry
+    ? 'Payment status inquiry emailed to broker.'
+    : opts.asFollowup
+      ? 'Payment status follow-up emailed to broker.'
+      : 'Broker contacted (collections).'
+  const history = [...(inv?.notes_history ?? [])]
+  history.push({
+    id: `note-contact-${Date.now()}`,
+    note: noteText,
+    created_by: 'Credyx',
+    created_at: now,
+    type: 'status_update',
+    visibility: 'client',
+  })
   const patch: Partial<Invoice> = {
     broker_contacted: true,
     last_broker_contact: now,
+    notes_history: history,
+    notes: inv?.notes ? `${inv.notes}\n${noteText}` : noteText,
   }
   if (opts.asInquiry) {
     patch.collections_last_inquiry_at = now

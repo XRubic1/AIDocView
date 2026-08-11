@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Bell,
   Building2,
   Check,
   CheckCheck,
+  ChevronDown,
   ExternalLink,
-  Filter,
   MessageSquare,
   Search,
   Trash2,
@@ -29,25 +29,21 @@ import { useClientTheme } from '../theme/ThemeContext'
 import { formatRelativeTime } from '../utils/format'
 import {
   ADMIN_NOTIFICATION_CATEGORY_LABELS,
+  ADMIN_NOTIFICATION_CATEGORY_ORDER,
   categorizeAdminNotification,
+  filterNotificationsByCategory,
   getNotificationNoteText,
   groupAdminNotificationsByCompany,
+  pickDefaultAdminNotificationCategory,
   type AdminNotificationCategory,
 } from '../utils/adminNotificationGroups'
 import type { Notification } from '../types/notification'
+import { AdminNotificationSectionIcon } from '../components/admin/AdminNotificationSectionIcon'
 import '../styles/adminNotifications.css'
 
-type CategoryFilter = 'all' | AdminNotificationCategory
 type ReadFilter = 'all' | 'unread' | 'read'
 
-const CATEGORY_FILTERS: Array<{ id: CategoryFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'disputes', label: 'Disputes' },
-  { id: 'payments', label: 'Payments' },
-  { id: 'notes', label: 'Notes' },
-  { id: 'docs', label: 'Docs' },
-  { id: 'other', label: 'Other' },
-]
+const SECTION_PARAM_IDS = new Set<string>(ADMIN_NOTIFICATION_CATEGORY_ORDER)
 
 /**
  * Full-page admin inbox: browse and manage client notifications by company.
@@ -58,7 +54,6 @@ export default function AdminNotifications() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [notifications, setNotifications] = useState<Notification[]>(() => getAdminNotifications())
   const [search, setSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   const [readFilter, setReadFilter] = useState<ReadFilter>('all')
 
   const companies = useMemo(
@@ -75,6 +70,11 @@ export default function AdminNotifications() {
   )
 
   const selectedCompanyId = searchParams.get('company') || groups[0]?.companyId || ''
+  const sectionParam = searchParams.get('section')
+  const selectedSection: AdminNotificationCategory | null =
+    sectionParam && SECTION_PARAM_IDS.has(sectionParam)
+      ? (sectionParam as AdminNotificationCategory)
+      : null
 
   useEffect(() => {
     return subscribeAdminNotifications(() => {
@@ -104,9 +104,6 @@ export default function AdminNotifications() {
     return selectedGroup.notifications.filter((n) => {
       if (readFilter === 'unread' && n.read) return false
       if (readFilter === 'read' && !n.read) return false
-      if (categoryFilter !== 'all' && categorizeAdminNotification(n) !== categoryFilter) {
-        return false
-      }
       if (!q) return true
       const haystack = [
         n.title,
@@ -118,7 +115,39 @@ export default function AdminNotifications() {
         .toLowerCase()
       return haystack.includes(q)
     })
-  }, [selectedGroup, search, categoryFilter, readFilter])
+  }, [selectedGroup, search, readFilter])
+
+  const visibleSections = useMemo(
+    () =>
+      ADMIN_NOTIFICATION_CATEGORY_ORDER.filter(
+        (category) => filterNotificationsByCategory(filteredItems, category).length > 0
+      ),
+    [filteredItems]
+  )
+
+  const lastCompanyRef = useRef(selectedCompanyId)
+
+  // Open a default section when switching companies, or when the current one is empty
+  useEffect(() => {
+    if (!selectedGroup) return
+    const companyChanged = lastCompanyRef.current !== selectedGroup.companyId
+    lastCompanyRef.current = selectedGroup.companyId
+
+    if (selectedSection && visibleSections.includes(selectedSection)) return
+    if (!companyChanged && !selectedSection) return
+
+    const fallback =
+      pickDefaultAdminNotificationCategory(filteredItems) ?? visibleSections[0] ?? null
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (fallback) next.set('section', fallback)
+        else next.delete('section')
+        return next
+      },
+      { replace: true }
+    )
+  }, [selectedGroup, filteredItems, visibleSections, selectedSection, setSearchParams])
 
   const totals = useMemo(() => {
     const unread = notifications.filter((n) => !n.read).length
@@ -133,11 +162,25 @@ export default function AdminNotifications() {
     }
   }, [notifications, groups.length])
 
-  const selectCompany = (companyId: string) => {
+  const selectCompany = (companyId: string, section?: AdminNotificationCategory) => {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
         next.set('company', companyId)
+        if (section) next.set('section', section)
+        else next.delete('section')
+        return next
+      },
+      { replace: true }
+    )
+  }
+
+  const toggleSection = (category: AdminNotificationCategory) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (selectedSection === category) next.delete('section')
+        else next.set('section', category)
         return next
       },
       { replace: true }
@@ -202,9 +245,8 @@ export default function AdminNotifications() {
                 groups.map((group) => {
                   const active = group.companyId === selectedCompanyId
                   return (
-                    <button
+                    <div
                       key={group.companyId}
-                      type="button"
                       className={`admin-notif-page__company${active ? ' is-active' : ''}${
                         group.unread > 0 ? ' has-unread' : ''
                       }`}
@@ -212,42 +254,42 @@ export default function AdminNotifications() {
                         borderColor: active ? 'rgba(22, 132, 254, 0.35)' : t.border,
                         backgroundColor: active ? 'rgba(22, 132, 254, 0.08)' : t.surface,
                       }}
-                      onClick={() => selectCompany(group.companyId)}
                     >
-                      <span className="admin-notif-page__company-top">
-                        <span className="admin-notif-page__company-name" style={{ color: t.primary }}>
-                          {group.companyName}
+                      <button
+                        type="button"
+                        className="admin-notif-page__company-main"
+                        onClick={() => selectCompany(group.companyId)}
+                      >
+                        <span className="admin-notif-page__company-top">
+                          <span className="admin-notif-page__company-name" style={{ color: t.primary }}>
+                            {group.companyName}
+                          </span>
+                          <span className="admin-notif-page__company-total" style={{ color: t.muted }}>
+                            {group.total}
+                          </span>
                         </span>
-                        <span className="admin-notif-page__company-total" style={{ color: t.muted }}>
-                          {group.total}
-                        </span>
-                      </span>
+                      </button>
                       <span className="admin-notif-page__company-chips">
-                        {group.counts.disputes > 0 ? (
-                          <span className="admin-notif-page__chip admin-notif-page__chip--disputes">
-                            Disputes {group.counts.disputes}
-                          </span>
-                        ) : null}
-                        {group.counts.payments > 0 ? (
-                          <span className="admin-notif-page__chip admin-notif-page__chip--payments">
-                            Payments {group.counts.payments}
-                          </span>
-                        ) : null}
-                        {group.counts.notes > 0 ? (
-                          <span className="admin-notif-page__chip admin-notif-page__chip--notes">
-                            Notes {group.counts.notes}
-                          </span>
-                        ) : null}
-                        {group.counts.docs > 0 ? (
-                          <span className="admin-notif-page__chip admin-notif-page__chip--docs">
-                            Docs {group.counts.docs}
-                          </span>
-                        ) : null}
+                        {ADMIN_NOTIFICATION_CATEGORY_ORDER.filter(
+                          (key) => group.counts[key] > 0
+                        ).map((key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            className={`admin-notif-page__chip admin-notif-page__chip--${key}${
+                              active && selectedSection === key ? ' is-active' : ''
+                            }`}
+                            onClick={() => selectCompany(group.companyId, key)}
+                          >
+                            <AdminNotificationSectionIcon category={key} size="sm" />
+                            {ADMIN_NOTIFICATION_CATEGORY_LABELS[key]} {group.counts[key]}
+                          </button>
+                        ))}
                       </span>
                       {group.unread > 0 ? (
                         <span className="admin-notif-page__company-unread">{group.unread} new</span>
                       ) : null}
-                    </button>
+                    </div>
                   )
                 })
               )}
@@ -303,33 +345,6 @@ export default function AdminNotifications() {
                   </div>
                 </div>
 
-                {selectedGroup.notePreviews.length > 0 ? (
-                  <div className="admin-notif-page__notes-rail">
-                    <p className="admin-notif-page__notes-label">
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      Notes — easy to scan
-                    </p>
-                    <div className="admin-notif-page__notes-grid">
-                      {selectedGroup.notePreviews.map((note) => {
-                        const source = selectedGroup.notifications.find((n) => n.id === note.id)
-                        return (
-                          <button
-                            key={note.id}
-                            type="button"
-                            className={`admin-notif-page__note-card${note.unread ? ' is-unread' : ''}`}
-                            onClick={() => source && openNotification(source)}
-                          >
-                            <span className="admin-notif-page__note-text">{note.text}</span>
-                            <span className="admin-notif-page__note-time">
-                              {formatRelativeTime(note.timestamp)}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ) : null}
-
                 <div className="admin-notif-page__toolbar" style={{ borderColor: t.border }}>
                   <label className="admin-notif-page__search">
                     <Search className="w-4 h-4" style={{ color: t.muted }} />
@@ -341,17 +356,6 @@ export default function AdminNotifications() {
                     />
                   </label>
                   <div className="admin-notif-page__filters">
-                    <Filter className="w-3.5 h-3.5" style={{ color: t.muted }} />
-                    {CATEGORY_FILTERS.map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        className={`admin-notif-page__filter${categoryFilter === f.id ? ' is-active' : ''}`}
-                        onClick={() => setCategoryFilter(f.id)}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
                     <select
                       className="admin-notif-page__read-select"
                       value={readFilter}
@@ -372,15 +376,92 @@ export default function AdminNotifications() {
                       No notifications match these filters
                     </p>
                   ) : (
-                    filteredItems.map((notification) => (
-                      <NotificationManageRow
-                        key={notification.id}
-                        notification={notification}
-                        onOpen={() => openNotification(notification)}
-                        onMarkRead={() => markAdminNotificationRead(notification.id)}
-                        onDismiss={() => dismissAdminNotification(notification.id)}
-                      />
-                    ))
+                    <div className="admin-notif-page__sections">
+                      {visibleSections.map((category) => {
+                        const items = filterNotificationsByCategory(filteredItems, category)
+                        const unread = items.filter((n) => !n.read).length
+                        const open = selectedSection === category
+                        const notePreviews =
+                          category === 'notes'
+                            ? selectedGroup.notePreviews.filter((note) =>
+                                items.some((n) => n.id === note.id)
+                              )
+                            : []
+
+                        return (
+                          <section
+                            key={category}
+                            className={`admin-notif-page__section${open ? ' is-open' : ''}`}
+                            style={{ borderColor: t.border }}
+                          >
+                            <button
+                              type="button"
+                              className="admin-notif-page__section-header"
+                              aria-expanded={open}
+                              onClick={() => toggleSection(category)}
+                              style={{ backgroundColor: open ? t.surface : 'transparent' }}
+                            >
+                              <AdminNotificationSectionIcon category={category} />
+                              <span style={{ color: t.primary }}>
+                                {ADMIN_NOTIFICATION_CATEGORY_LABELS[category]}
+                              </span>
+                              <span className="admin-notif-page__section-count" style={{ color: t.muted }}>
+                                {items.length}
+                              </span>
+                              {unread > 0 ? (
+                                <span className="admin-notif-page__company-unread admin-notif-page__section-unread">
+                                  {unread} new
+                                </span>
+                              ) : null}
+                              <ChevronDown
+                                className={`admin-notif-page__section-chevron${open ? ' is-open' : ''}`}
+                                style={{ color: t.muted }}
+                                aria-hidden
+                              />
+                            </button>
+
+                            {open ? (
+                              <div className="admin-notif-page__section-body">
+                                {category === 'notes' && notePreviews.length > 0 ? (
+                                  <div className="admin-notif-page__notes-grid">
+                                    {notePreviews.map((note) => {
+                                      const source = selectedGroup.notifications.find(
+                                        (n) => n.id === note.id
+                                      )
+                                      return (
+                                        <button
+                                          key={note.id}
+                                          type="button"
+                                          className={`admin-notif-page__note-card${
+                                            note.unread ? ' is-unread' : ''
+                                          }`}
+                                          onClick={() => source && openNotification(source)}
+                                        >
+                                          <span className="admin-notif-page__note-text">{note.text}</span>
+                                          <span className="admin-notif-page__note-time">
+                                            {formatRelativeTime(note.timestamp)}
+                                          </span>
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                ) : (
+                                  items.map((notification) => (
+                                    <NotificationManageRow
+                                      key={notification.id}
+                                      notification={notification}
+                                      onOpen={() => openNotification(notification)}
+                                      onMarkRead={() => markAdminNotificationRead(notification.id)}
+                                      onDismiss={() => dismissAdminNotification(notification.id)}
+                                    />
+                                  ))
+                                )}
+                              </div>
+                            ) : null}
+                          </section>
+                        )
+                      })}
+                    </div>
                   )}
                 </div>
               </>
@@ -444,24 +525,23 @@ function NotificationManageRow({
       style={{ borderColor: t.border, backgroundColor: unread ? t.surface : 'transparent' }}
     >
       <div className={`admin-notif-page__item-icon admin-notif-page__item-icon--${category}`}>
-        <Icon className="w-4 h-4" />
+        <Icon className="w-3.5 h-3.5" />
       </div>
       <div className="admin-notif-page__item-body">
         <div className="admin-notif-page__item-top">
           <h3 style={{ color: unread ? t.primary : t.muted }}>{notification.title}</h3>
-          <span className={`admin-notif-page__chip admin-notif-page__chip--${category}`}>
-            {ADMIN_NOTIFICATION_CATEGORY_LABELS[category]}
+          <span className="admin-notif-page__item-meta" style={{ color: t.muted }}>
+            {formatRelativeTime(notification.timestamp)}
+            {notification.invoice_number ? ` · INV ${notification.invoice_number}` : ''}
           </span>
         </div>
         {noteText ? (
           <p className="admin-notif-page__item-note">{noteText}</p>
         ) : (
-          <p style={{ color: t.muted }}>{notification.message}</p>
+          <p className="admin-notif-page__item-msg" style={{ color: t.muted }}>
+            {notification.message}
+          </p>
         )}
-        <div className="admin-notif-page__item-meta" style={{ color: t.muted }}>
-          <span>{formatRelativeTime(notification.timestamp)}</span>
-          {notification.invoice_number ? <span>INV {notification.invoice_number}</span> : null}
-        </div>
       </div>
       <div className="admin-notif-page__item-actions">
         {notification.link ? (
@@ -472,7 +552,7 @@ function NotificationManageRow({
             onClick={onOpen}
             style={{ borderColor: t.border, color: t.accent }}
           >
-            <ExternalLink className="w-4 h-4" />
+            <ExternalLink className="w-3.5 h-3.5" />
           </button>
         ) : null}
         {unread ? (
@@ -483,7 +563,7 @@ function NotificationManageRow({
             onClick={onMarkRead}
             style={{ borderColor: t.border, color: t.primary }}
           >
-            <Check className="w-4 h-4" />
+            <Check className="w-3.5 h-3.5" />
           </button>
         ) : null}
         <button
@@ -492,7 +572,7 @@ function NotificationManageRow({
           title="Dismiss"
           onClick={onDismiss}
         >
-          <Trash2 className="w-4 h-4" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     </article>

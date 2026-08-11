@@ -1,5 +1,11 @@
 import { Invoice } from '../types/invoice'
 import type { ClientCapabilities } from './clientCapabilities'
+import { mockBrokers } from '../data/mockBrokers'
+import {
+  getBrokerPaymentTermsDays,
+  parseLocalYmd,
+  resolveEffectiveDueDate,
+} from './invoiceDueDate'
 
 /** Matches admin Settings defaults — overdue after 15 days past expected pay, force close at 90. */
 export const AR_POLICY = {
@@ -40,19 +46,28 @@ export function isOpenArInvoice(invoice: Invoice): boolean {
   return invoice.status === 'approved'
 }
 
+/** Paid, written-off, or force-closed — still eligible for over/short posts. */
+export function isClosedInvoiceForPayment(invoice: Invoice): boolean {
+  return (
+    invoice.status === 'paid' ||
+    invoice.status === 'written_off' ||
+    invoice.status === 'force_closed'
+  )
+}
+
 /**
- * Invoices that can receive broker payments — approved (incl. short-paid), on hold,
- * paid in full, and written-off (posting / short corrections reopen the invoice).
- * Force-closed and pending write-off approval stay blocked.
+ * Invoices that can receive broker payments — open A/R, on hold, paid, force-closed,
+ * and written-off (additional / short posts). Pending write-off approval stays blocked.
  */
 export function isPostableForPayment(invoice: Invoice): boolean {
-  if (invoice.status === 'force_closed' || invoice.status === 'write_off_pending') {
+  if (invoice.status === 'write_off_pending') {
     return false
   }
   return (
     invoice.status === 'approved' ||
     invoice.status === 'hold' ||
     invoice.status === 'paid' ||
+    invoice.status === 'force_closed' ||
     invoice.status === 'written_off'
   )
 }
@@ -100,6 +115,25 @@ export function getDisplayInvoiceAgeDays(
   return getInvoiceAgeDays(invoice, options?.asOf ?? new Date())
 }
 
+/** Calendar days past a YYYY-MM-DD expected date (0 if not yet due). */
+function daysPastYmd(ymd: string, asOf: Date): number {
+  const expected = parseLocalYmd(ymd)
+  if (!expected) return 0
+  const today = new Date(asOf)
+  today.setHours(0, 0, 0, 0)
+  expected.setHours(0, 0, 0, 0)
+  return Math.max(0, Math.floor((today.getTime() - expected.getTime()) / 86_400_000))
+}
+
+/**
+ * Due date used for aging / overdue: invoice_date + live broker Net days when set.
+ * Falls back to stored expected/due dates (not the stale days_since_expected snapshot).
+ */
+export function getEffectiveInvoiceDueDate(invoice: Invoice): string | undefined {
+  const terms = getBrokerPaymentTermsDays(invoice, mockBrokers)
+  return resolveEffectiveDueDate(invoice, terms)
+}
+
 /** Days past expected payment (0 if closed or not yet due). */
 export function getDaysOutstanding(invoice: Invoice, asOf: Date = new Date()): number {
   if (
@@ -112,17 +146,17 @@ export function getDaysOutstanding(invoice: Invoice, asOf: Date = new Date()): n
     return 0
   }
 
-  if (invoice.days_since_expected !== undefined) {
-    return Math.max(0, invoice.days_since_expected)
+  const expected =
+    getEffectiveInvoiceDueDate(invoice) ||
+    invoice.expected_payment_date ||
+    invoice.due_date
+
+  if (expected) {
+    return daysPastYmd(expected, asOf)
   }
 
-  if (invoice.expected_payment_date) {
-    const today = new Date(asOf)
-    today.setHours(0, 0, 0, 0)
-    const expected = new Date(invoice.expected_payment_date)
-    expected.setHours(0, 0, 0, 0)
-    const days = Math.floor((today.getTime() - expected.getTime()) / (1000 * 60 * 60 * 24))
-    return Math.max(0, days)
+  if (invoice.days_since_expected !== undefined) {
+    return Math.max(0, invoice.days_since_expected)
   }
 
   return 0
@@ -168,7 +202,7 @@ export function getOverdueSeverity(
   return 'overdue'
 }
 
-export function getAgingBucket(invoice: Invoice, daysOutstanding: number): AgingBucket {
+export function getAgingBucket(invoice: Invoice, invoiceAgeDays: number): AgingBucket {
   if (
     invoice.status === 'paid' ||
     invoice.status === 'force_closed' ||
@@ -177,12 +211,12 @@ export function getAgingBucket(invoice: Invoice, daysOutstanding: number): Aging
   ) {
     return 'closed'
   }
-  if (daysOutstanding <= 0) return 'current'
-  if (daysOutstanding <= 15) return '1_15'
-  if (daysOutstanding <= 30) return '16_30'
-  if (daysOutstanding <= 45) return '31_45'
-  if (daysOutstanding <= 60) return '46_60'
-  if (daysOutstanding <= 90) return '61_90'
+  if (invoiceAgeDays <= 0) return 'current'
+  if (invoiceAgeDays <= 15) return '1_15'
+  if (invoiceAgeDays <= 30) return '16_30'
+  if (invoiceAgeDays <= 45) return '31_45'
+  if (invoiceAgeDays <= 60) return '46_60'
+  if (invoiceAgeDays <= 90) return '61_90'
   return 'over_91'
 }
 
@@ -191,26 +225,35 @@ export function enrichInvoice(
   asOf: Date = new Date(),
   capabilities?: Pick<ClientCapabilities, 'hasForceClose'>
 ): EnrichedInvoice {
-  const invoiceAgeDays = getDisplayInvoiceAgeDays(invoice, { asOf: asOf })
-  const daysOutstanding = getDaysOutstanding(invoice, asOf)
-  const isOverdue = isInvoiceOverdue(invoice, asOf)
+  const liveDue = getEffectiveInvoiceDueDate(invoice)
+  const withLiveDue: Invoice = liveDue
+    ? {
+        ...invoice,
+        due_date: liveDue,
+        expected_payment_date: liveDue,
+      }
+    : invoice
+
+  const invoiceAgeDays = getDisplayInvoiceAgeDays(withLiveDue, { asOf: asOf })
+  const daysOutstanding = getDaysOutstanding(withLiveDue, asOf)
+  const isOverdue = isInvoiceOverdue(withLiveDue, asOf)
   const hasForceClose = capabilities?.hasForceClose ?? true
-  const isForceCloseEligibleFlag = isForceCloseEligible(invoice, asOf)
+  const isForceCloseEligibleFlag = isForceCloseEligible(withLiveDue, asOf)
   const overdueSeverity = getOverdueSeverity(daysOutstanding, isOverdue, hasForceClose)
 
-  let displayStatus: InvoiceDisplayStatus = invoice.status
+  let displayStatus: InvoiceDisplayStatus = withLiveDue.status
   if (isOverdue) {
     displayStatus = 'overdue'
   }
 
   return {
-    ...invoice,
+    ...withLiveDue,
     invoiceAgeDays,
     daysOutstanding,
     isOverdue,
     isForceCloseEligible: isForceCloseEligibleFlag,
     overdueSeverity,
-    agingBucket: getAgingBucket(invoice, daysOutstanding),
+    agingBucket: getAgingBucket(withLiveDue, invoiceAgeDays),
     displayStatus,
   }
 }
@@ -238,7 +281,7 @@ export function getOverdueSeverityLabel(severity: OverdueSeverity): string {
   }
 }
 
-/** Client-facing aging strip buckets (0–15 includes not-yet-due / current). */
+/** Client-facing aging strip buckets — by invoice age (days since invoice date). */
 export type DisplayAgingBucketId =
   | '0_15'
   | '16_30'
@@ -259,13 +302,22 @@ export const DISPLAY_AGING_BUCKETS: readonly {
   { id: 'over_91', label: '91+' },
 ] as const
 
-export function getDisplayAgingBucketId(daysOutstanding: number): DisplayAgingBucketId {
-  if (daysOutstanding <= 15) return '0_15'
-  if (daysOutstanding <= 30) return '16_30'
-  if (daysOutstanding <= 45) return '31_45'
-  if (daysOutstanding <= 60) return '46_60'
-  if (daysOutstanding <= 90) return '61_90'
+/** Map invoice age (not days past due) into a display aging bucket. */
+export function getDisplayAgingBucketId(invoiceAgeDays: number): DisplayAgingBucketId {
+  if (invoiceAgeDays <= 15) return '0_15'
+  if (invoiceAgeDays <= 30) return '16_30'
+  if (invoiceAgeDays <= 45) return '31_45'
+  if (invoiceAgeDays <= 60) return '46_60'
+  if (invoiceAgeDays <= 90) return '61_90'
   return 'over_91'
+}
+
+/** Aging A/R amount keys (admin + dashboard) from invoice age. */
+export function getAgingArBucketKey(
+  invoiceAgeDays: number
+): '1_15' | '16_30' | '31_45' | '46_60' | '61_90' | 'over_91' {
+  const id = getDisplayAgingBucketId(invoiceAgeDays)
+  return id === '0_15' ? '1_15' : id
 }
 
 export function getDisplayAgingBucketLabel(id: DisplayAgingBucketId): string {

@@ -7,11 +7,8 @@ import type { Invoice } from '../types/invoice'
 import type { Broker } from '../types/broker'
 import type { SharedCalendarEvent } from '../data/sharedCalendarEvents'
 import { formatCurrency } from './format'
-import {
-  FOLLOWUP_AFTER_DAYS,
-  buildCollectionsChaseQueue,
-  type ChaseQueueItem,
-} from './collectionsChase'
+import { buildCollectionsChaseQueue, type ChaseQueueItem } from './collectionsChase'
+import { COLLECTIONS_POLICY } from './collectionsPolicy'
 import { enrichInvoice, isOpenArInvoice } from './invoiceAging'
 import { getPpwSentAt } from './ppwSent'
 import { applyAssistantCompletions } from './assistantTaskStore'
@@ -67,7 +64,7 @@ function chaseDueDate(item: ChaseQueueItem, asOf: Date): string {
 
   if (item.status === 'due_for_followup' && item.invoice.collections_last_inquiry_at) {
     return clampToTodayOrLater(
-      addDaysToIso(item.invoice.collections_last_inquiry_at, FOLLOWUP_AFTER_DAYS),
+      addDaysToIso(item.invoice.collections_last_inquiry_at, COLLECTIONS_POLICY.followupAfterDays),
       asOf
     )
   }

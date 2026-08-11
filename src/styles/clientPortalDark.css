@@ -449,6 +449,11 @@
   color: #f07171;
 }
 
+.client-portal[data-theme='dark'] .status-pill--dark-red {
+  background: rgba(127, 29, 29, 0.45);
+  color: #fca5a5;
+}
+
 .client-portal[data-theme='dark'] .status-pill--confirm-payment {
   background: rgba(22, 132, 254, 0.2);
   color: #60a5fa;
@@ -499,8 +504,13 @@
 
 .client-portal[data-theme='dark'] .status-pill--warn,
 .client-portal[data-theme='dark'] .status-pill--pending-batch {
-  background: rgba(212, 168, 83, 0.16);
-  color: #e0c078;
+  background: rgba(245, 158, 11, 0.22);
+  color: #fbbf24;
+}
+
+.client-portal[data-theme='dark'] .status-pill--yellow {
+  background: rgba(250, 204, 21, 0.2);
+  color: #fde047;
 }
 
 .client-portal[data-theme='dark'] .status-pill--short-paid {
@@ -557,8 +567,8 @@
 }
 
 .client-portal[data-theme='dark'] .payment-confirmation-panel__mobile-surface-tabs {
-  background: rgba(15, 23, 42, 0.55);
-  border-color: var(--cp-border);
+  background: var(--cp-card);
+  border-color: var(--cp-border-hover);
 }
 
 .client-portal[data-theme='dark'] .payment-confirmation-panel__mobile-surface-tab--active {
@@ -1074,13 +1084,30 @@
 
 .client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__notes-filters--segmented {
   background: var(--cp-card);
-  border-color: var(--cp-border);
+  border-color: var(--cp-border-hover);
 }
 
-.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__notes-filters--segmented .payment-confirmation-panel__notes-filter--active {
-  background: rgba(22, 132, 254, 0.18);
-  color: #60a5fa;
-  box-shadow: inset 0 0 0 1px rgba(22, 132, 254, 0.4);
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__notes-filters--segmented .payment-confirmation-panel__notes-filter,
+.client-portal[data-theme='dark'] .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .payment-confirmation-panel__notes-filter {
+  color: #e2e8f0;
+  background: transparent;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--mobile .payment-confirmation-panel__notes-filters--segmented .payment-confirmation-panel__notes-filter--active,
+.client-portal[data-theme='dark'] .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .payment-confirmation-panel__notes-filter--active {
+  background: #1684fe;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .payment-confirmation-panel__notes-filters--segmented {
+  background: var(--cp-card);
+  border-color: var(--cp-border-hover);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__notes-filter-count {
+  background: rgba(255, 255, 255, 0.14);
+  color: inherit;
 }
 
 .client-portal[data-theme='dark'] .invoice-balance-summary__fig--written-off {
@@ -1170,4 +1197,73 @@
 /* Aging strip cells on collections */
 .client-portal[data-theme='dark'] .aging-bucket-cell {
   border-color: var(--cp-border);
+}
+
+/* Collections workspace — list / details / docs */
+.client-portal[data-theme='dark'] .collections-workspace {
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .collections-workspace .collections-workspace-grid > * {
+  border-color: var(--cp-border-hover) !important;
+}
+
+.client-portal[data-theme='dark'] .invoice-list-item {
+  border-bottom-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .invoice-list-item:hover {
+  background: var(--cp-table-hover);
+}
+
+.client-portal[data-theme='dark'] .invoice-list-item--active,
+.client-portal[data-theme='dark'] .invoice-list-item--active.invoice-list-item--overdue,
+.client-portal[data-theme='dark'] .invoice-list-item--active.invoice-list-item--force-close {
+  background: var(--cp-accent-light);
+  border-left-color: var(--cp-accent);
+  box-shadow: inset 0 0 0 1px rgba(22, 132, 254, 0.35);
+}
+
+.client-portal[data-theme='dark'] .invoice-list-footer {
+  background: var(--cp-surface);
+  border-top-color: var(--cp-border);
+  color: var(--cp-text-muted);
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__mobile-surface-tab {
+  color: #e2e8f0;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__mobile-surface-tab--active {
+  background: #1684fe;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__mobile-surface-tab--active
+  .payment-confirmation-panel__mobile-surface-tab-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+.client-portal[data-theme='dark'] .payment-confirmation-panel__notes-empty {
+  color: var(--cp-muted-light);
+}
+
+.client-portal[data-theme='dark'] .client-input::placeholder,
+.client-portal[data-theme='dark'] textarea.client-input::placeholder {
+  color: var(--cp-muted-light);
+  opacity: 1;
+}
+
+.client-portal[data-theme='dark'] .invoice-admin-status-actions {
+  background: var(--cp-card);
+  border-color: var(--cp-border-hover);
+}
+
+.client-portal[data-theme='dark'] .invoice-detail-note-compose,
+.client-portal[data-theme='dark'] .payment-confirmation-panel__footer {
+  border-color: var(--cp-border-hover);
+  color: var(--cp-text);
 }

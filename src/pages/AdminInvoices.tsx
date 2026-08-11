@@ -212,7 +212,7 @@ export default function AdminInvoices() {
           cmp = a.invoice_date.localeCompare(b.invoice_date)
           break
         case 'days_outstanding':
-          cmp = a.daysOutstanding - b.daysOutstanding
+          cmp = a.invoiceAgeDays - b.invoiceAgeDays
           break
         case 'status':
           cmp = a.status.localeCompare(b.status)
@@ -824,7 +824,7 @@ export default function AdminInvoices() {
                         className="tabular-nums text-xs font-medium"
                         style={{ color: getDaysOutstandingColor(invoice.overdueSeverity) }}
                       >
-                        {invoice.daysOutstanding}d
+                        {invoice.invoiceAgeDays}d
                       </span>
                     </ClientListTd>
                     <ClientListTd className="client-list-td--status-col">

@@ -30,6 +30,15 @@ type CashForecastItem = {
   daysOut: number
 }
 
+type PaidInvoiceItem = {
+  id: string
+  invoiceNumber: string
+  brokerName: string
+  amount: number
+  payDate: string
+  daysOut: number
+}
+
 type DetailListItem = {
   id: string
   invoiceNumber: string
@@ -43,6 +52,7 @@ type ConfirmPaymentItem = DetailListItem & {
 }
 
 type CashFilter = '7' | '14' | '30'
+type DuePane = 'coming' | 'paid'
 
 type OpenBalanceCardProps = {
   /** Open A/R amount to display. */
@@ -72,6 +82,12 @@ type OpenBalanceCardProps = {
     next30: ComingDueBucket
   }
   cashForecast?: CashForecastItem[]
+  paidRecent?: {
+    next7: ComingDueBucket
+    next14: ComingDueBucket
+    next30: ComingDueBucket
+  }
+  paidInvoices?: PaidInvoiceItem[]
   topOpenInvoices?: DetailListItem[]
   /** Payments awaiting client receipt confirmation. */
   confirmPayments?: ConfirmPaymentItem[]
@@ -122,7 +138,7 @@ function DetailRow({ invoiceNumber, brokerName, amount, meta, metaTone, onOpen }
 
 /**
  * Left-rail Open Balance card.
- * Under Aging: Expected payment | Top open | Payment confirmation.
+ * Under Aging: Coming due / Confirmed pay | Top open | Payment confirmation.
  */
 export default function OpenBalanceCard({
   amount,
@@ -135,6 +151,8 @@ export default function OpenBalanceCard({
   recentCollections,
   comingDue,
   cashForecast = [],
+  paidRecent,
+  paidInvoices = [],
   topOpenInvoices = [],
   confirmPayments = [],
   loading = false,
@@ -144,6 +162,7 @@ export default function OpenBalanceCard({
   const navigate = useNavigate()
   const cardRef = useRef<HTMLElement>(null)
   const [cashFilter, setCashFilter] = useState<CashFilter>('7')
+  const [duePane, setDuePane] = useState<DuePane>('coming')
   const animated = useCountUp(loading ? 0 : amount, { decimals: 2, duration: 900 })
   const showSplit =
     !loading &&
@@ -152,12 +171,20 @@ export default function OpenBalanceCard({
 
   const showDetailColumns =
     !loading &&
-    (cashForecast.length > 0 || topOpenInvoices.length > 0 || confirmPayments.length > 0)
+    (cashForecast.length > 0 ||
+      paidInvoices.length > 0 ||
+      topOpenInvoices.length > 0 ||
+      confirmPayments.length > 0)
 
   const cashRows = useMemo(() => {
     const maxDays = CASH_FILTERS.find((f) => f.id === cashFilter)?.maxDays ?? 7
     return cashForecast.filter((item) => item.daysOut <= maxDays).slice(0, DETAIL_ROW_LIMIT)
   }, [cashForecast, cashFilter])
+
+  const paidRows = useMemo(() => {
+    const maxDays = CASH_FILTERS.find((f) => f.id === cashFilter)?.maxDays ?? 7
+    return paidInvoices.filter((item) => item.daysOut <= maxDays).slice(0, DETAIL_ROW_LIMIT)
+  }, [paidInvoices, cashFilter])
 
   const topOpenRows = useMemo(
     () => topOpenInvoices.slice(0, DETAIL_ROW_LIMIT),
@@ -167,6 +194,62 @@ export default function OpenBalanceCard({
     () => confirmPayments.slice(0, DETAIL_ROW_LIMIT),
     [confirmPayments]
   )
+
+  const paidBuckets = paidRecent ?? {
+    next7: { amount: 0, count: 0 },
+    next14: { amount: 0, count: 0 },
+    next30: { amount: 0, count: 0 },
+  }
+  const isPaidPane = duePane === 'paid'
+  const dueStripBuckets = isPaidPane
+    ? [
+        {
+          label: '7d',
+          amount: paidBuckets.next7.amount,
+          count: paidBuckets.next7.count,
+          href: '/client/invoices',
+          title: `${paidBuckets.next7.count} invoices with confirmed pay date in the next 7 days`,
+        },
+        {
+          label: '14d',
+          amount: paidBuckets.next14.amount,
+          count: paidBuckets.next14.count,
+          href: '/client/invoices',
+          title: `${paidBuckets.next14.count} invoices with confirmed pay date in the next 14 days`,
+        },
+        {
+          label: '30d',
+          amount: paidBuckets.next30.amount,
+          count: paidBuckets.next30.count,
+          href: '/client/invoices',
+          title: `${paidBuckets.next30.count} invoices with confirmed pay date in the next 30 days`,
+        },
+      ]
+    : comingDue
+      ? [
+          {
+            label: '7d',
+            amount: comingDue.next7.amount,
+            count: comingDue.next7.count,
+            href: '/client/invoices',
+            title: `${comingDue.next7.count} invoices expected in 7 days (not yet confirmed)`,
+          },
+          {
+            label: '14d',
+            amount: comingDue.next14.amount,
+            count: comingDue.next14.count,
+            href: '/client/invoices',
+            title: `${comingDue.next14.count} invoices expected in 14 days (not yet confirmed)`,
+          },
+          {
+            label: '30d',
+            amount: comingDue.next30.amount,
+            count: comingDue.next30.count,
+            href: '/client/invoices',
+            title: `${comingDue.next30.count} invoices expected in 30 days (not yet confirmed)`,
+          },
+        ]
+      : []
 
   const openInvoice = (id: string) => {
     navigate(`/client/invoices?invoiceId=${encodeURIComponent(id)}`)
@@ -203,9 +286,12 @@ export default function OpenBalanceCard({
     recentCollections,
     comingDue,
     cashForecast,
+    paidRecent,
+    paidInvoices,
     topOpenInvoices,
     confirmPayments,
     cashFilter,
+    duePane,
     onTimeAmount,
     overdueAmount,
   ])
@@ -265,49 +351,49 @@ export default function OpenBalanceCard({
         </div>
       ) : null}
 
-      {comingDue && !loading ? (
+      {(comingDue || paidRecent) && !loading ? (
         <div className="cd-open-balance__coming-due">
-          <span className="cd-coming-due__title">
-            <CalendarClock size={10} strokeWidth={2.25} aria-hidden />
-            Coming due
-          </span>
+          <div className="cd-coming-due__tabs" role="tablist" aria-label="Due vs confirmed paid">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!isPaidPane}
+              className={`cd-coming-due__tab${!isPaidPane ? ' is-active' : ''}`}
+              onClick={() => setDuePane('coming')}
+            >
+              <CalendarClock size={10} strokeWidth={2.25} aria-hidden />
+              Coming due
+            </button>
+            <span className="cd-coming-due__tab-pipe" aria-hidden>
+              |
+            </span>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isPaidPane}
+              className={`cd-coming-due__tab is-paid${isPaidPane ? ' is-active' : ''}`}
+              onClick={() => setDuePane('paid')}
+            >
+              <BadgeCheck size={10} strokeWidth={2.25} aria-hidden />
+              Paid
+            </button>
+          </div>
           <div className="cd-coming-due__grid">
-            <button
-              type="button"
-              className="cd-coming-due__item"
-              onClick={() => navigate('/client/invoices')}
-              title={`${comingDue.next7.count} invoices expected in 7 days`}
-            >
-              <span className="cd-coming-due__label">7d</span>
-              <span className="cd-coming-due__value tabular-nums">
-                {formatCurrency(comingDue.next7.amount)}
-              </span>
-              <span className="cd-coming-due__count tabular-nums">{comingDue.next7.count}</span>
-            </button>
-            <button
-              type="button"
-              className="cd-coming-due__item"
-              onClick={() => navigate('/client/invoices')}
-              title={`${comingDue.next14.count} invoices expected in 14 days`}
-            >
-              <span className="cd-coming-due__label">14d</span>
-              <span className="cd-coming-due__value tabular-nums">
-                {formatCurrency(comingDue.next14.amount)}
-              </span>
-              <span className="cd-coming-due__count tabular-nums">{comingDue.next14.count}</span>
-            </button>
-            <button
-              type="button"
-              className="cd-coming-due__item"
-              onClick={() => navigate('/client/invoices')}
-              title={`${comingDue.next30.count} invoices expected in 30 days`}
-            >
-              <span className="cd-coming-due__label">30d</span>
-              <span className="cd-coming-due__value tabular-nums">
-                {formatCurrency(comingDue.next30.amount)}
-              </span>
-              <span className="cd-coming-due__count tabular-nums">{comingDue.next30.count}</span>
-            </button>
+            {dueStripBuckets.map((bucket) => (
+              <button
+                key={bucket.label}
+                type="button"
+                className={`cd-coming-due__item${isPaidPane ? ' is-paid' : ''}`}
+                onClick={() => navigate(bucket.href)}
+                title={bucket.title}
+              >
+                <span className="cd-coming-due__label">{bucket.label}</span>
+                <span className="cd-coming-due__value tabular-nums">
+                  {formatCurrency(bucket.amount)}
+                </span>
+                <span className="cd-coming-due__count tabular-nums">{bucket.count}</span>
+              </button>
+            ))}
           </div>
         </div>
       ) : null}
@@ -323,16 +409,27 @@ export default function OpenBalanceCard({
 
       {showDetailColumns ? (
         <div className="cd-open-balance__detail-cols" aria-label="Open Balance details">
-          <section className="cd-detail-col" aria-label="Expected payment">
+          <section
+            className="cd-detail-col"
+            aria-label={isPaidPane ? 'Confirmed pay' : 'Expected payment'}
+          >
             <header className="cd-detail-col__head">
               <h3 className="cd-detail-col__title">
-                <Banknote size={11} strokeWidth={2.25} aria-hidden />
-                Expected payment
+                {isPaidPane ? (
+                  <BadgeCheck size={11} strokeWidth={2.25} aria-hidden />
+                ) : (
+                  <Banknote size={11} strokeWidth={2.25} aria-hidden />
+                )}
+                {isPaidPane ? 'Confirmed pay' : 'Expected payment'}
               </h3>
               <span className="cd-detail-col__pipe" aria-hidden>
                 |
               </span>
-              <div className="cd-detail-col__filters" role="tablist" aria-label="Expected payment window">
+              <div
+                className="cd-detail-col__filters"
+                role="tablist"
+                aria-label={isPaidPane ? 'Confirmed pay window' : 'Expected payment window'}
+              >
                 {CASH_FILTERS.map((f, idx) => (
                   <span key={f.id} className="cd-detail-col__filter-wrap">
                     {idx > 0 ? (
@@ -353,7 +450,25 @@ export default function OpenBalanceCard({
                 ))}
               </div>
             </header>
-            {cashRows.length === 0 ? (
+            {isPaidPane ? (
+              paidRows.length === 0 ? (
+                <p className="cd-detail-col__empty">No confirmed pay dates</p>
+              ) : (
+                <ul className="cd-detail-col__rows">
+                  {paidRows.map((item) => (
+                    <li key={item.id}>
+                      <DetailRow
+                        invoiceNumber={item.invoiceNumber}
+                        brokerName={item.brokerName}
+                        amount={item.amount}
+                        meta={formatDate(item.payDate)}
+                        onOpen={() => openInvoice(item.id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : cashRows.length === 0 ? (
               <p className="cd-detail-col__empty">None in this window</p>
             ) : (
               <ul className="cd-detail-col__rows">

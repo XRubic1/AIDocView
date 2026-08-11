@@ -539,20 +539,36 @@
 .cdv2-kpi {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 0.2rem;
+  align-items: stretch;
+  gap: 0.35rem;
   padding: var(--cdv2-pad-y) var(--cdv2-pad-x);
   border-radius: var(--cdv2-radius);
   border: 1px solid var(--cdv2-border);
   background: var(--cdv2-card);
   box-shadow: var(--cdv2-shadow);
   text-align: left;
-  cursor: pointer;
   min-width: 0;
   width: 100%;
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
+}
+
+.cdv2-kpi__hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  width: 100%;
 }
 
 .cdv2-kpi:hover {
@@ -629,6 +645,45 @@
 
 .cdv2-kpi.tone-danger .cdv2-kpi__trend.is-down {
   color: var(--cdv2-success);
+}
+
+.cdv2-kpi__windows {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem;
+  margin-top: 0.1rem;
+}
+
+.cdv2-kpi__window {
+  margin: 0;
+  padding: 0.18rem 0.42rem;
+  border: 1px solid var(--cdv2-border);
+  border-radius: 999px;
+  background: var(--cdv2-chip-bg);
+  color: var(--cdv2-muted);
+  font-family: inherit;
+  font-size: calc(0.625rem * var(--cdv2-s-sm));
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cdv2-kpi__window:hover {
+  color: var(--cdv2-text);
+  border-color: color-mix(in srgb, var(--cdv2-blue) 30%, var(--cdv2-border));
+}
+
+.cdv2-kpi__window.is-active {
+  border-color: color-mix(in srgb, var(--cdv2-blue) 40%, var(--cdv2-border));
+  background: color-mix(in srgb, var(--cdv2-blue) 10%, var(--cdv2-mix-base));
+  color: var(--cdv2-text);
+}
+
+.cdv2-kpi.tone-success .cdv2-kpi__window.is-active {
+  border-color: color-mix(in srgb, var(--cdv2-success) 42%, var(--cdv2-border));
+  background: color-mix(in srgb, var(--cdv2-success) 12%, var(--cdv2-mix-base));
 }
 
 /* ——— Actions ——— */
@@ -1337,6 +1392,22 @@
 .client-portal[data-theme='dark'] .cdv2-actions__head,
 .client-portal[data-theme='dark'] .cdv2-aging {
   border-color: rgba(255, 255, 255, 0.08);
+}
+
+.client-portal[data-theme='dark'] .cdv2-kpi__window {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.client-portal[data-theme='dark'] .cdv2-kpi__window.is-active {
+  background: rgba(22, 132, 254, 0.16);
+  border-color: rgba(22, 132, 254, 0.45);
+  color: #e2e8f0;
+}
+
+.client-portal[data-theme='dark'] .cdv2-kpi.tone-success .cdv2-kpi__window.is-active {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(16, 185, 129, 0.42);
 }
 
 .client-portal[data-theme='dark'] .cdv2-actions__filter {

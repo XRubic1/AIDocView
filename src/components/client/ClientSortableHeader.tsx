@@ -9,6 +9,8 @@ type ClientSortableHeaderProps<T extends string> = {
   onSort: (field: T) => void
   className?: string
   align?: 'left' | 'right' | 'center'
+  /** Native tooltip on the sort button. */
+  title?: string
 }
 
 /** Clickable table column header with asc/desc sort indicator. */
@@ -20,6 +22,7 @@ export default function ClientSortableHeader<T extends string>({
   onSort,
   className,
   align = 'left',
+  title,
 }: ClientSortableHeaderProps<T>) {
   const active = sortField === field
   const alignClass =
@@ -31,6 +34,7 @@ export default function ClientSortableHeader<T extends string>({
         type="button"
         className={`dashboard-table__sort-btn ${alignClass ?? ''}`}
         onClick={() => onSort(field)}
+        title={title}
         aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
       >
         {label}

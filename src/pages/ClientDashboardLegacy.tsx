@@ -186,7 +186,7 @@ export default function ClientDashboardLegacy() {
             {capabilities.canPostPayment && (
               <button
                 type="button"
-                onClick={() => navigate('/client/payments')}
+                onClick={() => navigate('/client/payments?tab=post')}
                 className="dashboard-btn-secondary dashboard-btn-compact"
               >
                 <DollarSign className="w-3.5 h-3.5" />

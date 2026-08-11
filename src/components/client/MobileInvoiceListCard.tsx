@@ -14,6 +14,8 @@ import {
   invoiceHasOpenDisputedStatus,
 } from '../../utils/clientInvoiceDisputeStatus'
 import { getClientVisibleDueDate } from '../../utils/ppwSent'
+import BrokerRiskLevelChip from './BrokerRiskLevelChip'
+import type { BrokerRiskLevel } from '../../types/brokerRisk'
 
 interface MobileInvoiceListCardProps {
   invoice: EnrichedInvoice
@@ -33,6 +35,8 @@ interface MobileInvoiceListCardProps {
   /** Onboarding tour spotlight hook. */
   onboardTarget?: string
   onClick: () => void
+  /** Carrier-visible Credyx Broker Risk for this invoice's broker. */
+  riskLevel?: BrokerRiskLevel
 }
 
 /**
@@ -52,6 +56,7 @@ export default function MobileInvoiceListCard({
   highlighted = false,
   onboardTarget,
   onClick,
+  riskLevel = 'unrated',
 }: MobileInvoiceListCardProps) {
   const priorityInput = {
     awaitingReceipt,
@@ -115,7 +120,8 @@ export default function MobileInvoiceListCard({
       </p>
 
       <p className="mobile-invoice-list-card__broker" title={invoice.broker_name}>
-        {invoice.broker_name}
+        <span className="mobile-invoice-list-card__broker-name">{invoice.broker_name}</span>
+        <BrokerRiskLevelChip level={riskLevel} size="sm" />
       </p>
 
       <div className="mobile-invoice-list-card__footer">

@@ -123,7 +123,7 @@ export function computeOpenArAging(
     const balance = openArBalance(inv, payments)
     if (balance <= AMOUNT_EPSILON) continue
 
-    const id = getDisplayAgingBucketId(inv.daysOutstanding)
+    const id = getDisplayAgingBucketId(inv.invoiceAgeDays)
     const row = bucketMap.get(id)!
     row.amount += balance
     row.count += 1
@@ -163,7 +163,7 @@ export function computeDso(openInvoices: EnrichedInvoice[], payments?: Payment[]
   const total = open.reduce((s, inv) => s + openArBalance(inv, payments), 0)
   if (total <= AMOUNT_EPSILON) return null
   const weighted = open.reduce(
-    (s, inv) => s + inv.daysOutstanding * openArBalance(inv, payments),
+    (s, inv) => s + inv.invoiceAgeDays * openArBalance(inv, payments),
     0
   )
   return Math.round(weighted / total)

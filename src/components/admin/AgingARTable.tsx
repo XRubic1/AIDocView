@@ -9,7 +9,7 @@ interface AgingARTableProps {
 
 export function AgingARTable({ aging, onRowClick }: AgingARTableProps) {
   const agingRows = [
-    { label: '1-15 days', key: '1_15' as const, amount: aging['1_15'] },
+    { label: '0–15 days', key: '1_15' as const, amount: aging['1_15'] },
     { label: '16-30 days', key: '16_30' as const, amount: aging['16_30'] },
     { label: '31-45 days', key: '31_45' as const, amount: aging['31_45'] },
     { label: '46-60 days', key: '46_60' as const, amount: aging['46_60'] },

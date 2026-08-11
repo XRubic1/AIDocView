@@ -1,5 +1,6 @@
 import { Broker } from '../types/broker'
 import { persistBroker } from '../services/supabase/tenantPersist'
+import { syncOpenInvoiceDueDatesForBroker } from '../services/syncBrokerInvoiceDueDates'
 
 /** Mutable in-memory broker directory (hydrated from Supabase when configured). */
 export const mockBrokers: Broker[] = []
@@ -58,12 +59,8 @@ export function addBroker(broker: Broker): Broker {
 }
 
 export function updateBroker(brokerId: string, patch: Partial<Broker>): Broker | undefined {
-  const broker = applyBrokerPatch(brokerId, patch)
-  if (!broker) return undefined
-  void persistBroker(broker)
-    .then(() => emitBrokersUpdated())
-    .catch(console.error)
-  return broker
+  void updateBrokerAsync(brokerId, patch).catch(console.error)
+  return mockBrokers.find((b) => b.id === brokerId)
 }
 
 /** Awaited update — use for admin note posts that must reach carriers. */
@@ -71,9 +68,23 @@ export async function updateBrokerAsync(
   brokerId: string,
   patch: Partial<Broker>
 ): Promise<Broker | undefined> {
+  const previous = mockBrokers.find((b) => b.id === brokerId)
+  if (!previous) return undefined
+  const previousDays = previous.payment_terms_days
   const broker = applyBrokerPatch(brokerId, patch)
   if (!broker) return undefined
   await persistBroker(broker)
   emitBrokersUpdated()
+
+  // Always snap open invoices to invoice_date + current Net days when Due by is saved.
+  if (Object.prototype.hasOwnProperty.call(patch, 'payment_terms_days')) {
+    await syncOpenInvoiceDueDatesForBroker({
+      brokerId,
+      brokerName: broker.name,
+      previousDays,
+      nextDays: broker.payment_terms_days,
+    })
+  }
+
   return broker
 }

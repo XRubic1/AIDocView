@@ -71,7 +71,7 @@ export const darkClientTheme = {
   primaryHover: '#FFFFFF',
   secondary: '#94A3B8',
   muted: '#94A3B8',
-  mutedLight: '#64748B',
+  mutedLight: '#CBD5E1',
   border: '#1E293B',
   surface: '#0F172A',
   card: '#111827',

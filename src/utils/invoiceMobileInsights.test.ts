@@ -63,6 +63,30 @@ describe('getInvoiceMobileInsights — short paid', () => {
     expect(insights.some((i) => i.id === 'awaiting-receipt')).toBe(true)
   })
 
+  it('shows a clickable high-risk broker row', () => {
+    const invoice = baseInvoice()
+    const insights = getInvoiceMobileInsights({
+      invoice,
+      enriched: enrichInvoice(invoice),
+      brokerRiskLevel: 'high',
+    })
+    const row = insights.find((i) => i.id === 'broker-risk')
+    expect(row?.title).toBe('High risk broker')
+    expect(row?.action).toBe('broker_risk')
+    expect(row?.subtitle).toMatch(/Brokers tab/)
+  })
+
+  it('hides broker risk row for low / unrated brokers', () => {
+    const invoice = baseInvoice()
+    expect(
+      getInvoiceMobileInsights({
+        invoice,
+        enriched: enrichInvoice(invoice),
+        brokerRiskLevel: 'low',
+      }).some((i) => i.id === 'broker-risk')
+    ).toBe(false)
+  })
+
   it('shows Overpayment when remittance exceeds face amount', () => {
     const invoice = baseInvoice()
     const insights = getInvoiceMobileInsights({

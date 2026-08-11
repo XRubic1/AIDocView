@@ -56,7 +56,7 @@ export default function AgingAR() {
       <div className="max-w-[1400px] mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-black mb-2">Aging A/R</h1>
-          <p className="text-gray-600">View invoices grouped by days since expected payment date</p>
+          <p className="text-gray-600">View invoices grouped by invoice age (days since invoice date)</p>
         </div>
 
         <div className="bg-white border border-gray-200">

@@ -1,15 +1,20 @@
 /* Broker Risk — full-viewport workspace (matches Work Queue flush pattern). */
 
 .admin-broker-risk {
-  --abr-border: rgba(129, 146, 145, 0.35);
-  --abr-surface: #fff;
-  --abr-muted-bg: #f8fafc;
+  --abr-border: var(--cp-border);
+  --abr-surface: var(--cp-card);
+  --abr-muted-bg: var(--cp-surface);
+  --abr-text: var(--cp-text);
+  --abr-muted: var(--cp-text-muted);
+  --abr-hover: var(--cp-table-hover);
+  --abr-input: var(--cp-input-bg);
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow: hidden;
   background: var(--abr-muted-bg);
+  color: var(--abr-text);
 }
 
 .admin-broker-risk__top {
@@ -58,45 +63,11 @@
   gap: 0.55rem;
 }
 
-.admin-broker-risk__tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-
-.admin-broker-risk__tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.3rem 0.65rem;
-  border-radius: 0.4rem;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  font-size: 0.72rem;
-  font-weight: 650;
-  color: #64748b;
-  cursor: pointer;
-}
-
-.admin-broker-risk__tab:hover {
-  border-color: #1684fe;
-  color: #113543;
-}
-
-.admin-broker-risk__tab.is-active {
-  background: #113543;
-  border-color: #113543;
-  color: #fff;
-}
-
-.admin-broker-risk__tab-count {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-  font-weight: 700;
-}
-
-.admin-broker-risk__tab.is-active .admin-broker-risk__tab-count {
-  opacity: 1;
+.admin-broker-risk__queue-summary {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .admin-broker-risk__run-btn {
@@ -105,9 +76,9 @@
   gap: 0.35rem;
   padding: 0.4rem 0.75rem;
   border-radius: 0.4rem;
-  border: 1px solid #819291;
-  background: #113543;
-  color: #fff;
+  border: 1px solid var(--cp-border-hover);
+  background: var(--cp-btn-primary-bg);
+  color: var(--cp-btn-primary-text);
   font-size: 0.75rem;
   font-weight: 650;
   cursor: pointer;
@@ -123,7 +94,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -156,23 +127,24 @@
   text-align: left;
   padding: 0.65rem 0.85rem;
   border: none;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--abr-border);
   border-left: 3px solid transparent;
   background: transparent;
+  color: inherit;
   cursor: pointer;
 }
 
 .admin-broker-risk__row:hover {
-  background: #f8fafc;
+  background: var(--abr-hover);
 }
 
 .admin-broker-risk__row.is-active {
-  background: #f0f7ff;
-  border-left-color: #1684fe;
+  background: color-mix(in srgb, var(--cp-accent) 12%, var(--abr-surface));
+  border-left-color: var(--cp-accent);
 }
 
 .admin-broker-risk__row.is-urgent:not(.is-active) {
-  background: #fff7f7;
+  background: color-mix(in srgb, var(--cp-error) 12%, var(--abr-surface));
 }
 
 .admin-broker-risk__row-main {
@@ -242,6 +214,26 @@
   color: #fff;
 }
 
+.admin-broker-risk__chip--status-pending_review {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.admin-broker-risk__chip--status-published {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.admin-broker-risk__chip--status-auto_published {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.admin-broker-risk__chip--status-cleared {
+  background: #dcfce7;
+  color: #15803d;
+}
+
 .admin-broker-risk__panel {
   min-height: 0;
   min-width: 0;
@@ -286,15 +278,15 @@
   margin: 0 0 0.55rem;
   padding: 0.55rem 0.75rem;
   border-radius: 0.45rem;
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
+  border: 1px solid var(--abr-border);
+  background: var(--abr-muted-bg);
 }
 
 .admin-broker-risk__verdict-title {
   margin: 0;
   font-size: 0.85rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--abr-text);
   line-height: 1.25;
 }
 
@@ -302,7 +294,7 @@
   margin: 0.2rem 0 0;
   font-size: 0.72rem;
   font-weight: 650;
-  color: #113543;
+  color: var(--abr-muted);
   line-height: 1.3;
 }
 
@@ -346,8 +338,8 @@
   gap: 0.1rem;
   padding: 0.4rem 0.55rem;
   border-radius: 0.4rem;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--abr-border);
+  background: var(--abr-surface);
   min-width: 0;
 }
 
@@ -356,13 +348,13 @@
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #64748b;
+  color: var(--abr-muted);
 }
 
 .admin-broker-risk__facts strong {
   font-size: 0.78rem;
   font-weight: 700;
-  color: #113543;
+  color: var(--abr-text);
   line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -386,9 +378,9 @@
   flex-direction: column;
   overflow-x: hidden;
   overflow-y: auto;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--abr-border);
   border-radius: 0.5rem;
-  background: #f8fafc;
+  background: var(--abr-muted-bg);
   padding: 0.5rem 0.6rem;
 }
 
@@ -401,7 +393,7 @@
   margin: 0 0 0.4rem;
   font-size: 0.7rem;
   font-weight: 700;
-  color: #475569;
+  color: var(--abr-muted);
 }
 
 .admin-broker-risk__cause {
@@ -451,12 +443,12 @@
   gap: 0.35rem;
   align-items: flex-start;
   font-size: 0.72rem;
-  color: #334155;
+  color: var(--abr-text);
   line-height: 1.35;
   padding: 0.35rem 0.4rem;
   border-radius: 0.35rem;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--abr-surface);
+  border: 1px solid var(--abr-border);
 }
 
 .admin-broker-risk__snip-tag {
@@ -466,7 +458,8 @@
   text-transform: uppercase;
   padding: 0.1rem 0.3rem;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: var(--abr-hover);
+  color: var(--abr-muted);
 }
 
 .admin-broker-risk__snip-tag--ppw_docs {
@@ -509,18 +502,18 @@
   gap: 0.25rem;
   padding: 0.2rem 0.45rem;
   border-radius: 0.35rem;
-  border: 1px solid #cbd5e1;
-  background: #fff;
+  border: 1px solid var(--abr-border);
+  background: var(--abr-surface);
   font-size: 0.65rem;
   font-weight: 650;
-  color: #113543;
+  color: var(--abr-text);
   cursor: pointer;
 }
 
 .admin-broker-risk__notes-toggle.is-on {
-  border-color: #1684fe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: var(--cp-accent);
+  background: color-mix(in srgb, var(--cp-accent) 14%, var(--abr-surface));
+  color: var(--cp-accent);
 }
 
 .admin-broker-risk__invoice-cols {
@@ -532,14 +525,14 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #94a3b8;
+  color: var(--abr-muted);
   flex-shrink: 0;
 }
 
 .admin-broker-risk__invoice-row {
   border-radius: 0.35rem;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--abr-border);
+  background: var(--abr-surface);
   overflow: hidden;
 }
 
@@ -579,7 +572,7 @@
 
 .admin-broker-risk__inv-amt {
   font-weight: 650;
-  color: #0f172a;
+  color: var(--abr-text);
   white-space: nowrap;
 }
 
@@ -593,7 +586,7 @@
 .admin-broker-risk__inv-age {
   font-size: 0.68rem;
   font-weight: 650;
-  color: #64748b;
+  color: var(--abr-muted);
 }
 
 .admin-broker-risk__inv-past {
@@ -602,7 +595,7 @@
 }
 
 .admin-broker-risk__inv-dash {
-  color: #cbd5e1;
+  color: var(--abr-muted);
   font-size: 0.7rem;
 }
 
@@ -622,8 +615,8 @@
 }
 
 .admin-broker-risk__past-badge--soft {
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--abr-hover);
+  color: var(--abr-muted);
   font-weight: 650;
 }
 
@@ -632,14 +625,14 @@
   font-weight: 700;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
-  background: #e2e8f0;
-  color: #334155;
+  background: var(--abr-hover);
+  color: var(--abr-text);
 }
 
 .admin-broker-risk__note-count {
   font-size: 0.68rem;
   font-weight: 650;
-  color: #64748b;
+  color: var(--abr-muted);
   text-align: right;
 }
 
@@ -655,7 +648,7 @@
 
 .admin-broker-risk__invoice-notes li {
   font-size: 0.68rem;
-  color: #334155;
+  color: var(--abr-text);
   padding-top: 0.3rem;
   line-height: 1.35;
 }
@@ -664,7 +657,7 @@
   display: block;
   font-size: 0.6rem;
   font-weight: 650;
-  color: #64748b;
+  color: var(--abr-muted);
   margin-bottom: 0.1rem;
 }
 
@@ -674,8 +667,8 @@
   margin: 0 -1rem 0;
   padding: 0.65rem 1rem 0.75rem;
   border-top: 1px solid var(--abr-border);
-  background: #fff;
-  box-shadow: 0 -4px 12px rgba(15, 23, 42, 0.04);
+  background: var(--abr-surface);
+  box-shadow: 0 -4px 12px color-mix(in srgb, #000 12%, transparent);
 }
 
 .admin-broker-risk__presets {
@@ -694,18 +687,18 @@
   text-align: center;
   padding: 0.45rem 0.4rem;
   border-radius: 0.4rem;
-  border: 1px solid #cbd5e1;
-  background: #fff;
+  border: 1px solid var(--abr-border);
+  background: var(--abr-surface);
   font-size: 0.72rem;
   font-weight: 650;
-  color: #113543;
+  color: var(--abr-text);
   cursor: pointer;
   line-height: 1.2;
 }
 
 .admin-broker-risk__preset:hover {
-  border-color: #1684fe;
-  background: #f0f7ff;
+  border-color: var(--cp-accent);
+  background: color-mix(in srgb, var(--cp-accent) 12%, var(--abr-surface));
 }
 
 .admin-broker-risk__preset--publish {
@@ -731,10 +724,12 @@
 .admin-broker-risk__note-input {
   flex: 1;
   min-width: 140px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--cp-input-border);
   border-radius: 0.4rem;
   padding: 0.4rem 0.55rem;
   font-size: 0.75rem;
+  background: var(--abr-input);
+  color: var(--abr-text);
 }
 
 .admin-broker-risk__btn {
@@ -817,6 +812,102 @@
   .admin-broker-risk__panel-body {
     grid-template-columns: 1fr;
   }
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__chip--high,
+.client-portal[data-theme='dark'] .admin-broker-risk__chip--status-pending_review {
+  background: color-mix(in srgb, #ef4444 22%, var(--cp-card));
+  color: #fca5a5;
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__chip--medium {
+  background: color-mix(in srgb, #f59e0b 22%, var(--cp-card));
+  color: #fcd34d;
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__chip--low,
+.client-portal[data-theme='dark'] .admin-broker-risk__chip--status-cleared {
+  background: color-mix(in srgb, #10b981 22%, var(--cp-card));
+  color: #6ee7b7;
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__chip--unrated {
+  background: var(--cp-table-hover);
+  color: var(--cp-text-muted);
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__chip--status-published {
+  background: color-mix(in srgb, #1684fe 22%, var(--cp-card));
+  color: #93c5fd;
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__chip--status-auto_published {
+  background: color-mix(in srgb, #6366f1 22%, var(--cp-card));
+  color: #c7d2fe;
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__verdict--broker_issue {
+  border-color: color-mix(in srgb, #f59e0b 40%, var(--cp-border));
+  background: color-mix(in srgb, #f59e0b 12%, var(--cp-card));
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__verdict--docs_issue {
+  border-color: color-mix(in srgb, #1684fe 40%, var(--cp-border));
+  background: color-mix(in srgb, #1684fe 12%, var(--cp-card));
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__verdict--dispute,
+.client-portal[data-theme='dark'] .admin-broker-risk__invoice-row.is-urgent-past {
+  border-color: color-mix(in srgb, #ef4444 40%, var(--cp-border));
+  background: color-mix(in srgb, #ef4444 12%, var(--cp-card));
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__verdict--mixed,
+.client-portal[data-theme='dark'] .admin-broker-risk__verdict--timing_only,
+.client-portal[data-theme='dark'] .admin-broker-risk__invoice-row.is-past-terms {
+  border-color: color-mix(in srgb, #f59e0b 40%, var(--cp-border));
+  background: color-mix(in srgb, #f59e0b 12%, var(--cp-card));
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__verdict--no_issue {
+  border-color: color-mix(in srgb, #10b981 40%, var(--cp-border));
+  background: color-mix(in srgb, #10b981 12%, var(--cp-card));
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__cause--ppw,
+.client-portal[data-theme='dark'] .admin-broker-risk__snip-tag--ppw_docs {
+  background: color-mix(in srgb, #1684fe 22%, var(--cp-card));
+  color: #93c5fd;
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__cause--pay,
+.client-portal[data-theme='dark'] .admin-broker-risk__snip-tag--broker_slow_pay {
+  background: color-mix(in srgb, #f59e0b 22%, var(--cp-card));
+  color: #fdba74;
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__cause--dispute,
+.client-portal[data-theme='dark'] .admin-broker-risk__snip-tag--dispute {
+  background: color-mix(in srgb, #ef4444 22%, var(--cp-card));
+  color: #fca5a5;
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__cause--mixed {
+  background: color-mix(in srgb, #a855f7 22%, var(--cp-card));
+  color: #d8b4fe;
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__invoice-btn:hover {
+  background: var(--cp-table-hover);
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__past-badge {
+  background: color-mix(in srgb, #f59e0b 28%, var(--cp-card));
+  color: #fcd34d;
+}
+
+.client-portal[data-theme='dark'] .admin-broker-risk__invoice-notes {
+  border-top-color: var(--cp-border);
 }
 
 @media (max-width: 640px) {

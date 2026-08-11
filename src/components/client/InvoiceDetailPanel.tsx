@@ -15,6 +15,7 @@ import {
   PanelRightOpen,
   Mail,
   Menu,
+  MessageSquare,
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
@@ -100,6 +101,7 @@ import type { ClientDocument } from '../../types/clientDocument'
 import MobileInvoiceOverview from './MobileInvoiceOverview'
 import { InvoiceActivityNoteList, declutterActivityEntries } from './InvoiceActivityNoteList'
 import { getCarrierInvoiceActionRequired } from '../../utils/invoiceMobileInsights'
+import { getCarrierVisibleBrokerRiskLevel } from '../../utils/clientBrokers'
 import ConfirmPaymentReceiptModal from './ConfirmPaymentReceiptModal'
 
 type TimelineFilter = 'all' | 'activity' | 'notes' | 'payments' | 'send'
@@ -220,6 +222,13 @@ export interface InvoiceDetailPanelProps {
   autoOpenUpload?: boolean
   /** Called after auto-open has been applied so the parent can clear the flag. */
   onAutoOpenUploadConsumed?: () => void
+  /**
+   * `overview_activity` = Overview + Activity (default).
+   * `details_notes` = Invoice details + Notes (collections workspace).
+   */
+  detailTabs?: 'overview_activity' | 'details_notes'
+  /** Hide close / prev-next / pop-out when the parent already provides that chrome. */
+  hidePanelChrome?: boolean
 }
 
 /** Invoice detail — Payment Details layout (sidebar desktop / full page mobile). */
@@ -246,6 +255,8 @@ export default function InvoiceDetailPanel({
   onPopOut,
   autoOpenUpload = false,
   onAutoOpenUploadConsumed,
+  detailTabs = 'overview_activity',
+  hidePanelChrome = false,
 }: InvoiceDetailPanelProps) {
   const c = useClientTheme()
   const navigate = useNavigate()
@@ -258,8 +269,9 @@ export default function InvoiceDetailPanel({
   const notesEnabled = enableNotes ?? enableClientActions
   const authorName = noteAuthorName?.trim() || clientName
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all')
-  /** Overview vs separated activity/notes surface (mobile + sidebar). */
-  const [detailSurface, setDetailSurface] = useState<'overview' | 'activity'>('overview')
+  /** Overview vs activity / notes surface (mobile + sidebar). */
+  const [detailSurface, setDetailSurface] = useState<'overview' | 'activity' | 'notes'>('overview')
+  const notesAsPrimaryTab = detailTabs === 'details_notes'
   /**
    * Mobile invoice pager animation:
    * - drag: follow finger
@@ -304,10 +316,6 @@ export default function InvoiceDetailPanel({
   )
   const enriched = useMemo(() => enrichInvoice(visibleInvoice), [visibleInvoice])
 
-  useEffect(() => {
-    setTimelineFilter('all')
-    setDetailSurface('overview')
-  }, [invoice.id])
 
   const invoicePayments = useMemo(
     () => payments.filter((p) => p.invoice_id === invoice.id),
@@ -365,7 +373,6 @@ export default function InvoiceDetailPanel({
   const [newNote, setNewNote] = useState('')
   const [noteVisibility, setNoteVisibility] = useState<'client' | 'internal'>('client')
   const [isAddingNote, setIsAddingNote] = useState(false)
-  const [statusExtraNote, setStatusExtraNote] = useState('')
   const [statusDate, setStatusDate] = useState(() => new Date().toISOString().slice(0, 10))
   /** Selected status action awaiting Confirm (does not post until confirmed). */
   const [pendingStatusKind, setPendingStatusKind] = useState<InvoiceStatusNoteKind | null>(null)
@@ -402,7 +409,7 @@ export default function InvoiceDetailPanel({
 
   useEffect(() => {
     setNoteVisibility('client')
-    setStatusExtraNote('')
+    setNewNote('')
     setStatusError(null)
     setStatusDate(new Date().toISOString().slice(0, 10))
   }, [invoice.id])
@@ -652,6 +659,16 @@ export default function InvoiceDetailPanel({
 
     return entries
       .filter((entry, index, all) => {
+        // One row per post: drop Payment Confirmation when Payment Posted already covers it.
+        if (entry.title === 'Payment Confirmation') {
+          const money = (entry.detail.match(/\$[\d,]+(?:\.\d{2})?/)?.[0] ?? '').replace(/,/g, '')
+          const hasPosted = all.some(
+            (other) =>
+              other.title === 'Payment Posted' &&
+              (other.detail.match(/\$[\d,]+(?:\.\d{2})?/)?.[0] ?? '').replace(/,/g, '') === money
+          )
+          if (hasPosted) return false
+        }
         // Drop duplicate Payment Confirmation / Write-off rows (same amount).
         if (entry.title !== 'Payment Confirmation' && entry.title !== 'Write-off') {
           return true
@@ -1019,11 +1036,22 @@ export default function InvoiceDetailPanel({
       tab: 'view',
       batch: visibleInvoice.batch_id,
     })
-    navigate(
-      isAdminPortal
-        ? `/batches?batch=${encodeURIComponent(visibleInvoice.batch_id)}`
-        : `/client/batches?${params.toString()}`
-    )
+    const path = isAdminPortal
+      ? `/batches?batch=${encodeURIComponent(visibleInvoice.batch_id)}`
+      : `/client/batches?${params.toString()}`
+
+    // Pop-out workspace: open the batch in the main app window, not this popup.
+    const opener = window.opener
+    if (opener && !opener.closed) {
+      try {
+        opener.location.assign(`${window.location.origin}${path}`)
+        opener.focus()
+        return
+      } catch {
+        /* cross-origin opener — fall through to this window */
+      }
+    }
+    navigate(path)
   }
 
   const handleUploadDocuments = async (files: File[]) => {
@@ -1062,6 +1090,10 @@ export default function InvoiceDetailPanel({
   }
 
   const handleAddNote = async () => {
+    if (pendingStatusKind) {
+      await handleConfirmStatus()
+      return
+    }
     if (!newNote.trim() || isAddingNote) return
     setIsAddingNote(true)
     try {
@@ -1132,13 +1164,13 @@ export default function InvoiceDetailPanel({
         kind,
         authorName,
         collectionDate: statusDate,
-        extraNote: statusExtraNote,
+        extraNote: newNote,
       })
       if (!updated) {
         setStatusError('Could not post status. Check the date and try again.')
         return
       }
-      setStatusExtraNote('')
+      setNewNote('')
       setPendingStatusKind(null)
       onInvoiceUpdated?.()
       showToast(
@@ -1231,19 +1263,21 @@ export default function InvoiceDetailPanel({
           )
           return
         }
-        showToast('Payment posted. Remaining balance marked uncollectable for Credyx review.', 'success')
+        showToast('Payment posted. Remaining balance written off.', 'success')
       } else if (onMarkAsPaid) {
         await onMarkAsPaid(invoice.id, options)
+        showToast('Payment posted.', 'success')
       } else {
         const updated = markClientInvoiceAsPaid(invoice.id, authorName, options, {
           canPostPayment: capabilities.canPostPayment,
         })
         if (!updated) {
           setPaidError(
-            'Could not post payment. Check that the invoice is open and no payment is already awaiting Credyx approval.'
+            'Could not post payment. Check that the invoice is open and eligible.'
           )
           return
         }
+        showToast('Payment posted.', 'success')
       }
       setShowPaidModal(false)
       setPaymentAmount('')
@@ -1326,14 +1360,18 @@ export default function InvoiceDetailPanel({
           <button
             type="button"
             onClick={() => {
-              if (detailSurface === 'activity') {
+              if (detailSurface === 'activity' || detailSurface === 'notes') {
                 setDetailSurface('overview')
                 return
               }
               onClose()
             }}
             className="payment-confirmation-panel__icon-btn"
-            aria-label={detailSurface === 'activity' ? 'Back to invoice overview' : 'Back to invoices'}
+            aria-label={
+              detailSurface === 'activity' || detailSurface === 'notes'
+                ? 'Back to invoice overview'
+                : 'Back to invoices'
+            }
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
@@ -1357,9 +1395,23 @@ export default function InvoiceDetailPanel({
               <Menu className="w-5 h-5" strokeWidth={1.75} aria-hidden />
             </button>
           </>
+        ) : hidePanelChrome ? (
+          <div className="payment-confirmation-panel__header-main min-w-0 px-1">
+            <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
+              {detailSurface === 'notes'
+                ? 'Notes'
+                : detailSurface === 'activity'
+                  ? 'Activity & notes'
+                  : 'Invoice details'}
+            </p>
+            <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
+              {visibleInvoice.invoice_number}
+              {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
+            </p>
+          </div>
         ) : (
           <>
-            {detailSurface === 'activity' ? (
+            {detailSurface === 'activity' || detailSurface === 'notes' ? (
               <button
                 type="button"
                 onClick={() => setDetailSurface('overview')}
@@ -1371,9 +1423,13 @@ export default function InvoiceDetailPanel({
             ) : null}
             <div className="payment-confirmation-panel__header-main min-w-0">
               <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
-                {detailSurface === 'activity' ? 'Activity & notes' : 'Invoice details'}
+                {detailSurface === 'notes'
+                  ? 'Notes'
+                  : detailSurface === 'activity'
+                    ? 'Activity & notes'
+                    : 'Invoice details'}
               </p>
-              {detailSurface === 'activity' ? (
+              {detailSurface === 'activity' || detailSurface === 'notes' ? (
                 <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
                   Invoice {visibleInvoice.invoice_number}
                   {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
@@ -1449,26 +1505,50 @@ export default function InvoiceDetailPanel({
             }`}
             onClick={() => setDetailSurface('overview')}
           >
-            Overview
+            {notesAsPrimaryTab ? 'Invoice details' : 'Overview'}
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={detailSurface === 'activity'}
-            className={`payment-confirmation-panel__mobile-surface-tab${
-              detailSurface === 'activity'
-                ? ' payment-confirmation-panel__mobile-surface-tab--active'
-                : ''
-            }`}
-            onClick={() => setDetailSurface('activity')}
-          >
-            Activity
-            {allTimelineEntries.length > 0 ? (
-              <span className="payment-confirmation-panel__mobile-surface-tab-count">
-                {allTimelineEntries.length}
-              </span>
-            ) : null}
-          </button>
+          {notesAsPrimaryTab ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={detailSurface === 'notes'}
+              className={`payment-confirmation-panel__mobile-surface-tab${
+                detailSurface === 'notes'
+                  ? ' payment-confirmation-panel__mobile-surface-tab--active'
+                  : ''
+              }`}
+              onClick={() => {
+                setTimelineFilter('all')
+                setDetailSurface('notes')
+              }}
+            >
+              Notes
+              {allTimelineEntries.length > 0 ? (
+                <span className="payment-confirmation-panel__mobile-surface-tab-count">
+                  {allTimelineEntries.length}
+                </span>
+              ) : null}
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={detailSurface === 'activity'}
+              className={`payment-confirmation-panel__mobile-surface-tab${
+                detailSurface === 'activity'
+                  ? ' payment-confirmation-panel__mobile-surface-tab--active'
+                  : ''
+              }`}
+              onClick={() => setDetailSurface('activity')}
+            >
+              Activity
+              {allTimelineEntries.length > 0 ? (
+                <span className="payment-confirmation-panel__mobile-surface-tab-count">
+                  {allTimelineEntries.length}
+                </span>
+              ) : null}
+            </button>
+          )}
         </div>
 
         {detailSurface === 'overview' ? (
@@ -1512,7 +1592,14 @@ export default function InvoiceDetailPanel({
                   }
                 : undefined
             }
-            onOpenActivity={() => setDetailSurface('activity')}
+            onOpenActivity={() => {
+              if (notesAsPrimaryTab) {
+                setTimelineFilter('all')
+                setDetailSurface('notes')
+                return
+              }
+              setDetailSurface('activity')
+            }}
             onConfirmPayment={
               canConfirmPaymentAction
                 ? () => setShowConfirmPaymentModal(true)
@@ -1521,6 +1608,20 @@ export default function InvoiceDetailPanel({
             onViewDocuments={canViewDocuments ? onViewDocuments : undefined}
             onUploadDocuments={
               enableClientActions ? () => setShowUploadModal(true) : undefined
+            }
+            brokerRiskLevel={
+              isAdminPortal
+                ? null
+                : getCarrierVisibleBrokerRiskLevel(invoice.client_id, invoice)
+            }
+            onOpenBrokerRisk={
+              isAdminPortal
+                ? undefined
+                : () => {
+                    const key = invoice.broker_id || invoice.broker_name
+                    if (!key) return
+                    navigate(`/client/brokers?broker=${encodeURIComponent(key)}`)
+                  }
             }
           />
         ) : (
@@ -1541,6 +1642,7 @@ export default function InvoiceDetailPanel({
                   [
                     ['all', 'All', timelineFilterCounts.all],
                     ['activity', 'Activity', timelineFilterCounts.activity],
+                    ['notes', 'Notes', timelineFilterCounts.notes],
                     ['payments', 'Payments', timelineFilterCounts.payments],
                   ] as const
                 ).map(([key, label, count]) => (
@@ -1566,101 +1668,6 @@ export default function InvoiceDetailPanel({
               </div>
             </div>
 
-            {isAdminPortal && notesEnabled && !isMobile && (
-            <div
-              className="invoice-admin-status-actions"
-              style={{ borderColor: c.border, backgroundColor: c.card }}
-            >
-              <div className="invoice-admin-status-actions__head">
-                <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
-                  Status notes
-                </p>
-                <p className="text-[10px]" style={{ color: c.mutedLight }}>
-                  Select an action, then Confirm · carrier can see these notes
-                </p>
-              </div>
-              <div className="invoice-admin-status-actions__row">
-                <label className="invoice-admin-status-actions__date">
-                  <span>Date</span>
-                  <input
-                    type="date"
-                    value={statusDate}
-                    onChange={(e) => setStatusDate(e.target.value)}
-                    className="client-input"
-                  />
-                </label>
-                <input
-                  type="text"
-                  value={statusExtraNote}
-                  onChange={(e) => setStatusExtraNote(e.target.value)}
-                  placeholder="Optional note for carrier…"
-                  className="client-input invoice-admin-status-actions__extra"
-                />
-              </div>
-              <div className="invoice-admin-status-actions__btns">
-                {(
-                  [
-                    ['will_pay', 'Will Pay'],
-                    ['call_back', 'Call Back'],
-                    ['payment_confirmed', 'Payment confirmed'],
-                    ['set_due_date', 'Set due date'],
-                  ] as const
-                ).map(([kind, label]) => (
-                  <button
-                    key={kind}
-                    type="button"
-                    className={`dashboard-btn-secondary !py-1 !px-2 !text-xs${
-                      pendingStatusKind === kind
-                        ? ' invoice-admin-status-actions__btn--selected'
-                        : ''
-                    }`}
-                    disabled={statusBusy}
-                    aria-pressed={pendingStatusKind === kind}
-                    onClick={() => handleSelectStatus(kind)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {pendingStatusKind ? (
-                <div className="invoice-admin-status-actions__confirm-row">
-                  <button
-                    type="button"
-                    className="dashboard-btn-primary !py-1 !px-3 !text-xs"
-                    disabled={statusBusy}
-                    onClick={() => void handleConfirmStatus()}
-                  >
-                    {statusBusy ? 'Saving…' : 'Confirm'}
-                  </button>
-                  <button
-                    type="button"
-                    className="dashboard-btn-secondary !py-1 !px-2 !text-xs"
-                    disabled={statusBusy}
-                    onClick={() => {
-                      setPendingStatusKind(null)
-                      setStatusError(null)
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <span className="text-[10px]" style={{ color: c.mutedLight }}>
-                    {pendingStatusKind === 'will_pay' && 'Will post Will Pay'}
-                    {pendingStatusKind === 'call_back' && 'Will post Call Back'}
-                    {pendingStatusKind === 'payment_confirmed' &&
-                      'Will post Payment status confirmed'}
-                    {pendingStatusKind === 'set_due_date' &&
-                      'Will set invoice due date'}
-                  </span>
-                </div>
-              ) : null}
-              {statusError && (
-                <p className="text-[11px]" style={{ color: c.error }}>
-                  {statusError}
-                </p>
-              )}
-            </div>
-          )}
-
             <div className="payment-confirmation-panel__notes-scroll">
               <InvoiceActivityNoteList
                 entries={filteredTimeline}
@@ -1674,15 +1681,78 @@ export default function InvoiceDetailPanel({
             {notesEnabled && (
               <InvoiceNoteCompose
                 newNote={newNote}
-                isAddingNote={isAddingNote}
+                isAddingNote={isAddingNote || statusBusy}
                 onChange={setNewNote}
                 onSubmit={handleAddNote}
                 compact={!isMobile}
-                collapsible={!isMobile}
+                collapsible={!isMobile && !isAdminPortal}
                 mobileEasy={isMobile}
                 allowInternal={isAdminPortal}
                 visibility={noteVisibility}
                 onVisibilityChange={setNoteVisibility}
+                submitEnabled={Boolean(newNote.trim()) || Boolean(pendingStatusKind)}
+                placeholder={
+                  isAdminPortal
+                    ? 'Add a note, or pick a status below…'
+                    : undefined
+                }
+                footer={
+                  isAdminPortal && !isMobile ? (
+                    <div className="invoice-admin-status-actions invoice-admin-status-actions--in-compose">
+                      <div className="invoice-admin-status-actions__row">
+                        <label className="invoice-admin-status-actions__date">
+                          <span>Date</span>
+                          <input
+                            type="date"
+                            value={statusDate}
+                            onChange={(e) => setStatusDate(e.target.value)}
+                            className="client-input"
+                          />
+                        </label>
+                        <div className="invoice-admin-status-actions__btns">
+                          {(
+                            [
+                              ['will_pay', 'Will Pay'],
+                              ['call_back', 'Call Back'],
+                              ['payment_confirmed', 'Payment confirmed'],
+                              ['set_due_date', 'Set due date'],
+                            ] as const
+                          ).map(([kind, label]) => (
+                            <button
+                              key={kind}
+                              type="button"
+                              className={`dashboard-btn-secondary !py-1 !px-2 !text-xs${
+                                pendingStatusKind === kind
+                                  ? ' invoice-admin-status-actions__btn--selected'
+                                  : ''
+                              }`}
+                              disabled={statusBusy || isAddingNote}
+                              aria-pressed={pendingStatusKind === kind}
+                              onClick={() => handleSelectStatus(kind)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {pendingStatusKind ? (
+                        <p className="text-[10px]" style={{ color: c.mutedLight }}>
+                          {pendingStatusKind === 'will_pay' && 'Add will post Will Pay'}
+                          {pendingStatusKind === 'call_back' && 'Add will post Call Back'}
+                          {pendingStatusKind === 'payment_confirmed' &&
+                            'Add will post Payment status confirmed'}
+                          {pendingStatusKind === 'set_due_date' &&
+                            'Add will set invoice due date'}
+                        </p>
+                      ) : null}
+                      {statusError ? (
+                        <p className="text-[11px]" style={{ color: c.error }}>
+                          {statusError}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null
+                }
               />
             )}
           </section>
@@ -1792,6 +1862,23 @@ export default function InvoiceDetailPanel({
                 {isMobile ? 'Upload docs' : 'Upload'}
               </button>
             )}
+            {notesEnabled && !isMobile && detailSurface === 'overview' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (notesAsPrimaryTab) {
+                    setTimelineFilter('all')
+                    setDetailSurface('notes')
+                    return
+                  }
+                  setDetailSurface('activity')
+                }}
+                className="dashboard-btn-secondary flex-1 min-w-[90px] inline-flex items-center justify-center gap-1.5"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Note
+              </button>
+            ) : null}
             {canSendDocuments && !isMobile && (
               <button
                 type="button"
@@ -2224,7 +2311,7 @@ export default function InvoiceDetailPanel({
                           <strong style={{ color: c.primary }}>{formatCurrency(remainingOpen)}</strong>
                         </>
                       )}
-                      . Credyx will be notified and must approve before the payment is final.
+                      . The payment posts to your account immediately.
                     </p>
                     <label className="client-label" htmlFor="paid-amount-received">
                       Amount received
@@ -2257,13 +2344,19 @@ export default function InvoiceDetailPanel({
                       </p>
                     )}
                     <label className="client-label" htmlFor="paid-note">
-                      Note (optional)
+                      {shortfallAfterPost > AMOUNT_EPSILON
+                        ? 'Reason for short payment'
+                        : 'Note (optional)'}
                     </label>
                     <textarea
                       id="paid-note"
                       value={paymentNote}
                       onChange={(e) => setPaymentNote(e.target.value)}
-                      placeholder="Why the amount differs, check number, etc."
+                      placeholder={
+                        shortfallAfterPost > AMOUNT_EPSILON
+                          ? 'e.g. Broker deducted detention, lumper, or rate adjustment'
+                          : 'Why the amount differs, check number, etc.'
+                      }
                       rows={3}
                       className="client-input w-full"
                     />
@@ -2285,15 +2378,22 @@ export default function InvoiceDetailPanel({
                             }}
                           />
                           <span className="text-sm" style={{ color: c.primary }}>
-                            Write off remaining{' '}
-                            <strong>{formatCurrency(shortfallAfterPost)}</strong> as uncollectable
+                            Mark remaining{' '}
+                            <strong>{formatCurrency(shortfallAfterPost)}</strong> as write-off
                           </span>
                         </label>
+                        {!writeOffRemaining && (
+                          <p className="text-xs leading-relaxed" style={{ color: c.secondary }}>
+                            Leave unchecked to keep {formatCurrency(shortfallAfterPost)} in open A/R.
+                            The invoice will continue to age until it is written off.
+                          </p>
+                        )}
                         {writeOffRemaining && (
                           <>
                             <p className="text-xs leading-relaxed" style={{ color: c.error }}>
-                              This remaining balance will be marked as uncollectable and sent to Credyx
-                              for write-off approval. You will not continue chasing this amount.
+                              The remaining balance will be written off and will not stay in open A/R.
+                              If you leave this unchecked, the shortfall stays in open A/R and the
+                              invoice will continue to age until it is written off.
                             </p>
                             <label className="client-label" htmlFor="paid-writeoff-note">
                               Why is this uncollectable? (required)

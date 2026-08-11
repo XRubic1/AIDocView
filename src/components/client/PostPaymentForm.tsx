@@ -9,9 +9,12 @@ import {
   postClientPayment,
   postClientPaymentOnNewInvoiceAsync,
   postClientPaymentAndRequestWriteOff,
+  postClientShortPayment,
+  listParentPaymentCandidates,
+  applyClientWriteOff,
   type PostPaymentResult,
 } from '../../services/clientPaymentService'
-import { isPostableForPayment } from '../../utils/invoiceAging'
+import { isClosedInvoiceForPayment, isPostableForPayment } from '../../utils/invoiceAging'
 import { canOfferWriteOffWithPostedShortfall } from '../../utils/shortPayments'
 import {
   getInvoicePostStatusClass,
@@ -63,9 +66,11 @@ export default function PostPaymentForm({
   const amountRef = useRef<HTMLInputElement>(null)
 
   const [filterQuery, setFilterQuery] = useState('')
-  const [showAllInvoices, setShowAllInvoices] = useState(false)
+  const [includeClosed, setIncludeClosed] = useState(false)
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('none')
   const [selected, setSelected] = useState<Invoice | null>(null)
+  /** Additional payment vs short correction — used on closed invoices with no open balance. */
+  const [closedPostKind, setClosedPostKind] = useState<'over' | 'short'>('over')
 
   const [newInvoiceNumber, setNewInvoiceNumber] = useState('')
   const [newBrokerName, setNewBrokerName] = useState('')
@@ -91,8 +96,10 @@ export default function PostPaymentForm({
     if (q) {
       return searchInvoicesForPostPayment(invoices, q, 100, getPending)
     }
-    return listDefaultPickerInvoices(invoices, getReceived, showAllInvoices, 200, getPending)
-  }, [invoices, filterQuery, showAllInvoices, getReceived, getPending])
+    return listDefaultPickerInvoices(invoices, getReceived, false, 200, getPending, {
+      includeClosed,
+    })
+  }, [invoices, filterQuery, includeClosed, getReceived, getPending])
 
   const exactInvoiceMatch = useMemo(() => {
     const q = filterQuery.trim().toLowerCase()
@@ -109,29 +116,37 @@ export default function PostPaymentForm({
   const priorReceived = selected ? getConfirmedPaymentTotal(selected.id) : 0
   const amountNum = parseFloat(amount)
   const remainingOpen = selected ? Math.max(0, selected.amount - priorReceived) : 0
+  const isClosedSelected = !!selected && isClosedInvoiceForPayment(selected)
+  const isClosedBalanceSettled = isClosedSelected && remainingOpen <= AMOUNT_EPSILON
+  const parentCandidates = selected ? listParentPaymentCandidates(selected.id) : []
+  const canPostShortOnClosed = isClosedBalanceSettled && parentCandidates.length > 0
+  const projectedReceived =
+    selected && Number.isFinite(amountNum) && amountNum > 0
+      ? isClosedBalanceSettled && closedPostKind === 'short'
+        ? priorReceived - amountNum
+        : priorReceived + amountNum
+      : priorReceived
   const shortfallAfterPost =
-    selected &&
-    Number.isFinite(amountNum) &&
-    amountNum > 0 &&
-    amountNum < remainingOpen - AMOUNT_EPSILON
-      ? remainingOpen - amountNum
+    selected && Number.isFinite(amountNum) && amountNum > 0
+      ? Math.max(0, selected.amount - projectedReceived)
       : 0
+  const createsShortfall = shortfallAfterPost >= AMOUNT_EPSILON
   const canOfferWriteOff =
     selectionMode === 'existing' &&
     !!selected &&
     capabilities.canRequestWriteOff &&
+    createsShortfall &&
     canOfferWriteOffWithPostedShortfall(selected, payments, shortfallAfterPost)
 
   const selectInvoice = useCallback((invoice: Invoice) => {
     if (!isPostableForPayment(invoice)) {
       setError(
-        `Invoice ${invoice.invoice_number} cannot receive payments (force closed or write-off pending).`
+        `Invoice ${invoice.invoice_number} cannot receive payments (write-off still pending).`
       )
       return
     }
     const already = getConfirmedPaymentTotal(invoice.id)
     const balance = Math.max(0, invoice.amount - already)
-    const paidInFull = already >= invoice.amount - 0.01
     setSelected(invoice)
     setSelectionMode('existing')
     setFilterQuery('')
@@ -139,12 +154,11 @@ export default function PostPaymentForm({
     setLastResult(null)
     setWriteOffRemaining(false)
     setWriteOffNote('')
-    if (balance > 0) {
+    setClosedPostKind('over')
+    if (balance > AMOUNT_EPSILON) {
       setAmount(balance.toFixed(2))
-    } else if (paidInFull) {
-      setAmount('')
     } else {
-      setAmount(invoice.amount.toFixed(2))
+      setAmount('')
     }
     requestAnimationFrame(() => amountRef.current?.focus())
   }, [])
@@ -174,6 +188,7 @@ export default function PostPaymentForm({
     setNotes('')
     setWriteOffRemaining(false)
     setWriteOffNote('')
+    setClosedPostKind('over')
     setPaymentDate(today)
     setReceivedDate(today)
     setPaymentMethod('ach')
@@ -209,7 +224,51 @@ export default function PostPaymentForm({
       let result: PostPaymentResult | undefined
 
       if (selectionMode === 'existing' && selected) {
-        if (writeOffRemaining && canOfferWriteOff) {
+        const postingShortOnClosed =
+          isClosedBalanceSettled && closedPostKind === 'short' && canPostShortOnClosed
+        const parentPayment = parentCandidates[0]
+
+        if (postingShortOnClosed) {
+          if (!parentPayment) {
+            setError('No confirmed payment to apply a short correction against.')
+            return
+          }
+          result = postClientShortPayment(
+            {
+              invoiceId: selected.id,
+              amount: amountNum,
+              paymentDate,
+              receivedDate,
+              paymentMethod,
+              paymentReference: paymentReference.trim() || undefined,
+              notes: notes.trim() || undefined,
+              parentPaymentId: parentPayment.id,
+            },
+            authorName,
+            capabilities
+          )
+          if (!result) {
+            setError('Could not post short payment. Amount cannot exceed received to date.')
+            return
+          }
+          if (writeOffRemaining && canOfferWriteOff) {
+            const writtenOff = applyClientWriteOff(
+              selected.id,
+              authorName,
+              writeOffNote.trim(),
+              { canRequestWriteOff: capabilities.canRequestWriteOff }
+            )
+            if (!writtenOff) {
+              setError('Short payment posted, but the write-off could not be applied.')
+              onPosted(result)
+              return
+            }
+            result = { ...result, invoice: writtenOff, variance: 'short' }
+            onPosted(result)
+            resetForm()
+            return
+          }
+        } else if (writeOffRemaining && canOfferWriteOff) {
           result = postClientPaymentAndRequestWriteOff(
             selected.id,
             authorName,
@@ -228,34 +287,32 @@ export default function PostPaymentForm({
             }
           )
           if (!result) {
-            setError(
-              'Could not post payment and request write-off. Invoice may be ineligible.'
-            )
+            setError('Could not post payment and write off the remaining balance.')
             return
           }
           onPosted(result)
           resetForm()
           return
-        }
-
-        result = postClientPayment(
-          {
-            invoiceId: selected.id,
-            amount: amountNum,
-            paymentDate,
-            receivedDate,
-            paymentMethod,
-            paymentReference: paymentReference.trim() || undefined,
-            notes: notes.trim() || undefined,
-          },
-          authorName,
-          capabilities
-        )
-        if (!result) {
-          setError(
-            'Could not post payment. Invoice may be force-closed or still awaiting write-off approval.'
+        } else {
+          result = postClientPayment(
+            {
+              invoiceId: selected.id,
+              amount: amountNum,
+              paymentDate,
+              receivedDate,
+              paymentMethod,
+              paymentReference: paymentReference.trim() || undefined,
+              notes: notes.trim() || undefined,
+            },
+            authorName,
+            capabilities
           )
-          return
+          if (!result) {
+            setError(
+              'Could not post payment. Invoice may still be awaiting write-off approval.'
+            )
+            return
+          }
         }
       } else if (selectionMode === 'new') {
         result = await postClientPaymentOnNewInvoiceAsync(
@@ -344,9 +401,8 @@ export default function PostPaymentForm({
         }}
       >
         <header className="post-payment-workspace__header">
-          <h2 className="post-payment-workspace__title">Post payment</h2>
           <p className="post-payment-workspace__subtitle">
-            Select an invoice on the left, tab through payment fields on the right
+            Post to open invoices, or include closed invoices to record an over or short payment.
           </p>
         </header>
 
@@ -361,8 +417,8 @@ export default function PostPaymentForm({
               <p className="post-payment-picker__hint">
                 {filterQuery.trim()
                   ? `${invoiceList.length} match${invoiceList.length === 1 ? '' : 'es'}`
-                  : showAllInvoices
-                    ? `${invoiceList.length} total`
+                  : includeClosed
+                    ? `${invoiceList.length} open + closed`
                     : `${invoiceList.length} open`}
               </p>
             </div>
@@ -374,10 +430,10 @@ export default function PostPaymentForm({
               <label className="post-payment-picker__show-all">
                 <input
                   type="checkbox"
-                  checked={showAllInvoices}
-                  onChange={(e) => setShowAllInvoices(e.target.checked)}
+                  checked={includeClosed}
+                  onChange={(e) => setIncludeClosed(e.target.checked)}
                 />
-                <span>Show all invoices</span>
+                <span>Include closed invoices</span>
               </label>
             </div>
             <div className="post-payment-picker__filter">
@@ -408,9 +464,9 @@ export default function PostPaymentForm({
                 <p className="post-payment-picker__empty" style={{ color: c.secondary }}>
                   {filterQuery.trim()
                     ? 'No invoices match your search.'
-                    : showAllInvoices
+                    : includeClosed
                       ? 'No invoices found.'
-                      : 'No open invoices — search by invoice # or check “Show all invoices”.'}
+                      : 'No open invoices — search by invoice # or check “Include closed invoices”.'}
                 </p>
               )}
 
@@ -497,7 +553,7 @@ export default function PostPaymentForm({
 
             {selectionMode === 'existing' && selected && (
               <>
-                {selected.status === 'written_off' && (
+                {isClosedSelected && (
                   <p
                     className="text-xs mb-2 px-2.5 py-2 rounded border"
                     style={{
@@ -506,9 +562,43 @@ export default function PostPaymentForm({
                       backgroundColor: c.stat?.amber ?? '#fef3c7',
                     }}
                   >
-                    This invoice is written off. Posting a payment or short correction will reopen it
-                    and clear the write-off.
+                    {selected.status === 'written_off'
+                      ? 'This invoice is written off. An additional payment reopens it unless you write off the remaining shortfall.'
+                      : selected.status === 'force_closed'
+                        ? 'This invoice is force-closed. You can still post an over or short payment.'
+                        : 'This invoice is closed. Post an additional (over) payment or a short payment correction.'}
                   </p>
+                )}
+                {isClosedBalanceSettled && (
+                  <div className="flex flex-wrap gap-2 mb-3" role="group" aria-label="Payment type">
+                    <button
+                      type="button"
+                      className={`batch-filter-pill batch-filter-pill--sm ${
+                        closedPostKind === 'over' ? 'batch-filter-pill--active' : ''
+                      }`}
+                      onClick={() => {
+                        setClosedPostKind('over')
+                        setWriteOffRemaining(false)
+                        setWriteOffNote('')
+                      }}
+                    >
+                      Over / additional
+                    </button>
+                    <button
+                      type="button"
+                      className={`batch-filter-pill batch-filter-pill--sm ${
+                        closedPostKind === 'short' ? 'batch-filter-pill--active' : ''
+                      }`}
+                      disabled={!canPostShortOnClosed}
+                      onClick={() => {
+                        setClosedPostKind('short')
+                        setWriteOffRemaining(false)
+                        setWriteOffNote('')
+                      }}
+                    >
+                      Short payment
+                    </button>
+                  </div>
                 )}
                 <InvoiceBalanceSummary
                   invoiceNumber={selected.invoice_number}
@@ -581,7 +671,9 @@ export default function PostPaymentForm({
                 <div className="post-payment-entry__fields">
                   <div className="post-payment-entry__field post-payment-entry__field--amount">
                     <label className="client-label" htmlFor="post-amount">
-                      Amount received
+                      {isClosedBalanceSettled && closedPostKind === 'short'
+                        ? 'Short payment amount'
+                        : 'Amount received'}
                     </label>
                     <input
                       ref={amountRef}
@@ -594,10 +686,16 @@ export default function PostPaymentForm({
                       onChange={(e) => {
                         setAmount(e.target.value)
                         const next = parseFloat(e.target.value)
-                        if (
-                          !Number.isFinite(next) ||
-                          next >= remainingOpen - AMOUNT_EPSILON
-                        ) {
+                        if (!Number.isFinite(next) || next <= 0 || !selected) {
+                          setWriteOffRemaining(false)
+                          setWriteOffNote('')
+                          return
+                        }
+                        const projected =
+                          isClosedBalanceSettled && closedPostKind === 'short'
+                            ? priorReceived - next
+                            : priorReceived + next
+                        if (selected.amount - projected < AMOUNT_EPSILON) {
                           setWriteOffRemaining(false)
                           setWriteOffNote('')
                         }
@@ -607,6 +705,11 @@ export default function PostPaymentForm({
                       placeholder="0.00"
                       required
                     />
+                    {isClosedBalanceSettled && closedPostKind === 'short' && (
+                      <p className="text-xs mt-1" style={{ color: c.secondary }}>
+                        Reduces received to date. Max {formatCurrency(priorReceived)}.
+                      </p>
+                    )}
                   </div>
 
                   <div className="post-payment-entry__field">
@@ -675,14 +778,18 @@ export default function PostPaymentForm({
 
                   <div className="post-payment-entry__field post-payment-entry__field--wide">
                     <label className="client-label" htmlFor="post-notes">
-                      Note
+                      {createsShortfall ? 'Reason for short payment' : 'Note'}
                     </label>
                     <input
                       id="post-notes"
                       type="text"
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Detention, lumper, partial pay…"
+                      placeholder={
+                        createsShortfall
+                          ? 'e.g. Broker deducted detention, lumper, or rate adjustment'
+                          : 'Detention, lumper, partial pay…'
+                      }
                       className="client-input w-full"
                       style={inputStyle}
                     />
@@ -705,15 +812,22 @@ export default function PostPaymentForm({
                           }}
                         />
                         <span className="text-sm" style={{ color: c.primary }}>
-                          Write off remaining{' '}
-                          <strong>{formatCurrency(shortfallAfterPost)}</strong> as uncollectable
+                          Mark remaining{' '}
+                          <strong>{formatCurrency(shortfallAfterPost)}</strong> as write-off
                         </span>
                       </label>
+                      {!writeOffRemaining && (
+                        <p className="text-xs leading-relaxed" style={{ color: c.secondary }}>
+                          Leave unchecked to keep {formatCurrency(shortfallAfterPost)} in open A/R.
+                          The invoice will continue to age until it is written off.
+                        </p>
+                      )}
                       {writeOffRemaining && (
                         <>
                           <p className="text-xs leading-relaxed" style={{ color: c.error }}>
-                            This remaining balance will be marked as uncollectable and sent to Credyx
-                            for write-off approval. You will not continue chasing this amount.
+                            The remaining balance will be written off and will not stay in open A/R.
+                            If you leave this unchecked, the shortfall stays in open A/R and the
+                            invoice will continue to age until it is written off.
                           </p>
                           <label className="client-label" htmlFor="post-writeoff-note">
                             Why is this uncollectable? (required)
@@ -762,7 +876,9 @@ export default function PostPaymentForm({
                         ? 'Post & write off'
                         : selectionMode === 'new'
                           ? 'Create invoice & post payment'
-                          : 'Post payment'}
+                          : isClosedBalanceSettled && closedPostKind === 'short'
+                            ? 'Post short payment'
+                            : 'Post payment'}
                   </button>
                   <button
                     type="button"

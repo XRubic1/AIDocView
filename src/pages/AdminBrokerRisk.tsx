@@ -44,21 +44,19 @@ import {
   daysBetweenDates,
   addDaysIso,
   localDateIso,
-  DEFAULT_BROKER_RISK_POLICY,
+  BROKER_RISK_POLICY,
   type BrokerDelayCause,
 } from '../utils/brokerRiskPolicy'
 import { isOpenArInvoice } from '../utils/invoiceAging'
 import '../styles/adminBrokerRisk.css'
 
-type FilterTab = 'pending_review' | 'published' | 'cleared' | 'auto_published' | 'all'
-
-const TABS: Array<{ id: FilterTab; label: string }> = [
-  { id: 'pending_review', label: 'Needs review' },
-  { id: 'published', label: 'Published' },
-  { id: 'cleared', label: 'Cleared' },
-  { id: 'auto_published', label: 'Auto' },
-  { id: 'all', label: 'All' },
-]
+/** Needs review first (urgent), then published / auto / cleared. */
+function statusSortRank(status: BrokerRiskReviewStatus): number {
+  if (status === 'pending_review') return 0
+  if (status === 'published') return 1
+  if (status === 'auto_published') return 2
+  return 3
+}
 
 function levelLabel(level: string): string {
   if (level === 'low') return 'Low'
@@ -128,7 +126,6 @@ export default function AdminBrokerRisk() {
   const reviewer = getAdminUserDisplayName(resolved.user?.email ?? null)
   const tenantRevision = useTenantDataRevision()
 
-  const [tab, setTab] = useState<FilterTab>('pending_review')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [reviewNote, setReviewNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -136,32 +133,25 @@ export default function AdminBrokerRisk() {
   const [notesOnly, setNotesOnly] = useState(false)
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null)
 
-  const tabCounts = useMemo(() => {
-    void tenantRevision
-    void tick
-    const all = listBrokerRiskForAdmin({ reviewStatus: 'all' })
-    return {
-      pending_review: all.filter((p) => p.review_status === 'pending_review').length,
-      published: all.filter((p) => p.review_status === 'published').length,
-      cleared: all.filter((p) => p.review_status === 'cleared').length,
-      auto_published: all.filter((p) => p.review_status === 'auto_published').length,
-      all: all.length,
-    }
-  }, [tenantRevision, tick])
-
   const rows = useMemo(() => {
     void tenantRevision
     void tick
-    const filter =
-      tab === 'all' ? { reviewStatus: 'all' as const } : { reviewStatus: tab }
-    return listBrokerRiskForAdmin(filter).sort((a, b) => {
-      const rank = { high: 0, medium: 1, low: 2, unrated: 3 }
-      const ra = rank[a.computed_risk_level] ?? 9
-      const rb = rank[b.computed_risk_level] ?? 9
+    const levelRank = { high: 0, medium: 1, low: 2, unrated: 3 }
+    return listBrokerRiskForAdmin({ reviewStatus: 'all' }).sort((a, b) => {
+      const sa = statusSortRank(a.review_status)
+      const sb = statusSortRank(b.review_status)
+      if (sa !== sb) return sa - sb
+      const ra = levelRank[a.computed_risk_level] ?? 9
+      const rb = levelRank[b.computed_risk_level] ?? 9
       if (ra !== rb) return ra - rb
       return Date.parse(b.analyzed_at) - Date.parse(a.analyzed_at)
     })
-  }, [tab, tenantRevision, tick])
+  }, [tenantRevision, tick])
+
+  const needsReviewCount = useMemo(
+    () => rows.filter((p) => p.review_status === 'pending_review').length,
+    [rows]
+  )
 
   const selected: BrokerRiskProfile | null =
     rows.find((r) => r.id === selectedId) ?? rows[0] ?? null
@@ -244,7 +234,7 @@ export default function AdminBrokerRisk() {
     const net =
       selected?.metrics.payment_terms_days ??
       broker?.payment_terms_days ??
-      DEFAULT_BROKER_RISK_POLICY.fallback_terms_days
+      BROKER_RISK_POLICY.fallback_terms_days
     const asOf = localDateIso()
 
     // Past-terms / urgent open invoices first so reviewers see them immediately.
@@ -258,9 +248,9 @@ export default function AdminBrokerRisk() {
       const pastA = pastDays(a)
       const pastB = pastDays(b)
       const score = (past: number) =>
-        past >= DEFAULT_BROKER_RISK_POLICY.high_single_late_days
+        past >= BROKER_RISK_POLICY.high_single_late_days
           ? 2
-          : past >= DEFAULT_BROKER_RISK_POLICY.open_overdue_min_days
+          : past >= BROKER_RISK_POLICY.open_overdue_min_days
             ? 1
             : 0
       const sa = score(pastA)
@@ -280,7 +270,7 @@ export default function AdminBrokerRisk() {
   const netTermsDays =
     selected?.metrics.payment_terms_days ??
     broker?.payment_terms_days ??
-    DEFAULT_BROKER_RISK_POLICY.fallback_terms_days
+    BROKER_RISK_POLICY.fallback_terms_days
 
   /**
    * Age + past due share one clock: submit → +Net terms → due.
@@ -298,9 +288,9 @@ export default function AdminBrokerRisk() {
     const daysPastDue = Math.max(0, ageDays - netTermsDays)
     const isOpen = isOpenArInvoice(inv)
     const pastTermsReview =
-      isOpen && daysPastDue >= DEFAULT_BROKER_RISK_POLICY.open_overdue_min_days
+      isOpen && daysPastDue >= BROKER_RISK_POLICY.open_overdue_min_days
     const pastTermsUrgent =
-      isOpen && daysPastDue >= DEFAULT_BROKER_RISK_POLICY.high_single_late_days
+      isOpen && daysPastDue >= BROKER_RISK_POLICY.high_single_late_days
     return {
       ageDays,
       submitted,
@@ -344,7 +334,6 @@ export default function AdminBrokerRisk() {
         return
       }
       setReviewNote('')
-      setTab('published')
       setSelectedId(updated.id)
       setTick((t) => t + 1)
       showToast(`Published ${levelLabel(level)} risk to carrier`, 'success')
@@ -370,7 +359,6 @@ export default function AdminBrokerRisk() {
         return
       }
       setReviewNote('')
-      setTab('cleared')
       setSelectedId(updated.id)
       setTick((t) => t + 1)
       showToast('Removed from risk — carrier no longer sees elevated risk', 'success')
@@ -428,30 +416,17 @@ export default function AdminBrokerRisk() {
             <div>
               <h1 style={{ color: c.primary }}>Broker Risk</h1>
               <p style={{ color: c.secondary }}>
-                Review at 15d past Net · Urgent at 21d
+                Review at {BROKER_RISK_POLICY.medium_single_late_days}d past Net · Urgent at{' '}
+                {BROKER_RISK_POLICY.high_single_late_days}d
               </p>
             </div>
           </div>
 
           <div className="admin-broker-risk__top-right">
-            <div className="admin-broker-risk__tabs" role="tablist">
-              {TABS.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === t.id}
-                  className={`admin-broker-risk__tab${tab === t.id ? ' is-active' : ''}`}
-                  onClick={() => {
-                    setTab(t.id)
-                    setSelectedId(null)
-                  }}
-                >
-                  {t.label}
-                  <span className="admin-broker-risk__tab-count">{tabCounts[t.id]}</span>
-                </button>
-              ))}
-            </div>
+            <p className="admin-broker-risk__queue-summary" style={{ color: c.secondary }}>
+              {rows.length} broker{rows.length === 1 ? '' : 's'}
+              {needsReviewCount > 0 ? ` · ${needsReviewCount} need review` : ''}
+            </p>
             <button
               type="button"
               className="admin-broker-risk__run-btn"
@@ -468,7 +443,7 @@ export default function AdminBrokerRisk() {
           <section className="admin-broker-risk__queue" aria-label="Broker queue">
             {rows.length === 0 ? (
               <p className="admin-broker-risk__empty" style={{ color: c.secondary }}>
-                Nothing in this filter. Run analysis to refresh.
+                No broker risk profiles yet. Run analysis to refresh.
               </p>
             ) : (
               <ul className="admin-broker-risk__queue-list">
@@ -476,15 +451,14 @@ export default function AdminBrokerRisk() {
                   const b = mockBrokers.find((x) => x.id === row.broker_id)
                   const cl = getClientById(row.client_id)
                   const active = selected?.id === row.id
-                  const urgent =
-                    row.review_status === 'pending_review' &&
-                    row.computed_risk_level === 'high'
+                  const needsReview = row.review_status === 'pending_review'
+                  const urgent = needsReview && row.computed_risk_level === 'high'
                   return (
                     <li key={row.id}>
                       <button
                         type="button"
                         className={`admin-broker-risk__row${active ? ' is-active' : ''}${
-                          urgent ? ' is-urgent' : ''
+                          needsReview ? ' is-urgent' : ''
                         }`}
                         onClick={() => {
                           setSelectedId(row.id)
@@ -497,17 +471,16 @@ export default function AdminBrokerRisk() {
                             {b?.name ?? row.broker_id}
                           </span>
                           <span className="admin-broker-risk__row-chips">
-                            {urgent ? (
-                              <span className="admin-broker-risk__chip admin-broker-risk__chip--urgent">
-                                Urgent
-                              </span>
-                            ) : (
-                              <span
-                                className={`admin-broker-risk__chip admin-broker-risk__chip--${row.computed_risk_level}`}
-                              >
-                                {levelLabel(row.computed_risk_level)}
-                              </span>
-                            )}
+                            <span
+                              className={`admin-broker-risk__chip admin-broker-risk__chip--status-${row.review_status}`}
+                            >
+                              {urgent ? 'Urgent review' : statusLabel(row.review_status)}
+                            </span>
+                            <span
+                              className={`admin-broker-risk__chip admin-broker-risk__chip--${row.computed_risk_level}`}
+                            >
+                              {levelLabel(row.computed_risk_level)}
+                            </span>
                           </span>
                         </div>
                         <div className="admin-broker-risk__row-meta" style={{ color: c.secondary }}>

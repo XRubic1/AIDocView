@@ -3,6 +3,7 @@ import { formatCurrency } from '../../utils/format'
 import { formatDate } from '../../utils/format'
 import { Invoice } from '../../types/invoice'
 import { mockInvoices } from '../../data/mockInvoices'
+import { getAgingArBucketKey, getInvoiceAgeDays } from '../../utils/invoiceAging'
 
 interface AgingInvoicesTabProps {
   onInvoiceSelect: (invoiceId: string) => void
@@ -22,35 +23,14 @@ export default function AgingInvoicesTab({ onInvoiceSelect, lastViewedInvoiceId 
   const [selectedBucket, setSelectedBucket] = useState<AgingBucket | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Calculate days since expected payment date
-  const getDaysSinceExpected = (invoice: Invoice): number => {
-    if (!invoice.expected_payment_date) return 0
-    const expected = new Date(invoice.expected_payment_date)
-    const now = new Date()
-    const diffTime = now.getTime() - expected.getTime()
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
-    return diffDays
-  }
-
-  // Categorize invoices into aging buckets
-  const categorizeInvoice = (invoice: Invoice): AgingBucket | null => {
-    const days = getDaysSinceExpected(invoice)
-    if (days <= 15) return '1_15'
-    if (days <= 30) return '16_30'
-    if (days <= 45) return '31_45'
-    if (days <= 60) return '46_60'
-    if (days <= 90) return '61_90'
-    return 'over_91'
-  }
-
-  // Group invoices by aging bucket
+  // Group invoices by aging bucket (invoice age, not days past due)
   const agingGroups: AgingGroup[] = [
-    { bucket: '1_15', label: '1-15 days', invoices: [], totalAmount: 0 },
-    { bucket: '16_30', label: '16-30 days', invoices: [], totalAmount: 0 },
-    { bucket: '31_45', label: '31-45 days', invoices: [], totalAmount: 0 },
-    { bucket: '46_60', label: '46-60 days', invoices: [], totalAmount: 0 },
-    { bucket: '61_90', label: '61-90 days', invoices: [], totalAmount: 0 },
-    { bucket: 'over_91', label: 'Over 91 days', invoices: [], totalAmount: 0 },
+    { bucket: '1_15', label: '0–15 days', invoices: [], totalAmount: 0 },
+    { bucket: '16_30', label: '16–30 days', invoices: [], totalAmount: 0 },
+    { bucket: '31_45', label: '31–45 days', invoices: [], totalAmount: 0 },
+    { bucket: '46_60', label: '46–60 days', invoices: [], totalAmount: 0 },
+    { bucket: '61_90', label: '61–90 days', invoices: [], totalAmount: 0 },
+    { bucket: 'over_91', label: '91+ days', invoices: [], totalAmount: 0 },
   ]
 
   // Filter and categorize invoices
@@ -65,13 +45,22 @@ export default function AgingInvoicesTab({ onInvoiceSelect, lastViewedInvoiceId 
   })
 
   filteredInvoices.forEach((invoice) => {
-    const bucket = categorizeInvoice(invoice)
-    if (bucket) {
-      const group = agingGroups.find((g) => g.bucket === bucket)
-      if (group) {
-        group.invoices.push(invoice)
-        group.totalAmount += invoice.amount
-      }
+    if (
+      invoice.status === 'paid' ||
+      invoice.status === 'pending' ||
+      invoice.status === 'hold' ||
+      invoice.status === 'force_closed' ||
+      invoice.status === 'written_off' ||
+      invoice.status === 'write_off_pending' ||
+      invoice.status === 'rejected'
+    ) {
+      return
+    }
+    const bucket = getAgingArBucketKey(getInvoiceAgeDays(invoice))
+    const group = agingGroups.find((g) => g.bucket === bucket)
+    if (group) {
+      group.invoices.push(invoice)
+      group.totalAmount += invoice.amount
     }
   })
 
@@ -119,7 +108,7 @@ export default function AgingInvoicesTab({ onInvoiceSelect, lastViewedInvoiceId 
         <div>
           <h2 className="text-lg font-bold text-black">Aging A/R</h2>
           <p className="text-sm text-gray-600 mt-1">
-            Invoices grouped by days since expected payment date
+            Invoices grouped by invoice age (days since invoice date)
           </p>
         </div>
         <input
@@ -207,7 +196,7 @@ export default function AgingInvoicesTab({ onInvoiceSelect, lastViewedInvoiceId 
                   Expected Payment
                 </th>
                 <th className="text-center py-3 px-4 text-sm font-semibold text-gray-700">
-                  Days Overdue
+                  Invoice Age
                 </th>
                 <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
                   Status
@@ -226,7 +215,7 @@ export default function AgingInvoicesTab({ onInvoiceSelect, lastViewedInvoiceId 
                 </tr>
               ) : (
                 displayedInvoices.map((invoice, index) => {
-                  const daysOverdue = getDaysSinceExpected(invoice)
+                  const invoiceAgeDays = getInvoiceAgeDays(invoice)
                   const isLastViewed = lastViewedInvoiceId === invoice.id
                   return (
                     <tr
@@ -257,14 +246,14 @@ export default function AgingInvoicesTab({ onInvoiceSelect, lastViewedInvoiceId 
                       <td className="py-3 px-4 text-center">
                         <span
                           className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium ${
-                            daysOverdue >= 60
+                            invoiceAgeDays >= 60
                               ? 'bg-red-100 text-red-800'
-                              : daysOverdue >= 30
+                              : invoiceAgeDays >= 30
                                 ? 'bg-yellow-100 text-yellow-800'
                                 : 'bg-green-100 text-green-800'
                           }`}
                         >
-                          {daysOverdue} days
+                          {invoiceAgeDays}d
                         </span>
                       </td>
                       <td className="py-3 px-4 text-sm">

@@ -450,8 +450,8 @@ export function notifyAdminWriteOffRequested(input: WriteOffRequestedNotificatio
   return pushNotification({
     id: `admin-notif-wo-${Date.now()}`,
     type: 'payment_pending',
-    title: 'Write-off approval needed',
-    message: `${input.clientName} requested write-off on ${input.invoiceNumber} ($${input.shortfall.toFixed(2)} shortfall)`,
+    title: 'Write-off posted',
+    message: `${input.clientName} wrote off $${input.shortfall.toFixed(2)} on ${input.invoiceNumber}`,
     timestamp: new Date().toISOString(),
     read: false,
     link: '/payment-posting',
@@ -470,13 +470,13 @@ export interface PaymentReportedNotificationInput {
 export function notifyAdminPaymentReported(input: PaymentReportedNotificationInput): Notification {
   return pushNotification({
     id: `admin-notif-pay-${Date.now()}`,
-    type: 'payment_pending',
-    title: 'Payment needs approval',
-    message: `${input.clientName} posted $${input.amount.toFixed(2)} on ${input.invoiceNumber} — confirm to close the invoice`,
+    type: 'payment_received',
+    title: 'Payment posted',
+    message: `${input.clientName} posted $${input.amount.toFixed(2)} on ${input.invoiceNumber}`,
     timestamp: new Date().toISOString(),
     read: false,
     link: '/payment-posting',
-    link_label: 'Review payment',
+    link_label: 'View payments',
     invoice_number: input.invoiceNumber,
     metadata: { amount: input.amount },
   })

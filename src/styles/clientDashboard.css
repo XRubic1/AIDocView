@@ -4146,6 +4146,58 @@ body.cd-charts-resizing * {
   color: #93c5fd;
 }
 
+.cd-coming-due__tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+
+.cd-coming-due__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: var(--cd-font);
+  font-size: 0.5625rem;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--cd-faint);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cd-coming-due__tab:hover {
+  color: var(--cd-text);
+}
+
+.cd-coming-due__tab.is-active {
+  color: var(--cd-text);
+}
+
+.cd-coming-due__tab.is-active svg {
+  color: #93c5fd;
+}
+
+.cd-coming-due__tab.is-paid.is-active {
+  color: #86efac;
+}
+
+.cd-coming-due__tab.is-paid.is-active svg {
+  color: #86efac;
+}
+
+.cd-coming-due__tab-pipe {
+  margin: 0 0.12rem;
+  color: var(--cd-faint);
+  font-size: 0.5rem;
+  opacity: 0.55;
+}
+
 .cd-coming-due__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4208,6 +4260,20 @@ body.cd-charts-resizing * {
   font-weight: 550;
   color: var(--cd-muted);
   flex-shrink: 0;
+}
+
+.cd-coming-due__item.is-paid {
+  border-color: rgba(134, 239, 172, 0.28);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.cd-coming-due__item.is-paid:hover {
+  background: rgba(34, 197, 94, 0.14);
+  border-color: rgba(134, 239, 172, 0.45);
+}
+
+.cd-coming-due__item.is-paid .cd-coming-due__label {
+  color: #86efac;
 }
 
 .cd-open-balance--expanded .cd-open-balance__aging {

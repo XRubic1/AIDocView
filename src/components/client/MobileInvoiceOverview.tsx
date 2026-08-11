@@ -32,6 +32,7 @@ import {
   getMobileInvoiceHeroAmount,
   type InvoiceMobileInsight,
 } from '../../utils/invoiceMobileInsights'
+import type { BrokerRiskLevel } from '../../types/brokerRisk'
 import {
   invoiceListPriorityStatusKey,
   invoiceListPriorityStatusLabel,
@@ -85,6 +86,10 @@ interface MobileInvoiceOverviewProps {
   adminPendingPayment?: { amount: number; brokerName?: string } | null
   /** Admin: open confirm-pending-payment flow. */
   onConfirmAdminPendingPayment?: () => void
+  /** Carrier-visible broker risk — medium/high shows a clickable overview row. */
+  brokerRiskLevel?: BrokerRiskLevel | null
+  /** Opens the Brokers tab for this invoice's broker. */
+  onOpenBrokerRisk?: () => void
 }
 
 /** Icon for a mobile insight row. */
@@ -109,6 +114,8 @@ function InsightIcon({ icon }: { icon: InvoiceMobileInsight['icon'] }) {
       return <BanknoteArrowDown size={size} strokeWidth={2} />
     case 'over_pay':
       return <BanknoteArrowUp size={size} strokeWidth={2} />
+    case 'shield':
+      return <Shield size={size} strokeWidth={2} />
     case 'activity':
     default:
       return <MessageSquare size={size} strokeWidth={2} />
@@ -207,6 +214,8 @@ export default function MobileInvoiceOverview({
   paymentDisputeDescription = null,
   adminPendingPayment = null,
   onConfirmAdminPendingPayment,
+  brokerRiskLevel = null,
+  onOpenBrokerRisk,
 }: MobileInvoiceOverviewProps) {
   const hasAdminPending = Boolean(
     adminPendingPayment && adminPendingPayment.amount > AMOUNT_EPSILON
@@ -349,6 +358,7 @@ export default function MobileInvoiceOverview({
     awaitingShortAmount,
     paymentDisputeDescription,
     paymentDisputed: hasPaymentDispute,
+    brokerRiskLevel,
   })
 
   const handleInsight = (insight: InvoiceMobileInsight) => {
@@ -366,6 +376,10 @@ export default function MobileInvoiceOverview({
     }
     if (insight.action === 'docs' && onViewDocuments) {
       onViewDocuments()
+      return
+    }
+    if (insight.action === 'broker_risk' && onOpenBrokerRisk) {
+      onOpenBrokerRisk()
     }
   }
 
@@ -487,7 +501,8 @@ export default function MobileInvoiceOverview({
       {insights.map((insight) => {
         const interactive =
           insight.action !== 'none' &&
-          !(insight.action === 'confirm_payment' && !onConfirmPayment)
+          !(insight.action === 'confirm_payment' && !onConfirmPayment) &&
+          !(insight.action === 'broker_risk' && !onOpenBrokerRisk)
         const iconTone =
           insight.action === 'confirm_payment' ? 'confirm' : insight.tone
         const className = `mobile-invoice-overview__insight is-${insight.tone}${

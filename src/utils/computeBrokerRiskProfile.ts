@@ -11,7 +11,7 @@ import { BROKER_RISK_MODEL_VERSION } from '../types/brokerRisk'
 import type { ClientBrokerNote } from '../types/clientBroker'
 import type { BrokerScoreRow } from './clientReports'
 import {
-  DEFAULT_BROKER_RISK_POLICY,
+  BROKER_RISK_POLICY,
   classifyDelayCauses,
   delayCauseLabel,
   extractInvoiceNotesForRisk,
@@ -137,7 +137,7 @@ function buildBullets(
     const snip = delay_causes.snippets[0]
     if (snip) bullets.push(`Note: “${truncate(snip.text, 90)}”`)
   } else if (note_flag_count > 0) {
-    const delayNotes = notes.filter((n) => DEFAULT_BROKER_RISK_POLICY.note_keyword_re.test(n.text))
+    const delayNotes = notes.filter((n) => BROKER_RISK_POLICY.note_keyword_re.test(n.text))
     if (delayNotes[0]) {
       bullets.push(`Note flag: “${truncate(delayNotes[0].text, 80)}”`)
     }
@@ -256,7 +256,7 @@ export function computeBrokerRiskProfile(input: ComputeBrokerRiskInput): Compute
       payment_terms_days:
         input.paymentTermsDays != null && input.paymentTermsDays > 0
           ? Math.floor(input.paymentTermsDays)
-          : DEFAULT_BROKER_RISK_POLICY.fallback_terms_days,
+          : BROKER_RISK_POLICY.fallback_terms_days,
       late_payment_count: input.score?.late_payment_count ?? 0,
       max_days_past_terms: input.score?.max_days_past_terms ?? null,
       avg_days_past_terms: null,
@@ -274,14 +274,14 @@ export function computeBrokerRiskProfile(input: ComputeBrokerRiskInput): Compute
     noteTexts.filter(
       (n) =>
         !isRoutineLifecycleNote(n.text) &&
-        DEFAULT_BROKER_RISK_POLICY.note_keyword_re.test(n.text)
+        BROKER_RISK_POLICY.note_keyword_re.test(n.text)
     ).length +
     invoiceNoteTexts.filter((n) =>
-      DEFAULT_BROKER_RISK_POLICY.note_keyword_re.test(n.text)
+      BROKER_RISK_POLICY.note_keyword_re.test(n.text)
     ).length +
     (input.adminNotes &&
     !isRoutineLifecycleNote(input.adminNotes) &&
-    DEFAULT_BROKER_RISK_POLICY.note_keyword_re.test(input.adminNotes)
+    BROKER_RISK_POLICY.note_keyword_re.test(input.adminNotes)
       ? 1
       : 0)
 
@@ -313,7 +313,7 @@ export function computeBrokerRiskProfile(input: ComputeBrokerRiskInput): Compute
   )
 
   const delayNotes = input.notes.filter((n) =>
-    DEFAULT_BROKER_RISK_POLICY.note_keyword_re.test(n.text)
+    BROKER_RISK_POLICY.note_keyword_re.test(n.text)
   )
 
   const metrics: BrokerRiskMetrics = {

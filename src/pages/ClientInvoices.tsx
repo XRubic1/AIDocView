@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams, useLocation } from 'react-router-dom'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
+import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
@@ -42,6 +43,11 @@ import {
   type InvoiceBalanceState,
 } from '../utils/paymentVariance'
 import { hasPpwBeenSent } from '../utils/ppwSent'
+import { mockBrokers } from '../data/mockBrokers'
+import { formatBrokerDueDays, getInvoiceBrokerDueDays } from '../utils/invoiceDueDate'
+import BrokerRiskLevelChip from '../components/client/BrokerRiskLevelChip'
+import { getCarrierVisibleBrokerRiskLevel } from '../utils/clientBrokers'
+import type { BrokerRiskLevel } from '../types/brokerRisk'
 import { compareInvoicesByListPriority } from '../utils/invoiceListPriority'
 import { getPresetRange } from '../utils/clientReports'
 import { isReceiptDisputeHold } from '../services/paymentReceiptConfirmationService'
@@ -51,11 +57,14 @@ type InvoiceSortField =
   | 'invoice_number'
   | 'load_number'
   | 'broker_name'
+  | 'risk_level'
   | 'batch_number'
   | 'amount'
   | 'balance'
   | 'invoice_date'
+  | 'pay_date'
   | 'days_outstanding'
+  | 'due_days'
   | 'ppw_sent'
   | 'status'
 
@@ -200,9 +209,21 @@ function getSortableInvoiceAge(invoice: EnrichedInvoice): number {
   return invoice.invoiceAgeDays
 }
 
+function getSortableDueDays(invoice: EnrichedInvoice): number {
+  return getInvoiceBrokerDueDays(invoice, mockBrokers) ?? -1
+}
+
+const BROKER_RISK_SORT: Record<BrokerRiskLevel, number> = {
+  high: 0,
+  medium: 1,
+  unrated: 2,
+  low: 3,
+}
+
 export default function ClientInvoices() {
   const c = useClientTheme()
   const { capabilities } = useClientCapabilities()
+  const tenantRevision = useTenantDataRevision()
   const isMobileViewport = useIsMobileViewport()
   const useFullPageDetail = useCompactDetailViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
@@ -214,7 +235,7 @@ export default function ClientInvoices() {
   const [autoOpenUpload, setAutoOpenUpload] = useState(false)
 
   const [invoicesRefreshKey, setInvoicesRefreshKey] = useState(0)
-  const { dashboard: data, payments, invoices: rawInvoices } =
+  const { dashboard: data, payments, invoices: rawInvoices, clientId } =
     useClientDemoSnapshot(invoicesRefreshKey)
 
   const invoices = useMemo(
@@ -299,6 +320,14 @@ export default function ClientInvoices() {
     }
     return ids
   }, [payments])
+
+  const brokerRiskByInvoiceId = useMemo(() => {
+    const map = new Map<string, BrokerRiskLevel>()
+    for (const invoice of invoices) {
+      map.set(invoice.id, getCarrierVisibleBrokerRiskLevel(clientId, invoice))
+    }
+    return map
+  }, [invoices, clientId, tenantRevision])
 
   const enrichedInvoices = useMemo(() => {
     const base = enrichInvoices(invoices, new Date(), capabilities)
@@ -496,6 +525,11 @@ export default function ClientInvoices() {
         case 'broker_name':
           cmp = a.broker_name.localeCompare(b.broker_name)
           break
+        case 'risk_level':
+          cmp =
+            (BROKER_RISK_SORT[brokerRiskByInvoiceId.get(a.id) ?? 'unrated'] ?? 9) -
+            (BROKER_RISK_SORT[brokerRiskByInvoiceId.get(b.id) ?? 'unrated'] ?? 9)
+          break
         case 'batch_number':
           cmp = (a.batch_number ?? '').localeCompare(b.batch_number ?? '', undefined, {
             numeric: true,
@@ -513,8 +547,19 @@ export default function ClientInvoices() {
         case 'invoice_date':
           cmp = new Date(a.invoice_date).getTime() - new Date(b.invoice_date).getTime()
           break
+        case 'pay_date': {
+          const aPay =
+            payDateByInvoiceId.get(a.id) || pendingPayDateByInvoiceId.get(a.id) || ''
+          const bPay =
+            payDateByInvoiceId.get(b.id) || pendingPayDateByInvoiceId.get(b.id) || ''
+          cmp = aPay.localeCompare(bPay)
+          break
+        }
         case 'days_outstanding':
           cmp = getSortableInvoiceAge(a) - getSortableInvoiceAge(b)
+          break
+        case 'due_days':
+          cmp = getSortableDueDays(a) - getSortableDueDays(b)
           break
         case 'ppw_sent':
           cmp = Number(hasPpwBeenSent(a)) - Number(hasPpwBeenSent(b))
@@ -550,6 +595,9 @@ export default function ClientInvoices() {
     awaitingReceiptInvoiceIds,
     disputedPaymentInvoiceIds,
     isMobileViewport,
+    brokerRiskByInvoiceId,
+    payDateByInvoiceId,
+    pendingPayDateByInvoiceId,
   ])
 
   const totalPages = Math.max(1, Math.ceil(sortedInvoices.length / pageSize))
@@ -582,7 +630,9 @@ export default function ClientInvoices() {
           field === 'amount' ||
           field === 'balance' ||
           field === 'invoice_date' ||
-          field === 'days_outstanding'
+          field === 'pay_date' ||
+          field === 'days_outstanding' ||
+          field === 'due_days'
         setSortDir(defaultDesc ? 'desc' : 'asc')
       }
     },
@@ -1129,6 +1179,7 @@ export default function ClientInvoices() {
                             isTourInvoiceId(invoice.id) ? 'tourInvoiceRow' : undefined
                           }
                           onClick={() => handleViewInvoiceDetail(invoice)}
+                          riskLevel={brokerRiskByInvoiceId.get(invoice.id) ?? 'unrated'}
                         />
                         )
                       })}
@@ -1159,6 +1210,13 @@ export default function ClientInvoices() {
                             sortDir={sortDir}
                             onSort={handleSort}
                             className="client-list-td--broker"
+                          />
+                          <ClientSortableHeader
+                            field="risk_level"
+                            label="Risk factor"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
                           />
                           <ClientSortableHeader
                             field="batch_number"
@@ -1194,8 +1252,24 @@ export default function ClientInvoices() {
                             onSort={handleSort}
                           />
                           <ClientSortableHeader
+                            field="pay_date"
+                            label="Pay date"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                          />
+                          <ClientSortableHeader
                             field="days_outstanding"
                             label="Age"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={handleSort}
+                            className="text-right"
+                            align="right"
+                          />
+                          <ClientSortableHeader
+                            field="due_days"
+                            label="Due Days"
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={handleSort}
@@ -1237,6 +1311,8 @@ export default function ClientInvoices() {
                           const balanceDisplay = isWrittenOff
                             ? { text: formatCurrency(writtenOffAmount), color: c.warning }
                             : formatInvoiceOpenBalance(balance, c.mutedLight, c.primary)
+                          const confirmedPayDate = payDateByInvoiceId.get(invoice.id)
+                          const pendingPayDate = pendingPayDateByInvoiceId.get(invoice.id)
                           return (
                             <tr
                               key={invoice.id}
@@ -1276,6 +1352,12 @@ export default function ClientInvoices() {
                               >
                                 <span className="client-list-td__clip">{invoice.broker_name}</span>
                               </ClientListTd>
+                              <ClientListTd variant="status" label="Risk factor">
+                                <BrokerRiskLevelChip
+                                  level={brokerRiskByInvoiceId.get(invoice.id) ?? 'unrated'}
+                                  size="sm"
+                                />
+                              </ClientListTd>
                               <ClientListTd
                                 variant="desktop"
                                 label="Batch#"
@@ -1298,6 +1380,23 @@ export default function ClientInvoices() {
                               <ClientListTd variant="desktop" label="Invoice Date" style={{ color: c.secondary }}>
                                 {formatDate(invoice.invoice_date)}
                               </ClientListTd>
+                              <ClientListTd variant="desktop" label="Pay date" style={{ color: c.secondary }}>
+                                {confirmedPayDate ? (
+                                  formatDate(confirmedPayDate)
+                                ) : pendingPayDate ? (
+                                  <span title="Payment posted — awaiting confirmation">
+                                    {formatDate(pendingPayDate)}
+                                    <span
+                                      className="block text-[9px] font-medium"
+                                      style={{ color: c.warning }}
+                                    >
+                                      Pending
+                                    </span>
+                                  </span>
+                                ) : (
+                                  '—'
+                                )}
+                              </ClientListTd>
                               <ClientListTd variant="desktop" label="Age" className="text-right tabular-nums">
                                 <span
                                   className="client-invoices-age"
@@ -1315,6 +1414,15 @@ export default function ClientInvoices() {
                                     </span>
                                   )}
                                 </span>
+                              </ClientListTd>
+                              <ClientListTd
+                                variant="desktop"
+                                label="Due Days"
+                                className="text-right tabular-nums"
+                                style={{ color: c.secondary }}
+                                title="Broker due days"
+                              >
+                                {formatBrokerDueDays(getInvoiceBrokerDueDays(invoice, mockBrokers))}
                               </ClientListTd>
                               <ClientListTd
                                 variant="desktop"

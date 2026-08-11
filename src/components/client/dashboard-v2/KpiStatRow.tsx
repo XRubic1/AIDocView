@@ -4,6 +4,13 @@ import { formatCurrency } from '../../../utils/format'
 
 export type KpiTrend = 'up' | 'down' | 'flat'
 
+export type KpiWindow = {
+  id: string
+  label: string
+  amount: number
+  count: number
+}
+
 export type KpiStat = {
   key: string
   label: string
@@ -17,6 +24,10 @@ export type KpiStat = {
   trend?: KpiTrend
   /** Optional override for the trend caption (defaults to “vs prior 30 days”). */
   trendLabel?: string
+  /** Optional 7 / 14 / 30 chips on Coming due and Confirmed paid. */
+  windows?: KpiWindow[]
+  selectedWindow?: string
+  onWindowChange?: (id: string) => void
 }
 
 type KpiStatRowProps = {
@@ -43,33 +54,54 @@ function KpiCard({
   const tone = stat.tone || 'neutral'
   const trend = stat.trend ?? 'flat'
   const trendCaption = stat.trendLabel || 'vs prior 30 days'
+  const hasWindows = Boolean(stat.windows?.length)
 
   return (
-    <button
-      type="button"
-      className={`cdv2-kpi tone-${tone}${loading ? ' is-loading' : ''}`}
-      onClick={() => navigate(stat.navigateTo)}
-      title={`View ${stat.label}`}
+    <article
+      className={`cdv2-kpi tone-${tone}${loading ? ' is-loading' : ''}${hasWindows ? ' has-windows' : ''}`}
     >
-      <span className="cdv2-kpi__label">{stat.label}</span>
-      <span className="cdv2-kpi__amount tabular-nums">
-        {loading ? '—' : formatCurrency(animated)}
-      </span>
-      <span className="cdv2-kpi__sub">{loading ? '…' : stat.sub}</span>
-      {!loading ? (
-        <span className={`cdv2-kpi__trend is-${trend}`}>
-          <span className="cdv2-kpi__trend-arrow" aria-hidden>
-            {trendArrow(trend)}
-          </span>
-          {trendCaption}
+      <button
+        type="button"
+        className="cdv2-kpi__hit"
+        onClick={() => navigate(stat.navigateTo)}
+        title={`View ${stat.label}`}
+      >
+        <span className="cdv2-kpi__label">{stat.label}</span>
+        <span className="cdv2-kpi__amount tabular-nums">
+          {loading ? '—' : formatCurrency(animated)}
         </span>
+        <span className="cdv2-kpi__sub">{loading ? '…' : stat.sub}</span>
+        {!loading ? (
+          <span className={`cdv2-kpi__trend is-${trend}`}>
+            <span className="cdv2-kpi__trend-arrow" aria-hidden>
+              {trendArrow(trend)}
+            </span>
+            {trendCaption}
+          </span>
+        ) : null}
+      </button>
+      {hasWindows && !loading ? (
+        <div className="cdv2-kpi__windows" role="tablist" aria-label={`${stat.label} window`}>
+          {stat.windows!.map((window) => (
+            <button
+              key={window.id}
+              type="button"
+              role="tab"
+              aria-selected={stat.selectedWindow === window.id}
+              className={`cdv2-kpi__window${stat.selectedWindow === window.id ? ' is-active' : ''}`}
+              onClick={() => stat.onWindowChange?.(window.id)}
+            >
+              {window.label}
+            </button>
+          ))}
+        </div>
       ) : null}
-    </button>
+    </article>
   )
 }
 
 /**
- * Four flat KPI cards: Open Balance · Overdue · Coming due · Paid 30d.
+ * Four flat KPI cards: Open Balance · Overdue · Coming due · Confirmed pay.
  */
 export default function KpiStatRow({ stats, loading = false }: KpiStatRowProps) {
   return (

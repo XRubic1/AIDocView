@@ -1,45 +1,231 @@
-import { useEffect, useMemo, useState } from 'react'
+/**
+ * Credyx Collections — open A/R chase list.
+ * Due dates = invoice_date + broker Net; overdue = 15+ days past due;
+ * Will Pay (confirmed pay date) is separate from due date; inquiry days ≠ due.
+ */
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Search } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import AdminLayout from '../components/AdminLayout'
+import { openCollectionsInvoiceWindow } from '../utils/openCollectionsInvoiceWindow'
+import ClientListTd from '../components/client/ClientListTd'
+import ClientSortableHeader from '../components/client/ClientSortableHeader'
+import EmptyState from '../components/ui/EmptyState'
 import { mockBrokers } from '../data/mockBrokers'
 import { mockInvoices } from '../data/mockInvoices'
-import { Broker } from '../types/broker'
-import { Invoice } from '../types/invoice'
-import { ArrowLeft } from 'lucide-react'
-import { formatCurrency } from '../utils/format'
-import { formatDate } from '../utils/format'
-import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
-import CollectionsChasePanel from '../components/collections/CollectionsChasePanel'
+import { mockPayments } from '../data/mockPayments'
+import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
+import { useClientTheme } from '../theme/ThemeContext'
 import { getAllClients } from '../services/clientRegistry'
+import type { Invoice } from '../types/invoice'
+import {
+  buildAdminCollectionsRows,
+  chaseStatusLabel,
+  chaseStatusPillClass,
+  collectionsFocusLabel,
+  formatBrokerNetDays,
+  matchesCollectionsFocus,
+  reviewReasonPillClass,
+  reviewReasonPillLabel,
+  type CollectionsFocus,
+} from '../utils/adminCollections'
+import { formatCurrency, formatDate, formatRelativeTime } from '../utils/format'
+import {
+  applyCollectionsPolicy,
+  loadCollectionsPolicy,
+} from '../services/platformSettingsService'
+import {
+  getInitialListPageSize,
+  PAGE_SIZE_OPTIONS,
+  type SortDir,
+} from '../utils/clientListPage'
+import { compareByClientName } from '../utils/compareByClientName'
+
+type SortField =
+  | 'invoice_number'
+  | 'client_name'
+  | 'broker_name'
+  | 'amount'
+  | 'age'
+  | 'due_date'
+  | 'pay_date'
+  | 'ppw'
+  | 'chase'
+  | 'last_contact'
+  | 'urgent'
+
+const FOCUS_TABS: CollectionsFocus[] = [
+  'all',
+  'urgent',
+  'chase',
+  'overdue',
+  'will_pay',
+  'callback',
+  'no_ppw',
+]
+
+const CHASE_RANK: Record<string, number> = {
+  needs_attention: 0,
+  due_for_followup: 1,
+  due_for_inquiry: 2,
+  awaiting_response: 3,
+  not_due: 4,
+}
 
 export default function Collections() {
+  const c = useClientTheme()
+  const tenantRevision = useTenantDataRevision()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null)
-  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+  const [searchTerm, setSearchTerm] = useState('')
   const [clientFilter, setClientFilter] = useState(() => searchParams.get('client') || '')
+  const [focus, setFocus] = useState<CollectionsFocus>('all')
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+  const [pageSize, setPageSize] = useState(getInitialListPageSize)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [sortField, setSortField] = useState<SortField>('urgent')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [policyTick, setPolicyTick] = useState(0)
+  const openedInvoiceParam = useRef<string | null>(null)
 
   const clients = useMemo(
     () =>
       getAllClients()
         .map((client) => ({ id: client.id, name: client.name }))
         .sort((a, b) => a.name.localeCompare(b.name)),
-    []
+    [tenantRevision]
   )
 
   useEffect(() => {
     setClientFilter(searchParams.get('client') || '')
   }, [searchParams])
 
-  // Deep-link ?invoice= opens that invoice under its broker
+  useEffect(() => {
+    void loadCollectionsPolicy()
+      .then((policy) => {
+        applyCollectionsPolicy(policy)
+        setPolicyTick((n) => n + 1)
+      })
+      .catch(() => {
+        /* keep defaults */
+      })
+  }, [])
+
+  const rows = useMemo(
+    () => buildAdminCollectionsRows(mockInvoices, mockPayments, mockBrokers, clientFilter),
+    [clientFilter, tenantRevision, policyTick]
+  )
+
+  const counts = useMemo(() => {
+    let chase = 0
+    let overdue = 0
+    let willPay = 0
+    let urgent = 0
+    let overdueAmount = 0
+    let openAmount = 0
+    for (const row of rows) {
+      openAmount += row.amount
+      if (row.chaseStatus !== 'not_due') chase += 1
+      if (row.isOverdue) {
+        overdue += 1
+        overdueAmount += row.amount
+      }
+      if (row.collectionStatus === 'W/P') willPay += 1
+      if (row.isUrgent) urgent += 1
+    }
+    return {
+      open: rows.length,
+      openAmount,
+      chase,
+      overdue,
+      overdueAmount,
+      willPay,
+      urgent,
+    }
+  }, [rows])
+
+  const filtered = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase()
+    return rows.filter((row) => {
+      if (!matchesCollectionsFocus(row, focus)) return false
+      if (!q) return true
+      const inv = row.invoice
+      return (
+        inv.invoice_number.toLowerCase().includes(q) ||
+        inv.client_name.toLowerCase().includes(q) ||
+        inv.broker_name.toLowerCase().includes(q) ||
+        (inv.load_number || '').toLowerCase().includes(q)
+      )
+    })
+  }, [rows, focus, searchTerm])
+
+  const sorted = useMemo(() => {
+    const next = [...filtered]
+    next.sort((a, b) => {
+      let cmp = 0
+      if (sortField === 'client_name') {
+        cmp = compareByClientName(a.invoice.client_name, b.invoice.client_name, 'asc')
+      } else if (sortField === 'broker_name') {
+        cmp = (a.broker?.name || a.invoice.broker_name).localeCompare(
+          b.broker?.name || b.invoice.broker_name
+        )
+      } else if (sortField === 'invoice_number') {
+        cmp = a.invoice.invoice_number.localeCompare(b.invoice.invoice_number)
+      } else if (sortField === 'amount') {
+        cmp = a.amount - b.amount
+      } else if (sortField === 'age') {
+        cmp = a.ageDays - b.ageDays
+      } else if (sortField === 'due_date') {
+        cmp = (a.dueDate || '').localeCompare(b.dueDate || '')
+      } else if (sortField === 'pay_date') {
+        cmp = (a.confirmedPayDate || '').localeCompare(b.confirmedPayDate || '')
+      } else if (sortField === 'ppw') {
+        cmp = (a.ppwSentAt || '').localeCompare(b.ppwSentAt || '')
+      } else if (sortField === 'last_contact') {
+        cmp = (a.lastContact || '').localeCompare(b.lastContact || '')
+      } else if (sortField === 'urgent') {
+        cmp = Number(a.isUrgent) - Number(b.isUrgent)
+        if (cmp === 0) cmp = CHASE_RANK[b.chaseStatus] - CHASE_RANK[a.chaseStatus]
+      } else {
+        cmp = CHASE_RANK[a.chaseStatus] - CHASE_RANK[b.chaseStatus]
+        if (cmp === 0) cmp = Number(b.isUrgent) - Number(a.isUrgent)
+        if (cmp === 0) cmp = b.ageDays - a.ageDays
+      }
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return next
+  }, [filtered, sortField, sortDir])
+
+  const queueInvoiceIds = useMemo(() => sorted.map((row) => row.invoice.id), [sorted])
+
+  const openQueueInvoice = (invoiceId: string) => {
+    openCollectionsInvoiceWindow(invoiceId, queueInvoiceIds)
+  }
+
   useEffect(() => {
     const invoiceParam = searchParams.get('invoice')
-    if (!invoiceParam) return
+    if (!invoiceParam || openedInvoiceParam.current === invoiceParam) return
     const inv = mockInvoices.find((i) => i.id === invoiceParam || i.invoice_number === invoiceParam)
     if (!inv) return
-    const broker = mockBrokers.find((b) => b.id === inv.broker_id)
-    if (broker) setSelectedBroker(broker)
+    openedInvoiceParam.current = invoiceParam
     setSelectedInvoice(inv)
-  }, [searchParams])
+    openCollectionsInvoiceWindow(inv.id, queueInvoiceIds)
+  }, [searchParams, queueInvoiceIds])
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const pageRows = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, clientFilter, focus, pageSize])
+
+  const onSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortField(field)
+    setSortDir(field === 'client_name' || field === 'broker_name' || field === 'invoice_number' ? 'asc' : 'desc')
+  }
 
   const updateClientFilter = (nextClient: string) => {
     setClientFilter(nextClient)
@@ -54,390 +240,434 @@ export default function Collections() {
     )
   }
 
-  // Get brokers with invoice counts
-  const brokersWithCounts = useMemo(() => {
-    // Get all invoices (excluding hold and pending)
-    const allInvoices = mockInvoices.filter(
-      (inv) =>
-        inv.status !== 'hold' &&
-        inv.status !== 'pending' &&
-        (!clientFilter || inv.client_id === clientFilter)
-    )
-    
-    // Group invoices by broker
-    const brokerMap = new Map<string, { broker: Broker; invoices: Invoice[] }>()
-    
-    allInvoices.forEach((inv) => {
-      if (inv.broker_id) {
-        const broker = mockBrokers.find((b) => b.id === inv.broker_id)
-        if (broker) {
-          if (!brokerMap.has(broker.id)) {
-            brokerMap.set(broker.id, { broker, invoices: [] })
-          }
-          brokerMap.get(broker.id)!.invoices.push(inv)
-        }
-      }
-    })
-    
-    // Calculate counts for each broker
-    return Array.from(brokerMap.values()).map(({ broker, invoices }) => {
-      const openInvoices = invoices.filter((inv) => inv.status !== 'paid')
-      const paymentTermsDays = broker.payment_terms_days || 30
-      
-      // Calculate overdue invoices (invoices past payment terms)
-      const overdueInvoices = openInvoices.filter((inv) => {
-        const daysSinceInvoice = inv.days_since_expected || 0
-        return daysSinceInvoice > paymentTermsDays
-      })
-      
-      return {
-        broker,
-        openInvoicesCount: openInvoices.length,
-        overdueInvoicesCount: overdueInvoices.length,
-        allInvoices: invoices,
-        openInvoices,
-      }
-    })
-  }, [clientFilter])
-
-  // Get invoices for selected broker
-  const brokerInvoices = useMemo(() => {
-    if (!selectedBroker) return []
-    return mockInvoices.filter(
-      (inv) =>
-        inv.broker_id === selectedBroker.id &&
-        inv.status !== 'hold' &&
-        inv.status !== 'pending' &&
-        (!clientFilter || inv.client_id === clientFilter)
-    )
-  }, [selectedBroker, clientFilter])
+  const inputStyle = { backgroundColor: c.card, color: c.primary }
 
   return (
-    <AdminLayout userName="Admin User" userRole="Administrator">
-      <div className="max-w-[1400px] mx-auto">
-        <div className="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>Collections</h1>
-            <p style={{ color: '#819291' }}>Manage broker invoices and collections</p>
-          </div>
-          {!selectedBroker ? (
-            <select
-              value={clientFilter}
-              onChange={(e) => updateClientFilter(e.target.value)}
-              className="client-input min-w-[200px]"
-              aria-label="Filter by client"
+    <AdminLayout userName="Admin User" userRole="Administrator" flushMain>
+      <div className="client-invoices-page overflow-hidden flex flex-col min-h-0 h-full">
+        <div className="payments-workspace-body flex-1 min-h-0">
+          <div className="payments-list-panel flex flex-col min-h-0 overflow-hidden">
+            <section
+              className="client-stat-strip grid grid-cols-2 lg:grid-cols-5 border-b shrink-0"
+              style={{ borderColor: c.border }}
             >
-              <option value="">All clients</option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </select>
-          ) : null}
-        </div>
-
-        {!selectedBroker && (
-          <CollectionsChasePanel
-            clientFilter={clientFilter}
-            onOpenInvoice={(invoiceId) => {
-              const inv = mockInvoices.find((i) => i.id === invoiceId)
-              if (inv) {
-                const broker = mockBrokers.find((b) => b.id === inv.broker_id)
-                if (broker) setSelectedBroker(broker)
-                setSelectedInvoice(inv)
-              }
-            }}
-          />
-        )}
-
-        {!selectedBroker ? (
-          // Broker List View
-          <div className="border" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
-            <div className="p-6">
-              <div className="mb-4">
-                <h2 className="text-lg font-bold" style={{ color: '#113543' }}>Brokers</h2>
-                <p className="text-sm mt-1" style={{ color: '#819291' }}>
-                  View invoices by broker and track overdue payments
-                </p>
-              </div>
-
-              {brokersWithCounts.length === 0 ? (
-                <div className="text-center py-12" style={{ color: '#819291' }}>
-                  <div className="text-4xl mb-2">📋</div>
-                  <div className="font-medium">No brokers found</div>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b" style={{ borderColor: '#819291' }}>
-                        <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                          Broker Name
-                        </th>
-                        <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                          Open Invoices
-                        </th>
-                        <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                          Overdue Invoices
-                        </th>
-                        <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                          Payment Terms
-                        </th>
-                        <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {brokersWithCounts.map((item, index) => (
-                        <tr
-                          key={item.broker.id}
-                          className="border-b cursor-pointer transition-colors"
-                          style={{
-                            borderColor: '#819291',
-                            backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
-                          }}
-                          onClick={() => setSelectedBroker(item.broker)}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#f0f0f0'
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#f8f9fa' : '#FFFFFF'
-                          }}
-                        >
-                          <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
-                            {item.broker.name}
-                          </td>
-                          <td className="py-3 px-4 text-sm text-right" style={{ color: '#819291' }}>
-                            {item.openInvoicesCount}
-                          </td>
-                          <td className="py-3 px-4 text-sm text-right font-medium" style={{ 
-                            color: item.overdueInvoicesCount > 0 ? '#C2A558' : '#819291' 
-                          }}>
-                            {item.overdueInvoicesCount}
-                          </td>
-                          <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                            Net {item.broker.payment_terms_days || 30}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedBroker(item.broker)
-                              }}
-                              className="px-3 py-1 text-sm font-medium text-white transition-colors"
-                              style={{ backgroundColor: '#C2A558' }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#b89547'
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = '#C2A558'
-                              }}
-                            >
-                              View Invoices
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          // Broker Invoice List View
-          <div className="space-y-6">
-            <div className="flex items-center space-x-4 mb-6">
               <button
-                onClick={() => {
-                  setSelectedBroker(null)
-                  setSelectedInvoice(null)
-                }}
-                className="flex items-center space-x-2 transition-colors"
-                style={{ color: '#819291' }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = '#113543'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = '#819291'
+                type="button"
+                onClick={() => setFocus('all')}
+                className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left"
+                style={{
+                  backgroundColor: focus === 'all' ? c.stat.blue : c.card,
+                  borderColor: c.border,
                 }}
               >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Back to Brokers</span>
+                <span className="text-xs font-medium" style={{ color: c.secondary }}>
+                  Open A/R
+                </span>
+                <span className="text-right">
+                  <span className="block text-lg font-bold tabular-nums" style={{ color: c.primary }}>
+                    {counts.open}
+                  </span>
+                  <span className="block text-[11px] tabular-nums" style={{ color: c.secondary }}>
+                    {formatCurrency(counts.openAmount)}
+                  </span>
+                </span>
               </button>
-              <div>
-                <h2 className="text-xl font-bold" style={{ color: '#113543' }}>
-                  {selectedBroker.name}
-                </h2>
-                <p className="text-sm" style={{ color: '#819291' }}>
-                  Payment Terms: Net {selectedBroker.payment_terms_days || 30}
-                </p>
+              <button
+                type="button"
+                onClick={() => setFocus(focus === 'overdue' ? 'all' : 'overdue')}
+                className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b lg:border-b-0 text-left"
+                style={{
+                  backgroundColor: focus === 'overdue' ? c.stat.amber : c.card,
+                  borderColor: c.border,
+                }}
+              >
+                <span className="text-xs font-medium" style={{ color: c.secondary }}>
+                  Overdue
+                </span>
+                <span className="text-right">
+                  <span className="block text-lg font-bold tabular-nums" style={{ color: c.error }}>
+                    {counts.overdue}
+                  </span>
+                  <span className="block text-[11px] tabular-nums" style={{ color: c.secondary }}>
+                    {formatCurrency(counts.overdueAmount)}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFocus(focus === 'chase' ? 'all' : 'chase')}
+                className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left"
+                style={{
+                  backgroundColor: focus === 'chase' ? c.stat.blue : c.card,
+                  borderColor: c.border,
+                }}
+              >
+                <span className="text-xs font-medium" style={{ color: c.secondary }}>
+                  Chase
+                </span>
+                <span className="text-lg font-bold tabular-nums" style={{ color: c.primary }}>
+                  {counts.chase}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFocus(focus === 'will_pay' ? 'all' : 'will_pay')}
+                className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b lg:border-b-0 text-left"
+                style={{
+                  backgroundColor: focus === 'will_pay' ? c.stat.green : c.card,
+                  borderColor: c.border,
+                }}
+              >
+                <span className="text-xs font-medium" style={{ color: c.secondary }}>
+                  Will Pay
+                </span>
+                <span className="text-lg font-bold tabular-nums" style={{ color: c.primary }}>
+                  {counts.willPay}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFocus(focus === 'urgent' ? 'all' : 'urgent')}
+                className="flex items-center justify-between gap-2 px-4 py-2.5 text-left"
+                style={{
+                  backgroundColor: focus === 'urgent' ? c.stat.red : c.card,
+                  borderColor: c.border,
+                }}
+              >
+                <span className="text-xs font-medium" style={{ color: c.secondary }}>
+                  Urgent
+                </span>
+                <span className="text-lg font-bold tabular-nums" style={{ color: c.error }}>
+                  {counts.urgent}
+                </span>
+              </button>
+            </section>
+
+            <div
+              className="client-page-toolbar px-4 py-2 border-b shrink-0 space-y-2"
+              style={{ borderColor: c.border, backgroundColor: c.card }}
+            >
+              <div className="flex flex-col md:flex-row md:items-center gap-2">
+                <div className="flex-1 relative">
+                  <Search
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
+                    style={{ color: c.secondary }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search invoice, client, broker, load…"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="client-input pl-8"
+                    style={inputStyle}
+                  />
+                </div>
+                <select
+                  value={clientFilter}
+                  onChange={(e) => updateClientFilter(e.target.value)}
+                  className="client-input w-full md:w-auto min-w-[160px]"
+                  style={inputStyle}
+                  aria-label="Filter by client"
+                >
+                  <option value="">All clients</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {FOCUS_TABS.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setFocus(key)}
+                    className={`page-tab !py-1 !px-2 !text-xs ${focus === key ? 'page-tab--active' : ''}`}
+                  >
+                    {collectionsFocusLabel(key)}
+                    {key === 'chase'
+                      ? ` (${counts.chase})`
+                      : key === 'overdue'
+                        ? ` (${counts.overdue})`
+                        : key === 'will_pay'
+                          ? ` (${counts.willPay})`
+                          : key === 'urgent'
+                            ? ` (${counts.urgent})`
+                            : key === 'all'
+                              ? ` (${counts.open})`
+                              : ''}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div className="border" style={{ backgroundColor: '#FFFFFF', borderColor: '#819291' }}>
-              <div className="p-6">
-                {brokerInvoices.length === 0 ? (
-                  <div className="text-center py-12" style={{ color: '#819291' }}>
-                    <div className="text-4xl mb-2">📄</div>
-                    <div className="font-medium">No invoices found for {selectedBroker.name}</div>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b" style={{ borderColor: '#819291' }}>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Invoice#
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Client
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Load#
-                          </th>
-                          <th className="text-right py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Amount
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Invoice Date
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Due Date
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Days Overdue
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Status
-                          </th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Paperwork Status
-                          </th>
-                          <th className="text-center py-3 px-4 text-sm font-semibold" style={{ color: '#113543' }}>
-                            Action
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {brokerInvoices.map((inv, index) => {
-                          const paymentTermsDays = selectedBroker.payment_terms_days || 30
-                          const daysSinceInvoice = inv.days_since_expected || 0
-                          const isOverdue = daysSinceInvoice > paymentTermsDays
-                          
-                          // Get most recent document send record
-                          const lastSendRecord = inv.document_send_history && inv.document_send_history.length > 0
-                            ? inv.document_send_history.sort((a, b) => 
-                                new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime()
-                              )[0]
-                            : null
-                          const paperworkSent = !!lastSendRecord
-                          
-                          return (
-                            <tr
-                              key={inv.id}
-                              className="border-b"
-                              style={{
-                                borderColor: '#819291',
-                                backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#FFFFFF',
-                              }}
-                            >
-                              <td className="py-3 px-4 text-sm font-medium" style={{ color: '#113543' }}>
-                                {inv.invoice_number}
-                              </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                                {inv.client_name}
-                              </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                                {inv.load_number || '-'}
-                              </td>
-                              <td className="py-3 px-4 text-sm text-right font-medium" style={{ color: '#113543' }}>
-                                {formatCurrency(inv.amount)}
-                              </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                                {formatDate(inv.invoice_date)}
-                              </td>
-                              <td className="py-3 px-4 text-sm" style={{ color: '#819291' }}>
-                                {formatDate(inv.due_date)}
-                              </td>
-                              <td className="py-3 px-4 text-sm font-medium" style={{ 
-                                color: isOverdue ? '#C2A558' : '#819291' 
-                              }}>
-                                {inv.status === 'paid' ? '-' : `${daysSinceInvoice} days`}
-                              </td>
-                              <td className="py-3 px-4 text-sm">
+            {sorted.length === 0 ? (
+              <div className="flex-1 min-h-0 flex items-center justify-center p-6">
+                <EmptyState
+                  title="Nothing in this queue"
+                  hint="Try another filter, or invoices will show here after PPW is sent."
+                />
+              </div>
+            ) : (
+              <div className="client-table-scroll flex-1 min-h-0 overflow-y-auto">
+                <table className="dashboard-table dashboard-table--compact">
+                  <thead>
+                    <tr>
+                      <ClientSortableHeader
+                        field="invoice_number"
+                        label="Invoice"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                      />
+                      <ClientSortableHeader
+                        field="client_name"
+                        label="Client"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                      />
+                      <ClientSortableHeader
+                        field="broker_name"
+                        label="Broker"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                      />
+                      <ClientSortableHeader
+                        field="amount"
+                        label="Balance"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                        align="right"
+                      />
+                      <ClientSortableHeader
+                        field="age"
+                        label="Age"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                      />
+                      <ClientSortableHeader
+                        field="due_date"
+                        label="Due"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                      />
+                      <ClientSortableHeader
+                        field="pay_date"
+                        label="Pay date"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                      />
+                      <ClientSortableHeader
+                        field="ppw"
+                        label="PPW"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                      />
+                      <ClientSortableHeader
+                        field="last_contact"
+                        label="Contacted"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                        title="Last payment-status call or inquiry — not PPW send"
+                      />
+                      <ClientSortableHeader
+                        field="chase"
+                        label="Chase"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                      />
+                      <ClientSortableHeader
+                        field="urgent"
+                        label="Review"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                      />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pageRows.map((row) => {
+                      const selected = selectedInvoice?.id === row.invoice.id
+                      return (
+                        <tr
+                          key={row.invoice.id}
+                          className={`cursor-pointer ${selected ? 'invoice-row--selected' : ''} ${
+                            row.isUrgent || row.isOverdue ? 'invoice-row--overdue' : ''
+                          }`}
+                          onClick={() => {
+                            setSelectedInvoice(row.invoice)
+                            openQueueInvoice(row.invoice.id)
+                          }}
+                        >
+                          <ClientListTd variant="primary">
+                            <div className="font-medium" style={{ color: c.primary }}>
+                              {row.invoice.invoice_number}
+                            </div>
+                            <div className="text-[11px]" style={{ color: c.secondary }}>
+                              {row.invoice.load_number ? `Load ${row.invoice.load_number}` : '—'}
+                            </div>
+                          </ClientListTd>
+                          <ClientListTd>{row.invoice.client_name}</ClientListTd>
+                          <ClientListTd>
+                            <div>{row.broker?.name || row.invoice.broker_name}</div>
+                            <div className="text-[11px]" style={{ color: c.secondary }}>
+                              {formatBrokerNetDays(row.dueDays)}
+                              {row.broker?.payment_status_inquiry_days != null
+                                ? ` · inquiry ${row.inquiryDays}d`
+                                : ''}
+                            </div>
+                          </ClientListTd>
+                          <ClientListTd variant="amount" className="tabular-nums">
+                            {formatCurrency(row.amount)}
+                          </ClientListTd>
+                          <ClientListTd className="tabular-nums">{row.ageDays}d</ClientListTd>
+                          <ClientListTd>
+                            <div className="tabular-nums">
+                              {row.dueDate ? formatDate(row.dueDate) : '—'}
+                            </div>
+                            {row.isOverdue ? (
+                              <span className="status-pill status-pill--overdue">
+                                {row.daysPastDue}d past due
+                              </span>
+                            ) : null}
+                          </ClientListTd>
+                          <ClientListTd>
+                            {row.confirmedPayDate ? (
+                              <>
+                                <div className="tabular-nums">{formatDate(row.confirmedPayDate)}</div>
+                                <span className="status-pill status-pill--approved">Will Pay</span>
+                              </>
+                            ) : row.collectionStatus === 'C/B' ? (
+                              <>
+                                {row.invoice.collection_date ? (
+                                  <div className="tabular-nums">
+                                    {formatDate(row.invoice.collection_date)}
+                                  </div>
+                                ) : null}
                                 <span
-                                  className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
-                                  style={{
-                                    backgroundColor: 
-                                      inv.status === 'paid' ? '#819291' :
-                                      inv.status === 'hold' ? '#C2A558' :
-                                      '#819291',
-                                    color: '#FFFFFF',
-                                  }}
+                                  className={`status-pill ${
+                                    row.isCallbackDue
+                                      ? 'status-pill--overdue'
+                                      : 'status-pill--pending'
+                                  }`}
                                 >
-                                  {inv.status === 'paid' ? 'Paid' : inv.status}
+                                  Call back
                                 </span>
-                              </td>
-                              <td className="py-3 px-4 text-sm">
-                                {paperworkSent ? (
-                                  <span
-                                    className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
-                                    style={{ backgroundColor: '#819291', color: '#FFFFFF' }}
-                                  >
-                                    Sent
+                              </>
+                            ) : (
+                              <span style={{ color: c.secondary }}>—</span>
+                            )}
+                          </ClientListTd>
+                          <ClientListTd>
+                            {row.ppwSentAt ? (
+                              <>
+                                <div className="tabular-nums">{formatDate(row.ppwSentAt)}</div>
+                                <div className="text-[11px]" style={{ color: c.secondary }}>
+                                  {row.daysSincePpw}d ago
+                                </div>
+                              </>
+                            ) : (
+                              <span className="status-pill status-pill--warn">Not sent</span>
+                            )}
+                          </ClientListTd>
+                          <ClientListTd>
+                            {row.lastContact ? (
+                              <>
+                                <div className="tabular-nums">{formatDate(row.lastContact)}</div>
+                                <div className="text-[11px]" style={{ color: c.secondary }}>
+                                  {formatRelativeTime(row.lastContact)}
+                                </div>
+                              </>
+                            ) : (
+                              <span style={{ color: c.secondary }}>Never</span>
+                            )}
+                          </ClientListTd>
+                          <ClientListTd variant="status">
+                            <span className={chaseStatusPillClass(row.chaseStatus)}>
+                              {chaseStatusLabel(row.chaseStatus)}
+                            </span>
+                          </ClientListTd>
+                          <ClientListTd>
+                            {row.isUrgent ? (
+                              <div className="flex flex-col items-start gap-0.5">
+                                {row.urgentReasons.map((reason) => (
+                                  <span key={reason} className={reviewReasonPillClass(reason)}>
+                                    {reviewReasonPillLabel(reason)}
                                   </span>
-                                ) : (
-                                  <span
-                                    className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium"
-                                    style={{ backgroundColor: '#C2A558', color: '#FFFFFF' }}
-                                  >
-                                    Not Sent
-                                  </span>
-                                )}
-                              </td>
-                              <td className="py-3 px-4 text-center">
-                                <button
-                                  onClick={() => setSelectedInvoice(inv)}
-                                  className="text-sm transition-colors"
-                                  style={{ color: '#819291' }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.color = '#113543'
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.color = '#819291'
-                                  }}
-                                >
-                                  View
-                                </button>
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                                ))}
+                              </div>
+                            ) : (
+                              <span style={{ color: c.secondary }}>—</span>
+                            )}
+                          </ClientListTd>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
-            </div>
-
-            {/* Invoice Detail View */}
-            {selectedInvoice && (
-              <AdminInvoiceDetailView
-                invoice={selectedInvoice}
-                invoiceList={brokerInvoices}
-                onInvoiceSelect={(inv) => setSelectedInvoice(inv)}
-                onClose={() => setSelectedInvoice(null)}
-                isCollectionsView={true}
-                // Approve/Hold disabled since invoices are already processed
-              />
             )}
+
+            {sorted.length > 0 ? (
+              <div
+                className="client-page-footer flex items-center justify-between gap-2 px-3 py-2 border-t shrink-0"
+                style={{ borderColor: c.border }}
+              >
+                <div className="flex items-center gap-2 text-xs" style={{ color: c.secondary }}>
+                  <span>
+                    {sorted.length} invoice{sorted.length === 1 ? '' : 's'}
+                  </span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="client-input !h-7 !py-0 !text-xs"
+                    style={{ backgroundColor: c.card }}
+                  >
+                    {PAGE_SIZE_OPTIONS.map((n) => (
+                      <option key={n} value={n}>
+                        {n}/page
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="table-page-btn"
+                    disabled={currentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  >
+                    Prev
+                  </button>
+                  <span className="text-xs tabular-nums px-2" style={{ color: c.secondary }}>
+                    {currentPage}/{totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="table-page-btn"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
-        )}
+
+        </div>
+
       </div>
     </AdminLayout>
   )
 }
-

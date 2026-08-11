@@ -2,6 +2,7 @@ import { requireSupabase } from '../lib/supabase'
 import { updateBrokerAsync, addBroker } from '../data/mockBrokers'
 import type { Broker } from '../types/broker'
 import type { BrokerSnapshotSummary } from '../types/brokerSnapshot'
+import { operatingStatusWarningNote } from '../utils/brokerWarningNotes'
 
 export type BrokerSnapshotChangeStatus = 'pending' | 'applied' | 'dismissed' | 'stale'
 
@@ -81,11 +82,20 @@ function applyFieldToBroker(broker: Broker, fieldKey: string, newValue: string |
       break
     case 'insurance_status':
     case 'operating_status': {
-      const stamp = `[Snapshot ${new Date().toISOString().slice(0, 10)}] ${v ?? ''}`
-      next.carrier_notes = next.carrier_notes
-        ? `${next.carrier_notes}\n${stamp}`
-        : stamp
-      next.notes = next.notes ? `${next.notes}\n${stamp}` : stamp
+      const line =
+        fieldKey === 'operating_status' ? operatingStatusWarningNote(v) : v || null
+      if (line) {
+        const already = (text: string | undefined) =>
+          (text ?? '').toLowerCase().includes(line.toLowerCase())
+        if (!already(next.notes)) {
+          next.notes = next.notes ? `${next.notes}\n${line}` : line
+        }
+        if (!already(next.carrier_notes)) {
+          next.carrier_notes = next.carrier_notes
+            ? `${next.carrier_notes}\n${line}`
+            : line
+        }
+      }
       break
     }
     default:
@@ -143,9 +153,7 @@ export async function applyBrokerSnapshotChange(
       contact_person: payload?.officer || undefined,
       address: payload?.phyAddress || undefined,
       is_new: true,
-      carrier_notes: payload?.insuranceNote
-        ? `[Snapshot] ${payload.insuranceNote}`
-        : undefined,
+      carrier_notes: payload?.insuranceNote || undefined,
       payment_terms_days: 30,
     }
     await addBroker(created)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   MessageSquarePlus,
   ChevronDown,
@@ -28,6 +28,10 @@ interface InvoiceNoteComposeProps {
   onVisibilityChange?: (visibility: NoteComposeVisibility) => void
   /** Override placeholder (defaults based on visibility). */
   placeholder?: string
+  /** Extra actions under the note field (e.g. Will Pay / Call Back). */
+  footer?: ReactNode
+  /** Enable Add when a status is selected even if the note field is empty. */
+  submitEnabled?: boolean
 }
 
 /** Compact note composer for detail panels and modals. */
@@ -43,6 +47,8 @@ export function InvoiceNoteCompose({
   visibility = 'client',
   onVisibilityChange,
   placeholder,
+  footer,
+  submitEnabled,
 }: InvoiceNoteComposeProps) {
   const canCollapse = collapsible || mobileEasy
   const [expanded, setExpanded] = useState(() => Boolean(newNote.trim()) || !canCollapse)
@@ -200,7 +206,7 @@ export function InvoiceNoteCompose({
         <button
           type="button"
           onClick={onSubmit}
-          disabled={!newNote.trim() || isAddingNote}
+          disabled={!(submitEnabled ?? Boolean(newNote.trim())) || isAddingNote}
           className={`dashboard-btn-primary dashboard-btn-compact invoice-detail-add-note-btn${
             mobileEasy ? ' invoice-detail-add-note-btn--mobile' : ''
           }`}
@@ -219,6 +225,7 @@ export function InvoiceNoteCompose({
           )}
         </button>
       </div>
+      {footer ? <div className="invoice-detail-note-compose__footer">{footer}</div> : null}
     </div>
   )
 }

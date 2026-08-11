@@ -1,5 +1,6 @@
 import type { Invoice } from '../types/invoice'
 import type { EnrichedInvoice } from './invoiceAging'
+import type { BrokerRiskLevel } from '../types/brokerRisk'
 import { isOpenArInvoice } from './invoiceAging'
 import { formatCurrency, formatRelativeTime } from './format'
 import { getOpenDisputes } from '../services/clientInvoiceActions'
@@ -8,6 +9,7 @@ import { deriveHoldExplanation } from './assistantHoldExplanation'
 import { AMOUNT_EPSILON } from './paymentVariance'
 import { invoiceListPriorityStatusLabel } from './invoiceListPriority'
 import { getInvoiceDisputeOverviewNote } from './clientInvoiceDisputeStatus'
+import { resolveLastBrokerContact } from './adminCollections'
 
 export type InvoiceInsightTone = 'default' | 'alert' | 'success' | 'info'
 export type InvoiceInsightIcon =
@@ -21,8 +23,9 @@ export type InvoiceInsightIcon =
   | 'file'
   | 'short_pay'
   | 'over_pay'
+  | 'shield'
 
-export type InvoiceInsightAction = 'activity' | 'docs' | 'confirm_payment' | 'none'
+export type InvoiceInsightAction = 'activity' | 'docs' | 'confirm_payment' | 'broker_risk' | 'none'
 
 export interface InvoiceMobileInsight {
   id: string
@@ -66,6 +69,8 @@ export interface InvoiceMobileInsightsInput {
   paymentDisputeDescription?: string | null
   /** Carrier disputed a Credyx-posted remittance. */
   paymentDisputed?: boolean
+  /** Carrier-visible Credyx Broker Risk — overview row only for medium/high. */
+  brokerRiskLevel?: BrokerRiskLevel | null
 }
 
 /** Medium date for insight subtitles (e.g. May 15, 2024). */
@@ -154,6 +159,7 @@ export function getInvoiceMobileInsights(
     awaitingShortAmount = null,
     paymentDisputeDescription = null,
     paymentDisputed = false,
+    brokerRiskLevel = null,
   } = input
 
   const insights: InvoiceMobileInsight[] = []
@@ -190,6 +196,17 @@ export function getInvoiceMobileInsights(
       icon: 'alert',
       badge: openDisputes.length > 1 ? openDisputes.length : undefined,
       action: 'activity',
+    })
+  }
+
+  if (brokerRiskLevel === 'high' || brokerRiskLevel === 'medium') {
+    insights.push({
+      id: 'broker-risk',
+      title: brokerRiskLevel === 'high' ? 'High risk broker' : 'Medium risk broker',
+      subtitle: `View ${invoice.broker_name} on the Brokers tab`,
+      tone: 'alert',
+      icon: 'shield',
+      action: 'broker_risk',
     })
   }
 
@@ -315,7 +332,7 @@ export function getInvoiceMobileInsights(
   }
 
   if (isOpen && invoice.status !== 'paid') {
-    const lastContact = invoice.last_broker_contact
+    const lastContact = resolveLastBrokerContact(invoice)
     const needsAttention = Boolean(invoice.collections_needs_attention)
 
     if (needsAttention || (lastContact && !invoice.collection_status)) {

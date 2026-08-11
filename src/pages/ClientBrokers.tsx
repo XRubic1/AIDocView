@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Building2,
   Search,
@@ -28,6 +28,7 @@ import {
   lookupBrokerByMc,
   normalizeMcQuery,
 } from '../utils/clientBrokers'
+import { normalizeBrokerNameKey } from '../utils/brokerRiskPolicy'
 import McLookupModal from '../components/client/McLookupModal'
 import {
   getInitialListPageSize,
@@ -60,6 +61,7 @@ function buildClientPayments(clientId: string, clientName: string): Payment[] {
 export default function ClientBrokers() {
   const c = useClientTheme()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { clientId, clientName } = useClientSession()
   const tenantRevision = useTenantDataRevision()
   const [notesRefreshKey, setNotesRefreshKey] = useState(0)
@@ -189,6 +191,20 @@ export default function ClientBrokers() {
   )
 
   const selectedBroker = directory.find((b) => b.broker_id === selectedBrokerId) ?? null
+
+  /** Deep-link from invoice details: /client/brokers?broker=<id or name> */
+  useEffect(() => {
+    const raw = searchParams.get('broker')?.trim()
+    if (!raw || directory.length === 0) return
+    const nameKey = normalizeBrokerNameKey(raw)
+    const match = directory.find(
+      (b) =>
+        b.broker_id === raw ||
+        b.broker_name === raw ||
+        normalizeBrokerNameKey(b.broker_name) === nameKey
+    )
+    if (match) setSelectedBrokerId(match.broker_id)
+  }, [searchParams, directory])
 
   useEffect(() => {
     setCurrentPage(1)

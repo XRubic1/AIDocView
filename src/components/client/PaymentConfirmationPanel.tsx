@@ -345,7 +345,7 @@ export default function PaymentConfirmationPanel({
 
       {payment.status === 'pending' && !canConfirmOnInvoice ? (
         <p className="payment-confirmation-panel__summary-meta">
-          Awaiting Credyx confirmation before it applies to the invoice.
+          This payment still needs Credyx confirmation before it applies to the invoice.
         </p>
       ) : null}
       {(payment.status === 'awaiting_receipt' || payment.status === 'confirmed') && (

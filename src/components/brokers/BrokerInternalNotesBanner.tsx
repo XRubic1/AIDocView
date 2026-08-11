@@ -3,6 +3,7 @@ import { AlertTriangle, Eye, Plus, X } from 'lucide-react'
 import { mockBrokers, updateBrokerAsync } from '../../data/mockBrokers'
 import { findBrokerByName } from '../../utils/brokerResolve'
 import { useToast } from '../ui/ToastProvider'
+import { mergeBrokerWarningNotes } from '../../utils/brokerWarningNotes'
 import '../../styles/brokerPicker.css'
 
 type NoteVisibility = 'internal' | 'carrier'
@@ -67,6 +68,7 @@ export default function BrokerInternalNotesBanner({
 
   const internal = broker?.notes?.trim() ?? ''
   const carrier = broker?.carrier_notes?.trim() ?? ''
+  const warnings = mergeBrokerWarningNotes(internal, carrier)
 
   useEffect(() => {
     setDraft('')
@@ -126,13 +128,53 @@ export default function BrokerInternalNotesBanner({
       aria-label="Broker notes"
     >
       <div className="broker-note-bar__top">
-        {internal ? (
-          <p className="broker-note-bar__line broker-note-bar__line--internal">
-            <AlertTriangle className="broker-note-bar__icon" aria-hidden />
-            <span>
-              <strong>Internal</strong> {internal}
-            </span>
-          </p>
+        {warnings.labels.length > 0 ||
+        warnings.internalNotes.length > 0 ||
+        warnings.carrierNotes.length > 0 ? (
+          <div className="broker-note-bar__body">
+            {warnings.labels.length > 0 ? (
+              <div className="broker-note-bar__labels" aria-label="Broker warnings">
+                {warnings.labels.map((label) => (
+                  <span
+                    key={label.id}
+                    className={`broker-note-bar__label broker-note-bar__label--${label.tone}`}
+                  >
+                    {label.text}
+                  </span>
+                ))}
+                {warnings.carrierSameAsInternal ? (
+                  <span className="broker-note-bar__label broker-note-bar__label--info">
+                    Shown to carrier
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {warnings.internalNotes.length > 0 ? (
+              <p className="broker-note-bar__line broker-note-bar__line--internal">
+                <AlertTriangle className="broker-note-bar__icon" aria-hidden />
+                <span>
+                  <strong>Internal</strong> {warnings.internalNotes.join(' ')}
+                </span>
+              </p>
+            ) : warnings.labels.some((l) => l.id === 'inactive') ? (
+              <p className="broker-note-bar__line broker-note-bar__line--internal">
+                <AlertTriangle className="broker-note-bar__icon" aria-hidden />
+                <span>Do not book until authority is confirmed.</span>
+              </p>
+            ) : (
+              <p className="broker-note-bar__empty">No internal note</p>
+            )}
+
+            {editable && warnings.carrierNotes.length > 0 ? (
+              <p className="broker-note-bar__line broker-note-bar__line--carrier">
+                <Eye className="broker-note-bar__icon" aria-hidden />
+                <span>
+                  <strong>Carrier</strong> {warnings.carrierNotes.join(' ')}
+                </span>
+              </p>
+            ) : null}
+          </div>
         ) : (
           <p className="broker-note-bar__empty">No internal note</p>
         )}
@@ -151,15 +193,6 @@ export default function BrokerInternalNotesBanner({
           {topActions}
         </div>
       </div>
-
-      {editable && carrier ? (
-        <p className="broker-note-bar__line broker-note-bar__line--carrier">
-          <Eye className="broker-note-bar__icon" aria-hidden />
-          <span>
-            <strong>Carrier</strong> {carrier}
-          </span>
-        </p>
-      ) : null}
 
       {editable && open ? (
         <div className="broker-note-bar__composer">

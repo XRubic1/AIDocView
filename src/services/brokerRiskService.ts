@@ -27,7 +27,7 @@ import { persistBrokerRiskProfile } from './supabase/brokerRiskPersist'
 import { notifyTenantDataUpdated } from './supabase/tenantDataLiveSync'
 import { notifyAdminBrokerRiskUrgent } from './adminNotificationService'
 import { getClientById } from './clientRegistry'
-import { DEFAULT_BROKER_RISK_POLICY } from '../utils/brokerRiskPolicy'
+import { BROKER_RISK_POLICY } from '../utils/brokerRiskPolicy'
 import { logBrokerRiskAudit } from '../utils/brokerRiskAudit'
 import { mockBrokers } from '../data/mockBrokers'
 
@@ -43,10 +43,10 @@ function maybeNotifyUrgentBrokerRisk(
 
   const daysPast =
     profile.metrics.max_days_past_terms ??
-    DEFAULT_BROKER_RISK_POLICY.high_single_late_days
+    BROKER_RISK_POLICY.high_single_late_days
   const net =
     profile.metrics.payment_terms_days ??
-    DEFAULT_BROKER_RISK_POLICY.fallback_terms_days
+    BROKER_RISK_POLICY.fallback_terms_days
   const client = getClientById(profile.client_id)
 
   try {

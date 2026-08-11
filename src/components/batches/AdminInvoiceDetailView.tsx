@@ -67,6 +67,10 @@ interface AdminInvoiceDetailViewProps {
   onInvoiceSelect?: (invoice: Invoice) => void // Callback when invoice is selected from list
   stage?: 'ready_to_post' | 'verification' | 'approval' // Stage of the batch workflow
   isCollectionsView?: boolean // Whether this is opened from Collections view
+  /** Fill a parent pane/window instead of covering the viewport. */
+  embedded?: boolean
+  /** Hide the built-in close control when the parent chrome already has one. */
+  hideCloseButton?: boolean
 }
 
 export default function AdminInvoiceDetailView({
@@ -79,6 +83,8 @@ export default function AdminInvoiceDetailView({
   onInvoiceSelect,
   stage,
   isCollectionsView = false,
+  embedded = false,
+  hideCloseButton = false,
 }: AdminInvoiceDetailViewProps) {
   const { showToast } = useToast()
   const { resolved, session } = useAuth()
@@ -1192,9 +1198,15 @@ export default function AdminInvoiceDetailView({
   const isManagedClient = invoiceClient?.service_tier === 'managed'
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
+    <div
+      className={
+        embedded
+          ? 'relative h-full min-h-0 overflow-hidden flex flex-col'
+          : 'fixed inset-0 z-50 overflow-hidden'
+      }
+    >
       {/* Split View Container */}
-      <div className="flex h-full">
+      <div className="flex h-full min-h-0 flex-1">
         {/* Left Panel: Invoice List (only shown when invoiceList is provided) */}
         {showThreePanel && (
           <div
@@ -1429,19 +1441,21 @@ export default function AdminInvoiceDetailView({
                   </button>
                 </>
               )}
-              <button
-                onClick={onClose}
-                className="p-1.5 transition-colors"
-                style={{ color: '#819291' }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = '#113543'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = '#819291'
-                }}
-              >
-                <X className="w-4 h-4" />
-              </button>
+              {hideCloseButton ? null : (
+                <button
+                  onClick={onClose}
+                  className="p-1.5 transition-colors"
+                  style={{ color: '#819291' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#113543'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = '#819291'
+                  }}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
             </div>
 

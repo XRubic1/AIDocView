@@ -336,7 +336,7 @@ function pageForTopic(id: DocTopicId): DocPageContent {
         steps: [
           {
             title: 'Self-service',
-            body: 'Carrier creates AI/manual batches, posts payments (often pending Credyx confirm), runs more invoice ops, and does not get Credyx force-close framing.',
+            body: 'Carrier creates AI/manual batches, posts payments (applied immediately), runs more invoice ops, and does not get Credyx force-close framing.',
           },
           {
             title: 'Managed',

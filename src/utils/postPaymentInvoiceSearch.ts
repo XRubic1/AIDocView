@@ -1,5 +1,10 @@
 import type { Invoice } from '../types/invoice'
-import { isAdminPostableForPayment, isOpenArInvoice, isPostableForPayment } from './invoiceAging'
+import {
+  isAdminPostableForPayment,
+  isClosedInvoiceForPayment,
+  isOpenArInvoice,
+  isPostableForPayment,
+} from './invoiceAging'
 import { AMOUNT_EPSILON } from './paymentVariance'
 
 export type PostPaymentSearchHit = {
@@ -12,6 +17,8 @@ export type PostPaymentPickerMode = 'client' | 'admin'
 
 export type PostPaymentPickerOptions = {
   mode?: PostPaymentPickerMode
+  /** Client picker — also list paid / written-off / force-closed invoices. */
+  includeClosed?: boolean
 }
 
 export type InvoicePickerCategory = 'open' | 'short' | 'over' | 'closed' | 'other'
@@ -34,16 +41,20 @@ export function getInvoicePickerCategory(
   return 'open'
 }
 
-/** Default picker list — approved open A/R only (hides paid, short, over, closed, pending confirmation). */
+/** Default picker list — open A/R; optionally include closed invoices for over/short posts. */
 export function isDefaultPickerVisible(
   invoice: Invoice,
   receivedAmount: number,
-  pendingAmount = 0
+  pendingAmount = 0,
+  includeClosed = false
 ): boolean {
-  if (invoice.status === 'paid' || invoice.status === 'written_off') return false
+  if (invoice.status === 'write_off_pending' || invoice.status === 'rejected') return false
   // Hide invoices that already have a payment awaiting confirmation / under dispute.
   if (pendingAmount > 0) return false
-  return getInvoicePickerCategory(invoice, receivedAmount) === 'open'
+  if (includeClosed && isClosedInvoiceForPayment(invoice)) return true
+  if (isClosedInvoiceForPayment(invoice)) return false
+  const category = getInvoicePickerCategory(invoice, receivedAmount)
+  return category === 'open' || category === 'short' || category === 'over'
 }
 
 /** Admin picker — includes paid / force-closed / written-off for corrections and remittance. */
@@ -80,11 +91,12 @@ function isPickerDefaultVisible(
   invoice: Invoice,
   receivedAmount: number,
   pendingAmount: number,
-  mode: PostPaymentPickerMode
+  mode: PostPaymentPickerMode,
+  includeClosed = false
 ): boolean {
   return mode === 'admin'
     ? isAdminDefaultPickerVisible(invoice, receivedAmount, pendingAmount)
-    : isDefaultPickerVisible(invoice, receivedAmount, pendingAmount)
+    : isDefaultPickerVisible(invoice, receivedAmount, pendingAmount, includeClosed)
 }
 
 /**
@@ -101,19 +113,21 @@ export function listDefaultPickerInvoices(
   options?: PostPaymentPickerOptions
 ): PostPaymentSearchHit[] {
   const mode = options?.mode ?? 'client'
+  const includeClosed = options?.includeClosed === true
   return invoices
     .filter((invoice) => {
       if (showAll) {
         if (mode === 'admin') {
           return invoice.status !== 'write_off_pending'
         }
-        return true
+        return invoice.status !== 'write_off_pending'
       }
       return isPickerDefaultVisible(
         invoice,
         getReceived(invoice.id),
         getPending?.(invoice.id) ?? 0,
-        mode
+        mode,
+        includeClosed
       )
     })
     .sort((a, b) => b.invoice_date.localeCompare(a.invoice_date))

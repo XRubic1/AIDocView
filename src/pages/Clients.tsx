@@ -21,6 +21,7 @@ import { Broker } from '../types/broker'
 import { Invoice } from '../types/invoice'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
+import { getAgingArBucketKey, getInvoiceAgeDays } from '../utils/invoiceAging'
 import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
 import AdminClientVaultPanel from '../components/admin/AdminClientVaultPanel'
 import ClientCalendarPanel from '../components/admin/ClientCalendarPanel'
@@ -233,17 +234,11 @@ export default function Clients() {
     })
     
     filteredInvoices.forEach((inv) => {
-      const days = inv.days_since_expected || 0
       totals.total += inv.amount
-      
-      // Only calculate aging buckets for open (non-paid) invoices
+
+      // Aging buckets use invoice age (not days past due)
       if (inv.status !== 'paid') {
-        if (days <= 15) totals['1_15'] += inv.amount
-        else if (days <= 30) totals['16_30'] += inv.amount
-        else if (days <= 45) totals['31_45'] += inv.amount
-        else if (days <= 60) totals['46_60'] += inv.amount
-        else if (days <= 90) totals['61_90'] += inv.amount
-        else totals.over_91 += inv.amount
+        totals[getAgingArBucketKey(getInvoiceAgeDays(inv))] += inv.amount
       }
     })
     
@@ -711,7 +706,7 @@ export default function Clients() {
                           <th className="text-right">Amount</th>
                           <th>Invoice date</th>
                           <th>Due date</th>
-                          <th>Days overdue</th>
+                          <th>Invoice age</th>
                           <th>Status</th>
                         </tr>
                       </thead>
@@ -726,7 +721,7 @@ export default function Clients() {
                               <td className="text-slate-600">{formatDate(inv.invoice_date)}</td>
                               <td className="text-slate-600">{formatDate(inv.due_date)}</td>
                               <td className="text-slate-600">
-                                {inv.status === 'paid' ? '—' : `${inv.days_since_expected || 0} days`}
+                                {inv.status === 'paid' ? '—' : `${getInvoiceAgeDays(inv)}d`}
                               </td>
                               <td>
                                 <span

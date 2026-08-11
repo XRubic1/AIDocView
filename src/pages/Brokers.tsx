@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import AdminLayout from '../components/AdminLayout'
-import { mockBrokers, addBroker, updateBroker } from '../data/mockBrokers'
+import { mockBrokers, addBroker, updateBrokerAsync } from '../data/mockBrokers'
 import { Broker, BrokerEmail, BrokerPhone } from '../types/broker'
 import { Phone, Mail, MapPin, Search, X, Plus, Trash2, ArrowLeft } from 'lucide-react'
 import { useToast } from '../components/ui/ToastProvider'
@@ -285,7 +285,8 @@ export default function Brokers() {
     setIsSaving(true)
     try {
       if (editingBrokerId) {
-        const updated = updateBroker(editingBrokerId, {
+        const previousDays = mockBrokers.find((b) => b.id === editingBrokerId)?.payment_terms_days
+        const updated = await updateBrokerAsync(editingBrokerId, {
           ...payload,
           // Clear arrays when emptied so UI does not keep stale contacts.
           emails: payload.emails,
@@ -298,7 +299,14 @@ export default function Brokers() {
         setBrokers([...mockBrokers])
         setSelectedBroker({ ...updated })
         handleCloseFormModal()
-        showToast('Broker updated', 'success')
+        const termsChanged =
+          Number(payload.payment_terms_days ?? 0) !== Number(previousDays ?? 0)
+        showToast(
+          termsChanged
+            ? 'Broker updated — open invoice due dates refreshed'
+            : 'Broker updated',
+          'success'
+        )
       } else {
         const newBroker: Broker = {
           id: `broker-${Date.now()}`,

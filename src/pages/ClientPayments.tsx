@@ -22,6 +22,7 @@ import {
   CalendarDays,
 } from 'lucide-react'
 import PaymentKpiCards from '../components/client/PaymentKpiCards'
+import PostPaymentForm from '../components/client/PostPaymentForm'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import { getInvoiceVarianceBadge } from '../components/client/invoiceDetailShared'
@@ -329,6 +330,20 @@ export default function ClientPayments() {
   const [showPaymentDetail, setShowPaymentDetail] = useState(false)
   const [detailPanelClosing, setDetailPanelClosing] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
+  const pageTab =
+    searchParams.get('tab') === 'post' && !searchParams.get('paymentId') ? 'post' : 'history'
+  const setPageTab = useCallback(
+    (tab: 'history' | 'post') => {
+      const next = new URLSearchParams(searchParams)
+      if (tab === 'post') next.set('tab', 'post')
+      else next.delete('tab')
+      next.delete('paymentId')
+      setSearchParams(next)
+      setShowPaymentDetail(false)
+      setSelectedPayment(null)
+    },
+    [searchParams, setSearchParams]
+  )
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<PaymentSortField>('payment_date')
@@ -1210,6 +1225,45 @@ export default function ClientPayments() {
   return (
     <>
       <div className="client-payments-page overflow-hidden flex flex-col min-h-0">
+        {!(useFullPageDetail && showPaymentDetail && selectedPayment) && (
+          <div
+            className="client-page-tabs-bar shrink-0 px-4 py-2 border-b"
+            style={{ borderColor: c.border, backgroundColor: c.card }}
+          >
+            <div className="page-tabs flex flex-wrap gap-1">
+              <button
+                type="button"
+                className={`page-tab ${pageTab === 'history' ? 'page-tab--active' : ''}`}
+                onClick={() => setPageTab('history')}
+              >
+                Payments
+              </button>
+              {capabilities.canPostPayment ? (
+                <button
+                  type="button"
+                  className={`page-tab ${pageTab === 'post' ? 'page-tab--active' : ''}`}
+                  onClick={() => setPageTab('post')}
+                >
+                  Post payment
+                </button>
+              ) : null}
+            </div>
+          </div>
+        )}
+
+        {pageTab === 'post' && capabilities.canPostPayment ? (
+          <PostPaymentForm
+            clientId={clientId}
+            clientName={clientName}
+            invoices={clientInvoices}
+            payments={payments}
+            authorName={authorName}
+            onPosted={() => {
+              refreshPayments()
+              showToast('Payment posted.', 'success')
+            }}
+          />
+        ) : (
         <div className="client-payments-page--history overflow-hidden flex flex-col min-h-0 flex-1">
         {useFullPageDetail && showPaymentDetail && selectedPayment ? (
           <PaymentConfirmationPanel
@@ -1868,6 +1922,7 @@ export default function ClientPayments() {
           </>
         )}
           </div>
+        )}
       </div>
 
       {showReceiptDisputeModal && selectedPayment && (

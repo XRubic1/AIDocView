@@ -25,6 +25,10 @@ import {
   isReceiptConfirmationOverdue,
 } from '../utils/paymentStatus'
 import { formatCurrency } from '../utils/format'
+import {
+  buildComingDueWindows,
+  buildConfirmedPaidWindows,
+} from '../utils/clientCashWindows'
 import '../styles/clientDashboard.css'
 
 export default function ClientDashboard() {
@@ -142,77 +146,27 @@ function ClientDashboardDesktop() {
 
   /** Coming due totals + expected-cash invoice list (next 30 days, filterable). */
   const { comingDue, cashForecast } = useMemo(() => {
-    const startOfDay = (d: Date) =>
-      new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
-
-    const today = startOfDay(new Date())
-    const dayMs = 24 * 60 * 60 * 1000
-    const end7 = today + 7 * dayMs
-    const end14 = today + 14 * dayMs
-    const end30 = today + 30 * dayMs
-
-    let amount7 = 0
-    let count7 = 0
-    let amount14 = 0
-    let count14 = 0
-    let amount30 = 0
-    let count30 = 0
-
-    const forecastItems: Array<{
-      id: string
-      invoiceNumber: string
-      brokerName: string
-      amount: number
-      expectedDate: string
-      daysOut: number
-    }> = []
-
-    for (const inv of invoices) {
-      if (inv.status !== 'approved' && inv.status !== 'hold') continue
-      const balance = getInvoiceOpenArBalance(inv, payments)
-      if (balance <= AMOUNT_EPSILON) continue
-
-      const raw = inv.expected_payment_date || inv.due_date
-      if (!raw) continue
-      const expected = startOfDay(new Date(raw))
-      if (Number.isNaN(expected)) continue
-      // Only future / today — overdue already past expected date
-      if (expected < today) continue
-
-      if (expected <= end30) {
-        amount30 += balance
-        count30 += 1
-        forecastItems.push({
-          id: inv.id,
-          invoiceNumber: inv.invoice_number,
-          brokerName: inv.broker_name || '—',
-          amount: balance,
-          expectedDate: raw,
-          daysOut: Math.round((expected - today) / dayMs),
-        })
-      }
-      if (expected <= end14) {
-        amount14 += balance
-        count14 += 1
-      }
-      if (expected <= end7) {
-        amount7 += balance
-        count7 += 1
-      }
-    }
-
-    forecastItems.sort((a, b) => {
-      if (a.daysOut !== b.daysOut) return a.daysOut - b.daysOut
-      return b.amount - a.amount
-    })
-
+    const windows = buildComingDueWindows(invoices, payments)
     return {
       comingDue: {
-        next7: { amount: amount7, count: count7 },
-        next14: { amount: amount14, count: count14 },
-        next30: { amount: amount30, count: count30 },
+        next7: windows.next7,
+        next14: windows.next14,
+        next30: windows.next30,
       },
-      cashForecast: forecastItems,
+      cashForecast: windows.items,
+    }
+  }, [invoices, payments])
+
+  /** Confirmed pay dates (Will Pay) in the next 7 / 14 / 30 days. */
+  const { paidRecent, paidInvoices } = useMemo(() => {
+    const windows = buildConfirmedPaidWindows(invoices, payments)
+    return {
+      paidRecent: {
+        next7: windows.next7,
+        next14: windows.next14,
+        next30: windows.next30,
+      },
+      paidInvoices: windows.items,
     }
   }, [invoices, payments])
 
@@ -534,7 +488,7 @@ function ClientDashboardDesktop() {
             onUpload={
               capabilities.canUseAiUpload ? () => navigate('/client/batches?tab=create') : undefined
             }
-            onPostPayment={capabilities.canPostPayment ? () => navigate('/client/payments') : undefined}
+            onPostPayment={capabilities.canPostPayment ? () => navigate('/client/payments?tab=post') : undefined}
             onViewReport={() => navigate('/client/reports')}
             onAskAI={() => navigate('/client/assistant')}
             canUpload={capabilities.canUseAiUpload}
@@ -563,6 +517,8 @@ function ClientDashboardDesktop() {
               recentCollections={recentCollections}
               comingDue={comingDue}
               cashForecast={cashForecast}
+              paidRecent={paidRecent}
+              paidInvoices={paidInvoices}
               topOpenInvoices={topOpenInvoices}
               confirmPayments={confirmPayments}
               loading={loading}

@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { Inbox } from 'lucide-react'
+import { useClientTheme } from '../../theme/ThemeContext'
 
 interface EmptyStateProps {
   icon?: LucideIcon
@@ -17,13 +18,20 @@ export default function EmptyState({
   className = '',
   children,
 }: EmptyStateProps) {
+  const c = useClientTheme()
   return (
     <div
       className={`flex flex-col items-center justify-center py-12 px-4 text-center ${className}`.trim()}
     >
-      <Icon className="w-10 h-10 text-slate-300 dark:text-zinc-600 mb-3" aria-hidden />
-      <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{title}</p>
-      {hint && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">{hint}</p>}
+      <Icon className="w-10 h-10 mb-3" style={{ color: c.mutedLight }} aria-hidden />
+      <p className="text-sm font-medium" style={{ color: c.primary }}>
+        {title}
+      </p>
+      {hint && (
+        <p className="text-xs mt-1 max-w-sm" style={{ color: c.secondary }}>
+          {hint}
+        </p>
+      )}
       {children}
     </div>
   )

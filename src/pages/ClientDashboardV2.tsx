@@ -3,7 +3,7 @@
  * Answers: How much am I owed? → Is anything wrong? → What should I do?
  * Existing dashboard kept intact at ClientDashboard.tsx (/client/dashboard).
  */
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import SimpleWelcomeBar from '../components/client/dashboard-v2/SimpleWelcomeBar'
 import PriorityActionCard, {
   type PriorityRecommendation,
@@ -20,6 +20,10 @@ import { isInvoiceOverdue, isOpenArInvoice } from '../utils/invoiceAging'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from '../utils/paymentVariance'
 import { formatCurrency } from '../utils/format'
+import {
+  buildComingDueWindows,
+  buildConfirmedPaidWindows,
+} from '../utils/clientCashWindows'
 import '../styles/clientDashboardV2.css'
 
 /** Compare current vs prior with a ±5% deadband. */
@@ -46,6 +50,8 @@ export default function ClientDashboardV2() {
   } = useClientDemoSnapshot()
   const invoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
   const isPhoneViewport = useIsMobileViewport()
+  const [comingWindow, setComingWindow] = useState<'7' | '14' | '30'>('30')
+  const [paidWindow, setPaidWindow] = useState<'7' | '14' | '30'>('30')
 
   /** Overdue open A/R total + count. */
   const { overdueAmount, overdueCount } = useMemo(() => {
@@ -61,46 +67,37 @@ export default function ClientDashboardV2() {
     return { overdueAmount: amount, overdueCount: count }
   }, [invoices, payments])
 
-  /** Expected cash in the next 30 days (approved/hold, not past due). */
-  const comingDue30 = useMemo(() => {
-    const today = startOfDayMs(new Date())
-    const end30 = today + 30 * 24 * 60 * 60 * 1000
-    let amount = 0
-    let count = 0
+  /** Expected cash in the next 7 / 14 / 30 days (approved/hold, not confirmed). */
+  const comingDue = useMemo(
+    () => buildComingDueWindows(invoices, payments),
+    [invoices, payments]
+  )
+  const comingDue30 = comingDue.next30
 
-    for (const inv of invoices) {
-      if (inv.status !== 'approved' && inv.status !== 'hold') continue
-      const balance = getInvoiceOpenArBalance(inv, payments)
-      if (balance <= AMOUNT_EPSILON) continue
-      const raw = inv.expected_payment_date || inv.due_date
-      if (!raw) continue
-      const expected = startOfDayMs(new Date(raw))
-      if (Number.isNaN(expected) || expected < today || expected > end30) continue
-      amount += balance
-      count += 1
-    }
-    return { amount, count }
-  }, [invoices, payments])
+  /** Confirmed pay-date invoices in the last 7 / 14 / 30 days. */
+  const paidRecent = useMemo(
+    () => buildConfirmedPaidWindows(invoices, payments),
+    [invoices, payments]
+  )
 
   /**
    * Period comparisons for KPI trend arrows.
    * Open Balance: estimate 30d-ago open from net invoiced − collected.
    * Overdue: open A/R that was already past due 30 days ago.
    * Coming due: expected pay that fell in the prior 30-day window.
-   * Paid: confirmed receipts last 30 vs prior 30.
+   * Confirmed pay: Will Pay dates in the prior 30-day window.
    */
   const kpiTrends = useMemo(() => {
     const now = new Date()
     const today = startOfDayMs(now)
     const dayMs = 24 * 60 * 60 * 1000
     const thirtyDaysAgo = today - 30 * dayMs
-    const sixtyDaysAgo = today - 60 * dayMs
 
     let invoiced30 = 0
     let collected30 = 0
-    let collectedPrior30 = 0
     let overduePrior = 0
     let comingDuePrior = 0
+    let confirmedPayPrior = 0
 
     for (const inv of invoices) {
       const invDay = startOfDayMs(new Date(inv.invoice_date))
@@ -112,24 +109,30 @@ export default function ClientDashboardV2() {
       const balance = getInvoiceOpenArBalance(inv, payments)
       if (balance <= AMOUNT_EPSILON) continue
 
-      const expectedRaw = inv.expected_payment_date || inv.due_date
-      if (!expectedRaw) continue
-      const expected = startOfDayMs(new Date(expectedRaw))
-      if (Number.isNaN(expected)) continue
+      if (inv.collection_status === 'W/P' && inv.collection_date) {
+        const payDay = startOfDayMs(new Date(inv.collection_date))
+        if (!Number.isNaN(payDay) && payDay >= thirtyDaysAgo && payDay < today) {
+          confirmedPayPrior += balance
+        }
+      }
+
+      const dueRaw = inv.due_date
+      if (!dueRaw) continue
+      const dueDay = startOfDayMs(new Date(dueRaw))
+      if (Number.isNaN(dueDay)) continue
 
       // Would already have been overdue 30 days ago
-      if (expected < thirtyDaysAgo) overduePrior += balance
-      // Was “coming due” in the prior 30-day window (now past / collected window)
-      if (expected >= thirtyDaysAgo && expected < today) comingDuePrior += balance
+      if (dueDay < thirtyDaysAgo) overduePrior += balance
+      // Was coming due (by due date) in the prior 30-day window
+      if (dueDay >= thirtyDaysAgo && dueDay < today && inv.collection_status !== 'W/P') {
+        comingDuePrior += balance
+      }
     }
 
     for (const p of payments) {
       if (p.status !== 'confirmed') continue
       const received = startOfDayMs(new Date(p.received_date))
       if (received >= thirtyDaysAgo && received < today) collected30 += p.amount
-      else if (received >= sixtyDaysAgo && received < thirtyDaysAgo) {
-        collectedPrior30 += p.amount
-      }
     }
 
     const openNow = dashboard.summary.total_ar
@@ -139,10 +142,16 @@ export default function ClientDashboardV2() {
       open: trendFromChange(openNow, openPrior),
       overdue: trendFromChange(overdueAmount, overduePrior),
       coming: trendFromChange(comingDue30.amount, comingDuePrior),
-      paid: trendFromChange(collected30, collectedPrior30),
-      paidAmount: collected30,
+      paid: trendFromChange(paidRecent.next30.amount, confirmedPayPrior),
     }
-  }, [invoices, payments, dashboard.summary.total_ar, overdueAmount, comingDue30.amount])
+  }, [
+    invoices,
+    payments,
+    dashboard.summary.total_ar,
+    overdueAmount,
+    comingDue30.amount,
+    paidRecent.next30.amount,
+  ])
 
   /** Compact “since you were away” line for the header. */
   const awaySummary = useMemo(() => {
@@ -334,6 +343,19 @@ export default function ClientDashboardV2() {
   }, [invoices, payments, batches])
 
   const kpiStats = useMemo((): KpiStat[] => {
+    const comingBucket =
+      comingWindow === '7'
+        ? comingDue.next7
+        : comingWindow === '14'
+          ? comingDue.next14
+          : comingDue.next30
+    const paidBucket =
+      paidWindow === '7'
+        ? paidRecent.next7
+        : paidWindow === '14'
+          ? paidRecent.next14
+          : paidRecent.next30
+
     return [
       {
         key: 'open',
@@ -359,30 +381,51 @@ export default function ClientDashboardV2() {
       {
         key: 'coming',
         label: 'Coming due',
-        amount: comingDue30.amount,
+        amount: comingBucket.amount,
         sub:
-          comingDue30.count === 0
-            ? 'Next 30 days'
-            : `${comingDue30.count} in next 30 days`,
+          comingBucket.count === 0
+            ? `Next ${comingWindow} days · not confirmed`
+            : `${comingBucket.count} invoice${comingBucket.count === 1 ? '' : 's'} · not confirmed`,
         navigateTo: '/client/invoices?status=approved',
         tone: 'neutral',
         trend: kpiTrends.coming,
+        windows: [
+          { id: '7', label: '7d', ...comingDue.next7 },
+          { id: '14', label: '14d', ...comingDue.next14 },
+          { id: '30', label: '30d', ...comingDue.next30 },
+        ],
+        selectedWindow: comingWindow,
+        onWindowChange: (id) => setComingWindow(id as '7' | '14' | '30'),
       },
       {
         key: 'paid',
-        label: 'Paid last 30d',
-        amount: kpiTrends.paidAmount,
-        sub: 'Confirmed receipts',
-        navigateTo: '/client/payments',
+        label: 'Confirmed pay',
+        amount: paidBucket.amount,
+        sub:
+          paidBucket.count === 0
+            ? `Next ${paidWindow} days · confirmed`
+            : `${paidBucket.count} invoice${paidBucket.count === 1 ? '' : 's'} · confirmed`,
+        navigateTo: '/client/invoices',
         tone: 'success',
         trend: kpiTrends.paid,
+        trendLabel: 'vs prior 30 days',
+        windows: [
+          { id: '7', label: '7d', ...paidRecent.next7 },
+          { id: '14', label: '14d', ...paidRecent.next14 },
+          { id: '30', label: '30d', ...paidRecent.next30 },
+        ],
+        selectedWindow: paidWindow,
+        onWindowChange: (id) => setPaidWindow(id as '7' | '14' | '30'),
       },
     ]
   }, [
     dashboard.summary.total_ar,
     overdueAmount,
     overdueCount,
-    comingDue30,
+    comingDue,
+    paidRecent,
+    comingWindow,
+    paidWindow,
     kpiTrends,
   ])
 

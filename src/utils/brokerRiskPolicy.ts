@@ -50,9 +50,15 @@ export const DEFAULT_BROKER_RISK_POLICY = {
    */
   note_keyword_re:
     /delay|slow.?pay|late|short.?pay|dispute|chargeback|missing|incomplete|won't pay|will not pay|not paying|funds on hold|will\s*pay|\bw\/p\b/i,
-} as const
+}
 
 export type BrokerRiskPolicy = typeof DEFAULT_BROKER_RISK_POLICY
+
+/** Runtime singleton — admin Settings persist into this. */
+export const BROKER_RISK_POLICY: BrokerRiskPolicy = {
+  ...DEFAULT_BROKER_RISK_POLICY,
+  note_keyword_re: DEFAULT_BROKER_RISK_POLICY.note_keyword_re,
+}
 
 /** Why payment timing looks late — from notes / internal comments. */
 export type { BrokerDelayCause } from '../types/brokerRisk'
@@ -446,7 +452,7 @@ export function resolveInvoiceTermsDueDate(
   const due = invoice.due_date?.trim() || invoice.expected_payment_date?.trim()
   if (due) return due.slice(0, 10)
   const terms = Math.max(0, Math.floor(paymentTermsDays))
-  return addDaysIso(invoice.invoice_date.slice(0, 10), terms || DEFAULT_BROKER_RISK_POLICY.fallback_terms_days)
+  return addDaysIso(invoice.invoice_date.slice(0, 10), terms || BROKER_RISK_POLICY.fallback_terms_days)
 }
 
 /** Days past terms for a payment (0 if on time / early). */
@@ -484,7 +490,7 @@ export function collectTermsPaymentSignals(args: {
   asOf?: Date
   policy?: BrokerRiskPolicy
 }): BrokerTermsPaymentSignals {
-  const policy = args.policy ?? DEFAULT_BROKER_RISK_POLICY
+  const policy = args.policy ?? BROKER_RISK_POLICY
   const terms =
     args.paymentTermsDays != null && args.paymentTermsDays > 0
       ? Math.floor(args.paymentTermsDays)
@@ -551,7 +557,7 @@ export function collectTermsPaymentSignals(args: {
 export function countNoteFlags(
   notes: Array<{ text: string }>,
   adminNotes?: string | null,
-  policy: BrokerRiskPolicy = DEFAULT_BROKER_RISK_POLICY
+  policy: BrokerRiskPolicy = BROKER_RISK_POLICY
 ): number {
   let count = notes.filter(
     (n) => !isRoutineLifecycleNote(n.text) && policy.note_keyword_re.test(n.text)
@@ -581,7 +587,7 @@ export function evaluateRiskFromSignals(args: {
   isNewBroker?: boolean
   policy?: BrokerRiskPolicy
 }): BrokerRiskEvaluation {
-  const policy = args.policy ?? DEFAULT_BROKER_RISK_POLICY
+  const policy = args.policy ?? BROKER_RISK_POLICY
   const { signals, noteFlagCount, hasWorked } = args
   const delay_causes =
     args.delayCauses ??

@@ -174,3 +174,39 @@ export const ADMIN_NOTIFICATION_CATEGORY_LABELS: Record<AdminNotificationCategor
   docs: 'Docs',
   other: 'Other',
 }
+
+export const ADMIN_NOTIFICATION_CATEGORY_ORDER: AdminNotificationCategory[] = [
+  'disputes',
+  'payments',
+  'notes',
+  'docs',
+  'other',
+]
+
+/** Notifications that belong to one category, newest first (input should already be sorted). */
+export function filterNotificationsByCategory(
+  notifications: Notification[],
+  category: AdminNotificationCategory
+): Notification[] {
+  return notifications.filter((n) => categorizeAdminNotification(n) === category)
+}
+
+/**
+ * Default open section: first category with unread items, otherwise the first
+ * category that has any notifications.
+ */
+export function pickDefaultAdminNotificationCategory(
+  notifications: Notification[]
+): AdminNotificationCategory | null {
+  for (const category of ADMIN_NOTIFICATION_CATEGORY_ORDER) {
+    if (notifications.some((n) => !n.read && categorizeAdminNotification(n) === category)) {
+      return category
+    }
+  }
+  for (const category of ADMIN_NOTIFICATION_CATEGORY_ORDER) {
+    if (notifications.some((n) => categorizeAdminNotification(n) === category)) {
+      return category
+    }
+  }
+  return null
+}

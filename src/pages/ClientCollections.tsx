@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
@@ -141,7 +141,7 @@ export default function ClientCollections() {
   const bucketSummary = useMemo(() => {
     const summary = createEmptyBuckets()
     openArInvoices.forEach((inv) => {
-      const bucketId = getDisplayAgingBucketId(inv.daysOutstanding)
+      const bucketId = getDisplayAgingBucketId(inv.invoiceAgeDays)
       const balance = openBalanceById.get(inv.id) ?? inv.amount
       summary[bucketId].amount += balance
       summary[bucketId].count += 1
@@ -169,7 +169,7 @@ export default function ClientCollections() {
 
   const filteredInvoices = useMemo(() => {
     return openArInvoices.filter((inv) => {
-      const bucketId = getDisplayAgingBucketId(inv.daysOutstanding)
+      const bucketId = getDisplayAgingBucketId(inv.invoiceAgeDays)
       const matchesBucket = bucketFilter === 'all' || bucketId === bucketFilter
       const term = searchTerm.toLowerCase()
       const matchesSearch =
@@ -209,8 +209,8 @@ export default function ClientCollections() {
           cmp = a.invoiceAgeDays - b.invoiceAgeDays
           break
         case 'aging_bucket':
-          cmp = getDisplayAgingBucketId(a.daysOutstanding).localeCompare(
-            getDisplayAgingBucketId(b.daysOutstanding)
+          cmp = getDisplayAgingBucketId(a.invoiceAgeDays).localeCompare(
+            getDisplayAgingBucketId(b.invoiceAgeDays)
           )
           break
       }
@@ -223,7 +223,7 @@ export default function ClientCollections() {
     const map = new Map<string, BrokerAgingRow>()
 
     openArInvoices.forEach((inv) => {
-      const bucketId = getDisplayAgingBucketId(inv.daysOutstanding)
+      const bucketId = getDisplayAgingBucketId(inv.invoiceAgeDays)
       const balance = openBalanceById.get(inv.id) ?? inv.amount
       const key = inv.broker_id || inv.broker_name
       const existing =
@@ -470,7 +470,7 @@ export default function ClientCollections() {
   const renderInvoiceRow = (invoice: EnrichedInvoice) => {
     const isHighlighted = highlightedInvoiceId === invoice.id
     const isSelected = selectedInvoice?.id === invoice.id
-    const bucketId = getDisplayAgingBucketId(invoice.daysOutstanding)
+    const bucketId = getDisplayAgingBucketId(invoice.invoiceAgeDays)
     const isOverdue = invoice.daysOutstanding >= AR_POLICY.collectionsOverdueDays
     const isForceCloseRow = isForceCloseApplicable(invoice, capabilities)
     const severity = getOverdueSeverity(

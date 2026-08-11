@@ -10,6 +10,8 @@ import {
   Save,
   Check,
   Lock,
+  Phone,
+  ShieldAlert,
 } from 'lucide-react'
 import {
   saveArPolicy,
@@ -18,13 +20,33 @@ import {
   loadBrokerSnapshotTtl,
   saveBrokerSnapshotTtl,
   DEFAULT_BROKER_SNAPSHOT_TTL,
+  loadCollectionsPolicy,
+  saveCollectionsPolicy,
+  applyCollectionsPolicy,
+  loadBrokerRiskPolicy,
+  saveBrokerRiskPolicy,
+  applyBrokerRiskPolicy,
 } from '../services/platformSettingsService'
 import { useToast } from '../components/ui/ToastProvider'
 import Spinner from '../components/ui/Spinner'
 import EmailTemplatesPanel from '../components/admin/EmailTemplatesPanel'
+import CollectionsSettingsPanel, {
+  type CollectionsSettingsForm,
+} from '../components/admin/CollectionsSettingsPanel'
+import BrokerRiskSettingsPanel, {
+  type BrokerRiskSettingsForm,
+} from '../components/admin/BrokerRiskSettingsPanel'
 import { useClientTheme } from '../theme/ThemeContext'
 
-type SettingsTab = 'profile' | 'notifications' | 'invoices' | 'email' | 'security' | 'system'
+type SettingsTab =
+  | 'profile'
+  | 'notifications'
+  | 'invoices'
+  | 'collections'
+  | 'broker-risk'
+  | 'email'
+  | 'security'
+  | 'system'
 
 function SettingsTabPanel({
   children,
@@ -228,9 +250,39 @@ export default function Settings() {
     backupFrequency: 'daily',
   })
 
-  const [brokerSnapshotTtl, setBrokerSnapshotTtl] = useState({
+  const [brokerRiskSettings, setBrokerRiskSettings] = useState<BrokerRiskSettingsForm>({
+    medium_single_late_days: '15',
+    high_single_late_days: '21',
+    late_payment_min_days: '15',
+    open_overdue_min_days: '15',
+    medium_late_count: '2',
+    medium_open_overdue_count: '1',
+    high_late_count: '3',
+    high_open_overdue_count: '1',
+    lookback_days: '365',
+    fallback_terms_days: '30',
+    min_paid_sample_for_confidence: '2',
     cacheTtlDays: String(DEFAULT_BROKER_SNAPSHOT_TTL.cacheTtlDays),
     insuranceWatchTtlDays: String(DEFAULT_BROKER_SNAPSHOT_TTL.insuranceWatchTtlDays),
+  })
+
+  const [collectionsSettings, setCollectionsSettings] = useState<CollectionsSettingsForm>({
+    defaultInquiryDays: '15',
+    followupAfterDays: '3',
+    needsAttentionAfterDays: '5',
+    willPayUrgent: true,
+    willPayMissedDays: '5',
+    callbackUrgent: true,
+    callbackMissedDays: '0',
+    riskyBrokerUrgent: true,
+    riskyBrokerMinLevel: 'high' as 'high' | 'medium',
+    overdueUrgent: true,
+    overdueUrgentDays: '15',
+    noPpwUrgent: true,
+    noPpwAfterDays: '7',
+    staleContactUrgent: true,
+    staleContactDays: '7',
+    needsCallUrgent: true,
   })
 
   useEffect(() => {
@@ -249,9 +301,48 @@ export default function Settings() {
       applyArPolicy(policy)
     })
     void loadBrokerSnapshotTtl().then((ttl) => {
-      setBrokerSnapshotTtl({
+      setBrokerRiskSettings((p) => ({
+        ...p,
         cacheTtlDays: String(ttl.cacheTtlDays),
         insuranceWatchTtlDays: String(ttl.insuranceWatchTtlDays),
+      }))
+    })
+    void loadBrokerRiskPolicy().then((policy) => {
+      applyBrokerRiskPolicy(policy)
+      setBrokerRiskSettings((prev) => ({
+        ...prev,
+        medium_single_late_days: String(policy.medium_single_late_days),
+        high_single_late_days: String(policy.high_single_late_days),
+        late_payment_min_days: String(policy.late_payment_min_days),
+        open_overdue_min_days: String(policy.open_overdue_min_days),
+        medium_late_count: String(policy.medium_late_count),
+        medium_open_overdue_count: String(policy.medium_open_overdue_count),
+        high_late_count: String(policy.high_late_count),
+        high_open_overdue_count: String(policy.high_open_overdue_count),
+        lookback_days: String(policy.lookback_days),
+        fallback_terms_days: String(policy.fallback_terms_days),
+        min_paid_sample_for_confidence: String(policy.min_paid_sample_for_confidence),
+      }))
+    })
+    void loadCollectionsPolicy().then((policy) => {
+      applyCollectionsPolicy(policy)
+      setCollectionsSettings({
+        defaultInquiryDays: String(policy.defaultInquiryDays),
+        followupAfterDays: String(policy.followupAfterDays),
+        needsAttentionAfterDays: String(policy.needsAttentionAfterDays),
+        willPayUrgent: policy.willPayUrgent,
+        willPayMissedDays: String(policy.willPayMissedDays),
+        callbackUrgent: policy.callbackUrgent,
+        callbackMissedDays: String(policy.callbackMissedDays),
+        riskyBrokerUrgent: policy.riskyBrokerUrgent,
+        riskyBrokerMinLevel: policy.riskyBrokerMinLevel,
+        overdueUrgent: policy.overdueUrgent,
+        overdueUrgentDays: String(policy.overdueUrgentDays),
+        noPpwUrgent: policy.noPpwUrgent,
+        noPpwAfterDays: String(policy.noPpwAfterDays),
+        staleContactUrgent: policy.staleContactUrgent,
+        staleContactDays: String(policy.staleContactDays),
+        needsCallUrgent: policy.needsCallUrgent,
       })
     })
   }, [])
@@ -260,6 +351,8 @@ export default function Settings() {
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'invoices', label: 'Invoices', icon: FileText },
+    { id: 'collections', label: 'Collections', icon: Phone },
+    { id: 'broker-risk', label: 'Broker Risk', icon: ShieldAlert },
     { id: 'email', label: 'Email', icon: Mail },
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'system', label: 'System', icon: Database },
@@ -286,17 +379,55 @@ export default function Settings() {
           ] as typeof import('../utils/invoiceAging').AR_POLICY.agingBuckets,
         })
       }
-      if (activeTab === 'system') {
+      if (activeTab === 'collections') {
+        await saveCollectionsPolicy({
+          defaultInquiryDays: Number(collectionsSettings.defaultInquiryDays) || 15,
+          followupAfterDays: Number(collectionsSettings.followupAfterDays) || 3,
+          needsAttentionAfterDays: Number(collectionsSettings.needsAttentionAfterDays) || 5,
+          willPayUrgent: collectionsSettings.willPayUrgent,
+          willPayMissedDays: Number(collectionsSettings.willPayMissedDays) || 5,
+          callbackUrgent: collectionsSettings.callbackUrgent,
+          callbackMissedDays: Number.isFinite(Number(collectionsSettings.callbackMissedDays))
+            ? Number(collectionsSettings.callbackMissedDays)
+            : 0,
+          riskyBrokerUrgent: collectionsSettings.riskyBrokerUrgent,
+          riskyBrokerMinLevel: collectionsSettings.riskyBrokerMinLevel,
+          overdueUrgent: collectionsSettings.overdueUrgent,
+          overdueUrgentDays: Number(collectionsSettings.overdueUrgentDays) || 15,
+          noPpwUrgent: collectionsSettings.noPpwUrgent,
+          noPpwAfterDays: Number(collectionsSettings.noPpwAfterDays) || 7,
+          staleContactUrgent: collectionsSettings.staleContactUrgent,
+          staleContactDays: Number(collectionsSettings.staleContactDays) || 7,
+          needsCallUrgent: collectionsSettings.needsCallUrgent,
+        })
+      }
+      if (activeTab === 'broker-risk') {
+        await saveBrokerRiskPolicy({
+          medium_single_late_days: Number(brokerRiskSettings.medium_single_late_days) || 15,
+          high_single_late_days: Number(brokerRiskSettings.high_single_late_days) || 21,
+          late_payment_min_days: Number(brokerRiskSettings.late_payment_min_days) || 15,
+          open_overdue_min_days: Number(brokerRiskSettings.open_overdue_min_days) || 15,
+          medium_late_count: Number(brokerRiskSettings.medium_late_count) || 2,
+          medium_open_overdue_count: Number(brokerRiskSettings.medium_open_overdue_count) || 1,
+          high_late_count: Number(brokerRiskSettings.high_late_count) || 3,
+          high_open_overdue_count: Number(brokerRiskSettings.high_open_overdue_count) || 1,
+          lookback_days: Number(brokerRiskSettings.lookback_days) || 365,
+          fallback_terms_days: Number(brokerRiskSettings.fallback_terms_days) || 30,
+          min_paid_sample_for_confidence:
+            Number(brokerRiskSettings.min_paid_sample_for_confidence) || 2,
+        })
         const savedTtl = await saveBrokerSnapshotTtl({
-          cacheTtlDays: Number(brokerSnapshotTtl.cacheTtlDays) || DEFAULT_BROKER_SNAPSHOT_TTL.cacheTtlDays,
+          cacheTtlDays:
+            Number(brokerRiskSettings.cacheTtlDays) || DEFAULT_BROKER_SNAPSHOT_TTL.cacheTtlDays,
           insuranceWatchTtlDays:
-            Number(brokerSnapshotTtl.insuranceWatchTtlDays) ||
+            Number(brokerRiskSettings.insuranceWatchTtlDays) ||
             DEFAULT_BROKER_SNAPSHOT_TTL.insuranceWatchTtlDays,
         })
-        setBrokerSnapshotTtl({
+        setBrokerRiskSettings((p) => ({
+          ...p,
           cacheTtlDays: String(savedTtl.cacheTtlDays),
           insuranceWatchTtlDays: String(savedTtl.insuranceWatchTtlDays),
-        })
+        }))
       }
       setSaved(true)
       showToast('Settings saved', 'success')
@@ -599,6 +730,24 @@ export default function Settings() {
               </SettingsTabPanel>
             )}
 
+            {activeTab === 'collections' && (
+              <SettingsTabPanel footer={saveFooter}>
+                <CollectionsSettingsPanel
+                  settings={collectionsSettings}
+                  onChange={(patch) => setCollectionsSettings((p) => ({ ...p, ...patch }))}
+                />
+              </SettingsTabPanel>
+            )}
+
+            {activeTab === 'broker-risk' && (
+              <SettingsTabPanel footer={saveFooter}>
+                <BrokerRiskSettingsPanel
+                  settings={brokerRiskSettings}
+                  onChange={(patch) => setBrokerRiskSettings((p) => ({ ...p, ...patch }))}
+                />
+              </SettingsTabPanel>
+            )}
+
             {activeTab === 'email' && (
               <SettingsTabPanel className="admin-email-templates-panel">
                 <EmailTemplatesPanel />
@@ -704,51 +853,6 @@ export default function Settings() {
                   />
                 </div>
 
-                <p className="client-label mt-5 mb-1" style={{ color: c.secondary }}>
-                  Broker Snapshot (MC Lookup cache)
-                </p>
-                <p className="text-xs mb-3" style={{ color: c.mutedLight }}>
-                  Shared cache so many carriers looking up the same MC do not each burn a Snapshot API
-                  call. After the window expires, the next lookup refreshes Snapshot and queues Credyx
-                  field changes.
-                </p>
-                <div className="client-settings-grid client-settings-grid--preferences">
-                  <SettingsField
-                    label="Normal cache TTL (days)"
-                    hint="Default refresh window when insurance looks fine (1–365)."
-                  >
-                    <input
-                      type="number"
-                      min={1}
-                      max={365}
-                      value={brokerSnapshotTtl.cacheTtlDays}
-                      onChange={(e) =>
-                        setBrokerSnapshotTtl((p) => ({ ...p, cacheTtlDays: e.target.value }))
-                      }
-                      className="client-input w-full"
-                      style={inputStyle}
-                    />
-                  </SettingsField>
-                  <SettingsField
-                    label="Insurance-watch TTL (days)"
-                    hint="Shorter window when insurance is missing, cancelled, or weak."
-                  >
-                    <input
-                      type="number"
-                      min={1}
-                      max={365}
-                      value={brokerSnapshotTtl.insuranceWatchTtlDays}
-                      onChange={(e) =>
-                        setBrokerSnapshotTtl((p) => ({
-                          ...p,
-                          insuranceWatchTtlDays: e.target.value,
-                        }))
-                      }
-                      className="client-input w-full"
-                      style={inputStyle}
-                    />
-                  </SettingsField>
-                </div>
               </SettingsTabPanel>
             )}
           </div>

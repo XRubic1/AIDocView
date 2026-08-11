@@ -1,4 +1,6 @@
 import { mockBrokers } from '../data/mockBrokers'
+import { getLatestBrokerRiskProfile } from '../data/brokerRiskStore'
+import type { BrokerRiskLevel } from '../types/brokerRisk'
 import type { Broker } from '../types/broker'
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
@@ -10,11 +12,11 @@ import type {
 import { carrierSafeRiskSummary, toClientBrokerRiskView } from '../types/clientBroker'
 import { computeBrokerScores, type BrokerScoreRow } from './clientReports'
 import { ensureBrokerRiskProfile } from '../services/brokerRiskService'
-import { formatRiskFreshness } from './computeBrokerRiskProfile'
+import { carrierVisibleRiskLevel, formatRiskFreshness } from './computeBrokerRiskProfile'
 import {
   collectTermsPaymentSignals,
   countNoteFlags,
-  DEFAULT_BROKER_RISK_POLICY,
+  BROKER_RISK_POLICY,
   evaluateRiskFromSignals,
   normalizeBrokerNameKey,
   pickCanonicalBroker,
@@ -71,7 +73,7 @@ export function getBrokerPayRating(
     open_overdue_past_terms: score.open_overdue_past_terms ?? 0,
     open_overdue_amount: score.overdue_amount,
     open_urgent_past_terms:
-      (score.max_days_past_terms ?? 0) >= DEFAULT_BROKER_RISK_POLICY.high_single_late_days
+      (score.max_days_past_terms ?? 0) >= BROKER_RISK_POLICY.high_single_late_days
         ? Math.max(score.open_overdue_past_terms ?? 0, 0)
         : 0,
     paid_sample_size: Math.max(score.invoiced_in_range, 0),
@@ -344,6 +346,32 @@ export function lookupBrokerByMc(
 
   const directory = buildClientBrokerDirectory(clientId, invoices, payments)
   return directory.find((b) => b.broker_id === broker.id) ?? null
+}
+
+/**
+ * Carrier-visible Credyx Broker Risk for an invoice row.
+ * Unrated when no profile exists yet (same gate as the Brokers tab).
+ */
+export function getCarrierVisibleBrokerRiskLevel(
+  clientId: string,
+  invoice: Pick<Invoice, 'broker_id' | 'broker_name'>
+): BrokerRiskLevel {
+  if (!clientId) return 'unrated'
+
+  const ids = new Set<string>()
+  if (invoice.broker_id) ids.add(invoice.broker_id)
+  const nameKey = normalizeBrokerNameKey(invoice.broker_name || '')
+  if (nameKey) {
+    for (const broker of mockBrokers) {
+      if (normalizeBrokerNameKey(broker.name) === nameKey) ids.add(broker.id)
+    }
+  }
+
+  for (const id of ids) {
+    const profile = getLatestBrokerRiskProfile(clientId, id)
+    if (profile) return carrierVisibleRiskLevel(profile)
+  }
+  return 'unrated'
 }
 
 /** Re-export for callers that flag notes. */

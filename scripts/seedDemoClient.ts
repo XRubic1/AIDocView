@@ -1020,8 +1020,8 @@ function buildInvoice(
           'client'
         )
       )
-      broker_contacted = true
-      last_broker_contact = resentAt
+      broker_contacted = false
+      last_broker_contact = null
     } else {
       document_send_history = [sendRecord(broker.email, sentAt, docs)]
       notes.push(
@@ -1034,8 +1034,8 @@ function buildInvoice(
           'client'
         )
       )
-      broker_contacted = true
-      last_broker_contact = sentAt
+      broker_contacted = false
+      last_broker_contact = null
     }
   }
 
