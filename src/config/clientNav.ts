@@ -1,7 +1,6 @@
 import type { ClientCapabilities } from '../utils/clientCapabilities'
 import {
   LayoutDashboard,
-  LayoutPanelLeft,
   Boxes,
   FileText,
   FolderOpen,
@@ -15,6 +14,7 @@ import {
   Settings,
   HelpCircle,
   GraduationCap,
+  Phone,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -38,8 +38,7 @@ export const clientNavSections: ClientNavSection[] = [
   {
     title: '',
     items: [
-      { label: 'Dashboard', path: '/client/dashboard-v2', icon: LayoutDashboard },
-      { label: 'Classic dashboard', path: '/client/dashboard', icon: LayoutPanelLeft },
+      { label: 'Dashboard', path: '/client/dashboard', icon: LayoutDashboard },
       { label: 'Batches', path: '/client/batches', icon: Boxes, badgeKey: 'pendingBatches' },
       {
         label: 'Invoices',
@@ -60,7 +59,8 @@ export const clientNavSections: ClientNavSection[] = [
   {
     title: 'FINANCE',
     items: [
-      { label: 'Aging A/R', path: '/client/collections', icon: BarChart3 },
+      { label: 'Aging A/R', path: '/client/aging-ar', icon: BarChart3 },
+      { label: 'Collections', path: '/client/collections', icon: Phone },
       { label: 'Brokers', path: '/client/brokers', icon: Building2 },
       { label: 'Assistant', path: '/client/assistant', icon: MessageCircle },
       { label: 'Payments', path: '/client/payments', icon: CreditCard },

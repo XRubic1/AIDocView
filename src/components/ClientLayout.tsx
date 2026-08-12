@@ -39,7 +39,6 @@ import {
 import {
   filterClientNavSections,
   getInitials,
-  getClientUserDisplayName,
 } from '../config/clientNav'
 import { useClientPortal } from '../context/ClientPortalContext'
 import {
@@ -348,10 +347,6 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     })
   }
 
-  const userEmail = localStorage.getItem('clientEmail')
-  const userRole = localStorage.getItem('clientRole') || 'A/R Manager'
-  const userDisplayName = getClientUserDisplayName(userEmail)
-
   const pendingBatchCount = useMemo(() => {
     const batches = getAllBatches()
     const filtered = resolvedClientId
@@ -382,7 +377,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
 
     // Onboarding route highlights Dashboard while the progressive tour is active.
     if (
-      (pathOnly === '/client/dashboard' || pathOnly === '/client/dashboard-v2') &&
+      pathOnly === '/client/dashboard' &&
       location.pathname.startsWith('/client/onboarding')
     ) {
       return true
@@ -391,7 +386,6 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     const pathnameMatch =
       location.pathname === pathOnly ||
       (pathOnly !== '/client/dashboard' &&
-        pathOnly !== '/client/dashboard-v2' &&
         location.pathname.startsWith(`${pathOnly}/`))
 
     if (!pathnameMatch) return false
@@ -420,8 +414,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     // During onboarding tour, keep "Dashboard" on the onboarding experience.
     if (
       progressive &&
-      (path.split('?')[0] === '/client/dashboard' ||
-        path.split('?')[0] === '/client/dashboard-v2')
+      path.split('?')[0] === '/client/dashboard'
     ) {
       navigate('/client/onboarding')
       return
@@ -465,62 +458,34 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
     <div className={`flex flex-col h-full overflow-hidden${isMobile ? ' client-mobile-drawer__content' : ''}`}>
       {/* Brand — full logo when expanded; C mark in collapsed rail */}
       <div
-        className={`flex items-center border-b${isMobile ? ' client-mobile-drawer__brand' : ''}`}
-        style={{ borderColor: t.sidebar.border, minHeight: isMobile ? 56 : sidebarExpanded ? 64 : 52 }}
+        className={`client-sidebar-brand flex items-center border-b shrink-0${isMobile ? ' client-mobile-drawer__brand' : ''}`}
+        style={{ borderColor: t.sidebar.border }}
       >
         {sidebarExpanded || isMobile ? (
-          <div className={isMobile ? 'client-mobile-drawer__brand-logo' : 'min-w-0 flex-1 px-3 py-2'}>
+          <div className={isMobile ? 'client-mobile-drawer__brand-logo' : 'client-sidebar-brand__logo'}>
             <CredyxWordmark
               variant="compact"
               theme="client"
               surface={resolvedTheme === 'dark' ? 'on-dark' : 'on-light'}
               onClick={() => {
                 if (isMobile) closeMobileDrawer()
-                navigate('/client/dashboard-v2')
+                navigate('/client/dashboard')
               }}
             />
           </div>
         ) : (
           <div
-            className="shrink-0 flex items-center justify-center w-full"
+            className="client-sidebar-brand__mark shrink-0 flex items-center justify-center w-full"
             style={{ width: iconColWidth }}
           >
             <CredyxWordmark
               variant="mark"
               theme="client"
-              onClick={() => navigate('/client/dashboard-v2')}
+              onClick={() => navigate('/client/dashboard')}
             />
           </div>
         )}
       </div>
-
-      {/* Company context — desktop sidebar only */}
-      {!isMobile ? (
-        <div className="border-b" style={{ borderColor: t.sidebar.border }}>
-          <div className="flex items-center min-w-0 py-2">
-            <div
-              className="shrink-0 flex items-center justify-center"
-              style={{ width: iconColWidth }}
-              title={tip(resolvedClientName)}
-            >
-              <div
-                className="w-7 h-7 text-[10px] rounded-full flex items-center justify-center font-semibold"
-                style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
-              >
-                {getInitials(resolvedClientName)}
-              </div>
-            </div>
-            <div className="min-w-0 flex-1 overflow-hidden whitespace-nowrap pr-3">
-              <div className="text-[13px] font-semibold truncate leading-tight" style={{ color: t.sidebar.text }}>
-                {resolvedClientName}
-              </div>
-              <div className="text-[11px] truncate leading-tight" style={{ color: t.sidebar.muted }}>
-                {getTierLabel(tier)}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {/* Navigation */}
       <nav className={`client-sidebar-nav-scroll${isMobile ? ' client-mobile-drawer__nav' : ''} space-y-1`}>
@@ -548,9 +513,9 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                 const badgeColor =
                   item.badgeTone === 'danger' ? t.error : t.sidebar.badge
                 const showLabels = sidebarExpanded || isMobile
-                // Icon column matches rail width minus the shared 8px inset on each side,
+                // Icon column matches rail width minus the shared 6px inset on each side,
                 // so left offset stays identical while collapsed ↔ expanded.
-                const navIconColWidth = isMobile ? 44 : iconColWidth - 16
+                const navIconColWidth = isMobile ? 44 : iconColWidth - 12
 
                 return (
                   <li key={item.path}>
@@ -569,24 +534,25 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                                 ? 'navDocuments'
                                 : item.path === '/client/collections'
                                   ? 'navCollections'
-                                  : item.path === '/client/brokers'
-                                    ? 'navBrokers'
-                                    : item.path === '/client/assistant'
-                                      ? 'navAssistant'
-                                      : item.path === '/client/payments'
-                                        ? 'navPayments'
-                                        : item.path === '/client/short-payments'
-                                          ? 'navShortPayments'
-                                          : item.path === '/client/reports'
-                                            ? 'navReports'
-                                            : item.path === '/client/tutorials'
-                                              ? 'navTutorials'
-                                              : item.path === '/client/settings'
-                                                ? 'navSettings'
-                                                : item.path === '/client/dashboard' ||
-                                                    item.path === '/client/dashboard-v2'
-                                                  ? 'navDashboard'
-                                                  : undefined
+                                  : item.path === '/client/aging-ar'
+                                    ? 'navAging'
+                                    : item.path === '/client/brokers'
+                                      ? 'navBrokers'
+                                      : item.path === '/client/assistant'
+                                        ? 'navAssistant'
+                                        : item.path === '/client/payments'
+                                          ? 'navPayments'
+                                          : item.path === '/client/short-payments'
+                                            ? 'navShortPayments'
+                                            : item.path === '/client/reports'
+                                              ? 'navReports'
+                                              : item.path === '/client/tutorials'
+                                                ? 'navTutorials'
+                                                : item.path === '/client/settings'
+                                                  ? 'navSettings'
+                                                  : item.path === '/client/dashboard'
+                                                    ? 'navDashboard'
+                                                    : undefined
                       }
                       className={`client-sidebar-nav-item w-full flex items-center transition-colors duration-200${
                         isMobile ? ' client-sidebar-nav-item--mobile text-[15px]' : ' text-[13px]'
@@ -626,12 +592,12 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                           </span>
                         )}
                       </span>
-                      <span className={`flex-1 min-w-0 text-left truncate whitespace-nowrap pr-3${isMobile ? ' py-3' : ' py-1'}`}>
+                      <span className={`flex-1 min-w-0 text-left truncate whitespace-nowrap pr-2${isMobile ? ' py-3' : ' py-1'}`}>
                         {item.label}
                       </span>
                       {badge > 0 && showLabels && (
                         <span
-                          className={`${isMobile ? 'mr-3 min-w-[22px] h-5 text-[11px]' : 'mr-3 min-w-[18px] h-4 text-[9px]'} px-1.5 flex items-center justify-center rounded-full font-bold text-white shrink-0`}
+                          className={`${isMobile ? 'mr-3 min-w-[22px] h-5 text-[11px]' : 'mr-2 min-w-[18px] h-4 text-[9px]'} px-1.5 flex items-center justify-center rounded-full font-bold text-white shrink-0`}
                           style={{ backgroundColor: badgeColor }}
                         >
                           {badge}
@@ -646,9 +612,17 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
         ))}
       </nav>
 
-      {/* Collapse toggle — desktop only */}
-      {!isMobile && (
-        <div className="pb-1">
+      {/* Theme + collapse — bottom of rail, above company account */}
+      <div className={`${isMobile ? 'pb-1 pt-1' : 'pb-1'}`}>
+        <ThemeToggle
+          sidebar={{
+            iconColWidth: isMobile ? 48 : iconColWidth,
+            mutedColor: t.sidebar.muted,
+            hoverColor: t.sidebar.hover,
+            title: tip(resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'),
+          }}
+        />
+        {!isMobile && (
           <button
             type="button"
             onClick={toggleCollapsed}
@@ -673,21 +647,24 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                 <PanelLeftClose className="w-4 h-4" strokeWidth={1.75} />
               )}
             </span>
-            <span className="whitespace-nowrap truncate py-1.5 pr-3">
+            <span className="whitespace-nowrap truncate py-1.5 pr-2">
               {collapsed ? 'Extend' : 'Collapse'}
             </span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* User profile */}
-      <div className={`${isMobile ? 'py-3' : 'py-2'} border-t relative`} style={{ borderColor: t.sidebar.border }}>
+      {/* Company account — initials, carrier name, tier */}
+      <div
+        className={`client-sidebar-account${isMobile ? ' client-sidebar-account--mobile' : ''} border-t relative`}
+        style={{ borderColor: t.sidebar.border }}
+      >
         <button
           type="button"
           onClick={() => setUserMenuOpen((open) => !open)}
-          className={`w-full flex items-center transition-colors${isMobile ? ' min-h-[52px]' : ''}`}
+          className="client-sidebar-account__btn w-full flex items-center transition-colors"
           style={{ color: t.sidebar.text }}
-          title={tip(userDisplayName)}
+          title={resolvedClientName}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = t.sidebar.hover
           }}
@@ -696,24 +673,26 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
           }}
         >
           <span
-            className={`shrink-0 flex items-center justify-center self-stretch${isMobile ? ' py-2' : ' py-1.5'}`}
-            style={{ width: isMobile ? 48 : iconColWidth }}
+            className="client-sidebar-account__avatar-col shrink-0 flex items-center justify-center self-stretch"
+            style={{ width: isMobile ? 48 : collapsed ? iconColWidth : undefined }}
           >
             <div
-              className={`${isMobile ? 'w-9 h-9 text-[11px]' : 'w-7 h-7 text-[10px]'} rounded-full flex items-center justify-center font-semibold`}
+              className="client-sidebar-account__avatar rounded-full flex items-center justify-center font-semibold"
               style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
             >
-              {getInitials(userDisplayName)}
+              {getInitials(resolvedClientName)}
             </div>
           </span>
-          <div className={`flex-1 min-w-0 text-left overflow-hidden whitespace-nowrap pr-1${isMobile ? ' py-2' : ' py-1.5'}`}>
-            <div className={`${isMobile ? 'text-[15px]' : 'text-[13px]'} font-semibold truncate leading-tight`}>{userDisplayName}</div>
-            <div className={`${isMobile ? 'text-[12px]' : 'text-[11px]'} truncate leading-tight`} style={{ color: t.sidebar.muted }}>
-              {userRole === 'Client' ? 'A/R Manager' : userRole}
+          <div className="client-sidebar-account__meta flex-1 min-w-0 text-left">
+            <div className="client-sidebar-account__name font-semibold leading-tight">
+              {resolvedClientName}
+            </div>
+            <div className="client-sidebar-account__tier leading-tight" style={{ color: t.sidebar.muted }}>
+              {getTierLabel(tier)}
             </div>
           </div>
           <ChevronDown
-            className={`w-3.5 h-3.5 shrink-0 mr-3 transition-transform duration-150 ${
+            className={`client-sidebar-account__chevron w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${
               userMenuOpen ? 'rotate-180' : ''
             }`}
             style={{ color: t.sidebar.muted }}
@@ -874,9 +853,6 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                   <AssistantHeaderBuddy mode="client" />
                 </div>
               ) : null}
-              <div className="hidden lg:block shrink-0">
-                <ThemeToggle compact />
-              </div>
               {showNotifs ? (
                 <div className="client-topbar__onboard-reveal">
                   <NotificationBell

@@ -1,4 +1,3 @@
-
 import {
   FileText,
   AlertCircle,
@@ -31,14 +30,15 @@ export function SummaryCards({
 }: SummaryCardsProps) {
   const c = useClientTheme()
 
+  // Urgency-first order: action counts first, then health metrics
   const cards = [
     {
-      label: 'Batches Pending',
-      value: totalBatchesPending,
-      icon: FileText,
-      tone: totalBatchesPending > 0 ? 'amber' : 'slate',
-      valueColor: totalBatchesPending > 0 ? c.warning : c.primary,
-      type: 'batches',
+      label: 'Collections Alerts',
+      value: collectionsAlerts,
+      icon: Phone,
+      tone: collectionsAlerts > 0 ? 'red' : 'slate',
+      valueColor: collectionsAlerts > 0 ? c.error : c.primary,
+      type: 'collections',
     },
     {
       label: 'Invoices on Hold',
@@ -49,20 +49,20 @@ export function SummaryCards({
       type: 'invoices',
     },
     {
+      label: 'Batches Pending',
+      value: totalBatchesPending,
+      icon: FileText,
+      tone: totalBatchesPending > 0 ? 'amber' : 'slate',
+      valueColor: totalBatchesPending > 0 ? c.warning : c.primary,
+      type: 'batches',
+    },
+    {
       label: 'Total A/R',
       value: formatCurrency(totalAR),
       icon: DollarSign,
       tone: 'blue',
       valueColor: c.primary,
       type: 'ar',
-    },
-    {
-      label: 'Collections Alerts',
-      value: collectionsAlerts,
-      icon: Phone,
-      tone: collectionsAlerts > 0 ? 'red' : 'slate',
-      valueColor: collectionsAlerts > 0 ? c.error : c.primary,
-      type: 'collections',
     },
     {
       label: 'Force-Close Rate (30d)',
@@ -92,6 +92,14 @@ export function SummaryCards({
     red: c.stat.red,
   }
 
+  const accentBar: Record<string, string> = {
+    blue: c.info,
+    amber: c.warning,
+    green: c.success,
+    slate: c.border,
+    red: c.error,
+  }
+
   return (
     <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
       {cards.map((card) => {
@@ -102,18 +110,27 @@ export function SummaryCards({
             type="button"
             disabled={!onCardClick}
             onClick={() => onCardClick?.(card.type)}
-            className={`dashboard-card p-4 text-left transition-shadow ${
+            className={`dashboard-card relative overflow-hidden p-4 pt-5 text-left transition-shadow ${
               onCardClick ? 'dashboard-card-interactive cursor-pointer' : 'cursor-default'
             }`}
             style={{ backgroundColor: statBg[card.tone] }}
           >
+            {/* Colored top accent bar by urgency tone */}
+            <span
+              className="absolute inset-x-0 top-0 h-1"
+              style={{ backgroundColor: accentBar[card.tone] }}
+              aria-hidden
+            />
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
+              <span
+                className="text-xs font-semibold uppercase tracking-wide"
+                style={{ color: c.secondary }}
+              >
                 {card.label}
               </span>
               <Icon className="w-4 h-4 shrink-0" style={{ color: c.mutedLight }} strokeWidth={1.75} />
             </div>
-            <div className="text-xl font-bold tabular-nums" style={{ color: card.valueColor }}>
+            <div className="text-2xl font-bold tabular-nums" style={{ color: card.valueColor }}>
               {card.value}
             </div>
           </button>

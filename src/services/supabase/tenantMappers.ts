@@ -36,6 +36,9 @@ export interface InvoiceRow {
   remittance_snapshot: string | null
   collection_date: string | null
   collection_status: string | null
+  collections_needs_attention: boolean | null
+  collections_last_inquiry_at: string | null
+  collections_followup_at: string | null
   verification_status: string | null
   contact_persons: string[] | null
   selected_contact_person: string | null
@@ -158,6 +161,9 @@ export function invoiceRowToInvoice(row: InvoiceRow): Invoice {
     remittance_snapshot: row.remittance_snapshot ?? undefined,
     collection_date: row.collection_date ?? undefined,
     collection_status: (row.collection_status as Invoice['collection_status']) ?? undefined,
+    collections_needs_attention: row.collections_needs_attention ?? undefined,
+    collections_last_inquiry_at: row.collections_last_inquiry_at ?? undefined,
+    collections_followup_at: row.collections_followup_at ?? undefined,
     verification_status: (row.verification_status as Invoice['verification_status']) ?? undefined,
     contact_persons: row.contact_persons ?? undefined,
     selected_contact_person: row.selected_contact_person ?? undefined,
@@ -271,6 +277,9 @@ export function invoiceToRow(invoice: Invoice): InvoiceRow {
     remittance_snapshot: invoice.remittance_snapshot ?? null,
     collection_date: invoice.collection_date ?? null,
     collection_status: invoice.collection_status ?? null,
+    collections_needs_attention: invoice.collections_needs_attention ?? null,
+    collections_last_inquiry_at: invoice.collections_last_inquiry_at ?? null,
+    collections_followup_at: invoice.collections_followup_at ?? null,
     verification_status: invoice.verification_status ?? null,
     contact_persons: invoice.contact_persons ?? null,
     selected_contact_person: invoice.selected_contact_person ?? null,

@@ -431,7 +431,7 @@ export default function ClientCollections() {
     }
   }, [searchTerm, brokerDrillDown])
 
-  // Deep-link from Brokers tab: /client/collections?broker=Name
+  // Deep-link from Brokers tab: /client/aging-ar?broker=Name
   useEffect(() => {
     const broker = searchParams.get('broker')?.trim()
     if (!broker) return

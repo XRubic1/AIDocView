@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { LogIn, Eye, EyeOff } from 'lucide-react'
 import { signInClientAuth, getCurrentSession, requestClientPasswordReset } from '../services/clientAuthService'
 import { fetchClientById } from '../services/clientRegistry'
+import '../styles/credyxAuth.css'
 
 export default function ClientLogin() {
   const navigate = useNavigate()
@@ -15,7 +16,7 @@ export default function ClientLogin() {
       if (session.principal !== 'client' || !session.clientId) return
       const client = await fetchClientById(session.clientId)
       if (client?.status === 'active') {
-        navigate('/client/dashboard-v2', { replace: true })
+        navigate('/client/dashboard', { replace: true })
       }
     })()
   }, [navigate])
@@ -65,7 +66,7 @@ export default function ClientLogin() {
         return
       }
 
-      navigate('/client/dashboard-v2')
+      navigate('/client/dashboard')
     } catch {
       setError('An error occurred during login. Please try again.')
     } finally {
@@ -97,89 +98,118 @@ export default function ClientLogin() {
     }
   }
 
+  const inputErrorClass = error ? 'credyx-auth__input--error' : ''
+
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F5F5F5' }}>
-      <div className="w-full max-w-md">
-        <div className="flex justify-center mb-8">
+    <div className="credyx-auth">
+      <aside className="credyx-auth__brand" aria-hidden={false}>
+        <div className="credyx-auth__brand-photo" aria-hidden="true" />
+        <div className="credyx-auth__brand-mesh" aria-hidden="true" />
+
+        <div className="credyx-auth__brand-top">
           <img
-            src="/credyx-nav-logo.png"
+            src="/credyx-logo-white-cred-no-bg.png"
             alt="Credyx A/R Solutions"
-            className="h-14 w-auto"
-            style={{ maxHeight: '56px' }}
+            className="credyx-auth__logo"
             width={360}
             height={96}
             decoding="async"
           />
         </div>
 
-        <div className="border rounded-lg shadow-lg" style={{ backgroundColor: '#FFFFFF', borderColor: '#e2e8f0' }}>
-          <div className="p-8">
-            <div className="text-center mb-8">
-              <h1 className="text-2xl font-bold mb-2" style={{ color: '#113543' }}>
-                {showForgot ? 'Reset Password' : 'Client Login'}
-              </h1>
-              <p className="text-sm" style={{ color: '#64748b' }}>
-                {showForgot
-                  ? 'We will email you a link to set a new password'
-                  : 'Sign in to access your client portal'}
-              </p>
+        <div className="credyx-auth__brand-copy">
+          <div className="credyx-auth__eyebrow">
+            <span className="credyx-auth__eyebrow-dot" aria-hidden="true" />
+            Client portal
+          </div>
+          <h2 className="credyx-auth__brand-title">
+            Your back office, <em>in one portal.</em>
+          </h2>
+          <p className="credyx-auth__brand-sub">
+            Focus on the road. We&apos;ll verify paperwork, invoice brokers, and keep you updated — paid on time.
+          </p>
+        </div>
+
+        <p className="credyx-auth__brand-foot">Credyx · Paid on time</p>
+      </aside>
+
+      <main className="credyx-auth__panel">
+        <div className="credyx-auth__panel-inner">
+          <div className="credyx-auth__mobile-logo">
+            <img
+              src="/credyx-nav-wordmark-light.png"
+              alt="Credyx A/R Solutions"
+              width={360}
+              height={96}
+              decoding="async"
+            />
+          </div>
+
+          <div className="credyx-auth__heading">
+            <h1>{showForgot ? 'Reset password' : 'Welcome back'}</h1>
+            <p>
+              {showForgot
+                ? 'Enter your email and we will send a link to set a new password.'
+                : 'Sign in to your Credyx client portal.'}
+            </p>
+          </div>
+
+          <form
+            onSubmit={showForgot ? handleForgotPassword : handleSubmit}
+            className="credyx-auth__form"
+            noValidate
+          >
+            <div className="credyx-auth__field">
+              <label htmlFor="email">Email address</label>
+              <input
+                id="email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value)
+                  setError('')
+                }}
+                placeholder="you@company.com"
+                className={`credyx-auth__input ${inputErrorClass}`}
+                required
+                disabled={isLoading}
+              />
             </div>
 
-            <form onSubmit={showForgot ? handleForgotPassword : handleSubmit} className="space-y-6">
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
-                  Email Address
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value)
-                    setError('')
-                  }}
-                  placeholder="client@example.com"
-                  className="w-full px-4 py-2.5 text-sm border rounded"
-                  style={{ borderColor: error ? '#ef4444' : '#64748b', color: '#113543' }}
-                  required
-                  disabled={isLoading}
-                />
-              </div>
-
-              {!showForgot && (
-                <div>
-                  <label htmlFor="password" className="block text-sm font-medium mb-2" style={{ color: '#113543' }}>
-                    Password
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value)
-                        setError('')
-                      }}
-                      placeholder="Enter your password"
-                      className="w-full px-4 py-2.5 pr-10 text-sm border rounded"
-                      style={{ borderColor: error ? '#ef4444' : '#64748b', color: '#113543' }}
-                      required
-                      disabled={isLoading}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2"
-                      disabled={isLoading}
-                    >
-                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                    </button>
-                  </div>
+            {!showForgot && (
+              <div className="credyx-auth__field">
+                <label htmlFor="password">Password</label>
+                <div className={`credyx-auth__input-wrap ${error ? 'credyx-auth__input-wrap--error' : ''}`}>
+                  <input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value)
+                      setError('')
+                    }}
+                    placeholder="Enter your password"
+                    required
+                    disabled={isLoading}
+                  />
+                  <button
+                    type="button"
+                    className="credyx-auth__eye"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={isLoading}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-              )}
+              </div>
+            )}
 
-              {!showForgot && (
-                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+            {!showForgot && (
+              <div className="credyx-auth__row">
+                <label className="credyx-auth__terms">
                   <input
                     type="checkbox"
                     checked={acceptedTerms}
@@ -188,109 +218,83 @@ export default function ClientLogin() {
                       setError('')
                     }}
                     disabled={isLoading}
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border"
-                    style={{ borderColor: '#64748b', accentColor: '#113543' }}
                     required
                   />
-                  <span className="text-xs leading-relaxed" style={{ color: '#64748b' }}>
+                  <span>
                     I agree to the{' '}
-                    <Link
-                      to="/terms"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline font-medium"
-                      style={{ color: '#113543' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <Link to="/terms" target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                       Terms of Use
                     </Link>{' '}
                     and{' '}
-                    <Link
-                      to="/privacy"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline font-medium"
-                      style={{ color: '#113543' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <Link to="/privacy" target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                       Privacy Policy
                     </Link>
                     .
                   </span>
                 </label>
-              )}
 
-              {!showForgot && (
                 <button
                   type="button"
+                  className="credyx-auth__link"
                   onClick={() => {
                     setShowForgot(true)
                     setError('')
                   }}
-                  className="text-xs underline"
-                  style={{ color: '#64748b' }}
                 >
                   Forgot password?
                 </button>
-              )}
+              </div>
+            )}
 
-              {(sessionMessage || error || info) && (
-                <div
-                  className="p-3 rounded text-sm"
-                  style={{
-                    backgroundColor: error ? '#FEE2E2' : info ? '#ECFDF5' : '#FEF3C7',
-                    color: error ? '#DC2626' : info ? '#047857' : '#92400E',
-                  }}
-                >
-                  {error || info || sessionMessage}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isLoading || (!showForgot && !acceptedTerms)}
-                className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 text-sm font-medium text-white rounded disabled:opacity-50"
-                style={{ backgroundColor: '#113543' }}
+            {(sessionMessage || error || info) && (
+              <div
+                className={`credyx-auth__alert ${
+                  error ? 'credyx-auth__alert--error' : info ? 'credyx-auth__alert--info' : 'credyx-auth__alert--warn'
+                }`}
+                role="alert"
               >
-                {isLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>{showForgot ? 'Sending…' : 'Signing in…'}</span>
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="w-4 h-4" />
-                    <span>{showForgot ? 'Send reset link' : 'Sign In'}</span>
-                  </>
-                )}
-              </button>
+                {error || info || sessionMessage}
+              </div>
+            )}
 
-              {showForgot && (
-                <button
-                  type="button"
-                  onClick={() => setShowForgot(false)}
-                  className="w-full text-xs text-center"
-                  style={{ color: '#64748b' }}
-                >
-                  Back to sign in
-                </button>
+            <button
+              type="submit"
+              className="credyx-auth__submit"
+              disabled={isLoading || (!showForgot && !acceptedTerms)}
+            >
+              {isLoading ? (
+                <>
+                  <span className="credyx-auth__spinner" aria-hidden="true" />
+                  <span>{showForgot ? 'Sending…' : 'Signing in…'}</span>
+                </>
+              ) : (
+                <>
+                  <LogIn className="w-4 h-4" aria-hidden="true" />
+                  <span>{showForgot ? 'Send reset link' : 'Sign in'}</span>
+                </>
               )}
-            </form>
+            </button>
 
-            <div className="mt-6 pt-6 border-t" style={{ borderColor: '#e2e8f0' }}>
-              <p className="text-xs text-center mb-2" style={{ color: '#64748b' }}>
-                New client?{' '}
-                <button type="button" onClick={() => navigate('/enroll')} className="underline" style={{ color: '#113543' }}>
-                  Enroll your company
-                </button>
-              </p>
-              <button onClick={() => navigate('/login')} className="w-full text-xs text-center" style={{ color: '#64748b' }}>
-                Admin Login →
+            {showForgot && (
+              <button type="button" className="credyx-auth__back" onClick={() => setShowForgot(false)}>
+                Back to sign in
               </button>
-            </div>
+            )}
+          </form>
+
+          <div className="credyx-auth__footer">
+            <p>
+              New client?{' '}
+              <button type="button" className="credyx-auth__text-btn" onClick={() => navigate('/enroll')}>
+                Enroll your company
+              </button>
+            </p>
+            <button type="button" className="credyx-auth__admin-link" onClick={() => navigate('/login')}>
+              Admin login →
+            </button>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }

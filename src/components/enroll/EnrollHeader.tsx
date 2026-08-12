@@ -12,20 +12,27 @@ export function EnrollHeader() {
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
         aria-label="Credyx A/R Solutions — back to top"
       >
-        Cred<span>yx</span>
+        <img
+          src="/credyx-nav-wordmark-light.png"
+          alt="Credyx"
+          className="cx-nav-logo"
+          width={360}
+          height={96}
+          decoding="async"
+        />
       </button>
       <nav className="cx-nav-links">
-        <button className="cx-nav-link" onClick={() => navigate('/how-it-works')}>
-          How It Works
+        <button type="button" className="cx-nav-link" onClick={() => navigate('/how-it-works')}>
+          How it works
         </button>
-        <button className="cx-nav-link" onClick={() => navigate('/tour')}>
-          Product Tour
+        <button type="button" className="cx-nav-link" onClick={() => navigate('/tour')}>
+          Product tour
         </button>
-        <button className="cx-nav-link" onClick={() => navigate('/client/login')}>
-          Client Login
+        <button type="button" className="cx-nav-link" onClick={() => navigate('/client/login')}>
+          Client login
         </button>
-        <button className="cx-nav-cta" onClick={() => navigate('/enroll')}>
-          Get Started
+        <button type="button" className="cx-nav-cta" onClick={() => navigate('/enroll')}>
+          Enroll now
         </button>
       </nav>
     </header>

@@ -27,7 +27,7 @@ import {
   ClientBatches,
   ClientBrokers,
   ClientCollections,
-  ClientDashboard,
+  ClientCollectionsQueue,
   ClientDashboardV2,
   OnboardingDashboard,
   ClientDocuments,
@@ -99,11 +99,11 @@ function App() {
               <Route element={<ClientProtectedLayout />}>
                 <Route
                   path="/client/dashboard"
-                  element={withRouteSuspense(ClientDashboard, 'Loading dashboard…')}
+                  element={withRouteSuspense(ClientDashboardV2, 'Loading dashboard…')}
                 />
                 <Route
                   path="/client/dashboard-v2"
-                  element={withRouteSuspense(ClientDashboardV2, 'Loading dashboard…')}
+                  element={<Navigate to="/client/dashboard" replace />}
                 />
                 <Route
                   path="/client/onboarding"
@@ -116,7 +116,11 @@ function App() {
                   path="/client/short-payments"
                   element={withRouteSuspense(ClientShortPayments)}
                 />
-                <Route path="/client/collections" element={withRouteSuspense(ClientCollections)} />
+                <Route path="/client/aging-ar" element={withRouteSuspense(ClientCollections)} />
+                <Route
+                  path="/client/collections"
+                  element={withRouteSuspense(ClientCollectionsQueue)}
+                />
                 <Route path="/client/brokers" element={withRouteSuspense(ClientBrokers)} />
                 <Route path="/client/assistant" element={withRouteSuspense(ClientAssistant)} />
                 <Route path="/client/reports" element={withRouteSuspense(ClientReports)} />

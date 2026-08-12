@@ -958,17 +958,29 @@ export default function ClientDocuments() {
                     }
                   }}
                 >
-                  <Upload className="w-8 h-8 mb-2" style={{ color: c.secondary }} />
-                  <p className="text-sm" style={{ color: c.secondary }}>
-                    Drop files or{' '}
+                  <div
+                    className="flex items-center justify-center w-10 h-10 rounded-[10px] mb-1"
+                    style={{ background: '#eff6ff' }}
+                    aria-hidden
+                  >
+                    <Upload className="w-5 h-5" style={{ color: c.info }} />
+                  </div>
+                  <p className="text-sm font-semibold" style={{ color: c.primary }}>
+                    Drop files here
+                  </p>
+                  <p className="text-xs" style={{ color: c.secondary }}>
+                    or{' '}
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="font-medium underline-offset-2 hover:underline"
+                      className="font-semibold underline-offset-2 hover:underline"
                       style={{ color: c.info }}
                     >
                       browse
                     </button>
+                  </p>
+                  <p className="text-[10px] mt-1" style={{ color: c.mutedLight }}>
+                    PDF, images, DOC, XLS
                   </p>
                   <input
                     ref={fileInputRef}

@@ -778,7 +778,7 @@ export default function ClientReports() {
                   compact
                   interactive
                   actionLabel="View invoices"
-                  onAction={() => navigate('/client/collections')}
+                  onAction={() => navigate('/client/aging-ar')}
                   className="client-reports-panel-card"
                 >
                   <AgingARChart aging={aging.aging_ar} compact />

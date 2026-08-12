@@ -119,7 +119,7 @@ export default function AssistantHeaderBuddy({ mode = 'client' }: AssistantHeade
       onPointerCancel={onPointerUp}
     >
       <AssistantBuddyFace
-        size={22}
+        size={32}
         className="assistant-header-buddy__face"
         mood={hovered || dueCount > 0 ? 'happy' : 'idle'}
         animated

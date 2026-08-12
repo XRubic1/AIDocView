@@ -3,13 +3,32 @@ import type { ServiceTier } from '../types/client'
 
 const GB = 1024 * 1024 * 1024
 
+/**
+ * Public + internal service plans.
+ * Enrollment offers Full Service only at $0/mo; Self-Service remains for admin/legacy.
+ */
 export const SERVICE_PLANS: ServicePlan[] = [
+  {
+    id: 'managed',
+    tier: 'managed',
+    name: 'Full Service',
+    tagline: 'Your back office, in one portal — paid on time',
+    app_fee_monthly: 0,
+    storage_quota_bytes: 10 * GB,
+    features: [
+      'Paperwork verified so nothing gets missed',
+      'Invoices submitted to brokers (PPW)',
+      'Broker follow-up, holds & dispute support',
+      'Live A/R status through paid on time',
+      '10 GB secure document storage',
+    ],
+  },
   {
     id: 'diy',
     tier: 'self_service',
     name: 'Self-Service',
     tagline: 'You run your A/R — we provide the platform',
-    app_fee_monthly: 99,
+    app_fee_monthly: 0,
     storage_quota_bytes: 10 * GB,
     features: [
       'Full client portal access',
@@ -19,22 +38,10 @@ export const SERVICE_PLANS: ServicePlan[] = [
       '10 GB storage included',
     ],
   },
-  {
-    id: 'managed',
-    tier: 'managed',
-    name: 'Managed',
-    tagline: 'Credyx handles operations — A/R fee based on collected volume',
-    app_fee_monthly: 99,
-    storage_quota_bytes: 10 * GB,
-    features: [
-      'Everything in Self-Service portal (view)',
-      'Credyx processes batches & collections',
-      'Simplified document handoff',
-      'Dedicated ops support',
-      '10 GB storage included',
-    ],
-  },
 ]
+
+/** Plans shown on the public enroll page (Full Service only). */
+export const ENROLL_PLANS: ServicePlan[] = SERVICE_PLANS.filter((p) => p.tier === 'managed')
 
 export function getPlanById(planId: string): ServicePlan | undefined {
   return SERVICE_PLANS.find((p) => p.id === planId)

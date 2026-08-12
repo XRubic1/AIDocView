@@ -69,11 +69,13 @@
 /* Cropped transparent logo assets */
 .credyx-wordmark--logo {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
   justify-content: flex-start;
   width: fit-content;
   max-width: 100%;
   min-width: 0;
+  line-height: 0;
 }
 
 .credyx-wordmark__logo-img {
@@ -110,7 +112,7 @@
   align-items: center;
   justify-content: flex-start;
   min-width: 0;
-  padding: 14px 56px 14px 16px;
+  padding: 10px 56px 10px 16px;
 }
 
 .client-portal .client-mobile-drawer__brand .credyx-wordmark--logo {
@@ -122,6 +124,8 @@
 
 .client-portal .client-mobile-drawer__brand .credyx-wordmark__logo-img {
   height: 30px;
-  max-width: 158px;
+  max-width: 160px;
   margin: 0;
+  transform: scale(1.1);
+  transform-origin: left center;
 }

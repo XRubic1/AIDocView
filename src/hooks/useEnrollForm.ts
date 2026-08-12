@@ -32,7 +32,7 @@ const INITIAL_FORM: EnrollFormData = {
  */
 export function useEnrollForm() {
   const [step, setStep] = useState<1 | 2>(1)
-  const [selectedTier, setSelectedTier] = useState<ServiceTier>('self_service')
+  const [selectedTier, setSelectedTier] = useState<ServiceTier>('managed')
   const [formData, setFormData] = useState<EnrollFormData>(INITIAL_FORM)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)

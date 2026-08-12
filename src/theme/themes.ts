@@ -44,7 +44,7 @@ export const lightClientTheme = {
     avatarBg: '#EFF6FF',
     avatarText: '#1684FE',
     collapsedWidth: 64,
-    expandedWidth: 208,
+    expandedWidth: 184,
   },
   density: {
     gap: 16,
@@ -108,7 +108,7 @@ export const darkClientTheme = {
     avatarBg: '#0F1E33',
     avatarText: '#1684FE',
     collapsedWidth: 64,
-    expandedWidth: 208,
+    expandedWidth: 184,
   },
   density: {
     gap: 16,

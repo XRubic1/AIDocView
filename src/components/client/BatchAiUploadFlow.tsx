@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { FileText, Loader2, Sparkles, Trash2, Upload, CheckCircle2 } from 'lucide-react'
 import { isAIReviewEnabled } from '../../config/aiReview'
 import {
@@ -145,6 +145,7 @@ export default function BatchAiUploadFlow({
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [addingInvoice, setAddingInvoice] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
   const regenTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const draftRef = useRef(draft)
   draftRef.current = draft
@@ -236,15 +237,48 @@ export default function BatchAiUploadFlow({
     return () => clearTimeout(timer)
   }, [step, files, draft, draftReady, onPersistDraft])
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const list = e.target.files
-    if (!list) return
+  const addPdfs = (list: FileList | File[]) => {
     const pdfs = Array.from(list).filter(
       (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
     )
+    if (pdfs.length === 0) {
+      setError('Only PDF files are supported.')
+      return
+    }
     setFiles((prev) => [...prev, ...pdfs])
     setError(null)
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files
+    if (!list) return
+    addPdfs(list)
     e.target.value = ''
+  }
+
+  const handleDropzoneDragEnter = (e: DragEvent<HTMLLabelElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDropzoneDragOver = (e: DragEvent<HTMLLabelElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDropzoneDragLeave = (e: DragEvent<HTMLLabelElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return
+    setIsDragging(false)
+  }
+
+  const handleDropzoneDrop = (e: DragEvent<HTMLLabelElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    if (e.dataTransfer.files.length > 0) addPdfs(e.dataTransfer.files)
   }
 
   const removeFile = (index: number) => {
@@ -522,7 +556,13 @@ export default function BatchAiUploadFlow({
 
       <div className="client-ai-upload__body">
         <div className="client-ai-upload__drop-panel">
-          <label className="client-ai-upload__dropzone">
+          <label
+            className={`client-ai-upload__dropzone${isDragging ? ' client-ai-upload__dropzone--active' : ''}`}
+            onDragEnter={handleDropzoneDragEnter}
+            onDragOver={handleDropzoneDragOver}
+            onDragLeave={handleDropzoneDragLeave}
+            onDrop={handleDropzoneDrop}
+          >
             <input
               type="file"
               accept=".pdf,application/pdf"
@@ -531,9 +571,11 @@ export default function BatchAiUploadFlow({
               onChange={handleFileSelect}
             />
             <div className="client-ai-upload__dropzone-icon">
-              <Upload className="w-7 h-7" />
+              <Upload className="w-6 h-6" />
             </div>
-            <span className="client-ai-upload__dropzone-title">Drop PDFs here or click to browse</span>
+            <span className="client-ai-upload__dropzone-title">
+              {isDragging ? 'Drop PDFs to upload' : 'Drop PDFs here or click to browse'}
+            </span>
             <span className="client-ai-upload__dropzone-desc">
               Rate cons, BOLs, and other load paperwork
             </span>

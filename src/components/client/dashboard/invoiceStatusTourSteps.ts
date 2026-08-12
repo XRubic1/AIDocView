@@ -188,8 +188,8 @@ export const INVOICE_STATUS_TOUR_STEPS: FollowOnTourStep[] = [
   {
     id: 'navCollections',
     target: 'navCollections',
-    title: 'Aging A/R',
-    body: 'Aging A/R breaks open invoices into time buckets so you can see what’s aging out.',
+    title: 'Collections',
+    body: 'Collections shows which open invoices Credyx is working, what’s overdue, and what needs urgent attention.',
     navigateTo: '/client/collections',
     deepLink: 'none',
   },

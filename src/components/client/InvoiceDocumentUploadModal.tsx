@@ -99,16 +99,14 @@ export default function InvoiceDocumentUploadModal({
       >
         <div className="invoice-dispute-modal-header invoice-doc-upload-modal__header">
           <div className="min-w-0">
+            <p className="invoice-doc-upload-modal__eyebrow">Upload documents</p>
             <h3
               id="invoice-doc-upload-title"
               className="invoice-doc-upload-modal__title"
               style={{ color: c.primary }}
             >
-              Upload
-            </h3>
-            <p className="invoice-doc-upload-modal__subtitle" style={{ color: c.secondary }}>
               #{invoiceNumber}
-            </p>
+            </h3>
           </div>
           <button
             type="button"
@@ -140,6 +138,7 @@ export default function InvoiceDocumentUploadModal({
             onDragLeave={(e) => {
               if (isMobile) return
               e.preventDefault()
+              if (e.currentTarget.contains(e.relatedTarget as Node)) return
               setIsDragging(false)
             }}
             onDrop={isMobile ? undefined : handleDrop}
@@ -156,12 +155,18 @@ export default function InvoiceDocumentUploadModal({
                 : undefined
             }
           >
-            <Upload
-              className="invoice-doc-upload-dropzone__icon"
-              style={{ color: isDragging ? c.accent : c.muted }}
-            />
+            <div className="invoice-doc-upload-dropzone__icon-wrap" aria-hidden>
+              <Upload
+                className="invoice-doc-upload-dropzone__icon"
+                style={{ color: isDragging ? c.accent : c.info }}
+              />
+            </div>
             <p className="invoice-doc-upload-dropzone__label" style={{ color: c.primary }}>
-              {isMobile ? 'Tap to add files' : 'Drop files or browse'}
+              {isMobile
+                ? 'Tap to add files'
+                : isDragging
+                  ? 'Drop to add'
+                  : 'Drop files here'}
             </p>
             {!isMobile ? (
               <button
@@ -173,6 +178,9 @@ export default function InvoiceDocumentUploadModal({
                 Select files
               </button>
             ) : null}
+            <p className="invoice-doc-upload-dropzone__formats" style={{ color: c.secondary }}>
+              PDF, JPG, PNG, DOC
+            </p>
             <input
               ref={fileInputRef}
               type="file"
@@ -189,9 +197,11 @@ export default function InvoiceDocumentUploadModal({
           {pendingFiles.length > 0 ? (
             <ul className="invoice-doc-upload-list">
               {pendingFiles.map((file, index) => (
-                <li key={`${file.name}-${index}`} className="invoice-doc-upload-item">
+                <li key={`${file.name}-${file.size}-${index}`} className="invoice-doc-upload-item">
                   <div className="invoice-doc-upload-item__main">
-                    <FileText className="w-4 h-4 shrink-0" style={{ color: c.accent }} />
+                    <span className="invoice-doc-upload-item__icon" aria-hidden>
+                      <FileText className="w-3.5 h-3.5" style={{ color: c.info }} />
+                    </span>
                     <div className="min-w-0">
                       <p className="invoice-doc-upload-item__name" style={{ color: c.primary }}>
                         {file.name}

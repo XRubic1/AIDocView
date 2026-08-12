@@ -1,7 +1,7 @@
 /**
  * Client Dashboard V2 — calm home (light + dark).
  * Answers: How much am I owed? → Is anything wrong? → What should I do?
- * Existing dashboard kept intact at ClientDashboard.tsx (/client/dashboard).
+ * Primary client dashboard (routed at /client/dashboard).
  */
 import { useMemo, useState } from 'react'
 import SimpleWelcomeBar from '../components/client/dashboard-v2/SimpleWelcomeBar'

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Sparkles, PenLine, Upload, FileStack, Check, FilePenLine, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Sparkles, PenLine, FileStack, Check, FilePenLine, Trash2 } from 'lucide-react'
 import { ReactNode } from 'react'
 import { formatCurrency } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
@@ -84,7 +84,7 @@ function MethodOption({
         <ul className="client-submit-docs__option-steps">
           {steps.map((step) => (
             <li key={step}>
-              <Check className="client-submit-docs__step-check" />
+              <Check className="client-submit-docs__step-check" aria-hidden />
               <span>{step}</span>
             </li>
           ))}
@@ -93,7 +93,7 @@ function MethodOption({
 
       <span className="client-submit-docs__option-cta">
         {ctaLabel}
-        <ChevronRight className="w-4 h-4" />
+        <ChevronRight className="w-4 h-4" aria-hidden />
       </span>
     </button>
   )
@@ -134,7 +134,7 @@ function SubmitDocsDraftNotice({
     <div className="client-submit-docs__draft-notice" role="status">
       {visibleDrafts.map((draft) => (
         <div key={draft.id} className="client-submit-docs__draft-row">
-          <FilePenLine className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
+          <FilePenLine className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} aria-hidden />
           <div className="client-submit-docs__draft-row-text">
             <span className="client-submit-docs__draft-row-label">
               {editing ? 'Draft saved' : 'Unfinished draft'}
@@ -206,19 +206,6 @@ export default function ClientSubmitDocsView({
 
       {mode === 'choose' ? (
         <div className="client-submit-docs__choose" data-onboard-target="submitDropzone">
-          <div className="client-submit-docs__intro">
-            <div className="client-submit-docs__intro-icon">
-              <Upload className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="client-submit-docs__title">Submit documents</h1>
-              <p className="client-submit-docs__subtitle">
-                Send rate cons, BOLs, and invoices to Credyx for review. Pick the workflow that fits
-                your team.
-              </p>
-            </div>
-          </div>
-
           <SubmitDocsDraftNotice
             drafts={draftBatches}
             onResumeDraft={onResumeDraft}
@@ -229,23 +216,23 @@ export default function ClientSubmitDocsView({
           <div className="client-submit-docs__options">
             <MethodOption
               featured
-              icon={<PenLine className="w-6 h-6" />}
+              icon={<PenLine className="w-5 h-5" />}
               iconClassName="client-submit-docs__option-icon--manual"
               title="Manual batch"
               badge="Recommended"
-              description="Enter invoice details yourself and attach documents for each load. Best for day-to-day submissions."
+              description="Enter invoice details and attach docs for each load."
               steps={['Add invoices one at a time', 'Attach supporting docs', 'Submit when ready']}
               onClick={onSelectManual}
             />
 
             <MethodOption
               wip
-              icon={<Sparkles className="w-6 h-6" />}
+              icon={<Sparkles className="w-5 h-5" />}
               iconClassName="client-submit-docs__option-icon--ai"
               title="AI upload"
-              badge="WIP"
+              badge="Preview"
               badgeVariant="wip"
-              description="Bulk PDF sorting and auto-drafted invoices. This workflow is still in preview — use manual batch for production loads."
+              description="Bulk PDF sorting and auto-drafted invoices — still in preview."
               steps={['Drop rate cons & BOLs', 'Review drafted invoices', 'Submit batch to Credyx']}
               ctaLabel="Try preview"
               onClick={onSelectAi}
@@ -253,11 +240,8 @@ export default function ClientSubmitDocsView({
           </div>
 
           <div className="client-submit-docs__hint">
-            <FileStack className="w-4 h-4 shrink-0" style={{ color: c.mutedLight }} />
-            <span>
-              Recommended: manual batch · AI upload is work in progress · PDF or images for manual
-              attachments
-            </span>
+            <FileStack className="w-3.5 h-3.5 shrink-0" style={{ color: c.mutedLight }} aria-hidden />
+            <span>Manual batch for production · PDF or images for attachments</span>
           </div>
         </div>
       ) : (

@@ -5,6 +5,7 @@ import { SummaryCards } from '../components/admin/SummaryCards'
 import { CollectionsQueue } from '../components/admin/CollectionsQueue'
 import { ClientWorkQueuePanel } from '../components/admin/ClientWorkQueuePanel'
 import { QuickActions } from '../components/admin/QuickActions'
+import { SectionHeader } from '../components/admin/SectionHeader'
 import { ARTrendChart } from '../components/admin/charts/ARTrendChart'
 import { AgingDistributionChart } from '../components/admin/charts/AgingDistributionChart'
 import { CriticalAlerts } from '../components/admin/widgets/CriticalAlerts'
@@ -418,100 +419,127 @@ export default function AdminDashboard() {
     }
   }
 
+  const todayLabel = useMemo(
+    () =>
+      new Date().toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }),
+    []
+  )
+
+  const attentionCount = filteredCriticalAlerts.length + filteredTodaysActions.length
+
   return (
     <AdminLayout userName="Admin User" userRole="Administrator">
-      <div className="space-y-4">
-          {/* Summary Cards */}
-          <SummaryCards
-            totalBatchesPending={pendingBatches.length}
-            totalInvoicesHLD={invoicesOnHold}
-            totalAR={totalAR}
-            collectionsAlerts={collectionsAlerts}
-            forceCloseRate={parseFloat(String(forceCloseRate))}
-            avgReviewTime={parseFloat(String(avgReviewTime))}
-            onCardClick={handleCardClick}
-          />
+      <div className="space-y-5">
+        {/* 1. Page header: title + client filter + compact Quick Actions */}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold tracking-tight" style={{ color: c.primary }}>
+              Dashboard
+            </h1>
+            <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
+              {todayLabel}
+            </p>
+          </div>
 
-          {/* Quick Actions */}
-          <QuickActions
-            pendingBatchesCount={pendingBatches.length}
-            collectionsAlertsCount={collectionsAlerts}
-            unattachedDocumentsCount={unattachedDocuments}
-            onReviewBatch={() => {
-              if (pendingBatches.length > 0) {
-                handleBatchClick(pendingBatches[0].id)
-              } else {
-                navigate('/batches')
-              }
-            }}
-            onCollectionsQueue={() => navigate('/collections')}
-            onUnattachedDocuments={() => navigate('/invoices')}
-            onCreateBroker={() => navigate('/brokers')}
-            onCreateClient={() => navigate('/clients')}
-            onUploadDocuments={() => navigate('/invoices')}
-            canCreateUser={capabilities.canManageUsers}
-            onCreateUser={() => navigate('/users?add=1')}
-          />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 lg:justify-end flex-1 min-w-0">
+            <div className="flex items-center gap-2 shrink-0">
+              <label className="text-xs font-medium shrink-0" style={{ color: c.secondary }}>
+                Client
+              </label>
+              <select
+                value={widgetClientFilter}
+                onChange={(e) => setWidgetClientFilter(e.target.value)}
+                className="client-input text-xs min-w-[10rem]"
+                style={{ height: 32 }}
+                aria-label="Filter alerts and actions by client"
+              >
+                <option value="">All clients</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
+            <QuickActions
+              compact
+              pendingBatchesCount={pendingBatches.length}
+              collectionsAlertsCount={collectionsAlerts}
+              unattachedDocumentsCount={unattachedDocuments}
+              onReviewBatch={() => {
+                if (pendingBatches.length > 0) {
+                  handleBatchClick(pendingBatches[0].id)
+                } else {
+                  navigate('/batches')
+                }
+              }}
+              onCollectionsQueue={() => navigate('/collections')}
+              onUnattachedDocuments={() => navigate('/invoices')}
+              onCreateBroker={() => navigate('/brokers')}
+              onCreateClient={() => navigate('/clients')}
+              onUploadDocuments={() => navigate('/invoices')}
+              canCreateUser={capabilities.canManageUsers}
+              onCreateUser={() => navigate('/users?add=1')}
+            />
+          </div>
+        </div>
+
+        {/* 2. Needs Attention Now — most urgent */}
+        <section className="space-y-3">
+          <SectionHeader label="Needs attention now" count={attentionCount} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <CriticalAlerts alerts={filteredCriticalAlerts} onAlertClick={handleAlertClick} />
+            <TodaysActions actions={filteredTodaysActions} onActionClick={handleActionClick} />
+          </div>
+        </section>
+
+        {/* 3. KPI cards — urgent counts first, health metrics last */}
+        <SummaryCards
+          totalBatchesPending={pendingBatches.length}
+          totalInvoicesHLD={invoicesOnHold}
+          totalAR={totalAR}
+          collectionsAlerts={collectionsAlerts}
+          forceCloseRate={parseFloat(String(forceCloseRate))}
+          avgReviewTime={parseFloat(String(avgReviewTime))}
+          onCardClick={handleCardClick}
+        />
+
+        {/* 4. Work queues — day's workload */}
+        <section className="space-y-3">
+          <SectionHeader label="Work queues" />
           <ClientWorkQueuePanel summaries={workSummaries} />
-
-          {/* Main Content Grid - 2 Column Layout */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-            {/* Left Column - 2/3 width */}
-            <div className="xl:col-span-2 space-y-4">
-              {/* A/R Charts Row */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <ARTrendChart data={arTrendData} />
-                <AgingDistributionChart aging={agingAR} />
-              </div>
-
-          {/* Collections Queue */}
           <CollectionsQueue
-                alerts={collectionsQueue}
+            alerts={collectionsQueue}
             onInvoiceClick={handleInvoiceClick}
             onCallBroker={handleCallBroker}
             onMarkContacted={handleMarkContacted}
           />
-            </div>
+        </section>
 
-            {/* Right Column - 1/3 width */}
-            <div className="space-y-4">
-              <ManagedIntakeWidget />
-
-              <BatchStatusWidget />
-
-              {/* Batch Pipeline */}
-              <BatchPipeline stages={batchPipeline} onStageClick={handleStageClick} />
-
-              <div
-                className="flex items-center gap-2 px-1"
-              >
-                <label className="text-xs font-medium shrink-0" style={{ color: c.secondary }}>
-                  Alerts &amp; actions
-                </label>
-                <select
-                  value={widgetClientFilter}
-                  onChange={(e) => setWidgetClientFilter(e.target.value)}
-                  className="client-input flex-1 text-xs"
-                  style={{ height: 32 }}
-                  aria-label="Filter alerts and actions by client"
-                >
-                  <option value="">All clients</option>
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Critical Alerts */}
-              <CriticalAlerts alerts={filteredCriticalAlerts} onAlertClick={handleAlertClick} />
-
-              {/* Today's Actions */}
-              <TodaysActions actions={filteredTodaysActions} onActionClick={handleActionClick} />
-            </div>
+        {/* 5. Operations — pipeline & intake */}
+        <section className="space-y-3">
+          <SectionHeader label="Operations" />
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <BatchPipeline stages={batchPipeline} onStageClick={handleStageClick} />
+            <BatchStatusWidget />
+            <ManagedIntakeWidget />
           </div>
+        </section>
+
+        {/* 6. Analytics — least urgent */}
+        <section className="space-y-3">
+          <SectionHeader label="Analytics" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <ARTrendChart data={arTrendData} />
+            <AgingDistributionChart aging={agingAR} />
+          </div>
+        </section>
       </div>
     </AdminLayout>
   )

@@ -1,4 +1,4 @@
-import { CheckCircle, Clock, Phone, FileText, ListTodo } from 'lucide-react'
+import { CheckCircle, CheckCircle2, Clock, Phone, FileText, ListTodo } from 'lucide-react'
 import DashboardPanel from '../../client/dashboard/DashboardPanel'
 import { useClientTheme } from '../../../theme/ThemeContext'
 
@@ -34,30 +34,53 @@ export function TodaysActions({ actions, onActionClick }: TodaysActionsProps) {
     }
   }
 
+  /** Left-border + tint by priority for urgency scanning. */
   const getPriorityStyle = (priority: ActionItem['priority']) => {
     switch (priority) {
       case 'high':
-        return { color: c.warning, backgroundColor: c.stat.amber }
+        return {
+          color: c.error,
+          borderLeft: `3px solid ${c.error}`,
+          backgroundColor: c.stat.red,
+        }
       case 'medium':
-        return { color: c.info, backgroundColor: c.stat.blue }
+        return {
+          color: c.warning,
+          borderLeft: `3px solid ${c.warning}`,
+          backgroundColor: c.stat.amber,
+        }
       default:
-        return { color: c.secondary, backgroundColor: c.stat.slate }
+        return {
+          color: c.secondary,
+          borderLeft: `3px solid ${c.border}`,
+          backgroundColor: c.stat.slate,
+        }
     }
   }
 
   if (actions.length === 0) {
     return (
       <DashboardPanel title="Today's Actions" icon={ListTodo} iconTone="blue" interactive={false}>
-        <div className="p-8 text-center" style={{ color: c.secondary }}>
-          <div className="text-3xl mb-2">✓</div>
-          <div className="font-medium text-sm">All caught up!</div>
+        <div className="p-8 text-center flex flex-col items-center gap-2" style={{ color: c.secondary }}>
+          <CheckCircle2 className="w-8 h-8" style={{ color: c.success }} strokeWidth={1.5} />
+          <div className="font-medium text-sm" style={{ color: c.primary }}>
+            All clear
+          </div>
+          <div className="text-xs">All caught up for today</div>
         </div>
       </DashboardPanel>
     )
   }
 
   return (
-    <DashboardPanel title="Today's Actions" icon={ListTodo} iconTone="blue" interactive={false}>
+    <DashboardPanel
+      title="Today's Actions"
+      icon={ListTodo}
+      iconTone="blue"
+      badge={actions.length}
+      badgeTone="blue"
+      interactive={false}
+    >
       <div className="p-4 space-y-2 max-h-96 overflow-y-auto">
         {actions.map((action) => {
           const priorityStyle = getPriorityStyle(action.priority)
@@ -70,7 +93,10 @@ export function TodaysActions({ actions, onActionClick }: TodaysActionsProps) {
               className={`w-full p-3 rounded-lg text-left transition-shadow ${
                 onActionClick ? 'dashboard-card-interactive cursor-pointer' : 'cursor-default'
               }`}
-              style={{ backgroundColor: priorityStyle.backgroundColor }}
+              style={{
+                backgroundColor: priorityStyle.backgroundColor,
+                borderLeft: priorityStyle.borderLeft,
+              }}
             >
               <div className="flex items-start gap-3">
                 <div style={{ color: priorityStyle.color }} className="mt-0.5 shrink-0">

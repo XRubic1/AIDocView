@@ -14,7 +14,6 @@ export function withRouteSuspense(
 }
 
 // ——— Client portal ———
-export const ClientDashboard = lazy(() => import('../pages/ClientDashboard'))
 export const ClientDashboardV2 = lazy(() => import('../pages/ClientDashboardV2'))
 export const OnboardingDashboard = lazy(() => import('../pages/OnboardingDashboard'))
 export const ClientBatches = lazy(() => import('../pages/ClientBatches'))
@@ -22,6 +21,7 @@ export const ClientInvoices = lazy(() => import('../pages/ClientInvoices'))
 export const ClientPayments = lazy(() => import('../pages/ClientPayments'))
 export const ClientShortPayments = lazy(() => import('../pages/ClientShortPayments'))
 export const ClientCollections = lazy(() => import('../pages/ClientCollections'))
+export const ClientCollectionsQueue = lazy(() => import('../pages/ClientCollectionsQueue'))
 export const ClientReports = lazy(() => import('../pages/ClientReports'))
 export const ClientBrokers = lazy(() => import('../pages/ClientBrokers'))
 export const ClientAssistant = lazy(() => import('../pages/ClientAssistant'))

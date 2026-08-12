@@ -78,7 +78,7 @@ export default function ClientBrokers() {
   /** Open Aging A/R filtered to this broker. */
   const goToAgingForBroker = useCallback(
     (brokerName: string) => {
-      navigate(`/client/collections?broker=${encodeURIComponent(brokerName)}`)
+      navigate(`/client/aging-ar?broker=${encodeURIComponent(brokerName)}`)
     },
     [navigate]
   )

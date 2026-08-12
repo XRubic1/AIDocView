@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react'
-import { Upload, FileText, CheckCircle, Loader2, AlertCircle } from 'lucide-react'
+import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react'
+import { Upload, FileText, CheckCircle, Loader2, AlertCircle, Trash2, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { addBatch, generateBatchNumber } from '../../data/mockBatches'
 import { HANDOFF_PLACEHOLDER_INVOICE_ID, setBatchFiles } from '../../data/batchFileStore'
@@ -22,6 +22,12 @@ interface ManagedDocHandoffViewProps {
   onSubmitted?: () => void
 }
 
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 /** Simplified upload for managed-tier clients — Credyx ops processes files. */
 export default function ManagedDocHandoffView({
   clientId,
@@ -35,6 +41,7 @@ export default function ManagedDocHandoffView({
   const [isDragging, setIsDragging] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const dragDepthRef = useRef(0)
 
   const client = useMemo(() => getClientById(clientId), [clientId])
   const setupComplete = useMemo(
@@ -51,6 +58,45 @@ export default function ManagedDocHandoffView({
     if (next.length === 0) return
     setFiles((prev) => [...prev, ...next])
   }, [])
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const clearFiles = () => setFiles([])
+
+  const endDrag = () => {
+    dragDepthRef.current = 0
+    setIsDragging(false)
+  }
+
+  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragDepthRef.current += 1
+    setIsDragging(true)
+  }
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Required so the browser shows a “copy” drop cursor.
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setIsDragging(false)
+  }
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    endDrag()
+    if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files)
+  }
 
   const handleSubmit = async () => {
     if (files.length === 0 || isSubmitting) return
@@ -114,23 +160,25 @@ export default function ManagedDocHandoffView({
 
   if (submitted) {
     return (
-      <div className="p-8 text-center max-w-lg mx-auto">
-        <CheckCircle className="w-12 h-12 mx-auto mb-3" style={{ color: c.success }} />
-        <h3 className="text-lg font-bold mb-2" style={{ color: c.primary }}>
-          Documents sent to Credyx
-        </h3>
-        <p className="text-sm" style={{ color: c.secondary }}>
-          Your team will process these files and update your batches shortly.
-        </p>
+      <div className="managed-handoff managed-handoff--success" data-onboard-target="submitPanel">
+        <div className="managed-handoff__success">
+          <CheckCircle className="w-10 h-10 mb-3" style={{ color: c.success }} aria-hidden />
+          <h3 className="managed-handoff__success-title" style={{ color: c.primary }}>
+            Documents sent
+          </h3>
+          <p className="managed-handoff__success-copy" style={{ color: c.secondary }}>
+            Credyx will process these files and update your batches shortly.
+          </p>
+        </div>
       </div>
     )
   }
 
   if (!setupComplete) {
     return (
-      <div className="p-6 max-w-xl mx-auto">
+      <div className="managed-handoff managed-handoff--gate" data-onboard-target="submitPanel">
         <div
-          className="rounded-lg border px-4 py-4"
+          className="managed-handoff__gate"
           style={{ borderColor: `${c.warning}66`, backgroundColor: c.stat.amber }}
         >
           <div className="flex items-start gap-2 mb-3">
@@ -167,103 +215,140 @@ export default function ManagedDocHandoffView({
   }
 
   return (
-    <div className="p-5 max-w-2xl mx-auto space-y-5" data-onboard-target="submitPanel">
-      <div>
-        <h2 className="text-lg font-bold" style={{ color: c.primary }}>
-          Send documents to Credyx
-        </h2>
-        <p className="text-sm mt-1" style={{ color: c.secondary }}>
-          Upload your load paperwork and our team will create batches and invoices for you.
-        </p>
-      </div>
+    <div className="managed-handoff" data-onboard-target="submitPanel">
+      <div className={`managed-handoff__body${files.length > 0 ? ' managed-handoff__body--with-side' : ''}`}>
+        <div
+          className={`managed-handoff__drop-panel${isDragging ? ' managed-handoff__drop-panel--dragging' : ''}`}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <div
+            className={`managed-handoff-dropzone${isDragging ? ' managed-handoff-dropzone--active' : ''}`}
+            data-onboard-target="submitDropzone"
+            aria-dropeffect={isDragging ? 'copy' : undefined}
+          >
+            {isDragging ? (
+              <div className="managed-handoff-dropzone__content managed-handoff-dropzone__content--drop" role="status">
+                <div className="managed-handoff-dropzone__icon managed-handoff-dropzone__icon--drop" aria-hidden>
+                  <Upload className="w-7 h-7" />
+                </div>
+                <p className="managed-handoff-dropzone__title">Drop paperwork here</p>
+                <p className="managed-handoff-dropzone__text">
+                  Release to add your files to this upload
+                </p>
+              </div>
+            ) : (
+              <div className="managed-handoff-dropzone__content">
+                <div className="managed-handoff-dropzone__icon" aria-hidden>
+                  <Upload className="w-6 h-6" />
+                </div>
+                <p className="managed-handoff-dropzone__title">Drop files here</p>
+                <p className="managed-handoff-dropzone__text">
+                  Drag paperwork onto this area, or
+                </p>
+                <label className="managed-handoff-dropzone__browse">
+                  Browse files
+                  <input
+                    type="file"
+                    multiple
+                    className="sr-only"
+                    onChange={(e) => {
+                      if (e.target.files) addFiles(e.target.files)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                <div className="managed-handoff-dropzone__tags" aria-hidden>
+                  <span>POD</span>
+                  <span>BOL</span>
+                  <span>Rate con</span>
+                  <span>PDF / images</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
 
-      <div
-        className={`managed-handoff-dropzone ${isDragging ? 'managed-handoff-dropzone--active' : ''}`}
-        data-onboard-target="submitDropzone"
-        onDragOver={(e) => {
-          e.preventDefault()
-          setIsDragging(true)
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault()
-          setIsDragging(false)
-          addFiles(e.dataTransfer.files)
-        }}
-      >
-        <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: c.mutedLight }} />
-        <p className="text-sm font-medium" style={{ color: c.primary }}>
-          Drag files here or{' '}
-          <label className="cursor-pointer underline" style={{ color: c.info }}>
-            browse
-            <input
-              type="file"
-              multiple
-              className="sr-only"
-              onChange={(e) => {
-                if (e.target.files) addFiles(e.target.files)
-                e.target.value = ''
-              }}
-            />
-          </label>
-        </p>
-        <p className="text-xs mt-1" style={{ color: c.mutedLight }}>
-          PDF, images, or scans — PODs, BOLs, rate cons
-        </p>
-      </div>
+        {files.length > 0 && (
+          <aside className="managed-handoff__side" aria-label="Selected files">
+            <div className="managed-handoff__files">
+              <div className="managed-handoff__files-head">
+                <span>Selected</span>
+                <div className="managed-handoff__files-head-actions">
+                  <span className="managed-handoff__files-count">{files.length}</span>
+                  <button
+                    type="button"
+                    className="managed-handoff__files-clear"
+                    onClick={clearFiles}
+                    title="Clear all"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
 
-      {files.length > 0 && (
-        <ul className="space-y-2">
-          {files.map((file, i) => (
-            <li
-              key={`${file.name}-${i}`}
-              className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg border"
-              style={{ borderColor: c.border, color: c.secondary }}
-            >
-              <FileText className="w-4 h-4 shrink-0" />
-              <span className="truncate flex-1">{file.name}</span>
+              <ul className="managed-handoff__file-list">
+                {files.map((file, i) => (
+                  <li key={`${file.name}-${file.size}-${i}`} className="managed-handoff__file-item">
+                    <span className="managed-handoff__file-icon" aria-hidden>
+                      <FileText className="w-3.5 h-3.5" style={{ color: c.info }} />
+                    </span>
+                    <div className="managed-handoff__file-meta">
+                      <span className="managed-handoff__file-name">{file.name}</span>
+                      <span className="managed-handoff__file-size">{formatFileSize(file.size)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="managed-handoff__file-remove"
+                      onClick={() => removeFile(i)}
+                      aria-label={`Remove ${file.name}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="managed-handoff__notes">
+              <label className="managed-handoff__notes-label" htmlFor="managed-handoff-notes">
+                Notes (optional)
+              </label>
+              <textarea
+                id="managed-handoff-notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                className="managed-handoff__notes-input client-input"
+                placeholder="Broker names, load numbers, or special instructions…"
+              />
+            </div>
+
+            <div className="managed-handoff__footer">
               <button
                 type="button"
-                className="text-xs"
-                style={{ color: c.error }}
-                onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                disabled={isSubmitting}
+                onClick={handleSubmit}
+                className="dashboard-btn-primary managed-handoff__submit"
               >
-                Remove
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Sending…
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4" />
+                    Send {files.length} to Credyx
+                  </>
+                )}
               </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div>
-        <label className="block text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: c.secondary }}>
-          Notes for your team (optional)
-        </label>
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={3}
-          className="w-full text-sm px-3 py-2 rounded-lg border resize-none"
-          style={{ borderColor: c.border, color: c.primary }}
-          placeholder="Broker names, load numbers, or special instructions…"
-        />
-      </div>
-
-      <button
-        type="button"
-        disabled={files.length === 0 || isSubmitting}
-        onClick={handleSubmit}
-        className="dashboard-btn-primary w-full justify-center disabled:opacity-50"
-      >
-        {isSubmitting ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Sending…
-          </>
-        ) : (
-          <>Send to Credyx</>
+            </div>
+          </aside>
         )}
-      </button>
+      </div>
     </div>
   )
 }

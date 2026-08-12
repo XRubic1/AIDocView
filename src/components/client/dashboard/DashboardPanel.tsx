@@ -16,6 +16,9 @@ interface DashboardPanelProps {
   description?: string
   actionLabel?: string
   onAction?: () => void
+  /** Optional count badge shown in the header (e.g. alert/action counts). */
+  badge?: number | string
+  badgeTone?: 'amber' | 'blue' | 'green' | 'red' | 'slate'
   children: ReactNode
   className?: string
   compact?: boolean
@@ -30,6 +33,8 @@ export default function DashboardPanel({
   description,
   actionLabel,
   onAction,
+  badge,
+  badgeTone = 'amber',
   children,
   className = '',
   compact = false,
@@ -38,6 +43,24 @@ export default function DashboardPanel({
   iconTone = 'blue',
 }: DashboardPanelProps) {
   const t = useClientTheme()
+
+  const badgeBg: Record<string, string> = {
+    amber: t.stat.amber,
+    blue: t.stat.blue,
+    green: t.stat.green,
+    red: t.stat.red,
+    slate: t.stat.slate,
+  }
+  const badgeFg: Record<string, string> = {
+    amber: t.warning,
+    blue: t.info,
+    green: t.success,
+    red: t.error,
+    slate: t.secondary,
+  }
+
+  const showBadge = badge !== undefined && badge !== null && badge !== '' && badge !== 0
+
   return (
     <section
       className={`dashboard-card overflow-hidden ${interactive ? 'dashboard-card-interactive' : ''} ${className}`}
@@ -70,6 +93,14 @@ export default function DashboardPanel({
               </p>
             )}
           </div>
+          {showBadge && (
+            <span
+              className="inline-flex items-center justify-center min-w-[1.35rem] h-5 px-1.5 rounded-full text-[11px] font-bold tabular-nums shrink-0"
+              style={{ backgroundColor: badgeBg[badgeTone], color: badgeFg[badgeTone] }}
+            >
+              {badge}
+            </span>
+          )}
         </div>
         {actionLabel && onAction && (
           <button

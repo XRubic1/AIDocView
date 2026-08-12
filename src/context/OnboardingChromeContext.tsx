@@ -37,6 +37,7 @@ export const ONBOARD_NAV = {
   documents: '/client/documents',
   submitDocs: '/client/batches?tab=create',
   collections: '/client/collections',
+  agingAr: '/client/aging-ar',
   brokers: '/client/brokers',
   assistant: '/client/assistant',
   payments: '/client/payments',
@@ -57,6 +58,7 @@ export const ALL_ONBOARD_NAV_PATHS: OnboardNavPath[] = [
   ONBOARD_NAV.documents,
   ONBOARD_NAV.submitDocs,
   ONBOARD_NAV.collections,
+  ONBOARD_NAV.agingAr,
   ONBOARD_NAV.brokers,
   ONBOARD_NAV.assistant,
   ONBOARD_NAV.payments,
@@ -185,6 +187,7 @@ export function pathsForChromeStage(stage: OnboardingChromeStage): string[] {
         ONBOARD_NAV.documents,
         ONBOARD_NAV.brokers,
         ONBOARD_NAV.collections,
+        ONBOARD_NAV.agingAr,
       ]
     case 'full':
     default:
@@ -221,7 +224,9 @@ export function pathsForStatusTourStep(stepId: string): string[] {
     case 'navDocuments':
       return [ONBOARD_NAV.documents]
     case 'navCollections':
-      return [ONBOARD_NAV.collections]
+      return [ONBOARD_NAV.collections, ONBOARD_NAV.agingAr]
+    case 'navAging':
+      return [ONBOARD_NAV.agingAr, ONBOARD_NAV.collections]
     case 'navBrokers':
       return [ONBOARD_NAV.brokers]
     case 'navAssistant':
@@ -295,7 +300,7 @@ export function pathsForDashboardTourStep(
     case 'stats':
       return [ONBOARD_NAV.invoices]
     case 'aging':
-      return [ONBOARD_NAV.collections]
+      return [ONBOARD_NAV.agingAr, ONBOARD_NAV.collections]
     case 'charts':
       return [ONBOARD_NAV.reports]
     case 'actions':

@@ -193,7 +193,7 @@ export default function BrokerDetailPanel({
             className="dashboard-btn-primary text-xs py-2 px-3 inline-flex items-center justify-center gap-1.5 flex-1"
             onClick={() =>
               navigate(
-                `/client/collections?broker=${encodeURIComponent(broker.broker_name)}`
+                `/client/aging-ar?broker=${encodeURIComponent(broker.broker_name)}`
               )
             }
           >

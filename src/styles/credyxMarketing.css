@@ -4,17 +4,21 @@
  * space, soft gradients, restrained color, subtle shadows and motion.
  */
 
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
 .credyx-page {
-  --cx-navy: #0f2a35;
-  --cx-navy-soft: #1c4356;
-  --cx-gold: #b7943f;
-  --cx-gold-soft: #f6efdc;
+  --cx-navy: #0f172a;
+  --cx-navy-soft: #1e293b;
+  --cx-blue: #1684fe;
+  --cx-blue-soft: #eff6ff;
+  --cx-gold: #1684fe;
+  --cx-gold-soft: #eff6ff;
   --cx-ink: #16222a;
   --cx-body: #4b5d63;
   --cx-muted: #85959a;
   --cx-border: #e7ebec;
   --cx-surface: #f7f8f9;
-  --cx-success: #1a9c6b;
+  --cx-success: #2fa98c;
 
   background: #ffffff;
   color: var(--cx-ink);
@@ -51,7 +55,9 @@
 }
 
 .credyx-page .cx-nav-brand {
-  font-family: 'Inter', sans-serif;
+  display: inline-flex;
+  align-items: center;
+  font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
   font-size: 21px;
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -60,10 +66,20 @@
   border: none;
   cursor: pointer;
   padding: 0;
+  line-height: 0;
+}
+
+.credyx-page .cx-nav-logo {
+  display: block;
+  height: clamp(28px, 3.2vw, 40px);
+  width: auto;
+  max-width: min(160px, 48vw);
+  object-fit: contain;
+  object-position: left center;
 }
 
 .credyx-page .cx-nav-brand span {
-  color: var(--cx-gold);
+  color: var(--cx-blue);
 }
 
 .credyx-page .cx-nav-links {
@@ -91,7 +107,7 @@
   font-size: 14.5px;
   font-weight: 600;
   color: #ffffff;
-  background: var(--cx-navy);
+  background: var(--cx-blue);
   border: none;
   border-radius: 8px;
   padding: 10px 20px;
@@ -100,9 +116,9 @@
 }
 
 .credyx-page .cx-nav-cta:hover {
-  background: var(--cx-navy-soft);
+  background: #3b9afe;
   transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(15, 42, 53, 0.18);
+  box-shadow: 0 8px 20px rgba(22, 132, 254, 0.28);
 }
 
 /* ══ HERO ══ */
@@ -151,9 +167,9 @@
   z-index: 1;
   pointer-events: none;
   background:
-    radial-gradient(600px 420px at 12% 8%, rgba(183, 148, 63, 0.14), transparent 60%),
-    radial-gradient(680px 480px at 88% 18%, rgba(15, 42, 53, 0.08), transparent 60%),
-    radial-gradient(520px 400px at 50% 100%, rgba(183, 148, 63, 0.08), transparent 65%);
+    radial-gradient(600px 420px at 12% 8%, rgba(22, 132, 254, 0.14), transparent 60%),
+    radial-gradient(680px 480px at 88% 18%, rgba(15, 23, 42, 0.06), transparent 60%),
+    radial-gradient(520px 400px at 50% 100%, rgba(22, 132, 254, 0.08), transparent 65%);
 }
 
 .credyx-page .cx-hero-inner {
@@ -170,12 +186,20 @@
   gap: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--cx-gold);
-  background: var(--cx-gold-soft);
-  border: 1px solid rgba(183, 148, 63, 0.25);
+  color: var(--cx-blue);
+  background: var(--cx-blue-soft);
+  border: 1px solid rgba(22, 132, 254, 0.22);
   border-radius: 999px;
   padding: 7px 16px;
   margin-bottom: 28px;
+}
+
+.credyx-page .cx-hero-headline,
+.credyx-page .cx-section-title,
+.credyx-page .cx-nav-brand,
+.credyx-page .cx-footer-brand,
+.credyx-page .cx-plan-name {
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
 }
 
 .credyx-page .cx-hero-headline {
@@ -188,7 +212,7 @@
 }
 
 .credyx-page .cx-hero-headline .accent {
-  background: linear-gradient(100deg, var(--cx-gold) 15%, #d9b968 55%, var(--cx-gold) 90%);
+  background: linear-gradient(100deg, var(--cx-blue) 15%, #5aadff 55%, var(--cx-blue) 90%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -225,7 +249,7 @@
   font-size: 15.5px;
   font-weight: 600;
   color: #ffffff;
-  background: var(--cx-navy);
+  background: var(--cx-blue);
   border: none;
   border-radius: 10px;
   padding: 15px 28px;
@@ -234,9 +258,9 @@
 }
 
 .credyx-page .cx-btn-primary:hover:not(:disabled) {
-  background: var(--cx-navy-soft);
+  background: #3b9afe;
   transform: translateY(-2px);
-  box-shadow: 0 14px 32px rgba(15, 42, 53, 0.22);
+  box-shadow: 0 14px 32px rgba(22, 132, 254, 0.3);
 }
 
 .credyx-page .cx-btn-primary:disabled {
@@ -365,6 +389,10 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 20px;
+}
+
+.credyx-page .cx-card-grid--five {
+  grid-template-columns: repeat(5, 1fr);
 }
 
 .credyx-page .cx-card {
@@ -583,6 +611,13 @@
   margin-bottom: 24px;
 }
 
+.credyx-page .cx-plans--solo {
+  grid-template-columns: 1fr;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .credyx-page .cx-plan {
   position: relative;
   background: #ffffff;
@@ -594,14 +629,53 @@
   transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
 }
 
+.credyx-page .cx-plan--solo {
+  cursor: default;
+  width: 100%;
+  padding: 32px 28px;
+  background:
+    linear-gradient(#ffffff, #ffffff) padding-box,
+    linear-gradient(135deg, rgba(22, 132, 254, 0.35), rgba(15, 23, 42, 0.08)) border-box;
+  border: 1.5px solid transparent;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+}
+
+.credyx-page .cx-plan--solo:disabled {
+  opacity: 1;
+  color: inherit;
+}
+
+.credyx-page .cx-plan--solo .cx-plan-flag {
+  right: auto;
+  left: 28px;
+  top: 28px;
+}
+
+.credyx-page .cx-plan--solo .cx-plan-name {
+  margin-top: 28px;
+}
+
+.credyx-page .cx-enroll-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 22px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--cx-blue-soft);
+  color: var(--cx-blue);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
 .credyx-page .cx-plan:hover {
   transform: translateY(-3px);
   box-shadow: 0 16px 36px rgba(15, 23, 27, 0.08);
 }
 
 .credyx-page .cx-plan.selected {
-  border-color: var(--cx-navy);
-  box-shadow: 0 0 0 3px rgba(15, 42, 53, 0.08), 0 16px 36px rgba(15, 23, 27, 0.1);
+  border-color: var(--cx-blue);
+  box-shadow: 0 0 0 3px rgba(22, 132, 254, 0.12), 0 16px 36px rgba(15, 23, 27, 0.08);
 }
 
 .credyx-page .cx-plan-flag {
@@ -611,8 +685,8 @@
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.03em;
-  color: var(--cx-gold);
-  background: var(--cx-gold-soft);
+  color: var(--cx-blue);
+  background: var(--cx-blue-soft);
   border-radius: 999px;
   padding: 4px 11px;
 }
@@ -624,7 +698,7 @@
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  background: var(--cx-navy);
+  background: var(--cx-blue);
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -671,7 +745,7 @@
 .credyx-page .cx-plan-service-fee {
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--cx-gold);
+  color: var(--cx-blue);
   margin-top: 8px;
 }
 
@@ -759,8 +833,8 @@
 
 .credyx-page .cx-input:focus {
   outline: none;
-  border-color: var(--cx-navy);
-  box-shadow: 0 0 0 4px rgba(15, 42, 53, 0.08);
+  border-color: var(--cx-blue);
+  box-shadow: 0 0 0 4px rgba(22, 132, 254, 0.14);
 }
 
 .credyx-page .cx-form-error {
@@ -1033,7 +1107,8 @@
 
 /* ══ RESPONSIVE ══ */
 @media (max-width: 1024px) {
-  .credyx-page .cx-card-grid {
+  .credyx-page .cx-card-grid,
+  .credyx-page .cx-card-grid--five {
     grid-template-columns: repeat(2, 1fr);
   }
 }
@@ -1053,7 +1128,8 @@
 }
 
 @media (max-width: 640px) {
-  .credyx-page .cx-card-grid {
+  .credyx-page .cx-card-grid,
+  .credyx-page .cx-card-grid--five {
     grid-template-columns: 1fr;
   }
 
@@ -1087,6 +1163,509 @@
   .credyx-page .reveal {
     opacity: 1;
     transform: none;
+    transition: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * HOW IT WORKS — horizontal sliding process panels
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+.credyx-page--how .cx-how-hero {
+  padding-bottom: clamp(40px, 6vh, 72px);
+}
+
+.credyx-page--how .cx-how-slider {
+  position: relative;
+  background: var(--cx-surface);
+  border-top: 1px solid var(--cx-border);
+}
+
+.credyx-page--how .cx-how-slider__sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(12px, 2vh, 22px);
+  padding: clamp(64px, 8vh, 88px) clamp(16px, 4vw, 48px) clamp(16px, 3vh, 32px);
+  overflow: hidden;
+}
+
+.credyx-page--how .cx-how-slider__chrome {
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.credyx-page--how .cx-how-slider__chrome .cx-section-head {
+  margin-bottom: clamp(16px, 2.5vh, 28px);
+}
+
+.credyx-page--how .cx-how-slider__chrome .cx-section-title {
+  font-size: clamp(1.5rem, 2.6vw, 2rem);
+  margin-bottom: 8px;
+}
+
+.credyx-page--how .cx-how-slider__chrome .cx-section-sub {
+  font-size: 14.5px;
+}
+
+.credyx-page--how .cx-how-slider__nav {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.credyx-page--how .cx-how-slider__tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--cx-border);
+  border-radius: 12px;
+  background: #ffffff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.credyx-page--how .cx-how-slider__tab:hover {
+  border-color: #d2d8da;
+}
+
+.credyx-page--how .cx-how-slider__tab.is-done {
+  border-color: rgba(22, 132, 254, 0.28);
+  background: rgba(22, 132, 254, 0.04);
+}
+
+.credyx-page--how .cx-how-slider__tab.is-active {
+  border-color: var(--cx-blue);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(22, 132, 254, 0.12);
+}
+
+.credyx-page--how .cx-how-slider__tab-num {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--cx-blue);
+}
+
+.credyx-page--how .cx-how-slider__tab-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--cx-navy);
+  line-height: 1.25;
+}
+
+.credyx-page--how .cx-how-slider__viewport {
+  position: relative;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid var(--cx-border);
+  background: #ffffff;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.06);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.credyx-page--how .cx-how-slider__track {
+  display: flex;
+  height: 100%;
+  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.credyx-page--how .cx-how-panel {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.28fr) 1fr;
+  gap: clamp(16px, 2.5vw, 32px);
+  padding: clamp(18px, 2.5vw, 32px);
+  box-sizing: border-box;
+  opacity: 0.45;
+  transition: opacity 0.35s ease;
+}
+
+.credyx-page--how .cx-how-panel.is-active {
+  opacity: 1;
+}
+
+.credyx-page--how .cx-how-panel__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 8px 4px;
+  border-right: 1px solid var(--cx-border);
+}
+
+.credyx-page--how .cx-how-panel__icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cx-blue-soft);
+  color: var(--cx-blue);
+}
+
+.credyx-page--how .cx-how-panel__step {
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  font-size: clamp(2.5rem, 5vw, 3.5rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--cx-navy);
+  opacity: 0.12;
+}
+
+.credyx-page--how .cx-how-panel__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.credyx-page--how .cx-how-panel__title {
+  margin: 0 0 8px;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  font-size: clamp(1.35rem, 2.4vw, 1.85rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--cx-navy);
+}
+
+.credyx-page--how .cx-how-panel__desc {
+  margin: 0 0 20px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--cx-body);
+  max-width: 36rem;
+}
+
+.credyx-page--how .cx-how-panel__grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 14px;
+}
+
+.credyx-page--how .cx-how-panel__card {
+  border: 1px solid var(--cx-border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  background: var(--cx-surface);
+}
+
+.credyx-page--how .cx-how-panel__card h4 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cx-muted);
+}
+
+.credyx-page--how .cx-how-panel__card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.credyx-page--how .cx-how-panel__card li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--cx-ink);
+}
+
+.credyx-page--how .cx-how-panel__card li svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--cx-blue);
+}
+
+.credyx-page--how .cx-how-panel__card--benefit {
+  background: linear-gradient(160deg, rgba(22, 132, 254, 0.1), rgba(22, 132, 254, 0.03));
+  border-color: rgba(22, 132, 254, 0.2);
+}
+
+.credyx-page--how .cx-how-panel__card--benefit h4 {
+  color: var(--cx-blue);
+}
+
+.credyx-page--how .cx-how-panel__card--benefit p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--cx-navy);
+  font-weight: 500;
+}
+
+.credyx-page--how .cx-how-slider__controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.credyx-page--how .cx-how-slider__arrow {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--cx-border);
+  background: #ffffff;
+  color: var(--cx-navy);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.credyx-page--how .cx-how-slider__arrow:hover:not(:disabled) {
+  border-color: var(--cx-blue);
+  color: var(--cx-blue);
+  background: var(--cx-blue-soft);
+}
+
+.credyx-page--how .cx-how-slider__arrow:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.credyx-page--how .cx-how-slider__dots {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.credyx-page--how .cx-how-slider__dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: #d5dbe0;
+  cursor: pointer;
+  transition: width 0.25s ease, background 0.25s ease;
+}
+
+.credyx-page--how .cx-how-slider__dot.is-active {
+  width: 28px;
+  background: var(--cx-blue);
+}
+
+.credyx-page--how .cx-how-diff {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.credyx-page--how .cx-how-diff__card {
+  background: #ffffff;
+  border: 1px solid var(--cx-border);
+  border-radius: 16px;
+  padding: 28px 24px;
+}
+
+.credyx-page--how .cx-how-diff__label {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cx-blue);
+}
+
+.credyx-page--how .cx-how-diff__card h3 {
+  margin: 0 0 8px;
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--cx-navy);
+}
+
+.credyx-page--how .cx-how-diff__card p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--cx-body);
+}
+
+.credyx-page--how .cx-how-plan {
+  max-width: 440px;
+  margin: 0 auto;
+  position: relative;
+  border-radius: 20px;
+  padding: 32px 28px;
+  text-align: center;
+  background: #ffffff;
+  border: 1.5px solid rgba(22, 132, 254, 0.28);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+}
+
+.credyx-page--how .cx-how-plan__badge {
+  display: inline-flex;
+  margin-bottom: 14px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--cx-blue-soft);
+  color: var(--cx-blue);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.credyx-page--how .cx-how-plan__price {
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--cx-navy);
+  line-height: 1;
+  margin-bottom: 18px;
+}
+
+.credyx-page--how .cx-how-plan__price small {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--cx-body);
+}
+
+.credyx-page--how .cx-how-plan ul {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.credyx-page--how .cx-how-plan li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--cx-ink);
+}
+
+.credyx-page--how .cx-how-plan li svg {
+  color: var(--cx-blue);
+  flex-shrink: 0;
+}
+
+.credyx-page--how .cx-how-plan .cx-btn-primary {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .credyx-page--how .cx-how-slider__nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    overflow-x: auto;
+  }
+
+  .credyx-page--how .cx-how-slider__tab-label {
+    display: none;
+  }
+
+  .credyx-page--how .cx-how-slider__tab {
+    align-items: center;
+    padding: 10px 8px;
+  }
+
+  .credyx-page--how .cx-how-panel {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    overflow-y: auto;
+  }
+
+  .credyx-page--how .cx-how-panel__aside {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    border-right: none;
+    border-bottom: 1px solid var(--cx-border);
+    padding-bottom: 14px;
+  }
+
+  .credyx-page--how .cx-how-panel__icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+  }
+
+  .credyx-page--how .cx-how-panel__icon svg {
+    width: 26px;
+    height: 26px;
+  }
+
+  .credyx-page--how .cx-how-panel__step {
+    font-size: 2rem;
+    opacity: 0.18;
+  }
+
+  .credyx-page--how .cx-how-panel__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .credyx-page--how .cx-how-diff {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .credyx-page--how .cx-how-slider__sticky {
+    padding-top: 72px;
+    justify-content: flex-start;
+  }
+
+  .credyx-page--how .cx-how-slider__chrome .cx-section-sub {
+    display: none;
+  }
+
+  .credyx-page--how .cx-how-slider__chrome .cx-section-head {
+    margin-bottom: 10px;
+  }
+
+  .credyx-page--how .cx-how-slider__viewport {
+    min-height: 280px;
+  }
+
+  .credyx-page--how .cx-how-panel__desc {
+    margin-bottom: 12px;
+    font-size: 14px;
+  }
+
+  .credyx-page--how .cx-how-panel__card {
+    padding: 12px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .credyx-page--how .cx-how-slider__track {
     transition: none;
   }
 }

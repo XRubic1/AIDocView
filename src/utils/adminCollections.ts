@@ -260,6 +260,22 @@ export function chaseStatusLabel(status: ChaseQueueStatus): string {
   }
 }
 
+/** Carrier-facing chase labels (Credyx works the queue — not “Call broker”). */
+export function carrierChaseStatusLabel(status: ChaseQueueStatus): string {
+  switch (status) {
+    case 'needs_attention':
+      return 'Being worked'
+    case 'due_for_followup':
+      return 'Follow-up'
+    case 'due_for_inquiry':
+      return 'Inquiry due'
+    case 'awaiting_response':
+      return 'Awaiting reply'
+    default:
+      return 'On track'
+  }
+}
+
 export function chaseStatusPillClass(status: ChaseQueueStatus): string {
   switch (status) {
     case 'needs_attention':

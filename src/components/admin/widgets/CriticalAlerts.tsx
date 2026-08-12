@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock, FileX, DollarSign } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, FileX, DollarSign } from 'lucide-react'
 import DashboardPanel from '../../client/dashboard/DashboardPanel'
 import { useClientTheme } from '../../../theme/ThemeContext'
 import { formatRelativeTime } from '../../../utils/format'
@@ -38,17 +38,18 @@ export function CriticalAlerts({ alerts, onAlertClick }: CriticalAlertsProps) {
     }
   }
 
+  /** Left-border + tint by severity for urgency scanning. */
   const getSeverityStyle = (severity: Alert['severity']) => {
     switch (severity) {
       case 'high':
         return {
-          borderLeft: `3px solid ${c.warning}`,
-          backgroundColor: c.stat.amber,
+          borderLeft: `3px solid ${c.error}`,
+          backgroundColor: c.stat.red,
         }
       case 'medium':
         return {
-          borderLeft: `3px solid ${c.info}`,
-          backgroundColor: c.stat.blue,
+          borderLeft: `3px solid ${c.warning}`,
+          backgroundColor: c.stat.amber,
         }
       default:
         return {
@@ -61,9 +62,12 @@ export function CriticalAlerts({ alerts, onAlertClick }: CriticalAlertsProps) {
   if (alerts.length === 0) {
     return (
       <DashboardPanel title="Critical Alerts" icon={AlertTriangle} iconTone="amber" interactive={false}>
-        <div className="p-8 text-center" style={{ color: c.secondary }}>
-          <div className="text-3xl mb-2">✓</div>
-          <div className="font-medium text-sm">No critical alerts</div>
+        <div className="p-8 text-center flex flex-col items-center gap-2" style={{ color: c.secondary }}>
+          <CheckCircle2 className="w-8 h-8" style={{ color: c.success }} strokeWidth={1.5} />
+          <div className="font-medium text-sm" style={{ color: c.primary }}>
+            All clear
+          </div>
+          <div className="text-xs">No critical alerts right now</div>
         </div>
       </DashboardPanel>
     )
@@ -74,6 +78,8 @@ export function CriticalAlerts({ alerts, onAlertClick }: CriticalAlertsProps) {
       title="Critical Alerts"
       icon={AlertTriangle}
       iconTone="amber"
+      badge={alerts.length}
+      badgeTone="amber"
       interactive={false}
     >
       <div className="p-4 space-y-2 max-h-96 overflow-y-auto">

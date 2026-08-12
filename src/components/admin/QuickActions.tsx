@@ -22,6 +22,8 @@ interface QuickActionsProps {
   /** Super Admin only — create backoffice user. */
   onCreateUser?: () => void
   canCreateUser?: boolean
+  /** Compact pill toolbar for the dashboard header row. */
+  compact?: boolean
 }
 
 export function QuickActions({
@@ -36,24 +38,25 @@ export function QuickActions({
   onUploadDocuments,
   onCreateUser,
   canCreateUser = false,
+  compact = false,
 }: QuickActionsProps) {
   const c = useClientTheme()
 
   const actions = [
     {
-      label: 'Review Next Batch',
+      label: compact ? 'Review batch' : 'Review Next Batch',
       icon: FileText,
       count: pendingBatchesCount,
       onClick: onReviewBatch,
     },
     {
-      label: 'Collections Queue',
+      label: compact ? 'Collections' : 'Collections Queue',
       icon: Phone,
       count: collectionsAlertsCount,
       onClick: onCollectionsQueue,
     },
     {
-      label: 'Unattached Documents',
+      label: compact ? 'Unattached docs' : 'Unattached Documents',
       icon: Paperclip,
       count: unattachedDocumentsCount,
       onClick: onUnattachedDocuments,
@@ -69,7 +72,7 @@ export function QuickActions({
       onClick: onCreateClient,
     },
     {
-      label: 'Upload Documents',
+      label: compact ? 'Upload docs' : 'Upload Documents',
       icon: Upload,
       onClick: onUploadDocuments,
     },
@@ -83,6 +86,42 @@ export function QuickActions({
         ]
       : []),
   ]
+
+  // Compact header toolbar: pill buttons that wrap on mobile
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 justify-end">
+        {actions.map((action) => {
+          const Icon = action.icon
+          const hasCount = action.count !== undefined && action.count > 0
+          return (
+            <button
+              key={action.label}
+              type="button"
+              onClick={action.onClick}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold transition-opacity hover:opacity-80 border"
+              style={{
+                backgroundColor: hasCount ? c.stat.amber : c.card,
+                borderColor: c.border,
+                color: c.primary,
+              }}
+            >
+              <Icon className="w-3.5 h-3.5 shrink-0" strokeWidth={1.75} style={{ color: c.info }} />
+              <span className="truncate max-w-[9rem]">{action.label}</span>
+              {hasCount && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[1.1rem] h-4 px-1 rounded-full text-[10px] font-bold tabular-nums"
+                  style={{ backgroundColor: c.warning, color: '#fff' }}
+                >
+                  {action.count}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
 
   return (
     <DashboardPanel title="Quick Actions" compact interactive={false}>
