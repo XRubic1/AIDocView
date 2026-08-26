@@ -9,6 +9,7 @@ import type { ClientBrokerNote, BrokerPayRating } from '../types/clientBroker'
 import type { BrokerScoreRow } from '../utils/clientReports'
 import type { BrokerTermsPaymentSignals } from '../utils/brokerRiskPolicy'
 import type { Invoice } from '../types/invoice'
+import type { Payment } from '../types/payment'
 import {
   appendBrokerRiskProfile,
   findBrokerRiskReviewDecision,
@@ -110,6 +111,8 @@ export type EnsureBrokerRiskArgs = {
   adminNotes?: string | null
   /** Invoices for this broker — status notes feed delay-cause analysis. */
   invoices?: Invoice[]
+  /** Payments for those invoices — receipt disputes feed structured dispute checks. */
+  payments?: Payment[]
   hasWorked: boolean
   paymentTermsDays?: number | null
   termsSignals?: BrokerTermsPaymentSignals | null
@@ -185,6 +188,7 @@ export function ensureBrokerRiskProfile(args: EnsureBrokerRiskArgs): BrokerRiskP
     notes: args.notes,
     adminNotes: args.adminNotes,
     invoices: args.invoices,
+    payments: args.payments,
     hasWorked: args.hasWorked,
     paymentTermsDays: args.paymentTermsDays,
     termsSignals: args.termsSignals,

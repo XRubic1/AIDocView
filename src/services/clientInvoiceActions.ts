@@ -27,6 +27,7 @@ const DISPUTE_REASON_LABELS: Record<string, string> = {
   missing_documents: 'Missing documents',
   broker_rejection: 'Broker rejection',
   payment_delay: 'Payment delay',
+  claim_dispute: 'Claim dispute',
   other: 'Other',
 }
 
@@ -39,6 +40,7 @@ export const DISPUTE_REASON_OPTIONS = [
   { value: 'missing_documents', label: 'Missing documents' },
   { value: 'broker_rejection', label: 'Broker rejection' },
   { value: 'payment_delay', label: 'Payment delay' },
+  { value: 'claim_dispute', label: 'Claim dispute' },
   { value: 'other', label: 'Other' },
 ] as const
 

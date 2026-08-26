@@ -102,6 +102,26 @@ export function buildBrokerTermsDueDatePatch(
     }
   }
 
+  // Prefer shifting the existing due date by (next − previous) so the original clock holds.
+  const prev = previousDays == null ? 0 : Number(previousDays)
+  const existingDue = invoice.due_date?.trim()
+  if (
+    existingDue &&
+    Number.isFinite(prev) &&
+    prev > 0 &&
+    Number.isFinite(next)
+  ) {
+    const delta = Math.floor(next) - Math.floor(prev)
+    const shifted = addDaysToYmd(existingDue, delta)
+    if (shifted) {
+      return {
+        due_date: shifted,
+        expected_payment_date: shifted,
+        days_since_expected: daysPastExpected(shifted, asOf),
+      }
+    }
+  }
+
   const base =
     parseLocalYmd(invoice.invoice_date) ??
     parseLocalYmd(invoice.created_at) ??

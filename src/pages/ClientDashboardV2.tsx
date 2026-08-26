@@ -13,6 +13,7 @@ import KpiStatRow, {
   type KpiTrend,
 } from '../components/client/dashboard-v2/KpiStatRow'
 import SimpleActionsList from '../components/client/dashboard-v2/SimpleActionsList'
+import SimpleBrokerRiskPanel from '../components/client/dashboard-v2/SimpleBrokerRiskPanel'
 import ArTrendPanel from '../components/client/dashboard-v2/ArTrendPanel'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
@@ -452,6 +453,11 @@ export default function ClientDashboardV2() {
           <KpiStatRow stats={kpiStats} loading={loading} />
 
           <div className="client-dashboard-v2__body">
+            <SimpleBrokerRiskPanel
+              invoices={invoices}
+              payments={payments}
+              loading={loading}
+            />
             <SimpleActionsList invoices={invoices} payments={payments} loading={loading} />
             <ArTrendPanel
               invoices={invoices}

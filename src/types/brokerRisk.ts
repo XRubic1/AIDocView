@@ -38,6 +38,13 @@ export type BrokerRiskMetrics = {
   dispute_hint_count: number
   /** Broker Net terms used for this analysis. */
   payment_terms_days: number | null
+  /**
+   * Average confirmed days from invoice date → payment received.
+   * Compared to payment_terms_days for “actual vs Net” timing.
+   */
+  avg_days_invoice_to_pay?: number | null
+  /** Confirmed payments in the avg_days_invoice_to_pay sample. */
+  paid_sample_size?: number | null
   /** Confirmed payments received after terms due date. */
   late_payment_count: number
   /** Worst days past Net terms among paid invoices. */

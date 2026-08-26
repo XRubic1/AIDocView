@@ -262,6 +262,7 @@ export default function Settings() {
     lookback_days: '365',
     fallback_terms_days: '30',
     min_paid_sample_for_confidence: '2',
+    min_paid_sample_for_payment_timing: '10',
     cacheTtlDays: String(DEFAULT_BROKER_SNAPSHOT_TTL.cacheTtlDays),
     insuranceWatchTtlDays: String(DEFAULT_BROKER_SNAPSHOT_TTL.insuranceWatchTtlDays),
   })
@@ -322,6 +323,9 @@ export default function Settings() {
         lookback_days: String(policy.lookback_days),
         fallback_terms_days: String(policy.fallback_terms_days),
         min_paid_sample_for_confidence: String(policy.min_paid_sample_for_confidence),
+        min_paid_sample_for_payment_timing: String(
+          policy.min_paid_sample_for_payment_timing
+        ),
       }))
     })
     void loadCollectionsPolicy().then((policy) => {
@@ -415,6 +419,8 @@ export default function Settings() {
           fallback_terms_days: Number(brokerRiskSettings.fallback_terms_days) || 30,
           min_paid_sample_for_confidence:
             Number(brokerRiskSettings.min_paid_sample_for_confidence) || 2,
+          min_paid_sample_for_payment_timing:
+            Number(brokerRiskSettings.min_paid_sample_for_payment_timing) || 10,
         })
         const savedTtl = await saveBrokerSnapshotTtl({
           cacheTtlDays:

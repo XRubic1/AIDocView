@@ -4,6 +4,10 @@ import type { AssistantRiskLevel, AssistantConfidence } from './assistant'
 import {
   carrierVisibleRiskLevel,
 } from '../utils/computeBrokerRiskProfile'
+import {
+  buildBrokerPaymentTiming,
+  type BrokerPaymentTiming,
+} from '../utils/brokerPaymentTiming'
 
 export type BrokerPayRating = 'green' | 'yellow' | 'red'
 
@@ -29,6 +33,13 @@ export type ClientBrokerRiskView = {
   profile_id: string
   /** True when Credyx has not yet published elevated risk. */
   pending_review?: boolean
+  /** Credyx review note once published (carrier-visible). */
+  review_note?: string | null
+  /**
+   * Net terms vs actual average payment — only after Credyx publish
+   * (or auto-published low), so carriers see timing Credyx pushed out.
+   */
+  payment_timing?: BrokerPaymentTiming | null
 }
 
 /** Broker profile for the client portal directory. */
@@ -68,7 +79,22 @@ export function toClientBrokerRiskView(
   notesRecencyLabel: string
 ): ClientBrokerRiskView {
   const pending = profile.review_status === 'pending_review'
+  const published =
+    profile.review_status === 'published' || profile.review_status === 'auto_published'
   const level = carrierVisibleRiskLevel(profile) as AssistantRiskLevel
+  const reviewNote =
+    published && profile.review_note?.trim() ? profile.review_note.trim() : null
+
+  // Push Net vs actual average only after Credyx publishes (or auto low).
+  const paymentTiming =
+    published && !pending
+      ? buildBrokerPaymentTiming({
+          paymentTermsDays: profile.metrics.payment_terms_days,
+          avgDaysInvoiceToPay:
+            profile.metrics.avg_days_invoice_to_pay ?? profile.metrics.avg_days_to_pay,
+          paidSampleSize: profile.metrics.paid_sample_size ?? null,
+        })
+      : null
 
   return {
     risk_level: level,
@@ -84,6 +110,8 @@ export function toClientBrokerRiskView(
     model_version: profile.model_version,
     profile_id: profile.id,
     pending_review: pending,
+    review_note: reviewNote,
+    payment_timing: paymentTiming,
   }
 }
 

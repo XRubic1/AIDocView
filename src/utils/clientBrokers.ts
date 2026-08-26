@@ -279,7 +279,7 @@ export function buildClientBrokerDirectory(
       })
       const rating = getBrokerPayRating(score, {
         paymentTermsDays: termsDays,
-        hasWorked: true,
+        hasWorked,
       })
       const riskProfile = ensureBrokerRiskProfile({
         clientId,
@@ -291,6 +291,7 @@ export function buildClientBrokerDirectory(
         notes,
         adminNotes: catalog?.notes,
         invoices: brokerInvoices,
+        payments: brokerPayments,
         hasWorked: true,
         paymentTermsDays: termsDays,
         termsSignals,

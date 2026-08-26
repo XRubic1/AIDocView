@@ -80,9 +80,10 @@ export function runNetworkBrokerRiskAnalysis(force = true): {
       if (!hasWorked && notes.length === 0 && !broker.is_new) continue
 
       const brokerInvoices = invoices.filter((i) => i.broker_name === broker.name)
+      const brokerPayments = payments.filter((p) => p.broker_name === broker.name)
       const termsSignals = collectTermsPaymentSignals({
         invoices: brokerInvoices,
-        payments: payments.filter((p) => p.broker_name === broker.name),
+        payments: brokerPayments,
         paymentTermsDays: broker.payment_terms_days,
       })
 
@@ -98,6 +99,7 @@ export function runNetworkBrokerRiskAnalysis(force = true): {
         notes,
         adminNotes: broker.notes,
         invoices: brokerInvoices,
+        payments: brokerPayments,
         hasWorked,
         paymentTermsDays: broker.payment_terms_days,
         termsSignals,
@@ -119,9 +121,10 @@ export function runNetworkBrokerRiskAnalysis(force = true): {
       const hasWorked = score.open_invoices > 0 || score.invoiced_in_range > 0
       const notes = getBrokerNotes(client.id, id)
       const brokerInvoices = invoices.filter((i) => i.broker_name === score.broker_name)
+      const brokerPayments = payments.filter((p) => p.broker_name === score.broker_name)
       const termsSignals = collectTermsPaymentSignals({
         invoices: brokerInvoices,
-        payments: payments.filter((p) => p.broker_name === score.broker_name),
+        payments: brokerPayments,
         paymentTermsDays: score.payment_terms_days,
       })
       targets.push({
@@ -132,6 +135,7 @@ export function runNetworkBrokerRiskAnalysis(force = true): {
         rating: getBrokerPayRating(score, { hasWorked }),
         notes,
         invoices: brokerInvoices,
+        payments: brokerPayments,
         hasWorked,
         paymentTermsDays: score.payment_terms_days,
         termsSignals,

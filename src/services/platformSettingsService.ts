@@ -286,6 +286,12 @@ function normalizeBrokerRiskPolicy(
       1,
       20
     ),
+    min_paid_sample_for_payment_timing: clampRiskInt(
+      value?.min_paid_sample_for_payment_timing,
+      d.min_paid_sample_for_payment_timing,
+      1,
+      100
+    ),
     note_keyword_re: d.note_keyword_re,
   }
 }

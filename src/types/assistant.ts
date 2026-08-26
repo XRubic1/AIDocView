@@ -179,6 +179,7 @@ export type AssistantDisputeReason =
   | 'missing_documents'
   | 'broker_rejection'
   | 'payment_delay'
+  | 'claim_dispute'
   | 'other'
 
 /** AI-drafted invoice dispute — user reviews and confirms before it opens. */

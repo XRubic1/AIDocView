@@ -99,6 +99,8 @@ function normalizeProfile(raw: BrokerRiskProfile): BrokerRiskProfile {
       follow_up_hint_count: raw.metrics?.follow_up_hint_count ?? 0,
       dispute_hint_count: raw.metrics?.dispute_hint_count ?? 0,
       payment_terms_days: raw.metrics?.payment_terms_days ?? null,
+      avg_days_invoice_to_pay: raw.metrics?.avg_days_invoice_to_pay ?? null,
+      paid_sample_size: raw.metrics?.paid_sample_size ?? null,
       late_payment_count: raw.metrics?.late_payment_count ?? 0,
       max_days_past_terms: raw.metrics?.max_days_past_terms ?? null,
       open_overdue_past_terms: raw.metrics?.open_overdue_past_terms ?? 0,

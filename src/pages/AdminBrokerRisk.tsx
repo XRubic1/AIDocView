@@ -21,6 +21,7 @@ import { getAdminUserDisplayName } from '../config/adminNav'
 import { mockBrokers } from '../data/mockBrokers'
 import { findBrokerByName } from '../utils/brokerResolve'
 import { mockInvoices } from '../data/mockInvoices'
+import { mockPayments } from '../data/mockPayments'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import {
   clearBrokerRisk,
@@ -48,6 +49,13 @@ import {
   type BrokerDelayCause,
 } from '../utils/brokerRiskPolicy'
 import { isOpenArInvoice } from '../utils/invoiceAging'
+import {
+  collectBrokerDisputes,
+} from '../utils/brokerRiskDisputes'
+import {
+  buildBrokerPaymentTiming,
+  formatPaymentTimingPublishNote,
+} from '../utils/brokerPaymentTiming'
 import '../styles/adminBrokerRisk.css'
 
 /** Needs review first (urgent), then published / auto / cleared. */
@@ -197,13 +205,105 @@ export default function AdminBrokerRisk() {
       .sort((a, b) => Date.parse(b.invoice_date) - Date.parse(a.invoice_date))
   }, [selected, broker?.name, tick])
 
+  const brokerPayments = useMemo(() => {
+    if (!selected || brokerInvoices.length === 0) return []
+    void tick
+    const ids = new Set(brokerInvoices.map((i) => i.id))
+    return mockPayments.filter((p) => ids.has(p.invoice_id))
+  }, [selected, brokerInvoices, tick])
+
+  const brokerDisputes = useMemo(
+    () => collectBrokerDisputes(brokerInvoices, brokerPayments),
+    [brokerInvoices, brokerPayments]
+  )
+
+  const openBrokerDisputes = useMemo(
+    () => brokerDisputes.filter((d) => d.isOpen),
+    [brokerDisputes]
+  )
+
+  /** Net terms vs actual average payment — primary timing insight for review. */
+  const paymentTiming = useMemo(() => {
+    if (!selected) return null
+    void tick
+    // Prefer live confirmed payments for the selected broker when available.
+    const liveAvg =
+      brokerPayments.length > 0
+        ? (() => {
+            const invoiceById = new Map(brokerInvoices.map((i) => [i.id, i]))
+            const days: number[] = []
+            for (const p of brokerPayments) {
+              if (p.status !== 'confirmed') continue
+              const inv = invoiceById.get(p.invoice_id)
+              if (!inv) continue
+              const from = (inv.invoice_date || '').slice(0, 10)
+              const to = (p.received_date || '').slice(0, 10)
+              if (!from || !to) continue
+              days.push(daysBetweenDates(from, to))
+            }
+            if (days.length === 0) return null
+            return {
+              avg: Math.round(days.reduce((a, b) => a + b, 0) / days.length),
+              sample: days.length,
+            }
+          })()
+        : null
+
+    return buildBrokerPaymentTiming({
+      paymentTermsDays:
+        selected.metrics.payment_terms_days ?? broker?.payment_terms_days ?? null,
+      avgDaysInvoiceToPay:
+        liveAvg?.avg ??
+        selected.metrics.avg_days_invoice_to_pay ??
+        selected.metrics.avg_days_to_pay,
+      paidSampleSize:
+        liveAvg?.sample ?? selected.metrics.paid_sample_size ?? null,
+      fallbackTermsDays: BROKER_RISK_POLICY.fallback_terms_days,
+    })
+  }, [
+    selected,
+    broker?.payment_terms_days,
+    brokerInvoices,
+    brokerPayments,
+    tick,
+  ])
+
+  /** Carrier-visible published level — used to disable redundant Rate / Set High. */
+  const publishedRiskLevel = selected?.risk_level
+  const alreadyHigh =
+    publishedRiskLevel === 'high' &&
+    (selected?.review_status === 'published' ||
+      selected?.review_status === 'pending_review')
+  const alreadyMedium =
+    publishedRiskLevel === 'medium' &&
+    (selected?.review_status === 'published' ||
+      selected?.review_status === 'pending_review')
+
   const liveCauses = useMemo(() => {
     if (!selected) return null
     void tick
     const carrierNotes = getBrokerNotes(selected.client_id, selected.broker_id)
     const invoiceNotes = extractInvoiceNotesForRisk(brokerInvoices)
-    return classifyDelayCauses(carrierNotes, broker?.notes, invoiceNotes)
-  }, [selected, broker?.notes, brokerInvoices, tick])
+    // Fold structured disputes into problem notes (same list — no separate section).
+    // Skip invoices that already have a dispute note so we don't double up.
+    const coveredInvoices = new Set(
+      invoiceNotes
+        .filter((n) => /dispute/i.test(n.text))
+        .map((n) => n.invoice_number)
+        .filter(Boolean)
+    )
+    const disputeAsNotes = openBrokerDisputes
+      .filter((d) => !coveredInvoices.has(d.invoiceNumber))
+      .map((d) => ({
+        text: `Dispute opened: ${d.reasonLabel} — ${d.description || d.reasonLabel}`,
+        invoice_number: d.invoiceNumber,
+        source: 'invoice' as const,
+      }))
+    return classifyDelayCauses(carrierNotes, broker?.notes, [
+      ...invoiceNotes,
+      ...disputeAsNotes,
+    ])
+  }, [selected, broker?.notes, brokerInvoices, openBrokerDisputes, tick])
 
   const verdict = useMemo(() => {
     if (!selected || !liveCauses) return null
@@ -320,13 +420,27 @@ export default function AdminBrokerRisk() {
 
   const handlePublish = async (level: BrokerRiskLevel, note?: string) => {
     if (!selected) return
-    const finalNote = (note ?? reviewNote).trim()
+    // Always push Net vs actual timing into the carrier-visible review note when missing.
+    const timingLine = paymentTiming
+      ? formatPaymentTimingPublishNote(paymentTiming)
+      : null
+    const typed = (note ?? reviewNote).trim()
+    const finalNote =
+      typed ||
+      (timingLine
+        ? timingLine
+        : undefined)
+    // If admin typed a custom note without timing, append timing so carriers still see it.
+    const withTiming =
+      finalNote && timingLine && !finalNote.includes('Average payment moved to')
+        ? `${finalNote} ${timingLine}`
+        : finalNote
     try {
       const updated = await publishBrokerRisk({
         clientId: selected.client_id,
         brokerId: selected.broker_id,
         riskLevel: level,
-        reviewNote: finalNote || undefined,
+        reviewNote: withTiming || undefined,
         reviewedBy: reviewer,
       })
       if (!updated) {
@@ -368,11 +482,18 @@ export default function AdminBrokerRisk() {
   }
 
   const applyPreset = (preset: (typeof RATE_PRESETS)[number]) => {
-    setReviewNote(preset.note)
+    const timingLine = paymentTiming
+      ? formatPaymentTimingPublishNote(paymentTiming)
+      : null
+    const note =
+      timingLine && preset.kind === 'publish'
+        ? `${preset.note} ${timingLine}`
+        : preset.note
+    setReviewNote(note)
     if (preset.kind === 'publish' && preset.level) {
-      void handlePublish(preset.level, preset.note)
+      void handlePublish(preset.level, note)
     } else {
-      void handleClear(preset.note)
+      void handleClear(note)
     }
   }
 
@@ -485,11 +606,22 @@ export default function AdminBrokerRisk() {
                         </div>
                         <div className="admin-broker-risk__row-meta" style={{ color: c.secondary }}>
                           {cl?.name ?? row.client_id}
-                          {row.metrics.payment_terms_days != null
-                            ? ` · Net ${row.metrics.payment_terms_days}`
-                            : ''}
+                          {(() => {
+                            const timing = buildBrokerPaymentTiming({
+                              paymentTermsDays: row.metrics.payment_terms_days,
+                              avgDaysInvoiceToPay:
+                                row.metrics.avg_days_invoice_to_pay ??
+                                row.metrics.avg_days_to_pay,
+                              paidSampleSize: row.metrics.paid_sample_size ?? null,
+                              fallbackTermsDays: BROKER_RISK_POLICY.fallback_terms_days,
+                            })
+                            if (timing) return ` · ${timing.shortLabel}`
+                            return row.metrics.payment_terms_days != null
+                              ? ` · Net ${row.metrics.payment_terms_days}`
+                              : ''
+                          })()}
                           {row.metrics.max_days_past_terms != null
-                            ? ` · ${row.metrics.max_days_past_terms}d late`
+                            ? ` · worst ${row.metrics.max_days_past_terms}d past`
                             : ''}
                         </div>
                       </button>
@@ -567,6 +699,64 @@ export default function AdminBrokerRisk() {
                   </div>
                 )}
 
+                {paymentTiming ? (
+                  <div
+                    className={`admin-broker-risk__timing admin-broker-risk__timing--${paymentTiming.severity}`}
+                    role="status"
+                  >
+                    <p className="admin-broker-risk__timing-title">{paymentTiming.headline}</p>
+                    <p className="admin-broker-risk__timing-summary">{paymentTiming.summary}</p>
+                    <div className="admin-broker-risk__timing-metrics">
+                      <div>
+                        <span>Net terms</span>
+                        <strong>{paymentTiming.termsDays}d</strong>
+                      </div>
+                      <div>
+                        <span>Avg actual pay</span>
+                        <strong>{paymentTiming.avgPayDays}d</strong>
+                      </div>
+                      <div>
+                        <span>
+                          {paymentTiming.daysLate > 0
+                            ? 'Days late'
+                            : paymentTiming.daysLate < 0
+                              ? 'Days early'
+                              : 'Vs Net'}
+                        </span>
+                        <strong>
+                          {paymentTiming.daysLate === 0
+                            ? 'On time'
+                            : `${Math.abs(paymentTiming.daysLate)}d`}
+                        </strong>
+                      </div>
+                      {paymentTiming.paidSampleSize > 0 ? (
+                        <div>
+                          <span>Paid sample</span>
+                          <strong>{paymentTiming.paidSampleSize}</strong>
+                        </div>
+                      ) : null}
+                    </div>
+                    <p className="admin-broker-risk__timing-hint">
+                      Publishing Medium/High pushes this timing to the carrier portal.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="admin-broker-risk__timing admin-broker-risk__timing--empty">
+                    <p className="admin-broker-risk__timing-title">Actual payment timing</p>
+                    <p className="admin-broker-risk__timing-summary">
+                      Need at least {BROKER_RISK_POLICY.min_paid_sample_for_payment_timing}{' '}
+                      confirmed payments to average vs Net{' '}
+                      {selected.metrics.payment_terms_days ??
+                        broker?.payment_terms_days ??
+                        BROKER_RISK_POLICY.fallback_terms_days}
+                      d terms
+                      {selected.metrics.paid_sample_size != null
+                        ? ` (have ${selected.metrics.paid_sample_size}).`
+                        : '.'}
+                    </p>
+                  </div>
+                )}
+
                 <div className="admin-broker-risk__facts">
                   <div>
                     <span>Carrier sees</span>
@@ -589,8 +779,14 @@ export default function AdminBrokerRisk() {
                     </strong>
                   </div>
                   <div>
-                    <span>Confidence</span>
-                    <strong className="capitalize">{selected.confidence}</strong>
+                    <span>Disputes</span>
+                    <strong>
+                      {openBrokerDisputes.length > 0
+                        ? `${openBrokerDisputes.length} open`
+                        : brokerDisputes.length > 0
+                          ? `${brokerDisputes.length} closed`
+                          : 'None'}
+                    </strong>
                   </div>
                 </div>
 
@@ -603,10 +799,16 @@ export default function AdminBrokerRisk() {
                           {delayCauseLabel(liveCauses.primary)}
                         </span>
                       ) : null}
+                      {openBrokerDisputes.length > 0 ? (
+                        <span className="admin-broker-risk__cause admin-broker-risk__cause--dispute">
+                          {openBrokerDisputes.length} open dispute
+                          {openBrokerDisputes.length === 1 ? '' : 's'}
+                        </span>
+                      ) : null}
                     </p>
                     {liveCauses && liveCauses.snippets.length > 0 ? (
                       <ul className="admin-broker-risk__snippet-list">
-                        {liveCauses.snippets.slice(0, 6).map((s, i) => (
+                        {liveCauses.snippets.slice(0, 8).map((s, i) => (
                           <li key={`${s.cause}-${i}`}>
                             <span
                               className={`admin-broker-risk__snip-tag admin-broker-risk__snip-tag--${s.cause}`}
@@ -779,39 +981,54 @@ export default function AdminBrokerRisk() {
                   {selected.review_status === 'pending_review' && (
                     <>
                       <div className="admin-broker-risk__presets">
-                        {RATE_PRESETS.map((preset) => (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            className={`admin-broker-risk__preset admin-broker-risk__preset--${preset.kind}${
-                              preset.id === 'clear-ppw' &&
-                              (selected.metrics.suggest_clear_as_ppw ||
-                                verdict?.code === 'docs_issue')
-                                ? ' is-suggested'
-                                : ''
-                            }${
-                              preset.id === 'pub-med' &&
-                              verdict?.code === 'broker_issue' &&
-                              selected.computed_risk_level === 'medium'
-                                ? ' is-suggested'
-                                : ''
-                            }${
-                              preset.id === 'pub-high' &&
-                              verdict?.code === 'broker_issue' &&
-                              selected.computed_risk_level === 'high'
-                                ? ' is-suggested'
-                                : ''
-                            }`}
-                            onClick={() => applyPreset(preset)}
-                          >
-                            {preset.kind === 'publish' ? (
-                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                            ) : (
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                            )}
-                            {preset.label}
-                          </button>
-                        ))}
+                        {RATE_PRESETS.map((preset) => {
+                          const levelAlreadySet =
+                            preset.kind === 'publish' &&
+                            ((preset.level === 'high' && alreadyHigh) ||
+                              (preset.level === 'medium' &&
+                                (alreadyMedium || alreadyHigh)))
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              disabled={busy || levelAlreadySet}
+                              title={
+                                levelAlreadySet
+                                  ? `Already ${levelLabel(preset.level ?? 'medium')} — no need to set again`
+                                  : undefined
+                              }
+                              className={`admin-broker-risk__preset admin-broker-risk__preset--${preset.kind}${
+                                preset.id === 'clear-ppw' &&
+                                (selected.metrics.suggest_clear_as_ppw ||
+                                  verdict?.code === 'docs_issue')
+                                  ? ' is-suggested'
+                                  : ''
+                              }${
+                                preset.id === 'pub-med' &&
+                                verdict?.code === 'broker_issue' &&
+                                selected.computed_risk_level === 'medium' &&
+                                !levelAlreadySet
+                                  ? ' is-suggested'
+                                  : ''
+                              }${
+                                preset.id === 'pub-high' &&
+                                verdict?.code === 'broker_issue' &&
+                                selected.computed_risk_level === 'high' &&
+                                !levelAlreadySet
+                                  ? ' is-suggested'
+                                  : ''
+                              }`}
+                              onClick={() => applyPreset(preset)}
+                            >
+                              {preset.kind === 'publish' ? (
+                                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                              ) : (
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              )}
+                              {preset.label}
+                            </button>
+                          )
+                        })}
                       </div>
                       <div className="admin-broker-risk__custom-row">
                         <input
@@ -870,6 +1087,7 @@ export default function AdminBrokerRisk() {
                         <button
                           type="button"
                           className="admin-broker-risk__btn admin-broker-risk__btn--clear"
+                          disabled={busy}
                           onClick={() =>
                             void handleClear(
                               reviewNote.trim() ||
@@ -883,6 +1101,12 @@ export default function AdminBrokerRisk() {
                         <button
                           type="button"
                           className="admin-broker-risk__btn admin-broker-risk__btn--publish"
+                          disabled={busy || alreadyHigh}
+                          title={
+                            alreadyHigh
+                              ? 'Already published High — use Remove risk first if you need to change'
+                              : 'Upgrade carrier-visible risk to High'
+                          }
                           onClick={() => void handlePublish('high', reviewNote || undefined)}
                         >
                           Set High

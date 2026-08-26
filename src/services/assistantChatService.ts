@@ -486,9 +486,10 @@ function buildSystemPrompt(mode: AssistantChatMode): string {
 - Do NOT claim the note was posted — the user must confirm Post on the card.`
   const disputeRules = `When the user asks to open/file a dispute (or contest / challenge an invoice or payment):
 - Respond with kind "dispute_draft" and a disputeDraft object: {invoiceId, invoiceNumber, reason, description}.
-- reason must be one of: "amount_discrepancy" | "missing_documents" | "broker_rejection" | "payment_delay" | "other".
+- reason must be one of: "amount_discrepancy" | "missing_documents" | "broker_rejection" | "payment_delay" | "claim_dispute" | "other".
 - If invoiceDetails shows carrierUploadedAfterNotice / lastUploadText (carrier already uploaded after a missing-docs notice): use reason "other" (NOT "missing_documents"). Description must be carrier-facing first person: state the hold reason, that THEY already uploaded (cite lastUploadText + date), and ask Credyx to review the upload and clear the hold. Never say "the carrier uploaded" — say "I already uploaded".
 - If docs are still missing with no upload after the notice: reason "missing_documents" and ask Credyx what is still needed.
+- If the issue is a cargo/freight claim, claim hold, claim short-pay, or claim against the load: use reason "claim_dispute".
 - description: 1–3 plain-text sentences from context. The user can edit it on the card.
 - ANY invoice can be disputed — including paid ones. NEVER refuse; hand over the draft card.
 - Resolve "this invoice" from conversation context. Do NOT claim the dispute was opened — the user confirms on the card.`
@@ -1084,6 +1085,7 @@ const DISPUTE_REASON_KEYS: AssistantDisputeReason[] = [
   'missing_documents',
   'broker_rejection',
   'payment_delay',
+  'claim_dispute',
   'other',
 ]
 

@@ -46,6 +46,10 @@ export const DEFAULT_BROKER_RISK_POLICY = {
    */
   min_paid_sample_for_confidence: 2,
   /**
+   * Need at least this many confirmed pays before Net vs avg payment timing is shown.
+   */
+  min_paid_sample_for_payment_timing: 10,
+  /**
    * Problem-signal keywords only (not bare PPW/BOL/POD — those appear on happy-path notes).
    */
   note_keyword_re:

@@ -28,7 +28,7 @@ import {
   lookupBrokerByMc,
   normalizeMcQuery,
 } from '../utils/clientBrokers'
-import { normalizeBrokerNameKey } from '../utils/brokerRiskPolicy'
+import { BROKER_RISK_POLICY, normalizeBrokerNameKey } from '../utils/brokerRiskPolicy'
 import McLookupModal from '../components/client/McLookupModal'
 import {
   getInitialListPageSize,
@@ -563,11 +563,28 @@ export default function ClientBrokers() {
                           className="text-right tabular-nums"
                           style={{ color: c.secondary }}
                         >
-                          {broker.score?.avg_days_invoice_to_pay != null
-                            ? `${broker.score.avg_days_invoice_to_pay}d`
-                            : broker.score?.avg_days_to_pay != null
-                              ? `${broker.score.avg_days_to_pay}d`
-                              : '—'}
+                          {broker.risk?.payment_timing ? (
+                            <span title={broker.risk.payment_timing.summary}>
+                              {broker.risk.payment_timing.avgPayDays}d
+                              <span className="block text-[0.65rem]" style={{ color: c.mutedLight }}>
+                                {broker.risk.payment_timing.daysLate > 0
+                                  ? `~${broker.risk.payment_timing.daysLate}d late`
+                                  : broker.risk.payment_timing.daysLate < 0
+                                    ? `~${Math.abs(broker.risk.payment_timing.daysLate)}d early`
+                                    : 'on time'}
+                              </span>
+                            </span>
+                          ) : broker.paid_sample_size >=
+                              BROKER_RISK_POLICY.min_paid_sample_for_payment_timing &&
+                            broker.score?.avg_days_invoice_to_pay != null ? (
+                            `${broker.score.avg_days_invoice_to_pay}d`
+                          ) : broker.paid_sample_size >=
+                              BROKER_RISK_POLICY.min_paid_sample_for_payment_timing &&
+                            broker.score?.avg_days_to_pay != null ? (
+                            `${broker.score.avg_days_to_pay}d`
+                          ) : (
+                            '—'
+                          )}
                         </ClientListTd>
                         <ClientListTd
                           variant="amount"

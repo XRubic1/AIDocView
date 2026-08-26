@@ -9,6 +9,7 @@ import type { ClientBrokerNote, BrokerPayRating } from '../types/clientBroker'
 import type { BrokerScoreRow } from '../utils/clientReports'
 import type { BrokerTermsPaymentSignals } from '../utils/brokerRiskPolicy'
 import type { Invoice } from '../types/invoice'
+import type { Payment } from '../types/payment'
 
 export type BrokerRiskJobTarget = {
   brokerId: string
@@ -19,6 +20,7 @@ export type BrokerRiskJobTarget = {
   notes: ClientBrokerNote[]
   adminNotes?: string | null
   invoices?: Invoice[]
+  payments?: Payment[]
   hasWorked: boolean
   paymentTermsDays?: number | null
   termsSignals?: BrokerTermsPaymentSignals | null
@@ -78,6 +80,7 @@ export function runBrokerRiskWeekly(args: {
         notes: target.notes,
         adminNotes: target.adminNotes,
         invoices: target.invoices,
+        payments: target.payments,
         hasWorked: target.hasWorked,
         paymentTermsDays: target.paymentTermsDays,
         termsSignals: target.termsSignals,

@@ -171,7 +171,8 @@
 
 .client-dashboard-v2__body {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
+  /* Broker Risk | Needs action (narrower, right of risk) | A/R trend */
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.75fr) minmax(0, 1.35fr);
   gap: var(--cdv2-gap);
   align-items: stretch;
   flex: 1 1 0;
@@ -686,7 +687,221 @@
   background: color-mix(in srgb, var(--cdv2-success) 12%, var(--cdv2-mix-base));
 }
 
-/* ——— Actions ——— */
+/* ——— Broker Risk (left of Needs your action) ——— */
+
+.cdv2-broker-risk {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  border-radius: var(--cdv2-radius);
+  border: 1px solid var(--cdv2-border);
+  background: var(--cdv2-card);
+  box-shadow: var(--cdv2-shadow);
+  overflow: hidden;
+  min-width: 0;
+  width: 100%;
+}
+
+.cdv2-broker-risk.is-loading {
+  opacity: 0.7;
+}
+
+.cdv2-broker-risk__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: var(--cdv2-pad-y) var(--cdv2-pad-x) 0.5rem;
+  border-bottom: 1px solid var(--cdv2-border);
+}
+
+.cdv2-broker-risk__title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.cdv2-broker-risk__title {
+  margin: 0;
+  font-size: calc(0.9375rem * var(--cdv2-s));
+  font-weight: 650;
+  color: var(--cdv2-text);
+}
+
+.cdv2-broker-risk__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  font-size: calc(0.6875rem * var(--cdv2-s-sm));
+  font-weight: 650;
+  background: color-mix(in srgb, var(--cdv2-warning) 16%, var(--cdv2-mix-base));
+  color: color-mix(in srgb, var(--cdv2-warning) 75%, #78350f);
+}
+
+.cdv2-broker-risk__link {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 0.15rem 0.25rem;
+  font-size: calc(0.75rem * var(--cdv2-s-sm));
+  font-weight: 550;
+  color: var(--cdv2-blue);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.cdv2-broker-risk__link:hover {
+  text-decoration: underline;
+}
+
+.cdv2-broker-risk__link:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cdv2-blue) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.cdv2-broker-risk__empty-block {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.85rem 1rem;
+  color: var(--cdv2-faint);
+  text-align: center;
+}
+
+.cdv2-broker-risk__empty {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  font-size: calc(0.8125rem * var(--cdv2-s-sm));
+  line-height: 1.4;
+  color: var(--cdv2-muted);
+}
+
+.cdv2-broker-risk__empty-block .cdv2-broker-risk__empty {
+  padding: 0;
+  max-width: 16rem;
+}
+
+.cdv2-broker-risk__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 0.4rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.cdv2-broker-risk__row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+  color: inherit;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.cdv2-broker-risk__row:hover {
+  background: color-mix(in srgb, var(--cdv2-blue) 5%, var(--cdv2-mix-base));
+  border-color: color-mix(in srgb, var(--cdv2-border) 70%, transparent);
+}
+
+.cdv2-broker-risk__row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cdv2-blue) 55%, transparent);
+  outline-offset: 0;
+}
+
+.cdv2-broker-risk__row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.cdv2-broker-risk__name {
+  font-size: calc(0.8125rem * var(--cdv2-s));
+  font-weight: 600;
+  color: var(--cdv2-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.cdv2-broker-risk__flag {
+  flex-shrink: 0;
+  font-size: calc(0.625rem * var(--cdv2-s-sm));
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.12rem 0.35rem;
+  border-radius: 999px;
+}
+
+.cdv2-broker-risk__flag--high {
+  background: var(--cdv2-pill-danger-bg);
+  color: var(--cdv2-danger);
+}
+
+.cdv2-broker-risk__flag--medium {
+  background: var(--cdv2-pill-warn-bg);
+  color: color-mix(in srgb, var(--cdv2-warning) 80%, #92400e);
+}
+
+.cdv2-broker-risk__flag--note {
+  background: var(--cdv2-pill-info-bg);
+  color: var(--cdv2-blue);
+}
+
+.cdv2-broker-risk__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  font-size: calc(0.75rem * var(--cdv2-s-sm));
+  line-height: 1.35;
+  color: var(--cdv2-muted);
+  min-width: 0;
+}
+
+.cdv2-broker-risk__note svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: var(--cdv2-warning);
+}
+
+.cdv2-broker-risk__note span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cdv2-broker-risk__note--muted {
+  color: var(--cdv2-faint);
+  font-style: italic;
+}
+
+/* ——— Actions (narrower column to the right of Broker Risk) ——— */
 
 .cdv2-actions {
   display: flex;
@@ -1161,10 +1376,25 @@
  * Prefer keeping the 2-column body so height still fits the viewport.
  * Only stack when the dashboard is genuinely narrow; stacked panes share height.
  */
+@container cdv2 (max-width: 1100px) {
+  .client-dashboard-v2__body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1.15fr);
+  }
+
+  .client-dashboard-v2__body > .cdv2-trend {
+    grid-column: 1 / -1;
+  }
+}
+
 @container cdv2 (max-width: 860px) {
   .client-dashboard-v2__body {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 0.95fr) minmax(0, 1.15fr);
+    grid-template-rows: minmax(0, 0.85fr) minmax(0, 0.95fr) minmax(0, 1.15fr);
+  }
+
+  .client-dashboard-v2__body > .cdv2-trend {
+    grid-column: auto;
   }
 
   .cdv2-aging__legend {
@@ -1262,10 +1492,25 @@
 
 /* Viewport fallbacks when container size queries aren't available */
 @supports not (container-type: size) {
+  @media (max-width: 1100px) {
+    .client-dashboard-v2__body {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+      grid-template-rows: minmax(0, 1fr) minmax(0, 1.15fr);
+    }
+
+    .client-dashboard-v2__body > .cdv2-trend {
+      grid-column: 1 / -1;
+    }
+  }
+
   @media (max-width: 960px) {
     .client-dashboard-v2__body {
       grid-template-columns: 1fr;
-      grid-template-rows: minmax(0, 0.95fr) minmax(0, 1.15fr);
+      grid-template-rows: minmax(0, 0.85fr) minmax(0, 0.95fr) minmax(0, 1.15fr);
+    }
+
+    .client-dashboard-v2__body > .cdv2-trend {
+      grid-column: auto;
     }
   }
 
@@ -1322,6 +1567,7 @@
 
 .client-portal[data-theme='dark'] .cdv2-priority,
 .client-portal[data-theme='dark'] .cdv2-kpi,
+.client-portal[data-theme='dark'] .cdv2-broker-risk,
 .client-portal[data-theme='dark'] .cdv2-actions,
 .client-portal[data-theme='dark'] .cdv2-trend {
   background: rgba(17, 24, 39, 0.88);
@@ -1389,6 +1635,7 @@
   background: color-mix(in srgb, var(--cdv2-danger) 10%, #111827);
 }
 
+.client-portal[data-theme='dark'] .cdv2-broker-risk__head,
 .client-portal[data-theme='dark'] .cdv2-actions__head,
 .client-portal[data-theme='dark'] .cdv2-aging {
   border-color: rgba(255, 255, 255, 0.08);
@@ -1421,6 +1668,7 @@
   color: #e2e8f0;
 }
 
+.client-portal[data-theme='dark'] .cdv2-broker-risk__row:hover,
 .client-portal[data-theme='dark'] .cdv2-actions__row:hover {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(255, 255, 255, 0.08);

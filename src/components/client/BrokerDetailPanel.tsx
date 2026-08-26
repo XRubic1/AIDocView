@@ -13,6 +13,7 @@ import {
 import type { ClientBrokerProfile } from '../../types/clientBroker'
 import { deleteBrokerNote, saveBrokerNote } from '../../utils/clientBrokers'
 import { formatCurrency } from '../../utils/format'
+import { BROKER_RISK_POLICY } from '../../utils/brokerRiskPolicy'
 import BrokerPayRatingBadge from './BrokerPayRatingBadge'
 import { useClientTheme } from '../../theme/ThemeContext'
 
@@ -54,18 +55,29 @@ function carrierRiskStatus(broker: ClientBrokerProfile): {
     }
   }
 
+  const timing = broker.risk?.payment_timing
+  const timingDetail = timing
+    ? `${timing.headline}. ${timing.summary}`
+    : null
+
   if (level === 'high') {
     return {
       tone: 'urgent',
       title: 'High risk',
-      detail: broker.risk?.recommendation?.trim() || 'Use caution on new loads.',
+      detail:
+        timingDetail ||
+        broker.risk?.recommendation?.trim() ||
+        'Use caution on new loads.',
     }
   }
 
   return {
     tone: 'flagged',
     title: 'Medium risk',
-    detail: broker.risk?.recommendation?.trim() || 'Watch payment timing.',
+    detail:
+      timingDetail ||
+      broker.risk?.recommendation?.trim() ||
+      'Watch payment timing.',
   }
 }
 
@@ -305,12 +317,40 @@ export default function BrokerDetailPanel({
                 Avg days to pay
               </p>
               <p className="broker-detail-stat__value tabular-nums" style={{ color: c.primary }}>
-                {broker.score?.avg_days_invoice_to_pay != null
-                  ? `${broker.score.avg_days_invoice_to_pay}d`
-                  : broker.score?.avg_days_to_pay != null
-                    ? `${broker.score.avg_days_to_pay}d`
-                    : '—'}
+                {broker.risk?.payment_timing
+                  ? `${broker.risk.payment_timing.avgPayDays}d`
+                  : broker.paid_sample_size >=
+                        BROKER_RISK_POLICY.min_paid_sample_for_payment_timing &&
+                      broker.score?.avg_days_invoice_to_pay != null
+                    ? `${broker.score.avg_days_invoice_to_pay}d`
+                    : broker.paid_sample_size >=
+                          BROKER_RISK_POLICY.min_paid_sample_for_payment_timing &&
+                        broker.score?.avg_days_to_pay != null
+                      ? `${broker.score.avg_days_to_pay}d`
+                      : '—'}
               </p>
+              {broker.risk?.payment_timing ? (
+                <p className="text-[0.65rem] mt-0.5" style={{ color: c.secondary }}>
+                  vs Net {broker.risk.payment_timing.termsDays}d
+                  {broker.risk.payment_timing.daysLate > 0
+                    ? ` · ~${broker.risk.payment_timing.daysLate}d late`
+                    : broker.risk.payment_timing.daysLate < 0
+                      ? ` · ~${Math.abs(broker.risk.payment_timing.daysLate)}d early`
+                      : ' · on time'}
+                </p>
+              ) : broker.paid_sample_size <
+                BROKER_RISK_POLICY.min_paid_sample_for_payment_timing ? (
+                <p className="text-[0.65rem] mt-0.5" style={{ color: c.secondary }}>
+                  Need {BROKER_RISK_POLICY.min_paid_sample_for_payment_timing}+ confirmed pays
+                  {broker.paid_sample_size > 0
+                    ? ` (${broker.paid_sample_size} so far)`
+                    : ''}
+                </p>
+              ) : broker.payment_terms_days != null && broker.payment_terms_days > 0 ? (
+                <p className="text-[0.65rem] mt-0.5" style={{ color: c.secondary }}>
+                  Net {broker.payment_terms_days}d terms
+                </p>
+              ) : null}
             </div>
             <div className="broker-detail-stat" style={{ backgroundColor: c.stat.slate }}>
               <p className="broker-detail-stat__label" style={{ color: c.secondary }}>

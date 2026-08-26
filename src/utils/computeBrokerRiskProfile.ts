@@ -20,6 +20,15 @@ import {
   type BrokerTermsPaymentSignals,
 } from './brokerRiskPolicy'
 import type { Invoice } from '../types/invoice'
+import type { Payment } from '../types/payment'
+import {
+  brokerDisputeEvidenceLines,
+  collectBrokerDisputes,
+} from './brokerRiskDisputes'
+import {
+  buildBrokerPaymentTiming,
+  paymentTimingEvidenceBullet,
+} from './brokerPaymentTiming'
 
 export type ComputeBrokerRiskInput = {
   clientId: string
@@ -32,6 +41,8 @@ export type ComputeBrokerRiskInput = {
   adminNotes?: string | null
   /** Invoices for this broker (status notes / notes_history feed delay cause). */
   invoices?: Invoice[]
+  /** Payments for those invoices — receipt disputes feed structured dispute checks. */
+  payments?: Payment[]
   hasWorked: boolean
   paymentTermsDays?: number | null
   /** Precomputed terms signals (preferred). */
@@ -110,13 +121,18 @@ function newId(prefix: string): string {
 function buildBullets(
   evaluation: ReturnType<typeof evaluateRiskFromSignals>,
   score: BrokerScoreRow | null,
-  notes: ClientBrokerNote[]
+  notes: ClientBrokerNote[],
+  disputeLines: string[] = [],
+  timingBullet: string | null = null
 ): string[] {
   const { signals, reasons, note_flag_count, delay_causes } = evaluation
   const bullets: string[] = []
   const net = signals.payment_terms_days
 
-  if (evaluation.computed_level === 'low' && signals.paid_sample_size > 0) {
+  // Net vs actual average — lead with what carriers need to see when published.
+  if (timingBullet) bullets.push(timingBullet)
+
+  if (evaluation.computed_level === 'low' && signals.paid_sample_size > 0 && !timingBullet) {
     bullets.push(`Pays within Net ${net} — on time`)
   }
   if (signals.late_payment_count > 0) {
@@ -131,6 +147,11 @@ function buildBullets(
     bullets.push(
       `${signals.open_overdue_past_terms} open invoice${signals.open_overdue_past_terms === 1 ? '' : 's'} past Net ${net} (${formatUsd(signals.open_overdue_amount)})`
     )
+  }
+  // Structured invoice / payment disputes (reason kinds) before note keywords.
+  for (const line of disputeLines) {
+    if (bullets.length >= 5) break
+    bullets.push(line)
   }
   if (delay_causes && delay_causes.primary !== 'none') {
     bullets.push(`Likely cause: ${delayCauseLabel(delay_causes.primary)} — ${delay_causes.summary}`)
@@ -268,7 +289,22 @@ export function computeBrokerRiskProfile(input: ComputeBrokerRiskInput): Compute
     } satisfies BrokerTermsPaymentSignals)
 
   const noteTexts = [...input.notes]
-  const invoiceNoteTexts = extractInvoiceNotesForRisk(input.invoices ?? [])
+  const brokerInvoices = input.invoices ?? []
+  const brokerPayments = input.payments ?? []
+  // Structured disputes (invoice + payment receipt) — reason kinds for risk review.
+  const structuredDisputes = collectBrokerDisputes(brokerInvoices, brokerPayments)
+  const openStructured = structuredDisputes.filter((d) => d.isOpen)
+  const disputeLines = brokerDisputeEvidenceLines(structuredDisputes)
+
+  const invoiceNoteTexts = [
+    ...extractInvoiceNotesForRisk(brokerInvoices),
+    // Feed open disputes into note classification so primary cause can be "dispute".
+    ...openStructured.map((d) => ({
+      text: `Dispute opened: ${d.reasonLabel} — ${d.description || d.reasonLabel}`,
+      invoice_number: d.invoiceNumber,
+      source: 'invoice' as const,
+    })),
+  ]
   const delayCauses = classifyDelayCauses(noteTexts, input.adminNotes, invoiceNoteTexts)
   const noteFlagCount =
     noteTexts.filter(
@@ -300,7 +336,22 @@ export function computeBrokerRiskProfile(input: ComputeBrokerRiskInput): Compute
     review_status === 'pending_review' ? 'unrated' : computed
 
   const confidence = computeRiskConfidence(input.score, input.notes, input.hasWorked, now)
-  const bullets = buildBullets(evaluation, input.score, input.notes)
+  const paymentTiming = buildBrokerPaymentTiming({
+    paymentTermsDays: signals.payment_terms_days,
+    avgDaysInvoiceToPay: signals.avg_days_invoice_to_pay,
+    paidSampleSize: signals.paid_sample_size,
+    fallbackTermsDays: BROKER_RISK_POLICY.fallback_terms_days,
+  })
+  const timingBullet = paymentTiming
+    ? paymentTimingEvidenceBullet(paymentTiming)
+    : null
+  const bullets = buildBullets(
+    evaluation,
+    input.score,
+    input.notes,
+    disputeLines,
+    timingBullet
+  )
   const summary =
     input.summaryText?.trim() ||
     buildSummaryText(input.brokerName, evaluation, input.score, input.hasWorked)
@@ -317,7 +368,8 @@ export function computeBrokerRiskProfile(input: ComputeBrokerRiskInput): Compute
   )
 
   const metrics: BrokerRiskMetrics = {
-    avg_days_to_pay: input.score?.avg_days_to_pay ?? null,
+    avg_days_to_pay:
+      input.score?.avg_days_to_pay ?? signals.avg_days_invoice_to_pay ?? null,
     overdue_count: input.score?.overdue_count ?? 0,
     overdue_amount: input.score?.overdue_amount ?? 0,
     collection_rate: input.score ? input.score.collection_rate : null,
@@ -326,8 +378,10 @@ export function computeBrokerRiskProfile(input: ComputeBrokerRiskInput): Compute
       ? Math.max(input.score.invoiced_in_range, input.score.open_invoices)
       : 0,
     follow_up_hint_count: delayNotes.length,
-    dispute_hint_count: delayCauses.dispute_count,
+    dispute_hint_count: Math.max(delayCauses.dispute_count, openStructured.length),
     payment_terms_days: signals.payment_terms_days,
+    avg_days_invoice_to_pay: signals.avg_days_invoice_to_pay,
+    paid_sample_size: signals.paid_sample_size,
     late_payment_count: signals.late_payment_count,
     max_days_past_terms: signals.max_days_past_terms,
     open_overdue_past_terms: signals.open_overdue_past_terms,

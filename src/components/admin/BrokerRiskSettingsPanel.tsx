@@ -13,6 +13,7 @@ export type BrokerRiskSettingsForm = {
   lookback_days: string
   fallback_terms_days: string
   min_paid_sample_for_confidence: string
+  min_paid_sample_for_payment_timing: string
   cacheTtlDays: string
   insuranceWatchTtlDays: string
 }
@@ -320,6 +321,19 @@ export default function BrokerRiskSettingsPanel({
                 max={20}
               />{' '}
               confirmed pays for confidence.
+            </Row>
+            <Row
+              title="Payment timing sample"
+              info="Net vs average pay timing is hidden until the carrier has at least this many confirmed payments with the broker. Prevents noisy averages from a handful of loads."
+            >
+              Need{' '}
+              <NumInput
+                label="Minimum confirmed payments for payment timing"
+                value={s.min_paid_sample_for_payment_timing}
+                onChange={(v) => onChange({ min_paid_sample_for_payment_timing: v })}
+                max={100}
+              />{' '}
+              confirmed pays to show payment timing.
             </Row>
           </Group>
 
