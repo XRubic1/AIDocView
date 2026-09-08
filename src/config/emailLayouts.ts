@@ -178,3 +178,110 @@ export const BROKER_REMITTANCE_UPDATED_BODY_HTML = `<!DOCTYPE html>
   </table>
 </body>
 </html>`
+
+/** Default copy for the carrier document-issue email (placeholders filled at send time). */
+export const CARRIER_DOCUMENT_ISSUE_COPY = {
+  eyebrow: 'Document issue',
+  headline: 'Action needed on invoice {{invoiceNumber}}',
+  intro:
+    'Hi {{contactName}} — we reviewed the paperwork for load {{loadNumber}} and need the items below before we can invoice {{brokerName}}.',
+  nextStep:
+    'Upload the missing documents in your Credyx portal. We will verify them and keep this invoice moving.',
+  ctaLabel: 'Upload documents',
+  footer: 'Credyx · Paid on time',
+}
+
+export type CarrierDocumentIssueCopy = {
+  eyebrow: string
+  headline: string
+  intro: string
+  nextStep: string
+  ctaLabel: string
+  footer: string
+}
+
+/**
+ * Branded carrier email layout. Table-based for Outlook / Gmail.
+ * {{issueListHtml}}, {{messageHtml}}, {{companyLogoHtml}}, {{portalLink}} are filled at send time.
+ */
+export function buildCarrierDocumentIssueBodyHtml(
+  copy: CarrierDocumentIssueCopy = CARRIER_DOCUMENT_ISSUE_COPY
+): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Document issue</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;-webkit-text-size-adjust:100%;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:28px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+          <tr>
+            <td style="background-color:#0f172a;padding:22px 28px;">
+              {{companyLogoHtml}}
+              <p style="margin:14px 0 0 0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;">
+                ${copy.eyebrow}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 28px 8px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
+              <p style="margin:0 0 10px 0;font-size:20px;font-weight:600;line-height:1.35;color:#0f172a;">
+                ${copy.headline}
+              </p>
+              <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">
+                ${copy.intro}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 28px 8px 28px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid #1684FE;border-radius:8px;">
+                <tr>
+                  <td style="padding:16px 18px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                    <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#1684FE;">
+                      What we need
+                    </p>
+                    {{issueListHtml}}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 28px 4px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#475569;">
+              {{messageHtml}}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 28px 8px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#334155;">
+              ${copy.nextStep}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 28px 28px 28px;">
+              <a href="{{portalLink}}" style="display:inline-block;background-color:#1684FE;color:#ffffff;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;padding:12px 20px;border-radius:8px;">
+                {{ctaLabel}}
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 28px;background-color:#f8fafc;border-top:1px solid #e2e8f0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+              <p style="margin:0 0 4px 0;font-size:12px;font-weight:600;color:#334155;">${copy.footer}</p>
+              <p style="margin:0;font-size:11px;line-height:1.45;color:#64748b;">
+                This message is intended for {{clientName}}. If you received it in error, please delete it and notify ops@credyx.net.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
+}
+
+export const CARRIER_DOCUMENT_ISSUE_BODY_HTML = buildCarrierDocumentIssueBodyHtml()

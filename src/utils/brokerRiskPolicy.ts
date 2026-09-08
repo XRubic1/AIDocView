@@ -3,8 +3,11 @@ import type { BrokerPayRating } from '../types/clientBroker'
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
 import { isOpenArInvoice } from './invoiceAging'
+import { classifyBrokerInvoicePayClocks } from './brokerInvoicePayClock'
 
-/** Default Credyx broker-risk policy template (rules-v2.5). */
+/** Default Credyx broker-risk policy template (rules-v2.6). */
+export type ThinHistoryRiskLevel = 'high' | 'medium' | 'low'
+
 export const DEFAULT_BROKER_RISK_POLICY = {
   /** Lookback window for late paid invoices (days). */
   lookback_days: 365,
@@ -49,6 +52,20 @@ export const DEFAULT_BROKER_RISK_POLICY = {
    * Need at least this many confirmed pays before Net vs avg payment timing is shown.
    */
   min_paid_sample_for_payment_timing: 10,
+  /**
+   * NEW catalog flag + no confirmed payments with this carrier.
+   * Default High is why Snapshot-added brokers land in Urgent with 0 invoices.
+   */
+  new_broker_no_history_level: 'high' as ThinHistoryRiskLevel,
+  /** No payments yet, broker is not marked NEW. */
+  unknown_broker_no_history_level: 'medium' as ThinHistoryRiskLevel,
+  /** NEW, but fewer confirmed pays than min_paid_sample_for_confidence. */
+  new_broker_thin_sample_level: 'medium' as ThinHistoryRiskLevel,
+  /**
+   * When false, analysis skips NEW brokers that have no loads and no notes
+   * (they never enter the Broker Risk queue).
+   */
+  score_new_brokers_with_no_loads: true,
   /**
    * Problem-signal keywords only (not bare PPW/BOL/POD — those appear on happy-path notes).
    */
@@ -377,6 +394,16 @@ export function buildBrokerIssueVerdict(args: {
   }
 
   if (paymentElevated) {
+    const noPayEvidence = latePaymentCount === 0 && openPastTerms === 0
+    if (noPayEvidence) {
+      return {
+        code: 'timing_only',
+        title: 'Little or no payment history',
+        detail:
+          'No late pays or open past-terms invoices. This High/Medium comes from NEW or unknown-broker rules in Settings — not insurance cancellations.',
+        action: 'Clear if they are fine to work, or keep in review until confirmed pays land',
+      }
+    }
     return {
       code: 'timing_only',
       title: 'Past Net terms — no clear note why',
@@ -407,6 +434,13 @@ export type BrokerTermsPaymentSignals = {
   paid_sample_size: number
   /** Average calendar days from invoice date to payment (informational). */
   avg_days_invoice_to_pay: number | null
+  /** Invoices on hold (pay clock paused). */
+  hold_count: number
+  /** Invoices with an open dispute (pay clock paused). */
+  open_dispute_count: number
+  /** Open invoices excluded from overdue / avg-pay (hold or dispute). */
+  paused_open_count: number
+  paused_open_amount: number
 }
 
 export type BrokerRiskEvaluation = {
@@ -478,7 +512,7 @@ export function isPaymentLate(
 }
 
 function isOpenInvoice(invoice: Invoice): boolean {
-  // Only approved open A/R — pending/hold packets are not "broker overdue".
+  // Open A/R including hold — pending packets are not "broker overdue".
   return isOpenArInvoice(invoice)
 }
 
@@ -504,6 +538,7 @@ export function collectTermsPaymentSignals(args: {
   const lookbackStart = addDaysIso(asOf, -policy.lookback_days)
 
   const invoiceById = new Map(args.invoices.map((i) => [i.id, i]))
+  const clocks = classifyBrokerInvoicePayClocks(args.invoices, args.payments)
   const pastTermsPaid: number[] = []
   const invoiceToPay: number[] = []
 
@@ -513,6 +548,8 @@ export function collectTermsPaymentSignals(args: {
     if (received < lookbackStart) continue
     const inv = invoiceById.get(p.invoice_id)
     if (!inv) continue
+    // Hold / dispute invoices are not a broker pay-speed signal.
+    if (clocks.get(inv.id)?.paused) continue
     const past = daysPastTerms(inv, received, terms)
     // Only count remittances past the Needs-review gate (15d), not day-1 after due.
     if (past >= policy.late_payment_min_days) pastTermsPaid.push(past)
@@ -522,9 +559,21 @@ export function collectTermsPaymentSignals(args: {
   let open_overdue_past_terms = 0
   let open_overdue_amount = 0
   let open_urgent_past_terms = 0
+  let hold_count = 0
+  let open_dispute_count = 0
+  let paused_open_count = 0
+  let paused_open_amount = 0
   const openPastDays: number[] = []
   for (const inv of args.invoices) {
+    const clock = clocks.get(inv.id)
+    if (clock?.hold) hold_count += 1
+    if (clock?.dispute) open_dispute_count += 1
     if (!isOpenInvoice(inv)) continue
+    if (clock?.paused) {
+      paused_open_count += 1
+      paused_open_amount += inv.amount
+      continue
+    }
     const due = resolveInvoiceTermsDueDate(inv, terms)
     const past = Math.max(0, daysBetweenDates(due, asOf))
     // Not "for review" until N days past due (default 15).
@@ -554,6 +603,10 @@ export function collectTermsPaymentSignals(args: {
       invoiceToPay.length > 0
         ? Math.round(invoiceToPay.reduce((a, b) => a + b, 0) / invoiceToPay.length)
         : null,
+    hold_count,
+    open_dispute_count,
+    paused_open_count,
+    paused_open_amount,
   }
 }
 
@@ -610,9 +663,14 @@ export function evaluateRiskFromSignals(args: {
     !hasWorked ||
     (isNew && signals.paid_sample_size < policy.min_paid_sample_for_confidence)
 
-  // Thin / NEW brokers: elevated risk for this carrier (not "unrated silence").
+  // Thin / NEW brokers: level comes from Settings (Broker Risk → New / unknown).
   if (insufficientHistory) {
-    const computed: BrokerRiskLevel = isNew && !hasWorked ? 'high' : 'medium'
+    const computed: BrokerRiskLevel =
+      !hasWorked && isNew
+        ? policy.new_broker_no_history_level
+        : !hasWorked
+          ? policy.unknown_broker_no_history_level
+          : policy.new_broker_thin_sample_level
     if (isNew) {
       reasons.push('Credyx marked this broker NEW — limited verified payment history')
     }
@@ -699,6 +757,12 @@ export function evaluateRiskFromSignals(args: {
   const suggest_clear_as_ppw = Boolean(
     ppwOnly && (computed === 'medium' || !paymentDriven || delay_causes.ppw_count > 0)
   )
+
+  if (signals.paused_open_count > 0) {
+    reasons.push(
+      `${signals.paused_open_count} invoice(s) on hold or in dispute are excluded from avg pay / overdue`
+    )
+  }
 
   return {
     computed_level: computed,

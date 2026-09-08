@@ -38,6 +38,17 @@ describe('emailTemplateRender', () => {
     expect(data.remittanceMessage).toContain('remit-to on the attached invoice')
   })
 
+  it('builds document-issue issue list HTML', () => {
+    const data = enrichEmailTemplateData('carrier_document_issue', {
+      issueList: 'Missing POD\nRate confirmation',
+      invoiceNumber: 'INV-1',
+    })
+    expect(data.issueListHtml).toContain('Missing POD')
+    expect(data.issueListHtml).toContain('Rate confirmation')
+    expect(data.ctaLabel).toBe('Upload documents')
+    expect(data.portalLink).toContain('/client/attention?invoice=INV-1&upload=1')
+  })
+
   it('passes companyLogoHtml through unescaped', () => {
     const out = renderEmailTemplateString('{{companyLogoHtml}}Hi', {
       companyLogoHtml: '<img src="https://example.com/Logo.png" alt="Logo" />',

@@ -2,9 +2,22 @@ import { getInvoiceById, mockInvoices, updateInvoice } from '../data/mockInvoice
 import { getBatchById } from '../data/mockBatches'
 import { notifyClientInvoiceOnHold } from '../data/mockNotifications'
 import { isInvoicePendingClientReveal } from '../utils/clientInvoiceView'
-import type { Invoice } from '../types/invoice'
+import type { Invoice, InvoiceNote } from '../types/invoice'
 
 const DEFAULT_ADMIN = 'Admin User'
+
+const TERMINAL_HOLD_BLOCKED = new Set<Invoice['status']>([
+  'paid',
+  'rejected',
+  'written_off',
+  'write_off_pending',
+  'force_closed',
+])
+
+/** True when Credyx can place this invoice on hold (open A/R or still pending). */
+export function canPlaceInvoiceOnHold(status: Invoice['status']): boolean {
+  return status === 'pending' || status === 'approved'
+}
 
 /** Approve an invoice from the admin ops workflow and persist to Supabase. */
 export function approveAdminInvoice(
@@ -18,17 +31,37 @@ export function approveAdminInvoice(
   })
 }
 
-/** Place an invoice on hold from the admin ops workflow. */
-export function holdAdminInvoice(invoiceId: string, holdReason?: string): Invoice | undefined {
+/**
+ * Place an invoice on hold from the admin ops workflow.
+ * When holdReason is provided it is stored on the invoice and as a client-visible note.
+ */
+export function holdAdminInvoice(
+  invoiceId: string,
+  holdReason?: string,
+  heldBy = DEFAULT_ADMIN
+): Invoice | undefined {
   const existing = getInvoiceById(invoiceId)
   if (!existing) return undefined
+  if (TERMINAL_HOLD_BLOCKED.has(existing.status)) return existing
 
-  // Avoid duplicate hold notifications if already on hold.
   const alreadyHeld = existing.status === 'hold'
-
+  const reason = holdReason?.trim()
+  const now = new Date().toISOString()
   const patch: Partial<Invoice> = { status: 'hold' }
-  if (holdReason?.trim()) {
-    patch.hold_reason = holdReason.trim()
+
+  if (reason) {
+    patch.hold_reason = reason
+    const note: InvoiceNote = {
+      id: `note-hold-${Date.now()}`,
+      note: reason,
+      created_by: heldBy,
+      created_at: now,
+      type: 'hold_reason',
+      visibility: 'client',
+    }
+    const notes_history = [...(existing.notes_history || []), note]
+    patch.notes_history = notes_history
+    patch.notes = existing.notes ? `${existing.notes}\n${reason}` : reason
   }
 
   const updated = updateInvoice(invoiceId, patch)
@@ -49,11 +82,36 @@ export function holdAdminInvoice(invoiceId: string, holdReason?: string): Invoic
   return updated
 }
 
-/** Release hold by re-approving the invoice. */
-export function releaseHoldAdminInvoice(invoiceId: string): Invoice | undefined {
+/** Release hold — return to open A/R and clear the hold reason the carrier sees. */
+export function releaseHoldAdminInvoice(
+  invoiceId: string,
+  releasedBy = DEFAULT_ADMIN
+): Invoice | undefined {
   const inv = getInvoiceById(invoiceId)
   if (!inv || inv.status !== 'hold') return inv
-  return approveAdminInvoice(invoiceId)
+
+  const now = new Date().toISOString()
+  const note: InvoiceNote = {
+    id: `note-hold-release-${Date.now()}`,
+    note: 'Hold released — invoice returned to open A/R.',
+    created_by: releasedBy,
+    created_at: now,
+    type: 'status_update',
+    visibility: 'client',
+  }
+  const notes_history = [...(inv.notes_history || []), note]
+  const notes = inv.notes
+    ? `${inv.notes}\n${note.note}`
+    : note.note
+
+  return updateInvoice(invoiceId, {
+    status: 'approved',
+    approved_by: releasedBy,
+    approved_at: now,
+    hold_reason: undefined,
+    notes_history,
+    notes,
+  })
 }
 
 /** Reject an invoice from the admin ops workflow. */

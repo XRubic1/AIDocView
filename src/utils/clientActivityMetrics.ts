@@ -262,6 +262,7 @@ export function computeAttentionActions(
   }
 
   for (const invoice of invoices) {
+    if (invoice.status === 'hold') continue
     if (!isOpenArInvoice(invoice) || !isInvoiceOverdue(invoice)) continue
     const balance = getInvoiceOpenArBalance(invoice, payments)
     if (balance <= AMOUNT_EPSILON) continue

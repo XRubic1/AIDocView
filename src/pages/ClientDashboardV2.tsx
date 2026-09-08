@@ -239,7 +239,7 @@ export default function ClientDashboardV2() {
         title: `Clear hold on Invoice ${oldest.invoice_number}`,
         reason:
           holds.length === 1
-            ? `On hold for ${daysSinceInvoice} days — resolve docs or dispute so it can invoice.`
+            ? `On hold for ${daysSinceInvoice} days — still in open A/R until released.`
             : `Oldest of ${holds.length} holds (${formatCurrency(holdTotal)} open). Aging ${daysSinceInvoice} days.`,
         action: 'View hold',
         navigateTo: `/client/invoices?invoiceId=${oldest.id}`,

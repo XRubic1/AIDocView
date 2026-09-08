@@ -99,12 +99,8 @@ export function computeOpenArAsOf(
   let total = 0
 
   for (const invoice of invoices) {
-    // Pending / hold / rejected never sit in Total A/R.
-    if (
-      invoice.status === 'pending' ||
-      invoice.status === 'hold' ||
-      invoice.status === 'rejected'
-    ) {
+    // Pending / rejected never sit in Total A/R. Hold remains open A/R.
+    if (invoice.status === 'pending' || invoice.status === 'rejected') {
       continue
     }
 

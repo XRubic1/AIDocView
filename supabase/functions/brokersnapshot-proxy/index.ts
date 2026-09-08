@@ -110,13 +110,14 @@ function summarizeCompany(data: Record<string, unknown>) {
     common === 'Active' || contract === 'Active' || broker === 'Active'
   if (operatingStatus) {
     const op = operatingStatus.toLowerCase()
-    if (
+    const unauthorizedOp =
       op.includes('not authorized') ||
       op.includes('unauthorized') ||
       op.includes('out of service') ||
       op.includes('revoked') ||
       op.includes('suspended')
-    ) {
+    // Brokers often show FMCSA "Not Authorized" while broker_stat is Active.
+    if (unauthorizedOp && !hasActiveAuthority) {
       riskFlags.push('Not authorized — do not work this broker')
     } else if (!hasActiveAuthority && !op.includes('authoriz') && !op.includes('active')) {
       riskFlags.push('No clear active operating authority')
@@ -162,14 +163,11 @@ function summarizeCompany(data: Record<string, unknown>) {
 
   const hasInsuranceCancellation = cancellations.length > 0
   const latestCancellationDate = cancellations[0]?.cancelEffectiveDate ?? null
-  const latestCancelMs = Date.parse(latestCancellationDate ?? '') || 0
-  const cancelWithinYear =
-    latestCancelMs > 0 && Date.now() - latestCancelMs < 365 * 24 * 60 * 60 * 1000
 
   if (activeInsurances.length === 0) {
     riskFlags.push('No active insurance on file in Snapshot')
   }
-  if (hasInsuranceCancellation) {
+  if (hasInsuranceCancellation && activeInsurances.length === 0) {
     riskFlags.push(
       latestCancellationDate
         ? `Insurance cancellation on file (${latestCancellationDate})`
@@ -205,11 +203,6 @@ function summarizeCompany(data: Record<string, unknown>) {
   } else if (activeInsurances.length === 0) {
     insuranceVerdict = 'missing'
     insuranceNote = 'No active insurance on file — verify coverage before booking.'
-  } else if (cancelWithinYear) {
-    insuranceVerdict = 'warning'
-    insuranceNote = latestCancellationDate
-      ? `Active insurance on file, but a cancellation was recorded on ${latestCancellationDate}. Double-check current coverage.`
-      : 'Active insurance on file, but cancellations appear in history. Double-check current coverage.'
   } else if (hasInsuranceCancellation) {
     insuranceVerdict = 'ok'
     insuranceNote = 'Broker insurance is fine — active coverage on file (older cancellations in history).'
@@ -368,9 +361,8 @@ async function computeNextReviewAt(
 ): Promise<string> {
   const ttl = await loadSnapshotTtlConfig(admin)
   const verdict = String(summary.insuranceVerdict ?? 'ok')
-  const hasCancel = Boolean(summary.hasInsuranceCancellation)
   const watch =
-    verdict !== 'ok' || hasCancel || Number(summary.activeInsuranceCount ?? 0) === 0
+    verdict !== 'ok' || Number(summary.activeInsuranceCount ?? 0) === 0
   const days = watch ? ttl.insuranceWatchTtlDays : ttl.cacheTtlDays
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
 }
@@ -449,16 +441,13 @@ function buildBrokerDiffs(
       oldIns.includes('insurance') ? oldIns.slice(0, 120) : 'Active / unknown in Credyx',
       insNote
     )
-  } else if (summary.hasInsuranceCancellation) {
-    push(
-      'insurance_status',
-      'Insurance status',
-      'No cancellation flagged in Credyx',
-      insNote ?? 'Cancellation on file in Snapshot'
-    )
   }
 
-  if (summary.operatingStatus) {
+  const brokerAuthActive =
+    String(summary.brokerAuthority ?? '').toLowerCase() === 'active' ||
+    String(summary.commonAuthority ?? '').toLowerCase() === 'active' ||
+    String(summary.contractAuthority ?? '').toLowerCase() === 'active'
+  if (summary.operatingStatus && !brokerAuthActive) {
     const op = String(summary.operatingStatus).toLowerCase()
     if (
       op.includes('not authorized') ||

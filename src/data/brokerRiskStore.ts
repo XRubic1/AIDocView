@@ -108,6 +108,10 @@ function normalizeProfile(raw: BrokerRiskProfile): BrokerRiskProfile {
       broker_pay_hint_count: raw.metrics?.broker_pay_hint_count,
       ppw_hint_count: raw.metrics?.ppw_hint_count,
       suggest_clear_as_ppw: raw.metrics?.suggest_clear_as_ppw,
+      hold_count: raw.metrics?.hold_count ?? 0,
+      open_dispute_count: raw.metrics?.open_dispute_count ?? 0,
+      paused_open_count: raw.metrics?.paused_open_count ?? 0,
+      paused_open_amount: raw.metrics?.paused_open_amount ?? 0,
     },
   }
 }

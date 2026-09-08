@@ -6,6 +6,8 @@ import {
   getDaysOutstanding,
   getDisplayAgingBucketId,
   isInvoiceOverdue,
+  isOpenArInvoice,
+  enrichInvoice,
 } from './invoiceAging'
 
 function baseInvoice(overrides: Partial<Invoice> = {}): Invoice {
@@ -66,5 +68,19 @@ describe('getDaysOutstanding vs live broker terms', () => {
     const invoice = baseInvoice()
     expect(getDaysOutstanding(invoice, asOf)).toBe(15)
     expect(isInvoiceOverdue(invoice, asOf)).toBe(true)
+  })
+
+  it('keeps hold invoices in open A/R and aging without renaming the status', () => {
+    mockBrokers.push({
+      id: 'broker-agl',
+      name: 'AGL GROUP',
+      payment_terms_days: 30,
+    })
+    const invoice = baseInvoice({ status: 'hold', hold_reason: 'Missing POD' })
+    expect(isOpenArInvoice(invoice)).toBe(true)
+    expect(getDaysOutstanding(invoice, asOf)).toBe(15)
+    expect(isInvoiceOverdue(invoice, asOf)).toBe(true)
+    expect(enrichInvoice(invoice, asOf).displayStatus).toBe('hold')
+    expect(enrichInvoice(invoice, asOf).agingBucket).not.toBe('closed')
   })
 })

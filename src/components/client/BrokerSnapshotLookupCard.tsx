@@ -3,6 +3,7 @@ import { AlertTriangle, Building2, ExternalLink, Loader2, Shield } from 'lucide-
 import { lookupBrokerSnapshotByMc } from '../../services/brokerSnapshotService'
 import type { BrokerSnapshotSummary } from '../../types/brokerSnapshot'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { displaySnapshotRiskFlags } from '../../utils/brokerSnapshotSafety'
 
 interface BrokerSnapshotLookupCardProps {
   /** Normalized MC like MC-123456 */
@@ -208,9 +209,12 @@ export default function BrokerSnapshotLookupCard({
             )}
           </dl>
 
-          {summary.riskFlags.length > 0 && (
+          {(() => {
+            const flags = displaySnapshotRiskFlags(summary)
+            if (flags.length === 0) return null
+            return (
             <ul className="mt-1 space-y-1">
-              {summary.riskFlags.map((flag) => (
+              {flags.map((flag) => (
                 <li
                   key={flag}
                   className="flex items-start gap-1.5 text-xs"
@@ -221,7 +225,8 @@ export default function BrokerSnapshotLookupCard({
                 </li>
               ))}
             </ul>
-          )}
+            )
+          })()}
 
           <p className="text-[11px] pt-1" style={{ color: c.secondary }}>
             This is external authority data — not Credyx pay history. Treat unknown brokers carefully

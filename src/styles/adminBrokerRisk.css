@@ -90,6 +90,108 @@
   cursor: not-allowed;
 }
 
+.admin-broker-risk__tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--abr-border);
+  background: var(--abr-muted-bg);
+}
+
+.admin-broker-risk__tab {
+  border: none;
+  background: transparent;
+  color: var(--abr-muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  padding: 0.32rem 0.7rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+
+.admin-broker-risk__tab.is-on {
+  background: var(--abr-surface);
+  color: var(--abr-text);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.admin-broker-risk__insight-search {
+  flex-shrink: 0;
+  padding: 0.65rem 0.75rem 0.35rem;
+}
+
+.admin-broker-risk__insight-trend {
+  margin: 0 0 0.75rem;
+  padding: 0 0.15rem;
+  font-size: 0.78rem;
+}
+
+.admin-broker-risk__month-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.2rem;
+  height: 8.5rem;
+  padding: 0 0.15rem 0.35rem;
+  overflow-x: auto;
+}
+
+.admin-broker-risk__month-col {
+  flex: 1 0 0.7rem;
+  min-width: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  gap: 0.25rem;
+}
+
+.admin-broker-risk__month-track {
+  flex: 1;
+  width: 100%;
+  border-radius: 0.2rem;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.admin-broker-risk__month-bar {
+  width: 100%;
+  min-height: 0;
+  border-radius: 0.2rem 0.2rem 0 0;
+}
+
+.admin-broker-risk__month-tick {
+  font-size: 0.58rem;
+  color: var(--abr-muted);
+  line-height: 1;
+}
+
+.admin-broker-risk__chip--trend-faster {
+  background: color-mix(in srgb, #10b981 18%, transparent);
+  color: #047857;
+}
+
+.admin-broker-risk__chip--trend-slower {
+  background: color-mix(in srgb, #ef4444 16%, transparent);
+  color: #b91c1c;
+}
+
+.admin-broker-risk__chip--trend-steady {
+  background: color-mix(in srgb, #1684fe 14%, transparent);
+  color: #1d4ed8;
+}
+
+.admin-broker-risk__chip--trend-thin {
+  background: var(--abr-muted-bg);
+  color: var(--abr-muted);
+}
+
+.admin-broker-risk__insight-tables {
+  margin-top: 0.5rem;
+}
+
 .admin-broker-risk__workspace {
   flex: 1;
   min-height: 0;
@@ -737,6 +839,29 @@
 .admin-broker-risk__inv-num {
   font-weight: 700;
   white-space: nowrap;
+}
+
+.admin-broker-risk__pause-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  color: #b45309;
+  vertical-align: middle;
+}
+
+.admin-broker-risk__invoice-row.is-paused .admin-broker-risk__invoice-btn {
+  background: color-mix(in srgb, #f59e0b 8%, transparent);
+}
+
+.admin-broker-risk__chip--paused {
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  color: #b45309;
 }
 
 .admin-broker-risk__inv-amt {

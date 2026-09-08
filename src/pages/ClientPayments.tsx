@@ -1252,17 +1252,19 @@ export default function ClientPayments() {
         )}
 
         {pageTab === 'post' && capabilities.canPostPayment ? (
-          <PostPaymentForm
-            clientId={clientId}
-            clientName={clientName}
-            invoices={clientInvoices}
-            payments={payments}
-            authorName={authorName}
-            onPosted={() => {
-              refreshPayments()
-              showToast('Payment posted.', 'success')
-            }}
-          />
+          <div className="client-payments-page--post flex-1 min-h-0 flex flex-col overflow-hidden">
+            <PostPaymentForm
+              clientId={clientId}
+              clientName={clientName}
+              invoices={clientInvoices}
+              payments={payments}
+              authorName={authorName}
+              onPosted={() => {
+                refreshPayments()
+                showToast('Payment posted.', 'success')
+              }}
+            />
+          </div>
         ) : (
         <div className="client-payments-page--history overflow-hidden flex flex-col min-h-0 flex-1">
         {useFullPageDetail && showPaymentDetail && selectedPayment ? (

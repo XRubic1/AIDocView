@@ -3,7 +3,7 @@ import { formatCurrency } from '../../utils/format'
 import { formatDate } from '../../utils/format'
 import { Invoice } from '../../types/invoice'
 import { mockInvoices } from '../../data/mockInvoices'
-import { getAgingArBucketKey, getInvoiceAgeDays } from '../../utils/invoiceAging'
+import { getAgingArBucketKey, getInvoiceAgeDays, isOpenArInvoice } from '../../utils/invoiceAging'
 
 interface AgingInvoicesTabProps {
   onInvoiceSelect: (invoiceId: string) => void
@@ -45,15 +45,7 @@ export default function AgingInvoicesTab({ onInvoiceSelect, lastViewedInvoiceId 
   })
 
   filteredInvoices.forEach((invoice) => {
-    if (
-      invoice.status === 'paid' ||
-      invoice.status === 'pending' ||
-      invoice.status === 'hold' ||
-      invoice.status === 'force_closed' ||
-      invoice.status === 'written_off' ||
-      invoice.status === 'write_off_pending' ||
-      invoice.status === 'rejected'
-    ) {
+    if (!isOpenArInvoice(invoice)) {
       return
     }
     const bucket = getAgingArBucketKey(getInvoiceAgeDays(invoice))

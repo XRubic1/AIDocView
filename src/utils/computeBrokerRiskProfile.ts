@@ -148,6 +148,11 @@ function buildBullets(
       `${signals.open_overdue_past_terms} open invoice${signals.open_overdue_past_terms === 1 ? '' : 's'} past Net ${net} (${formatUsd(signals.open_overdue_amount)})`
     )
   }
+  if (signals.paused_open_count > 0) {
+    bullets.push(
+      `${signals.paused_open_count} invoice${signals.paused_open_count === 1 ? '' : 's'} on hold or in dispute — excluded from avg pay (${formatUsd(signals.paused_open_amount)})`
+    )
+  }
   // Structured invoice / payment disputes (reason kinds) before note keywords.
   for (const line of disputeLines) {
     if (bullets.length >= 5) break
@@ -286,6 +291,10 @@ export function computeBrokerRiskProfile(input: ComputeBrokerRiskInput): Compute
       open_urgent_past_terms: 0,
       paid_sample_size: input.score?.invoiced_in_range ?? 0,
       avg_days_invoice_to_pay: input.score?.avg_days_invoice_to_pay ?? null,
+      hold_count: 0,
+      open_dispute_count: 0,
+      paused_open_count: 0,
+      paused_open_amount: 0,
     } satisfies BrokerTermsPaymentSignals)
 
   const noteTexts = [...input.notes]
@@ -389,6 +398,10 @@ export function computeBrokerRiskProfile(input: ComputeBrokerRiskInput): Compute
     broker_pay_hint_count: delayCauses.broker_pay_count,
     ppw_hint_count: delayCauses.ppw_count,
     suggest_clear_as_ppw: Boolean(evaluation.suggest_clear_as_ppw),
+    hold_count: signals.hold_count,
+    open_dispute_count: signals.open_dispute_count,
+    paused_open_count: signals.paused_open_count,
+    paused_open_amount: signals.paused_open_amount,
   }
 
   const profileId = newId('brp')

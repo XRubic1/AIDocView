@@ -78,6 +78,10 @@ export function getBrokerPayRating(
         : 0,
     paid_sample_size: Math.max(score.invoiced_in_range, 0),
     avg_days_invoice_to_pay: score.avg_days_invoice_to_pay ?? null,
+    hold_count: 0,
+    open_dispute_count: 0,
+    paused_open_count: 0,
+    paused_open_amount: 0,
   }
 
   const evaluation = evaluateRiskFromSignals({

@@ -57,6 +57,13 @@ export type BrokerRiskMetrics = {
   ppw_hint_count?: number
   /** True when notes suggest clearing as PPW rather than publishing risk. */
   suggest_clear_as_ppw?: boolean
+  /** Invoices on hold — pay clock paused. */
+  hold_count?: number
+  /** Invoices with an open dispute. */
+  open_dispute_count?: number
+  /** Open invoices excluded from overdue / avg-pay. */
+  paused_open_count?: number
+  paused_open_amount?: number
 }
 
 export type BrokerRiskEvidence = {
@@ -100,4 +107,4 @@ export type BrokerRiskProfile = {
   reviewed_by: string | null
 }
 
-export const BROKER_RISK_MODEL_VERSION = 'rules-v2.5'
+export const BROKER_RISK_MODEL_VERSION = 'rules-v2.6'

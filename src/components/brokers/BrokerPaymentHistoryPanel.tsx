@@ -4,20 +4,31 @@ import { mockPayments } from '../../data/mockPayments'
 import { mockInvoices } from '../../data/mockInvoices'
 import { formatCurrency } from '../../utils/format'
 import type { Broker } from '../../types/broker'
+import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
 
 /** Month / year payment history for a broker (Credyx Brokers tab). */
 export default function BrokerPaymentHistoryPanel({ broker }: { broker: Broker }) {
-  const history = useMemo(
-    () => computeBrokerPaymentHistory(broker.id, mockPayments, mockInvoices),
-    [broker.id]
-  )
+  const tenantRevision = useTenantDataRevision()
+  const history = useMemo(() => {
+    void tenantRevision
+    return computeBrokerPaymentHistory(broker.id, mockPayments, mockInvoices, {
+      paymentTermsDays: broker.payment_terms_days,
+      brokerName: broker.name,
+    })
+  }, [broker.id, broker.name, broker.payment_terms_days, tenantRevision])
 
   return (
     <div className="mt-4 border-t border-gray-200 pt-4">
       <h3 className="text-sm font-semibold text-black mb-2">Payment history</h3>
       <p className="text-xs text-gray-500 mb-3">
         Lifetime: {formatCurrency(history.lifetimePaid)} across {history.lifetimeCount} confirmed
-        payment(s). Computed from posted payments (manual or future AI remittance).
+        payment(s)
+        {history.onTimeRate != null ? ` · ${history.onTimeRate}% on time vs Net terms` : ''}
+        {history.pausedInvoiceCount > 0
+          ? ` · ${history.pausedInvoiceCount} on hold/dispute excluded from avg`
+          : ''}
+        {history.openAr > 0 ? ` · ${formatCurrency(history.openAr)} still open` : ''}.
+        Builds as payments post.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>

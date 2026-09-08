@@ -7,7 +7,10 @@ import type { BrokerRiskTrigger } from '../types/brokerRisk'
 import type { OpsJobRun } from '../types/opsJob'
 import type { ClientBrokerNote, BrokerPayRating } from '../types/clientBroker'
 import type { BrokerScoreRow } from '../utils/clientReports'
-import type { BrokerTermsPaymentSignals } from '../utils/brokerRiskPolicy'
+import {
+  BROKER_RISK_POLICY,
+  type BrokerTermsPaymentSignals,
+} from '../utils/brokerRiskPolicy'
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
 
@@ -66,7 +69,12 @@ export function runBrokerRiskWeekly(args: {
 
   for (const target of args.brokers) {
     try {
-      if (!args.force && !target.hasWorked && target.notes.length === 0 && !target.isNewBroker) {
+      if (
+        !args.force &&
+        !target.hasWorked &&
+        target.notes.length === 0 &&
+        (!target.isNewBroker || !BROKER_RISK_POLICY.score_new_brokers_with_no_loads)
+      ) {
         run.skipped_count += 1
         continue
       }

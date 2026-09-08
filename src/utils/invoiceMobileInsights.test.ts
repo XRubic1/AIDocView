@@ -6,7 +6,7 @@ import {
 import { enrichInvoice } from './invoiceAging'
 import type { Invoice } from '../types/invoice'
 import { getInvoiceNotice, getInvoiceStatusBadge } from '../components/client/invoiceDetailShared'
-import { getInvoiceLifecycleSteps } from './invoiceLifecycleSteps'
+import { getInvoiceLifecycleSteps, getInvoiceLifecycleStatusLabel } from './invoiceLifecycleSteps'
 
 function baseInvoice(overrides: Partial<Invoice> = {}): Invoice {
   return {
@@ -147,5 +147,38 @@ describe('force closed invoice messaging', () => {
     // Badge text for list/detail pills
     const badge = getInvoiceStatusBadge('force_closed')
     expect(badge.props.children).toBe('Force closed')
+  })
+})
+
+describe('hold invoice lifecycle', () => {
+  it('keeps Invoiced as the current stage when PPW was already sent', () => {
+    const invoice = baseInvoice({
+      status: 'hold',
+      hold_reason: 'Missing lumper',
+      approved_at: '2026-07-13T00:00:00Z',
+      document_send_history: [
+        {
+          email_address: 'broker@example.com',
+          sent_at: '2026-07-14T00:00:00Z',
+          sent_by: 'Credyx',
+          status: 'sent',
+        },
+      ],
+    })
+    expect(getInvoiceLifecycleStatusLabel(invoice)).toBe('Invoiced')
+    const steps = getInvoiceLifecycleSteps(invoice)
+    expect(steps.find((s) => s.id === 'verified')?.state).toBe('done')
+    expect(steps.find((s) => s.id === 'invoiced')?.state).toBe('hold')
+  })
+
+  it('stays on Verified when held before PPW is sent', () => {
+    const invoice = baseInvoice({
+      status: 'hold',
+      hold_reason: 'Missing POD',
+    })
+    expect(getInvoiceLifecycleStatusLabel(invoice)).toBe('Verified')
+    const steps = getInvoiceLifecycleSteps(invoice)
+    expect(steps.find((s) => s.id === 'verified')?.state).toBe('hold')
+    expect(steps.find((s) => s.id === 'invoiced')?.state).toBe('upcoming')
   })
 })

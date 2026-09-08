@@ -110,7 +110,11 @@ export default function VerificationTab({
   }
 
   const handleHoldInvoice = (invoiceId: string) => {
-    const updated = holdAdminInvoice(invoiceId)
+    const reason = window
+      .prompt('Hold reason (the carrier will see this — e.g. missing POD, load issue)')
+      ?.trim()
+    if (!reason) return
+    const updated = holdAdminInvoice(invoiceId, reason)
     if (updated && selectedInvoice?.id === invoiceId) {
       setSelectedInvoice({ ...updated })
     }

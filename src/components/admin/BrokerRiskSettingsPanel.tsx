@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { ThinHistoryRiskLevel } from '../../utils/brokerRiskPolicy'
 import { useClientTheme } from '../../theme/ThemeContext'
 
 export type BrokerRiskSettingsForm = {
@@ -14,6 +15,10 @@ export type BrokerRiskSettingsForm = {
   fallback_terms_days: string
   min_paid_sample_for_confidence: string
   min_paid_sample_for_payment_timing: string
+  new_broker_no_history_level: ThinHistoryRiskLevel
+  unknown_broker_no_history_level: ThinHistoryRiskLevel
+  new_broker_thin_sample_level: ThinHistoryRiskLevel
+  score_new_brokers_with_no_loads: boolean
   cacheTtlDays: string
   insuranceWatchTtlDays: string
 }
@@ -35,6 +40,32 @@ function InfoTip({ text }: { text: string }) {
         {text}
       </span>
     </span>
+  )
+}
+
+function LevelSelect({
+  value,
+  onChange,
+  label,
+}: {
+  value: ThinHistoryRiskLevel
+  onChange: (value: ThinHistoryRiskLevel) => void
+  label: string
+}) {
+  return (
+    <select
+      className="collections-rule__select"
+      value={value}
+      aria-label={label}
+      onChange={(e) => {
+        const v = e.target.value
+        onChange(v === 'high' || v === 'medium' || v === 'low' ? v : 'medium')
+      }}
+    >
+      <option value="high">High (urgent review)</option>
+      <option value="medium">Medium (needs review)</option>
+      <option value="low">Low (do not queue)</option>
+    </select>
   )
 }
 
@@ -152,10 +183,81 @@ export default function BrokerRiskSettingsPanel({
   settings: BrokerRiskSettingsForm
   onChange: (patch: Patch) => void
 }) {
+  const c = useClientTheme()
   const s = settings
 
   return (
     <div className="collections-settings">
+      <Section
+        eyebrow="New / unknown"
+        title="Automatic High without invoices"
+        info="This is separate from insurance. Snapshot-added brokers are marked NEW. With no confirmed pays they currently score High so they land in Urgent — change that here."
+        lead="Zero invoices can still score High when a broker is marked NEW. That is not insurance. Save, then Run analysis on Broker Risk."
+      >
+        <div className="collections-rule-groups">
+          <Group title="No payment history">
+            <label
+              className={`collections-rule${s.score_new_brokers_with_no_loads ? ' is-on' : ''}`}
+            >
+              <input
+                type="checkbox"
+                className="collections-rule__check"
+                checked={s.score_new_brokers_with_no_loads}
+                onChange={(e) => onChange({ score_new_brokers_with_no_loads: e.target.checked })}
+                aria-label="Score NEW brokers with no loads"
+              />
+              <span className="collections-rule__main">
+                <span className="collections-rule__head">
+                  <span className="collections-rule__title" style={{ color: c.primary }}>
+                    Score NEW brokers with no loads
+                  </span>
+                  <InfoTip text="When on, brokers Credyx marked NEW (including Snapshot adds) enter Broker Risk even with zero invoices. Turn off to skip them until a load exists." />
+                </span>
+                <span className="collections-rule__copy" style={{ color: c.secondary }}>
+                  Include them in analysis before any pays land.
+                </span>
+              </span>
+            </label>
+            <Row
+              title="NEW, no payments"
+              info="Broker catalog is_new + no confirmed payments with this carrier. Default High is why most Snapshot brokers show Urgent."
+            >
+              Treat as{' '}
+              <LevelSelect
+                label="Risk level for NEW brokers with no payments"
+                value={s.new_broker_no_history_level}
+                onChange={(v) => onChange({ new_broker_no_history_level: v })}
+              />
+              .
+            </Row>
+            <Row
+              title="Not NEW, no payments"
+              info="Carrier has not been paid by this broker yet, and Credyx did not mark them NEW."
+            >
+              Treat as{' '}
+              <LevelSelect
+                label="Risk level for unknown brokers with no payments"
+                value={s.unknown_broker_no_history_level}
+                onChange={(v) => onChange({ unknown_broker_no_history_level: v })}
+              />
+              .
+            </Row>
+            <Row
+              title="NEW, thin sample"
+              info="Marked NEW but has some confirmed pays — fewer than the Thin history count below."
+            >
+              Treat as{' '}
+              <LevelSelect
+                label="Risk level for NEW brokers with a thin pay sample"
+                value={s.new_broker_thin_sample_level}
+                onChange={(v) => onChange({ new_broker_thin_sample_level: v })}
+              />
+              .
+            </Row>
+          </Group>
+        </div>
+      </Section>
+
       <Section
         eyebrow="Scoring"
         title="When a broker needs review"

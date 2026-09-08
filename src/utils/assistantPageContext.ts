@@ -39,6 +39,18 @@ const CLIENT_PAGES: AssistantPageHelp[] = [
     ],
   },
   {
+    id: 'client-attention',
+    mode: 'client',
+    paths: ['/client/attention'],
+    title: 'Needs attention',
+    offer: 'uploading paperwork Credyx asked for on held loads',
+    nudge: 'I can help you upload the documents for a held invoice.',
+    chips: [
+      'Which invoices need documents?',
+      'How do I upload paperwork?',
+    ],
+  },
+  {
     id: 'client-payments',
     mode: 'client',
     paths: ['/client/payments'],
@@ -200,6 +212,19 @@ const ADMIN_PAGES: AssistantPageHelp[] = [
     offer: 'aging buckets, worst offenders, and chase priorities',
     nudge: 'I can rank what to chase first.',
     chips: ['Show aging follow-ups', 'Who is most past due?'],
+  },
+  {
+    id: 'admin-broker-risk',
+    mode: 'admin',
+    paths: ['/admin/broker-risk'],
+    title: 'Broker Risk',
+    offer: 'review queue, payment timing vs Net, and month-over-month broker pay history',
+    nudge: 'I can show which brokers are paying slower this quarter.',
+    chips: [
+      'Which brokers need review?',
+      'Who is paying slower this quarter?',
+      'Show payment history for a broker',
+    ],
   },
   {
     id: 'admin-batches',

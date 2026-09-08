@@ -15,6 +15,12 @@ import type {
 } from '../../types/brokerSnapshot'
 import { normalizeMcQuery } from '../../utils/clientBrokers'
 import { useClientTheme } from '../../theme/ThemeContext'
+import {
+  displaySnapshotRiskFlags,
+  hasActiveFreightAuthority,
+  isDoNotWorkBroker,
+  shouldShowCancellationHistory,
+} from '../../utils/brokerSnapshotSafety'
 
 interface McLookupModalProps {
   open: boolean
@@ -49,34 +55,6 @@ function Cell({
 function formatMoneyLimit(limit: number | null | undefined): string | null {
   if (limit == null || limit <= 0) return null
   return `$${limit.toLocaleString()}`
-}
-
-/** True when Snapshot operating status means do not work this broker. */
-function isUnauthorizedStatus(status?: string | null): boolean {
-  if (!status) return false
-  const s = status.toLowerCase()
-  return (
-    s.includes('not authorized') ||
-    s.includes('unauthorized') ||
-    s.includes('out of service') ||
-    s.includes('inactive') ||
-    s.includes('revoked') ||
-    s.includes('suspended')
-  )
-}
-
-/** True when authority lines show no usable active authority. */
-function hasNoActiveAuthority(summary: BrokerSnapshotSummary): boolean {
-  const active = (v?: string | null) => (v ?? '').toLowerCase() === 'active'
-  return (
-    !active(summary.commonAuthority) &&
-    !active(summary.contractAuthority) &&
-    !active(summary.brokerAuthority)
-  )
-}
-
-function isBadBroker(summary: BrokerSnapshotSummary): boolean {
-  return isUnauthorizedStatus(summary.operatingStatus) || hasNoActiveAuthority(summary)
 }
 
 function insuranceBannerStyle(
@@ -147,7 +125,10 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
 
   if (!open) return null
 
-  const bad = summary?.found ? isBadBroker(summary) : false
+  const bad = summary?.found ? isDoNotWorkBroker(summary) : false
+  const riskFlags = summary?.found ? displaySnapshotRiskFlags(summary) : []
+  const showCancelHistory = summary?.found ? shouldShowCancellationHistory(summary) : false
+  const activeAuthority = summary?.found ? hasActiveFreightAuthority(summary) : false
   const insuranceLine =
     summary?.found && (summary.insurances?.length ?? 0) > 0
       ? summary.insurances!
@@ -267,12 +248,17 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
             <div className="mc-lookup-modal__result space-y-2">
               {/* Quick insurance note — first thing the user sees */}
               {(() => {
-                const verdict = summary.insuranceVerdict ?? (summary.activeInsuranceCount ? 'ok' : 'missing')
-                const note =
-                  summary.insuranceNote ??
-                  (verdict === 'ok'
-                    ? 'Broker insurance is fine.'
-                    : 'Check insurance before booking.')
+                const coverageOk =
+                  (summary.activeInsuranceCount ?? 0) > 0 ||
+                  (summary.insurances?.length ?? 0) > 0
+                const verdict: BrokerInsuranceVerdict = coverageOk
+                  ? 'ok'
+                  : summary.insuranceVerdict ?? 'missing'
+                const note = coverageOk
+                  ? summary.insuranceVerdict === 'ok' && summary.insuranceNote
+                    ? summary.insuranceNote
+                    : 'Broker insurance is fine — active coverage on file.'
+                  : summary.insuranceNote ?? 'Check insurance before booking.'
                 const tone = insuranceBannerStyle(verdict, c)
                 return (
                   <div
@@ -287,7 +273,7 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
                     )}
                     <div className="min-w-0">
                       <p className="font-bold leading-snug">{note}</p>
-                      {summary.hasInsuranceCancellation && summary.latestCancellationDate && (
+                      {showCancelHistory && summary.latestCancellationDate && (
                         <p className="mt-0.5 leading-snug" style={{ color: c.primary }}>
                           Cancellation on file
                           {summary.cancellations?.[0]?.companyName
@@ -331,8 +317,11 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
                     }
                   >
                     {bad && <AlertTriangle className="w-3.5 h-3.5" />}
-                    {summary.operatingStatus}
-                    {bad ? ' — do not use' : ''}
+                    {bad
+                      ? `${summary.operatingStatus} — do not use`
+                      : activeAuthority
+                        ? `Broker ${summary.brokerAuthority ?? 'Active'}`
+                        : summary.operatingStatus}
                   </span>
                 )}
 
@@ -358,17 +347,14 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                   <span className="font-bold">Broker is not good to work with.</span>
                   <span style={{ color: c.primary }}>
-                    {hasNoActiveAuthority(summary)
-                      ? 'No active authority.'
-                      : 'Not authorized.'}{' '}
-                    Do not book until SAFER confirms active status.
+                    No active broker authority. Do not book until SAFER confirms active status.
                   </span>
                 </div>
               )}
 
-              {summary.riskFlags.length > 0 && !bad && (
+              {riskFlags.length > 0 && !bad && (
                 <p className="text-[11px] flex flex-wrap gap-x-2 gap-y-0.5" style={{ color: c.warning }}>
-                  {summary.riskFlags.map((flag) => (
+                  {riskFlags.map((flag) => (
                     <span key={flag} className="inline-flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
                       {flag}
@@ -377,9 +363,9 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
                 </p>
               )}
 
-              {bad && summary.riskFlags.length > 0 && (
+              {bad && riskFlags.length > 0 && (
                 <p className="text-[11px] flex flex-wrap gap-x-2 gap-y-0.5" style={{ color: c.error }}>
-                  {summary.riskFlags.map((flag) => (
+                  {riskFlags.map((flag) => (
                     <span key={flag} className="inline-flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
                       {flag}
@@ -478,7 +464,7 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
                   />
                   <Cell label="Changed" value={summary.changeDate} />
                   <Cell label="Insurance" value={insuranceLine} span />
-                  {summary.hasInsuranceCancellation && (
+                  {showCancelHistory && (
                     <Cell
                       label="Cancelled"
                       value={

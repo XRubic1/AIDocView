@@ -246,7 +246,7 @@ export function inspectInvoiceAr(invoiceId: string): ArInvoiceInspection | null 
   const findings: string[] = []
   findings.push(
     inAgingAr
-      ? `In client aging A/R (status approved) at face ${formatCurrency(invoice.amount)}.`
+      ? `In client aging A/R (${invoice.status === 'hold' ? 'on hold' : 'open'}) at face ${formatCurrency(invoice.amount)}.`
       : `Not in client aging A/R (status: ${invoice.status}).`
   )
   findings.push(

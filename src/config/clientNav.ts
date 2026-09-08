@@ -15,6 +15,7 @@ import {
   HelpCircle,
   GraduationCap,
   Phone,
+  FileWarning,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -44,6 +45,13 @@ export const clientNavSections: ClientNavSection[] = [
         label: 'Invoices',
         path: '/client/invoices',
         icon: FileText,
+        badgeKey: 'heldInvoices',
+        badgeTone: 'danger',
+      },
+      {
+        label: 'Needs attention',
+        path: '/client/attention',
+        icon: FileWarning,
         badgeKey: 'heldInvoices',
         badgeTone: 'danger',
       },

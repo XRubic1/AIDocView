@@ -37,7 +37,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (message: string, variant: ToastVariant = 'info') => {
       const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
       setToasts((prev) => [...prev, { id, message, variant }])
-      window.setTimeout(() => dismissToast(id), 5000)
+      window.setTimeout(() => dismissToast(id), variant === 'error' ? 14000 : 5000)
     },
     [dismissToast]
   )

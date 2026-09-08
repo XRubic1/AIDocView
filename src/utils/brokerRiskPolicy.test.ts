@@ -9,6 +9,7 @@ import {
   extractInvoiceNotesForRisk,
   buildBrokerIssueVerdict,
   localDateIso,
+  BROKER_RISK_POLICY,
 } from './brokerRiskPolicy'
 import {
   carrierVisibleRiskLevel,
@@ -244,6 +245,55 @@ describe('brokerRiskPolicy terms-aware', () => {
     expect(signals.open_overdue_past_terms).toBe(0)
   })
 
+  it('excludes hold and dispute invoices from overdue and avg pay', () => {
+    const holdInv = inv({
+      id: 'h1',
+      invoice_date: '2026-01-01',
+      status: 'hold',
+      hold_reason: 'Cargo claim',
+      due_date: '2026-01-31',
+      expected_payment_date: '2026-01-31',
+    })
+    const disputeInv = inv({
+      id: 'd1',
+      invoice_date: '2026-01-01',
+      status: 'approved',
+      due_date: '2026-01-31',
+      expected_payment_date: '2026-01-31',
+      disputes: [
+        {
+          id: 'ds1',
+          reason: 'claim',
+          description: 'Cargo claim',
+          status: 'open',
+          created_by: 'carrier',
+          created_at: '2026-02-01T00:00:00Z',
+        },
+      ],
+    })
+    const cleanInv = inv({
+      id: 'c1',
+      invoice_date: '2026-03-01',
+      status: 'paid',
+      due_date: '2026-03-31',
+    })
+    const signals = collectTermsPaymentSignals({
+      invoices: [holdInv, disputeInv, cleanInv],
+      payments: [pay({ id: 'p1', invoice_id: 'c1', received_date: '2026-03-20' })],
+      paymentTermsDays: 30,
+      asOf: new Date(2026, 3, 21),
+    })
+    expect(signals.hold_count).toBe(1)
+    expect(signals.open_dispute_count).toBe(1)
+    expect(signals.paused_open_count).toBe(2)
+    expect(signals.open_overdue_past_terms).toBe(0)
+    expect(signals.open_urgent_past_terms).toBe(0)
+    expect(signals.avg_days_invoice_to_pay).toBe(19)
+    expect(
+      evaluateRiskFromSignals({ hasWorked: true, signals, noteFlagCount: 0 }).computed_level
+    ).toBe('low')
+  })
+
   it('notes alone cannot set high without payment signals', () => {
     const signals = collectTermsPaymentSignals({
       invoices: [inv({ id: 'i1', invoice_date: '2026-01-01', status: 'paid' })],
@@ -394,6 +444,18 @@ describe('brokerRiskPolicy terms-aware', () => {
     })
     expect(noHistory.computed_level).toBe('medium')
     expect(noHistory.reasons.some((r) => /No confirmed payments/i.test(r))).toBe(true)
+
+    const relaxed = evaluateRiskFromSignals({
+      hasWorked: false,
+      signals,
+      noteFlagCount: 0,
+      isNewBroker: true,
+      policy: {
+        ...BROKER_RISK_POLICY,
+        new_broker_no_history_level: 'low',
+      },
+    })
+    expect(relaxed.computed_level).toBe('low')
   })
 })
 

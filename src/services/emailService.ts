@@ -14,6 +14,7 @@ export type EmailTemplate =
   | 'broker_payment_status_inquiry'
   | 'broker_payment_status_followup'
   | 'calendar_event_notice'
+  | 'carrier_document_issue'
 
 /** Attachment for Resend (base64 content). */
 export interface EmailAttachment {
@@ -28,6 +29,71 @@ export interface SendTransactionalEmailResult {
   ok: boolean
   error?: string
   stub?: boolean
+  id?: string
+}
+
+export interface SendTransactionalEmailOptions {
+  attachments?: EmailAttachment[]
+  /** Prefix subject with [TEST] so preview sends are obvious. */
+  isTest?: boolean
+  /** Admin-only: send unsaved editor HTML instead of the saved DB template. */
+  overrideSubject?: string
+  overrideHtml?: string
+}
+
+function friendlySendError(raw: string, stub?: boolean): string {
+  if (stub || /email not configured/i.test(raw)) {
+    return 'Email is not configured on this Supabase project. Add RESEND_API_KEY on Edge Function secrets for send-email, then deploy the function.'
+  }
+  if (/unknown template/i.test(raw)) {
+    return 'send-email on this project is out of date (missing the document-issue template). Deploy supabase/functions/send-email and try again.'
+  }
+  try {
+    const parsed = JSON.parse(raw) as { message?: string; error?: string }
+    if (parsed.message) return parsed.message
+    if (typeof parsed.error === 'string') return parsed.error
+  } catch {
+    /* not JSON */
+  }
+  return raw.length > 280 ? `${raw.slice(0, 280)}…` : raw
+}
+
+async function errorFromInvoke(
+  error: unknown,
+  result: unknown
+): Promise<{ message: string; stub?: boolean }> {
+  const payload = result as { ok?: boolean; error?: string; stub?: boolean; msg?: string } | null
+  if (payload?.stub || payload?.error === 'Email not configured') {
+    return { message: friendlySendError(payload.error ?? '', true), stub: true }
+  }
+  if (payload?.error) {
+    return { message: friendlySendError(payload.error, payload.stub), stub: payload.stub }
+  }
+
+  if (error && typeof error === 'object' && 'context' in error) {
+    const ctx = (error as { context?: unknown }).context
+    if (ctx && typeof ctx === 'object' && 'json' in ctx && typeof (ctx as Response).json === 'function') {
+      try {
+        const body = (await (ctx as Response).clone().json()) as {
+          error?: string
+          stub?: boolean
+          message?: string
+        }
+        if (body?.stub || body?.error === 'Email not configured') {
+          return { message: friendlySendError(body.error ?? '', true), stub: true }
+        }
+        if (body?.error) return { message: friendlySendError(body.error), stub: body.stub }
+        if (body?.message) return { message: friendlySendError(body.message) }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  if (error instanceof Error && error.message) {
+    return { message: friendlySendError(error.message) }
+  }
+  return { message: 'Send failed' }
 }
 
 /**
@@ -38,8 +104,12 @@ export async function sendTransactionalEmail(
   template: EmailTemplate,
   to: string,
   data: Record<string, string>,
-  attachments?: EmailAttachment[]
+  attachmentsOrOptions?: EmailAttachment[] | SendTransactionalEmailOptions
 ): Promise<SendTransactionalEmailResult> {
+  const options: SendTransactionalEmailOptions = Array.isArray(attachmentsOrOptions)
+    ? { attachments: attachmentsOrOptions }
+    : attachmentsOrOptions ?? {}
+
   try {
     const supabase = requireSupabase()
     const { data: result, error } = await supabase.functions.invoke('send-email', {
@@ -47,20 +117,24 @@ export async function sendTransactionalEmail(
         template,
         to,
         data,
-        ...(attachments?.length ? { attachments } : {}),
+        ...(options.attachments?.length ? { attachments: options.attachments } : {}),
+        ...(options.isTest ? { isTest: true } : {}),
+        ...(options.overrideSubject ? { overrideSubject: options.overrideSubject } : {}),
+        ...(options.overrideHtml ? { overrideHtml: options.overrideHtml } : {}),
       },
     })
-    if (error) return { ok: false, error: error.message }
 
-    const payload = result as { ok?: boolean; error?: string; stub?: boolean }
-    if (!payload?.ok) {
-      const message =
-        payload?.stub || payload?.error === 'Email not configured'
-          ? 'Email not configured (set RESEND_API_KEY on send-email)'
-          : payload?.error ?? 'Send failed'
-      return { ok: false, error: message, stub: Boolean(payload?.stub) }
+    if (error) {
+      const parsed = await errorFromInvoke(error, result)
+      return { ok: false, error: parsed.message, stub: parsed.stub }
     }
-    return { ok: true }
+
+    const payload = result as { ok?: boolean; error?: string; stub?: boolean; id?: string }
+    if (!payload?.ok) {
+      const parsed = await errorFromInvoke(null, payload)
+      return { ok: false, error: parsed.message, stub: parsed.stub || Boolean(payload?.stub) }
+    }
+    return { ok: true, id: payload.id }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Send failed' }
   }

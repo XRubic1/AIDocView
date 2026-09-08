@@ -23,7 +23,7 @@ import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
 import { getAllClients, getClientById } from '../services/clientRegistry'
 import { buildClientWorkSummaries } from '../utils/clientWorkQueue'
 import { useClientTheme } from '../theme/ThemeContext'
-import { getAgingArBucketKey, getInvoiceAgeDays } from '../utils/invoiceAging'
+import { getAgingArBucketKey, getInvoiceAgeDays, isOpenArInvoice } from '../utils/invoiceAging'
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
@@ -75,7 +75,7 @@ export default function AdminDashboard() {
   // Calculate total A/R
   const totalAR = useMemo(() => {
     return allInvoices
-      .filter(inv => inv.status !== 'hold' && inv.status !== 'pending' && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off')
+      .filter((inv) => isOpenArInvoice(inv))
       .reduce((sum, inv) => sum + inv.amount, 0)
   }, [allInvoices])
   
@@ -164,8 +164,8 @@ export default function AdminDashboard() {
     }
     
     allInvoices
-      .filter(inv => inv.status !== 'hold' && inv.status !== 'pending' && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off')
-      .forEach(inv => {
+      .filter((inv) => isOpenArInvoice(inv))
+      .forEach((inv) => {
         const bucket = getAgingArBucketKey(getInvoiceAgeDays(inv))
         aging[bucket] += inv.amount
         aging.total += inv.amount
@@ -186,7 +186,7 @@ export default function AdminDashboard() {
       
       const totalAR = allInvoices
         .filter(inv => {
-          if (inv.status === 'hold' || inv.status === 'pending' || inv.status === 'paid' || inv.status === 'force_closed' || inv.status === 'written_off') {
+          if (!isOpenArInvoice(inv)) {
             return false
           }
           const approvedDate = inv.approved_at ? new Date(inv.approved_at) : new Date(inv.created_at)

@@ -22,6 +22,7 @@ type EmailTemplate =
   | 'broker_payment_status_inquiry'
   | 'broker_payment_status_followup'
   | 'calendar_event_notice'
+  | 'carrier_document_issue'
 
 interface EmailAttachment {
   filename: string
@@ -35,6 +36,9 @@ interface SendEmailPayload {
   to: string
   data: Record<string, string>
   attachments?: EmailAttachment[]
+  isTest?: boolean
+  overrideSubject?: string
+  overrideHtml?: string
 }
 
 const PUBLIC_TEMPLATES = new Set<EmailTemplate>([
@@ -102,6 +106,35 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
 }
 
+function parseIssueLines(issueList: string): string[] {
+  return issueList
+    .split(/\n/)
+    .map((line) => line.replace(/^[-•*]\s*/, '').trim())
+    .filter(Boolean)
+}
+
+function buildIssueListHtml(issueList: string): string {
+  const items = parseIssueLines(issueList)
+  if (items.length === 0) {
+    return `<p style="margin:0;font-size:14px;color:#64748b;">No items listed yet.</p>`
+  }
+  return items
+    .map((item, index) => {
+      const border = index === items.length - 1 ? 'none' : '1px solid #e2e8f0'
+      return `<p style="margin:0;padding:8px 0;border-bottom:${border};font-size:14px;line-height:1.45;color:#0f172a;">
+  <span style="display:inline-block;width:8px;height:8px;border-radius:99px;background-color:#1684FE;margin-right:8px;vertical-align:middle;"></span>
+  ${escapeHtml(item)}
+</p>`
+    })
+    .join('')
+}
+
+function buildMessageHtml(message: string): string {
+  const trimmed = message.trim()
+  if (!trimmed) return ''
+  return `<p style="margin:12px 0 0 0;font-size:14px;line-height:1.55;color:#475569;white-space:pre-wrap;">${escapeHtml(trimmed)}</p>`
+}
+
 function renderTemplateString(template: string, data: Record<string, string>): string {
   return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
     const raw = data[key] ?? ''
@@ -114,6 +147,21 @@ function renderTemplateString(template: string, data: Record<string, string>): s
 
 function enrichData(template: EmailTemplate, data: Record<string, string>): Record<string, string> {
   const next = { ...data }
+
+  if (template === 'carrier_document_issue') {
+    next.issueListHtml = buildIssueListHtml(data.issueList ?? '')
+    next.messageHtml = buildMessageHtml(data.message ?? '')
+    if (!next.ctaLabel) next.ctaLabel = 'Upload documents'
+    if (!next.portalLink) {
+      const origin = 'https://app.credyx.net'
+      const inv = (next.invoiceNumber || '').trim()
+      next.portalLink = inv
+        ? `${origin}/client/attention?invoice=${encodeURIComponent(inv)}&upload=1`
+        : `${origin}/client/attention`
+    }
+    if (!next.clientName) next.clientName = 'Carrier'
+    if (!next.brokerName) next.brokerName = 'the broker'
+  }
 
   if (template === 'carrier_batch_processed') {
     const holdCount = Number(data.holdCount ?? '0')
@@ -319,6 +367,24 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
           d
         ),
       }
+    case 'carrier_document_issue':
+      return {
+        subject: renderTemplateString(
+          'Action needed — invoice {{invoiceNumber}} · Load {{loadNumber}}',
+          d
+        ),
+        html: renderTemplateString(
+          `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#0f172a;">
+  <p style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;">Document issue</p>
+  <h1 style="font-size:20px;margin:8px 0;">Action needed on invoice {{invoiceNumber}}</h1>
+  <p style="color:#475569;font-size:14px;">Hi {{contactName}} — paperwork for load {{loadNumber}} ({{brokerName}}) needs the items below.</p>
+  {{issueListHtml}}
+  {{messageHtml}}
+  <p><a href="{{portalLink}}" style="display:inline-block;background:#1684FE;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;">{{ctaLabel}}</a></p>
+</div>`,
+          d
+        ),
+      }
     default:
       throw new Error('Unknown template')
   }
@@ -326,9 +392,17 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
 
 async function resolveEmail(
   template: EmailTemplate,
-  data: Record<string, string>
+  data: Record<string, string>,
+  overrides?: { subject?: string; html?: string }
 ): Promise<{ subject: string; html: string }> {
   const enriched = enrichData(template, data)
+
+  if (overrides?.subject && overrides?.html) {
+    return {
+      subject: renderTemplateString(overrides.subject, enriched),
+      html: renderTemplateString(overrides.html, enriched),
+    }
+  }
 
   try {
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
@@ -359,6 +433,46 @@ function attachmentPayloadSize(attachments: EmailAttachment[] | undefined): numb
   return attachments.reduce((sum, a) => sum + (a.content?.length ?? 0) + (a.filename?.length ?? 0), 0)
 }
 
+/** Pull a readable message out of Resend’s JSON or plain-text error body. */
+function formatResendError(errText: string, fromAddress: string): string {
+  const trimmed = errText.trim()
+  let message = trimmed || 'Resend rejected the send'
+  try {
+    const parsed = JSON.parse(trimmed) as { message?: string; name?: string }
+    if (parsed.message) message = parsed.message
+  } catch {
+    /* plain text */
+  }
+
+  if (/not verified/i.test(message) || /domain mismatch/i.test(message)) {
+    return `Resend rejected From “${fromAddress}”. credyx.net must be Verified in Resend → Domains (DKIM/SPF). Until then, set RESEND_FROM_EMAIL back to Credyx <onboarding@resend.dev>.`
+  }
+  if (/only send testing emails to your own email/i.test(message)) {
+    return 'Resend is in test mode — it can only send to the email on your Resend account until credyx.net is verified.'
+  }
+  return `${message} (From: ${fromAddress})`
+}
+
+/** Plain-text sibling for HTML mail — improves inbox placement. */
+function htmlToText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\s+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+    .slice(0, 8000)
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -372,7 +486,7 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? '',
       { global: { headers: { Authorization: authHeader } } }
     )
 
@@ -408,10 +522,18 @@ Deno.serve(async (req) => {
         to: payload.to,
         attachmentCount: payload.attachments?.length ?? 0,
       })
-      return new Response(JSON.stringify({ ok: false, stub: true, error: 'Email not configured' }), {
-        status: 503,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          stub: true,
+          error:
+            'Email not configured. Set RESEND_API_KEY on the send-email function (Supabase → Edge Functions → Secrets).',
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
     }
 
     const size = attachmentPayloadSize(payload.attachments)
@@ -425,13 +547,21 @@ Deno.serve(async (req) => {
       )
     }
 
-    const { subject, html } = await resolveEmail(payload.template, payload.data ?? {})
+    const { subject, html } = await resolveEmail(
+      payload.template,
+      payload.data ?? {},
+      isAdmin && payload.overrideSubject && payload.overrideHtml
+        ? { subject: payload.overrideSubject, html: payload.overrideHtml }
+        : undefined
+    )
+    const finalSubject = payload.isTest ? `[TEST] ${subject}` : subject
 
     const resendBody: Record<string, unknown> = {
       from,
-      to: [payload.to],
-      subject,
+      to: [payload.to.trim()],
+      subject: finalSubject,
       html,
+      text: htmlToText(html),
     }
     if (replyTo) {
       resendBody.reply_to = replyTo
@@ -457,8 +587,8 @@ Deno.serve(async (req) => {
 
     if (!res.ok) {
       const errText = await res.text()
-      return new Response(JSON.stringify({ ok: false, error: errText }), {
-        status: res.status,
+      return new Response(JSON.stringify({ ok: false, error: formatResendError(errText, from) }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }

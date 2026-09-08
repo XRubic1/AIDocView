@@ -43,8 +43,10 @@ export function getInvoiceLifecycleStatusLabel(invoice: Invoice): string {
   if (status === 'force_closed') return 'Force closed'
   if (status === 'written_off' || status === 'write_off_pending') return 'Written off'
   if (status === 'rejected') return 'Rejected'
-  // Paperwork hold stays on Verified.
-  if (status === 'hold') return 'Verified'
+  // Paperwork hold stays on the stage already reached (Invoiced if PPW was sent).
+  if (status === 'hold') {
+    return hasPpwBeenSent(invoice) ? 'Invoiced' : 'Verified'
+  }
   // Invoiced once PPW went to the broker (receipt-dispute legacy hold counts as invoiced).
   if (hasPpwBeenSent(invoice) || receiptHold) return 'Invoiced'
   // Pending or approved without PPW — still on Verified.
@@ -55,7 +57,8 @@ export function getInvoiceLifecycleStatusLabel(invoice: Invoice): string {
  * Portal stepper: Submitted → Verified → Invoiced → Paid/Short paid.
  *
  * - Submitted: invoice packet received by Credyx
- * - Verified: in verification / approved; On Hold → Verified flashes red
+ * - Verified: in verification / approved; On Hold before PPW → Verified flashes red
+ * - Invoiced: PPW sent; On Hold after PPW → Invoiced flashes red (does not roll back)
  * - Invoiced: PPW sent to broker (open A/R stays here until paid)
  * - Paid: payment confirmed — or "Short paid" when partially short, or yellow "Confirm" when awaiting receipt
  */
@@ -141,8 +144,16 @@ export function getInvoiceLifecycleSteps(
     return labels.map((step) => ({ ...step, state: 'done' as const }))
   }
 
-  // On hold — stop on Verified (alert). No Invoiced until PPW is sent.
+  // On hold — flash the current stage red; do not roll Invoiced back to Verified.
   if (isHold) {
+    if (ppwSent) {
+      return [
+        { ...labels[0], state: 'done' },
+        { ...labels[1], state: 'done' },
+        { ...labels[2], state: 'hold' },
+        { ...labels[3], state: 'upcoming' },
+      ]
+    }
     return [
       { ...labels[0], state: 'done' },
       { ...labels[1], state: 'hold' },

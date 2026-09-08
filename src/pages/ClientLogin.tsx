@@ -1,14 +1,20 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { LogIn, Eye, EyeOff } from 'lucide-react'
 import { signInClientAuth, getCurrentSession, requestClientPasswordReset } from '../services/clientAuthService'
 import { fetchClientById } from '../services/clientRegistry'
+import { getSafeClientReturnPath } from '../utils/clientLoginRedirect'
 import '../styles/credyxAuth.css'
 
 export default function ClientLogin() {
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
   const sessionMessage = (location.state as { message?: string } | null)?.message
+  const returnPath = getSafeClientReturnPath(
+    searchParams.get('next'),
+    (location.state as { from?: string } | null)?.from
+  )
 
   useEffect(() => {
     void (async () => {
@@ -16,10 +22,10 @@ export default function ClientLogin() {
       if (session.principal !== 'client' || !session.clientId) return
       const client = await fetchClientById(session.clientId)
       if (client?.status === 'active') {
-        navigate('/client/dashboard', { replace: true })
+        navigate(returnPath, { replace: true })
       }
     })()
-  }, [navigate])
+  }, [navigate, returnPath])
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -66,7 +72,7 @@ export default function ClientLogin() {
         return
       }
 
-      navigate('/client/dashboard')
+      navigate(returnPath)
     } catch {
       setError('An error occurred during login. Please try again.')
     } finally {

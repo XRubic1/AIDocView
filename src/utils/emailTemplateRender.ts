@@ -2,6 +2,9 @@
  * Replace {{placeholders}} in a template string.
  * Values are HTML-escaped unless the key ends with Html (e.g. holdSection).
  */
+import { buildIssueListHtml, buildMessageHtml } from './carrierDocumentIssueEmail'
+import { buildCarrierAttentionUrl } from './carrierAttentionLink'
+
 export function renderEmailTemplateString(
   template: string,
   data: Record<string, string>
@@ -32,6 +35,21 @@ export function enrichEmailTemplateData(
   data: Record<string, string>
 ): Record<string, string> {
   const next = { ...data }
+
+  if (templateId === 'carrier_document_issue') {
+    next.issueListHtml = buildIssueListHtml(data.issueList ?? '')
+    next.messageHtml = buildMessageHtml(data.message ?? '')
+    if (!next.ctaLabel) next.ctaLabel = 'Upload documents'
+    if (!next.portalLink) {
+      next.portalLink = buildCarrierAttentionUrl(
+        next.invoiceNumber
+          ? { id: next.invoiceNumber, invoice_number: next.invoiceNumber }
+          : undefined
+      )
+    }
+    if (!next.clientName) next.clientName = 'Carrier'
+    if (!next.brokerName) next.brokerName = 'the broker'
+  }
 
   if (templateId === 'carrier_batch_processed') {
     const holdCount = Number(data.holdCount ?? '0')

@@ -12,6 +12,7 @@ import { generateInvoicePDFFile } from '../../utils/generateInvoicePDF'
 import { addBatchFile, getBatchFile } from '../../data/batchFileStore'
 import { updateInvoice, getInvoiceById, updateInvoiceAsync } from '../../data/mockInvoices'
 import { sendBrokerPacketForInvoice } from '../../utils/paperworkSender'
+import SendCarrierIssueEmailModal from '../admin/SendCarrierIssueEmailModal'
 import { useAuth } from '../../context/AuthContext'
 import { getAdminUserDisplayName } from '../../config/adminNav'
 import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
@@ -101,6 +102,7 @@ export default function AdminInvoiceDetailView({
   
   const [showContactBrokerModal, setShowContactBrokerModal] = useState(false)
   const [showContactCarrierModal, setShowContactCarrierModal] = useState(false)
+  const [showCarrierIssueEmailModal, setShowCarrierIssueEmailModal] = useState(false)
   const [currentDocumentIndex, setCurrentDocumentIndex] = useState(0)
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [emailRecipient, setEmailRecipient] = useState('')
@@ -753,17 +755,21 @@ export default function AdminInvoiceDetailView({
       showToast('Please select at least one invoice', 'error')
       return
     }
-    
+
+    const reason = window
+      .prompt('Hold reason (the carrier will see this — e.g. missing POD, load issue)')
+      ?.trim()
+    if (!reason) return
+
     const selectedInvoices = invoiceList!.filter(inv => selectedInvoiceIds.has(inv.id))
-    
+
     selectedInvoices.forEach((inv) => {
-      holdAdminInvoice(inv.id)
+      holdAdminInvoice(inv.id, reason)
       onHold?.(inv.id)
     })
-    
-    console.log(`Placed ${selectedInvoices.length} invoice(s) on hold`)
+
+    showToast(`Placed ${selectedInvoices.length} invoice(s) on hold`, 'success')
     setSelectedInvoiceIds(new Set())
-    // In real implementation, this would save to the backend
   }
 
   const handleBulkPostCollectionInfo = () => {
@@ -1156,7 +1162,11 @@ export default function AdminInvoiceDetailView({
       return
     }
     if (inv.status === 'approved') {
-      holdAdminInvoice(inv.id)
+      const reason = window
+        .prompt('Hold reason (the carrier will see this — e.g. missing POD, load issue)')
+        ?.trim()
+      if (!reason) return
+      holdAdminInvoice(inv.id, reason)
       onHold?.(inv.id)
       setRefreshKey((k) => k + 1)
       if (currentInvoice?.id === inv.id) {
@@ -1656,6 +1666,23 @@ export default function AdminInvoiceDetailView({
                     <span>Contact Carrier</span>
                   </button>
                 )}
+                {client?.email && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCarrierIssueEmailModal(true)}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-white transition-colors"
+                    style={{ backgroundColor: '#1684FE' }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#0d6fe0'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#1684FE'
+                    }}
+                  >
+                    <Mail className="w-3 h-3" />
+                    <span>Email carrier</span>
+                  </button>
+                )}
                 {stage !== 'ready_to_post' && onApprove && (
                   <button
                     onClick={() => {
@@ -1689,7 +1716,13 @@ export default function AdminInvoiceDetailView({
                 {stage !== 'ready_to_post' && onHold && (
                   <button
                     onClick={() => {
-                      const updated = holdAdminInvoice(activeInvoice.id)
+                      const reason = window
+                        .prompt(
+                          'Hold reason (the carrier will see this — e.g. missing POD, load issue)'
+                        )
+                        ?.trim()
+                      if (!reason) return
+                      const updated = holdAdminInvoice(activeInvoice.id, reason)
                       onHold?.(activeInvoice.id)
                       if (updated) {
                         setCurrentInvoice(updated)
@@ -3248,19 +3281,17 @@ export default function AdminInvoiceDetailView({
                           </div>
                         </div>
                       </div>
-                      <a
-                        href={`mailto:${client.email}${activeInvoice.invoice_number ? `?subject=Invoice ${activeInvoice.invoice_number}` : ''}`}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowContactCarrierModal(false)
+                          setShowCarrierIssueEmailModal(true)
+                        }}
                         className="px-4 py-2 text-sm font-medium text-white transition-colors"
-                        style={{ backgroundColor: '#C2A558' }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#b89547'
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = '#C2A558'
-                        }}
+                        style={{ backgroundColor: '#1684FE' }}
                       >
-                        Email
-                      </a>
+                        Send email
+                      </button>
                     </div>
                   )}
 
@@ -3290,6 +3321,15 @@ export default function AdminInvoiceDetailView({
             </div>
           </div>
         </div>
+      )}
+
+      {showCarrierIssueEmailModal && client && (
+        <SendCarrierIssueEmailModal
+          onClose={() => setShowCarrierIssueEmailModal(false)}
+          invoice={activeInvoice}
+          client={client}
+          defaultTo={client.email ?? ''}
+        />
       )}
 
       {/* Send Email Modal */}

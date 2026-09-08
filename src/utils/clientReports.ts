@@ -12,6 +12,7 @@ import {
 } from './invoiceAging'
 import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from './paymentVariance'
 import { collectTermsPaymentSignals } from './brokerRiskPolicy'
+import { classifyBrokerInvoicePayClocks } from './brokerInvoicePayClock'
 
 /** Open balance for aging — uses provided payments or the in-memory store. */
 function openArBalance(invoice: Invoice, payments?: Payment[]): number {
@@ -270,20 +271,21 @@ export function computeBrokerScores(
         )
         .reduce((s, p) => s + p.amount, 0)
 
+      const open = openByBroker.get(broker_name)
+      const brokerInvoices = invoices.filter((i) => i.broker_name === broker_name)
+      const brokerPayments = payments.filter((p) => p.broker_name === broker_name)
+      const clocks = classifyBrokerInvoicePayClocks(brokerInvoices, brokerPayments)
       const paidPayments = payments.filter(
         (p) => p.broker_name === broker_name && p.status === 'confirmed'
       )
       const lagDays: number[] = []
       for (const p of paidPayments) {
         const inv = invoiceById.get(p.invoice_id)
+        if (clocks.get(p.invoice_id)?.paused) continue
         if (inv?.expected_payment_date) {
           lagDays.push(daysBetween(inv.expected_payment_date, p.received_date))
         }
       }
-
-      const open = openByBroker.get(broker_name)
-      const brokerInvoices = invoices.filter((i) => i.broker_name === broker_name)
-      const brokerPayments = payments.filter((p) => p.broker_name === broker_name)
       const terms = termsByBrokerName?.[broker_name]
       const termsSignals = collectTermsPaymentSignals({
         invoices: brokerInvoices,

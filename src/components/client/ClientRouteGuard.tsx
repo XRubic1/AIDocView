@@ -8,6 +8,7 @@ import { clearClientSession } from '../../utils/clearClientSession'
 import { getBillingStanding } from '../../services/arBillingService'
 import { updateClient } from '../../services/clientRegistry'
 import PageLoader from '../ui/PageLoader'
+import { clientLoginPathWithReturn } from '../../utils/clientLoginRedirect'
 
 interface ClientRouteGuardProps {
   children: React.ReactNode
@@ -52,9 +53,9 @@ export default function ClientRouteGuard({ children }: ClientRouteGuardProps) {
     }
     return (
       <Navigate
-        to="/client/login"
+        to={clientLoginPathWithReturn(`${location.pathname}${location.search}`)}
         state={{
-          from: location.pathname,
+          from: `${location.pathname}${location.search}`,
           message:
             isAuthenticated && !client
               ? 'Your session is no longer valid. Please sign in again.'

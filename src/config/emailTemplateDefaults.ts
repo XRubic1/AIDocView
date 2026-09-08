@@ -1,4 +1,8 @@
-import { BROKER_PACKET_BODY_HTML, BROKER_REMITTANCE_UPDATED_BODY_HTML } from './emailLayouts'
+import {
+  BROKER_PACKET_BODY_HTML,
+  BROKER_REMITTANCE_UPDATED_BODY_HTML,
+  CARRIER_DOCUMENT_ISSUE_BODY_HTML,
+} from './emailLayouts'
 
 /**
  * Default transactional email templates (subject + HTML body).
@@ -18,6 +22,7 @@ export type EmailTemplateId =
   | 'broker_payment_status_inquiry'
   | 'broker_payment_status_followup'
   | 'calendar_event_notice'
+  | 'carrier_document_issue'
 
 export interface EmailTemplateDefinition {
   id: EmailTemplateId
@@ -51,6 +56,17 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
     placeholders: 'companyLogoHtml, carrierName, effectiveDate, message, brokerName',
     subject: 'Remittance updated — {{carrierName}}',
     body_html: BROKER_REMITTANCE_UPDATED_BODY_HTML,
+  },
+  {
+    id: 'carrier_document_issue',
+    name: 'Carrier — document issue',
+    description:
+      'Sent from the admin dashboard when paperwork is missing or unclear. Edit the layout here; fill issues when sending.',
+    audience: 'carrier',
+    placeholders:
+      'companyLogoHtml, contactName, clientName, invoiceNumber, loadNumber, brokerName, issueList, issueListHtml, message, messageHtml, portalLink, ctaLabel',
+    subject: 'Action needed — invoice {{invoiceNumber}} · Load {{loadNumber}}',
+    body_html: CARRIER_DOCUMENT_ISSUE_BODY_HTML,
   },
   {
     id: 'carrier_batch_processed',

@@ -41,9 +41,9 @@ export interface EnrichedInvoice extends Invoice {
   displayStatus: InvoiceDisplayStatus
 }
 
-/** Approved open A/R — excludes paid and force closed. */
+/** Open A/R — approved or on hold (hold is a status, not a closed invoice). */
 export function isOpenArInvoice(invoice: Invoice): boolean {
-  return invoice.status === 'approved'
+  return invoice.status === 'approved' || invoice.status === 'hold'
 }
 
 /** Paid, written-off, or force-closed — still eligible for over/short posts. */
@@ -162,7 +162,7 @@ export function getDaysOutstanding(invoice: Invoice, asOf: Date = new Date()): n
   return 0
 }
 
-/** Overdue = approved open A/R, 15+ days past expected payment date (payment terms). */
+/** Overdue = open A/R (including hold), 15+ days past expected payment date. */
 export function isInvoiceOverdue(invoice: Invoice, asOf: Date = new Date()): boolean {
   if (!isOpenArInvoice(invoice)) return false
   return getDaysOutstanding(invoice, asOf) >= AR_POLICY.collectionsOverdueDays
@@ -242,7 +242,8 @@ export function enrichInvoice(
   const overdueSeverity = getOverdueSeverity(daysOutstanding, isOverdue, hasForceClose)
 
   let displayStatus: InvoiceDisplayStatus = withLiveDue.status
-  if (isOverdue) {
+  // Hold stays hold even when aging past due — overdue is tracked via isOverdue.
+  if (isOverdue && withLiveDue.status !== 'hold') {
     displayStatus = 'overdue'
   }
 

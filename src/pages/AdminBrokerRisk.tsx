@@ -30,7 +30,11 @@ import {
   saveBrokerRiskReviewNote,
 } from '../services/brokerRiskService'
 import { runNetworkBrokerRiskAnalysis } from '../services/runNetworkBrokerRiskAnalysis'
-import { getClientById } from '../services/clientRegistry'
+import AdminBrokerPaymentInsight from '../components/admin/AdminBrokerPaymentInsight'
+import {
+  groupAdminBrokerRiskProfiles,
+  mergeAdminBrokerRiskMetrics,
+} from '../utils/groupAdminBrokerRisk'
 import type { BrokerRiskLevel, BrokerRiskProfile, BrokerRiskReviewStatus } from '../types/brokerRisk'
 import type { Invoice } from '../types/invoice'
 import { useClientTheme } from '../theme/ThemeContext'
@@ -52,10 +56,16 @@ import { isOpenArInvoice } from '../utils/invoiceAging'
 import {
   collectBrokerDisputes,
 } from '../utils/brokerRiskDisputes'
+import { classifyBrokerInvoicePayClocks } from '../utils/brokerInvoicePayClock'
 import {
   buildBrokerPaymentTiming,
   formatPaymentTimingPublishNote,
 } from '../utils/brokerPaymentTiming'
+import {
+  computeBrokerPaymentHistory,
+  fillMonthSeries,
+  formatBrokerMonthLabel,
+} from '../utils/brokerPaymentHistory'
 import '../styles/adminBrokerRisk.css'
 
 /** Needs review first (urgent), then published / auto / cleared. */
@@ -134,12 +144,13 @@ export default function AdminBrokerRisk() {
   const reviewer = getAdminUserDisplayName(resolved.user?.email ?? null)
   const tenantRevision = useTenantDataRevision()
 
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedBrokerId, setSelectedBrokerId] = useState<string | null>(null)
   const [reviewNote, setReviewNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [tick, setTick] = useState(0)
   const [notesOnly, setNotesOnly] = useState(false)
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null)
+  const [workspace, setWorkspace] = useState<'review' | 'insight'>('review')
 
   const rows = useMemo(() => {
     void tenantRevision
@@ -156,13 +167,16 @@ export default function AdminBrokerRisk() {
     })
   }, [tenantRevision, tick])
 
+  const groups = useMemo(() => groupAdminBrokerRiskProfiles(rows), [rows])
+
   const needsReviewCount = useMemo(
-    () => rows.filter((p) => p.review_status === 'pending_review').length,
-    [rows]
+    () => groups.filter((g) => g.needsReviewCount > 0).length,
+    [groups]
   )
 
-  const selected: BrokerRiskProfile | null =
-    rows.find((r) => r.id === selectedId) ?? rows[0] ?? null
+  const selectedGroup =
+    groups.find((g) => g.brokerId === selectedBrokerId) ?? groups[0] ?? null
+  const selected: BrokerRiskProfile | null = selectedGroup?.representative ?? null
 
   /** Catalog broker — resolve by id, then name slug used by risk profiles. */
   const broker = useMemo(() => {
@@ -177,7 +191,6 @@ export default function AdminBrokerRisk() {
     }
     return undefined
   }, [selected, tick, tenantRevision])
-  const client = selected ? getClientById(selected.client_id) : undefined
 
   // Prefill review note when switching brokers (published / cleared / pending).
   useEffect(() => {
@@ -197,10 +210,9 @@ export default function AdminBrokerRisk() {
     return mockInvoices
       .filter(
         (inv) =>
-          inv.client_id === selected.client_id &&
-          (inv.broker_id === selected.broker_id ||
-            inv.broker_name === broker?.name ||
-            (!broker && inv.broker_id === selected.broker_id))
+          inv.broker_id === selected.broker_id ||
+          inv.broker_name === broker?.name ||
+          (!broker && inv.broker_id === selected.broker_id)
       )
       .sort((a, b) => Date.parse(b.invoice_date) - Date.parse(a.invoice_date))
   }, [selected, broker?.name, tick])
@@ -222,6 +234,11 @@ export default function AdminBrokerRisk() {
     [brokerDisputes]
   )
 
+  const payClocks = useMemo(
+    () => classifyBrokerInvoicePayClocks(brokerInvoices, brokerPayments),
+    [brokerInvoices, brokerPayments]
+  )
+
   /** Net terms vs actual average payment — primary timing insight for review. */
   const paymentTiming = useMemo(() => {
     if (!selected) return null
@@ -236,6 +253,7 @@ export default function AdminBrokerRisk() {
               if (p.status !== 'confirmed') continue
               const inv = invoiceById.get(p.invoice_id)
               if (!inv) continue
+              if (payClocks.get(inv.id)?.paused) continue
               const from = (inv.invoice_date || '').slice(0, 10)
               const to = (p.received_date || '').slice(0, 10)
               if (!from || !to) continue
@@ -265,8 +283,24 @@ export default function AdminBrokerRisk() {
     broker?.payment_terms_days,
     brokerInvoices,
     brokerPayments,
+    payClocks,
     tick,
   ])
+
+  const paymentHistory = useMemo(() => {
+    if (!selected) return null
+    void tick
+    return computeBrokerPaymentHistory(selected.broker_id, brokerPayments, brokerInvoices, {
+      paymentTermsDays:
+        selected.metrics.payment_terms_days ?? broker?.payment_terms_days ?? null,
+      brokerName: broker?.name ?? null,
+    })
+  }, [selected, broker?.name, broker?.payment_terms_days, brokerInvoices, brokerPayments, tick])
+
+  const historyMonths = useMemo(
+    () => (paymentHistory ? fillMonthSeries(paymentHistory.months, 12) : []),
+    [paymentHistory]
+  )
 
   /** Carrier-visible published level — used to disable redundant Rate / Set High. */
   const publishedRiskLevel = selected?.risk_level
@@ -282,7 +316,9 @@ export default function AdminBrokerRisk() {
   const liveCauses = useMemo(() => {
     if (!selected) return null
     void tick
-    const carrierNotes = getBrokerNotes(selected.client_id, selected.broker_id)
+    const carrierNotes = (selectedGroup?.profiles ?? []).flatMap((p) =>
+      getBrokerNotes(p.client_id, p.broker_id)
+    )
     const invoiceNotes = extractInvoiceNotesForRisk(brokerInvoices)
     // Fold structured disputes into problem notes (same list — no separate section).
     // Skip invoices that already have a dispute note so we don't double up.
@@ -303,18 +339,23 @@ export default function AdminBrokerRisk() {
       ...invoiceNotes,
       ...disputeAsNotes,
     ])
-  }, [selected, broker?.notes, brokerInvoices, openBrokerDisputes, tick])
+  }, [selected, selectedGroup, broker?.notes, brokerInvoices, openBrokerDisputes, tick])
+
+  const groupMetrics = useMemo(
+    () => mergeAdminBrokerRiskMetrics(selectedGroup?.profiles ?? []),
+    [selectedGroup]
+  )
 
   const verdict = useMemo(() => {
     if (!selected || !liveCauses) return null
     return buildBrokerIssueVerdict({
       computedLevel: selected.computed_risk_level,
       delayCauses: liveCauses,
-      latePaymentCount: selected.metrics.late_payment_count,
-      openPastTerms: selected.metrics.open_overdue_past_terms,
-      suggestClearAsPpw: selected.metrics.suggest_clear_as_ppw,
+      latePaymentCount: groupMetrics.late_payment_count,
+      openPastTerms: groupMetrics.open_overdue_past_terms,
+      suggestClearAsPpw: groupMetrics.suggest_clear_as_ppw,
     })
-  }, [selected, liveCauses])
+  }, [selected, liveCauses, groupMetrics])
 
   const visibleInvoices = useMemo(() => {
     const filtered = !notesOnly
@@ -337,9 +378,13 @@ export default function AdminBrokerRisk() {
       BROKER_RISK_POLICY.fallback_terms_days
     const asOf = localDateIso()
 
-    // Past-terms / urgent open invoices first so reviewers see them immediately.
+    // Holds/disputes first (marked, not treated as broker late), then true past-terms.
     return [...filtered].sort((a, b) => {
+      const pausedA = payClocks.get(a.id)?.paused ? 1 : 0
+      const pausedB = payClocks.get(b.id)?.paused ? 1 : 0
+      if (pausedA !== pausedB) return pausedB - pausedA
       const pastDays = (inv: Invoice) => {
+        if (payClocks.get(inv.id)?.paused) return -1
         if (!isOpenArInvoice(inv)) return -1
         const submitted = (inv.created_at || inv.invoice_date || asOf).slice(0, 10)
         const age = Math.max(0, daysBetweenDates(submitted, asOf))
@@ -364,6 +409,7 @@ export default function AdminBrokerRisk() {
     notesOnly,
     selected?.metrics.payment_terms_days,
     broker?.payment_terms_days,
+    payClocks,
   ])
 
   /** Broker Net terms used for past-due / age labels. */
@@ -418,6 +464,18 @@ export default function AdminBrokerRisk() {
     }
   }
 
+  const applyToSelectedBroker = async (
+    fn: (profile: BrokerRiskProfile) => Promise<BrokerRiskProfile | null>
+  ): Promise<boolean> => {
+    const profiles = selectedGroup?.profiles ?? []
+    if (profiles.length === 0) return false
+    for (const profile of profiles) {
+      const updated = await fn(profile)
+      if (!updated) return false
+    }
+    return true
+  }
+
   const handlePublish = async (level: BrokerRiskLevel, note?: string) => {
     if (!selected) return
     // Always push Net vs actual timing into the carrier-visible review note when missing.
@@ -436,19 +494,21 @@ export default function AdminBrokerRisk() {
         ? `${finalNote} ${timingLine}`
         : finalNote
     try {
-      const updated = await publishBrokerRisk({
-        clientId: selected.client_id,
-        brokerId: selected.broker_id,
-        riskLevel: level,
-        reviewNote: withTiming || undefined,
-        reviewedBy: reviewer,
-      })
-      if (!updated) {
+      const ok = await applyToSelectedBroker((profile) =>
+        publishBrokerRisk({
+          clientId: profile.client_id,
+          brokerId: profile.broker_id,
+          riskLevel: level,
+          reviewNote: withTiming || undefined,
+          reviewedBy: reviewer,
+        })
+      )
+      if (!ok) {
         showToast('Could not publish risk profile', 'error')
         return
       }
       setReviewNote('')
-      setSelectedId(updated.id)
+      setSelectedBrokerId(selected.broker_id)
       setTick((t) => t + 1)
       showToast(`Published ${levelLabel(level)} risk to carrier`, 'success')
     } catch (err) {
@@ -462,18 +522,20 @@ export default function AdminBrokerRisk() {
       (note ?? reviewNote).trim() ||
       'Cleared after Credyx review — not treated as broker risk.'
     try {
-      const updated = await clearBrokerRisk({
-        clientId: selected.client_id,
-        brokerId: selected.broker_id,
-        reviewNote: finalNote,
-        reviewedBy: reviewer,
-      })
-      if (!updated) {
+      const ok = await applyToSelectedBroker((profile) =>
+        clearBrokerRisk({
+          clientId: profile.client_id,
+          brokerId: profile.broker_id,
+          reviewNote: finalNote,
+          reviewedBy: reviewer,
+        })
+      )
+      if (!ok) {
         showToast('Could not clear risk profile', 'error')
         return
       }
       setReviewNote('')
-      setSelectedId(updated.id)
+      setSelectedBrokerId(selected.broker_id)
       setTick((t) => t + 1)
       showToast('Removed from risk — carrier no longer sees elevated risk', 'success')
     } catch (err) {
@@ -506,17 +568,19 @@ export default function AdminBrokerRisk() {
       return
     }
     try {
-      const updated = await saveBrokerRiskReviewNote({
-        clientId: selected.client_id,
-        brokerId: selected.broker_id,
-        reviewNote: note,
-        reviewedBy: reviewer,
-      })
-      if (!updated) {
+      const ok = await applyToSelectedBroker((profile) =>
+        saveBrokerRiskReviewNote({
+          clientId: profile.client_id,
+          brokerId: profile.broker_id,
+          reviewNote: note,
+          reviewedBy: reviewer,
+        })
+      )
+      if (!ok) {
         showToast('Could not save note', 'error')
         return
       }
-      setSelectedId(updated.id)
+      setSelectedBrokerId(selected.broker_id)
       setTick((t) => t + 1)
       showToast('Note saved', 'success')
     } catch (err) {
@@ -537,15 +601,38 @@ export default function AdminBrokerRisk() {
             <div>
               <h1 style={{ color: c.primary }}>Broker Risk</h1>
               <p style={{ color: c.secondary }}>
-                Review at {BROKER_RISK_POLICY.medium_single_late_days}d past Net · Urgent at{' '}
-                {BROKER_RISK_POLICY.high_single_late_days}d
+                {workspace === 'insight'
+                  ? 'Confirmed payments across all carriers, month by month'
+                  : `Review at ${BROKER_RISK_POLICY.medium_single_late_days}d past Net · Urgent at ${BROKER_RISK_POLICY.high_single_late_days}d · updates as payments post`}
               </p>
             </div>
           </div>
 
           <div className="admin-broker-risk__top-right">
+            <div className="admin-broker-risk__tabs" role="tablist" aria-label="Broker risk views">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={workspace === 'review'}
+                className={`admin-broker-risk__tab${workspace === 'review' ? ' is-on' : ''}`}
+                onClick={() => setWorkspace('review')}
+              >
+                Review
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={workspace === 'insight'}
+                className={`admin-broker-risk__tab${workspace === 'insight' ? ' is-on' : ''}`}
+                onClick={() => setWorkspace('insight')}
+              >
+                Payment insight
+              </button>
+            </div>
+            {workspace === 'review' ? (
+              <>
             <p className="admin-broker-risk__queue-summary" style={{ color: c.secondary }}>
-              {rows.length} broker{rows.length === 1 ? '' : 's'}
+              {groups.length} broker{groups.length === 1 ? '' : 's'}
               {needsReviewCount > 0 ? ` · ${needsReviewCount} need review` : ''}
             </p>
             <button
@@ -557,32 +644,43 @@ export default function AdminBrokerRisk() {
               <RefreshCw className={`w-3.5 h-3.5 ${busy ? 'animate-spin' : ''}`} />
               Run analysis
             </button>
+              </>
+            ) : (
+              <p className="admin-broker-risk__queue-summary" style={{ color: c.secondary }}>
+                {mockInvoices.length === 0
+                  ? 'No invoice data yet'
+                  : 'Live from posted payments'}
+              </p>
+            )}
           </div>
         </header>
 
+        {workspace === 'insight' ? (
+          <AdminBrokerPaymentInsight />
+        ) : (
         <div className="admin-broker-risk__workspace">
           <section className="admin-broker-risk__queue" aria-label="Broker queue">
-            {rows.length === 0 ? (
+            {groups.length === 0 ? (
               <p className="admin-broker-risk__empty" style={{ color: c.secondary }}>
                 No broker risk profiles yet. Run analysis to refresh.
               </p>
             ) : (
               <ul className="admin-broker-risk__queue-list">
-                {rows.map((row) => {
+                {groups.map((group) => {
+                  const row = group.representative
                   const b = mockBrokers.find((x) => x.id === row.broker_id)
-                  const cl = getClientById(row.client_id)
-                  const active = selected?.id === row.id
-                  const needsReview = row.review_status === 'pending_review'
+                  const active = selectedGroup?.brokerId === group.brokerId
+                  const needsReview = group.needsReviewCount > 0
                   const urgent = needsReview && row.computed_risk_level === 'high'
                   return (
-                    <li key={row.id}>
+                    <li key={group.brokerId}>
                       <button
                         type="button"
                         className={`admin-broker-risk__row${active ? ' is-active' : ''}${
                           needsReview ? ' is-urgent' : ''
                         }`}
                         onClick={() => {
-                          setSelectedId(row.id)
+                          setSelectedBrokerId(group.brokerId)
                           setNotesOnly(false)
                           setExpandedInvoiceId(null)
                         }}
@@ -605,7 +703,7 @@ export default function AdminBrokerRisk() {
                           </span>
                         </div>
                         <div className="admin-broker-risk__row-meta" style={{ color: c.secondary }}>
-                          {cl?.name ?? row.client_id}
+                          {group.carrierCount} carrier{group.carrierCount === 1 ? '' : 's'}
                           {(() => {
                             const timing = buildBrokerPaymentTiming({
                               paymentTermsDays: row.metrics.payment_terms_days,
@@ -622,6 +720,10 @@ export default function AdminBrokerRisk() {
                           })()}
                           {row.metrics.max_days_past_terms != null
                             ? ` · worst ${row.metrics.max_days_past_terms}d past`
+                            : ''}
+                          {(row.metrics.hold_count ?? 0) > 0 ||
+                          (row.metrics.open_dispute_count ?? 0) > 0
+                            ? ` · ${row.metrics.hold_count ?? 0} hold / ${row.metrics.open_dispute_count ?? 0} dispute`
                             : ''}
                         </div>
                       </button>
@@ -645,10 +747,12 @@ export default function AdminBrokerRisk() {
                       {broker?.name ?? selected.broker_id}
                     </h2>
                     <p style={{ color: c.secondary }}>
-                      {client?.name ?? selected.client_id}
-                      {selected.mc_number ? ` · ${selected.mc_number}` : ''}
+                      {selected.mc_number ? `${selected.mc_number} · ` : ''}
+                      {selectedGroup && selectedGroup.carrierCount > 1
+                        ? `${selectedGroup.carrierCount} carriers · `
+                        : ''}
                       {selected.metrics.payment_terms_days != null
-                        ? ` · Net ${selected.metrics.payment_terms_days}`
+                        ? `Net ${selected.metrics.payment_terms_days}`
                         : ''}
                       {' · '}
                       {statusLabel(selected.review_status)}
@@ -684,7 +788,7 @@ export default function AdminBrokerRisk() {
                     <BrokerRiskAuditTimeline
                       brokerId={broker?.id ?? selected.broker_id}
                       brokerName={broker?.name ?? selected.broker_id}
-                      clientId={selected.client_id}
+                      clientId={undefined}
                       profile={selected}
                       refreshKey={tick}
                       asButton
@@ -737,7 +841,8 @@ export default function AdminBrokerRisk() {
                       ) : null}
                     </div>
                     <p className="admin-broker-risk__timing-hint">
-                      Publishing Medium/High pushes this timing to the carrier portal.
+                      Avg pay excludes invoices on hold or in dispute. Publishing Medium/High
+                      pushes clean timing to the carrier portal.
                     </p>
                   </div>
                 ) : (
@@ -750,12 +855,55 @@ export default function AdminBrokerRisk() {
                         broker?.payment_terms_days ??
                         BROKER_RISK_POLICY.fallback_terms_days}
                       d terms
-                      {selected.metrics.paid_sample_size != null
-                        ? ` (have ${selected.metrics.paid_sample_size}).`
+                      {groupMetrics.paid_sample_size
+                        ? ` (have ${groupMetrics.paid_sample_size}).`
                         : '.'}
                     </p>
                   </div>
                 )}
+
+                {paymentHistory && paymentHistory.lifetimeCount > 0 ? (
+                  <div className="admin-broker-risk__timing">
+                    <p className="admin-broker-risk__timing-title">Payment over months</p>
+                    <p className="admin-broker-risk__timing-summary">
+                      {formatCurrency(paymentHistory.lifetimePaid)} confirmed ·{' '}
+                      {paymentHistory.lifetimeCount} payments
+                      {paymentHistory.onTimeRate != null
+                        ? ` · ${paymentHistory.onTimeRate}% on time vs Net`
+                        : ''}
+                      {paymentHistory.pausedInvoiceCount > 0
+                        ? ` · ${paymentHistory.pausedInvoiceCount} on hold/dispute (not in avg)`
+                        : ''}
+                    </p>
+                    <div className="admin-broker-risk__month-chart" aria-label="Paid by month">
+                      {[...historyMonths].reverse().map((m) => {
+                        const max = Math.max(1, ...historyMonths.map((x) => x.paidAmount))
+                        const height = Math.round((m.paidAmount / max) * 100)
+                        return (
+                          <div
+                            key={m.month}
+                            className="admin-broker-risk__month-col"
+                            title={`${formatBrokerMonthLabel(m.month)}: ${formatCurrency(m.paidAmount)}`}
+                          >
+                            <div
+                              className="admin-broker-risk__month-track"
+                              style={{ backgroundColor: c.stat.slate }}
+                            >
+                              <div
+                                className="admin-broker-risk__month-bar"
+                                style={{
+                                  height: `${height}%`,
+                                  backgroundColor: c.info,
+                                }}
+                              />
+                            </div>
+                            <span className="admin-broker-risk__month-tick">{m.month.slice(5)}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="admin-broker-risk__facts">
                   <div>
@@ -765,27 +913,24 @@ export default function AdminBrokerRisk() {
                   <div>
                     <span>Late payments</span>
                     <strong>
-                      {selected.metrics.late_payment_count}
-                      {selected.metrics.max_days_past_terms != null
-                        ? ` · worst ${selected.metrics.max_days_past_terms}d`
+                      {groupMetrics.late_payment_count}
+                      {groupMetrics.max_days_past_terms != null
+                        ? ` · worst ${groupMetrics.max_days_past_terms}d`
                         : ''}
                     </strong>
                   </div>
                   <div>
                     <span>Open past terms</span>
                     <strong>
-                      {selected.metrics.open_overdue_past_terms} ·{' '}
-                      {formatCurrency(selected.metrics.overdue_amount)}
+                      {groupMetrics.open_overdue_past_terms} ·{' '}
+                      {formatCurrency(groupMetrics.overdue_amount)}
                     </strong>
                   </div>
                   <div>
-                    <span>Disputes</span>
+                    <span>Hold / dispute</span>
                     <strong>
-                      {openBrokerDisputes.length > 0
-                        ? `${openBrokerDisputes.length} open`
-                        : brokerDisputes.length > 0
-                          ? `${brokerDisputes.length} closed`
-                          : 'None'}
+                      {groupMetrics.hold_count} hold ·{' '}
+                      {groupMetrics.open_dispute_count || openBrokerDisputes.length} dispute
                     </strong>
                   </div>
                 </div>
@@ -880,6 +1025,7 @@ export default function AdminBrokerRisk() {
                             (inv.collection_status === 'W/P' ? 1 : 0)
                           const open = expandedInvoiceId === inv.id
                           const meta = invoiceTermsMeta(inv)
+                          const clock = payClocks.get(inv.id)
                           const statusLabel =
                             inv.collection_status === 'W/P'
                               ? `${inv.status} · W/P`
@@ -888,7 +1034,9 @@ export default function AdminBrokerRisk() {
                             <li
                               key={inv.id}
                               className={`admin-broker-risk__invoice-row${
-                                meta.pastTermsUrgent
+                                clock?.paused
+                                  ? ' is-paused'
+                                  : meta.pastTermsUrgent
                                   ? ' is-urgent-past'
                                   : meta.pastTermsReview
                                     ? ' is-past-terms'
@@ -907,6 +1055,11 @@ export default function AdminBrokerRisk() {
                                   style={{ color: c.primary }}
                                 >
                                   #{inv.invoice_number}
+                                  {clock?.label ? (
+                                    <span className="admin-broker-risk__pause-badge">
+                                      {clock.label}
+                                    </span>
+                                  ) : null}
                                 </span>
                                 <span className="admin-broker-risk__inv-amt tabular-nums">
                                   {formatCurrency(inv.amount)}
@@ -921,7 +1074,11 @@ export default function AdminBrokerRisk() {
                                   {meta.ageDays}d
                                 </span>
                                 <span className="admin-broker-risk__inv-past">
-                                  {meta.isOpen && meta.daysPastDue > 0 ? (
+                                  {clock?.paused ? (
+                                    <span className="admin-broker-risk__inv-dash" title="Pay clock paused">
+                                      —
+                                    </span>
+                                  ) : meta.isOpen && meta.daysPastDue > 0 ? (
                                     <span
                                       className={`admin-broker-risk__past-badge${
                                         meta.pastTermsUrgent
@@ -999,7 +1156,7 @@ export default function AdminBrokerRisk() {
                               }
                               className={`admin-broker-risk__preset admin-broker-risk__preset--${preset.kind}${
                                 preset.id === 'clear-ppw' &&
-                                (selected.metrics.suggest_clear_as_ppw ||
+                                (groupMetrics.suggest_clear_as_ppw ||
                                   verdict?.code === 'docs_issue')
                                   ? ' is-suggested'
                                   : ''
@@ -1205,6 +1362,7 @@ export default function AdminBrokerRisk() {
             )}
           </aside>
         </div>
+        )}
       </div>
     </AdminLayout>
   )

@@ -28,6 +28,7 @@ export const ClientAssistant = lazy(() => import('../pages/ClientAssistant'))
 export const ClientSettings = lazy(() => import('../pages/ClientSettings'))
 export const ClientDocuments = lazy(() => import('../pages/ClientDocuments'))
 export const ClientTutorials = lazy(() => import('../pages/ClientTutorials'))
+export const ClientAttention = lazy(() => import('../pages/ClientAttention'))
 
 // ——— Admin portal ———
 export const AdminDashboard = lazy(() => import('../pages/AdminDashboard'))

@@ -898,7 +898,8 @@ export default function ClientBatches() {
     try {
       // In Vite, public assets are served from root, so try /Logo.png first
       const logoPaths = [
-        '/Logo.png', // Vite public folder
+        '/credyx-logo-black-cred-no-bg.png',
+        '/Logo.png',
       ]
       
       console.log('Attempting to load logo...')
@@ -951,7 +952,7 @@ export default function ClientBatches() {
       }
       
       if (!logoBase64) {
-        console.warn('⚠️ Logo not found. Please place Logo.png in the public/ folder. PDF will be generated without logo.')
+        console.warn('⚠️ Credyx logo not found. PDF will be generated without logo.')
       }
     } catch (error) {
       console.error('Error loading logo:', error)

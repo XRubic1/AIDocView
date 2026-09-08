@@ -24,7 +24,7 @@ export interface InvoicePDFInput {
 /** Loads the app logo from the public folder as a base64 data URL. */
 async function loadLogoBase64(): Promise<string | undefined> {
   try {
-    const response = await fetch('/Logo.png')
+    const response = await fetch('/credyx-logo-black-cred-no-bg.png')
     const contentType = response.headers.get('content-type') || ''
     if (!response.ok || !contentType.startsWith('image/')) {
       return undefined

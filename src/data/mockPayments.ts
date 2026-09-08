@@ -1,4 +1,4 @@
-import { Payment } from '../types/payment'
+import { Payment, type PaymentStatus } from '../types/payment'
 import { getEffectivePaymentAmount } from '../utils/paymentVariance'
 import { persistPayment } from '../services/supabase/tenantPersist'
 import { persistOrThrow } from '../services/persistHelper'
@@ -20,17 +20,22 @@ export function clearPayments(): void {
 /** Merge a payment row from Supabase realtime (no persist). */
 export function mergePayment(payment: Payment): void {
   const idx = mockPayments.findIndex((p) => p.id === payment.id)
+  const prevStatus = idx >= 0 ? mockPayments[idx].status : undefined
   if (idx >= 0) {
     mockPayments[idx] = { ...mockPayments[idx], ...payment }
   } else {
     mockPayments.unshift(payment)
   }
+  maybeRefreshBrokerRisk(payment.invoice_id, prevStatus, payment.status)
 }
 
 /** Remove a payment from the in-memory store (realtime DELETE). */
 export function removePaymentFromStore(paymentId: string): void {
   const idx = mockPayments.findIndex((p) => p.id === paymentId)
-  if (idx >= 0) mockPayments.splice(idx, 1)
+  if (idx < 0) return
+  const removed = mockPayments[idx]
+  mockPayments.splice(idx, 1)
+  maybeRefreshBrokerRisk(removed.invoice_id, removed.status, 'reversed')
 }
 
 export function getPaymentsByInvoiceId(invoiceId: string): Payment[] {
@@ -46,6 +51,30 @@ export function getConfirmedPaymentTotal(invoiceId: string): number {
 
 /** Statuses where money is posted but not yet applied to the invoice. */
 const UNCONFIRMED_STATUSES = new Set(['pending', 'awaiting_receipt', 'disputed'])
+
+const RISK_REFRESH_STATUSES = new Set<PaymentStatus>([
+  'confirmed',
+  'reversed',
+  'disputed',
+  'rejected',
+])
+
+/** Refresh broker risk after confirmed cash (or a reversal/dispute of that cash). */
+function maybeRefreshBrokerRisk(
+  invoiceId: string,
+  prevStatus?: PaymentStatus,
+  nextStatus?: PaymentStatus
+): void {
+  if (
+    !RISK_REFRESH_STATUSES.has(nextStatus as PaymentStatus) &&
+    !RISK_REFRESH_STATUSES.has(prevStatus as PaymentStatus)
+  ) {
+    return
+  }
+  void import('../services/refreshBrokerRiskFromPayments').then((mod) => {
+    mod.scheduleBrokerRiskRefresh(invoiceId)
+  })
+}
 
 /** Total posted-but-not-yet-confirmed amount (pending / awaiting receipt / disputed). */
 export function getUnconfirmedPaymentTotal(invoiceId: string): number {
@@ -82,6 +111,7 @@ export function addPayment(
     const clientId = getInvoiceById(payment.invoice_id)?.client_id
     void persistWithFeedback('Payment save', () => persistPayment(payment, clientId))
   }
+  maybeRefreshBrokerRisk(payment.invoice_id, undefined, payment.status)
   return payment
 }
 
@@ -91,9 +121,11 @@ export function updatePayment(
 ): Payment | undefined {
   const payment = mockPayments.find((p) => p.id === paymentId)
   if (!payment) return undefined
+  const prevStatus = payment.status
   Object.assign(payment, patch)
   const clientId = getInvoiceById(payment.invoice_id)?.client_id
   void persistWithFeedback('Payment save', () => persistPayment(payment, clientId))
+  maybeRefreshBrokerRisk(payment.invoice_id, prevStatus, payment.status)
   return payment
 }
 

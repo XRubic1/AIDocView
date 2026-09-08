@@ -16,6 +16,8 @@ import {
   Mail,
   Menu,
   MessageSquare,
+  PauseCircle,
+  PlayCircle,
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
@@ -38,6 +40,11 @@ import {
   removeAdminInvoiceNote,
   type InvoiceStatusNoteKind,
 } from '../../services/adminInvoiceNoteActions'
+import {
+  canPlaceInvoiceOnHold,
+  holdAdminInvoice,
+  releaseHoldAdminInvoice,
+} from '../../services/adminInvoiceActions'
 import {
   confirmClientPayment,
 } from '../../services/clientPaymentService'
@@ -406,6 +413,10 @@ export default function InvoiceDetailPanel({
   const [showAcceptOverModal, setShowAcceptOverModal] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const [isAcceptingOver, setIsAcceptingOver] = useState(false)
+  const [showHoldModal, setShowHoldModal] = useState(false)
+  const [showReleaseHoldModal, setShowReleaseHoldModal] = useState(false)
+  const [holdReasonDraft, setHoldReasonDraft] = useState('')
+  const [holdBusy, setHoldBusy] = useState(false)
 
   useEffect(() => {
     setNoteVisibility('client')
@@ -950,6 +961,9 @@ export default function InvoiceDetailPanel({
     ? awaitingReceiptPayment.received_date || awaitingReceiptPayment.payment_date || null
     : null
 
+  const canPlaceHold = isAdminPortal && canPlaceInvoiceOnHold(visibleInvoice.status)
+  const canReleaseHold = isAdminPortal && visibleInvoice.status === 'hold'
+
   const hasFooterActions =
     canPostPaymentAction ||
     canViewPaymentAction ||
@@ -957,6 +971,8 @@ export default function InvoiceDetailPanel({
     canConfirmAdminPending ||
     canAcceptOver ||
     canWriteOff ||
+    canPlaceHold ||
+    canReleaseHold ||
     enableClientActions ||
     notesEnabled ||
     canSendDocuments ||
@@ -1027,6 +1043,44 @@ export default function InvoiceDetailPanel({
       setSendError(err instanceof Error ? err.message : 'Could not send documents')
     } finally {
       setSendBusy(false)
+    }
+  }
+
+  const handlePlaceOnHold = () => {
+    const reason = holdReasonDraft.trim()
+    if (!reason) {
+      showToast('Add a hold reason the carrier can see', 'error')
+      return
+    }
+    setHoldBusy(true)
+    try {
+      const updated = holdAdminInvoice(invoice.id, reason, authorName)
+      if (!updated || updated.status !== 'hold') {
+        showToast('Could not place this invoice on hold', 'error')
+        return
+      }
+      showToast('Invoice placed on hold — the carrier can see this', 'success')
+      setShowHoldModal(false)
+      setHoldReasonDraft('')
+      onInvoiceUpdated?.()
+    } finally {
+      setHoldBusy(false)
+    }
+  }
+
+  const handleReleaseHold = () => {
+    setHoldBusy(true)
+    try {
+      const updated = releaseHoldAdminInvoice(invoice.id, authorName)
+      if (!updated || updated.status === 'hold') {
+        showToast('Could not release this hold', 'error')
+        return
+      }
+      showToast('Hold released', 'success')
+      setShowReleaseHoldModal(false)
+      onInvoiceUpdated?.()
+    } finally {
+      setHoldBusy(false)
     }
   }
 
@@ -1879,6 +1933,31 @@ export default function InvoiceDetailPanel({
                 Note
               </button>
             ) : null}
+            {canPlaceHold && (
+              <button
+                type="button"
+                onClick={() => {
+                  setHoldReasonDraft('')
+                  setShowHoldModal(true)
+                }}
+                disabled={holdBusy}
+                className="dashboard-btn-secondary flex-1 min-w-[110px] inline-flex items-center justify-center gap-1.5"
+              >
+                <PauseCircle className="w-4 h-4" />
+                Place on hold
+              </button>
+            )}
+            {canReleaseHold && (
+              <button
+                type="button"
+                onClick={() => setShowReleaseHoldModal(true)}
+                disabled={holdBusy}
+                className="dashboard-btn-secondary flex-1 min-w-[110px] inline-flex items-center justify-center gap-1.5"
+              >
+                <PlayCircle className="w-4 h-4" />
+                Release hold
+              </button>
+            )}
             {canSendDocuments && !isMobile && (
               <button
                 type="button"
@@ -1902,6 +1981,123 @@ export default function InvoiceDetailPanel({
           </div>
         </footer>
       ) : null}
+
+      {showHoldModal && (
+        <div
+          className="invoice-dispute-modal-overlay"
+          onClick={() => !holdBusy && setShowHoldModal(false)}
+          role="presentation"
+        >
+          <div
+            className="invoice-dispute-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="admin-hold-modal-title"
+          >
+            <div className="invoice-dispute-modal-header">
+              <h3 id="admin-hold-modal-title" className="text-base font-semibold" style={{ color: c.primary }}>
+                Place {visibleInvoice.invoice_number} on hold
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowHoldModal(false)}
+                disabled={holdBusy}
+                className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                style={{ color: c.secondary }}
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs mb-3" style={{ color: c.secondary }}>
+              The carrier will see this reason on their invoices and in notifications.
+            </p>
+            <label className="block">
+              <span className="client-label">Load / paperwork issue</span>
+              <textarea
+                value={holdReasonDraft}
+                onChange={(e) => setHoldReasonDraft(e.target.value)}
+                rows={4}
+                className="client-input w-full mt-1"
+                placeholder="e.g. Missing POD, rate dispute, or load not delivered as billed"
+                autoFocus
+              />
+            </label>
+            <div className="invoice-dispute-modal-footer">
+              <button
+                type="button"
+                className="dashboard-btn-secondary"
+                disabled={holdBusy}
+                onClick={() => setShowHoldModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="dashboard-btn-primary"
+                disabled={holdBusy || !holdReasonDraft.trim()}
+                onClick={handlePlaceOnHold}
+              >
+                Place on hold
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReleaseHoldModal && (
+        <div
+          className="invoice-dispute-modal-overlay"
+          onClick={() => !holdBusy && setShowReleaseHoldModal(false)}
+          role="presentation"
+        >
+          <div
+            className="invoice-dispute-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="admin-release-hold-modal-title"
+            aria-describedby="admin-release-hold-modal-desc"
+          >
+            <div className="invoice-dispute-modal-header">
+              <h3 id="admin-release-hold-modal-title" className="text-base font-semibold" style={{ color: c.primary }}>
+                Release hold on {visibleInvoice.invoice_number}?
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowReleaseHoldModal(false)}
+                disabled={holdBusy}
+                className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                style={{ color: c.secondary }}
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p id="admin-release-hold-modal-desc" className="text-sm mb-1" style={{ color: c.primary }}>
+              Confirm this action. The invoice stays in open A/R and returns to its prior invoiced/open status.
+              The carrier will see that the hold was released.
+            </p>
+            <div className="invoice-dispute-modal-footer">
+              <button
+                type="button"
+                className="dashboard-btn-secondary"
+                disabled={holdBusy}
+                onClick={() => setShowReleaseHoldModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="dashboard-btn-primary"
+                disabled={holdBusy}
+                onClick={handleReleaseHold}
+              >
+                Confirm release
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSendDocsModal && (
         <div

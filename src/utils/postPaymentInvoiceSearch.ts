@@ -234,14 +234,13 @@ export function getInvoicePostStatusLabel(
   }
   // Payment posted but not yet confirmed by the client (managed) or Credyx.
   if (pendingAmount !== undefined && pendingAmount > 0) return 'Pending'
+  if (invoice.status === 'hold') return 'On hold'
   if (isOpenArInvoice(invoice)) return 'Open'
   switch (invoice.status) {
     case 'paid':
       return 'Paid'
     case 'pending':
       return 'Pending'
-    case 'hold':
-      return 'On hold'
     case 'write_off_pending':
       return 'Written off'
     case 'rejected':
@@ -263,14 +262,13 @@ export function getInvoicePostStatusClass(
     if (receivedAmount > invoice.amount + 0.01) return 'status-pill status-pill--overdue'
   }
   if (pendingAmount !== undefined && pendingAmount > 0) return 'status-pill status-pill--pending'
-  if (isOpenArInvoice(invoice)) return 'status-pill status-pill--approved'
+  if (invoice.status === 'hold') return 'status-pill status-pill--hold'
+  if (isOpenArInvoice(invoice)) return 'status-pill status-pill--open'
   switch (invoice.status) {
     case 'paid':
       return 'status-pill status-pill--approved'
     case 'pending':
       return 'status-pill status-pill--pending'
-    case 'hold':
-      return 'status-pill status-pill--hold'
     case 'write_off_pending':
       return 'status-pill status-pill--warn'
     case 'rejected':

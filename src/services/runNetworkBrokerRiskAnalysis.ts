@@ -1,3 +1,4 @@
+import type { Broker } from '../types/broker'
 import { mockBrokers } from '../data/mockBrokers'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
@@ -11,11 +12,11 @@ import { deleteBrokerRiskProfiles } from './supabase/brokerRiskPersist'
 import { getBrokerNotes, getBrokerPayRating } from '../utils/clientBrokers'
 import { computeBrokerScores } from '../utils/clientReports'
 import {
+  BROKER_RISK_POLICY,
   collectTermsPaymentSignals,
   normalizeBrokerNameKey,
   pickCanonicalBroker,
 } from '../utils/brokerRiskPolicy'
-import type { Broker } from '../types/broker'
 
 const ALL_TIME = {
   start_date: '2000-01-01',
@@ -76,8 +77,11 @@ export function runNetworkBrokerRiskAnalysis(force = true): {
       const hasWorked =
         score !== null && (score.open_invoices > 0 || score.invoiced_in_range > 0)
       const notes = getBrokerNotes(client.id, broker.id)
-      // Include NEW / thin-history brokers even with no loads yet.
-      if (!hasWorked && notes.length === 0 && !broker.is_new) continue
+      // Include NEW / thin-history brokers even with no loads yet (unless Settings turns that off).
+      if (!hasWorked && notes.length === 0) {
+        if (!broker.is_new) continue
+        if (!BROKER_RISK_POLICY.score_new_brokers_with_no_loads) continue
+      }
 
       const brokerInvoices = invoices.filter((i) => i.broker_name === broker.name)
       const brokerPayments = payments.filter((p) => p.broker_name === broker.name)

@@ -21,7 +21,7 @@ import { Broker } from '../types/broker'
 import { Invoice } from '../types/invoice'
 import { formatCurrency } from '../utils/format'
 import { formatDate } from '../utils/format'
-import { getAgingArBucketKey, getInvoiceAgeDays } from '../utils/invoiceAging'
+import { getAgingArBucketKey, getInvoiceAgeDays, isOpenArInvoice } from '../utils/invoiceAging'
 import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
 import AdminClientVaultPanel from '../components/admin/AdminClientVaultPanel'
 import ClientCalendarPanel from '../components/admin/ClientCalendarPanel'
@@ -142,7 +142,7 @@ export default function Clients() {
     
     // Get all invoices for this client
     const clientInvoices = getClientInvoices(selectedClient.id, selectedClient.name).filter(
-      (inv) => inv.status !== 'hold' && inv.status !== 'pending'
+      (inv) => inv.status !== 'pending'
     )
     
     // Group invoices by broker
@@ -186,9 +186,7 @@ export default function Clients() {
     if (!selectedBroker || !selectedClient) return []
     return getClientInvoices(selectedClient.id, selectedClient.name).filter(
       (inv) =>
-        inv.broker_id === selectedBroker.id &&
-        inv.status !== 'hold' &&
-        inv.status !== 'pending'
+        inv.broker_id === selectedBroker.id && inv.status !== 'pending'
     )
   }, [selectedBroker, selectedClient, tenantVersion])
 
@@ -217,19 +215,18 @@ export default function Clients() {
     
     // Filter invoices based on selected filter
     const filteredInvoices = clientInvoices.filter((inv) => {
-      // Always exclude hold and pending invoices from A/R
-      if (inv.status === 'hold' || inv.status === 'pending') {
+      // Pending packets are not A/R; hold stays in open A/R with a different status.
+      if (inv.status === 'pending') {
         return false
       }
       
       // Apply filter
       if (arFilter === 'open') {
-        return inv.status !== 'paid'
+        return isOpenArInvoice(inv)
       } else if (arFilter === 'paid') {
         return inv.status === 'paid'
       } else {
-        // 'all' - include both paid and open (approved) invoices
-        return inv.status === 'paid' || inv.status === 'approved'
+        return inv.status === 'paid' || isOpenArInvoice(inv)
       }
     })
     
@@ -248,19 +245,18 @@ export default function Clients() {
   // Get filtered invoices for table display
   const filteredArInvoices = useMemo(() => {
     return clientInvoices.filter((inv) => {
-      // Always exclude hold and pending invoices from A/R
-      if (inv.status === 'hold' || inv.status === 'pending') {
+      // Pending packets are not A/R; hold stays in open A/R with a different status.
+      if (inv.status === 'pending') {
         return false
       }
       
       // Apply filter
       if (arFilter === 'open') {
-        return inv.status !== 'paid'
+        return isOpenArInvoice(inv)
       } else if (arFilter === 'paid') {
         return inv.status === 'paid'
       } else {
-        // 'all' - include both paid and open (approved) invoices
-        return inv.status === 'paid' || inv.status === 'approved'
+        return inv.status === 'paid' || isOpenArInvoice(inv)
       }
     })
   }, [clientInvoices, arFilter])

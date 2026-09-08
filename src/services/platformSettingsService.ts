@@ -235,6 +235,14 @@ function clampRiskInt(value: unknown, fallback: number, min: number, max: number
 
 export type BrokerRiskPolicySettings = Omit<BrokerRiskPolicy, 'note_keyword_re'>
 
+function parseThinHistoryLevel(
+  value: unknown,
+  fallback: BrokerRiskPolicy['new_broker_no_history_level']
+): BrokerRiskPolicy['new_broker_no_history_level'] {
+  if (value === 'high' || value === 'medium' || value === 'low') return value
+  return fallback
+}
+
 function normalizeBrokerRiskPolicy(
   value: Partial<BrokerRiskPolicySettings> | null | undefined
 ): BrokerRiskPolicy {
@@ -291,6 +299,22 @@ function normalizeBrokerRiskPolicy(
       d.min_paid_sample_for_payment_timing,
       1,
       100
+    ),
+    new_broker_no_history_level: parseThinHistoryLevel(
+      value?.new_broker_no_history_level,
+      d.new_broker_no_history_level
+    ),
+    unknown_broker_no_history_level: parseThinHistoryLevel(
+      value?.unknown_broker_no_history_level,
+      d.unknown_broker_no_history_level
+    ),
+    new_broker_thin_sample_level: parseThinHistoryLevel(
+      value?.new_broker_thin_sample_level,
+      d.new_broker_thin_sample_level
+    ),
+    score_new_brokers_with_no_loads: boolOrDefault(
+      value?.score_new_brokers_with_no_loads,
+      d.score_new_brokers_with_no_loads
     ),
     note_keyword_re: d.note_keyword_re,
   }

@@ -263,6 +263,10 @@ export default function Settings() {
     fallback_terms_days: '30',
     min_paid_sample_for_confidence: '2',
     min_paid_sample_for_payment_timing: '10',
+    new_broker_no_history_level: 'high',
+    unknown_broker_no_history_level: 'medium',
+    new_broker_thin_sample_level: 'medium',
+    score_new_brokers_with_no_loads: true,
     cacheTtlDays: String(DEFAULT_BROKER_SNAPSHOT_TTL.cacheTtlDays),
     insuranceWatchTtlDays: String(DEFAULT_BROKER_SNAPSHOT_TTL.insuranceWatchTtlDays),
   })
@@ -326,6 +330,10 @@ export default function Settings() {
         min_paid_sample_for_payment_timing: String(
           policy.min_paid_sample_for_payment_timing
         ),
+        new_broker_no_history_level: policy.new_broker_no_history_level,
+        unknown_broker_no_history_level: policy.unknown_broker_no_history_level,
+        new_broker_thin_sample_level: policy.new_broker_thin_sample_level,
+        score_new_brokers_with_no_loads: policy.score_new_brokers_with_no_loads,
       }))
     })
     void loadCollectionsPolicy().then((policy) => {
@@ -421,6 +429,10 @@ export default function Settings() {
             Number(brokerRiskSettings.min_paid_sample_for_confidence) || 2,
           min_paid_sample_for_payment_timing:
             Number(brokerRiskSettings.min_paid_sample_for_payment_timing) || 10,
+          new_broker_no_history_level: brokerRiskSettings.new_broker_no_history_level,
+          unknown_broker_no_history_level: brokerRiskSettings.unknown_broker_no_history_level,
+          new_broker_thin_sample_level: brokerRiskSettings.new_broker_thin_sample_level,
+          score_new_brokers_with_no_loads: brokerRiskSettings.score_new_brokers_with_no_loads,
         })
         const savedTtl = await saveBrokerSnapshotTtl({
           cacheTtlDays:

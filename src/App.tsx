@@ -24,6 +24,7 @@ import {
   Batches,
   Brokers,
   ClientAssistant,
+  ClientAttention,
   ClientBatches,
   ClientBrokers,
   ClientCollections,
@@ -111,6 +112,10 @@ function App() {
                 />
                 <Route path="/client/batches" element={withRouteSuspense(ClientBatches)} />
                 <Route path="/client/invoices" element={withRouteSuspense(ClientInvoices)} />
+                <Route
+                  path="/client/attention"
+                  element={withRouteSuspense(ClientAttention, 'Loading invoices…')}
+                />
                 <Route path="/client/payments" element={withRouteSuspense(ClientPayments)} />
                 <Route
                   path="/client/short-payments"
