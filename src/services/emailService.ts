@@ -1,20 +1,8 @@
 import { requireSupabase } from '../lib/supabase'
 
-export type EmailTemplate =
-  | 'client_invite'
-  | 'broker_packet'
-  | 'broker_remittance_updated'
-  | 'admin_enrollment_alert'
-  | 'waitlist_signup_alert'
-  | 'waitlist_welcome'
-  | 'credyx_batch_error'
-  | 'carrier_batch_verified'
-  | 'carrier_batch_holds'
-  | 'carrier_batch_processed'
-  | 'broker_payment_status_inquiry'
-  | 'broker_payment_status_followup'
-  | 'calendar_event_notice'
-  | 'carrier_document_issue'
+import type { EmailTemplateId } from '../config/emailTemplateDefaults'
+
+export type EmailTemplate = EmailTemplateId
 
 /** Attachment for Resend (base64 content). */
 export interface EmailAttachment {

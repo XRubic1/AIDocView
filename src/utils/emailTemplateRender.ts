@@ -2,6 +2,8 @@
  * Replace {{placeholders}} in a template string.
  * Values are HTML-escaped unless the key ends with Html (e.g. holdSection).
  */
+import { enrichAuthEmailFields } from '../config/authEmailHtml'
+import { buildCompanyLogoHtml } from './emailCompanyLogo'
 import { buildIssueListHtml, buildMessageHtml } from './carrierDocumentIssueEmail'
 import { buildCarrierAttentionUrl } from './carrierAttentionLink'
 
@@ -11,7 +13,7 @@ export function renderEmailTemplateString(
 ): string {
   return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
     const raw = data[key] ?? ''
-    if (key.endsWith('Html') || key === 'holdSection' || key === 'inviteLink') {
+    if (key.endsWith('Html') || key === 'holdSection' || key === 'inviteLink' || key === 'confirmation_url') {
       return raw
     }
     return escapeHtml(raw)
@@ -89,6 +91,10 @@ export function enrichEmailTemplateData(
 
   if (!next.contactName) next.contactName = 'there'
   if (!next.loadNumber) next.loadNumber = 'N/A'
+
+  if (templateId.startsWith('auth_')) {
+    return enrichAuthEmailFields(templateId, next, buildCompanyLogoHtml())
+  }
 
   return next
 }

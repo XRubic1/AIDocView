@@ -1,0 +1,2 @@
+[functions.auth-send-email]
+verify_jwt = false

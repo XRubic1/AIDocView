@@ -23,6 +23,15 @@ type EmailTemplate =
   | 'broker_payment_status_followup'
   | 'calendar_event_notice'
   | 'carrier_document_issue'
+  | 'auth_signup'
+  | 'auth_invite'
+  | 'auth_magiclink'
+  | 'auth_recovery'
+  | 'auth_email_change'
+  | 'auth_email_otp'
+  | 'auth_reauthentication'
+  | 'auth_password_changed'
+  | 'auth_email_changed'
 
 interface EmailAttachment {
   filename: string
@@ -54,7 +63,9 @@ function audienceForTemplate(template: EmailTemplate): FromAudience {
   if (template === 'broker_packet' || template.startsWith('broker_')) return 'broker'
   // Waitlist welcome goes from billing@ (broker From), not ops@.
   if (template === 'waitlist_welcome') return 'broker'
-  if (template.startsWith('carrier_') || template === 'client_invite') return 'carrier'
+  if (template.startsWith('auth_') || template.startsWith('carrier_') || template === 'client_invite') {
+    return 'carrier'
+  }
   if (
     template === 'admin_enrollment_alert' ||
     template === 'waitlist_signup_alert' ||
@@ -138,7 +149,7 @@ function buildMessageHtml(message: string): string {
 function renderTemplateString(template: string, data: Record<string, string>): string {
   return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
     const raw = data[key] ?? ''
-    if (key.endsWith('Html') || key === 'holdSection' || key === 'inviteLink' || key === 'clientNameSuffix') {
+    if (key.endsWith('Html') || key === 'holdSection' || key === 'inviteLink' || key === 'clientNameSuffix' || key === 'confirmation_url') {
       return raw
     }
     return escapeHtml(raw)
@@ -201,6 +212,32 @@ function enrichData(template: EmailTemplate, data: Record<string, string>): Reco
 
   if (!next.contactName) next.contactName = 'there'
   if (!next.loadNumber) next.loadNumber = 'N/A'
+
+  if (String(template).startsWith('auth_')) {
+    if (!next.companyLogoHtml) {
+      next.companyLogoHtml = `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.02em;line-height:1;">
+  <span style="color:#ffffff;">Cred</span><span style="color:#1684FE;">yx</span>
+</div>`
+    }
+    const labels: Record<string, string> = {
+      auth_signup: 'Confirm email',
+      auth_invite: 'Accept invitation',
+      auth_magiclink: 'Sign in',
+      auth_recovery: 'Choose a new password',
+      auth_email_change: 'Confirm email change',
+      auth_email_otp: 'Continue',
+      auth_reauthentication: 'Continue',
+    }
+    const href = (next.confirmation_url ?? '').trim()
+    const label = labels[template] ?? ''
+    next.ctaHtml = href && label
+      ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-radius:8px;background-color:#1684FE;"><a href="${escapeHtml(href)}" style="display:inline-block;padding:14px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">${escapeHtml(label)}</a></td></tr></table>`
+      : ''
+    const token = (next.token ?? '').trim()
+    next.otpHtml = token
+      ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;"><tr><td style="padding:20px;text-align:center;"><p style="margin:0 0 8px;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#64748b;">Your verification code</p><p style="margin:0;font-size:28px;font-weight:700;letter-spacing:0.28em;color:#0f172a;">${escapeHtml(token)}</p></td></tr></table>`
+      : ''
+  }
 
   return next
 }
@@ -386,6 +423,38 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
         ),
       }
     default:
+      if (String(template).startsWith('auth_')) {
+        const subjects: Record<string, string> = {
+          auth_signup: 'Confirm your Credyx email',
+          auth_invite: 'You’re invited to Credyx',
+          auth_magiclink: 'Your Credyx sign-in link',
+          auth_recovery: 'Reset your Credyx password',
+          auth_email_change: 'Confirm your Credyx email change',
+          auth_email_otp: 'Your Credyx code: {{token}}',
+          auth_reauthentication: 'Your Credyx verification code: {{token}}',
+          auth_password_changed: 'Your Credyx password was changed',
+          auth_email_changed: 'Your Credyx email was changed',
+        }
+        return {
+          subject: renderTemplateString(subjects[template] ?? 'Credyx account', d),
+          html: renderTemplateString(
+            `<!DOCTYPE html><html lang="en"><body style="margin:0;padding:0;background-color:#f1f5f9;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:28px 12px;"><tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+<tr><td style="background-color:#0f172a;padding:22px 28px;">{{companyLogoHtml}}<p style="margin:14px 0 0;font-family:Segoe UI,Arial,sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;">Credyx</p></td></tr>
+<tr><td style="padding:28px;font-family:Segoe UI,Arial,sans-serif;color:#0f172a;">
+<p style="margin:0 0 10px;font-size:20px;font-weight:600;">Hi {{contactName}}</p>
+<p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">Use the button or code below to continue with your Credyx account.</p>
+<div style="margin-top:16px;">{{ctaHtml}}{{otpHtml}}</div>
+</td></tr>
+<tr><td style="padding:16px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;font-family:Segoe UI,Arial,sans-serif;">
+<p style="margin:0;font-size:12px;font-weight:600;color:#334155;">Credyx · Paid on time</p>
+</td></tr>
+</table></td></tr></table></body></html>`,
+            d
+          ),
+        }
+      }
       throw new Error('Unknown template')
   }
 }
@@ -499,6 +568,8 @@ Deno.serve(async (req) => {
       // allowed without admin
     } else if (userError || !userData.user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders })
+    } else if (payload.template.startsWith('auth_') && !isAdmin) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: corsHeaders })
     } else if (
       !isAdmin &&
       payload.template !== 'client_invite' &&

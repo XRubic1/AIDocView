@@ -371,6 +371,35 @@ function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, '')}`
 }
 
+/** Record who looked up this MC (carriers). Never fail the lookup if logging fails. */
+async function logLookupEvent(
+  admin: ReturnType<typeof adminClient>,
+  args: {
+    snapshotId: string | null
+    mcNumber: string
+    digits: string
+    clientId: string | null
+    fromCache: boolean
+    insuranceVerdict: string | null
+    legalName: string | null
+  }
+): Promise<void> {
+  try {
+    await admin.from('broker_snapshot_lookup_events').insert({
+      id: newId('bslu'),
+      snapshot_id: args.snapshotId,
+      mc_number: args.mcNumber,
+      mc_digits: args.digits,
+      client_id: args.clientId,
+      from_cache: args.fromCache,
+      insurance_verdict: args.insuranceVerdict,
+      legal_name: args.legalName,
+    })
+  } catch (err) {
+    console.error('lookup event log failed', err)
+  }
+}
+
 type DiffRow = {
   field_key: string
   field_label: string
@@ -641,6 +670,10 @@ Deno.serve(async (req) => {
     if (!isAllowedUser(userData.user)) {
       return jsonResponse({ error: 'Forbidden' }, 403)
     }
+    const lookupClientId =
+      typeof userData.user.app_metadata?.client_id === 'string'
+        ? String(userData.user.app_metadata.client_id)
+        : null
 
     const apiKey = Deno.env.get('BROKERSNAPSHOT_API_KEY')
     if (!apiKey) {
@@ -697,6 +730,24 @@ Deno.serve(async (req) => {
           })
           .eq('id', cacheRow.id)
 
+        const cachedPayload = cacheRow.payload ?? {}
+        await logLookupEvent(admin, {
+          snapshotId: cacheRow.id,
+          mcNumber:
+            cachedPayload.mcNumber != null
+              ? String(cachedPayload.mcNumber)
+              : `${prefix}-${digits}`,
+          digits,
+          clientId: lookupClientId,
+          fromCache: true,
+          insuranceVerdict:
+            cachedPayload.insuranceVerdict != null
+              ? String(cachedPayload.insuranceVerdict)
+              : null,
+          legalName:
+            cachedPayload.name != null ? String(cachedPayload.name) : null,
+        })
+
         return jsonResponse({
           Success: true,
           Data: {
@@ -713,6 +764,15 @@ Deno.serve(async (req) => {
 
       const summary = await fetchSnapshotCompany(apiKey, prefix, digits)
       if (!summary) {
+        await logLookupEvent(admin, {
+          snapshotId: cacheRow?.id ?? null,
+          mcNumber: `${prefix}-${digits}`,
+          digits,
+          clientId: lookupClientId,
+          fromCache: false,
+          insuranceVerdict: null,
+          legalName: null,
+        })
         return jsonResponse({
           Success: true,
           Data: { found: false, mcNumber: `${prefix}-${digits}`, riskFlags: [] },
@@ -720,12 +780,23 @@ Deno.serve(async (req) => {
       }
 
       try {
-        const { pendingChanges } = await persistSnapshotAndDiffs(
+        const { pendingChanges, snapshotId } = await persistSnapshotAndDiffs(
           admin,
           summary,
           digits,
           cacheRow?.id ?? null
         )
+        await logLookupEvent(admin, {
+          snapshotId,
+          mcNumber:
+            summary.mcNumber != null ? String(summary.mcNumber) : `${prefix}-${digits}`,
+          digits,
+          clientId: lookupClientId,
+          fromCache: false,
+          insuranceVerdict:
+            summary.insuranceVerdict != null ? String(summary.insuranceVerdict) : null,
+          legalName: summary.name != null ? String(summary.name) : null,
+        })
         const { data: snapAfter } = await admin
           .from('broker_external_snapshots')
           .select('fetched_at, next_review_at, needs_broker_add')

@@ -786,9 +786,5 @@ export function riskLevelToPayRating(level: BrokerRiskLevel): BrokerPayRating {
 export function isCarrierVisibleReviewStatus(
   status: string | null | undefined
 ): boolean {
-  return (
-    status === 'published' ||
-    status === 'auto_published' ||
-    status === 'cleared'
-  )
+  return status === 'published' || status === 'cleared'
 }

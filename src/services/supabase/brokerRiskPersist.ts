@@ -25,7 +25,7 @@ export function brokerRiskProfileRowToProfile(row: BrokerRiskProfileRow): Broker
     model_version: row.model_version ?? 'rules-v1',
     scope: row.scope ?? 'carrier',
     window_end: row.window_end ?? null,
-    review_status: row.review_status ?? 'auto_published',
+    review_status: row.review_status ?? 'pending_review',
     review_note: row.review_note ?? null,
     reviewed_at: row.reviewed_at ?? null,
     reviewed_by: row.reviewed_by ?? null,

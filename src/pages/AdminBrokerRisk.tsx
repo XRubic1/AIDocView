@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  ExternalLink,
   FileText,
   RefreshCw,
   ShieldAlert,
@@ -31,6 +32,9 @@ import {
 } from '../services/brokerRiskService'
 import { runNetworkBrokerRiskAnalysis } from '../services/runNetworkBrokerRiskAnalysis'
 import AdminBrokerPaymentInsight from '../components/admin/AdminBrokerPaymentInsight'
+import AdminBrokerRiskTiming from '../components/admin/AdminBrokerRiskTiming'
+import AdminBrokerMcChecks from '../components/admin/AdminBrokerMcChecks'
+import McLookupModal from '../components/client/McLookupModal'
 import {
   groupAdminBrokerRiskProfiles,
   mergeAdminBrokerRiskMetrics,
@@ -64,16 +68,14 @@ import {
 import {
   computeBrokerPaymentHistory,
   fillMonthSeries,
-  formatBrokerMonthLabel,
 } from '../utils/brokerPaymentHistory'
 import '../styles/adminBrokerRisk.css'
 
 /** Needs review first (urgent), then published / auto / cleared. */
 function statusSortRank(status: BrokerRiskReviewStatus): number {
-  if (status === 'pending_review') return 0
+  if (status === 'pending_review' || status === 'auto_published') return 0
   if (status === 'published') return 1
-  if (status === 'auto_published') return 2
-  return 3
+  return 2
 }
 
 function levelLabel(level: string): string {
@@ -84,10 +86,13 @@ function levelLabel(level: string): string {
 }
 
 function statusLabel(status: BrokerRiskReviewStatus): string {
-  if (status === 'pending_review') return 'Needs review'
   if (status === 'published') return 'Published'
   if (status === 'cleared') return 'Cleared'
-  return 'Auto'
+  return 'Needs review'
+}
+
+function needsAdminConfirm(status: BrokerRiskReviewStatus): boolean {
+  return status === 'pending_review' || status === 'auto_published'
 }
 
 function causeChipClass(cause: BrokerDelayCause | undefined): string {
@@ -150,7 +155,10 @@ export default function AdminBrokerRisk() {
   const [tick, setTick] = useState(0)
   const [notesOnly, setNotesOnly] = useState(false)
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null)
-  const [workspace, setWorkspace] = useState<'review' | 'insight'>('review')
+  const [workspace, setWorkspace] = useState<
+    'review' | 'timing' | 'mc' | 'insight'
+  >('review')
+  const [snapshotOpen, setSnapshotOpen] = useState(false)
 
   const rows = useMemo(() => {
     void tenantRevision
@@ -170,7 +178,7 @@ export default function AdminBrokerRisk() {
   const groups = useMemo(() => groupAdminBrokerRiskProfiles(rows), [rows])
 
   const needsReviewCount = useMemo(
-    () => groups.filter((g) => g.needsReviewCount > 0).length,
+    () => groups.filter((g) => needsAdminConfirm(g.representative.review_status) || g.needsReviewCount > 0).length,
     [groups]
   )
 
@@ -216,6 +224,17 @@ export default function AdminBrokerRisk() {
       )
       .sort((a, b) => Date.parse(b.invoice_date) - Date.parse(a.invoice_date))
   }, [selected, broker?.name, tick])
+
+  const invoiceStats = useMemo(() => {
+    const paid = brokerInvoices.filter((inv) => inv.status === 'paid')
+    const open = brokerInvoices.filter((inv) => isOpenArInvoice(inv))
+    return {
+      paidCount: paid.length,
+      paidAmount: paid.reduce((n, inv) => n + (inv.paid_amount ?? inv.amount), 0),
+      openCount: open.length,
+      openAmount: open.reduce((n, inv) => n + inv.amount, 0),
+    }
+  }, [brokerInvoices])
 
   const brokerPayments = useMemo(() => {
     if (!selected || brokerInvoices.length === 0) return []
@@ -589,8 +608,11 @@ export default function AdminBrokerRisk() {
   }
 
   const isUrgent =
-    selected?.review_status === 'pending_review' &&
+    needsAdminConfirm(selected?.review_status ?? 'pending_review') &&
     selected?.computed_risk_level === 'high'
+
+  const lookupMc = selected?.mc_number || broker?.mc_number || null
+  const lookupDot = broker?.dot_number ?? null
 
   return (
     <AdminLayout flushMain>
@@ -603,7 +625,11 @@ export default function AdminBrokerRisk() {
               <p style={{ color: c.secondary }}>
                 {workspace === 'insight'
                   ? 'Confirmed payments across all carriers, month by month'
-                  : `Review at ${BROKER_RISK_POLICY.medium_single_late_days}d past Net · Urgent at ${BROKER_RISK_POLICY.high_single_late_days}d · updates as payments post`}
+                  : workspace === 'timing'
+                    ? 'Payment delays and paid-by-month for the selected broker'
+                    : workspace === 'mc'
+                      ? 'Carrier MC Lookup history and latest BrokerSnapshot cache'
+                      : `Review at ${BROKER_RISK_POLICY.medium_single_late_days}d past Net · Urgent at ${BROKER_RISK_POLICY.high_single_late_days}d · updates as payments post`}
               </p>
             </div>
           </div>
@@ -622,14 +648,32 @@ export default function AdminBrokerRisk() {
               <button
                 type="button"
                 role="tab"
+                aria-selected={workspace === 'timing'}
+                className={`admin-broker-risk__tab${workspace === 'timing' ? ' is-on' : ''}`}
+                onClick={() => setWorkspace('timing')}
+              >
+                Timing
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={workspace === 'mc'}
+                className={`admin-broker-risk__tab${workspace === 'mc' ? ' is-on' : ''}`}
+                onClick={() => setWorkspace('mc')}
+              >
+                MC checks
+              </button>
+              <button
+                type="button"
+                role="tab"
                 aria-selected={workspace === 'insight'}
                 className={`admin-broker-risk__tab${workspace === 'insight' ? ' is-on' : ''}`}
                 onClick={() => setWorkspace('insight')}
               >
-                Payment insight
+                Network
               </button>
             </div>
-            {workspace === 'review' ? (
+            {workspace !== 'insight' ? (
               <>
             <p className="admin-broker-risk__queue-summary" style={{ color: c.secondary }}>
               {groups.length} broker{groups.length === 1 ? '' : 's'}
@@ -670,7 +714,7 @@ export default function AdminBrokerRisk() {
                   const row = group.representative
                   const b = mockBrokers.find((x) => x.id === row.broker_id)
                   const active = selectedGroup?.brokerId === group.brokerId
-                  const needsReview = group.needsReviewCount > 0
+                  const needsReview = needsAdminConfirm(row.review_status)
                   const urgent = needsReview && row.computed_risk_level === 'high'
                   return (
                     <li key={group.brokerId}>
@@ -691,7 +735,11 @@ export default function AdminBrokerRisk() {
                           </span>
                           <span className="admin-broker-risk__row-chips">
                             <span
-                              className={`admin-broker-risk__chip admin-broker-risk__chip--status-${row.review_status}`}
+                              className={`admin-broker-risk__chip admin-broker-risk__chip--status-${
+                                needsAdminConfirm(row.review_status)
+                                  ? 'pending_review'
+                                  : row.review_status
+                              }`}
                             >
                               {urgent ? 'Urgent review' : statusLabel(row.review_status)}
                             </span>
@@ -747,7 +795,6 @@ export default function AdminBrokerRisk() {
                       {broker?.name ?? selected.broker_id}
                     </h2>
                     <p style={{ color: c.secondary }}>
-                      {selected.mc_number ? `${selected.mc_number} · ` : ''}
                       {selectedGroup && selectedGroup.carrierCount > 1
                         ? `${selectedGroup.carrierCount} carriers · `
                         : ''}
@@ -770,6 +817,34 @@ export default function AdminBrokerRisk() {
                       </span>
                     ) : null}
                   </div>
+                </div>
+
+                <div className="admin-broker-risk__identity">
+                  <div>
+                    <span>Paid invoices</span>
+                    <strong>{invoiceStats.paidCount}</strong>
+                    <em>{formatCurrency(invoiceStats.paidAmount)}</em>
+                  </div>
+                  <div>
+                    <span>Open invoices</span>
+                    <strong>{invoiceStats.openCount}</strong>
+                    <em>{formatCurrency(invoiceStats.openAmount)}</em>
+                  </div>
+                  <div>
+                    <span>Authority</span>
+                    <strong className="tabular-nums">{lookupMc ?? 'No MC'}</strong>
+                    <em>{lookupDot ? `DOT ${lookupDot}` : 'No DOT'}</em>
+                  </div>
+                  <button
+                    type="button"
+                    className="admin-broker-risk__snapshot-btn"
+                    disabled={!lookupMc}
+                    title={lookupMc ? 'Open latest BrokerSnapshot' : 'Add an MC to look up Snapshot'}
+                    onClick={() => setSnapshotOpen(true)}
+                  >
+                    Snapshot
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
                 <BrokerInternalNotesBanner
@@ -796,114 +871,32 @@ export default function AdminBrokerRisk() {
                   }
                 />
 
+                {workspace === 'timing' ? (
+                  <AdminBrokerRiskTiming
+                    paymentTiming={paymentTiming}
+                    paymentHistory={paymentHistory}
+                    historyMonths={historyMonths}
+                    termsDays={
+                      selected.metrics.payment_terms_days ??
+                      broker?.payment_terms_days ??
+                      BROKER_RISK_POLICY.fallback_terms_days
+                    }
+                    paidSampleSize={groupMetrics.paid_sample_size}
+                  />
+                ) : null}
+
+                {workspace === 'mc' ? (
+                  <AdminBrokerMcChecks mcNumber={lookupMc} refreshKey={`${lookupMc}-${tick}`} />
+                ) : null}
+
+                {workspace === 'review' ? (
+                  <>
                 {verdict && (
                   <div className={verdictClass(verdict.code)} role="status">
                     <p className="admin-broker-risk__verdict-title">{verdict.title}</p>
                     <p className="admin-broker-risk__verdict-action">{verdict.action}</p>
                   </div>
                 )}
-
-                {paymentTiming ? (
-                  <div
-                    className={`admin-broker-risk__timing admin-broker-risk__timing--${paymentTiming.severity}`}
-                    role="status"
-                  >
-                    <p className="admin-broker-risk__timing-title">{paymentTiming.headline}</p>
-                    <p className="admin-broker-risk__timing-summary">{paymentTiming.summary}</p>
-                    <div className="admin-broker-risk__timing-metrics">
-                      <div>
-                        <span>Net terms</span>
-                        <strong>{paymentTiming.termsDays}d</strong>
-                      </div>
-                      <div>
-                        <span>Avg actual pay</span>
-                        <strong>{paymentTiming.avgPayDays}d</strong>
-                      </div>
-                      <div>
-                        <span>
-                          {paymentTiming.daysLate > 0
-                            ? 'Days late'
-                            : paymentTiming.daysLate < 0
-                              ? 'Days early'
-                              : 'Vs Net'}
-                        </span>
-                        <strong>
-                          {paymentTiming.daysLate === 0
-                            ? 'On time'
-                            : `${Math.abs(paymentTiming.daysLate)}d`}
-                        </strong>
-                      </div>
-                      {paymentTiming.paidSampleSize > 0 ? (
-                        <div>
-                          <span>Paid sample</span>
-                          <strong>{paymentTiming.paidSampleSize}</strong>
-                        </div>
-                      ) : null}
-                    </div>
-                    <p className="admin-broker-risk__timing-hint">
-                      Avg pay excludes invoices on hold or in dispute. Publishing Medium/High
-                      pushes clean timing to the carrier portal.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="admin-broker-risk__timing admin-broker-risk__timing--empty">
-                    <p className="admin-broker-risk__timing-title">Actual payment timing</p>
-                    <p className="admin-broker-risk__timing-summary">
-                      Need at least {BROKER_RISK_POLICY.min_paid_sample_for_payment_timing}{' '}
-                      confirmed payments to average vs Net{' '}
-                      {selected.metrics.payment_terms_days ??
-                        broker?.payment_terms_days ??
-                        BROKER_RISK_POLICY.fallback_terms_days}
-                      d terms
-                      {groupMetrics.paid_sample_size
-                        ? ` (have ${groupMetrics.paid_sample_size}).`
-                        : '.'}
-                    </p>
-                  </div>
-                )}
-
-                {paymentHistory && paymentHistory.lifetimeCount > 0 ? (
-                  <div className="admin-broker-risk__timing">
-                    <p className="admin-broker-risk__timing-title">Payment over months</p>
-                    <p className="admin-broker-risk__timing-summary">
-                      {formatCurrency(paymentHistory.lifetimePaid)} confirmed ·{' '}
-                      {paymentHistory.lifetimeCount} payments
-                      {paymentHistory.onTimeRate != null
-                        ? ` · ${paymentHistory.onTimeRate}% on time vs Net`
-                        : ''}
-                      {paymentHistory.pausedInvoiceCount > 0
-                        ? ` · ${paymentHistory.pausedInvoiceCount} on hold/dispute (not in avg)`
-                        : ''}
-                    </p>
-                    <div className="admin-broker-risk__month-chart" aria-label="Paid by month">
-                      {[...historyMonths].reverse().map((m) => {
-                        const max = Math.max(1, ...historyMonths.map((x) => x.paidAmount))
-                        const height = Math.round((m.paidAmount / max) * 100)
-                        return (
-                          <div
-                            key={m.month}
-                            className="admin-broker-risk__month-col"
-                            title={`${formatBrokerMonthLabel(m.month)}: ${formatCurrency(m.paidAmount)}`}
-                          >
-                            <div
-                              className="admin-broker-risk__month-track"
-                              style={{ backgroundColor: c.stat.slate }}
-                            >
-                              <div
-                                className="admin-broker-risk__month-bar"
-                                style={{
-                                  height: `${height}%`,
-                                  backgroundColor: c.info,
-                                }}
-                              />
-                            </div>
-                            <span className="admin-broker-risk__month-tick">{m.month.slice(5)}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ) : null}
 
                 <div className="admin-broker-risk__facts">
                   <div>
@@ -1055,11 +1048,6 @@ export default function AdminBrokerRisk() {
                                   style={{ color: c.primary }}
                                 >
                                   #{inv.invoice_number}
-                                  {clock?.label ? (
-                                    <span className="admin-broker-risk__pause-badge">
-                                      {clock.label}
-                                    </span>
-                                  ) : null}
                                 </span>
                                 <span className="admin-broker-risk__inv-amt tabular-nums">
                                   {formatCurrency(inv.amount)}
@@ -1068,7 +1056,14 @@ export default function AdminBrokerRisk() {
                                   className="admin-broker-risk__inv-status"
                                   style={{ color: c.secondary }}
                                 >
-                                  {statusLabel}
+                                  <span className="admin-broker-risk__inv-status-text">
+                                    {statusLabel}
+                                  </span>
+                                  {clock?.label ? (
+                                    <span className="admin-broker-risk__pause-badge">
+                                      {clock.label}
+                                    </span>
+                                  ) : null}
                                 </span>
                                 <span className="admin-broker-risk__inv-age tabular-nums">
                                   {meta.ageDays}d
@@ -1133,9 +1128,12 @@ export default function AdminBrokerRisk() {
                     )}
                   </div>
                 </div>
+                  </>
+                ) : null}
 
+                {workspace === 'review' ? (
                 <footer className="admin-broker-risk__actions">
-                  {selected.review_status === 'pending_review' && (
+                  {needsAdminConfirm(selected.review_status) && (
                     <>
                       <div className="admin-broker-risk__presets">
                         {RATE_PRESETS.map((preset) => {
@@ -1325,31 +1323,6 @@ export default function AdminBrokerRisk() {
                     </>
                   )}
 
-                  {selected.review_status === 'auto_published' && (
-                    <>
-                      <p className="admin-broker-risk__status-line" style={{ color: c.secondary }}>
-                        Auto-published low (okay) — add a note anytime
-                      </p>
-                      <div className="admin-broker-risk__custom-row">
-                        <input
-                          type="text"
-                          value={reviewNote}
-                          onChange={(e) => setReviewNote(e.target.value)}
-                          placeholder="Add or update review note…"
-                          className="admin-broker-risk__note-input"
-                        />
-                        <button
-                          type="button"
-                          className="admin-broker-risk__btn admin-broker-risk__btn--note"
-                          onClick={() => void handleSaveNote()}
-                        >
-                          <StickyNote className="w-3.5 h-3.5" />
-                          Save note
-                        </button>
-                      </div>
-                    </>
-                  )}
-
                   {selected.reviewed_at && (
                     <p className="admin-broker-risk__reviewed" style={{ color: c.mutedLight }}>
                       Last review: {selected.reviewed_by} ·{' '}
@@ -1358,6 +1331,13 @@ export default function AdminBrokerRisk() {
                     </p>
                   )}
                 </footer>
+                ) : null}
+
+                <McLookupModal
+                  open={snapshotOpen}
+                  initialMc={lookupMc ?? ''}
+                  onClose={() => setSnapshotOpen(false)}
+                />
               </>
             )}
           </aside>

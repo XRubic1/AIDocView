@@ -245,18 +245,20 @@ function buildSummaryText(
 
 /** Map computed level → initial review status (Credyx gate). */
 export function reviewStatusForComputedLevel(
-  level: BrokerRiskLevel
+  _level: BrokerRiskLevel
 ): BrokerRiskReviewStatus {
-  if (level === 'medium' || level === 'high') return 'pending_review'
-  return 'auto_published'
+  return 'pending_review'
 }
 
 /** Carrier-visible risk_level for a stored profile. */
 export function carrierVisibleRiskLevel(profile: BrokerRiskProfile): BrokerRiskLevel {
   if (profile.review_status === 'cleared') return 'low'
   // Flagged Medium/High show on the carrier portal even while Credyx finishes review.
-  // Full evidence / recommendation still wait for Publish (see toClientBrokerRiskView).
-  if (profile.review_status === 'pending_review') {
+  // Low / leftover Auto wait for Credyx to Clear or Publish.
+  if (
+    profile.review_status === 'pending_review' ||
+    profile.review_status === 'auto_published'
+  ) {
     if (
       profile.computed_risk_level === 'medium' ||
       profile.computed_risk_level === 'high'
@@ -270,7 +272,7 @@ export function carrierVisibleRiskLevel(profile: BrokerRiskProfile): BrokerRiskL
 
 /**
  * Rules-based risk analysis (rules-v2 — terms-aware, no LLM).
- * Medium/high → pending_review; low/unrated → auto_published.
+ * All computed levels wait in pending_review until Credyx publishes or clears.
  */
 export function computeBrokerRiskProfile(input: ComputeBrokerRiskInput): ComputeBrokerRiskResult {
   const now = input.now ?? new Date()

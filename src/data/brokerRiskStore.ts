@@ -75,7 +75,7 @@ function normalizeProfile(raw: BrokerRiskProfile): BrokerRiskProfile {
     (raw.review_status === 'pending_review' ? 'medium' : raw.risk_level)
   const review_status: BrokerRiskReviewStatus =
     raw.review_status ??
-    (computed === 'medium' || computed === 'high' ? 'pending_review' : 'auto_published')
+    'pending_review'
   return {
     ...raw,
     computed_risk_level: computed,

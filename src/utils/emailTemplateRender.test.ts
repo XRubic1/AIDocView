@@ -49,10 +49,22 @@ describe('emailTemplateRender', () => {
     expect(data.portalLink).toContain('/client/attention?invoice=INV-1&upload=1')
   })
 
-  it('passes companyLogoHtml through unescaped', () => {
-    const out = renderEmailTemplateString('{{companyLogoHtml}}Hi', {
-      companyLogoHtml: '<img src="https://example.com/Logo.png" alt="Logo" />',
+  it('builds auth CTA and OTP blocks', () => {
+    const data = enrichEmailTemplateData('auth_recovery', {
+      contactName: 'Alex',
+      confirmation_url: 'https://example.com/reset',
+      token: '29436028',
     })
-    expect(out).toBe('<img src="https://example.com/Logo.png" alt="Logo" />Hi')
+    expect(data.ctaHtml).toContain('Choose a new password')
+    expect(data.ctaHtml).toContain('https://example.com/reset')
+    expect(data.otpHtml).toContain('29436028')
+    expect(data.companyLogoHtml.length).toBeGreaterThan(0)
+  })
+
+  it('passes confirmation_url through unescaped', () => {
+    const out = renderEmailTemplateString('<a href="{{confirmation_url}}">Go</a>', {
+      confirmation_url: 'https://example.com/auth/v1/verify?token=abc&type=signup',
+    })
+    expect(out).toBe('<a href="https://example.com/auth/v1/verify?token=abc&type=signup">Go</a>')
   })
 })

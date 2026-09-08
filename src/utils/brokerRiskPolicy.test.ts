@@ -460,9 +460,9 @@ describe('brokerRiskPolicy terms-aware', () => {
 })
 
 describe('review gate', () => {
-  it('maps elevated computed levels to pending_review', () => {
-    expect(reviewStatusForComputedLevel('low')).toBe('auto_published')
-    expect(reviewStatusForComputedLevel('unrated')).toBe('auto_published')
+  it('maps every computed level to pending_review until Credyx confirms', () => {
+    expect(reviewStatusForComputedLevel('low')).toBe('pending_review')
+    expect(reviewStatusForComputedLevel('unrated')).toBe('pending_review')
     expect(reviewStatusForComputedLevel('medium')).toBe('pending_review')
     expect(reviewStatusForComputedLevel('high')).toBe('pending_review')
   })

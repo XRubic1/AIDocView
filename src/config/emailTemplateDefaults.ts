@@ -1,3 +1,4 @@
+import { AUTH_EMAIL_TEMPLATE_DEFAULTS } from './authEmailTemplates'
 import {
   BROKER_PACKET_BODY_HTML,
   BROKER_REMITTANCE_UPDATED_BODY_HTML,
@@ -23,12 +24,21 @@ export type EmailTemplateId =
   | 'broker_payment_status_followup'
   | 'calendar_event_notice'
   | 'carrier_document_issue'
+  | 'auth_signup'
+  | 'auth_invite'
+  | 'auth_magiclink'
+  | 'auth_recovery'
+  | 'auth_email_change'
+  | 'auth_email_otp'
+  | 'auth_reauthentication'
+  | 'auth_password_changed'
+  | 'auth_email_changed'
 
 export interface EmailTemplateDefinition {
   id: EmailTemplateId
   name: string
   description: string
-  audience: 'broker' | 'carrier' | 'admin' | 'system'
+  audience: 'broker' | 'carrier' | 'admin' | 'system' | 'auth'
   /** Comma-separated placeholder keys for the editor help text. */
   placeholders: string
   subject: string
@@ -36,6 +46,10 @@ export interface EmailTemplateDefinition {
 }
 
 export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
+  ...AUTH_EMAIL_TEMPLATE_DEFAULTS.map((t) => ({
+    ...t,
+    audience: 'auth' as const,
+  })),
   {
     id: 'broker_packet',
     name: 'Broker paperwork packet',

@@ -46,6 +46,23 @@ export default function EmailTemplatesPanel() {
 
   const selected = templates.find((t) => t.id === selectedId)
   const isDocIssue = selectedId === 'carrier_document_issue'
+  const groupedTemplates = useMemo(() => {
+    const order = ['auth', 'carrier', 'broker', 'admin', 'system'] as const
+    const labels: Record<(typeof order)[number], string> = {
+      auth: 'Account (signup / reset)',
+      carrier: 'Carrier',
+      broker: 'Broker',
+      admin: 'Admin',
+      system: 'System',
+    }
+    return order
+      .map((audience) => ({
+        id: audience,
+        label: labels[audience],
+        items: templates.filter((t) => t.audience === audience),
+      }))
+      .filter((group) => group.items.length > 0)
+  }, [templates])
 
   useEffect(() => {
     let cancelled = false
@@ -164,30 +181,40 @@ export default function EmailTemplatesPanel() {
           className="admin-email-templates__list shrink-0 overflow-y-auto border rounded-lg"
           style={{ borderColor: c.border, backgroundColor: c.card }}
         >
-          {templates.map((t) => {
-            const active = selectedId === t.id
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => selectTemplate(t.id)}
-                className="w-full text-left px-3 py-2.5 border-b last:border-0 transition-colors"
-                style={{
-                  borderColor: c.border,
-                  backgroundColor: active ? c.stat.slate : 'transparent',
-                  color: c.primary,
-                }}
+          {groupedTemplates.map((group) => (
+            <div key={group.id}>
+              <p
+                className="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wide"
+                style={{ color: c.secondary }}
               >
-                <div className="text-sm font-medium leading-snug truncate">{t.name}</div>
-                <div
-                  className="text-[10px] uppercase tracking-wide mt-0.5 truncate"
-                  style={{ color: c.secondary }}
-                >
-                  {t.audience}
-                </div>
-              </button>
-            )
-          })}
+                {group.label}
+              </p>
+              {group.items.map((t) => {
+                const active = selectedId === t.id
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => selectTemplate(t.id)}
+                    className="w-full text-left px-3 py-2.5 border-b last:border-0 transition-colors"
+                    style={{
+                      borderColor: c.border,
+                      backgroundColor: active ? c.stat.slate : 'transparent',
+                      color: c.primary,
+                    }}
+                  >
+                    <div className="text-sm font-medium leading-snug truncate">{t.name}</div>
+                    <div
+                      className="text-[10px] uppercase tracking-wide mt-0.5 truncate"
+                      style={{ color: c.secondary }}
+                    >
+                      {t.audience}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         </aside>
 
         {selected ? (
@@ -200,9 +227,14 @@ export default function EmailTemplatesPanel() {
                 <p className="text-sm font-semibold leading-tight" style={{ color: c.primary }}>
                   {selected.name}
                 </p>
-                <p className="text-[11px] mt-0.5 line-clamp-2" style={{ color: c.secondary }}>
+                <p className="text-[11px] mt-0.5 line-clamp-3" style={{ color: c.secondary }}>
                   {selected.description}
                 </p>
+                {selected.placeholders ? (
+                  <p className="text-[10px] mt-1.5 font-mono leading-relaxed" style={{ color: c.mutedLight }}>
+                    {selected.placeholders}
+                  </p>
+                ) : null}
               </div>
 
               <div className="client-settings-field shrink-0">

@@ -78,14 +78,15 @@ export function toClientBrokerRiskView(
   analyzedAtLabel: string,
   notesRecencyLabel: string
 ): ClientBrokerRiskView {
-  const pending = profile.review_status === 'pending_review'
-  const published =
-    profile.review_status === 'published' || profile.review_status === 'auto_published'
+  const pending =
+    profile.review_status === 'pending_review' ||
+    profile.review_status === 'auto_published'
+  const published = profile.review_status === 'published'
   const level = carrierVisibleRiskLevel(profile) as AssistantRiskLevel
   const reviewNote =
     published && profile.review_note?.trim() ? profile.review_note.trim() : null
 
-  // Push Net vs actual average only after Credyx publishes (or auto low).
+  // Push Net vs actual average only after Credyx publishes.
   const paymentTiming =
     published && !pending
       ? buildBrokerPaymentTiming({

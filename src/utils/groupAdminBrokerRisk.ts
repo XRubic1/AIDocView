@@ -4,10 +4,9 @@
 import type { BrokerRiskLevel, BrokerRiskProfile, BrokerRiskReviewStatus } from '../types/brokerRisk'
 
 function statusRank(status: BrokerRiskReviewStatus): number {
-  if (status === 'pending_review') return 0
+  if (status === 'pending_review' || status === 'auto_published') return 0
   if (status === 'published') return 1
-  if (status === 'auto_published') return 2
-  return 3
+  return 2
 }
 
 function levelRank(level: BrokerRiskLevel): number {
@@ -53,7 +52,9 @@ export function groupAdminBrokerRiskProfiles(
       profiles: sorted,
       representative,
       carrierCount: new Set(list.map((p) => p.client_id)).size,
-      needsReviewCount: list.filter((p) => p.review_status === 'pending_review').length,
+      needsReviewCount: list.filter(
+        (p) => p.review_status === 'pending_review' || p.review_status === 'auto_published'
+      ).length,
     })
   }
 

@@ -55,6 +55,25 @@ export function getEmailPreviewSampleData(templateId: EmailTemplateId): Record<s
       }
     case 'client_invite':
       return { ...shared, inviteLink: `${shared.portalLink}/login` }
+    case 'auth_signup':
+    case 'auth_invite':
+    case 'auth_magiclink':
+    case 'auth_recovery':
+    case 'auth_email_change':
+    case 'auth_email_otp':
+    case 'auth_reauthentication':
+    case 'auth_password_changed':
+    case 'auth_email_changed':
+      return {
+        ...shared,
+        email: 'alex@northline.example',
+        confirmation_url: `${shared.portalLink}/client/login`,
+        token: '305805',
+        site_url: shared.portalLink,
+        redirect_to: `${shared.portalLink}/client/login`,
+        new_email: 'alex.new@northline.example',
+        old_email: 'alex@northline.example',
+      }
     default:
       return {
         ...shared,

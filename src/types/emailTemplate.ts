@@ -5,7 +5,7 @@ export interface EmailTemplateRow {
   id: EmailTemplateId
   name: string
   description: string
-  audience: 'broker' | 'carrier' | 'admin' | 'system'
+  audience: 'broker' | 'carrier' | 'admin' | 'system' | 'auth'
   placeholders: string
   subject: string
   body_html: string
