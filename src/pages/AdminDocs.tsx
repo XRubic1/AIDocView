@@ -6,6 +6,7 @@ import {
   CirclePause,
   FileText,
   FileWarning,
+  GitBranch,
   Hash,
   Lock,
   Mail,
@@ -18,6 +19,7 @@ import { AR_POLICY } from '../utils/invoiceAging'
 import '../styles/adminDocs.css'
 
 type DocTopicId =
+  | 'invoice-lifecycle'
   | 'force-close'
   | 'hold'
   | 'write-off'
@@ -45,6 +47,11 @@ interface DocPageContent {
 }
 
 const TOPICS: DocTopic[] = [
+  {
+    id: 'invoice-lifecycle',
+    label: 'Invoice lifecycle',
+    summary: 'Every status and branch from docs to paid.',
+  },
   {
     id: 'force-close',
     label: 'Force close',
@@ -101,6 +108,58 @@ function pageForTopic(id: DocTopicId): DocPageContent {
   const days = AR_POLICY.forceCloseDays
 
   switch (id) {
+    case 'invoice-lifecycle':
+      return {
+        title: 'Invoice lifecycle',
+        lede: 'Every path an invoice can take — stored status, what lists show, money in flight, and how it can close. Credyx is A/R back office, not factoring.',
+        callout: (
+          <>
+            Carrier stepper is always <strong>Submitted → Verified → Invoiced → Paid</strong>.
+            Credyx does not confirm delivery or capture POD in the field. List labels like Open,
+            Will Pay, and Open Disputed sit on top of stored status.
+          </>
+        ),
+        steps: [
+          {
+            title: 'Happy path',
+            body: 'Packet received (Submitted) → Credyx verifies (pending, then Open / approved) → PPW sent to the broker (Invoiced) → follow-up → payment confirmed (Paid). Until paid or closed, the invoice stays open A/R.',
+          },
+          {
+            title: 'Verification branches',
+            body: 'Pending review can be approved (Open), put On hold (missing docs / claim), or rejected. Hold before PPW stays on Verified; hold after PPW stays on Invoiced — it does not roll back.',
+          },
+          {
+            title: 'Open A/R overlays',
+            body: 'Open (blue). Overdue = 15+ days past expected pay. Will Pay (green) uses collection status W/P plus a scheduled payment date. Call Back (C/B) is a scheduled broker call. Open Disputed = invoice or remittance dispute. These do not change stored status to paid.',
+          },
+          {
+            title: 'Will Pay miss',
+            body: 'Nothing happens the day the scheduled pay date passes. Default 5 days later, still unpaid → Collections urgent (Will Pay unpaid 5d+). It does not go to carrier Attention (that list is paperwork holds only). Chase “needs attention” is a separate no-reply-after-inquiry clock.',
+          },
+          {
+            title: 'Money in flight',
+            body: 'Carrier post → pending until Credyx confirms. Credyx post → awaiting confirmation (Confirm). Receipt dispute = disputed remittance. Short paid = confirmed cash under face, remainder still open. Overpay = paid plus overage (carrier may accept excess).',
+          },
+          {
+            title: 'Close paths',
+            body: 'Full (or accepted) pay → Paid; age freezes at invoice date to pay date. Write-off → write_off_pending then written_off (fee exempt). Force close (Managed, 90d+) → force_closed (fee still bills). Rejected at verify is terminal for that packet.',
+          },
+          {
+            title: 'Admin Invoices chips',
+            body: 'Chips are on/off display buckets (one bucket per invoice). Search ignores chips. Paid is opt-in. Turning Open off does not hide overdue or Will Pay.',
+          },
+        ],
+        facts: [
+          { label: 'Open', value: 'approved — blue Open pill' },
+          { label: 'Will Pay', value: 'W/P + scheduled date; miss +5d → Collections urgent' },
+          { label: 'Open Disputed', value: 'Invoice or remittance dispute' },
+          { label: 'Paid vs write-off', value: 'Paid/frozen age · written_off fee-exempt' },
+          { label: 'Force close', value: 'Managed only · 90d+ · fee billable' },
+          { label: 'Attention tab', value: 'Paperwork holds only — not missed Will Pay' },
+        ],
+        footnote:
+          'Full map including mermaid diagrams: docs/INVOICE_LIFECYCLE.md in the repo.',
+      }
     case 'force-close':
       return {
         title: 'Force close',
@@ -526,6 +585,7 @@ function pageForTopic(id: DocTopicId): DocPageContent {
 }
 
 const TOPIC_ICONS: Record<DocTopicId, typeof ShieldAlert> = {
+  'invoice-lifecycle': GitBranch,
   'force-close': ShieldAlert,
   hold: CirclePause,
   'write-off': FileWarning,
@@ -540,7 +600,7 @@ const TOPIC_ICONS: Record<DocTopicId, typeof ShieldAlert> = {
 
 /** Admin Docs — book-style reference for how Credyx features work. */
 export default function AdminDocs() {
-  const [topicId, setTopicId] = useState<DocTopicId>('force-close')
+  const [topicId, setTopicId] = useState<DocTopicId>('invoice-lifecycle')
   const topicIndex = TOPICS.findIndex((t) => t.id === topicId)
   const topic = TOPICS[topicIndex] ?? TOPICS[0]
   const page = useMemo(() => pageForTopic(topic.id), [topic.id])

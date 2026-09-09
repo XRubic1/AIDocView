@@ -1,5 +1,7 @@
 # Invoice Lifecycle Audit — Issues & Fixes
 
+> Canonical product map (all statuses and branches): [`INVOICE_LIFECYCLE.md`](INVOICE_LIFECYCLE.md).
+>
 > Trace of every seeded invoice scenario (`scripts/seedDemoClient.ts`, seed as-of
 > **2026-08-05**) through the client portal lifecycle: created → verified → invoiced →
 > payment → confirm → variance resolution → closed. Each scenario was checked for date
