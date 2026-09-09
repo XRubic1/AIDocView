@@ -1,4 +1,5 @@
-import { Invoice } from '../types/invoice'
+import type { Invoice } from '../types/invoice'
+import type { Payment } from '../types/payment'
 import type { ClientCapabilities } from './clientCapabilities'
 import { mockBrokers } from '../data/mockBrokers'
 import {
@@ -100,17 +101,52 @@ export function getInvoiceAgeDays(invoice: Invoice, asOf: Date = new Date()): nu
   return Math.max(0, Math.floor((today.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24)))
 }
 
+/** Paid, written-off, force-closed, or rejected — aging clock is stopped. */
+export function invoiceHasStoppedAging(invoice: Pick<Invoice, 'status'>): boolean {
+  return (
+    invoice.status === 'paid' ||
+    invoice.status === 'written_off' ||
+    invoice.status === 'force_closed' ||
+    invoice.status === 'write_off_pending' ||
+    invoice.status === 'rejected'
+  )
+}
+
+/** Latest confirmed received/pay date per invoice. */
+export function buildConfirmedPayDateByInvoiceId(payments: Payment[]): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const payment of payments) {
+    if (payment.status !== 'confirmed') continue
+    const dateStr = payment.received_date || payment.payment_date
+    if (!dateStr) continue
+    const prev = map.get(payment.invoice_id)
+    if (!prev || dateStr > prev) map.set(payment.invoice_id, dateStr)
+  }
+  return map
+}
+
+/** Freeze date for closed invoices: pay date, else collection/close date. */
+export function getInvoiceAgeFreezeDate(
+  invoice: Invoice,
+  payDate?: string | null
+): string {
+  return (
+    payDate ||
+    invoice.collection_date ||
+    invoice.updated_at ||
+    invoice.invoice_date
+  )
+}
+
 /**
- * Display age — stops increasing once the invoice is paid.
- * Pass `payDate` (confirmed received date) to freeze at settlement; otherwise uses updated_at.
+ * Display age — open A/R ages to as-of; paid/closed freeze at pay (or close) date.
  */
 export function getDisplayInvoiceAgeDays(
   invoice: Invoice,
   options?: { payDate?: string | null; asOf?: Date }
 ): number {
-  if (invoice.status === 'paid') {
-    const freezeAt = options?.payDate || invoice.updated_at || invoice.invoice_date
-    return getInvoiceAgeDays(invoice, new Date(freezeAt))
+  if (invoiceHasStoppedAging(invoice)) {
+    return getInvoiceAgeDays(invoice, new Date(getInvoiceAgeFreezeDate(invoice, options?.payDate)))
   }
   return getInvoiceAgeDays(invoice, options?.asOf ?? new Date())
 }
@@ -203,12 +239,7 @@ export function getOverdueSeverity(
 }
 
 export function getAgingBucket(invoice: Invoice, invoiceAgeDays: number): AgingBucket {
-  if (
-    invoice.status === 'paid' ||
-    invoice.status === 'force_closed' ||
-    invoice.status === 'written_off' ||
-    invoice.status === 'write_off_pending'
-  ) {
+  if (invoiceHasStoppedAging(invoice)) {
     return 'closed'
   }
   if (invoiceAgeDays <= 0) return 'current'

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import AdminLayout from '../components/AdminLayout'
 import AssistantChatThread from '../components/client/assistant/AssistantChatThread'
 import AdminSharedCalendar from '../components/admin/AdminSharedCalendar'
 import { useResizableLeadingPane } from '../hooks/useResizableLeadingPane'
@@ -24,7 +23,7 @@ export default function AdminAssistant() {
   }, [])
 
   return (
-    <AdminLayout flushMain>
+    <>
       <div
         ref={workspaceRef}
         className={`assistant-page admin-calendar-page${
@@ -94,6 +93,6 @@ export default function AdminAssistant() {
           <AdminSharedCalendar includeChaseTasks />
         </div>
       </div>
-    </AdminLayout>
+    </>
   )
 }

@@ -44,7 +44,7 @@ describe('clientInvoiceDisputeStatus', () => {
     expect(getOpenDisputedStatusLabel()).toBe('Open Disputed')
   })
 
-  it('does not use Open Disputed when response is ready', () => {
+  it('keeps Open Disputed while a dispute is under review', () => {
     const invoice = baseInvoice({
       disputes: [
         {
@@ -58,7 +58,38 @@ describe('clientInvoiceDisputeStatus', () => {
         },
       ],
     })
-    expect(invoiceHasOpenDisputedStatus(invoice)).toBe(false)
+    expect(invoiceHasOpenDisputedStatus(invoice)).toBe(true)
+  })
+
+  it('treats capitalized dispute status as open', () => {
+    const invoice = baseInvoice({
+      disputes: [
+        {
+          id: 'd1',
+          reason: 'claim_dispute',
+          description: 'Cargo claim',
+          status: 'Open' as 'open',
+          created_by: 'Credyx',
+          created_at: '2026-07-02T00:00:00Z',
+        },
+      ],
+    })
+    expect(invoiceHasOpenDisputedStatus(invoice)).toBe(true)
+  })
+
+  it('marks a dispute note as Open Disputed when disputes[] is empty', () => {
+    const invoice = baseInvoice({
+      notes_history: [
+        {
+          id: 'n1',
+          note: 'Dispute opened: Claim dispute — cargo claim on load LD-D30-04',
+          created_by: 'Credyx',
+          created_at: '2026-07-02T00:00:00Z',
+          type: 'dispute',
+        },
+      ],
+    })
+    expect(invoiceHasOpenDisputedStatus(invoice)).toBe(true)
   })
 
   it('marks payment-disputed open A/R as Open Disputed (not Invoiced)', () => {

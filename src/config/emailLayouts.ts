@@ -285,3 +285,88 @@ export function buildCarrierDocumentIssueBodyHtml(
 }
 
 export const CARRIER_DOCUMENT_ISSUE_BODY_HTML = buildCarrierDocumentIssueBodyHtml()
+
+/** Welcome email when a carrier account is activated (Settings → Email). */
+export const CLIENT_WELCOME_BODY_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Welcome to Credyx</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;-webkit-text-size-adjust:100%;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:28px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+          <tr>
+            <td style="background-color:#0f172a;padding:22px 28px;">
+              {{companyLogoHtml}}
+              <p style="margin:14px 0 0 0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;">
+                Welcome
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 28px 8px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
+              <p style="margin:0 0 10px 0;font-size:20px;font-weight:600;line-height:1.35;color:#0f172a;">
+                Your Credyx account is active
+              </p>
+              <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">
+                Hi {{contactName}} — {{clientName}} is set up in Credyx. Your back office is in one portal: submit paperwork, we verify and invoice brokers, and we keep you updated through paid on time.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 28px 8px 28px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+                <tr>
+                  <td style="padding:14px 16px;border-bottom:1px solid #e2e8f0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                    <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;">Collection fee</p>
+                    <p style="margin:4px 0 0 0;font-size:18px;font-weight:700;color:#1684FE;">{{feeTermsLabel}}</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 16px;border-bottom:1px solid #e2e8f0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                    <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;">Website</p>
+                    <p style="margin:4px 0 0 0;font-size:14px;color:#0f172a;"><a href="{{websiteUrl}}" style="color:#1684FE;text-decoration:none;">{{websiteUrl}}</a></p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 16px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                    <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;">Credyx contact</p>
+                    <p style="margin:4px 0 0 0;font-size:14px;color:#0f172a;"><a href="mailto:{{contactEmail}}" style="color:#1684FE;text-decoration:none;">{{contactEmail}}</a></p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 28px 8px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#334155;">
+              Create your password on first sign-in, then use the portal anytime.
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 28px 28px 28px;">
+              <a href="{{setupLink}}" style="display:inline-block;background-color:#1684FE;color:#ffffff;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;padding:12px 20px;border-radius:8px;">
+                {{ctaLabel}}
+              </a>
+              <p style="margin:14px 0 0 0;font-size:13px;line-height:1.5;color:#64748b;">
+                Portal: <a href="{{portalLink}}" style="color:#1684FE;text-decoration:none;">{{portalLink}}</a>
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 28px;background-color:#f8fafc;border-top:1px solid #e2e8f0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+              <p style="margin:0 0 4px 0;font-size:12px;font-weight:600;color:#334155;">Credyx · Paid on time</p>
+              <p style="margin:0;font-size:11px;line-height:1.45;color:#64748b;">
+                If you did not expect this email, you can ignore it or write to {{contactEmail}}.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`

@@ -16,6 +16,9 @@ import {
   type BrokerPayTrend,
   type NetworkBrokerPaymentInsight,
 } from '../../utils/networkBrokerPaymentInsights'
+import { listBrokerRiskForAdmin } from '../../services/brokerRiskService'
+import { groupAdminBrokerRiskProfiles } from '../../utils/groupAdminBrokerRisk'
+import { findBrokerByName } from '../../utils/brokerResolve'
 
 function trendLabel(trend: BrokerPayTrend): string {
   if (trend === 'faster') return 'Paying faster'
@@ -67,7 +70,28 @@ export default function AdminBrokerPaymentInsight() {
 
   const insights = useMemo(() => {
     void tenantRevision
-    return computeNetworkBrokerPaymentInsights(mockInvoices, mockPayments, mockBrokers)
+    const reviewBrokers = groupAdminBrokerRiskProfiles(
+      listBrokerRiskForAdmin({ reviewStatus: 'all' })
+    ).map((group) => {
+      const catalog = mockBrokers.find((b) => b.id === group.brokerId)
+      if (catalog) return catalog
+      const slugName = group.brokerId.startsWith('broker-name-')
+        ? group.brokerId.replace(/^broker-name-/, '').replace(/-/g, ' ')
+        : group.brokerId
+      const byName = findBrokerByName(slugName)
+      return (
+        byName ?? {
+          id: group.brokerId,
+          name: slugName,
+        }
+      )
+    })
+    return computeNetworkBrokerPaymentInsights(
+      mockInvoices,
+      mockPayments,
+      mockBrokers,
+      reviewBrokers
+    )
   }, [tenantRevision])
 
   const filtered = useMemo(() => {
@@ -97,7 +121,7 @@ export default function AdminBrokerPaymentInsight() {
         </div>
         {filtered.length === 0 ? (
           <p className="admin-broker-risk__empty" style={{ color: c.secondary }}>
-            No confirmed broker payments yet. History builds as payments post.
+            No brokers on the Review queue and no invoice history yet.
           </p>
         ) : (
           <ul className="admin-broker-risk__queue-list">
@@ -131,7 +155,9 @@ export default function AdminBrokerPaymentInsight() {
                     </div>
                     <div className="admin-broker-risk__row-meta" style={{ color: c.secondary }}>
                       {row.carrierCount} carrier{row.carrierCount === 1 ? '' : 's'}
-                      {` · ${formatCurrency(row.history.lifetimePaid)} paid`}
+                      {row.history.lifetimeCount > 0
+                        ? ` · ${formatCurrency(row.history.lifetimePaid)} paid`
+                        : ' · no payments yet'}
                       {row.history.avgDaysToPay != null ? ` · avg ${row.history.avgDaysToPay}d` : ''}
                       {row.history.pausedInvoiceCount > 0
                         ? ` · ${Math.round(row.history.pausedInvoiceShare * 100)}% hold/dispute`

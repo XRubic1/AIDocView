@@ -54,7 +54,17 @@ export function getEmailPreviewSampleData(templateId: EmailTemplateId): Record<s
         remittanceChangeNoteHtml: '',
       }
     case 'client_invite':
-      return { ...shared, inviteLink: `${shared.portalLink}/login` }
+      return {
+        ...shared,
+        feeTermsLabel: '2.5%',
+        feePercentage: '2.5',
+        websiteUrl: 'https://credyx.com',
+        contactEmail: 'ops@credyx.net',
+        portalLink: `${shared.portalLink}/client/login`,
+        setupLink: `${shared.portalLink}/client/setup-password`,
+        inviteLink: `${shared.portalLink}/client/setup-password`,
+        ctaLabel: 'Create your password',
+      }
     case 'auth_signup':
     case 'auth_invite':
     case 'auth_magiclink':

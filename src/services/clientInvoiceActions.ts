@@ -122,8 +122,36 @@ export function openClientInvoiceDispute(
   })
 }
 
+/** Normalize stored dispute status (DB/json may use Open, under-review, etc.). */
+export function normalizeInvoiceDisputeStatus(status?: string): string {
+  const raw = (status || 'open').toLowerCase().trim()
+  return raw.replace(/[\s-]+/g, '_')
+}
+
+/** Open or still under review — not resolved/closed. */
+export function isActiveInvoiceDisputeStatus(status?: string): boolean {
+  const s = normalizeInvoiceDisputeStatus(status)
+  return s === 'open' || s === 'under_review' || s === 'reviewing'
+}
+
+/** Invoice.disputes as a list (handles JSON string / missing array). */
+export function listInvoiceDisputes(invoice: Invoice): InvoiceDispute[] {
+  const raw = invoice.disputes as InvoiceDispute[] | string | null | undefined
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.filter(Boolean)
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      return Array.isArray(parsed) ? (parsed as InvoiceDispute[]) : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
 export function getOpenDisputes(invoice: Invoice): InvoiceDispute[] {
-  return (invoice.disputes || []).filter((d) => d.status === 'open' || d.status === 'under_review')
+  return listInvoiceDisputes(invoice).filter((d) => isActiveInvoiceDisputeStatus(d.status))
 }
 
 export type InvoiceDisputeBadgeVariant = 'open' | 'reviewing' | 'responded'
@@ -140,11 +168,11 @@ export interface InvoiceDisputeBadge {
  * Open disputes always beat a prior response-ready state on the same invoice.
  */
 export function getInvoiceDisputeRowBadge(invoice: Invoice): InvoiceDisputeBadge | null {
-  const disputes = invoice.disputes ?? []
+  const disputes = listInvoiceDisputes(invoice)
   if (disputes.length === 0) return null
 
-  const open = disputes.filter((d) => d.status === 'open')
-  const active = disputes.filter((d) => d.status === 'open' || d.status === 'under_review')
+  const open = disputes.filter((d) => normalizeInvoiceDisputeStatus(d.status) === 'open')
+  const active = disputes.filter((d) => isActiveInvoiceDisputeStatus(d.status))
   const withResponse = disputes.filter((d) => d.response?.trim())
 
   // Client opened a dispute — show disputed (overrides any older response-ready badge).

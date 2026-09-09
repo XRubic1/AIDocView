@@ -286,6 +286,11 @@
   color: var(--cp-accent);
 }
 
+.client-portal[data-theme='dark'] .page-tab__count {
+  background: var(--cp-accent);
+  color: #fff;
+}
+
 /* Invoice workspace */
 .client-portal[data-theme='dark'] .invoice-workspace,
 .client-portal[data-theme='dark'] .invoice-detail-panel,

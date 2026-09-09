@@ -10,6 +10,11 @@ import {
   DEFAULT_BROKER_RISK_POLICY,
   type BrokerRiskPolicy,
 } from '../utils/brokerRiskPolicy'
+import {
+  DEFAULT_EMAIL_LIFECYCLE_SETTINGS,
+  EMAIL_LIFECYCLE_SETTINGS,
+  type EmailLifecycleSettings,
+} from '../config/emailLifecycle'
 import { persistOrThrow } from './persistHelper'
 
 const AR_POLICY_KEY = 'ar_policy'
@@ -363,6 +368,102 @@ export async function saveBrokerRiskPolicy(
     const { error } = await supabase.from('platform_settings').upsert({
       key: BROKER_RISK_POLICY_KEY,
       value: brokerRiskPolicyToJson(normalized),
+      updated_at: new Date().toISOString(),
+    })
+    if (error) throw new Error(error.message)
+  })
+
+  return normalized
+}
+
+const EMAIL_LIFECYCLE_KEY = 'email_lifecycle'
+
+function clampClockDays(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n) || n < 0) return fallback
+  return Math.min(Math.floor(n), 90)
+}
+
+function normalizeTrackClock(
+  value: Partial<EmailLifecycleSettings['paperwork']> | null | undefined,
+  fallback: EmailLifecycleSettings['paperwork']
+): EmailLifecycleSettings['paperwork'] {
+  return {
+    firstAskDays: clampClockDays(value?.firstAskDays, fallback.firstAskDays),
+    actionNeededAfterFirst:
+      typeof value?.actionNeededAfterFirst === 'boolean'
+        ? value.actionNeededAfterFirst
+        : fallback.actionNeededAfterFirst,
+    actionNeededAfterFirstDays: clampClockDays(
+      value?.actionNeededAfterFirstDays,
+      fallback.actionNeededAfterFirstDays
+    ),
+    secondFollowupDays: clampClockDays(value?.secondFollowupDays, fallback.secondFollowupDays),
+    needsAttentionAfterSecondDays: clampClockDays(
+      value?.needsAttentionAfterSecondDays,
+      fallback.needsAttentionAfterSecondDays
+    ),
+  }
+}
+
+function normalizeEmailLifecycleSettings(
+  value: Partial<EmailLifecycleSettings> | null | undefined
+): EmailLifecycleSettings {
+  const d = DEFAULT_EMAIL_LIFECYCLE_SETTINGS
+  const rules: EmailLifecycleSettings['rules'] = { ...d.rules }
+  if (value?.rules) {
+    for (const [id, row] of Object.entries(value.rules)) {
+      rules[id as keyof typeof rules] = { enabled: row?.enabled !== false }
+    }
+  }
+  return {
+    rules,
+    paperwork: normalizeTrackClock(value?.paperwork, d.paperwork),
+    payment: normalizeTrackClock(value?.payment, d.payment),
+  }
+}
+
+/** Load email workflow clocks/toggles from platform_settings. */
+export async function loadEmailLifecycleSettings(): Promise<EmailLifecycleSettings> {
+  if (!isSupabaseConfigured()) return normalizeEmailLifecycleSettings(EMAIL_LIFECYCLE_SETTINGS)
+
+  const supabase = getSupabase()
+  if (!supabase) return normalizeEmailLifecycleSettings(EMAIL_LIFECYCLE_SETTINGS)
+
+  const { data, error } = await supabase
+    .from('platform_settings')
+    .select('value')
+    .eq('key', EMAIL_LIFECYCLE_KEY)
+    .maybeSingle()
+
+  if (error || !data?.value) return normalizeEmailLifecycleSettings(null)
+  return normalizeEmailLifecycleSettings(data.value as Partial<EmailLifecycleSettings>)
+}
+
+/** Apply loaded email workflow settings to the runtime singleton. */
+export function applyEmailLifecycleSettings(settings: EmailLifecycleSettings): void {
+  const next = normalizeEmailLifecycleSettings(settings)
+  EMAIL_LIFECYCLE_SETTINGS.rules = next.rules
+  Object.assign(EMAIL_LIFECYCLE_SETTINGS.paperwork, next.paperwork)
+  Object.assign(EMAIL_LIFECYCLE_SETTINGS.payment, next.payment)
+}
+
+/** Persist email workflow settings from admin Settings. */
+export async function saveEmailLifecycleSettings(
+  settings: EmailLifecycleSettings
+): Promise<EmailLifecycleSettings> {
+  const normalized = normalizeEmailLifecycleSettings(settings)
+  applyEmailLifecycleSettings(normalized)
+
+  if (!isSupabaseConfigured()) return normalized
+
+  const supabase = getSupabase()
+  if (!supabase) return normalized
+
+  await persistOrThrow('email_lifecycle', async () => {
+    const { error } = await supabase.from('platform_settings').upsert({
+      key: EMAIL_LIFECYCLE_KEY,
+      value: normalized,
       updated_at: new Date().toISOString(),
     })
     if (error) throw new Error(error.message)

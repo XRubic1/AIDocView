@@ -12,7 +12,6 @@ import {
   Info,
   ShieldCheck,
 } from 'lucide-react'
-import AdminLayout from '../components/AdminLayout'
 import {
   mockPayments,
   getConfirmedPaymentTotal,
@@ -666,7 +665,7 @@ export default function PaymentPosting() {
   )
 
   return (
-    <AdminLayout flushMain>
+    <>
       <div className="admin-payment-posting-page overflow-hidden flex flex-col min-h-0 h-full">
         <div
           className="client-page-tabs-bar shrink-0 px-4 py-2 border-b space-y-2"
@@ -1611,7 +1610,7 @@ export default function PaymentPosting() {
           </div>
         </ModalShell>
       )}
-    </AdminLayout>
+    </>
   )
 }
 

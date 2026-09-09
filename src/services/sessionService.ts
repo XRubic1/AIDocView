@@ -11,6 +11,8 @@ export interface ResolvedSession {
   isAdmin: boolean
 }
 
+const MUST_SET_PASSWORD_FLAG = 'credyx_must_set_password'
+
 function readClientId(user: User | null): string | null {
   if (!user) return null
   const fromMeta = user.app_metadata?.client_id
@@ -20,6 +22,38 @@ function readClientId(user: User | null): string | null {
 
 function isAdminUser(user: User | null): boolean {
   return user?.app_metadata?.role === 'admin'
+}
+
+/** True when the client still needs to create a first password. */
+export function userMustSetPassword(user: User | null | undefined): boolean {
+  if (!user) return false
+  return user.user_metadata?.must_set_password === true
+}
+
+/** Recovery/invite hash sessions need a password even without metadata. */
+export function markPasswordSetupRequired(): void {
+  try {
+    sessionStorage.setItem(MUST_SET_PASSWORD_FLAG, '1')
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearPasswordSetupRequired(): void {
+  try {
+    sessionStorage.removeItem(MUST_SET_PASSWORD_FLAG)
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clientNeedsPasswordSetup(user: User | null | undefined): boolean {
+  if (userMustSetPassword(user)) return true
+  try {
+    return sessionStorage.getItem(MUST_SET_PASSWORD_FLAG) === '1'
+  } catch {
+    return false
+  }
 }
 
 /** Resolve principal type and client_id from a Supabase session (JWT claims only). */
@@ -76,7 +110,10 @@ export function onAuthStateChange(
   callback: (resolved: ResolvedSession) => void
 ): () => void {
   const supabase = requireSupabase()
-  const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      markPasswordSetupRequired()
+    }
     callback(resolveSession(session))
   })
   return () => data.subscription.unsubscribe()

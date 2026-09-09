@@ -46,6 +46,8 @@ import {
   applyCollectionsPolicy,
   loadBrokerRiskPolicy,
   applyBrokerRiskPolicy,
+  loadEmailLifecycleSettings,
+  applyEmailLifecycleSettings,
 } from '../platformSettingsService'
 import { resolveSession } from '../sessionService'
 import {
@@ -205,10 +207,17 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
     }
 
     try {
-      const brokerRiskPolicy = await loadBrokerRiskPolicy()
-      applyBrokerRiskPolicy(brokerRiskPolicy)
+      const emailLifecycle = await loadEmailLifecycleSettings()
+      applyEmailLifecycleSettings(emailLifecycle)
     } catch (err) {
-      errors.push(`broker_risk_policy: ${err instanceof Error ? err.message : String(err)}`)
+      errors.push(`email_lifecycle: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      const { hydrateEmailInboxFromSupabase } = await import('../emailLifecycleService')
+      await hydrateEmailInboxFromSupabase()
+    } catch (err) {
+      errors.push(`email_inbox: ${err instanceof Error ? err.message : String(err)}`)
     }
   } else if (principal === 'client' && clientId) {
     await hydrateClientRegistry({ scope: 'client', clientId })

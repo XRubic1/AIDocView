@@ -1,4 +1,3 @@
-import AdminLayout from '../components/AdminLayout'
 import AdminSharedCalendar from '../components/admin/AdminSharedCalendar'
 
 /**
@@ -7,10 +6,8 @@ import AdminSharedCalendar from '../components/admin/AdminSharedCalendar'
  */
 export default function AdminCalendar() {
   return (
-    <AdminLayout flushMain>
-      <div className="assistant-page admin-calendar-page">
-        <AdminSharedCalendar />
-      </div>
-    </AdminLayout>
+    <div className="assistant-page admin-calendar-page">
+      <AdminSharedCalendar />
+    </div>
   )
 }

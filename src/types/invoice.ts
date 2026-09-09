@@ -103,6 +103,8 @@ export interface Invoice {
     resolution?: 'approved' | 'denied'
     internal_note?: string
   }
+  /** Paperwork / payment chase clocks and statuses. */
+  email_lifecycle?: import('./emailLifecycle').InvoiceEmailLifecycle
 }
 
 export interface DocumentSendRecord {

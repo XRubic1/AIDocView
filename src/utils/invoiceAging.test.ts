@@ -5,6 +5,7 @@ import {
   getAgingArBucketKey,
   getDaysOutstanding,
   getDisplayAgingBucketId,
+  getDisplayInvoiceAgeDays,
   isInvoiceOverdue,
   isOpenArInvoice,
   enrichInvoice,
@@ -82,5 +83,27 @@ describe('getDaysOutstanding vs live broker terms', () => {
     expect(isInvoiceOverdue(invoice, asOf)).toBe(true)
     expect(enrichInvoice(invoice, asOf).displayStatus).toBe('hold')
     expect(enrichInvoice(invoice, asOf).agingBucket).not.toBe('closed')
+  })
+
+  it('freezes paid age at invoice date to pay date', () => {
+    const closedAsOf = new Date('2026-09-09')
+    const paid = enrichInvoice(
+      baseInvoice({
+        status: 'paid',
+        invoice_date: '2026-01-01',
+        collection_date: '2026-02-01',
+        updated_at: '2026-09-09T00:00:00Z',
+      }),
+      closedAsOf
+    )
+    expect(paid.invoiceAgeDays).toBe(31)
+    expect(paid.agingBucket).toBe('closed')
+    expect(paid.isOverdue).toBe(false)
+    expect(
+      getDisplayInvoiceAgeDays(baseInvoice({ status: 'paid', invoice_date: '2026-01-01' }), {
+        payDate: '2026-03-15',
+        asOf: closedAsOf,
+      })
+    ).toBe(73)
   })
 })

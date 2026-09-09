@@ -19,7 +19,6 @@ import {
   PauseCircle,
   PlayCircle,
 } from 'lucide-react'
-import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
 import { formatCurrency } from '../../utils/format'
 import {
@@ -30,6 +29,7 @@ import {
   closeClientInvoiceAsUncollectable,
   uploadClientInvoiceDocuments,
   getDisputeReasonLabel,
+  listInvoiceDisputes,
   DISPUTE_REASON_OPTIONS,
   type ClientMarkPaidOptions,
 } from '../../services/clientInvoiceActions'
@@ -552,7 +552,7 @@ export default function InvoiceDetailPanel({
   const activityEntries = useMemo((): TimelineEntry[] => {
     const entries: TimelineEntry[] = []
     // Structured disputes only — skip matching "Dispute opened:" notes below.
-    for (const dispute of visibleInvoice.disputes || []) {
+    for (const dispute of listInvoiceDisputes(visibleInvoice)) {
       entries.push({
         id: `dispute-${dispute.id}`,
         title: getDisputeReasonLabel(dispute.reason),
@@ -1228,7 +1228,11 @@ export default function InvoiceDetailPanel({
       setPendingStatusKind(null)
       onInvoiceUpdated?.()
       showToast(
-        kind === 'set_due_date' ? 'Due date set' : 'Status note posted',
+        kind === 'will_pay'
+          ? 'Will Pay scheduled'
+          : kind === 'set_due_date'
+            ? 'Due date set'
+            : 'Status note posted',
         'success'
       )
     } catch (error) {
@@ -1661,7 +1665,9 @@ export default function InvoiceDetailPanel({
             }
             onViewDocuments={canViewDocuments ? onViewDocuments : undefined}
             onUploadDocuments={
-              enableClientActions ? () => setShowUploadModal(true) : undefined
+              enableClientActions || notesAsPrimaryTab
+                ? () => setShowUploadModal(true)
+                : undefined
             }
             brokerRiskLevel={
               isAdminPortal
@@ -1906,7 +1912,7 @@ export default function InvoiceDetailPanel({
                 Dispute
               </button>
             )}
-            {enableClientActions && (
+            {(enableClientActions || notesAsPrimaryTab) && (
               <button
                 type="button"
                 onClick={() => setShowUploadModal(true)}
@@ -1916,17 +1922,10 @@ export default function InvoiceDetailPanel({
                 {isMobile ? 'Upload docs' : 'Upload'}
               </button>
             )}
-            {notesEnabled && !isMobile && detailSurface === 'overview' ? (
+            {notesEnabled && !isMobile && detailSurface === 'overview' && !notesAsPrimaryTab ? (
               <button
                 type="button"
-                onClick={() => {
-                  if (notesAsPrimaryTab) {
-                    setTimelineFilter('all')
-                    setDetailSurface('notes')
-                    return
-                  }
-                  setDetailSurface('activity')
-                }}
+                onClick={() => setDetailSurface('activity')}
                 className="dashboard-btn-secondary flex-1 min-w-[90px] inline-flex items-center justify-center gap-1.5"
               >
                 <MessageSquare className="w-4 h-4" />

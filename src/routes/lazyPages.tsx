@@ -40,6 +40,8 @@ export const AdminBrokerSnapshot = lazy(() => import('../pages/AdminBrokerSnapsh
 export const Batches = lazy(() => import('../pages/Batches'))
 export const CreateBatch = lazy(() => import('../pages/CreateBatch'))
 export const AgingAR = lazy(() => import('../pages/AgingAR'))
+export const BrokerAgingInvoicesPopup = lazy(() => import('../pages/BrokerAgingInvoicesPopup'))
+export const CarrierAgingBrokersPopup = lazy(() => import('../pages/CarrierAgingBrokersPopup'))
 export const InvoiceSearch = lazy(() => import('../pages/AdminInvoices'))
 export const AdminInvoices = lazy(() => import('../pages/AdminInvoices'))
 export const AdminInvoiceWorkspace = lazy(() => import('../pages/AdminInvoiceWorkspace'))

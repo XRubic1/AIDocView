@@ -1,295 +1,446 @@
-import { useState } from 'react'
-import { formatCurrency } from '../../utils/format'
-import { formatDate } from '../../utils/format'
-import { Invoice } from '../../types/invoice'
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react'
+import { ChevronDown, ChevronRight, ExternalLink, Search } from 'lucide-react'
+import ClientListTd from '../client/ClientListTd'
+import ClientSortableHeader from '../client/ClientSortableHeader'
+import EmptyState from '../ui/EmptyState'
 import { mockInvoices } from '../../data/mockInvoices'
-import { getAgingArBucketKey, getInvoiceAgeDays, isOpenArInvoice } from '../../utils/invoiceAging'
+import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
+import { useClientTheme } from '../../theme/ThemeContext'
+import { formatCurrency } from '../../utils/format'
+import {
+  BROKER_AGING_BUCKETS,
+  buildCarrierAgingRows,
+  type BrokerAgingBucketKey,
+  type BrokerAgingRow,
+  type CarrierAgingRow,
+} from '../../utils/brokerAgingSummary'
+import { openBrokerAgingWindow, openCarrierAgingWindow } from '../../utils/openBrokerAgingWindow'
+import { getInitialListPageSize, PAGE_SIZE_OPTIONS, type SortDir } from '../../utils/clientListPage'
 
-interface AgingInvoicesTabProps {
-  onInvoiceSelect: (invoiceId: string) => void
-  lastViewedInvoiceId?: string | null
+type SortField = 'carrier_name' | 'total' | 'percent' | 'avg_age' | 'invoice_count' | BrokerAgingBucketKey
+
+const COL_COUNT = 1 + BROKER_AGING_BUCKETS.length + 4
+
+function moneyCell(amount: number): string {
+  if (amount === 0) return '—'
+  return formatCurrency(amount)
 }
 
-type AgingBucket = '1_15' | '16_30' | '31_45' | '46_60' | '61_90' | 'over_91'
-
-interface AgingGroup {
-  bucket: AgingBucket
-  label: string
-  invoices: Invoice[]
-  totalAmount: number
+function compareAging(
+  a: { clientName?: string; brokerName?: string; total: number; percentOfTotal: number; avgAgeDays: number; invoiceCount: number; amounts: Record<BrokerAgingBucketKey, number> },
+  b: typeof a,
+  sortField: SortField,
+  nameKey: 'clientName' | 'brokerName'
+): number {
+  if (sortField === 'carrier_name') {
+    return (a[nameKey] || '').localeCompare(b[nameKey] || '', undefined, { sensitivity: 'base' })
+  }
+  if (sortField === 'total') return a.total - b.total
+  if (sortField === 'percent') return a.percentOfTotal - b.percentOfTotal
+  if (sortField === 'avg_age') return a.avgAgeDays - b.avgAgeDays
+  if (sortField === 'invoice_count') return a.invoiceCount - b.invoiceCount
+  return a.amounts[sortField] - b.amounts[sortField]
 }
 
-export default function AgingInvoicesTab({ onInvoiceSelect, lastViewedInvoiceId }: AgingInvoicesTabProps) {
-  const [selectedBucket, setSelectedBucket] = useState<AgingBucket | null>(null)
+/** Admin Aging A/R — carriers as parents, brokers as expandable children. */
+export default function AgingInvoicesTab() {
+  const c = useClientTheme()
+  const tenantRevision = useTenantDataRevision()
   const [searchTerm, setSearchTerm] = useState('')
+  const [sortField, setSortField] = useState<SortField>('total')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [pageSize, setPageSize] = useState(getInitialListPageSize)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
 
-  // Group invoices by aging bucket (invoice age, not days past due)
-  const agingGroups: AgingGroup[] = [
-    { bucket: '1_15', label: '0–15 days', invoices: [], totalAmount: 0 },
-    { bucket: '16_30', label: '16–30 days', invoices: [], totalAmount: 0 },
-    { bucket: '31_45', label: '31–45 days', invoices: [], totalAmount: 0 },
-    { bucket: '46_60', label: '46–60 days', invoices: [], totalAmount: 0 },
-    { bucket: '61_90', label: '61–90 days', invoices: [], totalAmount: 0 },
-    { bucket: 'over_91', label: '91+ days', invoices: [], totalAmount: 0 },
-  ]
+  const rows = useMemo(() => {
+    void tenantRevision
+    return buildCarrierAgingRows(mockInvoices)
+  }, [tenantRevision])
 
-  // Filter and categorize invoices
-  const filteredInvoices = mockInvoices.filter((invoice) => {
-    if (searchTerm === '') return true
-    return (
-      invoice.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.client_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.broker_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.load_number?.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  })
+  const grandTotal = rows.reduce((sum, row) => sum + row.total, 0)
+  const grandCount = rows.reduce((sum, row) => sum + row.invoiceCount, 0)
 
-  filteredInvoices.forEach((invoice) => {
-    if (!isOpenArInvoice(invoice)) {
+  const filtered = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((row) => {
+      if (row.clientName.toLowerCase().includes(q)) return true
+      return row.brokers.some((broker) => broker.brokerName.toLowerCase().includes(q))
+    })
+  }, [rows, searchTerm])
+
+  const sorted = useMemo(() => {
+    const next = [...filtered]
+    next.sort((a, b) => {
+      const cmp = compareAging(a, b, sortField, 'clientName')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return next
+  }, [filtered, sortField, sortDir])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, pageSize, sortField, sortDir])
+
+  useEffect(() => {
+    const q = searchTerm.trim().toLowerCase()
+    if (!q) return
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      for (const row of filtered) {
+        if (row.brokers.some((broker) => broker.brokerName.toLowerCase().includes(q))) {
+          next.add(row.clientId)
+        }
+      }
+      return next
+    })
+  }, [searchTerm, filtered])
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const pageRows = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  const onSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
       return
     }
-    const bucket = getAgingArBucketKey(getInvoiceAgeDays(invoice))
-    const group = agingGroups.find((g) => g.bucket === bucket)
-    if (group) {
-      group.invoices.push(invoice)
-      group.totalAmount += invoice.amount
-    }
-  })
-
-  const getBucketColor = (bucket: AgingBucket) => {
-    switch (bucket) {
-      case '1_15':
-      case '16_30':
-        return 'text-green-600'
-      case '31_45':
-      case '46_60':
-        return 'text-yellow-600'
-      case '61_90':
-      case 'over_91':
-        return 'text-red-600'
-      default:
-        return 'text-gray-600'
-    }
+    setSortField(field)
+    setSortDir(field === 'carrier_name' ? 'asc' : 'desc')
   }
 
-  const getBucketBgColor = (bucket: AgingBucket) => {
-    switch (bucket) {
-      case '1_15':
-      case '16_30':
-        return 'bg-green-50 border-green-200'
-      case '31_45':
-      case '46_60':
-        return 'bg-yellow-50 border-yellow-200'
-      case '61_90':
-      case 'over_91':
-        return 'bg-red-50 border-red-200'
-      default:
-        return 'bg-gray-50 border-gray-200'
-    }
+  const toggleCarrier = (clientId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(clientId)) next.delete(clientId)
+      else next.add(clientId)
+      return next
+    })
   }
 
-  const displayedInvoices = selectedBucket
-    ? agingGroups.find((g) => g.bucket === selectedBucket)?.invoices || []
-    : []
+  const openCarrierWindow = (row: CarrierAgingRow, event: MouseEvent) => {
+    event.stopPropagation()
+    const popup = openCarrierAgingWindow(row.clientId, row.clientName)
+    if (!popup) window.alert('Allow pop-ups to open the carrier aging window.')
+  }
 
-  const totalAR = agingGroups.reduce((sum, group) => sum + group.totalAmount, 0)
+  const openBroker = (carrier: CarrierAgingRow, broker: BrokerAgingRow, event: MouseEvent) => {
+    event.stopPropagation()
+    const popup = openBrokerAgingWindow(broker.brokerId, broker.brokerName, carrier.clientId, carrier.clientName)
+    if (!popup) window.alert('Allow pop-ups to open the broker invoice window.')
+  }
+
+  const bucketTotals = BROKER_AGING_BUCKETS.reduce(
+    (acc, bucket) => {
+      acc[bucket.key] = rows.reduce((sum, row) => sum + row.amounts[bucket.key], 0)
+      return acc
+    },
+    {} as Record<BrokerAgingBucketKey, number>
+  )
+
+  const renderAmountCells = (
+    amounts: Record<BrokerAgingBucketKey, number>,
+    total: number,
+    percent: number,
+    avgAge: number,
+    invoiceCount: number,
+    mutedZero = true
+  ) => (
+    <>
+      {BROKER_AGING_BUCKETS.map((bucket) => (
+        <ClientListTd
+          key={bucket.key}
+          variant="amount"
+          className="tabular-nums"
+          style={{ color: amounts[bucket.key] || !mutedZero ? c.primary : c.muted }}
+        >
+          {moneyCell(amounts[bucket.key])}
+        </ClientListTd>
+      ))}
+      <ClientListTd variant="amount" className="tabular-nums font-semibold">
+        {formatCurrency(total)}
+      </ClientListTd>
+      <ClientListTd variant="amount" className="tabular-nums">
+        {percent.toFixed(1)}%
+      </ClientListTd>
+      <ClientListTd variant="amount" className="tabular-nums">
+        {avgAge}d
+      </ClientListTd>
+      <ClientListTd variant="amount" className="tabular-nums">
+        {invoiceCount}
+      </ClientListTd>
+    </>
+  )
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-lg font-bold text-black">Aging A/R</h2>
-          <p className="text-sm text-gray-600 mt-1">
-            Invoices grouped by invoice age (days since invoice date)
+    <div className="admin-aging-page overflow-hidden flex flex-col min-h-0 h-full">
+      <div
+        className="client-page-toolbar px-4 py-2.5 border-b shrink-0 flex flex-wrap items-center justify-between gap-2"
+        style={{ borderColor: c.border, backgroundColor: c.card }}
+      >
+        <div className="min-w-0">
+          <h1 className="text-sm font-semibold" style={{ color: c.primary }}>
+            Summary aging — by carrier
+          </h1>
+          <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
+            Click a carrier to see broker concentration. Open a broker for invoices.
           </p>
         </div>
-        <input
-          type="text"
-          placeholder="Search invoices..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="px-3 py-1.5 text-sm border border-gray-300 rounded text-gray-700 bg-white"
-        />
-      </div>
-
-      {/* Aging Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-        {agingGroups.map((group) => {
-          const percentage =
-            totalAR > 0 ? ((group.totalAmount / totalAR) * 100).toFixed(1) : '0'
-          return (
-            <div
-              key={group.bucket}
-              className={`p-4 border rounded cursor-pointer transition-colors ${
-                selectedBucket === group.bucket
-                  ? 'border-black border-2'
-                  : getBucketBgColor(group.bucket)
-              }`}
-              onClick={() =>
-                setSelectedBucket(selectedBucket === group.bucket ? null : group.bucket)
-              }
-            >
-              <div className={`text-sm font-medium mb-1 ${getBucketColor(group.bucket)}`}>
-                {group.label}
-              </div>
-              <div className="text-xl font-bold text-black mb-1">
-                {formatCurrency(group.totalAmount)}
-              </div>
-              <div className="text-xs text-gray-600">
-                {group.invoices.length} invoice{group.invoices.length !== 1 ? 's' : ''}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">{percentage}%</div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Total A/R */}
-      <div className="bg-gray-100 border border-gray-300 p-4 mb-6 rounded">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-gray-700">Total A/R</div>
-          <div className="text-2xl font-bold text-black">{formatCurrency(totalAR)}</div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="text-right">
+            <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
+              Open A/R
+            </p>
+            <p className="text-sm font-semibold tabular-nums" style={{ color: c.primary }}>
+              {formatCurrency(grandTotal)}
+            </p>
+          </div>
+          <div className="relative min-w-[200px]">
+            <Search
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
+              style={{ color: c.muted }}
+            />
+            <input
+              type="search"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Find carrier or broker…"
+              className="client-input w-full pl-8 pr-3 py-1.5 text-sm"
+            />
+          </div>
         </div>
       </div>
 
-      {/* Invoices Table */}
-      {selectedBucket ? (
-        <div className="overflow-x-auto">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-md font-semibold text-black">
-              {agingGroups.find((g) => g.bucket === selectedBucket)?.label} - Invoices
-            </h3>
-            <button
-              onClick={() => setSelectedBucket(null)}
-              className="text-sm text-gray-600 hover:text-black"
-            >
-              Clear Selection
-            </button>
-          </div>
-          <table className="w-full">
+      {sorted.length === 0 ? (
+        <div className="flex-1 min-h-0 flex items-center justify-center p-6">
+          <EmptyState title="No open A/R" hint="Approved and on-hold invoices will appear here by carrier." />
+        </div>
+      ) : (
+        <div className="client-table-scroll flex-1 min-h-0 overflow-y-auto">
+          <table className="dashboard-table dashboard-table--compact">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                  Invoice#
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                  Load#
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                  Client
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                  Broker
-                </th>
-                <th className="text-right py-3 px-4 text-sm font-semibold text-gray-700">
-                  Amount
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                  Expected Payment
-                </th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-700">
-                  Invoice Age
-                </th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">
-                  Status
-                </th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-700">
-                  Action
-                </th>
+              <tr>
+                <ClientSortableHeader
+                  field="carrier_name"
+                  label="Carrier"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                />
+                {BROKER_AGING_BUCKETS.map((bucket) => (
+                  <ClientSortableHeader
+                    key={bucket.key}
+                    field={bucket.key}
+                    label={bucket.label}
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={onSort}
+                    align="right"
+                  />
+                ))}
+                <ClientSortableHeader
+                  field="total"
+                  label="Total"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  align="right"
+                />
+                <ClientSortableHeader
+                  field="percent"
+                  label="% tot"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  align="right"
+                />
+                <ClientSortableHeader
+                  field="avg_age"
+                  label="Avg age"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  align="right"
+                />
+                <ClientSortableHeader
+                  field="invoice_count"
+                  label="Inv"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  align="right"
+                />
               </tr>
             </thead>
             <tbody>
-              {displayedInvoices.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="py-8 text-center text-gray-500">
-                    No invoices found in this aging bucket
-                  </td>
-                </tr>
-              ) : (
-                displayedInvoices.map((invoice, index) => {
-                  const invoiceAgeDays = getInvoiceAgeDays(invoice)
-                  const isLastViewed = lastViewedInvoiceId === invoice.id
-                  return (
-                    <tr
-                      key={invoice.id}
-                      className={`border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                        isLastViewed 
-                          ? 'bg-yellow-100 hover:bg-yellow-200' 
-                          : index % 2 === 0 
-                            ? 'bg-gray-50' 
-                            : 'bg-white'
-                      }`}
-                      onClick={() => onInvoiceSelect(invoice.id)}
-                    >
-                      <td className="py-3 px-4 text-sm font-medium text-gray-900">
-                        {invoice.invoice_number}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-gray-700">
-                        {invoice.load_number || '-'}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-gray-700">{invoice.client_name}</td>
-                      <td className="py-3 px-4 text-sm text-gray-700">{invoice.broker_name}</td>
-                      <td className="py-3 px-4 text-sm text-right font-medium text-gray-900">
-                        {formatCurrency(invoice.amount)}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-gray-700">
-                        {formatDate(invoice.expected_payment_date)}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium ${
-                            invoiceAgeDays >= 60
-                              ? 'bg-red-100 text-red-800'
-                              : invoiceAgeDays >= 30
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-green-100 text-green-800'
-                          }`}
-                        >
-                          {invoiceAgeDays}d
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-sm">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium ${
-                            invoice.status === 'hold'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : invoice.status === 'approved'
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {invoice.status === 'hold'
-                            ? 'On Hold'
-                            : invoice.status === 'approved'
-                              ? 'Approved'
-                              : 'Pending'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onInvoiceSelect(invoice.id)
-                          }}
-                          className="px-3 py-1 text-sm font-medium text-white bg-black hover:bg-gray-800 transition-colors"
-                        >
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  )
+              {pageRows.map((row) => {
+                const expanded = expandedIds.has(row.clientId)
+                const childBrokers = [...row.brokers].sort((a, b) => {
+                  const cmp = compareAging(a, b, sortField, 'brokerName')
+                  return sortDir === 'asc' ? cmp : -cmp
                 })
-              )}
+                return (
+                  <AgingCarrierBlock
+                    key={row.clientId}
+                    row={row}
+                    expanded={expanded}
+                    brokers={childBrokers}
+                    onToggle={() => toggleCarrier(row.clientId)}
+                    onOpenCarrierWindow={(event) => openCarrierWindow(row, event)}
+                    onOpenBroker={(broker, event) => openBroker(row, broker, event)}
+                    renderAmounts={renderAmountCells}
+                    secondaryColor={c.secondary}
+                    cardColor={c.card}
+                  />
+                )
+              })}
+              <tr>
+                <ClientListTd variant="primary">
+                  <span className="font-semibold" style={{ color: c.primary }}>
+                    Total
+                  </span>
+                </ClientListTd>
+                {renderAmountCells(bucketTotals, grandTotal, 100, 0, grandCount, false)}
+              </tr>
             </tbody>
           </table>
         </div>
-      ) : (
-        <div className="text-center py-12 text-gray-500">
-          <p className="text-lg font-medium mb-2">Select an aging bucket to view invoices</p>
-          <p className="text-sm">Click on any aging bucket card above to see the invoices in that range</p>
-        </div>
       )}
+
+      {sorted.length > 0 ? (
+        <div
+          className="shrink-0 px-4 py-2 border-t flex flex-wrap items-center justify-between gap-2"
+          style={{ borderColor: c.border, backgroundColor: c.card }}
+        >
+          <p className="text-xs" style={{ color: c.secondary }}>
+            {sorted.length} carrier{sorted.length === 1 ? '' : 's'} · page {currentPage} of {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <select
+              className="client-input py-1 text-xs"
+              value={pageSize}
+              onChange={(event) => setPageSize(Number(event.target.value))}
+              aria-label="Rows per page"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>
+                  {size} / page
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="dashboard-btn-secondary dashboard-btn-compact"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="dashboard-btn-secondary dashboard-btn-compact"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
 
+type AgingCarrierBlockProps = {
+  row: CarrierAgingRow
+  expanded: boolean
+  brokers: BrokerAgingRow[]
+  onToggle: () => void
+  onOpenCarrierWindow: (event: MouseEvent) => void
+  onOpenBroker: (broker: BrokerAgingRow, event: MouseEvent) => void
+  renderAmounts: (
+    amounts: Record<BrokerAgingBucketKey, number>,
+    total: number,
+    percent: number,
+    avgAge: number,
+    invoiceCount: number
+  ) => ReactNode
+  secondaryColor: string
+  cardColor: string
+}
+
+/** Carrier parent row plus optional broker children. */
+function AgingCarrierBlock({
+  row,
+  expanded,
+  brokers,
+  onToggle,
+  onOpenCarrierWindow,
+  onOpenBroker,
+  renderAmounts,
+  secondaryColor,
+  cardColor,
+}: AgingCarrierBlockProps) {
+  return (
+    <>
+      <tr className="dashboard-table-row--clickable cursor-pointer" onClick={onToggle}>
+        <ClientListTd variant="primary">
+          <div className="flex items-center gap-1.5 min-w-0">
+            {expanded ? (
+              <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: secondaryColor }} />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 shrink-0" style={{ color: secondaryColor }} />
+            )}
+            <span className="font-medium truncate">{row.clientName}</span>
+            <span className="text-[11px] shrink-0" style={{ color: secondaryColor }}>
+              {row.brokers.length} broker{row.brokers.length === 1 ? '' : 's'}
+            </span>
+            <button
+              type="button"
+              className="ml-auto p-1 rounded hover:bg-slate-100 shrink-0"
+              title="Open broker aging in a new window"
+              onClick={onOpenCarrierWindow}
+            >
+              <ExternalLink className="w-3.5 h-3.5" style={{ color: secondaryColor }} />
+            </button>
+          </div>
+        </ClientListTd>
+        {renderAmounts(row.amounts, row.total, row.percentOfTotal, row.avgAgeDays, row.invoiceCount)}
+      </tr>
+      {expanded ? (
+        <>
+          <tr>
+            <td
+              colSpan={COL_COUNT}
+              className="!py-1 !px-3 text-[10px] font-semibold uppercase tracking-wide"
+              style={{ color: secondaryColor, backgroundColor: cardColor }}
+            >
+              Brokers for {row.clientName} · % is share of this carrier
+            </td>
+          </tr>
+          {brokers.map((broker) => (
+            <tr
+              key={broker.brokerId}
+              className="dashboard-table-row--clickable cursor-pointer"
+              style={{ backgroundColor: cardColor }}
+              onClick={(event) => onOpenBroker(broker, event)}
+            >
+              <ClientListTd variant="primary">
+                <div className="flex items-center gap-1.5 pl-6 min-w-0">
+                  <span className="truncate">{broker.brokerName}</span>
+                </div>
+              </ClientListTd>
+              {renderAmounts(
+                broker.amounts,
+                broker.total,
+                broker.percentOfTotal,
+                broker.avgAgeDays,
+                broker.invoiceCount
+              )}
+            </tr>
+          ))}
+        </>
+      ) : null}
+    </>
+  )
+}

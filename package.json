@@ -27,6 +27,7 @@
   "license": "ISC",
   "description": "Credyx A/R Solutions - Accounts Receivable Management System",
   "dependencies": {
+    "@kenjiuno/msgreader": "^1.28.0",
     "@supabase/supabase-js": "^2.110.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.4",

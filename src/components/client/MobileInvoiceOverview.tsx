@@ -41,6 +41,7 @@ import {
   getOpenDisputedStatusLabelUpper,
   invoiceHasOpenDisputedStatus,
 } from '../../utils/clientInvoiceDisputeStatus'
+import { getWillPayScheduledDate, invoiceHasWillPayStatus } from '../../utils/invoiceWillPay'
 
 interface MobileInvoiceOverviewProps {
   invoice: Invoice
@@ -272,10 +273,11 @@ export default function MobileInvoiceOverview({
     isShortPaid,
     paymentDisputed: hasPaymentDispute,
   })
-  const statusLabel = hasAdminPending
-    ? 'PENDING'
-    : showOpenDisputed
+  const showWillPay = invoiceHasWillPayStatus(invoice) && !showOpenDisputed && !hasAdminPending
+  const statusLabel = showOpenDisputed
     ? getOpenDisputedStatusLabelUpper()
+    : hasAdminPending
+    ? 'PENDING'
     : pendingPosted
     ? invoiceListPriorityStatusLabel({
         awaitingReceipt: true,
@@ -285,7 +287,9 @@ export default function MobileInvoiceOverview({
       })
     : isShortPaid
       ? 'SHORT PAID'
-      : invoiceListPriorityStatusLabel({
+      : showWillPay
+        ? 'WILL PAY'
+        : invoiceListPriorityStatusLabel({
           awaitingReceipt: hasAwaitingReceipt,
           status: invoice.status,
           displayStatus: enriched.displayStatus,
@@ -293,15 +297,18 @@ export default function MobileInvoiceOverview({
         })
   const amount = getMobileInvoiceHeroAmount(invoice)
   const visibleDueDate = getClientVisibleDueDate(invoice)
-  const statusKey = hasAdminPending
-    ? 'pending-payment'
-    : showOpenDisputed
+  const scheduledPayDate = getWillPayScheduledDate(invoice)
+  const statusKey = showOpenDisputed
     ? 'disputed'
+    : hasAdminPending
+    ? 'pending-payment'
     : pendingPosted
     ? 'confirm-payment'
     : isShortPaid
       ? 'short-paid'
-      : invoiceListPriorityStatusKey({
+      : showWillPay
+        ? 'will-pay'
+        : invoiceListPriorityStatusKey({
           awaitingReceipt: hasAwaitingReceipt,
           status: invoice.status,
           displayStatus: enriched.displayStatus,
@@ -610,6 +617,12 @@ export default function MobileInvoiceOverview({
                 : pendingPayDate
                   ? formatMobileInvoiceDate(pendingPayDate)
                   : '—'}
+            </dd>
+          </div>
+          <div>
+            <dt>Scheduled pay</dt>
+            <dd className="tabular-nums">
+              {scheduledPayDate ? formatMobileInvoiceDate(scheduledPayDate) : '—'}
             </dd>
           </div>
         </dl>

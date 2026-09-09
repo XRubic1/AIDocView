@@ -13,7 +13,13 @@ export function renderEmailTemplateString(
 ): string {
   return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
     const raw = data[key] ?? ''
-    if (key.endsWith('Html') || key === 'holdSection' || key === 'inviteLink' || key === 'confirmation_url') {
+    if (
+      key.endsWith('Html') ||
+      key === 'holdSection' ||
+      key === 'inviteLink' ||
+      key === 'setupLink' ||
+      key === 'confirmation_url'
+    ) {
       return raw
     }
     return escapeHtml(raw)
@@ -87,6 +93,14 @@ export function enrichEmailTemplateData(
     if (!next.message) next.message = ''
     if (!next.effectiveDate) next.effectiveDate = new Date().toISOString().slice(0, 10)
     if (!next.carrierName) next.carrierName = 'the carrier'
+  }
+
+  if (templateId === 'client_invite') {
+    if (!next.websiteUrl) next.websiteUrl = 'https://credyx.com'
+    if (!next.contactEmail) next.contactEmail = 'ops@credyx.net'
+    if (!next.setupLink) next.setupLink = next.inviteLink || next.portalLink || ''
+    if (!next.inviteLink) next.inviteLink = next.setupLink
+    if (!next.ctaLabel) next.ctaLabel = 'Create your password'
   }
 
   if (!next.contactName) next.contactName = 'there'

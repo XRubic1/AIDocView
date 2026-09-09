@@ -220,6 +220,25 @@ export function deleteBrokerNote(
   return all[brokerId]
 }
 
+/** Move carrier broker notes from a duplicate catalog id onto the keeper. */
+export function mergeBrokerNotes(
+  clientId: string,
+  sourceBrokerId: string,
+  keepBrokerId: string
+): void {
+  if (sourceBrokerId === keepBrokerId) return
+  const all = loadNotes(clientId)
+  const sourceNotes = all[sourceBrokerId] ?? []
+  if (sourceNotes.length === 0) {
+    delete all[sourceBrokerId]
+    persistNotes(clientId, all)
+    return
+  }
+  all[keepBrokerId] = [...sourceNotes, ...(all[keepBrokerId] ?? [])]
+  delete all[sourceBrokerId]
+  persistNotes(clientId, all)
+}
+
 function brokerIdFromName(name: string): string {
   const match = mockBrokers.find((b) => b.name === name)
   return match?.id ?? `broker-name-${name.toLowerCase().replace(/\s+/g, '-')}`

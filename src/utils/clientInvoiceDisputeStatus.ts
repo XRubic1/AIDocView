@@ -1,16 +1,12 @@
 import type { Invoice } from '../types/invoice'
 import { isOpenArInvoice } from './invoiceAging'
-import {
-  getInvoiceDisputeRowBadge,
-  getOpenDisputes,
-} from '../services/clientInvoiceActions'
+import { getOpenDisputes } from '../services/clientInvoiceActions'
 import { isReceiptDisputeHold } from '../services/paymentReceiptConfirmationService'
 import { getInvoiceLifecycleStatusLabel } from './invoiceLifecycleSteps'
 
 /**
- * Open A/R with an active dispute — never show "Invoiced" as the invoice status.
+ * Open A/R with an active dispute — never show "Open" / "Invoiced" as the invoice status.
  * Lifecycle step "Invoiced" stays on the stepper only.
- * "Response ready" stays a companion badge (not Open Disputed).
  */
 export function invoiceHasOpenDisputedStatus(
   invoice: Invoice,
@@ -19,17 +15,29 @@ export function invoiceHasOpenDisputedStatus(
   const paymentDisputed =
     Boolean(options?.paymentDisputed) || isReceiptDisputeHold(invoice)
 
+  const isOpenAr =
+    isOpenArInvoice(invoice) ||
+    invoice.status === 'pending' ||
+    isReceiptDisputeHold(invoice)
+
   // Payment receipt disputes on Verified/Invoiced lifecycle = open A/R.
   if (paymentDisputed) {
     const stage = getInvoiceLifecycleStatusLabel(invoice)
     return stage === 'Invoiced' || stage === 'Verified'
   }
 
-  // Invoice-level disputes: only when the row badge would be Disputed (not Response ready).
-  const disputeBadge = getInvoiceDisputeRowBadge(invoice)
-  if (disputeBadge?.variant !== 'open') return false
+  if (getOpenDisputes(invoice).length > 0) {
+    return isOpenAr
+  }
 
-  return isOpenArInvoice(invoice) || isReceiptDisputeHold(invoice)
+  // Dispute logged on notes only (no structured disputes row).
+  const disputeNotes = invoice.notes_history?.filter((n) => n.type === 'dispute') ?? []
+  if (disputeNotes.length === 0) return false
+  const latest = [...disputeNotes].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  )[0]
+  const closed = /resolved|closed/i.test(latest?.note || '')
+  return !closed && isOpenAr
 }
 
 /** Client-facing status label — single pill, not Invoiced + Disputed. */

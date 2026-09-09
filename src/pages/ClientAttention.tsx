@@ -7,6 +7,7 @@ import { mapClientVisibleInvoices, isClientVisibleHold } from '../utils/clientIn
 import { isReceiptDisputeHold } from '../services/paymentReceiptConfirmationService'
 import { formatCurrency } from '../utils/format'
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
+import ClientInvoicesTabs from '../components/client/ClientInvoicesTabs'
 import ClientAttentionInvoiceCard from '../components/client/ClientAttentionInvoiceCard'
 import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
 import PageLoader from '../components/ui/PageLoader'
@@ -122,6 +123,7 @@ export default function ClientAttention() {
 
   return (
     <div className="client-invoices-page client-attention-page overflow-hidden flex flex-col min-h-0 h-full">
+      <ClientInvoicesTabs />
       {hasHolds ? (
         <section
           className="client-stat-strip grid grid-cols-2 border-b shrink-0"

@@ -14,7 +14,6 @@ import {
   Wallet,
   Workflow,
 } from 'lucide-react'
-import AdminLayout from '../components/AdminLayout'
 import { AR_POLICY } from '../utils/invoiceAging'
 import '../styles/adminDocs.css'
 
@@ -557,7 +556,7 @@ export default function AdminDocs() {
   }
 
   return (
-    <AdminLayout userName="Admin User" userRole="Administrator" flushMain>
+    <>
       <div className="admin-docs">
         <div className="admin-docs__stage">
           <nav className="admin-docs__toc" aria-label="Table of contents">
@@ -659,6 +658,6 @@ export default function AdminDocs() {
           </div>
         </div>
       </div>
-    </AdminLayout>
+    </>
   )
 }

@@ -124,6 +124,14 @@ describe('networkBrokerPaymentInsights', () => {
     const rows = computeNetworkBrokerPaymentInsights(invoices, payments, brokers)
     expect(rows).toHaveLength(1)
     expect(rows[0].carrierCount).toBe(2)
+
+    const queuedOnly = computeNetworkBrokerPaymentInsights([], [], brokers, [
+      { id: 'b-new', name: 'ZEAL LOGISTICS INC' },
+    ])
+    expect(queuedOnly.some((r) => r.brokerName === 'ZEAL LOGISTICS INC')).toBe(true)
+    expect(queuedOnly.find((r) => r.brokerName === 'ZEAL LOGISTICS INC')?.history.lifetimeCount).toBe(
+      0
+    )
     expect(rows[0].history.lifetimePaid).toBe(1200)
     expect(rows[0].carriers.map((c) => c.clientName).sort()).toEqual([
       'Carrier One',

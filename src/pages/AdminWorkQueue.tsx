@@ -5,7 +5,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Briefcase, ChevronDown, ChevronRight, Filter, Search, X } from 'lucide-react'
-import AdminLayout from '../components/AdminLayout'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
 import { useToast } from '../components/ui/ToastProvider'
@@ -223,7 +222,7 @@ export default function AdminWorkQueue() {
   const detailOpen = Boolean(selectedInvoice)
 
   return (
-    <AdminLayout userName="Admin User" userRole="Administrator" flushMain>
+    <>
       <div
         className={`admin-work-queue${detailOpen ? ' admin-work-queue--detail-open' : ''}`}
         style={{ color: t.primary }}
@@ -581,7 +580,7 @@ export default function AdminWorkQueue() {
           </aside>
         ) : null}
       </div>
-    </AdminLayout>
+    </>
   )
 }
 

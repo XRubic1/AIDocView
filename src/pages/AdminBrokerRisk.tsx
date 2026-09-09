@@ -12,7 +12,6 @@ import {
   ShieldAlert,
   StickyNote,
 } from 'lucide-react'
-import AdminLayout from '../components/AdminLayout'
 import BrokerInternalNotesBanner from '../components/brokers/BrokerInternalNotesBanner'
 import BrokerRiskAuditTimeline from '../components/brokers/BrokerRiskAuditTimeline'
 import { useToast } from '../components/ui/ToastProvider'
@@ -615,7 +614,7 @@ export default function AdminBrokerRisk() {
   const lookupDot = broker?.dot_number ?? null
 
   return (
-    <AdminLayout flushMain>
+    <>
       <div className="admin-broker-risk" style={{ ['--abr-primary' as string]: c.primary }}>
         <header className="admin-broker-risk__top">
           <div className="admin-broker-risk__heading">
@@ -1344,6 +1343,6 @@ export default function AdminBrokerRisk() {
         </div>
         )}
       </div>
-    </AdminLayout>
+    </>
   )
 }

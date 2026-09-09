@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import AdminLayout from '../components/AdminLayout'
 import { mockBrokers, addBroker, updateBrokerAsync } from '../data/mockBrokers'
+import { mockInvoices } from '../data/mockInvoices'
 import { Broker, BrokerEmail, BrokerPhone } from '../types/broker'
-import { Phone, Mail, MapPin, Search, X, Plus, Trash2, ArrowLeft } from 'lucide-react'
+import { GitMerge, Phone, Mail, MapPin, Search, X, Plus, Trash2, ArrowLeft } from 'lucide-react'
+import MergeBrokersModal from '../components/brokers/MergeBrokersModal'
+import { mergeDuplicateBrokers } from '../services/mergeBrokersService'
 import { useToast } from '../components/ui/ToastProvider'
 import BrokerPaymentHistoryPanel from '../components/brokers/BrokerPaymentHistoryPanel'
 import BrokerRiskAuditTimeline from '../components/brokers/BrokerRiskAuditTimeline'
@@ -59,6 +61,8 @@ export default function Brokers() {
   }, [selectedBroker, auditRefresh])
 
   /** When set, the form saves via updateBroker instead of addBroker. */
+  const [showMergeModal, setShowMergeModal] = useState(false)
+  const [isMerging, setIsMerging] = useState(false)
   const [editingBrokerId, setEditingBrokerId] = useState<string | null>(null)
   const [formData, setFormData] = useState<Partial<Broker>>({
     name: '',
@@ -106,6 +110,33 @@ export default function Brokers() {
 
   const handleCloseModal = () => {
     setSelectedBroker(null)
+    setShowMergeModal(false)
+  }
+
+  const selectedInvoiceCount = selectedBroker
+    ? mockInvoices.filter((invoice) => invoice.broker_id === selectedBroker.id).length
+    : 0
+
+  const handleConfirmMerge = async (keepId: string) => {
+    if (!selectedBroker) return
+    setIsMerging(true)
+    try {
+      const result = await mergeDuplicateBrokers(selectedBroker.id, keepId)
+      setBrokers([...mockBrokers])
+      setShowMergeModal(false)
+      setSelectedBroker(null)
+      showToast(
+        result.invoiceCount === 0
+          ? `Removed ${result.sourceName}; catalog now uses ${result.keepName}`
+          : `Moved ${result.invoiceCount} load${result.invoiceCount === 1 ? '' : 's'} from ${result.sourceName} to ${result.keepName}`,
+        'success'
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Merge failed'
+      showToast(message, 'error')
+    } finally {
+      setIsMerging(false)
+    }
   }
 
   const emptyBrokerForm = (): Partial<Broker> => ({
@@ -350,7 +381,7 @@ export default function Brokers() {
     'text-[11px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-100 pb-2'
 
   return (
-    <AdminLayout flushMain>
+    <>
       <div className="admin-brokers-page flex flex-col min-h-0 h-full overflow-hidden">
         <div className="client-page-toolbar shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200">
           <div className="relative flex-1 min-w-0 max-w-md">
@@ -486,6 +517,21 @@ export default function Brokers() {
         </div>
       </div>
 
+      {selectedBroker && showMergeModal ? (
+        <MergeBrokersModal
+          source={selectedBroker}
+          brokers={brokers}
+          invoiceCount={selectedInvoiceCount}
+          isMerging={isMerging}
+          onClose={() => {
+            if (!isMerging) setShowMergeModal(false)
+          }}
+          onConfirm={(keepId) => {
+            void handleConfirmMerge(keepId)
+          }}
+        />
+      ) : null}
+
       {selectedBroker && (
         <div className="fixed inset-0 z-[70] bg-slate-900/40 flex items-stretch justify-center p-3 sm:p-4">
           <div className="bg-white w-full max-w-4xl h-full max-h-[calc(100vh-1.5rem)] rounded-lg border border-slate-200 shadow-xl overflow-hidden flex flex-col">
@@ -504,9 +550,10 @@ export default function Brokers() {
                     {selectedBroker.name}
                   </h2>
                   <p className="text-xs text-slate-500 truncate mt-0.5">
+                    {selectedInvoiceCount} load{selectedInvoiceCount === 1 ? '' : 's'}
                     {selectedBroker.payment_terms_days && selectedBroker.payment_terms_days > 0
-                      ? `Due by ${selectedBroker.payment_terms_days}d`
-                      : 'No auto due'}
+                      ? ` · Due by ${selectedBroker.payment_terms_days}d`
+                      : ' · No auto due'}
                     {selectedBroker.contact_person ? ` · ${selectedBroker.contact_person}` : ''}
                   </p>
                 </div>
@@ -730,6 +777,14 @@ export default function Brokers() {
             <div className="shrink-0 px-4 py-2.5 border-t border-slate-200 bg-white flex flex-wrap items-center justify-end gap-2">
               <button type="button" onClick={handleCloseModal} className="dashboard-btn-secondary">
                 Close
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowMergeModal(true)}
+                className="dashboard-btn-secondary inline-flex items-center gap-1.5"
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+                Merge into…
               </button>
               <button type="button" onClick={handleOpenEditModal} className="dashboard-btn-primary">
                 Edit broker
@@ -1164,6 +1219,6 @@ export default function Brokers() {
         </div>
       )}
 
-    </AdminLayout>
+    </>
   )
 }

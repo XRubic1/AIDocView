@@ -1,6 +1,6 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { mergeBatch, removeBatchFromStore } from '../../data/mockBatches'
-import { mergeBroker } from '../../data/mockBrokers'
+import { mergeBroker, removeBrokerFromStore } from '../../data/mockBrokers'
 import { mergeInvoice, removeInvoiceFromStore } from '../../data/mockInvoices'
 import { mergePayment, removePaymentFromStore } from '../../data/mockPayments'
 import { refreshClientTenantCacheFromStores } from '../../data/clientDemoData'
@@ -149,9 +149,16 @@ function handleInvoiceChange(
 function handleBrokerChange(
   eventType: string,
   row: BrokerRow | null,
+  oldRow: BrokerRow | null,
   principal: 'admin' | 'client'
 ): void {
-  if (eventType === 'DELETE' || !row?.id) {
+  if (eventType === 'DELETE') {
+    const id = oldRow?.id ?? row?.id
+    if (id) removeBrokerFromStore(id)
+    emitTenantDataUpdated(['brokers'])
+    return
+  }
+  if (!row?.id) {
     emitTenantDataUpdated(['brokers'])
     return
   }
@@ -360,6 +367,7 @@ export function ensureTenantDataLiveSync(
         handleBrokerChange(
           payload.eventType,
           payload.new as BrokerRow | null,
+          payload.old as BrokerRow | null,
           nextScope.principal
         )
       }

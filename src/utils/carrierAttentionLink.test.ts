@@ -8,7 +8,7 @@ describe('carrierAttentionLink', () => {
       id: 'inv-1',
       invoice_number: 'INV-10428',
     })
-    expect(path).toBe('/client/attention?invoice=INV-10428&upload=1')
+    expect(path).toBe('/client/invoices/needattention?invoice=INV-10428&upload=1')
   })
 
   it('falls back to invoice id', () => {
@@ -19,12 +19,15 @@ describe('carrierAttentionLink', () => {
 
   it('builds an absolute url', () => {
     const url = buildCarrierAttentionUrl({ id: 'inv-1', invoice_number: 'INV-1' })
-    expect(url).toContain('/client/attention?invoice=INV-1&upload=1')
+    expect(url).toContain('/client/invoices/needattention?invoice=INV-1&upload=1')
   })
 })
 
 describe('clientLoginRedirect', () => {
   it('allows client portal return paths', () => {
+    expect(getSafeClientReturnPath('/client/invoices/needattention?invoice=INV-1&upload=1')).toBe(
+      '/client/invoices/needattention?invoice=INV-1&upload=1'
+    )
     expect(getSafeClientReturnPath('/client/attention?invoice=INV-1&upload=1')).toBe(
       '/client/attention?invoice=INV-1&upload=1'
     )
@@ -36,8 +39,8 @@ describe('clientLoginRedirect', () => {
   })
 
   it('encodes next on the login url', () => {
-    expect(clientLoginPathWithReturn('/client/attention?invoice=A')).toContain(
-      'next=%2Fclient%2Fattention'
+    expect(clientLoginPathWithReturn('/client/invoices/needattention?invoice=A')).toContain(
+      'next=%2Fclient%2Finvoices%2Fneedattention'
     )
   })
 })

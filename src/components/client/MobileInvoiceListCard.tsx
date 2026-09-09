@@ -14,6 +14,7 @@ import {
   invoiceHasOpenDisputedStatus,
 } from '../../utils/clientInvoiceDisputeStatus'
 import { getClientVisibleDueDate } from '../../utils/ppwSent'
+import { getWillPayScheduledDate, invoiceHasWillPayStatus } from '../../utils/invoiceWillPay'
 import BrokerRiskLevelChip from './BrokerRiskLevelChip'
 import type { BrokerRiskLevel } from '../../types/brokerRisk'
 
@@ -67,12 +68,17 @@ export default function MobileInvoiceListCard({
     isOverdue: invoice.isOverdue,
   }
   const showOpenDisputed = invoiceHasOpenDisputedStatus(invoice, { paymentDisputed })
+  const showWillPay = invoiceHasWillPayStatus(invoice) && !showOpenDisputed && !awaitingReceipt
   const statusLabel = showOpenDisputed
     ? getOpenDisputedStatusLabelUpper()
-    : invoiceListPriorityStatusLabel(priorityInput)
+    : showWillPay
+      ? 'WILL PAY'
+      : invoiceListPriorityStatusLabel(priorityInput)
   const statusKey = showOpenDisputed
     ? 'disputed'
-    : invoiceListPriorityStatusKey(priorityInput)
+    : showWillPay
+      ? 'will-pay'
+      : invoiceListPriorityStatusKey(priorityInput)
   // Short paid: show remaining open balance, not the full invoice face amount.
   const amount =
     isShortPaid && openAmount != null && openAmount > 0
@@ -80,6 +86,7 @@ export default function MobileInvoiceListCard({
       : getMobileInvoiceHeroAmount(invoice)
   const load = invoice.load_number?.trim() || '—'
   const visibleDueDate = getClientVisibleDueDate(invoice)
+  const scheduled = getWillPayScheduledDate(invoice)
   const due = visibleDueDate ? formatMobileInvoiceDate(visibleDueDate) : '—'
   const pay = payDate
     ? formatMobileInvoiceDate(payDate)
@@ -130,6 +137,12 @@ export default function MobileInvoiceListCard({
         <span>Due {due}</span>
         <span aria-hidden>·</span>
         <span>Pay {pay}</span>
+        {scheduled ? (
+          <>
+            <span aria-hidden>·</span>
+            <span>Scheduled {formatMobileInvoiceDate(scheduled)}</span>
+          </>
+        ) : null}
         <ChevronRight
           className="mobile-invoice-list-card__chevron"
           size={16}

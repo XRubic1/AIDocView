@@ -1,5 +1,4 @@
 import { useState, useEffect, type ReactNode } from 'react'
-import AdminLayout from '../components/AdminLayout'
 import {
   User,
   Bell,
@@ -495,7 +494,7 @@ export default function Settings() {
   } as const
 
   return (
-    <AdminLayout flushMain userName="Admin User" userRole="Administrator">
+    <>
       <div className="client-settings-page overflow-hidden flex flex-col min-h-0">
         <div className="client-page-tabs-bar shrink-0 overflow-x-auto">
           <div className="page-tabs">
@@ -876,6 +875,6 @@ export default function Settings() {
           </div>
         </div>
       </div>
-    </AdminLayout>
+    </>
   )
 }

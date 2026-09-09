@@ -41,7 +41,7 @@ const CLIENT_PAGES: AssistantPageHelp[] = [
   {
     id: 'client-attention',
     mode: 'client',
-    paths: ['/client/attention'],
+    paths: ['/client/invoices/needattention', '/client/attention'],
     title: 'Needs attention',
     offer: 'uploading paperwork Credyx asked for on held loads',
     nudge: 'I can help you upload the documents for a held invoice.',

@@ -12,10 +12,11 @@ import {
   InvoiceDisputeBadges,
 } from '../components/client/InvoiceDetailWorkspace'
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
+import ClientInvoicesTabs from '../components/client/ClientInvoicesTabs'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import MobilePaymentDateRangeSheet from '../components/client/MobilePaymentDateRangeSheet'
-import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, getDisplayInvoiceAgeDays, isOpenArInvoice, AR_POLICY } from '../utils/invoiceAging'
+import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, getDisplayInvoiceAgeDays, invoiceHasStoppedAging, isOpenArInvoice, AR_POLICY, buildConfirmedPayDateByInvoiceId } from '../utils/invoiceAging'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useCompactDetailViewport, useIsMobileViewport } from '../hooks/useIsMobileViewport'
@@ -278,16 +279,10 @@ export default function ClientInvoices() {
     el.scrollBy({ left: Math.min(160, el.clientWidth * 0.55), behavior: 'smooth' })
   }, [])
 
-  const payDateByInvoiceId = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const payment of payments) {
-      if (payment.status !== 'confirmed') continue
-      const dateStr = payment.received_date || payment.payment_date
-      const prev = map.get(payment.invoice_id)
-      if (!prev || dateStr > prev) map.set(payment.invoice_id, dateStr)
-    }
-    return map
-  }, [payments])
+  const payDateByInvoiceId = useMemo(
+    () => buildConfirmedPayDateByInvoiceId(payments),
+    [payments]
+  )
 
   /** Posted date for awaiting-receipt payments — list shows Pay date (pending). */
   const pendingPayDateByInvoiceId = useMemo(() => {
@@ -333,11 +328,11 @@ export default function ClientInvoices() {
     const base = enrichInvoices(invoices, new Date(), capabilities)
     // Freeze age at confirmed pay date for paid invoices (list + sort).
     return base.map((invoice) => {
-      if (invoice.status !== 'paid') return invoice
+      if (!invoiceHasStoppedAging(invoice)) return invoice
       return {
         ...invoice,
         invoiceAgeDays: getDisplayInvoiceAgeDays(invoice, {
-          payDate: payDateByInvoiceId.get(invoice.id) ?? null,
+          payDate: payDateByInvoiceId.get(invoice.id) ?? invoice.collection_date ?? null,
         }),
       }
     })
@@ -902,6 +897,7 @@ export default function ClientInvoices() {
           <InvoiceDetailPanel variant="mobile" {...invoiceDetailPanelProps} />
         ) : (
           <>
+            <ClientInvoicesTabs />
             <section
               className={`client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0${
                 isMobileViewport ? ' hidden' : ''
@@ -1401,14 +1397,17 @@ export default function ClientInvoices() {
                                 <span
                                   className="client-invoices-age"
                                   style={{
-                                    color:
-                                      isOpenArInvoice(invoice) && invoice.isOverdue
+                                    color: invoiceHasStoppedAging(invoice)
+                                      ? c.success
+                                      : isOpenArInvoice(invoice) && invoice.isOverdue
                                         ? getDaysOutstandingColor(invoice.overdueSeverity)
                                         : c.secondary,
                                   }}
                                 >
                                   {invoice.invoiceAgeDays}d
-                                  {invoice.isForceCloseEligible && capabilities.hasForceClose && (
+                                  {!invoiceHasStoppedAging(invoice) &&
+                                    invoice.isForceCloseEligible &&
+                                    capabilities.hasForceClose && (
                                     <span className="block text-[9px] font-medium" style={{ color: '#7C3AED' }}>
                                       FC
                                     </span>

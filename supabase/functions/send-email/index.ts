@@ -149,7 +149,14 @@ function buildMessageHtml(message: string): string {
 function renderTemplateString(template: string, data: Record<string, string>): string {
   return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
     const raw = data[key] ?? ''
-    if (key.endsWith('Html') || key === 'holdSection' || key === 'inviteLink' || key === 'clientNameSuffix' || key === 'confirmation_url') {
+    if (
+      key.endsWith('Html') ||
+      key === 'holdSection' ||
+      key === 'inviteLink' ||
+      key === 'setupLink' ||
+      key === 'clientNameSuffix' ||
+      key === 'confirmation_url'
+    ) {
       return raw
     }
     return escapeHtml(raw)
@@ -167,8 +174,8 @@ function enrichData(template: EmailTemplate, data: Record<string, string>): Reco
       const origin = 'https://app.credyx.net'
       const inv = (next.invoiceNumber || '').trim()
       next.portalLink = inv
-        ? `${origin}/client/attention?invoice=${encodeURIComponent(inv)}&upload=1`
-        : `${origin}/client/attention`
+        ? `${origin}/client/invoices/needattention?invoice=${encodeURIComponent(inv)}&upload=1`
+        : `${origin}/client/invoices/needattention`
     }
     if (!next.clientName) next.clientName = 'Carrier'
     if (!next.brokerName) next.brokerName = 'the broker'
@@ -210,6 +217,19 @@ function enrichData(template: EmailTemplate, data: Record<string, string>): Reco
     if (!next.carrierName) next.carrierName = 'the carrier'
   }
 
+  if (template === 'client_invite') {
+    if (!next.websiteUrl) next.websiteUrl = 'https://credyx.com'
+    if (!next.contactEmail) next.contactEmail = 'ops@credyx.net'
+    if (!next.setupLink) next.setupLink = next.inviteLink || next.portalLink || ''
+    if (!next.inviteLink) next.inviteLink = next.setupLink
+    if (!next.ctaLabel) next.ctaLabel = 'Create your password'
+    if (!next.companyLogoHtml) {
+      next.companyLogoHtml = `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.02em;line-height:1;">
+  <span style="color:#ffffff;">Cred</span><span style="color:#1684FE;">yx</span>
+</div>`
+    }
+  }
+
   if (!next.contactName) next.contactName = 'there'
   if (!next.loadNumber) next.loadNumber = 'N/A'
 
@@ -248,12 +268,16 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
   switch (template) {
     case 'client_invite':
       return {
-        subject: 'Your Credyx client portal is ready',
+        subject: renderTemplateString('Welcome to Credyx — your account is active', d),
         html: renderTemplateString(
           `<p>Hi {{contactName}},</p>
-<p>Your Credyx account has been activated. Set your password and sign in:</p>
-<p><a href="{{inviteLink}}">Activate your account</a></p>
-<p>If you did not request this, you can ignore this email.</p>`,
+<p>Your Credyx account for <strong>{{clientName}}</strong> is active.</p>
+<p>Collection fee: <strong>{{feeTermsLabel}}</strong></p>
+<p>Website: <a href="{{websiteUrl}}">{{websiteUrl}}</a></p>
+<p>Questions: <a href="mailto:{{contactEmail}}">{{contactEmail}}</a></p>
+<p><a href="{{setupLink}}">{{ctaLabel}}</a></p>
+<p>Portal: <a href="{{portalLink}}">{{portalLink}}</a></p>
+<p>Credyx · Paid on time</p>`,
           d
         ),
       }

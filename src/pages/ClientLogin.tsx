@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { LogIn, Eye, EyeOff } from 'lucide-react'
-import { signInClientAuth, getCurrentSession, requestClientPasswordReset } from '../services/clientAuthService'
+import { signInClientAuth, requestClientPasswordReset } from '../services/clientAuthService'
+import { clientNeedsPasswordSetup, getCurrentSession } from '../services/sessionService'
 import { fetchClientById } from '../services/clientRegistry'
 import { getSafeClientReturnPath } from '../utils/clientLoginRedirect'
 import '../styles/credyxAuth.css'
@@ -20,6 +21,10 @@ export default function ClientLogin() {
     void (async () => {
       const session = await getCurrentSession()
       if (session.principal !== 'client' || !session.clientId) return
+      if (clientNeedsPasswordSetup(session.user)) {
+        navigate('/client/setup-password', { replace: true })
+        return
+      }
       const client = await fetchClientById(session.clientId)
       if (client?.status === 'active') {
         navigate(returnPath, { replace: true })
@@ -64,6 +69,12 @@ export default function ClientLogin() {
       const client = auth.clientId ? await fetchClientById(auth.clientId) : null
       if (!client) {
         setError('No account found for that email. Enroll your company first, then sign in.')
+        return
+      }
+
+      const session = await getCurrentSession()
+      if (clientNeedsPasswordSetup(session.user)) {
+        navigate('/client/setup-password', { replace: true })
         return
       }
 
@@ -293,6 +304,15 @@ export default function ClientLogin() {
               New client?{' '}
               <button type="button" className="credyx-auth__text-btn" onClick={() => navigate('/enroll')}>
                 Enroll your company
+              </button>
+              {' · '}
+              First login?{' '}
+              <button
+                type="button"
+                className="credyx-auth__text-btn"
+                onClick={() => navigate('/client/setup-password')}
+              >
+                Create your password
               </button>
             </p>
             <button type="button" className="credyx-auth__admin-link" onClick={() => navigate('/login')}>

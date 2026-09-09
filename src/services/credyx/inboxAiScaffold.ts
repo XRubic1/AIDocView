@@ -44,6 +44,9 @@ export interface RemittanceInboxParseResult {
  * Poll / fetch unread messages from a Credyx mailbox.
  * Not implemented — returns empty until email ingestion is provisioned.
  */
+export { classifyInboundBrokerReply } from '../../utils/classifyInboundBrokerReply'
+export { classifyInboundNoteWithAi } from '../../utils/classifyInboundNoteAi'
+
 export async function fetchInboxMessages(
   _mailbox: InboxMailbox
 ): Promise<InboundEmailMessage[]> {

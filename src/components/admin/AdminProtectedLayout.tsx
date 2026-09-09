@@ -7,7 +7,24 @@ import {
   getAdminDefaultPath,
   isAdminPathAllowed,
 } from '../../utils/adminRoles'
+import AdminLayout from '../AdminLayout'
 import PageLoader from '../ui/PageLoader'
+
+/** Standalone popouts / engine — no Credyx admin sidebar. */
+const CHROMELESS_PREFIXES = [
+  '/engine',
+  '/invoices/workspace',
+  '/billing/workspace',
+  '/collections/invoice',
+  '/aging-ar/broker',
+  '/aging-ar/carrier',
+]
+
+function isChromelessAdminPath(pathname: string): boolean {
+  return CHROMELESS_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  )
+}
 
 /** Protects admin/ops routes — requires Supabase admin session + role path access. */
 export default function AdminProtectedLayout() {
@@ -47,9 +64,15 @@ export default function AdminProtectedLayout() {
     return <Navigate to={getAdminDefaultPath(capabilities.staffRole)} replace />
   }
 
+  if (isChromelessAdminPath(location.pathname)) {
+    return <Outlet />
+  }
+
   return (
-    <div className="page-enter">
-      <Outlet />
-    </div>
+    <AdminLayout flushMain>
+      <div className="page-enter flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
+        <Outlet />
+      </div>
+    </AdminLayout>
   )
 }

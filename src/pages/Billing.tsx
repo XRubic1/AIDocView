@@ -5,7 +5,6 @@ import {
   ExternalLink,
   RefreshCw,
 } from 'lucide-react'
-import AdminLayout from '../components/AdminLayout'
 import { getAllClients } from '../services/clientRegistry'
 import {
   computeMonthlyBill,
@@ -150,7 +149,7 @@ export default function Billing() {
   }
 
   return (
-    <AdminLayout flushMain>
+    <>
       <div className="flex flex-col min-h-0 h-full overflow-hidden">
         <div className="client-page-toolbar shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200">
           <div className="flex items-center gap-2">
@@ -275,6 +274,6 @@ export default function Billing() {
           </table>
         </div>
       </div>
-    </AdminLayout>
+    </>
   )
 }

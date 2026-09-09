@@ -9,6 +9,7 @@ import { getBillingStanding } from '../../services/arBillingService'
 import { updateClient } from '../../services/clientRegistry'
 import PageLoader from '../ui/PageLoader'
 import { clientLoginPathWithReturn } from '../../utils/clientLoginRedirect'
+import { clientNeedsPasswordSetup } from '../../services/sessionService'
 
 interface ClientRouteGuardProps {
   children: React.ReactNode
@@ -64,6 +65,10 @@ export default function ClientRouteGuard({ children }: ClientRouteGuardProps) {
         replace
       />
     )
+  }
+
+  if (clientNeedsPasswordSetup(resolved.user) && location.pathname !== '/client/setup-password') {
+    return <Navigate to="/client/setup-password" replace />
   }
 
   if (client.status === 'pending' || client.status === 'inactive') {

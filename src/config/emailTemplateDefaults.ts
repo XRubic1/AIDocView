@@ -3,6 +3,7 @@ import {
   BROKER_PACKET_BODY_HTML,
   BROKER_REMITTANCE_UPDATED_BODY_HTML,
   CARRIER_DOCUMENT_ISSUE_BODY_HTML,
+  CLIENT_WELCOME_BODY_HTML,
 } from './emailLayouts'
 
 /**
@@ -33,6 +34,11 @@ export type EmailTemplateId =
   | 'auth_reauthentication'
   | 'auth_password_changed'
   | 'auth_email_changed'
+  | 'broker_paperwork_status_inquiry'
+  | 'broker_paperwork_status_followup'
+  | 'broker_claim_scope'
+  | 'carrier_claim_or_hold_notice'
+  | 'carrier_dispute_opened'
 
 export interface EmailTemplateDefinition {
   id: EmailTemplateId
@@ -120,15 +126,14 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
   },
   {
     id: 'client_invite',
-    name: 'Client portal invite',
-    description: 'Sent when a client account is provisioned.',
+    name: 'Client welcome',
+    description:
+      'Sent when admin activates a carrier or clicks Send welcome. Includes fee %, website, Credyx contact, and password setup.',
     audience: 'carrier',
-    placeholders: 'contactName, inviteLink',
-    subject: 'Your Credyx client portal is ready',
-    body_html: `<p>Hi {{contactName}},</p>
-<p>Your Credyx account has been activated. Set your password and sign in:</p>
-<p><a href="{{inviteLink}}">Activate your account</a></p>
-<p>If you did not request this, you can ignore this email.</p>`,
+    placeholders:
+      'contactName, clientName, feeTermsLabel, feePercentage, websiteUrl, portalLink, contactEmail, setupLink, inviteLink, ctaLabel, companyLogoHtml',
+    subject: 'Welcome to Credyx — your account is active',
+    body_html: CLIENT_WELCOME_BODY_HTML,
   },
   {
     id: 'admin_enrollment_alert',
@@ -208,6 +213,66 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
     body_html: `<p>Hello {{brokerName}},</p>
 <p>We have not received a response regarding invoice <strong>{{invoiceNumber}}</strong>. Please reply with payment status.</p>
 <p>— Credyx Collections</p>`,
+  },
+  {
+    id: 'broker_paperwork_status_inquiry',
+    name: 'Broker — paperwork status inquiry',
+    description: 'Ask if the paperwork packet is in order.',
+    audience: 'broker',
+    placeholders: 'brokerName, invoiceNumber, loadNumber, clientName',
+    subject: 'Paperwork status — Invoice {{invoiceNumber}}',
+    body_html: `<p>Hello {{brokerName}},</p>
+<p>Please confirm paperwork is in order for invoice <strong>{{invoiceNumber}}</strong> (Load {{loadNumber}}, {{clientName}}).</p>
+<p>— Credyx</p>`,
+  },
+  {
+    id: 'broker_paperwork_status_followup',
+    name: 'Broker — paperwork status follow-up',
+    description: 'Second paperwork status ask.',
+    audience: 'broker',
+    placeholders: 'brokerName, invoiceNumber, loadNumber, clientName',
+    subject: 'Follow-up: Paperwork status — Invoice {{invoiceNumber}}',
+    body_html: `<p>Hello {{brokerName}},</p>
+<p>Following up on paperwork for invoice <strong>{{invoiceNumber}}</strong> (Load {{loadNumber}}).</p>
+<p>— Credyx</p>`,
+  },
+  {
+    id: 'broker_claim_scope',
+    name: 'Broker — claim scope',
+    description: 'Ask if a claim is on the whole account.',
+    audience: 'broker',
+    placeholders: 'brokerName, invoiceNumber, loadNumber, clientName, message',
+    subject: 'Claim scope — Invoice {{invoiceNumber}}',
+    body_html: `<p>Hello {{brokerName}},</p>
+<p>Regarding invoice <strong>{{invoiceNumber}}</strong> (Load {{loadNumber}}, {{clientName}}).</p>
+<p>{{message}}</p>
+<p>Is this claim on the whole account?</p>
+<p>— Credyx</p>`,
+  },
+  {
+    id: 'carrier_claim_or_hold_notice',
+    name: 'Carrier — hold or claim notice',
+    description: 'Notify the carrier when a broker reply needs a hold or claim follow-up.',
+    audience: 'carrier',
+    placeholders: 'contactName, clientName, invoiceNumber, loadNumber, brokerName, summary, portalLink',
+    subject: 'Update — invoice {{invoiceNumber}}',
+    body_html: `<p>Hi {{contactName}},</p>
+<p>{{summary}}</p>
+<p>Invoice {{invoiceNumber}} · Load {{loadNumber}} · {{brokerName}}</p>
+<p><a href="{{portalLink}}">Open in Credyx</a></p>`,
+  },
+  {
+    id: 'carrier_dispute_opened',
+    name: 'Carrier — account dispute',
+    description: 'Carrier notice when a broker is placed in dispute.',
+    audience: 'carrier',
+    placeholders: 'contactName, clientName, brokerName, summary, portalLink, brokerContact',
+    subject: 'Dispute opened — {{brokerName}}',
+    body_html: `<p>Hi {{contactName}},</p>
+<p>A dispute was opened with {{brokerName}} for {{clientName}}.</p>
+<p>{{summary}}</p>
+<p>Broker contact: {{brokerContact}}</p>
+<p><a href="{{portalLink}}">Open in Credyx</a></p>`,
   },
   {
     id: 'calendar_event_notice',

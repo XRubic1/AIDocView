@@ -11,6 +11,12 @@ export function defaultPortalLink(): string {
   return 'https://app.credyx.net'
 }
 
+/** Client portal invoices list. */
+export const CLIENT_INVOICES_PATH = '/client/invoices'
+
+/** Paperwork-holds tab under Invoices (email deep-links land here). */
+export const CLIENT_INVOICES_ATTENTION_PATH = '/client/invoices/needattention'
+
 /** Client portal path: holds that need paperwork, optional invoice + upload. */
 export function buildCarrierAttentionPath(invoice?: Pick<Invoice, 'id' | 'invoice_number'>): string {
   const params = new URLSearchParams()
@@ -20,7 +26,7 @@ export function buildCarrierAttentionPath(invoice?: Pick<Invoice, 'id' | 'invoic
     params.set('upload', '1')
   }
   const qs = params.toString()
-  return qs ? `/client/attention?${qs}` : '/client/attention'
+  return qs ? `${CLIENT_INVOICES_ATTENTION_PATH}?${qs}` : CLIENT_INVOICES_ATTENTION_PATH
 }
 
 /** Absolute URL for document-issue emails (sign-in required). */

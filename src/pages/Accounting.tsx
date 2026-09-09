@@ -9,7 +9,6 @@ import {
   XCircle,
   CheckCircle2,
 } from 'lucide-react'
-import AdminLayout from '../components/AdminLayout'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import { AccountingReportCharts } from '../components/admin/accounting/AccountingReportCharts'
@@ -430,7 +429,7 @@ export default function Accounting() {
   )
 
   return (
-    <AdminLayout userName="Admin User" flushMain>
+    <>
       <div className="admin-accounting-page overflow-hidden flex flex-col min-h-0 h-full">
         <div
           className="client-page-tabs-bar shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-b"
@@ -540,6 +539,6 @@ export default function Accounting() {
           </>
         )}
       </div>
-    </AdminLayout>
+    </>
   )
 }

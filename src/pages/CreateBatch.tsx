@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import AdminLayout from '../components/AdminLayout'
 import { getAllClients } from '../services/clientRegistry'
 import { mockBrokers } from '../data/mockBrokers'
 import { formatCurrency } from '../utils/format'
@@ -207,7 +206,7 @@ export default function CreateBatch() {
   )
 
   return (
-    <AdminLayout userName="Admin User" userRole="Administrator">
+    <div className="client-shell-scroll h-full min-h-0 overflow-y-auto p-5">
       <div className="max-w-[1400px] mx-auto">
         <div className="mb-6 flex items-center justify-between">
           <div>
@@ -651,7 +650,7 @@ export default function CreateBatch() {
           </div>
         )}
       </div>
-    </AdminLayout>
+    </div>
   )
 }
 

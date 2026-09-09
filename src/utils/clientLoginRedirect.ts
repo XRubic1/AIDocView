@@ -5,7 +5,7 @@ export function getSafeClientReturnPath(
 ): string {
   const raw = (nextParam || stateFrom || '').trim()
   if (!raw.startsWith('/client/')) return '/client/dashboard'
-  if (raw.startsWith('/client/login')) return '/client/dashboard'
+  if (raw.startsWith('/client/login') || raw.startsWith('/client/setup-password')) return '/client/dashboard'
   if (raw.startsWith('//') || raw.includes('://')) return '/client/dashboard'
   return raw
 }

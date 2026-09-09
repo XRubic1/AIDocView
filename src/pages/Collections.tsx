@@ -5,8 +5,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
-import { useSearchParams } from 'react-router-dom'
-import AdminLayout from '../components/AdminLayout'
+import { Link, useSearchParams } from 'react-router-dom'
 import { openCollectionsInvoiceWindow } from '../utils/openCollectionsInvoiceWindow'
 import ClientListTd from '../components/client/ClientListTd'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
@@ -243,7 +242,7 @@ export default function Collections() {
   const inputStyle = { backgroundColor: c.card, color: c.primary }
 
   return (
-    <AdminLayout userName="Admin User" userRole="Administrator" flushMain>
+    <>
       <div className="client-invoices-page overflow-hidden flex flex-col min-h-0 h-full">
         <div className="payments-workspace-body flex-1 min-h-0">
           <div className="payments-list-panel flex flex-col min-h-0 overflow-hidden">
@@ -362,6 +361,12 @@ export default function Collections() {
                     style={inputStyle}
                   />
                 </div>
+                <Link
+                  to="/admin/inbox"
+                  className="text-sm font-medium text-[#1684FE] shrink-0"
+                >
+                  Inbox
+                </Link>
                 <select
                   value={clientFilter}
                   onChange={(e) => updateClientFilter(e.target.value)}
@@ -668,6 +673,6 @@ export default function Collections() {
         </div>
 
       </div>
-    </AdminLayout>
+    </>
   )
 }

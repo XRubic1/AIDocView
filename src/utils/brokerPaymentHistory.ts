@@ -4,6 +4,7 @@
 import type { Payment } from '../types/payment'
 import type { Invoice } from '../types/invoice'
 import { isOpenArInvoice } from './invoiceAging'
+import { normalizeBrokerNameKey } from './brokerRiskPolicy'
 import { getInvoiceOpenArBalance } from './paymentVariance'
 import { classifyBrokerInvoicePayClocks } from './brokerInvoicePayClock'
 
@@ -99,7 +100,12 @@ export function invoiceMatchesBroker(
   brokerName?: string | null
 ): boolean {
   if (invoice.broker_id === brokerId) return true
-  if (brokerName && invoice.broker_name === brokerName) return true
+  if (
+    brokerName &&
+    normalizeBrokerNameKey(invoice.broker_name) === normalizeBrokerNameKey(brokerName)
+  ) {
+    return true
+  }
   return false
 }
 

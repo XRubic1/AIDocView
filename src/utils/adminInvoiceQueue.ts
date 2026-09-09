@@ -109,6 +109,142 @@ export function matchesAdminInvoiceStatusFilter(
   return invoice.status === filter
 }
 
+export const ADMIN_INVOICE_CHIP_FILTERS: AdminInvoiceStatusFilter[] = [
+  'pending_payment',
+  'awaiting_confirmation',
+  'receipt_dispute',
+  'writeoff_queue',
+  'overdue',
+  'pending',
+  'hold',
+  'approved',
+  'paid',
+]
+
+export type AdminInvoiceChipFilter = (typeof ADMIN_INVOICE_CHIP_FILTERS)[number]
+
+export type AdminInvoiceDisplayFlags = Record<AdminInvoiceChipFilter, boolean>
+
+/** Every chip on or off. */
+export function createAdminInvoiceDisplayFlags(on: boolean): AdminInvoiceDisplayFlags {
+  return {
+    pending_payment: on,
+    awaiting_confirmation: on,
+    receipt_dispute: on,
+    writeoff_queue: on,
+    overdue: on,
+    pending: on,
+    hold: on,
+    approved: on,
+    // Paid is opt-in so the default list stays the open A/R queue.
+    paid: false,
+  }
+}
+
+/**
+ * One display bucket per invoice so chips are independent on/off switches.
+ * Queue states win over aging / invoice status.
+ */
+export function getAdminInvoiceDisplayBucket(
+  invoice: EnrichedInvoice,
+  queue?: AdminInvoiceQueueFlags
+): AdminInvoiceChipFilter | 'other' {
+  if (matchesAdminInvoiceStatusFilter(invoice, 'writeoff_queue', queue)) return 'writeoff_queue'
+  if (matchesAdminInvoiceStatusFilter(invoice, 'receipt_dispute', queue)) return 'receipt_dispute'
+  if (matchesAdminInvoiceStatusFilter(invoice, 'pending_payment', queue)) return 'pending_payment'
+  if (matchesAdminInvoiceStatusFilter(invoice, 'awaiting_confirmation', queue)) {
+    return 'awaiting_confirmation'
+  }
+  if (invoice.status === 'pending') return 'pending'
+  if (invoice.status === 'hold') return 'hold'
+  if (invoice.status === 'paid') return 'paid'
+  if (invoice.isOverdue) return 'overdue'
+  if (invoice.status === 'approved') return 'approved'
+  return 'other'
+}
+
+/** True when this invoice's bucket is switched on. */
+export function invoicePassesDisplayFlags(
+  invoice: EnrichedInvoice,
+  flags: AdminInvoiceDisplayFlags,
+  queue?: AdminInvoiceQueueFlags
+): boolean {
+  const bucket = getAdminInvoiceDisplayBucket(invoice, queue)
+  if (bucket === 'other') {
+    return ADMIN_INVOICE_CHIP_FILTERS.filter((key) => key !== 'paid').every((key) => flags[key])
+  }
+  return flags[bucket]
+}
+
+const CHIP_FILTER_SET = new Set<string>(ADMIN_INVOICE_CHIP_FILTERS)
+
+/** Parse `status=overdue,hold` from the URL into active chip filters. */
+export function parseAdminInvoiceStatusFilters(raw: string | null | undefined): AdminInvoiceStatusFilter[] {
+  if (!raw || raw === 'all') return []
+  const extra = new Set<string>(['written_off', 'write_off_pending'])
+  const seen = new Set<AdminInvoiceStatusFilter>()
+  for (const part of raw.split(',')) {
+    const key = part.trim() as AdminInvoiceStatusFilter
+    if (!key || key === 'all') continue
+    if (CHIP_FILTER_SET.has(key) || extra.has(key)) {
+      seen.add(key)
+    }
+  }
+  return [...seen]
+}
+
+/** Serialize active filters for `?status=`. */
+export function serializeAdminInvoiceStatusFilters(filters: AdminInvoiceStatusFilter[]): string {
+  return filters.filter((key) => key !== 'all').join(',')
+}
+
+/** Invoice matches if it hits any selected filter (empty = all invoices). */
+export function matchesAnyAdminInvoiceStatusFilter(
+  invoice: EnrichedInvoice,
+  filters: AdminInvoiceStatusFilter[],
+  queue?: AdminInvoiceQueueFlags
+): boolean {
+  if (filters.length === 0) return true
+  return filters.some((filter) => matchesAdminInvoiceStatusFilter(invoice, filter, queue))
+}
+
+export type AdminInvoiceFilterCounts = {
+  all: number
+  pending_payment: number
+  awaiting_confirmation: number
+  receipt_dispute: number
+  writeoff_queue: number
+  overdue: number
+  pending: number
+  hold: number
+  approved: number
+  paid: number
+}
+
+/** Counts for toggle chips — one bucket per invoice. */
+export function countAdminInvoiceFilters(
+  invoices: EnrichedInvoice[],
+  byInvoiceId: Map<string, AdminInvoiceQueueFlags>
+): AdminInvoiceFilterCounts {
+  const counts: AdminInvoiceFilterCounts = {
+    all: invoices.length,
+    pending_payment: 0,
+    awaiting_confirmation: 0,
+    receipt_dispute: 0,
+    writeoff_queue: 0,
+    overdue: 0,
+    pending: 0,
+    hold: 0,
+    approved: 0,
+    paid: 0,
+  }
+  for (const invoice of invoices) {
+    const bucket = getAdminInvoiceDisplayBucket(invoice, byInvoiceId.get(invoice.id))
+    if (bucket !== 'other') counts[bucket] += 1
+  }
+  return counts
+}
+
 /** Enrich all admin invoices for list views. */
 export function enrichAdminInvoices(invoices: Invoice[]): EnrichedInvoice[] {
   return enrichInvoices(invoices)
@@ -137,7 +273,7 @@ export function adminInvoiceFilterLabel(filter: AdminInvoiceStatusFilter): strin
     case 'writeoff_queue':
       return 'Write-offs'
     case 'pending_payment':
-      return 'Pending payment'
+      return 'Pending payments'
     case 'awaiting_confirmation':
       return 'Awaiting confirmation'
     case 'receipt_dispute':

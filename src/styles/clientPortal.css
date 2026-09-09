@@ -4436,6 +4436,7 @@
 .client-portal .client-main--flush .client-documents-page,
 .client-portal .client-main--flush .client-brokers-page,
 .client-portal .client-main--flush .admin-brokers-page,
+.client-portal .client-main--flush .admin-aging-page,
 .client-portal .client-main--flush .client-settings-page,
 .client-portal .client-main--flush .client-reports-page,
 .client-portal .client-main--flush .assistant-page {
@@ -4580,16 +4581,19 @@
 }
 
 /* Selected invoice — stand out clearly while detail panel is open */
-.client-portal .client-invoices-page .dashboard-table tbody tr.invoice-row--selected {
+.client-portal .client-invoices-page .dashboard-table tbody tr.invoice-row--selected,
+.client-portal .admin-aging-page .dashboard-table tbody tr.invoice-row--selected {
   background: color-mix(in srgb, var(--cp-accent, #1684fe) 12%, var(--cp-card, #fff)) !important;
   box-shadow: inset 3px 0 0 var(--cp-accent, #1684fe);
 }
 
-.client-portal .client-invoices-page .dashboard-table tbody tr.invoice-row--selected td {
+.client-portal .client-invoices-page .dashboard-table tbody tr.invoice-row--selected td,
+.client-portal .admin-aging-page .dashboard-table tbody tr.invoice-row--selected td {
   background: transparent;
 }
 
-.client-portal .client-invoices-page .dashboard-table tbody tr.invoice-row--selected:hover {
+.client-portal .client-invoices-page .dashboard-table tbody tr.invoice-row--selected:hover,
+.client-portal .admin-aging-page .dashboard-table tbody tr.invoice-row--selected:hover {
   background: color-mix(in srgb, var(--cp-accent, #1684fe) 16%, var(--cp-card, #fff)) !important;
 }
 
@@ -4605,6 +4609,79 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Admin Invoices: nested invoice columns + expand control */
+.client-portal .client-invoices-page .admin-invoices-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.client-portal .client-invoices-page .admin-invoices-table td {
+  height: auto;
+  overflow: visible;
+}
+
+.client-portal .client-invoices-page .admin-invoices-table th:first-child,
+.client-portal .client-invoices-page .admin-invoices-table td:first-child {
+  width: 26%;
+}
+
+.client-portal .client-invoices-page .admin-invoices-table th:nth-child(2),
+.client-portal .client-invoices-page .admin-invoices-table td:nth-child(2) {
+  width: 22%;
+}
+
+.client-portal .client-invoices-page .admin-invoices-table th:nth-child(3),
+.client-portal .client-invoices-page .admin-invoices-table td:nth-child(3) {
+  width: 11%;
+  white-space: nowrap;
+}
+
+.client-portal .client-invoices-page .admin-invoices-table th:nth-child(4),
+.client-portal .client-invoices-page .admin-invoices-table td:nth-child(4),
+.client-portal .client-invoices-page .admin-invoices-table th:nth-child(5),
+.client-portal .client-invoices-page .admin-invoices-table td:nth-child(5),
+.client-portal .client-invoices-page .admin-invoices-table th:nth-child(6),
+.client-portal .client-invoices-page .admin-invoices-table td:nth-child(6) {
+  width: 9%;
+  white-space: nowrap;
+}
+
+.client-portal .client-invoices-page .admin-invoices-table th:nth-child(7),
+.client-portal .client-invoices-page .admin-invoices-table td:nth-child(7) {
+  width: 14%;
+}
+
+.client-portal .client-invoices-page .admin-invoices-table td.admin-invoices-broker-cell {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
+  line-height: 1.25;
+}
+
+.client-portal .admin-invoices-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 22px;
+  flex-shrink: 0;
+  color: var(--cp-secondary, #64748b);
+}
+
+.client-portal .admin-invoices-expand--open {
+  color: var(--cp-accent, #1684fe);
+}
+
+.client-portal .admin-invoices-carrier--open td {
+  background: color-mix(in srgb, var(--cp-accent, #1684fe) 7%, var(--cp-card, #fff));
+}
+
+.client-portal .admin-invoices-subhead td {
+  background: color-mix(in srgb, var(--cp-accent, #1684fe) 6%, var(--cp-surface, #eef1f5)) !important;
+  border-bottom-color: color-mix(in srgb, var(--cp-accent, #1684fe) 22%, var(--cp-border));
 }
 
 /* Status pills stay on one line inside the fixed column */
@@ -9422,6 +9499,21 @@
   font-weight: 600;
 }
 
+.client-portal .page-tab__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: #1684FE;
+}
+
 .client-portal .page-tab svg {
   flex-shrink: 0;
 }
@@ -14014,6 +14106,16 @@
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
 }
 
+.client-portal .mobile-invoice-overview__status--will-pay {
+  border-color: color-mix(in srgb, #22c55e 50%, var(--cp-border));
+  color: #16a34a;
+}
+
+.client-portal .mobile-invoice-overview__status--will-pay .mobile-invoice-overview__status-dot {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+}
+
 /* Open — gray */
 .client-portal .mobile-invoice-overview__status--approved {
   border-color: color-mix(in srgb, #94a3b8 50%, var(--cp-border));
@@ -15230,6 +15332,11 @@
 }
 
 .client-portal .mobile-invoice-list-card__status--paid {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+}
+
+.client-portal .mobile-invoice-list-card__status--will-pay {
   background: rgba(34, 197, 94, 0.1);
   color: #16a34a;
 }

@@ -18,6 +18,7 @@ import {
   getOpenDisputedStatusLabel,
   invoiceHasOpenDisputedStatus,
 } from '../../utils/clientInvoiceDisputeStatus'
+import { invoiceHasWillPayStatus } from '../../utils/invoiceWillPay'
 
 export const NOTE_TYPE_LABELS: Record<string, string> = {
   note: 'Note',
@@ -68,10 +69,11 @@ export function getInvoiceNoteEntries(
 export function getInvoiceStatusBadge(status: string, options?: { compact?: boolean }) {
   const classMap: Record<string, string> = {
     pending: 'status-pill status-pill--pending',
-    // Open A/R — gray (Confirm payment uses blue)
+    // Open A/R — blue
     approved: 'status-pill status-pill--open',
     hold: 'status-pill status-pill--hold',
     paid: 'status-pill status-pill--approved',
+    will_pay: 'status-pill status-pill--approved',
     rejected: 'status-pill status-pill--overdue',
     overdue: 'status-pill status-pill--overdue',
     short_paid: 'status-pill status-pill--short-paid',
@@ -88,6 +90,7 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     approved: 'Open',
     hold: 'On Hold',
     paid: 'Paid',
+    will_pay: 'Will Pay',
     rejected: 'Rejected',
     overdue: 'Overdue',
     short_paid: 'Short paid',
@@ -195,6 +198,9 @@ export function getInvoiceRowStatusBadge(
     if (invoiceHasOpenDisputedStatus(invoice)) {
       return getInvoiceStatusBadge('open_disputed', options)
     }
+    if (invoiceHasWillPayStatus(invoice)) {
+      return getInvoiceStatusBadge('will_pay', options)
+    }
     const raw = invoice.displayStatus || invoice.status
     const status =
       invoice.isOverdue && (raw === 'approved' || raw === 'pending') ? 'overdue' : raw
@@ -221,6 +227,15 @@ export function getInvoiceRowStatusBadge(
     (parts.status === 'approved' || parts.status === 'overdue')
   ) {
     return getInvoiceStatusBadge('open_disputed', options)
+  }
+
+  if (invoiceHasWillPayStatus(invoice) && parts.status !== 'paid') {
+    return (
+      <>
+        {getInvoiceStatusBadge('will_pay', options)}
+        {getInvoiceVarianceBadge(parts.variance, options)}
+      </>
+    )
   }
 
   const status =

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import AdminLayout from '../components/AdminLayout'
 import { Mail, Search, X, User as UserIcon, Shield, Calendar } from 'lucide-react'
 import { formatDate } from '../utils/format'
 import { useToast } from '../components/ui/ToastProvider'
@@ -154,7 +153,7 @@ export default function Users() {
   )
 
   return (
-    <AdminLayout>
+    <div className="client-shell-scroll h-full min-h-0 overflow-y-auto p-5">
       <div className="max-w-[1400px] mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-black mb-2">Users</h1>
@@ -467,6 +466,6 @@ export default function Users() {
           </div>
         </div>
       )}
-    </AdminLayout>
+    </div>
   )
 }

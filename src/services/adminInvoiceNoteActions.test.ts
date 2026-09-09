@@ -138,3 +138,21 @@ describe('postInvoiceStatusNote — set due date', () => {
     expect(mockInvoices[0].due_date).toBeUndefined()
   })
 })
+
+describe('postInvoiceStatusNote — will pay', () => {
+  beforeEach(() => {
+    clearInvoices()
+    seedInvoice()
+  })
+
+  it('sets Will Pay collection status and scheduled payment date', () => {
+    const updated = postInvoiceStatusNote('inv-note-test', {
+      kind: 'will_pay',
+      authorName: 'Admin',
+      collectionDate: '2026-09-20',
+    })
+    expect(updated?.collection_status).toBe('W/P')
+    expect(updated?.collection_date).toBe('2026-09-20')
+    expect(updated?.notes_history?.some((n) => /Will Pay/i.test(n.note))).toBe(true)
+  })
+})

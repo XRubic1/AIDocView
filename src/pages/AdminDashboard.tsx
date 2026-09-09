@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import AdminLayout from '../components/AdminLayout'
 import { SummaryCards } from '../components/admin/SummaryCards'
 import { CollectionsQueue } from '../components/admin/CollectionsQueue'
 import { ClientWorkQueuePanel } from '../components/admin/ClientWorkQueuePanel'
@@ -433,7 +432,7 @@ export default function AdminDashboard() {
   const attentionCount = filteredCriticalAlerts.length + filteredTodaysActions.length
 
   return (
-    <AdminLayout userName="Admin User" userRole="Administrator">
+    <div className="client-shell-scroll h-full min-h-0 overflow-y-auto p-5">
       <div className="space-y-5">
         {/* 1. Page header: title + client filter + compact Quick Actions */}
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -541,6 +540,6 @@ export default function AdminDashboard() {
           </div>
         </section>
       </div>
-    </AdminLayout>
+    </div>
   )
 }

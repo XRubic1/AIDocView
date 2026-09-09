@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, type ReactNode } from 'react'
+import { useMemo, useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   ChevronDown,
@@ -50,6 +50,8 @@ interface AdminLayoutProps {
 }
 
 const SIDEBAR_COLLAPSED_KEY = 'adminSidebarCollapsed'
+/** Survives page remounts so scrolling the rail then clicking a link does not jump to top. */
+let savedAdminNavScrollTop = 0
 
 export default function AdminLayout({
   children,
@@ -91,7 +93,11 @@ export default function AdminLayout({
     })
   }, [])
 
-  const sidebarWidth = collapsed ? t.sidebar.collapsedWidth : t.sidebar.expandedWidth
+  const sidebarExpanded = !collapsed
+  /** Slightly wider than the client rail so admin labels (Broker Snapshot, etc.) stay fully visible. */
+  const expandedWidth = Math.max(t.sidebar.expandedWidth, 220)
+  const sidebarWidth = collapsed ? t.sidebar.collapsedWidth : expandedWidth
+  const iconColWidth = t.sidebar.collapsedWidth
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -144,6 +150,13 @@ export default function AdminLayout({
     [tenantRevision]
   )
 
+  const navScrollRef = useRef<HTMLElement>(null)
+
+  useLayoutEffect(() => {
+    const el = navScrollRef.current
+    if (el) el.scrollTop = savedAdminNavScrollTop
+  }, [])
+
   const badges: Record<string, number> = {
     pendingBatches: pendingBatchCount,
     pendingPayments: pendingPaymentCount,
@@ -168,69 +181,67 @@ export default function AdminLayout({
     void signOutAdmin().then(() => navigate('/login'))
   }
 
-  const sidebarContent = (isMobile = false) => (
-    <div className="flex flex-col h-full">
+  const sidebarContent = (isMobile = false) => {
+    const tip = (label: string) => (!isMobile && collapsed ? label : undefined)
+    const showLabels = sidebarExpanded || isMobile
+    const navIconColWidth = isMobile ? 44 : iconColWidth - 12
+
+    return (
+    <div className={`flex flex-col h-full overflow-hidden${isMobile ? ' client-mobile-drawer__content' : ''}`}>
       <div
-        className={`flex items-center border-b ${collapsed && !isMobile ? 'justify-center px-2' : 'px-5'} pt-5 pb-4`}
+        className={`client-sidebar-brand flex items-center border-b shrink-0${isMobile ? ' client-mobile-drawer__brand' : ''}`}
         style={{ borderColor: t.sidebar.border }}
       >
-        {collapsed && !isMobile ? (
-          <CredyxWordmark
-            variant="mark"
-            theme="admin"
-            onClick={() => navigate('/admin/dashboard')}
-          />
+        {showLabels ? (
+          <div className={isMobile ? 'client-mobile-drawer__brand-logo' : 'client-sidebar-brand__logo'}>
+            <CredyxWordmark
+              variant="compact"
+              theme="client"
+              surface={resolvedTheme === 'dark' ? 'on-dark' : 'on-light'}
+              onClick={() => navigate('/admin/dashboard')}
+            />
+          </div>
         ) : (
-          <CredyxWordmark
-            variant="full"
-            theme="admin"
-            onClick={() => navigate('/admin/dashboard')}
-          />
+          <div
+            className="client-sidebar-brand__mark shrink-0 flex items-center justify-center w-full"
+            style={{ width: iconColWidth }}
+          >
+            <CredyxWordmark
+              variant="mark"
+              theme="client"
+              onClick={() => navigate('/admin/dashboard')}
+            />
+          </div>
         )}
       </div>
 
-      {!collapsed || isMobile ? (
-        <div className="px-5 py-4 border-b" style={{ borderColor: t.sidebar.border }}>
-          <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
-              style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
-            >
-              CX
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold truncate" style={{ color: t.sidebar.text }}>
-                Credyx Admin
-              </div>
-              <div className="text-xs truncate" style={{ color: t.sidebar.muted }}>
-                Operations console
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="py-4 border-b flex justify-center" style={{ borderColor: t.sidebar.border }}>
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold"
-            style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
-          >
-            CX
-          </div>
-        </div>
-      )}
-
-      <nav className={`flex-1 overflow-y-auto py-4 space-y-5 ${collapsed && !isMobile ? 'px-2' : 'px-3'}`}>
+      <nav
+        ref={isMobile ? undefined : navScrollRef}
+        className={`client-sidebar-nav-scroll${isMobile ? ' client-mobile-drawer__nav' : ''} space-y-1`}
+        onScroll={
+          isMobile
+            ? undefined
+            : (event) => {
+                savedAdminNavScrollTop = event.currentTarget.scrollTop
+              }
+        }
+      >
         {navSections.map((section) => (
           <div key={section.title}>
-            {!collapsed || isMobile ? (
+            {section.title ? (
               <div
-                className="px-3 mb-2 text-[11px] font-semibold tracking-wider uppercase"
-                style={{ color: t.sidebar.muted }}
+                className={`${isMobile ? 'mb-1 mt-2 px-4 text-[11px]' : 'mb-0.5 px-3 text-[10px]'} font-semibold tracking-wider uppercase whitespace-nowrap overflow-hidden`}
+                style={{
+                  color: t.sidebar.muted,
+                  height: isMobile ? 'auto' : '0.875rem',
+                  opacity: showLabels ? 1 : 0,
+                }}
+                aria-hidden={!showLabels}
               >
                 {section.title}
               </div>
             ) : null}
-            <ul className="space-y-1">
+            <ul className={isMobile ? 'space-y-1' : 'space-y-px'}>
               {section.items.map((item) => {
                 const active = isNavActive(item.path)
                 const Icon = item.icon
@@ -245,14 +256,13 @@ export default function AdminLayout({
                     <button
                       type="button"
                       onClick={() => handleNavClick(item.path)}
-                      title={collapsed && !isMobile ? item.label : undefined}
-                      className={`w-full flex items-center rounded-lg text-sm transition-all duration-200 border-l-[3px] ${
-                        collapsed && !isMobile ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'
+                      title={tip(item.label)}
+                      className={`client-sidebar-nav-item w-full flex items-center transition-colors duration-200${
+                        isMobile ? ' client-sidebar-nav-item--mobile text-[15px]' : ' text-[13px]'
                       }`}
                       style={{
                         backgroundColor: active ? t.sidebar.active : 'transparent',
-                        color: active ? t.sidebar.activeText : t.sidebar.muted,
-                        borderLeftColor: active ? t.sidebar.activeBorder : 'transparent',
+                        color: active ? t.sidebar.activeText : t.sidebar.text,
                         fontWeight: active ? 600 : 500,
                       }}
                       onMouseEnter={(e) => {
@@ -262,23 +272,34 @@ export default function AdminLayout({
                         if (!active) e.currentTarget.style.backgroundColor = 'transparent'
                       }}
                     >
-                      <Icon
-                        className="w-[18px] h-[18px] shrink-0"
-                        strokeWidth={1.75}
-                        style={{ color: active ? t.info : t.mutedLight }}
-                      />
-                      {(!collapsed || isMobile) && (
-                        <>
-                          <span className="flex-1 text-left truncate">{item.label}</span>
-                          {badge > 0 && (
-                            <span
-                              className="min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full text-[10px] font-bold text-white"
-                              style={{ backgroundColor: t.sidebar.badge }}
-                            >
-                              {badge}
-                            </span>
-                          )}
-                        </>
+                      <span
+                        className="relative shrink-0 flex items-center justify-center self-stretch"
+                        style={{ width: navIconColWidth }}
+                      >
+                        <Icon
+                          className={isMobile ? 'w-5 h-5' : 'w-4 h-4'}
+                          strokeWidth={1.75}
+                          style={{ color: active ? t.sidebar.activeText : t.sidebar.muted }}
+                        />
+                        {badge > 0 && !showLabels && (
+                          <span
+                            className="client-sidebar-nav-item__badge"
+                            style={{ backgroundColor: t.sidebar.badge }}
+                          >
+                            {badge > 9 ? '9+' : badge}
+                          </span>
+                        )}
+                      </span>
+                      <span className={`flex-1 min-w-0 text-left truncate whitespace-nowrap pr-2${isMobile ? ' py-3' : ' py-1'}`}>
+                        {item.label}
+                      </span>
+                      {badge > 0 && showLabels && (
+                        <span
+                          className={`${isMobile ? 'mr-3 min-w-[22px] h-5 text-[11px]' : 'mr-2 min-w-[18px] h-4 text-[9px]'} px-1.5 flex items-center justify-center rounded-full font-bold text-white shrink-0`}
+                          style={{ backgroundColor: t.sidebar.badge }}
+                        >
+                          {badge}
+                        </span>
                       )}
                     </button>
                   </li>
@@ -289,43 +310,57 @@ export default function AdminLayout({
         ))}
       </nav>
 
-      {!isMobile && (
-        <div className="px-3 pb-2">
+      <div className={`${isMobile ? 'pb-1 pt-1' : 'pb-1'}`}>
+        <ThemeToggle
+          sidebar={{
+            iconColWidth: isMobile ? 48 : iconColWidth,
+            mutedColor: t.sidebar.muted,
+            hoverColor: t.sidebar.hover,
+            title: tip(resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'),
+          }}
+        />
+        {!isMobile && (
           <button
             type="button"
             onClick={toggleCollapsed}
-            className={`w-full flex items-center rounded-lg py-2 text-sm transition-colors ${
-              collapsed ? 'justify-center px-2' : 'gap-2 px-3'
-            }`}
+            className="w-full flex items-center text-[13px] transition-colors"
             style={{ color: t.sidebar.muted }}
+            title={tip(collapsed ? 'Extend' : 'Collapse')}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = t.sidebar.hover
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = 'transparent'
             }}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Extend sidebar' : 'Collapse sidebar'}
           >
-            {collapsed ? (
-              <PanelLeft className="w-[18px] h-[18px]" strokeWidth={1.75} />
-            ) : (
-              <>
-                <PanelLeftClose className="w-[18px] h-[18px]" strokeWidth={1.75} />
-                <span>Collapse</span>
-              </>
-            )}
+            <span
+              className="shrink-0 flex items-center justify-center self-stretch py-1.5"
+              style={{ width: iconColWidth }}
+            >
+              {collapsed ? (
+                <PanelLeft className="w-4 h-4" strokeWidth={1.75} />
+              ) : (
+                <PanelLeftClose className="w-4 h-4" strokeWidth={1.75} />
+              )}
+            </span>
+            <span className="whitespace-nowrap truncate py-1.5 pr-2">
+              {collapsed ? 'Extend' : 'Collapse'}
+            </span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
-      <div className="px-3 py-3 border-t relative" style={{ borderColor: t.sidebar.border }}>
+      <div
+        className={`client-sidebar-account${isMobile ? ' client-sidebar-account--mobile' : ''} border-t relative`}
+        style={{ borderColor: t.sidebar.border }}
+      >
         <button
           type="button"
           onClick={() => setUserMenuOpen((open) => !open)}
-          className={`w-full flex items-center rounded-lg py-2 transition-colors ${
-            collapsed && !isMobile ? 'justify-center px-2' : 'gap-3 px-2'
-          }`}
+          className="client-sidebar-account__btn w-full flex items-center transition-colors"
           style={{ color: t.sidebar.text }}
+          title={userName}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = t.sidebar.hover
           }}
@@ -333,31 +368,36 @@ export default function AdminLayout({
             e.currentTarget.style.backgroundColor = 'transparent'
           }}
         >
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0"
-            style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
+          <span
+            className="client-sidebar-account__avatar-col shrink-0 flex items-center justify-center self-stretch"
+            style={{ width: isMobile ? 48 : collapsed ? iconColWidth : undefined }}
           >
-            {getInitials(userName)}
+            <div
+              className="client-sidebar-account__avatar rounded-full flex items-center justify-center font-semibold"
+              style={{ backgroundColor: t.sidebar.avatarBg, color: t.sidebar.avatarText }}
+            >
+              {getInitials(userName)}
+            </div>
+          </span>
+          <div className="client-sidebar-account__meta flex-1 min-w-0 text-left">
+            <div className="client-sidebar-account__name font-semibold leading-tight">
+              {userName}
+            </div>
+            <div className="client-sidebar-account__tier leading-tight" style={{ color: t.sidebar.muted }}>
+              {userRole}
+            </div>
           </div>
-          {(!collapsed || isMobile) && (
-            <>
-              <div className="flex-1 min-w-0 text-left">
-                <div className="text-sm font-semibold truncate">{userName}</div>
-                <div className="text-xs truncate" style={{ color: t.sidebar.muted }}>
-                  {userRole}
-                </div>
-              </div>
-              <ChevronDown
-                className={`w-4 h-4 shrink-0 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
-                style={{ color: t.sidebar.muted }}
-              />
-            </>
-          )}
+          <ChevronDown
+            className={`client-sidebar-account__chevron w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${
+              userMenuOpen ? 'rotate-180' : ''
+            }`}
+            style={{ color: t.sidebar.muted }}
+          />
         </button>
 
         {userMenuOpen && (
           <div
-            className="absolute bottom-full left-3 right-3 mb-1 rounded-xl border py-1 z-10"
+            className="absolute bottom-full left-2 right-2 mb-1 rounded-xl border py-1 z-10"
             style={{
               backgroundColor: t.card,
               borderColor: t.border,
@@ -367,7 +407,7 @@ export default function AdminLayout({
             <button
               type="button"
               onClick={handleLogout}
-              className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left transition-colors rounded-lg mx-0"
+              className={`w-full flex items-center gap-2 px-3 text-left transition-colors rounded-lg mx-0${isMobile ? ' py-3.5 text-[15px]' : ' py-2.5 text-sm'}`}
               style={{ color: t.sidebar.text }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = t.sidebar.hover
@@ -376,14 +416,15 @@ export default function AdminLayout({
                 e.currentTarget.style.backgroundColor = 'transparent'
               }}
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
               Sign out
             </button>
           </div>
         )}
       </div>
     </div>
-  )
+    )
+  }
 
   return (
     <div
@@ -392,7 +433,9 @@ export default function AdminLayout({
       style={{ backgroundColor: t.surface, ['--sidebar-width' as string]: `${sidebarWidth}px` }}
     >
       <aside
-        className="hidden lg:flex flex-col shrink-0 fixed inset-y-0 left-0 z-40 border-r transition-all duration-200"
+        className={`client-sidebar-rail hidden lg:flex flex-col shrink-0 fixed inset-y-0 left-0 z-40 border-r${
+          collapsed ? ' client-sidebar-rail--collapsed' : ''
+        }`}
         style={{
           width: sidebarWidth,
           backgroundColor: t.sidebar.bg,
@@ -433,7 +476,7 @@ export default function AdminLayout({
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-all duration-200 lg:ml-[var(--sidebar-width)]">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden transition-[margin] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] lg:ml-[var(--sidebar-width)]">
         <header
           className="client-topbar sticky top-0 z-30 border-b"
           style={{ borderColor: t.border, backgroundColor: t.sidebar.bg }}
@@ -441,24 +484,21 @@ export default function AdminLayout({
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="lg:hidden p-2 -ml-1 rounded-lg client-header-icon-btn shrink-0"
+            className="client-topbar__menu-btn lg:hidden p-2 -ml-1 rounded-lg client-header-icon-btn shrink-0"
             style={{ color: t.primary }}
             aria-label="Open menu"
           >
             <Menu className="w-5 h-5" />
           </button>
 
-          <div className="flex-1 min-w-0 hidden lg:block">
-            <p className="text-sm font-medium truncate" style={{ color: t.secondary }}>
-              Credyx Admin
+          <div className="flex-1 min-w-0">
+            <p className="client-topbar__welcome truncate" style={{ color: t.primary }}>
+              Welcome back, {userName}
             </p>
           </div>
 
           <div className="client-topbar__actions">
             <AssistantHeaderBuddy mode="admin" />
-            <div className="hidden lg:block shrink-0">
-              <ThemeToggle compact />
-            </div>
             <NotificationBell
               notifications={notifications}
               companies={notificationCompanies}

@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect } from 'react'
-import AdminLayout from '../components/AdminLayout'
 import { Client, ServiceTier } from '../types/client'
 import {
   getAllClients,
@@ -86,6 +85,7 @@ export default function Clients() {
 
   const [tenantVersion, setTenantVersion] = useState(0)
   const [tenantLoading, setTenantLoading] = useState(false)
+  const [sendingWelcome, setSendingWelcome] = useState(false)
 
   const refreshClients = () => setClients(getAllClients())
 
@@ -311,6 +311,36 @@ export default function Clients() {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
+  /** Provision portal login (if needed) and send the Settings welcome email. */
+  const handleSendWelcomeEmail = async (client: Client) => {
+    const to = client.email?.trim()
+    if (!to) {
+      showToast('Add an email on this client first.', 'error')
+      return
+    }
+    if (client.status !== 'active') {
+      showToast('Activate the account before sending a welcome email.', 'error')
+      return
+    }
+    if (!isSupabaseConfigured()) {
+      showToast('Connect Supabase to send the welcome email.', 'error')
+      return
+    }
+    setSendingWelcome(true)
+    try {
+      const auth = await provisionClientAuthAccount(client.id, to)
+      if (!auth.ok) {
+        showToast(auth.error ?? 'Could not send welcome email.', 'error')
+        return
+      }
+      showToast(`Welcome email sent to ${to}`, 'success')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not send welcome email.', 'error')
+    } finally {
+      setSendingWelcome(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -367,7 +397,7 @@ export default function Clients() {
   }
 
   return (
-    <AdminLayout flushMain>
+    <>
       <div className="flex flex-col min-h-0 h-full overflow-hidden">
         <div className="client-page-toolbar shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200">
           <div className="relative flex-1 min-w-[200px] max-w-md">
@@ -1086,6 +1116,16 @@ export default function Clients() {
                                 )
                                 if (!auth.ok) {
                                   console.error('[Clients] Auth provision failed:', auth.error)
+                                  showToast(
+                                    auth.error ??
+                                      'Account is active, but the welcome email did not send.',
+                                    'error'
+                                  )
+                                } else {
+                                  showToast(
+                                    `Account active — welcome email sent to ${updated.email}`,
+                                    'success'
+                                  )
                                 }
                               }
                             }
@@ -1101,8 +1141,34 @@ export default function Clients() {
                         <option value="pending">Pending</option>
                         <option value="inactive">Inactive</option>
                         <option value="suspended">Suspended</option>
-                      </select>
-                    </label>
+                        </select>
+                      </label>
+
+                    {selectedClient.status === 'active' && (
+                    <div className="sm:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                      <p className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+                        Welcome email
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1 mb-2">
+                        Sends the Client welcome template (Settings → Email) with their collection
+                        fee, website, Credyx contact, and a link to create a password.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={sendingWelcome || !selectedClient.email}
+                        onClick={() => void handleSendWelcomeEmail(selectedClient)}
+                        className="inline-flex items-center gap-2 rounded-md bg-[#1684FE] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                        {sendingWelcome ? 'Sending…' : 'Send welcome email'}
+                      </button>
+                      {!selectedClient.email ? (
+                        <span className="block text-xs text-amber-700 mt-1.5">
+                          Add a client email to send.
+                        </span>
+                      ) : null}
+                    </div>
+                    )}
 
                     <label className="block text-xs sm:col-span-2">
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
@@ -1818,7 +1884,7 @@ export default function Clients() {
           </div>
         </div>
       )}
-    </AdminLayout>
+    </>
   )
 }
 

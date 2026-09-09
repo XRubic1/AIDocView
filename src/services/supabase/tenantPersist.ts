@@ -248,6 +248,68 @@ export async function persistBroker(broker: Broker): Promise<void> {
   await upsert('brokers', brokerToRow(broker))
 }
 
+/** Reassign invoices and payments off a duplicate broker (caller deletes the row after). */
+export async function persistBrokerMerge(args: {
+  sourceId: string
+  sourceName: string
+  keepId: string
+  keepName: string
+  invoiceIds: string[]
+}): Promise<void> {
+  if (!isSupabaseConfigured()) return
+  const supabase = getSupabase()
+  if (!supabase) return
+
+  const now = new Date().toISOString()
+  const { error: invoiceError } = await supabase
+    .from('invoices')
+    .update({
+      broker_id: args.keepId,
+      broker_name: args.keepName,
+      updated_at: now,
+    })
+    .eq('broker_id', args.sourceId)
+  if (invoiceError) throw new Error(invoiceError.message)
+
+  if (args.invoiceIds.length > 0) {
+    const { error: paymentByInvoiceError } = await supabase
+      .from('payments')
+      .update({ broker_name: args.keepName })
+      .in('invoice_id', args.invoiceIds)
+    if (paymentByInvoiceError) throw new Error(paymentByInvoiceError.message)
+  }
+
+  const { error: paymentByNameError } = await supabase
+    .from('payments')
+    .update({ broker_name: args.keepName })
+    .eq('broker_name', args.sourceName)
+  if (paymentByNameError) throw new Error(paymentByNameError.message)
+
+  const optionalTables: { table: string; column?: string }[] = [
+    { table: 'broker_risk_profiles' },
+    { table: 'broker_risk_alerts' },
+    { table: 'broker_external_snapshots' },
+    { table: 'broker_snapshot_changes' },
+    { table: 'email_threads' },
+    { table: 'email_review_items' },
+  ]
+  for (const { table } of optionalTables) {
+    const { error } = await supabase
+      .from(table)
+      .update({ broker_id: args.keepId })
+      .eq('broker_id', args.sourceId)
+    if (error) {
+      console.warn(`[tenantPersist] ${table} broker merge skipped:`, error.message)
+    }
+  }
+}
+
+/** Delete a broker catalog row after invoices have been moved off it. */
+export async function deleteBrokerFromDb(brokerId: string): Promise<void> {
+  if (!isSupabaseConfigured()) return
+  await remove('brokers', brokerId)
+}
+
 export async function persistNotification(
   notification: Notification,
   clientId: string

@@ -186,6 +186,20 @@ export function replaceBrokerRiskStore(
   persist()
 }
 
+/** Point cached risk rows at the keeper after a broker merge. */
+export function reassignBrokerRiskProfiles(sourceBrokerId: string, keepBrokerId: string): void {
+  if (sourceBrokerId === keepBrokerId) return
+  ensureHydrated()
+  let changed = false
+  profiles = profiles.map((p) => {
+    if (p.broker_id !== sourceBrokerId) return p
+    changed = true
+    return { ...p, broker_id: keepBrokerId }
+  })
+  if (changed) persist()
+}
+
+
 /** Append a new risk profile + evidence (never mutate prior rows). */
 export function appendBrokerRiskProfile(
   profile: BrokerRiskProfile,

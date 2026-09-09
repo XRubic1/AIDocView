@@ -46,7 +46,7 @@ describe('emailTemplateRender', () => {
     expect(data.issueListHtml).toContain('Missing POD')
     expect(data.issueListHtml).toContain('Rate confirmation')
     expect(data.ctaLabel).toBe('Upload documents')
-    expect(data.portalLink).toContain('/client/attention?invoice=INV-1&upload=1')
+    expect(data.portalLink).toContain('/client/invoices/needattention?invoice=INV-1&upload=1')
   })
 
   it('builds auth CTA and OTP blocks', () => {

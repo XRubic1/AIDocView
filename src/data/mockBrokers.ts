@@ -88,3 +88,12 @@ export async function updateBrokerAsync(
 
   return broker
 }
+
+/** Drop a catalog row after invoices have been reassigned (merge / cleanup). */
+export function removeBrokerFromStore(brokerId: string): boolean {
+  const idx = mockBrokers.findIndex((b) => b.id === brokerId)
+  if (idx < 0) return false
+  mockBrokers.splice(idx, 1)
+  emitBrokersUpdated()
+  return true
+}

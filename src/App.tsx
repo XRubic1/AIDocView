@@ -4,11 +4,13 @@ import AdminProtectedLayout from './components/admin/AdminProtectedLayout'
 import { ThemeProvider } from './theme/ThemeContext'
 import Login from './pages/Login'
 import ClientLogin from './pages/ClientLogin'
+import ClientSetupPassword from './pages/ClientSetupPassword'
 import Enroll from './pages/Enroll'
 import Waitlist from './pages/Waitlist'
 import LandingPage from './pages/LandingPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import { ToastProvider } from './components/ui/ToastProvider'
+import LegacyClientAttentionRedirect from './pages/LegacyClientAttentionRedirect'
 import {
   Accounting,
   AdminDashboard,
@@ -18,6 +20,8 @@ import {
   AdminBrokerRisk,
   AdminBrokerSnapshot,
   AgingAR,
+  BrokerAgingInvoicesPopup,
+  CarrierAgingBrokersPopup,
   AuditDashboard,
   AdminCalendar,
   AdminAssistant,
@@ -93,6 +97,7 @@ function App() {
               />
               <Route path="/login" element={<Login />} />
               <Route path="/client/login" element={<ClientLogin />} />
+              <Route path="/client/setup-password" element={<ClientSetupPassword />} />
               <Route path="/" element={<LandingPage />} />
               <Route path="/home" element={withRouteSuspense(PlatformLandingPage)} />
               <Route path="/docsort" element={withRouteSuspense(DocSortLandingPage)} />
@@ -113,9 +118,10 @@ function App() {
                 <Route path="/client/batches" element={withRouteSuspense(ClientBatches)} />
                 <Route path="/client/invoices" element={withRouteSuspense(ClientInvoices)} />
                 <Route
-                  path="/client/attention"
+                  path="/client/invoices/needattention"
                   element={withRouteSuspense(ClientAttention, 'Loading invoices…')}
                 />
+                <Route path="/client/attention" element={<LegacyClientAttentionRedirect />} />
                 <Route path="/client/payments" element={withRouteSuspense(ClientPayments)} />
                 <Route
                   path="/client/short-payments"
@@ -147,6 +153,14 @@ function App() {
                 <Route path="/batches" element={withRouteSuspense(Batches)} />
                 <Route path="/batches/create" element={withRouteSuspense(CreateBatch)} />
                 <Route path="/aging-ar" element={withRouteSuspense(AgingAR)} />
+                <Route
+                  path="/aging-ar/broker"
+                  element={withRouteSuspense(BrokerAgingInvoicesPopup)}
+                />
+                <Route
+                  path="/aging-ar/carrier"
+                  element={withRouteSuspense(CarrierAgingBrokersPopup)}
+                />
                 <Route path="/invoices" element={withRouteSuspense(AdminInvoices)} />
                 <Route
                   path="/invoices/workspace"

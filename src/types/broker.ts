@@ -49,6 +49,17 @@ export interface Broker {
    * Credyx notes visible to carriers (distinct from internal `notes`).
    */
   carrier_notes?: string
+  /** Which lifecycle emails this broker accepts. Phone-only preferred_contact defaults these off. */
+  email_accept?: {
+    packet?: boolean
+    paperworkStatus?: boolean
+    paymentStatus?: boolean
+  }
+  /** Optional chase-clock overrides (blank fields use Settings defaults). */
+  chase_clocks?: {
+    paperwork?: Partial<import('./emailLifecycle').EmailTrackClockDefaults>
+    payment?: Partial<import('./emailLifecycle').EmailTrackClockDefaults>
+  }
 }
 
 

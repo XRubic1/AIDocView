@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
+  ChevronDown,
+  ChevronRight,
   FileText,
   Filter,
-  PanelRightOpen,
   Search,
   Wallet,
 } from 'lucide-react'
-import AdminLayout from '../components/AdminLayout'
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
 import ClientListTd from '../components/client/ClientListTd'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
@@ -45,43 +45,53 @@ import type { Payment } from '../types/payment'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
   adminInvoiceFilterLabel,
+  ADMIN_INVOICE_CHIP_FILTERS,
   buildAdminInvoiceQueueIndex,
+  countAdminInvoiceFilters,
+  createAdminInvoiceDisplayFlags,
   enrichAdminInvoices,
-  matchesAdminInvoiceStatusFilter,
+  invoicePassesDisplayFlags,
+  type AdminInvoiceChipFilter,
+  type AdminInvoiceDisplayFlags,
   type AdminInvoiceQueueFlags,
-  type AdminInvoiceStatusFilter,
 } from '../utils/adminInvoiceQueue'
-import { getDaysOutstandingColor, type EnrichedInvoice } from '../utils/invoiceAging'
+import {
+  buildConfirmedPayDateByInvoiceId,
+  getDaysOutstandingColor,
+  getDisplayInvoiceAgeDays,
+  invoiceHasStoppedAging,
+  type EnrichedInvoice,
+} from '../utils/invoiceAging'
+import {
+  buildCarrierInvoiceGroups,
+  type CarrierInvoiceGroup,
+} from '../utils/adminInvoiceCarrierGroups'
+import {
+  getOpenDisputedStatusLabel,
+  invoiceHasOpenDisputedStatus,
+} from '../utils/clientInvoiceDisputeStatus'
+import { invoiceHasWillPayStatus } from '../utils/invoiceWillPay'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
   type SortDir,
 } from '../utils/clientListPage'
-import { openAdminInvoiceWorkspace } from '../utils/openAdminInvoiceWorkspace'
 import { getAllClients } from '../services/clientRegistry'
 
 type SortField =
+  | 'carrier_name'
+  | 'total'
+  | 'invoice_count'
+  | 'will_pay'
+  | 'overdue'
+  | 'hold'
+  | 'disputes'
   | 'invoice_number'
-  | 'client_name'
   | 'broker_name'
   | 'amount'
   | 'invoice_date'
   | 'days_outstanding'
   | 'status'
-
-const STATUS_FILTERS: AdminInvoiceStatusFilter[] = [
-  'all',
-  'pending_payment',
-  'awaiting_confirmation',
-  'receipt_dispute',
-  'writeoff_queue',
-  'pending',
-  'hold',
-  'approved',
-  'overdue',
-  'paid',
-  'written_off',
-]
 
 function queueBadgeLabel(flags: AdminInvoiceQueueFlags | undefined): string | null {
   if (!flags) return null
@@ -95,7 +105,7 @@ function queueBadgeLabel(flags: AdminInvoiceQueueFlags | undefined): string | nu
 function statusPillClass(status: string): string {
   switch (status) {
     case 'approved':
-      return 'status-pill status-pill--approved'
+      return 'status-pill status-pill--open'
     case 'pending':
       return 'status-pill status-pill--pending'
     case 'hold':
@@ -111,6 +121,54 @@ function statusPillClass(status: string): string {
       return 'status-pill status-pill--overdue'
     default:
       return 'status-pill'
+  }
+}
+
+function countCell(value: number): string {
+  return value === 0 ? '—' : String(value)
+}
+
+function compareInvoices(a: EnrichedInvoice, b: EnrichedInvoice, sortField: SortField): number {
+  switch (sortField) {
+    case 'invoice_number':
+      return a.invoice_number.localeCompare(b.invoice_number, undefined, { numeric: true })
+    case 'broker_name':
+      return a.broker_name.localeCompare(b.broker_name)
+    case 'amount':
+    case 'total':
+      return a.amount - b.amount
+    case 'invoice_date':
+      return a.invoice_date.localeCompare(b.invoice_date)
+    case 'days_outstanding':
+      return a.invoiceAgeDays - b.invoiceAgeDays
+    case 'status':
+      return a.status.localeCompare(b.status)
+    case 'carrier_name':
+      return a.client_name.localeCompare(b.client_name, undefined, { sensitivity: 'base' })
+    default:
+      return a.invoice_date.localeCompare(b.invoice_date)
+  }
+}
+
+function compareCarrierGroups(a: CarrierInvoiceGroup, b: CarrierInvoiceGroup, sortField: SortField): number {
+  switch (sortField) {
+    case 'carrier_name':
+      return a.clientName.localeCompare(b.clientName, undefined, { sensitivity: 'base' })
+    case 'total':
+    case 'amount':
+      return a.totalAmount - b.totalAmount
+    case 'invoice_count':
+      return a.invoiceCount - b.invoiceCount
+    case 'will_pay':
+      return a.willPayCount - b.willPayCount
+    case 'overdue':
+      return a.overdueCount - b.overdueCount
+    case 'hold':
+      return a.holdCount - b.holdCount
+    case 'disputes':
+      return a.disputeCount - b.disputeCount
+    default:
+      return a.totalAmount - b.totalAmount
   }
 }
 
@@ -135,26 +193,38 @@ export default function AdminInvoices() {
 
   const [searchTerm, setSearchTerm] = useState('')
   const [clientFilter, setClientFilter] = useState(() => searchParams.get('client') || '')
-  const [statusFilter, setStatusFilter] = useState<AdminInvoiceStatusFilter>(() => {
-    const raw = searchParams.get('status')
-    if (raw && STATUS_FILTERS.includes(raw as AdminInvoiceStatusFilter)) {
-      return raw as AdminInvoiceStatusFilter
-    }
-    return 'all'
-  })
+  const [displayFlags, setDisplayFlags] = useState<AdminInvoiceDisplayFlags>(() =>
+    createAdminInvoiceDisplayFlags(true)
+  )
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
   const [showDetail, setShowDetail] = useState(false)
   const [pageSize, setPageSize] = useState(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
-  const [sortField, setSortField] = useState<SortField>('invoice_date')
+  const [sortField, setSortField] = useState<SortField>('total')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [busyId, setBusyId] = useState<string | null>(null)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null)
 
   const invoices = useMemo(() => [...mockInvoices], [dataRevision])
   const payments = useMemo(() => [...mockPayments], [dataRevision])
-  const enriched = useMemo(() => enrichAdminInvoices(invoices), [invoices])
+  const payDateByInvoiceId = useMemo(
+    () => buildConfirmedPayDateByInvoiceId(payments),
+    [payments]
+  )
+  const enriched = useMemo(() => {
+    const base = enrichAdminInvoices(invoices)
+    return base.map((invoice) => {
+      if (!invoiceHasStoppedAging(invoice)) return invoice
+      return {
+        ...invoice,
+        invoiceAgeDays: getDisplayInvoiceAgeDays(invoice, {
+          payDate: payDateByInvoiceId.get(invoice.id) ?? invoice.collection_date ?? null,
+        }),
+      }
+    })
+  }, [invoices, payDateByInvoiceId])
   const clients = useMemo(
     () =>
       getAllClients()
@@ -174,12 +244,10 @@ export default function AdminInvoices() {
     [dataRevision]
   )
 
-  const filtered = useMemo(() => {
+  const scopedInvoices = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
     return enriched.filter((invoice) => {
       if (clientFilter && invoice.client_id !== clientFilter) return false
-      const flags = queueIndex.byInvoiceId.get(invoice.id)
-      if (!matchesAdminInvoiceStatusFilter(invoice, statusFilter, flags)) return false
       if (!q) return true
       return (
         invoice.invoice_number.toLowerCase().includes(q) ||
@@ -189,48 +257,77 @@ export default function AdminInvoices() {
         (invoice.batch_number ?? '').toLowerCase().includes(q)
       )
     })
-  }, [enriched, searchTerm, statusFilter, queueIndex, clientFilter])
+  }, [enriched, searchTerm, clientFilter])
+
+  const filterCounts = useMemo(
+    () => countAdminInvoiceFilters(scopedInvoices, queueIndex.byInvoiceId),
+    [scopedInvoices, queueIndex]
+  )
+
+  const filtered = useMemo(() => {
+    // Search looks across the full client-scoped list; display chips only apply when idle.
+    if (searchTerm.trim()) return scopedInvoices
+    return scopedInvoices.filter((invoice) =>
+      invoicePassesDisplayFlags(invoice, displayFlags, queueIndex.byInvoiceId.get(invoice.id))
+    )
+  }, [scopedInvoices, displayFlags, queueIndex, searchTerm])
 
   const sorted = useMemo(() => {
     const rows = [...filtered]
     rows.sort((a, b) => {
-      let cmp = 0
-      switch (sortField) {
-        case 'invoice_number':
-          cmp = a.invoice_number.localeCompare(b.invoice_number, undefined, { numeric: true })
-          break
-        case 'client_name':
-          cmp = a.client_name.localeCompare(b.client_name, undefined, { sensitivity: 'base' })
-          break
-        case 'broker_name':
-          cmp = a.broker_name.localeCompare(b.broker_name)
-          break
-        case 'amount':
-          cmp = a.amount - b.amount
-          break
-        case 'invoice_date':
-          cmp = a.invoice_date.localeCompare(b.invoice_date)
-          break
-        case 'days_outstanding':
-          cmp = a.invoiceAgeDays - b.invoiceAgeDays
-          break
-        case 'status':
-          cmp = a.status.localeCompare(b.status)
-          break
-        default:
-          cmp = 0
-      }
+      const cmp = compareInvoices(a, b, sortField)
       return sortDir === 'asc' ? cmp : -cmp
     })
     return rows
   }, [filtered, sortField, sortDir])
 
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
-  const pageRows = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const carrierGroups = useMemo(() => {
+    const groups = buildCarrierInvoiceGroups(sorted)
+    groups.sort((a, b) => {
+      const cmp = compareCarrierGroups(a, b, sortField)
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return groups
+  }, [sorted, sortField, sortDir])
+
+  const totalPages = Math.max(1, Math.ceil(carrierGroups.length / pageSize))
+  const pageGroups = carrierGroups.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  const toggleCarrier = (clientId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(clientId)) next.delete(clientId)
+      else next.add(clientId)
+      return next
+    })
+  }
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, statusFilter, clientFilter, pageSize])
+  }, [searchTerm, displayFlags, clientFilter, pageSize, sortField, sortDir])
+
+  useEffect(() => {
+    if (!clientFilter) return
+    setExpandedIds((prev) => new Set(prev).add(clientFilter))
+  }, [clientFilter])
+
+  useEffect(() => {
+    const q = searchTerm.trim().toLowerCase()
+    if (!q) return
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      for (const group of carrierGroups) {
+        const matchesInvoice = group.invoices.some(
+          (invoice) =>
+            invoice.invoice_number.toLowerCase().includes(q) ||
+            (invoice.load_number ?? '').toLowerCase().includes(q) ||
+            invoice.broker_name.toLowerCase().includes(q)
+        )
+        if (matchesInvoice) next.add(group.clientId)
+      }
+      return next
+    })
+  }, [searchTerm, carrierGroups])
 
   const selectedInvoice = useMemo(() => {
     if (!selectedInvoiceId) return null
@@ -261,12 +358,8 @@ export default function AdminInvoices() {
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
-  // Deep-link ?invoice= / ?status= / ?client=
+  // Deep-link ?invoice= / ?client=
   useEffect(() => {
-    const status = searchParams.get('status')
-    if (status && STATUS_FILTERS.includes(status as AdminInvoiceStatusFilter)) {
-      setStatusFilter(status as AdminInvoiceStatusFilter)
-    }
     const client = searchParams.get('client') || ''
     setClientFilter(client)
     const invoiceParam = searchParams.get('invoice') || searchParams.get('highlight_invoice')
@@ -278,9 +371,12 @@ export default function AdminInvoices() {
     openedDeepLinkRef.current = invoiceParam
     setSelectedInvoiceId(hit.id)
     setShowDetail(true)
-    const index = sorted.findIndex((inv) => inv.id === hit.id)
-    if (index >= 0) setCurrentPage(Math.floor(index / pageSize) + 1)
-  }, [searchParams, enriched, sorted, pageSize])
+    setExpandedIds((prev) => new Set(prev).add(hit.client_id))
+    const groupIndex = carrierGroups.findIndex((group) =>
+      group.invoices.some((invoice) => invoice.id === hit.id)
+    )
+    if (groupIndex >= 0) setCurrentPage(Math.floor(groupIndex / pageSize) + 1)
+  }, [searchParams, enriched, carrierGroups, pageSize])
 
   const updateClientFilter = (nextClient: string) => {
     setClientFilter(nextClient)
@@ -295,12 +391,21 @@ export default function AdminInvoices() {
     )
   }
 
+  const toggleDisplayFlag = (key: AdminInvoiceChipFilter) => {
+    setDisplayFlags((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }))
+  }
+
+  const anyDisplayHidden = ADMIN_INVOICE_CHIP_FILTERS.some((key) => !displayFlags[key])
+
   const onSort = (field: SortField) => {
     if (sortField === field) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
       setSortField(field)
-      setSortDir('desc')
+      setSortDir(field === 'carrier_name' ? 'asc' : 'desc')
     }
   }
 
@@ -413,9 +518,6 @@ export default function AdminInvoices() {
     fontSize: 13,
   } as const
 
-  const queueCounts = queueIndex.counts
-  const overdueCount = enriched.filter((inv) => inv.isOverdue).length
-
   const renderOpsBar = (invoice: Invoice) => {
     const flags = queueIndex.byInvoiceId.get(invoice.id)
     if (!flags) return null
@@ -527,89 +629,38 @@ export default function AdminInvoices() {
 
   const listPanel = (
     <>
-      <section
-        className="client-stat-strip grid grid-cols-2 lg:grid-cols-4 border-b shrink-0"
-        style={{ borderColor: c.border }}
-      >
-        <button
-          type="button"
-          onClick={() => setStatusFilter('all')}
-          className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left"
-          style={{
-            backgroundColor: statusFilter === 'all' ? c.stat.blue : c.card,
-            borderColor: c.border,
-          }}
-        >
-          <span className="text-xs font-medium" style={{ color: c.secondary }}>
-            Invoices
-          </span>
-          <span className="text-lg font-bold tabular-nums" style={{ color: c.primary }}>
-            {enriched.length}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            setStatusFilter(statusFilter === 'pending_payment' ? 'all' : 'pending_payment')
-          }
-          className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b lg:border-b-0 text-left"
-          style={{
-            backgroundColor:
-              statusFilter === 'pending_payment' ? c.stat.amber : c.stat.amber,
-            borderColor: c.border,
-          }}
-        >
-          <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
-            Pending pay
-          </span>
-          <span className="text-lg font-bold tabular-nums" style={{ color: c.warning }}>
-            {queueCounts.pending_payment}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            setStatusFilter(
-              statusFilter === 'awaiting_confirmation' ? 'all' : 'awaiting_confirmation'
-            )
-          }
-          className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0 text-left"
-          style={{
-            backgroundColor: c.stat.blue,
-            borderColor: c.border,
-          }}
-        >
-          <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
-            Awaiting
-          </span>
-          <span className="text-lg font-bold tabular-nums" style={{ color: c.info }}>
-            {queueCounts.awaiting_confirmation}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            setStatusFilter(statusFilter === 'receipt_dispute' ? 'all' : 'receipt_dispute')
-          }
-          className="flex items-center justify-between gap-2 px-4 py-2.5 text-left"
-          style={{
-            backgroundColor: statusFilter === 'receipt_dispute' ? c.stat.redActive : c.stat.red,
-            borderColor: c.border,
-          }}
-        >
-          <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
-            Disputes
-          </span>
-          <span className="text-lg font-bold tabular-nums" style={{ color: c.error }}>
-            {queueCounts.receipt_dispute}
-          </span>
-        </button>
-      </section>
-
       <div
         className="client-page-toolbar px-4 py-2 border-b shrink-0 space-y-2"
         style={{ borderColor: c.border, backgroundColor: c.card }}
       >
+        <div
+          className="flex flex-wrap gap-1.5"
+          role="group"
+          aria-label="Invoice types to display"
+        >
+          {ADMIN_INVOICE_CHIP_FILTERS.map((key) => {
+            const showing = displayFlags[key]
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleDisplayFlag(key)}
+                aria-pressed={showing}
+                title={
+                  showing
+                    ? `Showing ${adminInvoiceFilterLabel(key)} — click to hide`
+                    : `Hidden ${adminInvoiceFilterLabel(key)} — click to show`
+                }
+                className={`page-tab !py-1 !px-2 !text-xs ${
+                  showing ? 'page-tab--active' : 'opacity-50'
+                }`}
+              >
+                {adminInvoiceFilterLabel(key)}
+                <span className="tabular-nums"> ({filterCounts[key]})</span>
+              </button>
+            )
+          })}
+        </div>
         <div className="flex flex-col md:flex-row md:items-center gap-2">
           <div className="flex-1 relative">
             <Search
@@ -618,7 +669,7 @@ export default function AdminInvoices() {
             />
             <input
               type="text"
-              placeholder="Search invoice, client, broker, load, batch…"
+              placeholder="Search invoice, carrier, broker, load…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="client-input pl-8"
@@ -641,205 +692,104 @@ export default function AdminInvoices() {
                 </option>
               ))}
             </select>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as AdminInvoiceStatusFilter)}
-              className="client-input w-full md:w-auto min-w-[160px]"
-              style={inputStyle}
-            >
-              {STATUS_FILTERS.map((key) => (
-                <option key={key} value={key}>
-                  {adminInvoiceFilterLabel(key)}
-                  {key === 'pending_payment'
-                    ? ` (${queueCounts.pending_payment})`
-                    : key === 'awaiting_confirmation'
-                      ? ` (${queueCounts.awaiting_confirmation})`
-                      : key === 'receipt_dispute'
-                        ? ` (${queueCounts.receipt_dispute})`
-                        : key === 'writeoff_queue'
-                          ? ` (${queueCounts.writeoff_queue})`
-                          : key === 'overdue'
-                            ? ` (${overdueCount})`
-                            : ''}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="dashboard-btn-secondary !py-1.5 !px-2.5 !text-xs inline-flex items-center gap-1.5"
-              title={
-                selectedInvoice
-                  ? 'Open selected invoice with documents in a separate window'
-                  : 'Open invoice workspace in a separate window'
-              }
-              onClick={() => {
-                const win = openAdminInvoiceWorkspace(selectedInvoiceId)
-                if (!win) {
-                  showToast('Pop-up blocked — allow pop-ups for this site to open the workspace', 'error')
-                }
-              }}
-            >
-              <PanelRightOpen className="w-3.5 h-3.5" />
-              Pop out
-            </button>
           </div>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {(
-            [
-              'pending_payment',
-              'awaiting_confirmation',
-              'receipt_dispute',
-              'writeoff_queue',
-              'overdue',
-              'pending',
-              'hold',
-              'approved',
-            ] as AdminInvoiceStatusFilter[]
-          ).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setStatusFilter(statusFilter === key ? 'all' : key)}
-              className={`page-tab !py-1 !px-2 !text-xs ${
-                statusFilter === key ? 'page-tab--active' : ''
-              }`}
-            >
-              {adminInvoiceFilterLabel(key)}
-            </button>
-          ))}
         </div>
       </div>
 
-      {sorted.length === 0 ? (
+      {carrierGroups.length === 0 ? (
         <div className="flex-1 min-h-0 flex items-center justify-center p-6">
           <EmptyState
             icon={FileText}
             title="No invoices found"
             hint={
-              searchTerm || statusFilter !== 'all'
-                ? 'Try adjusting your search or status filter'
+              searchTerm || anyDisplayHidden
+                ? 'Try adjusting search or turn display chips back on'
                 : 'Invoices will appear here once clients submit batches'
             }
           />
         </div>
       ) : (
         <div className="client-table-scroll flex-1 min-h-0 overflow-y-auto">
-          <table className="dashboard-table dashboard-table--compact">
+          <table className="dashboard-table dashboard-table--compact admin-invoices-table">
             <thead>
               <tr>
                 <ClientSortableHeader
-                  field="invoice_number"
-                  label="Invoice"
+                  field="carrier_name"
+                  label="Carrier"
                   sortField={sortField}
                   sortDir={sortDir}
                   onSort={onSort}
                 />
                 <ClientSortableHeader
-                  field="client_name"
-                  label="Client"
-                  sortField={sortField}
-                  sortDir={sortDir}
-                  onSort={onSort}
-                />
-                <ClientSortableHeader
-                  field="broker_name"
-                  label="Broker"
-                  sortField={sortField}
-                  sortDir={sortDir}
-                  onSort={onSort}
-                />
-                <ClientSortableHeader
-                  field="amount"
-                  label="Amount"
+                  field="total"
+                  label="Total $"
                   sortField={sortField}
                   sortDir={sortDir}
                   onSort={onSort}
                   align="right"
                 />
                 <ClientSortableHeader
-                  field="invoice_date"
-                  label="Date"
+                  field="invoice_count"
+                  label="Inv #"
                   sortField={sortField}
                   sortDir={sortDir}
                   onSort={onSort}
+                  align="right"
                 />
                 <ClientSortableHeader
-                  field="days_outstanding"
-                  label="Age"
+                  field="will_pay"
+                  label="Will pay"
                   sortField={sortField}
                   sortDir={sortDir}
                   onSort={onSort}
+                  align="right"
                 />
                 <ClientSortableHeader
-                  field="status"
-                  label="Status"
+                  field="overdue"
+                  label="Overdue"
                   sortField={sortField}
                   sortDir={sortDir}
                   onSort={onSort}
+                  align="right"
+                />
+                <ClientSortableHeader
+                  field="hold"
+                  label="Hold"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  align="right"
+                />
+                <ClientSortableHeader
+                  field="disputes"
+                  label="Disputes"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  align="right"
                 />
               </tr>
             </thead>
             <tbody>
-              {pageRows.map((invoice) => {
-                const flags = queueIndex.byInvoiceId.get(invoice.id)
-                const queueLabel = queueBadgeLabel(flags)
-                const selected = invoice.id === selectedInvoiceId
+              {pageGroups.map((group) => {
+                const expanded = expandedIds.has(group.clientId)
                 return (
-                  <tr
-                    key={invoice.id}
-                    className={`cursor-pointer ${selected ? 'invoice-row--selected' : ''} ${
-                      invoice.isOverdue ? 'invoice-row--overdue' : ''
-                    }`}
-                    onClick={() => openDetail(invoice)}
-                  >
-                    <ClientListTd>
-                      <div className="font-medium" style={{ color: c.primary }}>
-                        {invoice.invoice_number}
-                      </div>
-                      {invoice.load_number && (
-                        <div className="text-[11px]" style={{ color: c.mutedLight }}>
-                          Load {invoice.load_number}
-                        </div>
-                      )}
-                    </ClientListTd>
-                    <ClientListTd>
-                      <span className="client-list-td__clip">{invoice.client_name}</span>
-                    </ClientListTd>
-                    <ClientListTd className="client-list-td--broker">
-                      <span className="client-list-td__clip">{invoice.broker_name}</span>
-                    </ClientListTd>
-                    <ClientListTd label="Amount" variant="amount">
-                      <span className="tabular-nums font-medium">
-                        {formatCurrency(invoice.amount)}
-                      </span>
-                    </ClientListTd>
-                    <ClientListTd>
-                      <span className="tabular-nums text-xs">
-                        {formatDate(invoice.invoice_date)}
-                      </span>
-                    </ClientListTd>
-                    <ClientListTd>
-                      <span
-                        className="tabular-nums text-xs font-medium"
-                        style={{ color: getDaysOutstandingColor(invoice.overdueSeverity) }}
-                      >
-                        {invoice.invoiceAgeDays}d
-                      </span>
-                    </ClientListTd>
-                    <ClientListTd className="client-list-td--status-col">
-                      <div className="flex flex-col gap-1 items-start">
-                        <span className={statusPillClass(invoice.status)}>
-                          {invoice.status.replace(/_/g, ' ')}
-                        </span>
-                        {queueLabel && (
-                          <span className="status-pill status-pill--pending text-[10px]">
-                            {queueLabel}
-                          </span>
-                        )}
-                      </div>
-                    </ClientListTd>
-                  </tr>
+                  <AdminInvoiceCarrierBlock
+                    key={group.clientId}
+                    group={group}
+                    expanded={expanded}
+                    selectedInvoiceId={selectedInvoiceId}
+                    queueIndexById={queueIndex.byInvoiceId}
+                    onToggle={() => toggleCarrier(group.clientId)}
+                    onOpenInvoice={openDetail}
+                    secondaryColor={c.secondary}
+                    primaryColor={c.primary}
+                    mutedColor={c.muted}
+                    mutedLightColor={c.mutedLight}
+                    cardColor={c.card}
+                    errorColor={c.error}
+                    warningColor={c.warning}
+                  />
                 )
               })}
             </tbody>
@@ -847,14 +797,15 @@ export default function AdminInvoices() {
         </div>
       )}
 
-      {sorted.length > 0 && (
+      {carrierGroups.length > 0 && (
         <div
           className="client-page-footer flex items-center justify-between gap-2 px-3 py-2 border-t shrink-0"
           style={{ borderColor: c.border }}
         >
           <div className="flex items-center gap-2 text-xs" style={{ color: c.secondary }}>
             <span>
-              {sorted.length} invoice{sorted.length === 1 ? '' : 's'}
+              {carrierGroups.length} carrier{carrierGroups.length === 1 ? '' : 's'} · {sorted.length}{' '}
+              invoice{sorted.length === 1 ? '' : 's'}
             </span>
             <select
               value={pageSize}
@@ -895,13 +846,6 @@ export default function AdminInvoices() {
     </>
   )
 
-  const handlePopOut = useCallback(() => {
-    const win = openAdminInvoiceWorkspace(selectedInvoiceId)
-    if (!win) {
-      showToast('Pop-up blocked — allow pop-ups for this site to open the workspace', 'error')
-    }
-  }, [selectedInvoiceId, showToast])
-
   const invoiceDetailPanelProps = selectedInvoice
     ? {
         invoice: selectedInvoice,
@@ -914,7 +858,6 @@ export default function AdminInvoices() {
           setViewingInvoice(selectedInvoice)
           setShowDocumentViewer(true)
         },
-        onPopOut: handlePopOut,
         onInvoiceUpdated: bump,
         onAddNote: (invoiceId: string, note: string, options?: { visibility?: 'client' | 'internal' }) => {
           addAdminInvoiceNote(invoiceId, note, adminName, {
@@ -939,7 +882,7 @@ export default function AdminInvoices() {
     : null
 
   return (
-    <AdminLayout userName="Admin User" userRole="Administrator" flushMain>
+    <>
       <div className="client-invoices-page overflow-hidden flex flex-col min-h-0 h-full">
         {useFullPageDetail && showDetail && selectedInvoice && invoiceDetailPanelProps ? (
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -991,6 +934,239 @@ export default function AdminInvoices() {
           />
         )}
       </div>
-    </AdminLayout>
+    </>
+  )
+}
+
+type AdminInvoiceCarrierBlockProps = {
+  group: CarrierInvoiceGroup
+  expanded: boolean
+  selectedInvoiceId: string | null
+  queueIndexById: Map<string, AdminInvoiceQueueFlags>
+  onToggle: () => void
+  onOpenInvoice: (invoice: EnrichedInvoice) => void
+  secondaryColor: string
+  primaryColor: string
+  mutedColor: string
+  mutedLightColor: string
+  cardColor: string
+  errorColor: string
+  warningColor: string
+}
+
+/** Carrier summary row with invoices nested underneath. */
+function AdminInvoiceCarrierBlock({
+  group,
+  expanded,
+  selectedInvoiceId,
+  queueIndexById,
+  onToggle,
+  onOpenInvoice,
+  secondaryColor,
+  primaryColor,
+  mutedColor,
+  mutedLightColor,
+  cardColor,
+  errorColor,
+  warningColor,
+}: AdminInvoiceCarrierBlockProps) {
+  const pendingPayCount = group.invoices.filter(
+    (invoice) => (queueIndexById.get(invoice.id)?.pendingPaymentIds.length ?? 0) > 0
+  ).length
+  const awaitingCount = group.invoices.filter(
+    (invoice) => (queueIndexById.get(invoice.id)?.awaitingPaymentIds.length ?? 0) > 0
+  ).length
+
+  return (
+    <>
+      <tr
+        className={`dashboard-table-row--clickable cursor-pointer admin-invoices-carrier ${
+          expanded ? 'admin-invoices-carrier--open' : ''
+        }`}
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        <ClientListTd variant="primary">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className={`admin-invoices-expand ${expanded ? 'admin-invoices-expand--open' : ''}`}
+              aria-hidden
+            >
+              {expanded ? (
+                <ChevronDown className="w-3.5 h-3.5" strokeWidth={1.5} />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5" strokeWidth={1.5} />
+              )}
+            </span>
+            <div className="min-w-0">
+              <span className="font-semibold truncate block">{group.clientName}</span>
+              {pendingPayCount > 0 || awaitingCount > 0 ? (
+                <p className="text-[11px] mt-0.5 truncate" style={{ color: secondaryColor }}>
+                  {pendingPayCount > 0
+                    ? `${pendingPayCount} pending payment${pendingPayCount === 1 ? '' : 's'}`
+                    : ''}
+                  {pendingPayCount > 0 && awaitingCount > 0 ? ' · ' : ''}
+                  {awaitingCount > 0 ? `${awaitingCount} awaiting confirmation` : ''}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </ClientListTd>
+        <ClientListTd variant="amount" className="tabular-nums font-semibold">
+          {formatCurrency(group.totalAmount)}
+        </ClientListTd>
+        <ClientListTd variant="amount" className="tabular-nums">
+          {group.invoiceCount}
+        </ClientListTd>
+        <ClientListTd
+          variant="amount"
+          className="tabular-nums"
+          style={{ color: group.willPayCount ? primaryColor : mutedColor }}
+        >
+          {countCell(group.willPayCount)}
+        </ClientListTd>
+        <ClientListTd
+          variant="amount"
+          className="tabular-nums"
+          style={{ color: group.overdueCount ? errorColor : mutedColor }}
+        >
+          {countCell(group.overdueCount)}
+        </ClientListTd>
+        <ClientListTd
+          variant="amount"
+          className="tabular-nums"
+          style={{ color: group.holdCount ? warningColor : mutedColor }}
+        >
+          {countCell(group.holdCount)}
+        </ClientListTd>
+        <ClientListTd
+          variant="amount"
+          className="tabular-nums"
+          style={{ color: group.disputeCount ? errorColor : mutedColor }}
+        >
+          {countCell(group.disputeCount)}
+        </ClientListTd>
+      </tr>
+      {expanded ? (
+        <>
+          <tr className="admin-invoices-subhead">
+            <td
+              className="!py-1 !px-3 text-[10px] font-semibold uppercase tracking-wide"
+              style={{ color: secondaryColor }}
+            >
+              Invoices
+            </td>
+            <td
+              className="!py-1 !px-3 text-[10px] font-semibold uppercase tracking-wide"
+              style={{ color: secondaryColor }}
+            >
+              Broker
+            </td>
+            <td
+              className="!py-1 !px-3 text-right text-[10px] font-semibold uppercase tracking-wide"
+              style={{ color: secondaryColor }}
+            >
+              Amount
+            </td>
+            <td
+              className="!py-1 !px-3 text-[10px] font-semibold uppercase tracking-wide"
+              style={{ color: secondaryColor }}
+            >
+              Date
+            </td>
+            <td
+              className="!py-1 !px-3 text-right text-[10px] font-semibold uppercase tracking-wide"
+              style={{ color: secondaryColor }}
+            >
+              Age
+            </td>
+            <td
+              colSpan={2}
+              className="!py-1 !px-3 text-[10px] font-semibold uppercase tracking-wide"
+              style={{ color: secondaryColor }}
+            >
+              Status
+            </td>
+          </tr>
+          {group.invoices.map((invoice) => {
+            const flags = queueIndexById.get(invoice.id)
+            const queueLabel = queueBadgeLabel(flags)
+            const selected = invoice.id === selectedInvoiceId
+            const disputed = invoiceHasOpenDisputedStatus(invoice)
+            const agingStopped = invoiceHasStoppedAging(invoice)
+            return (
+              <tr
+                key={invoice.id}
+                className={`cursor-pointer ${selected ? 'invoice-row--selected' : ''} ${
+                  !agingStopped && invoice.isOverdue ? 'invoice-row--overdue' : ''
+                }`}
+                style={{ backgroundColor: cardColor }}
+                onClick={() => onOpenInvoice(invoice)}
+              >
+                <ClientListTd>
+                  <div>
+                    <div className="font-medium" style={{ color: primaryColor }}>
+                      {invoice.invoice_number}
+                    </div>
+                    {invoice.load_number ? (
+                      <div className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: mutedLightColor }}>
+                        {invoice.load_number}
+                      </div>
+                    ) : null}
+                  </div>
+                </ClientListTd>
+                <ClientListTd className="admin-invoices-broker-cell" title={invoice.broker_name}>
+                  {invoice.broker_name}
+                </ClientListTd>
+                <ClientListTd label="Amount" variant="amount" className="admin-invoices-amount-cell">
+                  <span className="tabular-nums font-medium whitespace-nowrap">
+                    {formatCurrency(invoice.amount)}
+                  </span>
+                </ClientListTd>
+                <ClientListTd>
+                  <span className="tabular-nums text-xs">{formatDate(invoice.invoice_date)}</span>
+                </ClientListTd>
+                <ClientListTd variant="amount">
+                  <span
+                    className="tabular-nums text-xs font-medium"
+                    style={{
+                      color: agingStopped
+                        ? 'var(--cp-success)'
+                        : getDaysOutstandingColor(invoice.overdueSeverity),
+                    }}
+                  >
+                    {invoice.invoiceAgeDays}d
+                  </span>
+                </ClientListTd>
+                <ClientListTd className="client-list-td--status-col" colSpan={2}>
+                  <div className="flex flex-col gap-1 items-start">
+                    <span
+                      className={
+                        disputed
+                          ? 'status-pill status-pill--overdue'
+                          : invoiceHasWillPayStatus(invoice)
+                            ? 'status-pill status-pill--approved'
+                            : statusPillClass(invoice.status)
+                      }
+                    >
+                      {disputed
+                        ? getOpenDisputedStatusLabel()
+                        : invoiceHasWillPayStatus(invoice)
+                          ? 'Will Pay'
+                          : invoice.status === 'approved'
+                            ? 'Open'
+                            : invoice.status.replace(/_/g, ' ')}
+                    </span>
+                    {queueLabel ? (
+                      <span className="status-pill status-pill--pending text-[10px]">{queueLabel}</span>
+                    ) : null}
+                  </div>
+                </ClientListTd>
+              </tr>
+            )
+          })}
+        </>
+      ) : null}
+    </>
   )
 }

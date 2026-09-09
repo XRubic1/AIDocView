@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect } from 'react'
-import AdminLayout from '../components/AdminLayout'
 import { getAllAuditLogs, getFilteredAuditLogs } from '../utils/auditLogger'
 import { AuditLog, AuditActionType } from '../types/audit'
 import { formatDate } from '../utils/format'
@@ -129,14 +128,14 @@ export default function AuditDashboard() {
 
   if (!auditReady) {
     return (
-      <AdminLayout userName="Admin User">
+      <div className="client-shell-scroll h-full min-h-0 overflow-y-auto p-5">
         <PageLoader message="Loading audit logs…" fullScreen={false} />
-      </AdminLayout>
+      </div>
     )
   }
 
   return (
-    <AdminLayout userName="Admin User">
+    <div className="client-shell-scroll h-full min-h-0 overflow-y-auto p-5">
       <div className="max-w-[1600px] mx-auto">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
@@ -664,7 +663,7 @@ export default function AuditDashboard() {
           </div>
         </div>
       </div>
-    </AdminLayout>
+    </div>
   )
 }
 

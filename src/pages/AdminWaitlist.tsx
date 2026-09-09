@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import AdminLayout from '../components/AdminLayout'
 import {
   ClipboardList,
   Eye,
@@ -101,7 +100,7 @@ export default function AdminWaitlist() {
   const funnel = summary?.funnel
 
   return (
-    <AdminLayout>
+    <div className="client-shell-scroll h-full min-h-0 overflow-y-auto p-5">
       <div className="p-6 space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -412,7 +411,7 @@ export default function AdminWaitlist() {
           </>
         )}
       </div>
-    </AdminLayout>
+    </div>
   )
 }
 

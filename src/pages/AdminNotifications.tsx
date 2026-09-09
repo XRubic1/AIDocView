@@ -14,7 +14,6 @@ import {
   DollarSign,
   FileText,
 } from 'lucide-react'
-import AdminLayout from '../components/AdminLayout'
 import {
   dismissAdminNotification,
   dismissAdminNotificationsForClient,
@@ -193,7 +192,7 @@ export default function AdminNotifications() {
   }
 
   return (
-    <AdminLayout flushMain>
+    <>
       <div className="admin-notif-page" style={{ backgroundColor: t.surface }}>
         <header className="admin-notif-page__top" style={{ borderColor: t.border, backgroundColor: t.card }}>
           <div className="admin-notif-page__heading">
@@ -469,7 +468,7 @@ export default function AdminNotifications() {
           </section>
         </div>
       </div>
-    </AdminLayout>
+    </>
   )
 }
 

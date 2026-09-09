@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react'
 import { Plus } from 'lucide-react'
-import AdminLayout from '../components/AdminLayout'
 import AdminCreateBatchPanel from '../components/batches/AdminCreateBatchPanel'
 import ReadyToPostTab from '../components/batches/ReadyToPostTab'
 import VerificationTab from '../components/batches/VerificationTab'
@@ -80,7 +79,7 @@ export default function Batches() {
   const inDetailView = Boolean(selectedBatchId) && activeTab !== 'ai'
 
   return (
-    <AdminLayout userName="Admin User" userRole="Administrator" flushMain>
+    <>
       <div className="admin-batches-page overflow-hidden flex flex-col min-h-0 h-full">
         {showCreateBatch ? (
           <div className="dashboard-card flex-1 min-h-0 overflow-hidden flex flex-col rounded-none border-0 shadow-none">
@@ -162,6 +161,6 @@ export default function Batches() {
           </>
         )}
       </div>
-    </AdminLayout>
+    </>
   )
 }
