@@ -1,9 +1,9 @@
 /**
- * Client Dashboard V2 — calm home (light + dark).
- * Answers: How much am I owed? → Is anything wrong? → What should I do?
- * Primary client dashboard (routed at /client/dashboard).
+ * Client Dashboard V2 — calm home on desktop (light + dark).
+ * Phones/narrow panes use `MobileEmptyDashboard` (card-stack home).
+ * Routed at /client/dashboard.
  */
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import SimpleWelcomeBar from '../components/client/dashboard-v2/SimpleWelcomeBar'
 import PriorityActionCard, {
   type PriorityRecommendation,
@@ -15,9 +15,13 @@ import KpiStatRow, {
 import SimpleActionsList from '../components/client/dashboard-v2/SimpleActionsList'
 import SimpleBrokerRiskPanel from '../components/client/dashboard-v2/SimpleBrokerRiskPanel'
 import ArTrendPanel from '../components/client/dashboard-v2/ArTrendPanel'
-import DashboardListSwipe from '../components/client/dashboard-v2/DashboardListSwipe'
+import MobileEmptyDashboard from '../components/client/dashboard/MobileEmptyDashboard'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
-import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
+import {
+  DASHBOARD_PHONE_MAX_WIDTH,
+  useIsBelowWidth,
+  useIsMobileViewport,
+} from '../hooks/useIsMobileViewport'
 import { isInvoiceOverdue, isOpenArInvoice } from '../utils/invoiceAging'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from '../utils/paymentVariance'
@@ -51,7 +55,11 @@ export default function ClientDashboardV2() {
     loading,
   } = useClientDemoSnapshot()
   const invoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
-  const isPhoneViewport = useIsMobileViewport()
+  const dashboardRef = useRef<HTMLDivElement>(null)
+  const isWindowPhone = useIsMobileViewport()
+  const isPanePhone = useIsBelowWidth(dashboardRef, DASHBOARD_PHONE_MAX_WIDTH)
+  /** Phone chrome follows the dashboard pane, not only the browser window. */
+  const isPhoneViewport = isWindowPhone || isPanePhone
 
   /** Overdue open A/R total + count. */
   const { overdueAmount, overdueCount } = useMemo(() => {
@@ -393,7 +401,14 @@ export default function ClientDashboardV2() {
   ])
 
   return (
-    <div className="client-dashboard-v2">
+    <div
+      ref={dashboardRef}
+      className={isPhoneViewport ? 'client-dashboard-phone-shell' : 'client-dashboard-v2'}
+    >
+      {isPhoneViewport ? (
+        <MobileEmptyDashboard />
+      ) : (
+        <>
       {/* Frame grows with content so the wave bg covers the full scroll height */}
       <div className="client-dashboard-v2__frame">
         <div className="client-dashboard-v2__bg" aria-hidden>
@@ -403,42 +418,26 @@ export default function ClientDashboardV2() {
         </div>
 
         <div className="client-dashboard-v2__inner">
-          {!isPhoneViewport ? (
-            <SimpleWelcomeBar
-              carrierName={clientName || 'Carrier'}
-              awaySummary={awaySummary}
-              loading={loading}
-            />
-          ) : null}
+          <SimpleWelcomeBar
+            carrierName={clientName || 'Carrier'}
+            awaySummary={awaySummary}
+            loading={loading}
+          />
 
           <PriorityActionCard
             recommendations={recommendations}
             loading={loading}
-            swipeable={isPhoneViewport}
           />
 
           <KpiStatRow stats={kpiStats} loading={loading} />
 
           <div className="client-dashboard-v2__body">
-            {isPhoneViewport ? (
-              <DashboardListSwipe>
-                <SimpleBrokerRiskPanel
-                  invoices={invoices}
-                  payments={payments}
-                  loading={loading}
-                />
-                <SimpleActionsList invoices={invoices} payments={payments} loading={loading} />
-              </DashboardListSwipe>
-            ) : (
-              <>
-                <SimpleBrokerRiskPanel
-                  invoices={invoices}
-                  payments={payments}
-                  loading={loading}
-                />
-                <SimpleActionsList invoices={invoices} payments={payments} loading={loading} />
-              </>
-            )}
+            <SimpleBrokerRiskPanel
+              invoices={invoices}
+              payments={payments}
+              loading={loading}
+            />
+            <SimpleActionsList invoices={invoices} payments={payments} loading={loading} />
             <ArTrendPanel
               invoices={invoices}
               payments={payments}
@@ -448,6 +447,8 @@ export default function ClientDashboardV2() {
           </div>
         </div>
       </div>
+        </>
+      )}
     </div>
   )
 }

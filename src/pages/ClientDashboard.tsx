@@ -3,7 +3,7 @@
  * Previous version archived as `ClientDashboardLegacy.tsx`.
  * Phones use `MobileEmptyDashboard` (card-stack home from the same A/R snapshot).
  */
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import DashboardActionTable from '../components/client/dashboard/DashboardActionTable'
 import { DashboardChartsPanel } from '../components/client/dashboard/DashboardSparkCharts'
@@ -15,7 +15,11 @@ import AIRecommendations from '../components/client/dashboard/AIRecommendations'
 import MobileEmptyDashboard from '../components/client/dashboard/MobileEmptyDashboard'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
-import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
+import {
+  DASHBOARD_PHONE_MAX_WIDTH,
+  useIsBelowWidth,
+  useIsMobileViewport,
+} from '../hooks/useIsMobileViewport'
 import { isInvoiceOverdue, isOpenArInvoice } from '../utils/invoiceAging'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from '../utils/paymentVariance'
@@ -32,11 +36,20 @@ import {
 import '../styles/clientDashboard.css'
 
 export default function ClientDashboard() {
-  const isPhoneViewport = useIsMobileViewport()
-  if (isPhoneViewport) {
-    return <MobileEmptyDashboard />
-  }
-  return <ClientDashboardDesktop />
+  const shellRef = useRef<HTMLDivElement>(null)
+  const isWindowPhone = useIsMobileViewport()
+  const isPanePhone = useIsBelowWidth(shellRef, DASHBOARD_PHONE_MAX_WIDTH)
+  const isPhoneViewport = isWindowPhone || isPanePhone
+
+  return (
+    <div
+      ref={shellRef}
+      className={isPhoneViewport ? 'client-dashboard-phone-shell' : undefined}
+      style={isPhoneViewport ? undefined : { height: '100%', minHeight: 0 }}
+    >
+      {isPhoneViewport ? <MobileEmptyDashboard /> : <ClientDashboardDesktop />}
+    </div>
+  )
 }
 
 function ClientDashboardDesktop() {
