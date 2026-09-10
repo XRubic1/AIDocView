@@ -19,6 +19,7 @@ import {
   invoiceHasOpenDisputedStatus,
 } from '../../utils/clientInvoiceDisputeStatus'
 import { invoiceHasWillPayStatus } from '../../utils/invoiceWillPay'
+import { getInvoiceNoteStatusDisplay } from '../../utils/invoiceStatusHeadline'
 
 export const NOTE_TYPE_LABELS: Record<string, string> = {
   note: 'Note',
@@ -74,6 +75,7 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     hold: 'status-pill status-pill--hold',
     paid: 'status-pill status-pill--approved',
     will_pay: 'status-pill status-pill--approved',
+    call_back: 'status-pill status-pill--pending',
     rejected: 'status-pill status-pill--overdue',
     overdue: 'status-pill status-pill--overdue',
     short_paid: 'status-pill status-pill--short-paid',
@@ -91,6 +93,7 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     hold: 'On Hold',
     paid: 'Paid',
     will_pay: 'Will Pay',
+    call_back: 'Call Back',
     rejected: 'Rejected',
     overdue: 'Overdue',
     short_paid: 'Short paid',
@@ -172,10 +175,8 @@ export function getInvoiceVarianceBadge(
 }
 
 /**
- * Primary + variance status for client invoice lists/detail.
- * Pass balance so Open/Paid reflects confirmed received (e.g. overpay → Paid + Overpaid).
- * Short-paid invoices show Short paid as the primary status (not Open + Short paid).
- * Open A/R with a dispute shows "Open Disputed" (never Invoiced).
+ * Latest status note (Will Pay / Call Back / dispute) overrides older notes
+ * for the primary pill. Short paid stays as a companion when Will Pay is current.
  */
 export function getInvoiceRowStatusBadge(
   invoice: Invoice & { displayStatus?: string; isOverdue?: boolean },
@@ -190,11 +191,25 @@ export function getInvoiceRowStatusBadge(
 ) {
   const paymentDisputed =
     Boolean(options?.paymentDisputed) || isReceiptDisputeHold(invoice)
-  if (paymentDisputed) {
+  const noteStatus = getInvoiceNoteStatusDisplay(invoice, { paymentDisputed })
+
+  if (paymentDisputed && noteStatus !== 'will_pay' && noteStatus !== 'call_back') {
     return getInvoicePaymentDisputeStatusBadge(invoice, options)
   }
 
   if (!options?.balance) {
+    if (noteStatus === 'on_hold') {
+      return getInvoiceStatusBadge('hold', options)
+    }
+    if (noteStatus === 'will_pay') {
+      return getInvoiceStatusBadge('will_pay', options)
+    }
+    if (noteStatus === 'call_back') {
+      return getInvoiceStatusBadge('call_back', options)
+    }
+    if (noteStatus === 'open_disputed') {
+      return getInvoiceStatusBadge('open_disputed', options)
+    }
     if (invoiceHasOpenDisputedStatus(invoice)) {
       return getInvoiceStatusBadge('open_disputed', options)
     }
@@ -212,6 +227,26 @@ export function getInvoiceRowStatusBadge(
     invoiceAmount: invoice.amount,
   })
 
+  if (noteStatus === 'on_hold') {
+    return getInvoiceStatusBadge('hold', options)
+  }
+  if (noteStatus === 'will_pay' && parts.status !== 'paid') {
+    return (
+      <>
+        {getInvoiceStatusBadge('will_pay', options)}
+        {getInvoiceVarianceBadge(parts.variance, options)}
+      </>
+    )
+  }
+  if (noteStatus === 'call_back' && parts.status !== 'paid') {
+    return (
+      <>
+        {getInvoiceStatusBadge('call_back', options)}
+        {getInvoiceVarianceBadge(parts.variance, options)}
+      </>
+    )
+  }
+
   // Short paid is the list status for open A/R — don't also show Open/Overdue beside it.
   // Closed/hold/pending keep their primary status (written off may still carry short variance).
   if (
@@ -221,9 +256,9 @@ export function getInvoiceRowStatusBadge(
     return getInvoiceStatusBadge('short_paid', options)
   }
 
-  // Open A/R + invoice dispute → single Open Disputed (companion Disputed badge skipped).
+  // Open A/R + latest note is a dispute → Open Disputed (never Invoiced).
   if (
-    invoiceHasOpenDisputedStatus(invoice) &&
+    noteStatus === 'open_disputed' &&
     (parts.status === 'approved' || parts.status === 'overdue')
   ) {
     return getInvoiceStatusBadge('open_disputed', options)

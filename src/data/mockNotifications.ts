@@ -461,3 +461,85 @@ export function notifyClientInvoiceNote(
     { category: 'notes' }
   )
 }
+
+export interface ClientHoldDocsNotificationInput {
+  clientId: string
+  invoiceId: string
+  invoiceNumber: string
+  batchId?: string
+  batchNumber?: string
+}
+
+/** Carrier uploaded missing hold docs — documents are with Credyx. */
+export function notifyClientDocumentsUnderReview(
+  input: ClientHoldDocsNotificationInput
+): Notification | null {
+  return addNotification(
+    input.clientId,
+    {
+      type: 'invoice_note',
+      title: 'Documents under review',
+      message: `Credyx received your documents for ${input.invoiceNumber} and is reviewing them.`,
+      link: `/client/invoices?highlight_invoice=${encodeURIComponent(input.invoiceId)}`,
+      link_label: 'View invoice',
+      invoice_id: input.invoiceId,
+      invoice_number: input.invoiceNumber,
+      batch_id: input.batchId,
+      batch_number: input.batchNumber,
+      metadata: { paperwork_review: 'pending' },
+    },
+    { category: 'hold' }
+  )
+}
+
+/** Credyx accepted uploaded docs (and typically sent the packet to the broker). */
+export function notifyClientDocumentsAccepted(
+  input: ClientHoldDocsNotificationInput & { packetSent?: boolean; holdReleased?: boolean }
+): Notification | null {
+  const followUp = input.packetSent
+    ? `Credyx accepted the documents for ${input.invoiceNumber} and sent the packet to the broker.`
+    : input.holdReleased
+      ? `Credyx accepted the documents for ${input.invoiceNumber}. The hold is released.`
+      : `Credyx accepted the documents for ${input.invoiceNumber}.`
+  return addNotification(
+    input.clientId,
+    {
+      type: 'invoice_approved',
+      title: 'Documents accepted',
+      message: followUp,
+      link: `/client/invoices?highlight_invoice=${encodeURIComponent(input.invoiceId)}`,
+      link_label: 'View invoice',
+      invoice_id: input.invoiceId,
+      invoice_number: input.invoiceNumber,
+      batch_id: input.batchId,
+      batch_number: input.batchNumber,
+      metadata: { paperwork_review: 'accepted' },
+    },
+    { category: 'hold' }
+  )
+}
+
+/** Credyx rejected hold docs — carrier must fix and re-upload. */
+export function notifyClientDocumentsRejected(
+  input: ClientHoldDocsNotificationInput & { reason: string }
+): Notification | null {
+  const reason = input.reason.trim()
+  return addNotification(
+    input.clientId,
+    {
+      type: 'invoice_rejected',
+      title: 'Documents rejected',
+      message: reason
+        ? `Credyx rejected the documents for ${input.invoiceNumber}: ${reason}`
+        : `Credyx rejected the documents for ${input.invoiceNumber}. Please upload corrected paperwork.`,
+      link: `/client/invoices?highlight_invoice=${encodeURIComponent(input.invoiceId)}`,
+      link_label: 'View invoice',
+      invoice_id: input.invoiceId,
+      invoice_number: input.invoiceNumber,
+      batch_id: input.batchId,
+      batch_number: input.batchNumber,
+      metadata: { paperwork_review: 'rejected' },
+    },
+    { category: 'hold' }
+  )
+}

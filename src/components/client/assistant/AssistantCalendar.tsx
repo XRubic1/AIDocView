@@ -51,8 +51,11 @@ function parseDateKey(key: string): Date {
   return new Date(y, m - 1, day)
 }
 
-function typeShortLabel(type: AssistantCalendarEvent['type']): string {
-  switch (type) {
+function typeShortLabel(evt: AssistantCalendarEvent): string {
+  if (evt.type === 'expected_payment' && /^will pay$/i.test(evt.title)) {
+    return 'Will Pay'
+  }
+  switch (evt.type) {
     case 'paperwork_check':
       return 'Docs'
     case 'payment_status_check':
@@ -246,7 +249,7 @@ export default function AssistantCalendar({
               </span>
               <span>
                 <i className="assistant-cal__dot assistant-cal__dot--expected_payment" />
-                Expected
+                Expected / Will Pay
               </span>
               <span>
                 <i className="assistant-cal__dot assistant-cal__dot--payment_posted" />
@@ -327,7 +330,7 @@ export default function AssistantCalendar({
                         }}
                       >
                         <span className="assistant-cal__pill-kind">
-                          {typeShortLabel(evt.type)}
+                          {typeShortLabel(evt)}
                         </span>
                       </button>
                     ))}

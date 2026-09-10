@@ -8,11 +8,11 @@ import type { Payment } from '../types/payment'
 import { formatCurrency } from './format'
 import { isOpenArInvoice } from './invoiceAging'
 import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from './paymentVariance'
-import { computeCashCollectionForecast } from './cashCollectionForecast'
 import { isClientVisibleHold } from './clientInvoiceView'
 import { deriveHoldExplanation } from './assistantHoldExplanation'
 import { getOpenDisputes } from '../services/clientInvoiceActions'
 import { applyAssistantCompletions } from './assistantTaskStore'
+import { getWillPayScheduledDate, invoiceHasWillPayStatus } from './invoiceWillPay'
 
 function toDateKey(d: Date): string {
   const y = d.getFullYear()
@@ -43,10 +43,39 @@ function todayKey(asOf = new Date()): string {
   return toDateKey(asOf)
 }
 
-/** Past due dates surface as today so they stay actionable. */
-function clampToTodayOrLater(dateKey: string, asOf = new Date()): string {
-  const today = todayKey(asOf)
-  return dateKey < today ? today : dateKey
+/** Normalize invoice date fields to YYYY-MM-DD. */
+function normalizeDateKey(raw?: string | null): string | null {
+  if (!raw?.trim()) return null
+  const t = raw.trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10)
+  const d = new Date(t)
+  if (Number.isNaN(d.getTime())) return null
+  return toDateKey(d)
+}
+
+/**
+ * Calendar pay date from the invoice itself — Will Pay schedule, then expected, then due.
+ * Does not use broker-lag forecasts.
+ */
+export function getClientCalendarInvoicePayDate(
+  invoice: Pick<
+    Invoice,
+    | 'status'
+    | 'collection_status'
+    | 'collection_date'
+    | 'notes_history'
+    | 'expected_payment_date'
+    | 'due_date'
+  >
+): { date: string; kind: 'will_pay' | 'expected' } | null {
+  if (invoiceHasWillPayStatus(invoice)) {
+    const scheduled = normalizeDateKey(getWillPayScheduledDate(invoice))
+    if (scheduled) return { date: scheduled, kind: 'will_pay' }
+  }
+  const expected =
+    normalizeDateKey(invoice.expected_payment_date) || normalizeDateKey(invoice.due_date)
+  if (!expected) return null
+  return { date: expected, kind: 'expected' }
 }
 
 function holdNeedsDocs(invoice: Invoice): boolean {
@@ -97,36 +126,28 @@ export function deriveClientCalendarEvents(
     })
   }
 
-  const forecast = computeCashCollectionForecast(invoices, payments, 45, asOf)
-  const predictedById = new Map(
-    forecast.top_invoices.map((row) => [row.invoice_id, row.predicted_date])
-  )
-
   const openWithBalance = invoices.filter(
     (inv) => isOpenArInvoice(inv) && getInvoiceOpenArBalance(inv, payments) > AMOUNT_EPSILON
   )
 
-  for (const inv of openWithBalance.slice(0, 40)) {
-    const rawDate =
-      predictedById.get(inv.id) ||
-      inv.expected_payment_date ||
-      inv.due_date ||
-      today
-    const dueDate = clampToTodayOrLater(rawDate.slice(0, 10), asOf)
+  for (const inv of openWithBalance) {
+    const pay = getClientCalendarInvoicePayDate(inv)
+    if (!pay) continue
+    const isWillPay = pay.kind === 'will_pay'
     events.push({
-      id: `live-expect-${inv.id}`,
+      id: isWillPay ? `live-willpay-${inv.id}` : `live-expect-${inv.id}`,
       type: 'expected_payment',
-      title: 'Expected payment',
+      title: isWillPay ? 'Will Pay' : 'Expected payment',
       invoiceNumber: inv.invoice_number,
       invoiceId: inv.id,
       brokerName: inv.broker_name,
-      dueDate,
-      dueLabel: formatShortDate(dueDate),
+      dueDate: pay.date,
+      dueLabel: formatShortDate(pay.date),
       owner: 'system',
       status: 'pending',
-      detail: predictedById.has(inv.id)
-        ? `Forecast expected pay based on ${inv.broker_name}’s recent payment pattern.`
-        : `Expected payment date on file for invoice #${inv.invoice_number}.`,
+      detail: isWillPay
+        ? `Broker confirmed they will pay invoice #${inv.invoice_number} on ${formatShortDate(pay.date)}.`
+        : `Expected payment date on invoice #${inv.invoice_number}.`,
       amountLabel: formatCurrency(getInvoiceOpenArBalance(inv, payments)),
     })
   }

@@ -18,8 +18,11 @@ interface AssistantEventDetailProps {
   onAddEvent?: () => void
 }
 
-function typeLabel(type: AssistantCalendarEvent['type']): string {
-  switch (type) {
+function typeLabel(event: AssistantCalendarEvent): string {
+  if (event.type === 'expected_payment' && /^will pay$/i.test(event.title)) {
+    return 'Will Pay'
+  }
+  switch (event.type) {
     case 'paperwork_check':
       return 'Missing docs'
     case 'payment_status_check':
@@ -37,7 +40,7 @@ function typeLabel(type: AssistantCalendarEvent['type']): string {
     case 'call':
       return 'Call'
     default:
-      return type
+      return event.type
   }
 }
 
@@ -135,7 +138,7 @@ export default function AssistantEventDetail({
         ) : (
           <>
             <div className="assistant-event-detail__identity">
-              <p className="assistant-event-detail__eyebrow">{typeLabel(event.type)}</p>
+              <p className="assistant-event-detail__eyebrow">{typeLabel(event)}</p>
               <h3 className="assistant-event-detail__event-title">{event.title}</h3>
               <p className="assistant-event-detail__identity-sub">
                 Invoice #{event.invoiceNumber} · {event.brokerName}

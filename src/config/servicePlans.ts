@@ -68,5 +68,6 @@ export function createDefaultBilling(tier: ServiceTier): import('../types/client
     app_fee_monthly: plan.app_fee_monthly,
     service_fee_monthly: plan.service_fee_monthly,
     enrolled_at: new Date().toISOString(),
+    include_platform_fee: true,
   }
 }

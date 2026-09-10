@@ -17,6 +17,8 @@ import {
   notifyAdminClientInvoiceNote,
   notifyAdminWriteOffRequested,
 } from './adminNotificationService'
+import { notifyClientDocumentsUnderReview } from '../data/mockNotifications'
+import { HOLD_DOCS_REVIEWING_MARKER } from '../utils/holdPaperworkReview'
 import type { ClientCapabilities } from '../utils/clientCapabilities'
 import { getClientCapabilities } from '../utils/clientCapabilities'
 import { getClientById } from './clientRegistry'
@@ -389,7 +391,8 @@ export function acceptClientOverpayment(
 export async function uploadClientInvoiceDocuments(
   invoiceId: string,
   files: File[],
-  uploadedBy: string
+  uploadedBy: string,
+  extraNote?: string
 ): Promise<Invoice | undefined> {
   const invoice = getInvoiceById(invoiceId)
   if (!invoice || files.length === 0) return undefined
@@ -401,23 +404,25 @@ export async function uploadClientInvoiceDocuments(
       ? fileNames.join(', ')
       : `${fileNames.slice(0, 3).join(', ')} +${fileNames.length - 3} more`
 
+  const extra = extraNote?.trim()
+  const uploadBody = `Uploaded ${added.length} document${added.length > 1 ? 's' : ''}: ${label}. ${HOLD_DOCS_REVIEWING_MARKER}`
   const uploadNote: InvoiceNote = {
     id: `note-upload-${Date.now()}`,
-    note:
-      invoice.status === 'hold'
-        ? `Uploaded ${added.length} document${added.length > 1 ? 's' : ''}: ${label}. Credyx is reviewing and will advise if further action is required.`
-        : `Uploaded ${added.length} document${added.length > 1 ? 's' : ''}: ${label}`,
+    note: extra ? `${uploadBody} — ${extra}` : uploadBody,
     created_by: uploadedBy,
     created_at: new Date().toISOString(),
     type: 'client_note',
   }
 
   const documentDocIds = [...(invoice.document_doc_ids ?? []), ...added.map((doc) => doc.id)]
+  const notesHistory = [...(invoice.notes_history || []), uploadNote]
+  const notes = invoice.notes ? `${invoice.notes}\n${uploadNote.note}` : uploadNote.note
 
   const updated = await updateInvoiceAsync(invoiceId, {
     documents_count: (invoice.documents_count ?? 0) + added.length,
     document_doc_ids: documentDocIds,
-    notes_history: [...(invoice.notes_history || []), uploadNote],
+    notes_history: notesHistory,
+    notes,
   })
 
   if (updated) {
@@ -427,7 +432,17 @@ export async function uploadClientInvoiceDocuments(
       clientName: updated.client_name,
       fileNames,
       fileCount: added.length,
+      holdReview: true,
     })
+    if (updated.client_id) {
+      notifyClientDocumentsUnderReview({
+        clientId: updated.client_id,
+        invoiceId: updated.id,
+        invoiceNumber: updated.invoice_number,
+        batchId: updated.batch_id,
+        batchNumber: updated.batch_number,
+      })
+    }
 
     logAuditEvent(
       'document_uploaded',

@@ -49,32 +49,41 @@ export default function PostPaymentPriorPayments({ payments }: PostPaymentPriorP
           No payments have been posted to this invoice yet.
         </p>
       ) : (
-        <ul className="post-payment-prior-list">
-          {rows.map((payment) => (
-            <li key={payment.id} className="post-payment-prior-list__row">
-              <div className="post-payment-prior-list__main">
-                <p className="post-payment-prior-list__amount financial-nums">
-                  {payment.payment_kind === 'short' ? '−' : ''}
-                  {formatCurrency(payment.amount)}
-                </p>
-                <p className="post-payment-prior-list__meta" style={{ color: c.secondary }}>
-                  {getPaymentKindLabel(payment)}
-                  {' · '}
-                  {METHOD_LABELS[payment.payment_method]}
-                  {payment.payment_reference ? ` · ${payment.payment_reference}` : ''}
-                </p>
-              </div>
-              <div className="post-payment-prior-list__side">
-                <span className={PAYMENT_STATUS_PILL_CLASS[payment.status]}>
-                  {PAYMENT_STATUS_LABELS[payment.status]}
-                </span>
-                <time className="post-payment-prior-list__date" dateTime={payment.payment_date}>
-                  {formatDate(payment.payment_date)}
-                </time>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div className="client-table-scroll post-payment-prior-table-scroll">
+          <table className="dashboard-table dashboard-table--compact">
+            <thead>
+              <tr>
+                <th className="text-right">Amount</th>
+                <th>Date</th>
+                <th>Method</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((payment) => (
+                <tr key={payment.id}>
+                  <td className="text-right tabular-nums post-payment-prior-list__amount">
+                    {payment.payment_kind === 'short' ? '−' : ''}
+                    {formatCurrency(payment.amount)}
+                  </td>
+                  <td>
+                    <time dateTime={payment.payment_date}>{formatDate(payment.payment_date)}</time>
+                  </td>
+                  <td>
+                    {getPaymentKindLabel(payment)}
+                    {' · '}
+                    {METHOD_LABELS[payment.payment_method]}
+                  </td>
+                  <td>
+                    <span className={PAYMENT_STATUS_PILL_CLASS[payment.status]}>
+                      {PAYMENT_STATUS_LABELS[payment.status]}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   )

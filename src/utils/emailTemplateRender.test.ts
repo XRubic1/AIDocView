@@ -61,10 +61,10 @@ describe('emailTemplateRender', () => {
     expect(data.companyLogoHtml.length).toBeGreaterThan(0)
   })
 
-  it('passes confirmation_url through unescaped', () => {
-    const out = renderEmailTemplateString('<a href="{{confirmation_url}}">Go</a>', {
-      confirmation_url: 'https://example.com/auth/v1/verify?token=abc&type=signup',
+  it('passes paymentUrl through unescaped for hrefs', () => {
+    const out = renderEmailTemplateString('<a href="{{paymentUrl}}">Pay</a>', {
+      paymentUrl: 'https://pay.example.com/inv?x=1&y=2',
     })
-    expect(out).toBe('<a href="https://example.com/auth/v1/verify?token=abc&type=signup">Go</a>')
+    expect(out).toBe('<a href="https://pay.example.com/inv?x=1&y=2">Pay</a>')
   })
 })

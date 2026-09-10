@@ -9,9 +9,9 @@ import {
 } from '../../utils/carrierAttentionLink'
 
 /**
- * Invoices page tabs: full list vs paperwork that needs documents.
+ * Compact All / Needs switcher — sits in the invoices toolbar, not a full-width tab bar.
  */
-export default function ClientInvoicesTabs() {
+export default function ClientInvoicesTabs({ className = '' }: { className?: string }) {
   const { invoices: rawInvoices } = useClientDemoSnapshot()
   const attentionCount = useMemo(
     () =>
@@ -22,27 +22,39 @@ export default function ClientInvoicesTabs() {
   )
 
   return (
-    <div className="client-page-tabs-bar shrink-0 px-4 py-2">
-      <div className="page-tabs flex flex-wrap gap-1" role="tablist" aria-label="Invoice views">
-        <NavLink
-          to={CLIENT_INVOICES_PATH}
-          end
-          role="tab"
-          className={({ isActive }) => `page-tab ${isActive ? 'page-tab--active' : ''}`}
-        >
-          All invoices
-        </NavLink>
-        <NavLink
-          to={CLIENT_INVOICES_ATTENTION_PATH}
-          role="tab"
-          className={({ isActive }) => `page-tab ${isActive ? 'page-tab--active' : ''}`}
-        >
-          Needs attention
-          {attentionCount > 0 ? (
-            <span className="page-tab__count tabular-nums">{attentionCount}</span>
-          ) : null}
-        </NavLink>
-      </div>
+    <div
+      className={`client-segmented-control shrink-0 ${className}`.trim()}
+      role="tablist"
+      aria-label="Invoice views"
+    >
+      <NavLink
+        to={CLIENT_INVOICES_PATH}
+        end
+        role="tab"
+        aria-label="All invoices"
+        className={({ isActive }) =>
+          `client-segmented-control__btn ${
+            isActive ? 'client-segmented-control__btn--active' : ''
+          }`
+        }
+      >
+        All
+      </NavLink>
+      <NavLink
+        to={CLIENT_INVOICES_ATTENTION_PATH}
+        role="tab"
+        aria-label="Needs attention"
+        className={({ isActive }) =>
+          `client-segmented-control__btn ${
+            isActive ? 'client-segmented-control__btn--active' : ''
+          }`
+        }
+      >
+        Needs
+        {attentionCount > 0 ? (
+          <span className="client-segmented-control__count tabular-nums">{attentionCount}</span>
+        ) : null}
+      </NavLink>
     </div>
   )
 }

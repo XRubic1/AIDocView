@@ -7,6 +7,9 @@ import {
 } from '../services/paymentReceiptConfirmationService'
 import { listPendingWriteOffs } from '../services/writeOffApprovalService'
 import { enrichInvoices, type EnrichedInvoice } from './invoiceAging'
+import { invoiceHasOpenDisputedStatus } from './clientInvoiceDisputeStatus'
+import { getInvoiceNoteStatusDisplay } from './invoiceStatusHeadline'
+import { invoiceHasPendingHoldPaperworkReview } from './holdPaperworkReview'
 
 /** Admin Invoices status / queue filters. */
 export type AdminInvoiceStatusFilter =
@@ -22,6 +25,9 @@ export type AdminInvoiceStatusFilter =
   | 'pending_payment'
   | 'awaiting_confirmation'
   | 'receipt_dispute'
+  | 'disputed'
+  | 'will_pay'
+  | 'ppw_review'
   | 'writeoff_queue'
 
 export type AdminInvoiceQueueFlags = {
@@ -100,6 +106,9 @@ export function matchesAdminInvoiceStatusFilter(
   if (filter === 'pending_payment') return (queue?.pendingPaymentIds.length ?? 0) > 0
   if (filter === 'awaiting_confirmation') return (queue?.awaitingPaymentIds.length ?? 0) > 0
   if (filter === 'receipt_dispute') return (queue?.disputePaymentIds.length ?? 0) > 0
+  if (filter === 'disputed') return invoiceHasOpenDisputedStatus(invoice)
+  if (filter === 'will_pay') return getInvoiceNoteStatusDisplay(invoice) === 'will_pay'
+  if (filter === 'ppw_review') return invoiceHasPendingHoldPaperworkReview(invoice)
   if (filter === 'writeoff_queue' || filter === 'write_off_pending') {
     return queue?.writeOffPending === true || invoice.status === 'write_off_pending'
   }
@@ -113,6 +122,9 @@ export const ADMIN_INVOICE_CHIP_FILTERS: AdminInvoiceStatusFilter[] = [
   'pending_payment',
   'awaiting_confirmation',
   'receipt_dispute',
+  'disputed',
+  'will_pay',
+  'ppw_review',
   'writeoff_queue',
   'overdue',
   'pending',
@@ -131,6 +143,9 @@ export function createAdminInvoiceDisplayFlags(on: boolean): AdminInvoiceDisplay
     pending_payment: on,
     awaiting_confirmation: on,
     receipt_dispute: on,
+    disputed: on,
+    will_pay: on,
+    ppw_review: on,
     writeoff_queue: on,
     overdue: on,
     pending: on,
@@ -150,11 +165,14 @@ export function getAdminInvoiceDisplayBucket(
   queue?: AdminInvoiceQueueFlags
 ): AdminInvoiceChipFilter | 'other' {
   if (matchesAdminInvoiceStatusFilter(invoice, 'writeoff_queue', queue)) return 'writeoff_queue'
+  if (matchesAdminInvoiceStatusFilter(invoice, 'ppw_review', queue)) return 'ppw_review'
   if (matchesAdminInvoiceStatusFilter(invoice, 'receipt_dispute', queue)) return 'receipt_dispute'
+  if (matchesAdminInvoiceStatusFilter(invoice, 'disputed', queue)) return 'disputed'
   if (matchesAdminInvoiceStatusFilter(invoice, 'pending_payment', queue)) return 'pending_payment'
   if (matchesAdminInvoiceStatusFilter(invoice, 'awaiting_confirmation', queue)) {
     return 'awaiting_confirmation'
   }
+  if (matchesAdminInvoiceStatusFilter(invoice, 'will_pay', queue)) return 'will_pay'
   if (invoice.status === 'pending') return 'pending'
   if (invoice.status === 'hold') return 'hold'
   if (invoice.status === 'paid') return 'paid'
@@ -213,6 +231,9 @@ export type AdminInvoiceFilterCounts = {
   pending_payment: number
   awaiting_confirmation: number
   receipt_dispute: number
+  disputed: number
+  will_pay: number
+  ppw_review: number
   writeoff_queue: number
   overdue: number
   pending: number
@@ -231,6 +252,9 @@ export function countAdminInvoiceFilters(
     pending_payment: 0,
     awaiting_confirmation: 0,
     receipt_dispute: 0,
+    disputed: 0,
+    will_pay: 0,
+    ppw_review: 0,
     writeoff_queue: 0,
     overdue: 0,
     pending: 0,
@@ -278,6 +302,12 @@ export function adminInvoiceFilterLabel(filter: AdminInvoiceStatusFilter): strin
       return 'Awaiting confirmation'
     case 'receipt_dispute':
       return 'Receipt disputes'
+    case 'disputed':
+      return 'Disputed'
+    case 'will_pay':
+      return 'Will Pay'
+    case 'ppw_review':
+      return 'PPW review'
     default:
       return filter
   }

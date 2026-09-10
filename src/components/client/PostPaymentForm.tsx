@@ -32,6 +32,7 @@ import InvoiceBalanceSummary from './InvoiceBalanceSummary'
 import PaymentVarianceResolution from './PaymentVarianceResolution'
 import PostPaymentPriorPayments from './PostPaymentPriorPayments'
 import PostPaymentInvoiceAudit from './PostPaymentInvoiceAudit'
+import ClientListTd from './ClientListTd'
 import { useClientCapabilities } from '../../hooks/useClientCapabilities'
 
 const METHOD_OPTIONS = [
@@ -515,70 +516,104 @@ export default function PostPaymentForm({
             </div>
           </div>
 
-          <div className="post-payment-list" role="listbox" aria-label="Invoices">
-            {invoiceList.length === 0 && !showCreateNew ? (
-              <div className="post-payment-list__empty" style={{ color: c.secondary }}>
-                <FileText className="w-7 h-7 mb-2 opacity-40" />
-                <p className="text-sm font-medium" style={{ color: c.primary }}>
-                  {filterQuery.trim() ? 'No invoices match your search' : 'No open invoices'}
-                </p>
-                <p className="text-xs mt-1">
-                  {filterQuery.trim()
-                    ? 'Try a different invoice number, or create a new invoice.'
-                    : 'Search by invoice number to find a closed invoice.'}
-                </p>
-              </div>
-            ) : null}
+          <div className="post-payment-list-wrap">
+            <div className="client-table-scroll post-payment-list-table-scroll">
+              {invoiceList.length === 0 && !showCreateNew ? (
+                <div className="post-payment-list__empty" style={{ color: c.secondary }}>
+                  <FileText className="w-7 h-7 mb-2 opacity-40" />
+                  <p className="text-sm font-medium" style={{ color: c.primary }}>
+                    {filterQuery.trim() ? 'No invoices match your search' : 'No open invoices'}
+                  </p>
+                  <p className="text-xs mt-1">
+                    {filterQuery.trim()
+                      ? 'Try a different invoice number, or create a new invoice.'
+                      : 'Search by invoice number to find a closed invoice.'}
+                  </p>
+                </div>
+              ) : (
+                <table className="dashboard-table dashboard-table--compact">
+                  <thead>
+                    <tr>
+                      <th>Invoice#</th>
+                      <th>Broker</th>
+                      <th>Load#</th>
+                      <th className="text-right">Invoiced</th>
+                      <th className="text-right">Received</th>
+                      <th className="text-right">Balance</th>
+                      <th className="text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoiceList.map(({ invoice, isPostable }) => {
+                      const received = getConfirmedPaymentTotal(invoice.id)
+                      const pending = getUnconfirmedPaymentTotal(invoice.id)
+                      const balance = getInvoiceBalanceState(invoice.amount, received)
+                      const isSelected =
+                        selected?.id === invoice.id && selectionMode === 'existing'
 
-            {invoiceList.map(({ invoice, isPostable }) => {
-              const received = getConfirmedPaymentTotal(invoice.id)
-              const pending = getUnconfirmedPaymentTotal(invoice.id)
-              const balance = getInvoiceBalanceState(invoice.amount, received)
-              const isSelected = selected?.id === invoice.id && selectionMode === 'existing'
-
-              return (
-                <button
-                  key={invoice.id}
-                  type="button"
-                  role="option"
-                  aria-selected={isSelected}
-                  disabled={!isPostable}
-                  className={`post-payment-list__row ${isSelected ? 'post-payment-list__row--selected' : ''} ${!isPostable ? 'post-payment-list__row--disabled' : ''}`}
-                  onClick={() => selectInvoice(invoice)}
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="post-payment-list__num">{invoice.invoice_number}</span>
-                      <span className={getInvoicePostStatusClass(invoice, received, pending)}>
-                        {getInvoicePostStatusLabel(invoice, received, pending)}
-                      </span>
-                    </div>
-                    <p className="post-payment-list__meta">
-                      {invoice.broker_name}
-                      {invoice.load_number ? ` · ${invoice.load_number}` : ''}
-                    </p>
-                  </div>
-                  <span className={`post-payment-list__balance financial-nums post-payment-picker__balance--${balance.tone}`}>
-                    {formatSignedInvoiceBalanceDisplay(balance)}
-                  </span>
-                </button>
-              )
-            })}
-
-            {showCreateNew && (
-              <button
-                type="button"
-                className="post-payment-picker__create"
-                onClick={() => startCreateNew(filterQuery.trim())}
-              >
-                <Plus className="w-4 h-4 shrink-0" style={{ color: c.warning }} />
-                <span>
-                  No match — create invoice &ldquo;{filterQuery.trim()}&rdquo; and post payment
-                </span>
-              </button>
-            )}
+                      return (
+                        <tr
+                          key={invoice.id}
+                          className={`cursor-pointer ${isSelected ? 'invoice-row--selected' : ''} ${
+                            !isPostable ? 'post-payment-list__row--disabled' : ''
+                          }`}
+                          aria-selected={isSelected}
+                          onClick={() => {
+                            if (!isPostable) return
+                            selectInvoice(invoice)
+                          }}
+                        >
+                          <ClientListTd variant="primary" className="font-semibold">
+                            {invoice.invoice_number}
+                          </ClientListTd>
+                          <ClientListTd
+                            variant="meta"
+                            className="client-list-td--ellipsis"
+                            title={invoice.broker_name}
+                          >
+                            <span className="client-list-td__clip">{invoice.broker_name}</span>
+                          </ClientListTd>
+                          <ClientListTd variant="desktop" label="Load#">
+                            {invoice.load_number || '—'}
+                          </ClientListTd>
+                          <ClientListTd variant="amount" className="text-right tabular-nums">
+                            {formatCurrency(invoice.amount)}
+                          </ClientListTd>
+                          <ClientListTd variant="amount" className="text-right tabular-nums">
+                            {received > 0 ? formatCurrency(received) : '—'}
+                          </ClientListTd>
+                          <ClientListTd
+                            variant="amount"
+                            className={`text-right tabular-nums post-payment-picker__balance--${balance.tone}`}
+                          >
+                            {formatSignedInvoiceBalanceDisplay(balance)}
+                          </ClientListTd>
+                          <ClientListTd variant="status" className="text-center">
+                            <span className={getInvoicePostStatusClass(invoice, received, pending)}>
+                              {getInvoicePostStatusLabel(invoice, received, pending)}
+                            </span>
+                          </ClientListTd>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
 
+          {showCreateNew && (
+            <button
+              type="button"
+              className="post-payment-picker__create"
+              onClick={() => startCreateNew(filterQuery.trim())}
+            >
+              <Plus className="w-4 h-4 shrink-0" style={{ color: c.warning }} />
+              <span>
+                No match — create invoice &ldquo;{filterQuery.trim()}&rdquo; and post payment
+              </span>
+            </button>
+          )}
           {capabilities.canCreateAdHocInvoice && (
             <button
               type="button"
@@ -595,7 +630,6 @@ export default function PostPaymentForm({
           <div className="post-payment-detail-pane__inner">
       {selectionMode === 'existing' && selected && (
         <div className="post-payment-detail-scroll">
-          <div className="post-payment-workspace__main">
             <div className="post-payment-selected-head">
               <div className="min-w-0">
                 <p className="post-payment-selected-head__num">{selected.invoice_number}</p>
@@ -655,6 +689,9 @@ export default function PostPaymentForm({
                 </div>
               </div>
             )}
+
+            <div className="post-payment-detail-body">
+          <div className="post-payment-workspace__main">
 
             <InvoiceBalanceSummary
               invoiceNumber={selected.invoice_number}
@@ -889,7 +926,7 @@ export default function PostPaymentForm({
                               value={writeOffNote}
                               onChange={(e) => setWriteOffNote(e.target.value)}
                               placeholder="e.g. Broker refused detention — accepting short pay."
-                              rows={3}
+                              rows={2}
                               className="client-input w-full"
                               style={inputStyle}
                             />
@@ -939,10 +976,12 @@ export default function PostPaymentForm({
             <PostPaymentPriorPayments payments={selectedInvoicePayments} />
             <PostPaymentInvoiceAudit invoice={selected} payments={selectedInvoicePayments} />
           </aside>
+            </div>
         </div>
       )}
 
       {selectionMode === 'new' && (
+        <div className="post-payment-detail-scroll">
         <form
           className="post-payment-workspace__new"
           onSubmit={(e) => {
@@ -1122,6 +1161,7 @@ export default function PostPaymentForm({
             </div>
           </fieldset>
         </form>
+        </div>
       )}
 
       {lastResult && lastResult.variance !== 'full' && (

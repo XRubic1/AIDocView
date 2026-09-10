@@ -4,30 +4,17 @@ import { formatCurrency } from '../../../utils/format'
 
 export type KpiTrend = 'up' | 'down' | 'flat'
 
-export type KpiWindow = {
-  id: string
-  label: string
-  amount: number
-  count: number
-}
-
 export type KpiStat = {
   key: string
   label: string
   amount: number
-  /** Count / window context (e.g. "3 invoices"). */
-  sub: string
+  /** Optional count, e.g. "3 invoices". */
+  sub?: string
   navigateTo: string
   /** Only overdue uses danger tone; paid uses success. */
   tone?: 'neutral' | 'danger' | 'success'
-  /** Comparison vs prior period — shown with an arrow. */
+  /** Comparison vs prior period — arrow only, caption in the title. */
   trend?: KpiTrend
-  /** Optional override for the trend caption (defaults to “vs prior 30 days”). */
-  trendLabel?: string
-  /** Optional 7 / 14 / 30 chips on Coming due and Confirmed paid. */
-  windows?: KpiWindow[]
-  selectedWindow?: string
-  onWindowChange?: (id: string) => void
 }
 
 type KpiStatRowProps = {
@@ -41,7 +28,7 @@ function trendArrow(trend: KpiTrend): string {
   return '→'
 }
 
-/** Single KPI card with optional count-up on the amount. */
+/** Single KPI card — label + amount, no extra captions. */
 function KpiCard({
   stat,
   loading,
@@ -53,12 +40,10 @@ function KpiCard({
   const animated = useCountUp(loading ? 0 : stat.amount, { decimals: 2, duration: 700 })
   const tone = stat.tone || 'neutral'
   const trend = stat.trend ?? 'flat'
-  const trendCaption = stat.trendLabel || 'vs prior 30 days'
-  const hasWindows = Boolean(stat.windows?.length)
 
   return (
     <article
-      className={`cdv2-kpi tone-${tone}${loading ? ' is-loading' : ''}${hasWindows ? ' has-windows' : ''}`}
+      className={`cdv2-kpi tone-${tone}${loading ? ' is-loading' : ''}`}
     >
       <button
         type="button"
@@ -66,43 +51,33 @@ function KpiCard({
         onClick={() => navigate(stat.navigateTo)}
         title={`View ${stat.label}`}
       >
-        <span className="cdv2-kpi__label">{stat.label}</span>
-        <span className="cdv2-kpi__amount tabular-nums">
-          {loading ? '—' : formatCurrency(animated)}
+        <span className="cdv2-kpi__top">
+          <span className="cdv2-kpi__label">{stat.label}</span>
+          {!loading && stat.sub ? (
+            <span className="cdv2-kpi__sub" title={`${stat.sub} invoices`}>
+              {stat.sub}
+            </span>
+          ) : null}
         </span>
-        <span className="cdv2-kpi__sub">{loading ? '…' : stat.sub}</span>
-        {!loading ? (
-          <span className={`cdv2-kpi__trend is-${trend}`}>
-            <span className="cdv2-kpi__trend-arrow" aria-hidden>
+        <span className="cdv2-kpi__value">
+          <span className="cdv2-kpi__amount tabular-nums">
+            {loading ? '—' : formatCurrency(animated)}
+          </span>
+          {!loading ? (
+            <span
+              className={`cdv2-kpi__trend is-${trend}`}
+              title="vs prior 30 days"
+            >
               {trendArrow(trend)}
             </span>
-            {trendCaption}
-          </span>
-        ) : null}
+          ) : null}
+        </span>
       </button>
-      {hasWindows && !loading ? (
-        <div className="cdv2-kpi__windows" role="tablist" aria-label={`${stat.label} window`}>
-          {stat.windows!.map((window) => (
-            <button
-              key={window.id}
-              type="button"
-              role="tab"
-              aria-selected={stat.selectedWindow === window.id}
-              className={`cdv2-kpi__window${stat.selectedWindow === window.id ? ' is-active' : ''}`}
-              onClick={() => stat.onWindowChange?.(window.id)}
-            >
-              {window.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
     </article>
   )
 }
 
-/**
- * Four flat KPI cards: Open Balance · Overdue · Coming due · Confirmed pay.
- */
+/** Four compact KPI cards: Open Balance · Overdue · Coming due · Confirmed pay. */
 export default function KpiStatRow({ stats, loading = false }: KpiStatRowProps) {
   return (
     <section className="cdv2-kpi-row" aria-label="Account snapshot">

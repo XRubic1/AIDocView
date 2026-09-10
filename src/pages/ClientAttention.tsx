@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { CheckCircle2, FileUp, FileWarning } from 'lucide-react'
+import { CheckCircle2, FileUp } from 'lucide-react'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useClientTheme } from '../theme/ThemeContext'
 import { mapClientVisibleInvoices, isClientVisibleHold } from '../utils/clientInvoiceView'
@@ -123,42 +123,12 @@ export default function ClientAttention() {
 
   return (
     <div className="client-invoices-page client-attention-page overflow-hidden flex flex-col min-h-0 h-full">
-      <ClientInvoicesTabs />
-      {hasHolds ? (
-        <section
-          className="client-stat-strip grid grid-cols-2 border-b shrink-0"
-          style={{ borderColor: c.border }}
-        >
-          <div
-            className="flex items-center justify-between gap-2 px-4 py-2.5 border-r"
-            style={{
-              backgroundColor: c.stat.amber,
-              borderColor: c.border,
-            }}
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <FileWarning className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
-              <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
-                On hold
-              </span>
-            </div>
-            <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-              {holdCount}
-            </span>
-          </div>
-          <div
-            className="flex items-center justify-between gap-2 px-4 py-2.5"
-            style={{ backgroundColor: c.stat.slate }}
-          >
-            <span className="text-xs font-medium truncate" style={{ color: c.secondary }}>
-              Open amount
-            </span>
-            <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-              {formatCurrency(holdAmount)}
-            </span>
-          </div>
-        </section>
-      ) : null}
+      <div
+        className="client-page-toolbar flex items-center px-4 py-2 border-b shrink-0"
+        style={{ borderColor: c.border, backgroundColor: c.card }}
+      >
+        <ClientInvoicesTabs />
+      </div>
 
       {!hasHolds ? (
         <div className="client-attention-empty">
@@ -177,6 +147,14 @@ export default function ClientAttention() {
           }`}
         >
           <div className="client-attention-page__list">
+            <div className="client-attention-page__list-head">
+              <h2 className="client-attention-page__list-title">Documents needed</h2>
+              <p className="client-attention-page__list-meta tabular-nums">
+                {holdCount} {holdCount === 1 ? 'invoice' : 'invoices'}
+                <span aria-hidden> · </span>
+                {formatCurrency(holdAmount)}
+              </p>
+            </div>
             {list.map((inv, index) => {
               const fromEmail = Boolean(
                 wantUpload && emailRef && matchesInvoiceRef(inv, emailRef)

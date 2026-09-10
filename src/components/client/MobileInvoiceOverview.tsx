@@ -32,6 +32,7 @@ import {
   getMobileInvoiceHeroAmount,
   type InvoiceMobileInsight,
 } from '../../utils/invoiceMobileInsights'
+import { getDocumentUploadOverviewMessage } from '../../utils/holdPaperworkReview'
 import type { BrokerRiskLevel } from '../../types/brokerRisk'
 import {
   invoiceListPriorityStatusKey,
@@ -39,9 +40,9 @@ import {
 } from '../../utils/invoiceListPriority'
 import {
   getOpenDisputedStatusLabelUpper,
-  invoiceHasOpenDisputedStatus,
 } from '../../utils/clientInvoiceDisputeStatus'
-import { getWillPayScheduledDate, invoiceHasWillPayStatus } from '../../utils/invoiceWillPay'
+import { getClientVisiblePayDate, getWillPayScheduledDate } from '../../utils/invoiceWillPay'
+import { getInvoiceNoteStatusDisplay } from '../../utils/invoiceStatusHeadline'
 
 interface MobileInvoiceOverviewProps {
   invoice: Invoice
@@ -264,16 +265,19 @@ export default function MobileInvoiceOverview({
 
   const isShortPaid = shortOpenBalance != null
   const hasPaymentDispute = paymentDisputed || isReceiptDisputeHold(invoice)
-  const showOpenDisputed = invoiceHasOpenDisputedStatus(invoice, {
+  const noteStatus = getInvoiceNoteStatusDisplay(invoice, {
     paymentDisputed: hasPaymentDispute,
   })
+  const showOpenDisputed = noteStatus === 'open_disputed'
+  const showOnHold = noteStatus === 'on_hold'
+  const showWillPay = noteStatus === 'will_pay' && !hasAdminPending
+  const showCallBack = noteStatus === 'call_back' && !hasAdminPending
 
   const steps = getInvoiceLifecycleSteps(invoice, {
     awaitingReceipt: hasAwaitingReceipt,
     isShortPaid,
     paymentDisputed: hasPaymentDispute,
   })
-  const showWillPay = invoiceHasWillPayStatus(invoice) && !showOpenDisputed && !hasAdminPending
   const statusLabel = showOpenDisputed
     ? getOpenDisputedStatusLabelUpper()
     : hasAdminPending
@@ -285,11 +289,15 @@ export default function MobileInvoiceOverview({
         displayStatus: enriched.displayStatus,
         isOverdue: enriched.isOverdue,
       })
-    : isShortPaid
-      ? 'SHORT PAID'
-      : showWillPay
-        ? 'WILL PAY'
-        : invoiceListPriorityStatusLabel({
+    : showOnHold
+      ? 'ON HOLD'
+    : showWillPay
+      ? 'WILL PAY'
+      : showCallBack
+        ? 'CALL BACK'
+        : isShortPaid
+          ? 'SHORT PAID'
+          : invoiceListPriorityStatusLabel({
           awaitingReceipt: hasAwaitingReceipt,
           status: invoice.status,
           displayStatus: enriched.displayStatus,
@@ -298,17 +306,27 @@ export default function MobileInvoiceOverview({
   const amount = getMobileInvoiceHeroAmount(invoice)
   const visibleDueDate = getClientVisibleDueDate(invoice)
   const scheduledPayDate = getWillPayScheduledDate(invoice)
+  const visiblePay = getClientVisiblePayDate(invoice, {
+    confirmedPayDate: payDate,
+    pendingPayDate,
+  })
+  const showScheduledPayRow =
+    Boolean(scheduledPayDate) && visiblePay?.date !== scheduledPayDate
   const statusKey = showOpenDisputed
     ? 'disputed'
     : hasAdminPending
     ? 'pending-payment'
     : pendingPosted
     ? 'confirm-payment'
-    : isShortPaid
-      ? 'short-paid'
-      : showWillPay
-        ? 'will-pay'
-        : invoiceListPriorityStatusKey({
+    : showOnHold
+      ? 'hold'
+    : showWillPay
+      ? 'will-pay'
+      : showCallBack
+        ? 'call-back'
+        : isShortPaid
+          ? 'short-paid'
+          : invoiceListPriorityStatusKey({
           awaitingReceipt: hasAwaitingReceipt,
           status: invoice.status,
           displayStatus: enriched.displayStatus,
@@ -348,8 +366,10 @@ export default function MobileInvoiceOverview({
   const showShortMarker = shortfallDiff != null
   const showOverMarker = isOverHero
   const actionRequired = getCarrierInvoiceActionRequired(invoice)
-  // After upload, replace Action Required with the reviewing confirmation.
-  const showActionRequired = Boolean(actionRequired) && !uploadConfirmation
+  const persistedUploadMessage = getDocumentUploadOverviewMessage(invoice)
+  const docsUnderReview = Boolean(uploadConfirmation) || Boolean(persistedUploadMessage)
+  const reviewBanner = uploadConfirmation || persistedUploadMessage
+  const showActionRequired = Boolean(actionRequired) && !docsUnderReview
 
   const insights = getInvoiceMobileInsights({
     invoice,
@@ -447,7 +467,7 @@ export default function MobileInvoiceOverview({
           </button>
         </li>
       ) : null}
-      {uploadConfirmation ? (
+      {reviewBanner ? (
         <li>
           <div
             className="mobile-invoice-overview__insight is-success"
@@ -462,7 +482,7 @@ export default function MobileInvoiceOverview({
                 Documents uploaded
               </span>
               <span className="mobile-invoice-overview__insight-sub">
-                {uploadConfirmation}
+                {reviewBanner}
               </span>
             </span>
             <span className="mobile-invoice-overview__insight-spacer" aria-hidden />
@@ -612,19 +632,23 @@ export default function MobileInvoiceOverview({
           <div>
             <dt>Pay date</dt>
             <dd className="tabular-nums">
-              {payDate
-                ? formatMobileInvoiceDate(payDate)
-                : pendingPayDate
-                  ? formatMobileInvoiceDate(pendingPayDate)
-                  : '—'}
+              {visiblePay
+                ? visiblePay.source === 'pending'
+                  ? `${formatMobileInvoiceDate(visiblePay.date)} (pending)`
+                  : visiblePay.source === 'scheduled'
+                    ? `${formatMobileInvoiceDate(visiblePay.date)} (scheduled)`
+                    : formatMobileInvoiceDate(visiblePay.date)
+                : '—'}
             </dd>
           </div>
+          {showScheduledPayRow ? (
           <div>
             <dt>Scheduled pay</dt>
             <dd className="tabular-nums">
               {scheduledPayDate ? formatMobileInvoiceDate(scheduledPayDate) : '—'}
             </dd>
           </div>
+          ) : null}
         </dl>
 
         <div className="mobile-invoice-overview__amount-row">

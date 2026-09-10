@@ -1,4 +1,4 @@
-import { ChevronRight, Mail } from 'lucide-react'
+import { Mail } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import { formatCurrency, formatDate } from '../../utils/format'
 
@@ -41,29 +41,24 @@ export default function ClientAttentionInvoiceCard({
           {fromEmail ? (
             <span className="client-attention-card__email">
               <Mail className="w-3 h-3" aria-hidden />
-              From email
+              Email
             </span>
           ) : null}
         </div>
-        <span className="status-pill status-pill--hold status-pill--compact">On hold</span>
+        <span className="client-attention-card__amount tabular-nums">
+          {formatCurrency(invoice.amount)}
+        </span>
       </div>
 
-      <p className="client-attention-card__amount tabular-nums">{formatCurrency(invoice.amount)}</p>
-
       <p className="client-attention-card__meta">
-        Load {load}
-        <span aria-hidden> · </span>
         {invoice.broker_name}
+        <span aria-hidden> · </span>
+        Load {load}
         <span aria-hidden> · </span>
         {formatDate(invoice.invoice_date)}
       </p>
 
       {reason ? <p className="client-attention-card__reason">{reason}</p> : null}
-
-      <span className="client-attention-card__cta">
-        Upload documents
-        <ChevronRight className="w-3.5 h-3.5" aria-hidden />
-      </span>
     </button>
   )
 }

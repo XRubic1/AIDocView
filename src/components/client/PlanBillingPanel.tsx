@@ -120,8 +120,11 @@ export default function PlanBillingPanel({ clientId, tier, fillHeight = false }:
       <div className="p-3 rounded-xl border shrink-0 flex items-start gap-2" style={{ borderColor: c.border }}>
         <Info className="w-4 h-4 shrink-0 mt-0.5" style={{ color: c.info }} />
         <p className="text-xs leading-relaxed" style={{ color: c.secondary }}>
-          Monthly bill = {formatCurrency(summary.app_fee_monthly)} platform fee + your fee terms on
-          confirmed collections for the period. Pending and reversed payments are excluded.
+          Monthly bill = your fee terms on confirmed collections
+          {summary.app_fee_monthly > 0
+            ? `, plus ${formatCurrency(summary.app_fee_monthly)} platform fee`
+            : ' (no $99 platform fee on this account)'}
+          . Pending and reversed payments are excluded.
         </p>
       </div>
 

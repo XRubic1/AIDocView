@@ -230,7 +230,7 @@ function mapPaymentConfirmedEvent(inv: Invoice): AssistantCalendarEvent | null {
 
 /**
  * Derive Credyx chase + aging review events from live invoices/brokers.
- * Will Pay / Call Back / Payment confirmed land here only (admin calendar) — never on the carrier calendar.
+ * Call Back / Payment confirmed stay Credyx-only. Will Pay also appears on the carrier calendar from the invoice.
  */
 export function deriveAdminCalendarEvents(
   invoices: Invoice[],

@@ -1,11 +1,11 @@
-import { AlertTriangle, CheckCircle2, Clock, FileX, DollarSign } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, FileX, DollarSign, Scale } from 'lucide-react'
 import DashboardPanel from '../../client/dashboard/DashboardPanel'
 import { useClientTheme } from '../../../theme/ThemeContext'
 import { formatRelativeTime } from '../../../utils/format'
 
 interface Alert {
   id: string
-  type: 'stale_batch' | 'overdue_invoice' | 'missing_document' | 'short_paid'
+  type: 'stale_batch' | 'overdue_invoice' | 'missing_document' | 'short_paid' | 'open_dispute'
   severity: 'high' | 'medium' | 'low'
   title: string
   description: string
@@ -33,6 +33,8 @@ export function CriticalAlerts({ alerts, onAlertClick }: CriticalAlertsProps) {
         return <FileX className="w-4 h-4" style={{ color }} />
       case 'short_paid':
         return <DollarSign className="w-4 h-4" style={{ color: c.warning }} />
+      case 'open_dispute':
+        return <Scale className="w-4 h-4" style={{ color: c.warning }} />
       default:
         return <AlertTriangle className="w-4 h-4" style={{ color: c.mutedLight }} />
     }

@@ -90,7 +90,7 @@ const TOPICS: DocTopic[] = [
   {
     id: 'monthly-billing',
     label: 'Monthly billing',
-    summary: 'Fee terms, batch locks, Payoneer & credits.',
+    summary: 'Fee terms, send invoice with payment URL, credits.',
   },
   {
     id: 'paperwork-sending',
@@ -441,11 +441,11 @@ function pageForTopic(id: DocTopicId): DocPageContent {
           },
           {
             title: 'What gets billed',
-            body: 'Each calendar month: $99 platform subscription + collection fees. Trial subscription waives fees while the client is on trial. Percentage → fee % × collected volume; flat → flat × invoices collected. Collections on processed invoices prefer their locked rates. Pending and reversed payments do not count.',
+            body: 'Each calendar month: collection fees on confirmed payments (and force-close fees). The $99 software fee is optional per carrier (Clients) and can be toggled on the invoice before you issue it. Trial subscription waives fees while the client is on trial. Percentage → fee % × collected volume; flat → flat × invoices collected. Collections on processed invoices prefer their locked rates. Pending and reversed payments do not count.',
           },
           {
-            title: 'Issue → Payoneer → Paid',
-            body: 'Open Monthly Billing, pick the period, Open a client invoice. Review line items, Issue invoice, Request Payoneer payment, then Mark payment received when funds arrive. Accounts escalate and can lock after long unpaid stretches.',
+            title: 'Issue → email payment link → Paid',
+            body: 'Open Monthly Billing, pick the period, Open a client. Review paid vs Credyx-closed loads, choose whether to include $99, Issue invoice, paste your payment URL, Send (or Resend) to the carrier, then Mark payment received when funds arrive. Accounts escalate and can lock after long unpaid stretches.',
           },
           {
             title: 'Discount / credit tab',

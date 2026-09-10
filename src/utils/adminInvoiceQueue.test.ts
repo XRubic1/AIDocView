@@ -123,6 +123,92 @@ describe('invoicePassesDisplayFlags', () => {
     expect(invoicePassesDisplayFlags(pendingPay, flags, index.byInvoiceId.get('inv-1'))).toBe(false)
   })
 
+  it('buckets disputed, Will Pay, and PPW review separately from Open / On hold', () => {
+    const asOf = new Date('2026-09-09')
+    const disputed = enrichInvoice(
+      invoice({
+        id: 'd1',
+        status: 'approved',
+        disputes: [
+          {
+            id: 'disp-1',
+            reason: 'amount_discrepancy',
+            description: 'Short',
+            status: 'open',
+            created_by: 'Carrier',
+            created_at: '2026-09-08T00:00:00Z',
+          },
+        ],
+      }),
+      asOf
+    )
+    const willPay = enrichInvoice(
+      invoice({
+        id: 'w1',
+        status: 'approved',
+        collection_status: 'W/P',
+        collection_date: '2026-09-20',
+        notes_history: [
+          {
+            id: 'n-wp',
+            note: 'Status: Will Pay · 09/20/2026 — scheduled',
+            created_by: 'Credyx',
+            created_at: '2026-09-08T12:00:00Z',
+            type: 'status_update',
+          },
+        ],
+      }),
+      asOf
+    )
+    const ppwReview = enrichInvoice(
+      invoice({
+        id: 'p1',
+        status: 'hold',
+        hold_reason: 'Missing lumper',
+        notes_history: [
+          {
+            id: 'n-up',
+            note: 'Uploaded 1 document: lumper.pdf. Credyx is reviewing and will advise if further action is required.',
+            created_by: 'Carrier',
+            created_at: '2026-09-09T00:00:00Z',
+            type: 'client_note',
+          },
+        ],
+      }),
+      asOf
+    )
+
+    expect(getAdminInvoiceDisplayBucket(disputed)).toBe('disputed')
+    expect(getAdminInvoiceDisplayBucket(willPay)).toBe('will_pay')
+    expect(getAdminInvoiceDisplayBucket(ppwReview)).toBe('ppw_review')
+
+    const openPpw = enrichInvoice(
+      invoice({
+        id: 'p2',
+        status: 'approved',
+        notes_history: [
+          {
+            id: 'n-up-open',
+            note: 'Uploaded 1 document: pod.pdf. Credyx is reviewing and will advise if further action is required.',
+            created_by: 'Carrier',
+            created_at: '2026-09-09T00:00:00Z',
+            type: 'client_note',
+          },
+        ],
+      }),
+      asOf
+    )
+    expect(getAdminInvoiceDisplayBucket(openPpw)).toBe('ppw_review')
+
+    const flags = createAdminInvoiceDisplayFlags(true)
+    flags.disputed = false
+    flags.will_pay = false
+    flags.ppw_review = false
+    expect(invoicePassesDisplayFlags(disputed, flags)).toBe(false)
+    expect(invoicePassesDisplayFlags(willPay, flags)).toBe(false)
+    expect(invoicePassesDisplayFlags(ppwReview, flags)).toBe(false)
+  })
+
   it('keeps paid invoices off by default and shows them when Paid is on', () => {
     const asOf = new Date('2026-09-09')
     const paid = enrichInvoice(

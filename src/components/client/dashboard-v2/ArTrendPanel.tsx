@@ -2,9 +2,11 @@ import { useId, useMemo, useState } from 'react'
 import {
   Area,
   AreaChart,
+  CartesianGrid,
   ResponsiveContainer,
   Tooltip,
   XAxis,
+  YAxis,
 } from 'recharts'
 import type { Invoice } from '../../../types/invoice'
 import type { Payment } from '../../../types/payment'
@@ -35,13 +37,32 @@ type SparkPoint = { label: string; collected: number; invoiced: number }
 const PERIOD_COUNT = 6
 
 const AGING_BUCKETS = [
-  { key: '1_15' as const, label: '1–15d', color: '#1684FE' },
-  { key: '16_30' as const, label: '16–30d', color: '#38BDF8' },
-  { key: '31_45' as const, label: '31–45d', color: '#A78BFA' },
-  { key: '46_60' as const, label: '46–60d', color: '#FBBF24' },
-  { key: '61_90' as const, label: '61–90d', color: '#FB923C' },
-  { key: 'over_91' as const, label: '91+d', color: '#F87171' },
+  { key: '1_15' as const, mark: '15', color: '#1684FE' },
+  { key: '16_30' as const, mark: '30', color: '#38BDF8' },
+  { key: '31_45' as const, mark: '45', color: '#A78BFA' },
+  { key: '46_60' as const, mark: '60', color: '#FBBF24' },
+  { key: '61_90' as const, mark: '90', color: '#FB923C' },
+  { key: 'over_91' as const, mark: '91+', color: '#F87171' },
 ]
+
+/** Short money for the six aging ticks — full currency stays on hover. */
+function formatAgingTick(amount: number): string {
+  if (amount <= 0) return '—'
+  if (amount >= 10_000) {
+    return `$${(amount / 1000).toFixed(0)}k`
+  }
+  if (amount >= 1000) {
+    return `$${(amount / 1000).toFixed(1)}k`
+  }
+  return formatCurrency(amount)
+}
+
+/** Compact Y-axis labels so the chart has a readable dollar scale. */
+function formatAxisUsd(value: number): string {
+  if (value === 0) return '$0'
+  if (Math.abs(value) >= 1000) return `$${Math.round(value / 1000)}k`
+  return `$${Math.round(value)}`
+}
 
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10)
@@ -179,7 +200,7 @@ function AxisTick({
   )
 }
 
-/** Light/dark aging bar with a compact 2×3 legend. */
+/** Stacked aging bar with a day-mark scale (15 · 30 · 45…). */
 function SimpleAgingBar({ aging, loading }: { aging: AgingBuckets; loading: boolean }) {
   const total = aging.total > 0 ? aging.total : 0
   const current = aging['1_15'] + aging['16_30']
@@ -204,10 +225,10 @@ function SimpleAgingBar({ aging, loading }: { aging: AgingBuckets; loading: bool
         <h3 className="cdv2-aging__title">Aging A/R</h3>
         <div className="cdv2-aging__summary">
           <span>
-            Current ≤30d <strong className="tabular-nums">{formatCurrency(current)}</strong>
+            Current <strong className="tabular-nums">{formatCurrency(current)}</strong>
           </span>
           <span className="cdv2-aging__aged">
-            31+ days <strong className="tabular-nums">{formatCurrency(aged)}</strong>
+            Aged <strong className="tabular-nums">{formatCurrency(aged)}</strong>
           </span>
         </div>
       </div>
@@ -221,21 +242,26 @@ function SimpleAgingBar({ aging, loading }: { aging: AgingBuckets; loading: bool
                 key={seg.key}
                 className="cdv2-aging__seg"
                 style={{ width: `${seg.pct}%`, background: seg.color }}
-                title={`${seg.label}: ${formatCurrency(seg.amount)}`}
+                title={`${seg.mark} days: ${formatCurrency(seg.amount)}`}
               />
             ) : null
           )
         )}
       </div>
-      <ul className="cdv2-aging__legend">
+      <ol className="cdv2-aging__scale" aria-label="Days outstanding">
         {segments.map((seg) => (
           <li key={seg.key} className={seg.amount <= 0 ? 'is-zero' : undefined}>
             <i style={{ background: seg.color }} aria-hidden />
-            <span className="cdv2-aging__legend-label">{seg.label}</span>
-            <span className="cdv2-aging__legend-amt tabular-nums">{formatCurrency(seg.amount)}</span>
+            <span className="cdv2-aging__scale-mark tabular-nums">{seg.mark}</span>
+            <span
+              className="cdv2-aging__scale-amt tabular-nums"
+              title={formatCurrency(seg.amount)}
+            >
+              {formatAgingTick(seg.amount)}
+            </span>
           </li>
         ))}
-      </ul>
+      </ol>
     </div>
   )
 }
@@ -254,9 +280,11 @@ export default function ArTrendPanel({
   const gradId = `cdv2-grad-${uid}`
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
-  const invoicedStroke = isDark ? 'rgba(148, 163, 184, 0.55)' : '#94a3b8'
-  const tickFill = isDark ? '#94a3b8' : '#64748b'
-  const cursorStroke = isDark ? 'rgba(148, 163, 184, 0.35)' : '#cbd5e1'
+  const invoicedStroke = isDark ? '#E2E8F0' : '#475569'
+  const invoicedFill = isDark ? 'rgba(226, 232, 240, 0.08)' : 'rgba(71, 85, 105, 0.06)'
+  const tickFill = isDark ? '#94A3B8' : '#64748B'
+  const gridStroke = isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0'
+  const cursorStroke = isDark ? 'rgba(226, 232, 240, 0.35)' : '#94A3B8'
 
   const { data, collectedTotal, invoicedTotal, hasSignal } = useMemo(() => {
     const points = buildHistory(invoices, payments, period)
@@ -315,22 +343,35 @@ export default function ArTrendPanel({
           <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <AreaChart
               data={data}
-              margin={{ top: 8, right: 14, left: 14, bottom: 4 }}
+              margin={{ top: 6, right: 8, left: 0, bottom: 0 }}
               accessibilityLayer={false}
             >
               <defs>
                 <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#1684FE" stopOpacity={0.18} />
+                  <stop offset="0%" stopColor="#1684FE" stopOpacity={isDark ? 0.28 : 0.2} />
                   <stop offset="100%" stopColor="#1684FE" stopOpacity={0} />
                 </linearGradient>
               </defs>
+              <CartesianGrid
+                vertical={false}
+                stroke={gridStroke}
+                strokeDasharray="0"
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                width={40}
+                tickCount={4}
+                tick={{ fill: tickFill, fontSize: 11, fontWeight: 500 }}
+                tickFormatter={formatAxisUsd}
+              />
               <XAxis
                 dataKey="label"
                 axisLine={false}
                 tickLine={false}
                 interval={0}
                 minTickGap={0}
-                height={30}
+                height={28}
                 padding={{ left: 8, right: 8 }}
                 tick={(props) => (
                   <AxisTick {...props} total={data.length} fill={tickFill} />
@@ -338,17 +379,17 @@ export default function ArTrendPanel({
               />
               <Tooltip
                 content={<ChartTooltip />}
-                cursor={{ stroke: cursorStroke, strokeDasharray: '3 4' }}
+                cursor={{ stroke: cursorStroke, strokeWidth: 1 }}
               />
               <Area
                 type="monotone"
                 dataKey="invoiced"
                 name="Invoiced"
                 stroke={invoicedStroke}
-                strokeWidth={1.75}
-                strokeDasharray="5 4"
-                fill="transparent"
-                dot={false}
+                strokeWidth={2}
+                fill={invoicedFill}
+                dot={{ r: 3, fill: invoicedStroke, stroke: 'none' }}
+                activeDot={{ r: 5, fill: invoicedStroke, stroke: 'none' }}
                 isAnimationActive
                 animationDuration={700}
               />
@@ -357,7 +398,7 @@ export default function ArTrendPanel({
                 dataKey="collected"
                 name="Collected"
                 stroke="#1684FE"
-                strokeWidth={2.25}
+                strokeWidth={2.5}
                 fill={`url(#${gradId})`}
                 dot={{ r: 3.5, fill: '#1684FE', stroke: 'none' }}
                 activeDot={{ r: 5, fill: '#1684FE', stroke: 'none' }}

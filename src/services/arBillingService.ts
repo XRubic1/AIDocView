@@ -30,7 +30,9 @@ import type {
   BillingStanding,
   ClientBill,
   ClientBillStatus,
+  ComputeMonthlyBillOptions,
   ComputedMonthlyBill,
+  PeriodBilledInvoice,
 } from '../types/billing'
 import type { Client } from '../types/client'
 
@@ -49,6 +51,11 @@ interface ClientBillRow {
   payoneer_reference: string | null
   line_items: BillingLineItem[]
   fee_terms_snapshot?: BillingFeeTermsSnapshot | null
+  include_app_fee?: boolean | null
+  payment_url?: string | null
+  emailed_at?: string | null
+  emailed_to?: string | null
+  email_send_count?: number | null
 }
 
 export function hydrateClientBills(bills: ClientBill[]): void {
@@ -134,7 +141,31 @@ export function snapshotClientFeeTerms(client: Client | undefined): BillingFeeTe
   }
 }
 
+function unpackSendMeta(snap: BillingFeeTermsSnapshot | null | undefined) {
+  return snap?.send
+}
+
+function packFeeTermsSnapshot(bill: ClientBill): BillingFeeTermsSnapshot | null {
+  const base = bill.fee_terms_snapshot
+  const send = {
+    include_app_fee: bill.include_app_fee,
+    payment_url: bill.payment_url,
+    emailed_at: bill.emailed_at,
+    emailed_to: bill.emailed_to,
+    email_send_count: bill.email_send_count,
+  }
+  const hasSend = Object.values(send).some((value) => value != null && value !== '')
+  if (!base && !hasSend) return null
+  return {
+    fee_type: base?.fee_type ?? 'percentage',
+    fee_percentage: base?.fee_percentage,
+    flat_fee_amount: base?.flat_fee_amount,
+    ...(hasSend ? { send } : base?.send ? { send: base.send } : {}),
+  }
+}
+
 function billRowToClientBill(row: ClientBillRow): ClientBill {
+  const send = unpackSendMeta(row.fee_terms_snapshot)
   return {
     id: row.id,
     client_id: row.client_id,
@@ -147,9 +178,19 @@ function billRowToClientBill(row: ClientBillRow): ClientBill {
     payoneer_reference: row.payoneer_reference ?? undefined,
     line_items: Array.isArray(row.line_items) ? row.line_items : [],
     fee_terms_snapshot: row.fee_terms_snapshot ?? undefined,
+    include_app_fee: row.include_app_fee ?? send?.include_app_fee,
+    payment_url: row.payment_url ?? send?.payment_url,
+    emailed_at: row.emailed_at ?? send?.emailed_at,
+    emailed_to: row.emailed_to ?? send?.emailed_to,
+    email_send_count: row.email_send_count ?? send?.email_send_count,
   }
 }
 
+/**
+ * Persist using columns that already exist on client_bills.
+ * Send/payment extras go in fee_terms_snapshot.send until the dedicated
+ * columns are on the remote schema (PostgREST schema cache).
+ */
 function clientBillToRow(bill: ClientBill): ClientBillRow {
   return {
     id: bill.id,
@@ -162,7 +203,7 @@ function clientBillToRow(bill: ClientBill): ClientBillRow {
     paid_at: bill.paid_at ?? null,
     payoneer_reference: bill.payoneer_reference ?? null,
     line_items: bill.line_items,
-    fee_terms_snapshot: bill.fee_terms_snapshot ?? null,
+    fee_terms_snapshot: packFeeTermsSnapshot(bill),
   }
 }
 
@@ -222,6 +263,112 @@ export function countInvoicesCollectedInPeriod(clientId: string, period: Billing
     collected.add(p.invoice_id)
   }
   return collected.size
+}
+
+/**
+ * Normalize a payment URL the admin pastes (adds https:// when missing).
+ * Returns empty string when the value is not a usable http(s) URL.
+ */
+export function normalizePaymentUrl(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  try {
+    const parsed = new URL(withScheme)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return ''
+    if (!parsed.hostname) return ''
+    return parsed.toString()
+  } catch {
+    return ''
+  }
+}
+
+function invoiceFeeForPeriod(invoiceId: string, client: Client, paymentAmt: number): number {
+  const inv = getInvoiceById(invoiceId)
+  if (!inv) return 0
+  const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
+  const terms = resolveInvoiceFeeTerms(inv, batch, client)
+  if (!terms || terms.billing_mode === 'trial') return 0
+  return feeAmountForPayment(paymentAmt, terms)
+}
+
+/**
+ * Invoices Credyx billed against this period: confirmed collections plus
+ * force-closed loads. Each row is marked paid vs closed by Credyx.
+ */
+export function getPeriodBilledInvoices(
+  clientId: string,
+  period: BillingPeriod
+): PeriodBilledInvoice[] {
+  const client = getClientById(clientId)
+  if (!client) return []
+
+  const invoiceIds = invoiceIdsForClient(clientId)
+  const byInvoice = new Map<string, PeriodBilledInvoice>()
+
+  for (const p of mockPayments) {
+    if (!invoiceIds.has(p.invoice_id) || p.status !== 'confirmed') continue
+    const activityAt = p.confirmed_at ?? p.received_date
+    if (!isDateInPeriod(activityAt, period)) continue
+    const inv = getInvoiceById(p.invoice_id)
+    if (!inv) continue
+    const paymentAmt = getEffectivePaymentAmount(p)
+    const existing = byInvoice.get(inv.id)
+    if (existing) {
+      existing.collectedAmount += paymentAmt
+      const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
+      const terms = resolveInvoiceFeeTerms(inv, batch, client)
+      if (terms?.fee_type !== 'flat') {
+        existing.fee += invoiceFeeForPeriod(inv.id, client, paymentAmt)
+      }
+      if (activityAt > existing.activityAt) existing.activityAt = activityAt
+      continue
+    }
+    byInvoice.set(inv.id, {
+      invoiceId: inv.id,
+      invoiceNumber: inv.invoice_number,
+      loadNumber: inv.load_number,
+      brokerName: inv.broker_name,
+      invoiceAmount: inv.amount,
+      collectedAmount: paymentAmt,
+      fee: invoiceFeeForPeriod(inv.id, client, paymentAmt),
+      activityAt,
+      status: inv.status,
+      closedByCredyx: inv.status === 'force_closed',
+    })
+  }
+
+  for (const inv of mockInvoices) {
+    if (inv.client_id !== clientId || inv.status !== 'force_closed') continue
+    if (!isDateInPeriod(inv.updated_at, period)) continue
+    if (byInvoice.has(inv.id)) {
+      const row = byInvoice.get(inv.id)!
+      row.closedByCredyx = true
+      row.status = inv.status
+      continue
+    }
+    const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
+    const terms = resolveInvoiceFeeTerms(inv, batch, client)
+    let fee = 0
+    if (terms?.billing_mode !== 'trial') {
+      if (terms?.fee_type === 'flat' && terms.flat_fee_amount) fee = terms.flat_fee_amount
+      else if (terms?.fee_percentage) fee = (terms.fee_percentage / 100) * inv.amount
+    }
+    byInvoice.set(inv.id, {
+      invoiceId: inv.id,
+      invoiceNumber: inv.invoice_number,
+      loadNumber: inv.load_number,
+      brokerName: inv.broker_name,
+      invoiceAmount: inv.amount,
+      collectedAmount: 0,
+      fee: Math.round(fee * 100) / 100,
+      activityAt: inv.updated_at ?? formatBillingPeriod(period),
+      status: inv.status,
+      closedByCredyx: true,
+    })
+  }
+
+  return [...byInvoice.values()].sort((a, b) => a.invoiceNumber.localeCompare(b.invoiceNumber))
 }
 
 export interface ResolvedClientFee {
@@ -352,6 +499,15 @@ function isTrialClient(client: Client): boolean {
   return client.billing?.subscription_status === 'trial'
 }
 
+/** Default: include $99 unless the client or this computation opts out. */
+export function resolveIncludeAppFee(
+  client: Client,
+  options?: ComputeMonthlyBillOptions
+): boolean {
+  if (options?.includeAppFee !== undefined) return options.includeAppFee
+  return client.billing?.include_platform_fee !== false
+}
+
 function getForceCloseAdjustments(
   clientId: string,
   period: BillingPeriod,
@@ -388,7 +544,11 @@ function getForceCloseAdjustments(
 }
 
 /** Compute monthly bill breakdown for a client and period. */
-export function computeMonthlyBill(clientId: string, period: BillingPeriod): ComputedMonthlyBill {
+export function computeMonthlyBill(
+  clientId: string,
+  period: BillingPeriod,
+  options?: ComputeMonthlyBillOptions
+): ComputedMonthlyBill {
   const client = getClientById(clientId)
   if (!client) {
     throw new Error(`Client not found: ${clientId}`)
@@ -397,9 +557,10 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
   const collectedVolume = getClientCollectedVolume(clientId, period)
   const resolved = resolveClientCollectionFee(client, collectedVolume, period)
   const trial = isTrialClient(client)
+  const includeAppFee = resolveIncludeAppFee(client, options)
 
   // Always compute gross fees so the UI can show what would be charged.
-  const grossAppFee = PLATFORM_APP_FEE_MONTHLY
+  const grossAppFee = includeAppFee ? PLATFORM_APP_FEE_MONTHLY : 0
   const grossArFee = resolved.fee
   const adjustments = [...getForceCloseAdjustments(clientId, period, client)]
   const adjustmentTotal = adjustments.reduce((sum, a) => sum + a.amount, 0)
@@ -417,13 +578,15 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
   const periodLabel = formatBillingPeriod(period)
   const lineItems: BillingLineItem[] = []
 
-  lineItems.push({
-    id: `app-${periodLabel}`,
-    date: periodLabel,
-    description: 'Platform subscription',
-    amount: grossAppFee,
-    status: 'pending',
-  })
+  if (includeAppFee) {
+    lineItems.push({
+      id: `app-${periodLabel}`,
+      date: periodLabel,
+      description: 'Platform subscription',
+      amount: grossAppFee,
+      status: 'pending',
+    })
+  }
 
   if (grossArFee > 0 || collectedVolume > 0 || resolved.feeType === 'flat') {
     lineItems.push({
@@ -479,6 +642,7 @@ export function computeMonthlyBill(clientId: string, period: BillingPeriod): Com
     grossSubtotal: Math.round(grossSubtotal * 100) / 100,
     feeDisplay: resolved.displayRate,
     feeType: resolved.feeType,
+    includeAppFee,
   }
 }
 
@@ -516,12 +680,16 @@ function addDays(isoDate: string, days: number): string {
 }
 
 /** Issue a persisted bill for the period (idempotent per client+period). */
-export async function issueClientBill(clientId: string, period: BillingPeriod): Promise<ClientBill> {
+export async function issueClientBill(
+  clientId: string,
+  period: BillingPeriod,
+  options?: ComputeMonthlyBillOptions
+): Promise<ClientBill> {
   const existing = getBillForPeriod(clientId, period)
   if (existing) return existing
 
   const client = getClientById(clientId)
-  const computed = computeMonthlyBill(clientId, period)
+  const computed = computeMonthlyBill(clientId, period, options)
   const subtotal = computed.appFee + computed.arFee + computed.adjustments.reduce((s, a) => s + a.amount, 0)
   const appliedFromAccount = Math.min(client?.reimbursement_balance ?? 0, Math.max(0, subtotal))
   const now = new Date().toISOString()
@@ -542,6 +710,7 @@ export async function issueClientBill(clientId: string, period: BillingPeriod): 
     line_items: computed.lineItems,
     // Lock rate at issue so later Fee Terms edits do not change clawbacks.
     fee_terms_snapshot: snapshotClientFeeTerms(client),
+    include_app_fee: computed.includeAppFee,
   }
 
   await persistOrThrow('Issue client bill', () => persistClientBill(bill))
@@ -574,6 +743,16 @@ export function getBillHistoryEvents(bill: ClientBill): BillHistoryEvent[] {
       label: 'Payoneer payment request',
       at: bill.issued_at,
       detail: bill.payoneer_reference,
+    })
+  }
+
+  if (bill.emailed_at) {
+    events.push({
+      id: `${bill.id}-emailed`,
+      type: 'emailed',
+      label: (bill.email_send_count ?? 1) > 1 ? 'Invoice re-sent' : 'Invoice emailed',
+      at: bill.emailed_at,
+      detail: [bill.emailed_to, bill.payment_url].filter(Boolean).join(' · '),
     })
   }
 
@@ -622,6 +801,28 @@ export async function sendPayoneerRequest(
   }
 
   return { ok: true, reference: result.reference }
+}
+
+/** Persist payment URL and last email send on an issued bill. */
+export async function recordBillEmailSent(
+  billId: string,
+  input: { to: string; paymentUrl: string }
+): Promise<ClientBill | undefined> {
+  const bill = getBillById(billId)
+  if (!bill) return undefined
+
+  const now = new Date().toISOString()
+  const updated: ClientBill = {
+    ...bill,
+    payment_url: input.paymentUrl,
+    emailed_to: input.to,
+    emailed_at: now,
+    email_send_count: (bill.email_send_count ?? 0) + 1,
+  }
+
+  await persistOrThrow('Record bill email', () => persistClientBill(updated))
+  upsertBillInCache(updated)
+  return updated
 }
 
 /** Mark a bill paid and unlock the client when appropriate. */

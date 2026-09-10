@@ -42,3 +42,20 @@ export function getWillPayScheduledDate(
   return latestWillPayNoteDate(invoice)
 }
 
+export type ClientVisiblePayDateSource = 'confirmed' | 'pending' | 'scheduled'
+
+/** Pay date shown on the carrier invoices list: cash first, else Will Pay schedule. */
+export function getClientVisiblePayDate(
+  invoice: Pick<Invoice, 'status' | 'collection_status' | 'collection_date' | 'notes_history'>,
+  options?: { confirmedPayDate?: string | null; pendingPayDate?: string | null }
+): { date: string; source: ClientVisiblePayDateSource } | null {
+  const confirmed = options?.confirmedPayDate?.trim()
+  if (confirmed) return { date: confirmed, source: 'confirmed' }
+  const pending = options?.pendingPayDate?.trim()
+  if (pending) return { date: pending, source: 'pending' }
+  if (!invoiceHasWillPayStatus(invoice)) return null
+  const scheduled = getWillPayScheduledDate(invoice)
+  if (!scheduled) return null
+  return { date: scheduled, source: 'scheduled' }
+}
+

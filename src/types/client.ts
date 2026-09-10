@@ -23,6 +23,8 @@ export interface ClientBilling {
   app_fee_monthly: number
   service_fee_monthly?: number
   enrolled_at: string
+  /** When false, monthly Credyx bills omit the $99 platform fee (default true). */
+  include_platform_fee?: boolean
 }
 
 export interface Client {

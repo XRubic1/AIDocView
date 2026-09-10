@@ -1,29 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
-  RefreshCw,
-} from 'lucide-react'
-import { getAllClients } from '../services/clientRegistry'
+import { useSearchParams } from 'react-router-dom'
+import { ChevronLeft, ChevronRight, FileText, RefreshCw, Search } from 'lucide-react'
+import { getAllClients, getClientById } from '../services/clientRegistry'
 import {
   computeMonthlyBill,
   formatBillingPeriod,
   getBillForPeriod,
-  getBillingStanding,
+  getPeriodBilledInvoices,
   hydrateClientBillsFromSupabase,
+  parseBillingPeriod,
   previousBillingPeriod,
   refreshOverdueBillStatuses,
   getClientCollectedVolume,
 } from '../services/arBillingService'
-import {
-  getReimbursementReportForPeriod,
-  hydrateReimbursementLedgerFromSupabase,
-} from '../services/reimbursementAccountService'
-import { openBillingInvoiceWorkspace } from '../utils/openBillingInvoiceWorkspace'
-import { formatCurrency } from '../utils/format'
+import { hydrateReimbursementLedgerFromSupabase } from '../services/reimbursementAccountService'
+import CarrierMonthlyBillPanel from '../components/admin/CarrierMonthlyBillPanel'
+import EmptyState from '../components/ui/EmptyState'
 import { useToast } from '../components/ui/ToastProvider'
 import { SkeletonRows } from '../components/ui/Skeleton'
+import { formatCurrency } from '../utils/format'
 import type { BillingPeriod } from '../types/billing'
 import type { Client } from '../types/client'
 import '../styles/clientPortal.css'
@@ -33,25 +28,30 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
-interface ClientBillRow {
-  client: Client
-  collectedVolume: number
-  feeDisplay: string
-  computedTotal: number
-  grossSubtotal: number
-  isTrial: boolean
-  reimbursementBalance: number
-  standing: ReturnType<typeof getBillingStanding>
-  billStatus: string
-  payoneerRef?: string
+function statusLabel(client: Client, period: BillingPeriod): string {
+  const bill = getBillForPeriod(client.id, period)
+  if (!bill) return 'Draft'
+  if (bill.status === 'paid') return 'Paid'
+  if (bill.emailed_at) return 'Sent'
+  return 'Issued'
 }
 
 export default function Billing() {
   const { showToast } = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
   const clients = getAllClients()
-  const [period, setPeriod] = useState<BillingPeriod>(previousBillingPeriod())
+  const [period, setPeriod] = useState<BillingPeriod>(() => {
+    const p = searchParams.get('period')
+    if (p && /^\d{4}-\d{2}$/.test(p)) return parseBillingPeriod(p)
+    return previousBillingPeriod()
+  })
+  const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  const periodKey = formatBillingPeriod(period)
+  const periodLabel = `${MONTH_NAMES[period.month - 1]} ${period.year}`
+  const selectedId = searchParams.get('client')
 
   const loadBills = useCallback(async () => {
     setLoading(true)
@@ -73,102 +73,69 @@ export default function Billing() {
     void loadBills()
   }, [loadBills, refreshKey])
 
-  // Refresh list when a popup workspace may have changed data.
-  useEffect(() => {
-    const onFocus = () => setRefreshKey((k) => k + 1)
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
-  }, [])
-
-  const rows: ClientBillRow[] = useMemo(() => {
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase()
     return clients
       .filter((c) => c.status !== 'pending' && c.status !== 'inactive')
+      .filter((c) => !q || c.name.toLowerCase().includes(q) || (c.email ?? '').toLowerCase().includes(q))
       .map((client) => {
-        let computed
+        let due = NaN
         try {
-          computed = computeMonthlyBill(client.id, period)
+          due = computeMonthlyBill(client.id, period).total
         } catch {
-          computed = {
-            total: NaN,
-            collectedVolume: 0,
-            ratePct: 0,
-            isTrial: client.billing?.subscription_status === 'trial',
-            grossSubtotal: NaN,
-            feeDisplay: client.fee_terms
-              ? client.fee_terms.fee_type === 'flat'
-                ? `$${client.fee_terms.flat_fee_amount ?? 0} flat`
-                : `${client.fee_terms.fee_percentage ?? 0}%`
-              : 'No fee terms',
-          }
+          due = NaN
         }
-
         const bill = getBillForPeriod(client.id, period)
-        const collectedVolume = getClientCollectedVolume(client.id, period)
-        const reimbReport = getReimbursementReportForPeriod(client.id, period)
-
         return {
           client,
-          collectedVolume,
-          feeDisplay: computed.feeDisplay ?? '—',
-          computedTotal: computed.total,
-          grossSubtotal: computed.grossSubtotal ?? NaN,
-          isTrial: Boolean(computed.isTrial),
-          reimbursementBalance: reimbReport.pendingOnAccount,
-          standing: getBillingStanding(client),
-          billStatus: bill?.status ?? '—',
-          payoneerRef: bill?.payoneer_reference,
+          collected: getClientCollectedVolume(client.id, period),
+          loads: getPeriodBilledInvoices(client.id, period).length,
+          due: bill?.amount ?? due,
+          status: statusLabel(client, period),
         }
       })
-  }, [clients, period, refreshKey])
+  }, [clients, period, query, refreshKey])
 
-  const periodLabel = `${MONTH_NAMES[period.month - 1]} ${period.year}`
-  const periodKey = formatBillingPeriod(period)
+  const selectedClient = useMemo(() => {
+    if (selectedId) return getClientById(selectedId) ?? null
+    return null
+  }, [selectedId, clients, refreshKey])
 
   const shiftPeriod = (delta: number) => {
     const d = new Date(period.year, period.month - 1 + delta, 1)
-    setPeriod({ year: d.getFullYear(), month: d.getMonth() + 1 })
+    const next = { year: d.getFullYear(), month: d.getMonth() + 1 }
+    setPeriod(next)
+    const params = new URLSearchParams(searchParams)
+    params.set('period', formatBillingPeriod(next))
+    if (selectedId) params.set('client', selectedId)
+    setSearchParams(params, { replace: true })
   }
 
-  const openInvoice = (clientId: string) => {
-    const win = openBillingInvoiceWorkspace(clientId, periodKey)
-    if (!win) {
-      showToast('Popup blocked. Allow popups to open the invoice window.', 'error')
-    }
-  }
-
-  const standingBadge = (standing: ClientBillRow['standing']) => {
-    const styles: Record<string, string> = {
-      ok: 'status-pill status-pill--paid',
-      overdue: 'status-pill status-pill--pending',
-      warning: 'status-pill status-pill--hold',
-      locked: 'status-pill status-pill--overdue',
-    }
-    return (
-      <span className={`${styles[standing] ?? 'status-pill'} capitalize`}>{standing}</span>
-    )
+  const selectClient = (id: string) => {
+    setSearchParams({ client: id, period: periodKey }, { replace: true })
   }
 
   return (
-    <>
-      <div className="flex flex-col min-h-0 h-full overflow-hidden">
-        <div className="client-page-toolbar shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200">
-          <div className="flex items-center gap-2">
+    <div className="flex min-h-0 h-full overflow-hidden bg-slate-50">
+      <aside className="w-[min(100%,360px)] shrink-0 flex flex-col border-r border-slate-200 bg-white min-h-0">
+        <div className="shrink-0 px-3 py-2.5 border-b border-slate-200 space-y-2">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => shiftPeriod(-1)}
               className="p-1.5 rounded-md border border-slate-200 hover:bg-slate-50"
-              aria-label="Previous period"
+              aria-label="Previous month"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-sm font-medium text-slate-800 min-w-[120px] text-center">
+            <span className="flex-1 text-sm font-semibold text-slate-900 text-center truncate">
               {periodLabel}
             </span>
             <button
               type="button"
               onClick={() => shiftPeriod(1)}
               className="p-1.5 rounded-md border border-slate-200 hover:bg-slate-50"
-              aria-label="Next period"
+              aria-label="Next month"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -181,99 +148,88 @@ export default function Billing() {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
-          <p className="text-xs text-slate-500">$99 + fee terms × collected · {periodKey}</p>
+          <label className="relative block">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search carriers"
+              className="client-input w-full text-sm pl-8"
+            />
+          </label>
         </div>
 
-        <div className="client-table-scroll flex-1 min-h-0 overflow-auto relative">
+        <div className="flex-1 min-h-0 overflow-y-auto relative">
           {loading && (
-            <div className="absolute inset-0 z-10 bg-white/80 p-6">
-              <SkeletonRows rows={8} rowClassName="h-12" />
+            <div className="absolute inset-0 z-10 bg-white/80 p-4">
+              <SkeletonRows rows={8} rowClassName="h-14" />
             </div>
           )}
-          <table className="dashboard-table dashboard-table--compact w-full min-w-[860px]">
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th className="text-right">Collected</th>
-                <th className="text-right">Fee terms</th>
-                <th className="text-right">On account</th>
-                <th className="text-right">Amount due</th>
-                <th>Status</th>
-                <th>Standing</th>
-                <th>Payoneer</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
+          {rows.length === 0 && !loading ? (
+            <p className="px-4 py-8 text-sm text-slate-500 text-center">No carriers for this month.</p>
+          ) : (
+            <ul>
               {rows.map((row) => {
-                const id = row.client.id
+                const active = row.client.id === selectedId
                 return (
-                  <tr
-                    key={id}
-                    className="dashboard-table-row--clickable"
-                    onClick={() => openInvoice(id)}
-                  >
-                    <td>
-                      <p className="font-medium text-slate-900">{row.client.name}</p>
-                      <div className="flex flex-wrap gap-1 mt-0.5">
-                        {row.client.factoring && (
-                          <span className="text-[10px] text-blue-600 font-medium">Factoring</span>
-                        )}
-                        {row.isTrial && (
-                          <span className="text-[10px] text-indigo-600 font-medium">Trial</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="text-right tabular-nums">
-                      {formatCurrency(row.collectedVolume)}
-                    </td>
-                    <td className="text-right tabular-nums">{row.feeDisplay}</td>
-                    <td className="text-right tabular-nums text-slate-600">
-                      {row.reimbursementBalance > 0
-                        ? formatCurrency(row.reimbursementBalance)
-                        : '—'}
-                    </td>
-                    <td className="text-right tabular-nums font-medium">
-                      {Number.isFinite(row.computedTotal) ? (
-                        <span className="inline-flex flex-col items-end">
-                          <span>{formatCurrency(row.computedTotal)}</span>
-                          {row.isTrial &&
-                            Number.isFinite(row.grossSubtotal) &&
-                            row.grossSubtotal > 0 && (
-                              <span className="text-[10px] font-normal text-slate-500">
-                                waived {formatCurrency(row.grossSubtotal)}
-                              </span>
-                            )}
+                  <li key={row.client.id}>
+                    <button
+                      type="button"
+                      onClick={() => selectClient(row.client.id)}
+                      className={`w-full text-left px-3 py-2.5 border-b border-slate-100 transition-colors ${
+                        active ? 'bg-sky-50' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-slate-900 truncate">{row.client.name}</p>
+                        <span
+                          className={`text-[10px] font-semibold uppercase tracking-wide shrink-0 ${
+                            row.status === 'Paid'
+                              ? 'text-emerald-700'
+                              : row.status === 'Sent'
+                                ? 'text-sky-700'
+                                : 'text-slate-500'
+                          }`}
+                        >
+                          {row.status}
                         </span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="capitalize text-sm">{row.billStatus}</td>
-                    <td>{standingBadge(row.standing)}</td>
-                    <td className="text-xs font-mono text-slate-500">
-                      {row.payoneerRef ?? '—'}
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openInvoice(id)
-                        }}
-                        className="dashboard-btn-secondary dashboard-btn-compact inline-flex items-center gap-1"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        Open
-                      </button>
-                    </td>
-                  </tr>
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-between gap-2 text-xs text-slate-500">
+                        <span>
+                          {row.loads} load{row.loads === 1 ? '' : 's'} · {formatCurrency(row.collected)}
+                        </span>
+                        <span className="tabular-nums font-medium text-slate-800">
+                          {Number.isFinite(row.due) ? formatCurrency(row.due) : '—'}
+                        </span>
+                      </div>
+                    </button>
+                  </li>
                 )
               })}
-            </tbody>
-          </table>
+            </ul>
+          )}
         </div>
-      </div>
-    </>
+      </aside>
+
+      <main className="flex-1 min-w-0 min-h-0">
+        {selectedClient ? (
+          <CarrierMonthlyBillPanel
+            key={`${selectedClient.id}-${periodKey}-${refreshKey}`}
+            client={selectedClient}
+            period={period}
+            onChanged={() => setRefreshKey((k) => k + 1)}
+          />
+        ) : (
+          <div className="h-full flex items-center justify-center p-8">
+            <EmptyState
+              icon={FileText}
+              title="Select a carrier"
+              hint="Pick a carrier on the left to see paid loads, issue the Credyx invoice, and email a payment link."
+            />
+          </div>
+        )}
+      </main>
+    </div>
   )
 }

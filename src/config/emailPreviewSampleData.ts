@@ -19,6 +19,22 @@ export function getEmailPreviewSampleData(templateId: EmailTemplateId): Record<s
   switch (templateId) {
     case 'carrier_document_issue':
       return carrier
+    case 'carrier_billing_invoice':
+      return {
+        ...shared,
+        periodLabel: 'August 2026',
+        amountDue: '$224.00',
+        dueDate: 'Sep 30, 2026',
+        feeTermsLabel: '2.5%',
+        collectedVolume: '$5,000',
+        lineItemsHtml:
+          '<p style="margin:0;font-size:13px;">Platform subscription — $99.00<br/>Collection fee — $125.00</p>',
+        invoiceRowsHtml:
+          '<p style="margin:0;font-size:13px;">INV-10428 · Load LD-8831 · Paid</p>',
+        paymentUrl: 'https://pay.example.com/inv-august',
+        ctaLabel: 'Pay invoice',
+        messageHtml: '',
+      }
     case 'carrier_batch_processed':
       return {
         ...shared,

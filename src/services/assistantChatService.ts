@@ -886,7 +886,7 @@ function resolveExpectedPayment(
     brokerName: match.brokerName,
     dateLabel: match.dueLabel,
     confidence: 'medium',
-    source: 'forecast',
+    source: 'confirmed',
   }
 }
 

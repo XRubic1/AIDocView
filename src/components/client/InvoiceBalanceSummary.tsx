@@ -242,7 +242,9 @@ export default function InvoiceBalanceSummary({
           <span className="invoice-balance-summary__fig-label inline-flex items-center gap-1 flex-nowrap min-w-0">
             {(pending > 0 || shortPending > 0) && current.tone === 'zero'
               ? 'Paid in full when confirmed'
-              : current.label}
+              : current.tone === 'open' || current.tone === 'short'
+                ? 'Outstanding'
+                : current.label}
             {statusBadgePlacement === 'balance' ? statusBadge : null}
           </span>
           <span

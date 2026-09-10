@@ -314,6 +314,8 @@ export interface ClientDocumentUploadNotificationInput {
   clientName: string
   fileNames: string[]
   fileCount: number
+  /** Carrier uploaded missing docs on a held invoice — Credyx should accept or reject. */
+  holdReview?: boolean
 }
 
 export function notifyAdminClientDocumentUpload(
@@ -327,17 +329,18 @@ export function notifyAdminClientDocumentUpload(
   return pushNotification({
     id: `admin-notif-${Date.now()}`,
     type: 'document_uploaded',
-    title: 'Client uploaded documents',
-    message: `${input.clientName} uploaded ${input.fileCount} file${input.fileCount > 1 ? 's' : ''} to ${input.invoiceNumber}: ${fileList}`,
+    title: 'PPW uploaded — review documents',
+    message: `${input.clientName} uploaded paperwork for invoice ${input.invoiceNumber} (${fileList}). Confirm to send the packet to the broker, or reject with a reason.`,
     timestamp: new Date().toISOString(),
     read: false,
     link: `/invoices?invoice=${input.invoiceId}`,
-    link_label: 'Review invoice',
+    link_label: 'Review documents',
     invoice_id: input.invoiceId,
     invoice_number: input.invoiceNumber,
     metadata: {
       client_name: input.clientName,
       file_names: input.fileNames,
+      hold_review: Boolean(input.holdReview),
     },
   })
 }

@@ -1,10 +1,10 @@
-import { CheckCircle, CheckCircle2, Clock, Phone, FileText, ListTodo } from 'lucide-react'
+import { CheckCircle, CheckCircle2, Clock, Phone, FileText, ListTodo, Scale } from 'lucide-react'
 import DashboardPanel from '../../client/dashboard/DashboardPanel'
 import { useClientTheme } from '../../../theme/ThemeContext'
 
 interface ActionItem {
   id: string
-  type: 'batch_review' | 'broker_call' | 'document_upload' | 'invoice_approval'
+  type: 'batch_review' | 'broker_call' | 'document_upload' | 'invoice_approval' | 'review_dispute'
   title: string
   description: string
   priority: 'high' | 'medium' | 'low'
@@ -29,6 +29,8 @@ export function TodaysActions({ actions, onActionClick }: TodaysActionsProps) {
         return <FileText className="w-4 h-4" />
       case 'invoice_approval':
         return <CheckCircle className="w-4 h-4" />
+      case 'review_dispute':
+        return <Scale className="w-4 h-4" />
       default:
         return <Clock className="w-4 h-4" />
     }

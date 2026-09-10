@@ -86,4 +86,21 @@ describe('buildCarrierInvoiceGroups', () => {
     expect(other?.invoiceCount).toBe(1)
     expect(other?.totalAmount).toBe(500)
   })
+
+  it('totals remaining open A/R, not the original invoice face amounts', () => {
+    const asOf = new Date('2026-09-09')
+    const invoices = [
+      enrichInvoice(
+        invoice({
+          id: 'short',
+          invoice_number: 'D30-08',
+          amount: 2890,
+          paid_amount: 1000,
+        }),
+        asOf
+      ),
+    ]
+    const groups = buildCarrierInvoiceGroups(invoices, [])
+    expect(groups[0]?.totalAmount).toBe(1890)
+  })
 })

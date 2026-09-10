@@ -34,7 +34,7 @@ function friendlySendError(raw: string, stub?: boolean): string {
     return 'Email is not configured on this Supabase project. Add RESEND_API_KEY on Edge Function secrets for send-email, then deploy the function.'
   }
   if (/unknown template/i.test(raw)) {
-    return 'send-email on this project is out of date (missing the document-issue template). Deploy supabase/functions/send-email and try again.'
+    return 'The live send-email function does not recognize this template. The app now sends billing mail through a built-in layout. Retry send. If it still fails, deploy supabase/functions/send-email.'
   }
   try {
     const parsed = JSON.parse(raw) as { message?: string; error?: string }

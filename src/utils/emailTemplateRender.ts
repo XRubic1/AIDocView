@@ -18,7 +18,8 @@ export function renderEmailTemplateString(
       key === 'holdSection' ||
       key === 'inviteLink' ||
       key === 'setupLink' ||
-      key === 'confirmation_url'
+      key === 'confirmation_url' ||
+      key === 'paymentUrl'
     ) {
       return raw
     }
@@ -57,6 +58,15 @@ export function enrichEmailTemplateData(
     }
     if (!next.clientName) next.clientName = 'Carrier'
     if (!next.brokerName) next.brokerName = 'the broker'
+  }
+
+  if (templateId === 'carrier_billing_invoice') {
+    if (!next.ctaLabel) next.ctaLabel = 'Pay invoice'
+    if (!next.contactName) next.contactName = 'there'
+    if (!next.clientName) next.clientName = 'Carrier'
+    if (!next.messageHtml) next.messageHtml = ''
+    if (!next.lineItemsHtml) next.lineItemsHtml = ''
+    if (!next.invoiceRowsHtml) next.invoiceRowsHtml = ''
   }
 
   if (templateId === 'carrier_batch_processed') {

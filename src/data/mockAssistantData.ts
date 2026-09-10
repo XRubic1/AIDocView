@@ -283,7 +283,7 @@ export function buildMockAssistantReplies(
             brokerName: match.brokerName,
             dateLabel: match.dueLabel,
             confidence: 'medium',
-            source: 'forecast',
+            source: 'confirmed',
           },
           text: match.detail,
         },

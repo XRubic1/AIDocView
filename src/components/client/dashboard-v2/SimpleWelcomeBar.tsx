@@ -4,15 +4,14 @@ type SimpleWelcomeBarProps = {
   awaySummary: string
   loading?: boolean
   /**
-   * Show “Welcome back…” on the page. Desktop puts the greeting in the top
-   * navbar — only phones (no topbar) need it here.
+   * Show “Welcome back…” on the page. Greeting lives in the topbar;
+   * this page strip is the “since you were away” line (desktop only).
    */
   showGreeting?: boolean
 }
 
 /**
- * Compact activity strip under the navbar.
- * Greeting lives in the topbar on desktop; phones keep it here.
+ * Compact activity strip under the navbar (desktop). Hidden on phones.
  */
 export default function SimpleWelcomeBar({
   carrierName,

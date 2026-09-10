@@ -1215,6 +1215,37 @@ export default function Clients() {
                     <label className="flex items-center gap-2 text-sm text-slate-800 sm:col-span-2">
                       <input
                         type="checkbox"
+                        checked={selectedClient.billing?.include_platform_fee !== false}
+                        onChange={(e) => {
+                          void (async () => {
+                            const planBilling =
+                              selectedClient.billing ??
+                              createDefaultBilling(selectedClient.service_tier ?? 'self_service')
+                            const updated = await updateClient(selectedClient.id, {
+                              billing: {
+                                ...planBilling,
+                                include_platform_fee: e.target.checked,
+                              },
+                            })
+                            if (updated) {
+                              setSelectedClient(updated)
+                              refreshClients()
+                              showToast(
+                                e.target.checked
+                                  ? 'Monthly bills will include the $99 software fee'
+                                  : 'Monthly bills will omit the $99 software fee',
+                                'success'
+                              )
+                            }
+                          })()
+                        }}
+                      />
+                      Include $99 software fee on monthly Credyx invoices
+                    </label>
+
+                    <label className="flex items-center gap-2 text-sm text-slate-800 sm:col-span-2">
+                      <input
+                        type="checkbox"
                         checked={selectedClient.factoring ?? false}
                         onChange={(e) => {
                           void (async () => {

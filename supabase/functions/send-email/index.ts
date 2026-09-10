@@ -23,6 +23,7 @@ type EmailTemplate =
   | 'broker_payment_status_followup'
   | 'calendar_event_notice'
   | 'carrier_document_issue'
+  | 'carrier_billing_invoice'
   | 'auth_signup'
   | 'auth_invite'
   | 'auth_magiclink'
@@ -155,7 +156,8 @@ function renderTemplateString(template: string, data: Record<string, string>): s
       key === 'inviteLink' ||
       key === 'setupLink' ||
       key === 'clientNameSuffix' ||
-      key === 'confirmation_url'
+      key === 'confirmation_url' ||
+      key === 'paymentUrl'
     ) {
       return raw
     }
@@ -179,6 +181,14 @@ function enrichData(template: EmailTemplate, data: Record<string, string>): Reco
     }
     if (!next.clientName) next.clientName = 'Carrier'
     if (!next.brokerName) next.brokerName = 'the broker'
+  }
+
+  if (template === 'carrier_billing_invoice') {
+    if (!next.ctaLabel) next.ctaLabel = 'Pay invoice'
+    if (!next.clientName) next.clientName = 'Carrier'
+    if (!next.messageHtml) next.messageHtml = ''
+    if (!next.lineItemsHtml) next.lineItemsHtml = ''
+    if (!next.invoiceRowsHtml) next.invoiceRowsHtml = ''
   }
 
   if (template === 'carrier_batch_processed') {
@@ -446,6 +456,22 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
           d
         ),
       }
+    case 'carrier_billing_invoice':
+      return {
+        subject: renderTemplateString('Credyx invoice — {{periodLabel}} · {{amountDue}}', d),
+        html: renderTemplateString(
+          `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#0f172a;">
+  <p>Hi {{contactName}},</p>
+  <p>Credyx invoice for <strong>{{clientName}}</strong> — {{periodLabel}}.</p>
+  <p>Amount due: <strong>{{amountDue}}</strong> (due {{dueDate}}).</p>
+  {{lineItemsHtml}}
+  {{invoiceRowsHtml}}
+  {{messageHtml}}
+  <p><a href="{{paymentUrl}}" style="display:inline-block;background:#1684FE;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;">{{ctaLabel}}</a></p>
+</div>`,
+          d
+        ),
+      }
     default:
       if (String(template).startsWith('auth_')) {
         const subjects: Record<string, string> = {
@@ -585,7 +611,12 @@ Deno.serve(async (req) => {
 
     const { data: userData, error: userError } = await supabase.auth.getUser()
     const role = userData.user?.app_metadata?.role
-    const isAdmin = role === 'admin'
+    const staffRole = userData.user?.app_metadata?.admin_role
+    const isAdmin =
+      role === 'admin' ||
+      staffRole === 'admin' ||
+      staffRole === 'super_admin' ||
+      staffRole === 'billing'
     const payload = (await req.json()) as SendEmailPayload
 
     if (PUBLIC_TEMPLATES.has(payload.template)) {
@@ -645,7 +676,7 @@ Deno.serve(async (req) => {
     const { subject, html } = await resolveEmail(
       payload.template,
       payload.data ?? {},
-      isAdmin && payload.overrideSubject && payload.overrideHtml
+      payload.overrideSubject && payload.overrideHtml
         ? { subject: payload.overrideSubject, html: payload.overrideHtml }
         : undefined
     )

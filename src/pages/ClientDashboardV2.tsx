@@ -3,7 +3,7 @@
  * Answers: How much am I owed? → Is anything wrong? → What should I do?
  * Primary client dashboard (routed at /client/dashboard).
  */
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import SimpleWelcomeBar from '../components/client/dashboard-v2/SimpleWelcomeBar'
 import PriorityActionCard, {
   type PriorityRecommendation,
@@ -15,6 +15,7 @@ import KpiStatRow, {
 import SimpleActionsList from '../components/client/dashboard-v2/SimpleActionsList'
 import SimpleBrokerRiskPanel from '../components/client/dashboard-v2/SimpleBrokerRiskPanel'
 import ArTrendPanel from '../components/client/dashboard-v2/ArTrendPanel'
+import DashboardListSwipe from '../components/client/dashboard-v2/DashboardListSwipe'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { isInvoiceOverdue, isOpenArInvoice } from '../utils/invoiceAging'
@@ -51,8 +52,6 @@ export default function ClientDashboardV2() {
   } = useClientDemoSnapshot()
   const invoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
   const isPhoneViewport = useIsMobileViewport()
-  const [comingWindow, setComingWindow] = useState<'7' | '14' | '30'>('30')
-  const [paidWindow, setPaidWindow] = useState<'7' | '14' | '30'>('30')
 
   /** Overdue open A/R total + count. */
   const { overdueAmount, overdueCount } = useMemo(() => {
@@ -344,25 +343,14 @@ export default function ClientDashboardV2() {
   }, [invoices, payments, batches])
 
   const kpiStats = useMemo((): KpiStat[] => {
-    const comingBucket =
-      comingWindow === '7'
-        ? comingDue.next7
-        : comingWindow === '14'
-          ? comingDue.next14
-          : comingDue.next30
-    const paidBucket =
-      paidWindow === '7'
-        ? paidRecent.next7
-        : paidWindow === '14'
-          ? paidRecent.next14
-          : paidRecent.next30
+    const comingBucket = comingDue.next30
+    const paidBucket = paidRecent.next30
 
     return [
       {
         key: 'open',
         label: 'Open Balance',
         amount: dashboard.summary.total_ar,
-        sub: 'Total open A/R',
         navigateTo: '/client/invoices',
         tone: 'neutral',
         trend: kpiTrends.open,
@@ -371,10 +359,7 @@ export default function ClientDashboardV2() {
         key: 'overdue',
         label: 'Overdue',
         amount: overdueAmount,
-        sub:
-          overdueCount === 0
-            ? 'None overdue'
-            : `${overdueCount} invoice${overdueCount === 1 ? '' : 's'}`,
+        sub: overdueCount > 0 ? String(overdueCount) : undefined,
         navigateTo: '/client/invoices?status=overdue',
         tone: overdueCount > 0 ? 'danger' : 'neutral',
         trend: kpiTrends.overdue,
@@ -383,40 +368,19 @@ export default function ClientDashboardV2() {
         key: 'coming',
         label: 'Coming due',
         amount: comingBucket.amount,
-        sub:
-          comingBucket.count === 0
-            ? `Next ${comingWindow} days · not confirmed`
-            : `${comingBucket.count} invoice${comingBucket.count === 1 ? '' : 's'} · not confirmed`,
+        sub: comingBucket.count > 0 ? String(comingBucket.count) : undefined,
         navigateTo: '/client/invoices?status=approved',
         tone: 'neutral',
         trend: kpiTrends.coming,
-        windows: [
-          { id: '7', label: '7d', ...comingDue.next7 },
-          { id: '14', label: '14d', ...comingDue.next14 },
-          { id: '30', label: '30d', ...comingDue.next30 },
-        ],
-        selectedWindow: comingWindow,
-        onWindowChange: (id) => setComingWindow(id as '7' | '14' | '30'),
       },
       {
         key: 'paid',
         label: 'Confirmed pay',
         amount: paidBucket.amount,
-        sub:
-          paidBucket.count === 0
-            ? `Next ${paidWindow} days · confirmed`
-            : `${paidBucket.count} invoice${paidBucket.count === 1 ? '' : 's'} · confirmed`,
+        sub: paidBucket.count > 0 ? String(paidBucket.count) : undefined,
         navigateTo: '/client/invoices',
         tone: 'success',
         trend: kpiTrends.paid,
-        trendLabel: 'vs prior 30 days',
-        windows: [
-          { id: '7', label: '7d', ...paidRecent.next7 },
-          { id: '14', label: '14d', ...paidRecent.next14 },
-          { id: '30', label: '30d', ...paidRecent.next30 },
-        ],
-        selectedWindow: paidWindow,
-        onWindowChange: (id) => setPaidWindow(id as '7' | '14' | '30'),
       },
     ]
   }, [
@@ -425,8 +389,6 @@ export default function ClientDashboardV2() {
     overdueCount,
     comingDue,
     paidRecent,
-    comingWindow,
-    paidWindow,
     kpiTrends,
   ])
 
@@ -441,24 +403,42 @@ export default function ClientDashboardV2() {
         </div>
 
         <div className="client-dashboard-v2__inner">
-          <SimpleWelcomeBar
-            carrierName={clientName || 'Carrier'}
-            awaySummary={awaySummary}
-            loading={loading}
-            showGreeting={isPhoneViewport}
-          />
+          {!isPhoneViewport ? (
+            <SimpleWelcomeBar
+              carrierName={clientName || 'Carrier'}
+              awaySummary={awaySummary}
+              loading={loading}
+            />
+          ) : null}
 
-          <PriorityActionCard recommendations={recommendations} loading={loading} />
+          <PriorityActionCard
+            recommendations={recommendations}
+            loading={loading}
+            swipeable={isPhoneViewport}
+          />
 
           <KpiStatRow stats={kpiStats} loading={loading} />
 
           <div className="client-dashboard-v2__body">
-            <SimpleBrokerRiskPanel
-              invoices={invoices}
-              payments={payments}
-              loading={loading}
-            />
-            <SimpleActionsList invoices={invoices} payments={payments} loading={loading} />
+            {isPhoneViewport ? (
+              <DashboardListSwipe>
+                <SimpleBrokerRiskPanel
+                  invoices={invoices}
+                  payments={payments}
+                  loading={loading}
+                />
+                <SimpleActionsList invoices={invoices} payments={payments} loading={loading} />
+              </DashboardListSwipe>
+            ) : (
+              <>
+                <SimpleBrokerRiskPanel
+                  invoices={invoices}
+                  payments={payments}
+                  loading={loading}
+                />
+                <SimpleActionsList invoices={invoices} payments={payments} loading={loading} />
+              </>
+            )}
             <ArTrendPanel
               invoices={invoices}
               payments={payments}

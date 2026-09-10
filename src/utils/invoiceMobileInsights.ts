@@ -4,11 +4,13 @@ import type { BrokerRiskLevel } from '../types/brokerRisk'
 import { isOpenArInvoice } from './invoiceAging'
 import { formatCurrency, formatRelativeTime } from './format'
 import { getOpenDisputes } from '../services/clientInvoiceActions'
+import { invoiceHasPendingHoldPaperworkReview } from './holdPaperworkReview'
 import { isClientVisibleHold, clientVisibleNotesForInvoice } from './clientInvoiceView'
 import { deriveHoldExplanation } from './assistantHoldExplanation'
 import { AMOUNT_EPSILON } from './paymentVariance'
 import { invoiceListPriorityStatusLabel } from './invoiceListPriority'
 import { getInvoiceDisputeOverviewNote } from './clientInvoiceDisputeStatus'
+import { getCallBackOverviewNote, getWillPayOverviewNote } from './invoiceStatusHeadline'
 import { resolveLastBrokerContact } from './adminCollections'
 
 export type InvoiceInsightTone = 'default' | 'alert' | 'success' | 'info'
@@ -126,6 +128,8 @@ export function getCarrierInvoiceActionRequired(
   invoice: Invoice
 ): CarrierInvoiceActionRequired | null {
   if (!isClientVisibleHold(invoice)) return null
+  // Carrier already uploaded — wait for Credyx accept/reject instead of asking again.
+  if (invoiceHasPendingHoldPaperworkReview(invoice)) return null
 
   const note = getOnHoldNoteText(invoice)
   const needsDocs = MISSING_DOCS_HOLD_RE.test(note)
@@ -183,7 +187,32 @@ export function getInvoiceMobileInsights(
   const overReason =
     overage > 0 ? 'Broker paid more than the invoice total' : ''
 
-  // Dispute note first — top of overview tab.
+  // Latest status note wins the top of the overview. An older open dispute
+  // stays visible underneath (e.g. Will Pay posted after a carrier dispute).
+  const willPayNote = getWillPayOverviewNote(invoice)
+  if (willPayNote) {
+    insights.push({
+      id: 'will-pay',
+      title: willPayNote.title,
+      subtitle: willPayNote.note,
+      tone: 'success',
+      icon: 'dollar',
+      action: 'activity',
+    })
+  }
+
+  const callBackNote = getCallBackOverviewNote(invoice)
+  if (callBackNote) {
+    insights.push({
+      id: 'call-back',
+      title: callBackNote.title,
+      subtitle: callBackNote.note,
+      tone: 'info',
+      icon: 'clock',
+      action: 'activity',
+    })
+  }
+
   const disputeNote = getInvoiceDisputeOverviewNote(invoice, paymentDisputeDescription, {
     paymentDisputed,
   })

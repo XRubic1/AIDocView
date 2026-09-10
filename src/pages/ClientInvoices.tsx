@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, type MouseEvent } from 'react'
 import { useSearchParams, useLocation } from 'react-router-dom'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
@@ -53,6 +53,7 @@ import { compareInvoicesByListPriority } from '../utils/invoiceListPriority'
 import { getPresetRange } from '../utils/clientReports'
 import { isReceiptDisputeHold } from '../services/paymentReceiptConfirmationService'
 import { invoiceHasOpenDisputedStatus } from '../utils/clientInvoiceDisputeStatus'
+import { getClientVisiblePayDate } from '../utils/invoiceWillPay'
 
 type InvoiceSortField =
   | 'invoice_number'
@@ -93,6 +94,49 @@ const INVOICE_STATUS_FILTERS: { id: InvoiceStatusFilter; label: string }[] = [
   { id: 'paid', label: 'Paid' },
   { id: 'closed', label: 'Closed' },
 ]
+
+type ClientInvoiceDisplayFlags = Record<InvoiceStatusFilter, boolean>
+
+function emptyClientInvoiceDisplayFlags(): ClientInvoiceDisplayFlags {
+  return {
+    confirm: false,
+    short_paid: false,
+    approved: false,
+    hold: false,
+    overdue: false,
+    active: false,
+    pending: false,
+    paid: false,
+    closed: false,
+  }
+}
+
+/** Working queue on; paid/closed opt-in — same pattern as admin invoices. */
+function createClientInvoiceDisplayFlags(): ClientInvoiceDisplayFlags {
+  return {
+    ...emptyClientInvoiceDisplayFlags(),
+    confirm: true,
+    short_paid: true,
+    approved: true,
+    hold: true,
+    overdue: true,
+    active: true,
+    pending: true,
+  }
+}
+
+function exclusiveClientInvoiceDisplayFlags(
+  id: InvoiceStatusFilter
+): ClientInvoiceDisplayFlags {
+  return { ...emptyClientInvoiceDisplayFlags(), [id]: true }
+}
+
+function isExclusiveDisplayFlag(
+  flags: ClientInvoiceDisplayFlags,
+  id: InvoiceStatusFilter
+): boolean {
+  return INVOICE_STATUS_FILTERS.every(({ id: key }) => flags[key] === (key === id))
+}
 
 const CLOSED_DISPLAY_STATUSES = new Set(['force_closed', 'written_off', 'rejected'])
 
@@ -244,7 +288,9 @@ export default function ClientInvoices() {
     [rawInvoices]
   )
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState<InvoiceStatusFilter>('active')
+  const [displayFlags, setDisplayFlags] = useState<ClientInvoiceDisplayFlags>(
+    createClientInvoiceDisplayFlags
+  )
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [mobileDateMenuOpen, setMobileDateMenuOpen] = useState(false)
@@ -257,27 +303,6 @@ export default function ClientInvoices() {
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<InvoiceSortField>('invoice_date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  /** Mobile filter row — show right-edge arrow while more pills are off-screen. */
-  const filterScrollRef = useRef<HTMLDivElement>(null)
-  const [canScrollFiltersMore, setCanScrollFiltersMore] = useState(false)
-
-  /** Update overflow arrow when the filter strip scrolls or resizes. */
-  const updateFilterScrollHint = useCallback(() => {
-    const el = filterScrollRef.current
-    if (!el) {
-      setCanScrollFiltersMore(false)
-      return
-    }
-    const remaining = el.scrollWidth - el.clientWidth - el.scrollLeft
-    setCanScrollFiltersMore(remaining > 8)
-  }, [])
-
-  /** Nudge the filter strip so the next pills come into view. */
-  const scrollFiltersMore = useCallback(() => {
-    const el = filterScrollRef.current
-    if (!el) return
-    el.scrollBy({ left: Math.min(160, el.clientWidth * 0.55), behavior: 'smooth' })
-  }, [])
 
   const payDateByInvoiceId = useMemo(
     () => buildConfirmedPayDateByInvoiceId(payments),
@@ -379,15 +404,20 @@ export default function ClientInvoices() {
     const pendingInfo = invoicePendingById.get(invoice.id)
     const displayStatus = getInvoiceFilterDisplayStatus(invoice, balance, pendingInfo)
 
-    return (
-      matchesSearch &&
-      matchesDate &&
-      matchesInvoiceStatusFilter(invoice, statusFilter, displayStatus, {
-        awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
-        isShortPaid: isInvoiceListShortPaid(invoice, balance),
-        paymentDisputed: disputedPaymentInvoiceIds.has(invoice.id),
-      })
-    )
+    const searchActive = searchTerm.trim().length > 0
+    const matchesChips =
+      searchActive ||
+      INVOICE_STATUS_FILTERS.some(
+        ({ id }) =>
+          displayFlags[id] &&
+          matchesInvoiceStatusFilter(invoice, id, displayStatus, {
+            awaitingReceipt: awaitingReceiptInvoiceIds.has(invoice.id),
+            isShortPaid: isInvoiceListShortPaid(invoice, balance),
+            paymentDisputed: disputedPaymentInvoiceIds.has(invoice.id),
+          })
+      )
+
+    return matchesSearch && matchesDate && matchesChips
   })
 
   const matchesDatePreset = useCallback(
@@ -472,25 +502,36 @@ export default function ClientInvoices() {
     disputedPaymentInvoiceIds,
   ])
 
-  useEffect(() => {
-    if (!isMobileViewport) return
-    const el = filterScrollRef.current
-    if (!el) return
+  const anyDisplayHidden = INVOICE_STATUS_FILTERS.some(({ id }) => !displayFlags[id])
+  const overdueExclusive = isExclusiveDisplayFlag(displayFlags, 'overdue')
+  /** Flags from before Ctrl+click solo, restored on a second Ctrl+click of the same chip. */
+  const displayFlagsBeforeSoloRef = useRef<ClientInvoiceDisplayFlags | null>(null)
 
-    updateFilterScrollHint()
-    el.addEventListener('scroll', updateFilterScrollHint, { passive: true })
-    const ro =
-      typeof ResizeObserver !== 'undefined'
-        ? new ResizeObserver(updateFilterScrollHint)
-        : null
-    ro?.observe(el)
-    window.addEventListener('resize', updateFilterScrollHint)
-    return () => {
-      el.removeEventListener('scroll', updateFilterScrollHint)
-      ro?.disconnect()
-      window.removeEventListener('resize', updateFilterScrollHint)
-    }
-  }, [isMobileViewport, updateFilterScrollHint, statusFilterCounts])
+  const handleDisplayChipClick = useCallback(
+    (id: InvoiceStatusFilter, event: MouseEvent<HTMLButtonElement>) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault()
+        setDisplayFlags((prev) => {
+          if (isExclusiveDisplayFlag(prev, id)) {
+            const restored =
+              displayFlagsBeforeSoloRef.current ?? createClientInvoiceDisplayFlags()
+            displayFlagsBeforeSoloRef.current = null
+            return restored
+          }
+          const alreadySolo = INVOICE_STATUS_FILTERS.some(({ id: key }) =>
+            isExclusiveDisplayFlag(prev, key)
+          )
+          if (!alreadySolo) {
+            displayFlagsBeforeSoloRef.current = prev
+          }
+          return exclusiveClientInvoiceDisplayFlags(id)
+        })
+        return
+      }
+      setDisplayFlags((prev) => ({ ...prev, [id]: !prev[id] }))
+    },
+    []
+  )
 
   const sortedInvoices = useMemo(() => {
     const sorted = [...filteredInvoices]
@@ -544,9 +585,15 @@ export default function ClientInvoices() {
           break
         case 'pay_date': {
           const aPay =
-            payDateByInvoiceId.get(a.id) || pendingPayDateByInvoiceId.get(a.id) || ''
+            getClientVisiblePayDate(a, {
+              confirmedPayDate: payDateByInvoiceId.get(a.id),
+              pendingPayDate: pendingPayDateByInvoiceId.get(a.id),
+            })?.date || ''
           const bPay =
-            payDateByInvoiceId.get(b.id) || pendingPayDateByInvoiceId.get(b.id) || ''
+            getClientVisiblePayDate(b, {
+              confirmedPayDate: payDateByInvoiceId.get(b.id),
+              pendingPayDate: pendingPayDateByInvoiceId.get(b.id),
+            })?.date || ''
           cmp = aPay.localeCompare(bPay)
           break
         }
@@ -638,6 +685,7 @@ export default function ClientInvoices() {
     const status = searchParams.get('status')
     const validStatuses: InvoiceStatusFilter[] = [
       'confirm',
+      'short_paid',
       'approved',
       'hold',
       'overdue',
@@ -648,14 +696,14 @@ export default function ClientInvoices() {
     ]
     // Legacy deep-links for closed invoices.
     if (status === 'force_closed' || status === 'written_off') {
-      setStatusFilter('closed')
+      setDisplayFlags(exclusiveClientInvoiceDisplayFlags('closed'))
       const next = new URLSearchParams(searchParams)
       next.delete('status')
       setSearchParams(next, { replace: true })
       return
     }
     if (status && validStatuses.includes(status as InvoiceStatusFilter)) {
-      setStatusFilter(status as InvoiceStatusFilter)
+      setDisplayFlags(exclusiveClientInvoiceDisplayFlags(status as InvoiceStatusFilter))
       const next = new URLSearchParams(searchParams)
       next.delete('status')
       setSearchParams(next, { replace: true })
@@ -664,7 +712,7 @@ export default function ClientInvoices() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, statusFilter, dateFrom, dateTo, pageSize, sortField, sortDir])
+  }, [searchTerm, displayFlags, dateFrom, dateTo, pageSize, sortField, sortDir])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -776,11 +824,13 @@ export default function ClientInvoices() {
       getClientDisplayBalanceState(target.amount, 0, 0)
     const pendingInfo = invoicePendingById.get(target.id)
     const displayStatus = getInvoiceFilterDisplayStatus(target, balance, pendingInfo)
-    setStatusFilter(
-      statusFilterForInvoice(target, displayStatus, {
-        awaitingReceipt: awaitingReceiptInvoiceIds.has(target.id),
-        isShortPaid: isInvoiceListShortPaid(target, balance),
-      })
+    setDisplayFlags(
+      exclusiveClientInvoiceDisplayFlags(
+        statusFilterForInvoice(target, displayStatus, {
+          awaitingReceipt: awaitingReceiptInvoiceIds.has(target.id),
+          isShortPaid: isInvoiceListShortPaid(target, balance),
+        })
+      )
     )
     setSearchTerm('')
     setHighlightedInvoiceId(target.id)
@@ -843,11 +893,13 @@ export default function ClientInvoices() {
     const displayStatus = getInvoiceFilterDisplayStatus(target, balance, pendingInfo)
 
     openedHighlightRef.current = stashedId
-    setStatusFilter(
-      statusFilterForInvoice(target, displayStatus, {
-        awaitingReceipt: awaitingReceiptInvoiceIds.has(target.id),
-        isShortPaid: isInvoiceListShortPaid(target, balance),
-      })
+    setDisplayFlags(
+      exclusiveClientInvoiceDisplayFlags(
+        statusFilterForInvoice(target, displayStatus, {
+          awaitingReceipt: awaitingReceiptInvoiceIds.has(target.id),
+          isShortPaid: isInvoiceListShortPaid(target, balance),
+        })
+      )
     )
     setSelectedInvoiceId(stashedId)
     setDetailPanelClosing(false)
@@ -897,7 +949,6 @@ export default function ClientInvoices() {
           <InvoiceDetailPanel variant="mobile" {...invoiceDetailPanelProps} />
         ) : (
           <>
-            <ClientInvoicesTabs />
             <section
               className={`client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0${
                 isMobileViewport ? ' hidden' : ''
@@ -940,10 +991,16 @@ export default function ClientInvoices() {
               </div>
               <button
                 type="button"
-                onClick={() => setStatusFilter(statusFilter === 'overdue' ? 'active' : 'overdue')}
+                onClick={() =>
+                  setDisplayFlags(
+                    overdueExclusive
+                      ? createClientInvoiceDisplayFlags()
+                      : exclusiveClientInvoiceDisplayFlags('overdue')
+                  )
+                }
                 className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left transition-colors hover:opacity-90"
                 style={{
-                  backgroundColor: statusFilter === 'overdue' ? c.stat.redActive : c.stat.red,
+                  backgroundColor: overdueExclusive ? c.stat.redActive : c.stat.red,
                   borderColor: c.border,
                 }}
               >
@@ -986,139 +1043,86 @@ export default function ClientInvoices() {
               </div>
             </section>
 
-            {isMobileViewport ? (
-              <div
-                className="mobile-invoices-toolbar shrink-0"
-                style={{ borderColor: c.border, backgroundColor: c.card }}
-              >
+            <div
+              className="client-page-toolbar px-4 py-2 border-b shrink-0 space-y-2"
+              style={{ borderColor: c.border, backgroundColor: c.card }}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <ClientInvoicesTabs />
                 <div
-                  className={`mobile-invoices-toolbar__filters-wrap${
-                    canScrollFiltersMore ? ' has-more' : ''
-                  }`}
+                  className="flex flex-wrap items-center gap-1.5 min-w-0"
+                  role="group"
+                  aria-label="Invoice types to display"
                 >
-                  <div
-                    ref={filterScrollRef}
-                    className="mobile-invoices-toolbar__filters"
-                    role="group"
-                    aria-label="Filter by status"
-                  >
-                    {INVOICE_STATUS_FILTERS.map(({ id, label }) => {
-                      const count = statusFilterCounts[id]
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          className={`mobile-invoices-toolbar__pill${
-                            statusFilter === id ? ' is-active' : ''
-                          }${id === 'overdue' && count > 0 ? ' is-alert' : ''}`}
-                          onClick={() => setStatusFilter(id)}
-                          aria-pressed={statusFilter === id}
-                          data-onboard-target={`invoiceFilter-${id}`}
-                        >
-                          {label}
-                          <span className="mobile-invoices-toolbar__pill-count">{count}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                  {canScrollFiltersMore ? (
+                {INVOICE_STATUS_FILTERS.map(({ id, label }) => {
+                  const showing = displayFlags[id]
+                  const count = statusFilterCounts[id]
+                  return (
                     <button
+                      key={id}
                       type="button"
-                      className="mobile-invoices-toolbar__more"
-                      onClick={scrollFiltersMore}
-                      aria-label="Show more filters"
+                      onClick={(event) => handleDisplayChipClick(id, event)}
+                      aria-pressed={showing}
+                      title={
+                        isExclusiveDisplayFlag(displayFlags, id)
+                          ? `Showing only ${label} — Ctrl+click to restore all filters`
+                          : showing
+                            ? `Showing ${label} — click to hide · Ctrl+click to show only this`
+                            : `Hidden ${label} — click to show · Ctrl+click to show only this`
+                      }
+                      className={`page-tab !py-1 !px-2 !text-xs ${
+                        showing ? 'page-tab--active' : 'opacity-50'
+                      }`}
+                      data-onboard-target={`invoiceFilter-${id}`}
                     >
-                      <ChevronRight size={16} strokeWidth={2.25} aria-hidden />
+                      {label}
+                      <span className="tabular-nums"> ({count})</span>
                     </button>
-                  ) : null}
+                  )
+                })}
                 </div>
-                <div className="mobile-payments-search-row">
-                  <div className="mobile-invoices-toolbar__search">
-                    <Search
-                      className="mobile-invoices-toolbar__search-icon"
-                      size={14}
-                      strokeWidth={2}
-                      style={{ color: c.secondary }}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Search..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="mobile-invoices-toolbar__search-input"
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    className={`mobile-payments-date__trigger${
-                      mobileDateRangeValue !== 'all' ? ' is-active' : ''
-                    }${mobileDateMenuOpen ? ' is-open' : ''}`}
-                    aria-haspopup="dialog"
-                    aria-expanded={mobileDateMenuOpen}
-                    onClick={() => setMobileDateMenuOpen(true)}
-                  >
-                    <CalendarDays size={14} strokeWidth={2.25} aria-hidden />
-                    <span className="mobile-payments-date__label">{mobileDateRangeLabel}</span>
-                  </button>
-                </div>
-
-                {mobileDateMenuOpen ? (
-                  <MobilePaymentDateRangeSheet
-                    eyebrow="Invoices"
-                    activeValue={mobileDateRangeValue}
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    onApplyPreset={applyDatePreset}
-                    onChangeFrom={setDateFrom}
-                    onChangeTo={setDateTo}
-                    onClose={() => setMobileDateMenuOpen(false)}
+              </div>
+              <div className="flex flex-col md:flex-row md:items-center gap-2">
+                <div className="flex-1 relative">
+                  <Search
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
+                    style={{ color: c.secondary }}
                   />
-                ) : null}
-              </div>
-            ) : (
-              <div
-                className="client-page-toolbar px-4 py-2 border-b shrink-0"
-                style={{ borderColor: c.border, backgroundColor: c.card }}
-              >
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
-                    {INVOICE_STATUS_FILTERS.map(({ id, label }) => {
-                      const count = statusFilterCounts[id]
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => setStatusFilter(id)}
-                          className={`batch-filter-pill${
-                            statusFilter === id ? ' batch-filter-pill--active' : ''
-                          }${id === 'overdue' && count > 0 && statusFilter !== id ? ' batch-filter-pill--alert' : ''}`}
-                          aria-pressed={statusFilter === id}
-                          data-onboard-target={`invoiceFilter-${id}`}
-                        >
-                          {label}
-                          <span className="batch-filter-pill__count">{count}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <div className="relative w-full lg:w-auto lg:min-w-[280px] lg:max-w-sm">
-                    <Search
-                      className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
-                      style={{ color: c.secondary }}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Search invoices..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="client-input pl-8"
-                      style={inputCompactStyle}
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search invoice, broker, load…"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="client-input pl-8"
+                    style={inputCompactStyle}
+                  />
                 </div>
+                <button
+                  type="button"
+                  className={`mobile-payments-date__trigger shrink-0${
+                    mobileDateRangeValue !== 'all' ? ' is-active' : ''
+                  }${mobileDateMenuOpen ? ' is-open' : ''}`}
+                  aria-haspopup="dialog"
+                  aria-expanded={mobileDateMenuOpen}
+                  onClick={() => setMobileDateMenuOpen(true)}
+                >
+                  <CalendarDays size={14} strokeWidth={2.25} aria-hidden />
+                  <span className="mobile-payments-date__label">{mobileDateRangeLabel}</span>
+                </button>
               </div>
-            )}
+              {mobileDateMenuOpen ? (
+                <MobilePaymentDateRangeSheet
+                  eyebrow="Invoices"
+                  activeValue={mobileDateRangeValue}
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onApplyPreset={applyDatePreset}
+                  onChangeFrom={setDateFrom}
+                  onChangeTo={setDateTo}
+                  onClose={() => setMobileDateMenuOpen(false)}
+                />
+              ) : null}
+            </div>
 
             {sortedInvoices.length === 0 ? (
               <div className="payments-workspace-body flex-1 min-h-0">
@@ -1129,8 +1133,8 @@ export default function ClientInvoices() {
                       No invoices found
                     </p>
                     <p className="text-sm" style={{ color: c.secondary }}>
-                      {searchTerm || statusFilter !== 'active'
-                        ? 'Try adjusting your search or filters'
+                      {searchTerm || anyDisplayHidden
+                        ? 'Try adjusting search or turn display chips back on'
                         : 'Your invoices will appear here'}
                     </p>
                   </div>
@@ -1246,6 +1250,7 @@ export default function ClientInvoices() {
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={handleSort}
+                            className="client-list-td--invoice-date"
                           />
                           <ClientSortableHeader
                             field="pay_date"
@@ -1253,6 +1258,7 @@ export default function ClientInvoices() {
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={handleSort}
+                            className="client-list-td--pay-date"
                           />
                           <ClientSortableHeader
                             field="days_outstanding"
@@ -1307,8 +1313,10 @@ export default function ClientInvoices() {
                           const balanceDisplay = isWrittenOff
                             ? { text: formatCurrency(writtenOffAmount), color: c.warning }
                             : formatInvoiceOpenBalance(balance, c.mutedLight, c.primary)
-                          const confirmedPayDate = payDateByInvoiceId.get(invoice.id)
-                          const pendingPayDate = pendingPayDateByInvoiceId.get(invoice.id)
+                          const visiblePayDate = getClientVisiblePayDate(invoice, {
+                            confirmedPayDate: payDateByInvoiceId.get(invoice.id),
+                            pendingPayDate: pendingPayDateByInvoiceId.get(invoice.id),
+                          })
                           return (
                             <tr
                               key={invoice.id}
@@ -1373,20 +1381,42 @@ export default function ClientInvoices() {
                               >
                                 <span style={{ color: balanceDisplay.color }}>{balanceDisplay.text}</span>
                               </ClientListTd>
-                              <ClientListTd variant="desktop" label="Invoice Date" style={{ color: c.secondary }}>
+                              <ClientListTd
+                                variant="desktop"
+                                label="Invoice Date"
+                                className="client-list-td--invoice-date"
+                                style={{ color: c.secondary }}
+                              >
                                 {formatDate(invoice.invoice_date)}
                               </ClientListTd>
-                              <ClientListTd variant="desktop" label="Pay date" style={{ color: c.secondary }}>
-                                {confirmedPayDate ? (
-                                  formatDate(confirmedPayDate)
-                                ) : pendingPayDate ? (
-                                  <span title="Payment posted — awaiting confirmation">
-                                    {formatDate(pendingPayDate)}
+                              <ClientListTd
+                                variant="desktop"
+                                label="Pay date"
+                                className="client-list-td--pay-date"
+                                style={{ color: c.secondary }}
+                              >
+                                {visiblePayDate?.source === 'confirmed' ? (
+                                  <span className="whitespace-nowrap tabular-nums">
+                                    {formatDate(visiblePayDate.date)}
+                                  </span>
+                                ) : visiblePayDate?.source === 'pending' ? (
+                                  <span className="whitespace-nowrap" title="Payment posted — awaiting confirmation">
+                                    <span className="tabular-nums">{formatDate(visiblePayDate.date)}</span>
                                     <span
                                       className="block text-[9px] font-medium"
                                       style={{ color: c.warning }}
                                     >
                                       Pending
+                                    </span>
+                                  </span>
+                                ) : visiblePayDate?.source === 'scheduled' ? (
+                                  <span className="whitespace-nowrap" title="Broker confirmed they will pay on this date">
+                                    <span className="tabular-nums">{formatDate(visiblePayDate.date)}</span>
+                                    <span
+                                      className="block text-[9px] font-medium"
+                                      style={{ color: c.primary }}
+                                    >
+                                      Scheduled
                                     </span>
                                   </span>
                                 ) : (

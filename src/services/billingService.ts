@@ -34,7 +34,8 @@ export function getClientBillingSummary(clientId: string): BillingSummary | null
     computed = null
   }
 
-  const appFee = trial ? 0 : PLATFORM_APP_FEE_MONTHLY
+  const includeAppFee = computed?.includeAppFee ?? billing?.include_platform_fee !== false
+  const appFee = trial || !includeAppFee ? 0 : PLATFORM_APP_FEE_MONTHLY
   const collectionFee = computed?.arFee ?? 0
 
   return {

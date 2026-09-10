@@ -68,9 +68,9 @@ import {
 } from '../utils/adminInvoiceCarrierGroups'
 import {
   getOpenDisputedStatusLabel,
-  invoiceHasOpenDisputedStatus,
 } from '../utils/clientInvoiceDisputeStatus'
-import { invoiceHasWillPayStatus } from '../utils/invoiceWillPay'
+import { getInvoiceNoteStatusDisplay } from '../utils/invoiceStatusHeadline'
+import { getInvoiceOpenArBalance } from '../utils/paymentVariance'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
@@ -128,7 +128,12 @@ function countCell(value: number): string {
   return value === 0 ? '—' : String(value)
 }
 
-function compareInvoices(a: EnrichedInvoice, b: EnrichedInvoice, sortField: SortField): number {
+function compareInvoices(
+  a: EnrichedInvoice,
+  b: EnrichedInvoice,
+  sortField: SortField,
+  openArById: Map<string, number>
+): number {
   switch (sortField) {
     case 'invoice_number':
       return a.invoice_number.localeCompare(b.invoice_number, undefined, { numeric: true })
@@ -136,7 +141,7 @@ function compareInvoices(a: EnrichedInvoice, b: EnrichedInvoice, sortField: Sort
       return a.broker_name.localeCompare(b.broker_name)
     case 'amount':
     case 'total':
-      return a.amount - b.amount
+      return (openArById.get(a.id) ?? a.amount) - (openArById.get(b.id) ?? b.amount)
     case 'invoice_date':
       return a.invoice_date.localeCompare(b.invoice_date)
     case 'days_outstanding':
@@ -213,6 +218,13 @@ export default function AdminInvoices() {
     () => buildConfirmedPayDateByInvoiceId(payments),
     [payments]
   )
+  const openArById = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const invoice of invoices) {
+      map.set(invoice.id, getInvoiceOpenArBalance(invoice, payments))
+    }
+    return map
+  }, [invoices, payments])
   const enriched = useMemo(() => {
     const base = enrichAdminInvoices(invoices)
     return base.map((invoice) => {
@@ -275,20 +287,20 @@ export default function AdminInvoices() {
   const sorted = useMemo(() => {
     const rows = [...filtered]
     rows.sort((a, b) => {
-      const cmp = compareInvoices(a, b, sortField)
+      const cmp = compareInvoices(a, b, sortField, openArById)
       return sortDir === 'asc' ? cmp : -cmp
     })
     return rows
-  }, [filtered, sortField, sortDir])
+  }, [filtered, sortField, sortDir, openArById])
 
   const carrierGroups = useMemo(() => {
-    const groups = buildCarrierInvoiceGroups(sorted)
+    const groups = buildCarrierInvoiceGroups(sorted, payments)
     groups.sort((a, b) => {
       const cmp = compareCarrierGroups(a, b, sortField)
       return sortDir === 'asc' ? cmp : -cmp
     })
     return groups
-  }, [sorted, sortField, sortDir])
+  }, [sorted, sortField, sortDir, payments])
 
   const totalPages = Math.max(1, Math.ceil(carrierGroups.length / pageSize))
   const pageGroups = carrierGroups.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -780,6 +792,7 @@ export default function AdminInvoices() {
                     expanded={expanded}
                     selectedInvoiceId={selectedInvoiceId}
                     queueIndexById={queueIndex.byInvoiceId}
+                    openArById={openArById}
                     onToggle={() => toggleCarrier(group.clientId)}
                     onOpenInvoice={openDetail}
                     secondaryColor={c.secondary}
@@ -943,6 +956,7 @@ type AdminInvoiceCarrierBlockProps = {
   expanded: boolean
   selectedInvoiceId: string | null
   queueIndexById: Map<string, AdminInvoiceQueueFlags>
+  openArById: Map<string, number>
   onToggle: () => void
   onOpenInvoice: (invoice: EnrichedInvoice) => void
   secondaryColor: string
@@ -960,6 +974,7 @@ function AdminInvoiceCarrierBlock({
   expanded,
   selectedInvoiceId,
   queueIndexById,
+  openArById,
   onToggle,
   onOpenInvoice,
   secondaryColor,
@@ -1092,7 +1107,7 @@ function AdminInvoiceCarrierBlock({
             const flags = queueIndexById.get(invoice.id)
             const queueLabel = queueBadgeLabel(flags)
             const selected = invoice.id === selectedInvoiceId
-            const disputed = invoiceHasOpenDisputedStatus(invoice)
+            const noteStatus = getInvoiceNoteStatusDisplay(invoice)
             const agingStopped = invoiceHasStoppedAging(invoice)
             return (
               <tr
@@ -1120,7 +1135,7 @@ function AdminInvoiceCarrierBlock({
                 </ClientListTd>
                 <ClientListTd label="Amount" variant="amount" className="admin-invoices-amount-cell">
                   <span className="tabular-nums font-medium whitespace-nowrap">
-                    {formatCurrency(invoice.amount)}
+                    {formatCurrency(openArById.get(invoice.id) ?? invoice.amount)}
                   </span>
                 </ClientListTd>
                 <ClientListTd>
@@ -1142,17 +1157,25 @@ function AdminInvoiceCarrierBlock({
                   <div className="flex flex-col gap-1 items-start">
                     <span
                       className={
-                        disputed
+                        noteStatus === 'on_hold'
+                          ? 'status-pill status-pill--hold'
+                          : noteStatus === 'open_disputed'
                           ? 'status-pill status-pill--overdue'
-                          : invoiceHasWillPayStatus(invoice)
+                          : noteStatus === 'will_pay'
                             ? 'status-pill status-pill--approved'
+                            : noteStatus === 'call_back'
+                              ? 'status-pill status-pill--pending'
                             : statusPillClass(invoice.status)
                       }
                     >
-                      {disputed
+                      {noteStatus === 'on_hold'
+                        ? 'On Hold'
+                        : noteStatus === 'open_disputed'
                         ? getOpenDisputedStatusLabel()
-                        : invoiceHasWillPayStatus(invoice)
+                        : noteStatus === 'will_pay'
                           ? 'Will Pay'
+                          : noteStatus === 'call_back'
+                            ? 'Call Back'
                           : invoice.status === 'approved'
                             ? 'Open'
                             : invoice.status.replace(/_/g, ' ')}

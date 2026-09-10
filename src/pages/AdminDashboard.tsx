@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SummaryCards } from '../components/admin/SummaryCards'
 import { CollectionsQueue } from '../components/admin/CollectionsQueue'
+import { DisputedInvoicesPanel } from '../components/admin/DisputedInvoicesPanel'
 import { ClientWorkQueuePanel } from '../components/admin/ClientWorkQueuePanel'
 import { QuickActions } from '../components/admin/QuickActions'
 import { SectionHeader } from '../components/admin/SectionHeader'
@@ -23,6 +24,9 @@ import { getAllClients, getClientById } from '../services/clientRegistry'
 import { buildClientWorkSummaries } from '../utils/clientWorkQueue'
 import { useClientTheme } from '../theme/ThemeContext'
 import { getAgingArBucketKey, getInvoiceAgeDays, isOpenArInvoice } from '../utils/invoiceAging'
+import { listOpenDisputedInvoices } from '../utils/clientInvoiceDisputeStatus'
+import { invoiceHasPendingHoldPaperworkReview } from '../utils/holdPaperworkReview'
+import { listReceiptDisputedPayments } from '../services/paymentReceiptConfirmationService'
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
@@ -87,6 +91,16 @@ export default function AdminDashboard() {
   }, [allInvoices])
   
   // Calculate collections queue
+  const receiptDisputedInvoiceIds = useMemo(
+    () => new Set(listReceiptDisputedPayments().map((payment) => payment.invoice_id)),
+    [tenantRevision]
+  )
+
+  const openDisputedRows = useMemo(
+    () => listOpenDisputedInvoices(allInvoices, { receiptDisputedInvoiceIds }),
+    [allInvoices, receiptDisputedInvoiceIds]
+  )
+
   const collectionsQueue = useMemo((): CollectionsAlert[] => {
     return allInvoices
       .filter(inv => {
@@ -211,7 +225,7 @@ export default function AdminDashboard() {
   const criticalAlerts = useMemo(() => {
     const alerts: Array<{
       id: string
-      type: 'stale_batch' | 'overdue_invoice' | 'missing_document' | 'short_paid'
+      type: 'stale_batch' | 'overdue_invoice' | 'missing_document' | 'short_paid' | 'open_dispute'
       severity: 'high' | 'medium' | 'low'
       title: string
       description: string
@@ -261,12 +275,27 @@ export default function AdminDashboard() {
           clientId: inv.client_id,
         })
       })
+
+    openDisputedRows.forEach((row) => {
+      const inv = row.invoice
+      alerts.push({
+        id: `dispute-${inv.id}`,
+        type: 'open_dispute',
+        severity: 'high',
+        title: `Invoice ${inv.invoice_number} is Open Disputed`,
+        description: `${inv.client_name} · ${row.source === 'receipt' ? 'Receipt dispute' : 'Invoice dispute'} — ${row.reason}`,
+        relatedId: inv.id,
+        relatedType: 'invoice',
+        timestamp: inv.updated_at || inv.created_at,
+        clientId: inv.client_id,
+      })
+    })
     
     return alerts.sort((a, b) => {
       const severityOrder = { high: 0, medium: 1, low: 2 }
       return severityOrder[a.severity] - severityOrder[b.severity]
     })
-  }, [allBatches, allInvoices])
+  }, [allBatches, allInvoices, openDisputedRows])
 
   // Calculate Batch Pipeline
   const batchPipeline = useMemo(() => {
@@ -301,7 +330,7 @@ export default function AdminDashboard() {
   const todaysActions = useMemo(() => {
     const actions: Array<{
       id: string
-      type: 'batch_review' | 'broker_call' | 'document_upload' | 'invoice_approval'
+      type: 'batch_review' | 'broker_call' | 'document_upload' | 'invoice_approval' | 'review_dispute'
       title: string
       description: string
       priority: 'high' | 'medium' | 'low'
@@ -340,12 +369,39 @@ export default function AdminDashboard() {
           clientId: inv.client_id,
         })
       })
+
+    openDisputedRows.forEach((row) => {
+      const inv = row.invoice
+      actions.push({
+        id: `dispute-${inv.id}`,
+        type: 'review_dispute',
+        title: `Review dispute on ${inv.invoice_number}`,
+        description: `${inv.client_name} · ${row.reason}`,
+        priority: 'high',
+        relatedId: inv.id,
+        clientId: inv.client_id,
+      })
+    })
+
+    allInvoices
+      .filter((inv) => invoiceHasPendingHoldPaperworkReview(inv))
+      .forEach((inv) => {
+        actions.push({
+          id: `docs-review-${inv.id}`,
+          type: 'document_upload',
+          title: `Review PPW on ${inv.invoice_number}`,
+          description: `${inv.client_name} uploaded documents — confirm or reject`,
+          priority: 'high',
+          relatedId: inv.id,
+          clientId: inv.client_id,
+        })
+      })
     
     return actions.sort((a, b) => {
       const priorityOrder = { high: 0, medium: 1, low: 2 }
       return priorityOrder[a.priority] - priorityOrder[b.priority]
     })
-  }, [pendingBatches, allInvoices])
+  }, [pendingBatches, allInvoices, openDisputedRows])
 
   const filteredCriticalAlerts = useMemo(() => {
     const rows = widgetClientFilter
@@ -361,6 +417,13 @@ export default function AdminDashboard() {
     return rows.slice(0, 8)
   }, [todaysActions, widgetClientFilter])
 
+  const filteredDisputedRows = useMemo(() => {
+    const rows = widgetClientFilter
+      ? openDisputedRows.filter((row) => row.invoice.client_id === widgetClientFilter)
+      : openDisputedRows
+    return rows.slice(0, 10)
+  }, [openDisputedRows, widgetClientFilter])
+
   const handleCardClick = (cardType: string) => {
     switch (cardType) {
       case 'batches':
@@ -375,6 +438,15 @@ export default function AdminDashboard() {
       case 'collections':
         navigate('/collections')
         break
+      case 'disputes': {
+        const first = filteredDisputedRows[0] ?? openDisputedRows[0]
+        if (first) {
+          navigate(`/invoices?invoice=${first.invoice.id}`)
+        } else {
+          navigate('/invoices')
+        }
+        break
+      }
       default:
         break
     }
@@ -414,6 +486,8 @@ export default function AdminDashboard() {
     } else if (action.type === 'broker_call' && action.relatedId) {
       navigate(`/collections?invoice=${action.relatedId}`)
     } else if (action.type === 'document_upload' && action.relatedId) {
+      navigate(`/invoices?invoice=${action.relatedId}`)
+    } else if (action.type === 'review_dispute' && action.relatedId) {
       navigate(`/invoices?invoice=${action.relatedId}`)
     }
   }
@@ -502,6 +576,7 @@ export default function AdminDashboard() {
         <SummaryCards
           totalBatchesPending={pendingBatches.length}
           totalInvoicesHLD={invoicesOnHold}
+          disputedInvoices={openDisputedRows.length}
           totalAR={totalAR}
           collectionsAlerts={collectionsAlerts}
           forceCloseRate={parseFloat(String(forceCloseRate))}
@@ -513,6 +588,18 @@ export default function AdminDashboard() {
         <section className="space-y-3">
           <SectionHeader label="Work queues" />
           <ClientWorkQueuePanel summaries={workSummaries} />
+          <DisputedInvoicesPanel
+            rows={filteredDisputedRows}
+            onInvoiceClick={handleInvoiceClick}
+            onViewAll={() => {
+              const first = filteredDisputedRows[0] ?? openDisputedRows[0]
+              if (first) {
+                navigate(`/invoices?invoice=${first.invoice.id}`)
+              } else {
+                navigate('/invoices')
+              }
+            }}
+          />
           <CollectionsQueue
             alerts={collectionsQueue}
             onInvoiceClick={handleInvoiceClick}

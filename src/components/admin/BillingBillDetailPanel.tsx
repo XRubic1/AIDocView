@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   CreditCard,
   ExternalLink,
+  Mail,
   Percent,
   Send,
   Trash2,
@@ -13,10 +14,12 @@ import {
   getBillForPeriod,
   getBillHistoryEvents,
   getClientBills,
+  getPeriodBilledInvoices,
   issueClientBill,
   markBillPaid,
-  sendPayoneerRequest,
+  normalizePaymentUrl,
 } from '../../services/arBillingService'
+import { sendCarrierBillingInvoiceEmail } from '../../services/carrierBillingEmailService'
 import {
   getClientInvoicesForCredit,
   getReimbursementLedger,
@@ -42,17 +45,17 @@ interface BillingBillDetailPanelProps {
   onChanged: () => void
 }
 
-type WorkflowStep = 'preview' | 'issued' | 'payoneer' | 'paid'
+type WorkflowStep = 'preview' | 'issued' | 'emailed' | 'paid'
 type WorkspaceTab = 'invoice' | 'history' | 'credits'
 
 function resolveWorkflowStep(
   hasBill: boolean,
   status: string | undefined,
-  payoneerRef: string | undefined
+  emailedAt: string | undefined
 ): WorkflowStep {
   if (!hasBill) return 'preview'
   if (status === 'paid') return 'paid'
-  if (payoneerRef) return 'payoneer'
+  if (emailedAt) return 'emailed'
   return 'issued'
 }
 
@@ -87,6 +90,12 @@ export default function BillingBillDetailPanel({
   )
   const [showReimbursedClawbacks, setShowReimbursedClawbacks] = useState(false)
   const [selectedClawbackIds, setSelectedClawbackIds] = useState<string[]>([])
+  const [includeAppFee, setIncludeAppFee] = useState(
+    client.billing?.include_platform_fee !== false
+  )
+  const [paymentUrl, setPaymentUrl] = useState('')
+  const [emailTo, setEmailTo] = useState(client.email ?? '')
+  const [emailNote, setEmailNote] = useState('')
 
   useEffect(() => {
     setTab('invoice')
@@ -96,6 +105,13 @@ export default function BillingBillDetailPanel({
     setCreditInvoiceId('')
     setShowReimbursedClawbacks(false)
     setSelectedClawbackIds([])
+    setIncludeAppFee(
+      getBillForPeriod(client.id, period)?.include_app_fee ??
+        client.billing?.include_platform_fee !== false
+    )
+    setPaymentUrl(getBillForPeriod(client.id, period)?.payment_url ?? '')
+    setEmailTo(getBillForPeriod(client.id, period)?.emailed_to ?? client.email ?? '')
+    setEmailNote('')
   }, [client.id, periodKey])
 
   const bill = getBillForPeriod(client.id, period)
@@ -112,13 +128,20 @@ export default function BillingBillDetailPanel({
   const historyEvents = useMemo(
     () => (bill ? getBillHistoryEvents(bill) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bill?.id, bill?.status, bill?.paid_at, bill?.payoneer_reference, bill?.amount]
+    [bill?.id, bill?.status, bill?.paid_at, bill?.emailed_at, bill?.email_send_count, bill?.amount]
+  )
+  const billedInvoices = useMemo(
+    () => getPeriodBilledInvoices(client.id, period),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [client.id, periodKey]
   )
 
   let computed: ComputedMonthlyBill | null = null
   let computeError: string | null = null
   try {
-    computed = computeMonthlyBill(client.id, period)
+    computed = computeMonthlyBill(client.id, period, {
+      includeAppFee: bill?.include_app_fee ?? includeAppFee,
+    })
   } catch (err) {
     computeError = err instanceof Error ? err.message : 'Unable to compute bill'
   }
@@ -128,7 +151,7 @@ export default function BillingBillDetailPanel({
   const amountDue = bill?.amount ?? computed?.total ?? 0
   const isTrial = computed?.isTrial ?? client.billing?.subscription_status === 'trial'
   const creditOnAccount = client.reimbursement_balance ?? computed?.reimbursementBalance ?? 0
-  const step = resolveWorkflowStep(Boolean(bill), bill?.status, bill?.payoneer_reference)
+  const step = resolveWorkflowStep(Boolean(bill), bill?.status, bill?.emailed_at)
   const activeWouldCharge = computed?.grossSubtotal ?? 0
 
   /** Keep fee summary aligned with what the line items / issued bill actually used. */
@@ -150,9 +173,9 @@ export default function BillingBillDetailPanel({
   })()
 
   const steps: { key: WorkflowStep; label: string; hint: string }[] = [
-    { key: 'preview', label: 'Review', hint: 'Confirm line items' },
-    { key: 'issued', label: 'Issue', hint: 'Create the invoice' },
-    { key: 'payoneer', label: 'Payoneer', hint: 'Request payment' },
+    { key: 'preview', label: 'Review', hint: 'Loads + line items' },
+    { key: 'issued', label: 'Issue', hint: 'Lock the invoice' },
+    { key: 'emailed', label: 'Email', hint: 'Send payment link' },
     { key: 'paid', label: 'Paid', hint: 'Confirm funds' },
   ]
   const stepIndex = steps.findIndex((s) => s.key === step)
@@ -160,7 +183,7 @@ export default function BillingBillDetailPanel({
   const handleIssue = async () => {
     setBusy(true)
     try {
-      const issued = await issueClientBill(client.id, period)
+      const issued = await issueClientBill(client.id, period, { includeAppFee })
       showToast(`Invoice issued — ${formatCurrency(issued.amount)}`, 'success')
       onChanged()
     } catch (err) {
@@ -170,19 +193,35 @@ export default function BillingBillDetailPanel({
     }
   }
 
-  const handlePayoneer = async () => {
+  const handleSendInvoice = async () => {
     if (!bill) return
+    const url = normalizePaymentUrl(paymentUrl)
+    if (!url) {
+      showToast('Enter a valid payment URL (https://…)', 'error')
+      return
+    }
     setBusy(true)
     try {
-      const result = await sendPayoneerRequest(bill.id)
+      const result = await sendCarrierBillingInvoiceEmail({
+        client,
+        bill,
+        to: emailTo,
+        paymentUrl: url,
+        collectedVolume: computed?.collectedVolume ?? 0,
+        feeTermsLabel,
+        message: emailNote,
+      })
       if (result.ok) {
-        showToast(`Payoneer request ready — ${result.reference}`, 'success')
+        showToast(
+          bill.emailed_at ? `Invoice re-sent to ${emailTo.trim()}` : `Invoice sent to ${emailTo.trim()}`,
+          'success'
+        )
         onChanged()
       } else {
-        showToast(result.error ?? 'Payoneer request failed', 'error')
+        showToast(result.error ?? 'Send failed', 'error')
       }
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Payoneer request failed', 'error')
+      showToast(err instanceof Error ? err.message : 'Send failed', 'error')
     } finally {
       setBusy(false)
     }
@@ -315,25 +354,36 @@ export default function BillingBillDetailPanel({
             const done = idx < stepIndex || step === 'paid'
             const active = s.key === step
             return (
-              <li
-                key={s.key}
-                className={`flex-1 min-w-0 rounded border px-2.5 py-1.5 ${
-                  active
-                    ? 'border-slate-900 bg-white'
-                    : done
-                      ? 'border-emerald-300 bg-emerald-50'
-                      : 'border-slate-200 bg-white/80'
-                }`}
-              >
-                <p
-                  className={`text-xs font-semibold leading-tight truncate ${
-                    active ? 'text-slate-900' : done ? 'text-emerald-800' : 'text-slate-500'
+              <li key={s.key} className="flex-1 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab('invoice')
+                    requestAnimationFrame(() => {
+                      document.getElementById('billing-issue-actions')?.scrollIntoView({
+                        block: 'nearest',
+                        behavior: 'smooth',
+                      })
+                    })
+                  }}
+                  className={`w-full text-left rounded border px-2.5 py-1.5 transition-colors ${
+                    active
+                      ? 'border-slate-900 bg-white'
+                      : done
+                        ? 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100'
+                        : 'border-slate-200 bg-white/80 hover:bg-white'
                   }`}
                 >
-                  <span className="tabular-nums text-slate-400 mr-1">{idx + 1}</span>
-                  {s.label}
-                </p>
-                <p className="text-[11px] text-slate-500 leading-tight truncate mt-0.5">{s.hint}</p>
+                  <p
+                    className={`text-xs font-semibold leading-tight truncate ${
+                      active ? 'text-slate-900' : done ? 'text-emerald-800' : 'text-slate-500'
+                    }`}
+                  >
+                    <span className="tabular-nums text-slate-400 mr-1">{idx + 1}</span>
+                    {s.label}
+                  </p>
+                  <p className="text-[11px] text-slate-500 leading-tight truncate mt-0.5">{s.hint}</p>
+                </button>
               </li>
             )
           })}
@@ -406,97 +456,210 @@ export default function BillingBillDetailPanel({
             ) : null}
           </div>
 
-          <div className="flex-1 min-h-0 px-4 py-2.5 overflow-hidden flex flex-col">
+          <div className="flex-1 min-h-0 px-4 py-2.5 overflow-hidden flex flex-col gap-2.5">
             {computeError && !bill ? (
               <p className="text-sm text-red-600">{computeError}</p>
             ) : (
-              <div className="flex-1 min-h-0 border border-slate-200 rounded-lg overflow-auto">
-                <table className="dashboard-table dashboard-table--compact w-full">
-                  <thead className="sticky top-0 z-[1] bg-slate-50">
-                    <tr>
-                      <th>Line item</th>
-                      <th className="text-right w-28">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lineItems.map((li) => (
-                      <tr key={li.id}>
-                        <td className="text-sm">{li.description}</td>
-                        <td
-                          className={`text-right tabular-nums text-sm font-medium ${
-                            li.amount < 0 ? 'text-emerald-700' : ''
-                          }`}
-                        >
-                          {formatCurrency(li.amount)}
-                        </td>
-                      </tr>
-                    ))}
-                    {lineItems.length === 0 && (
+              <>
+                <div className="min-h-0 flex-1 border border-slate-200 rounded-lg overflow-auto">
+                  <table className="dashboard-table dashboard-table--compact w-full">
+                    <thead className="sticky top-0 z-[1] bg-slate-50">
                       <tr>
-                        <td colSpan={2} className="text-center text-slate-500 py-6">
-                          No line items for this period.
+                        <th>Load / invoice</th>
+                        <th>Broker</th>
+                        <th>Credyx</th>
+                        <th className="text-right">Collected</th>
+                        <th className="text-right">Fee</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {billedInvoices.map((row) => (
+                        <tr key={row.invoiceId}>
+                          <td>
+                            <p className="font-medium text-slate-900">{row.invoiceNumber}</p>
+                            <p className="text-[11px] text-slate-500">
+                              {row.loadNumber ? `Load ${row.loadNumber}` : '—'}
+                            </p>
+                          </td>
+                          <td className="text-sm text-slate-700">{row.brokerName}</td>
+                          <td>
+                            {row.closedByCredyx ? (
+                              <span className="status-pill status-pill--closed">Closed by Credyx</span>
+                            ) : (
+                              <span className="status-pill status-pill--paid">Paid</span>
+                            )}
+                          </td>
+                          <td className="text-right tabular-nums text-sm">
+                            {formatCurrency(row.collectedAmount)}
+                          </td>
+                          <td className="text-right tabular-nums text-sm">
+                            {formatCurrency(row.fee)}
+                          </td>
+                          <td className="text-right">
+                            <button
+                              type="button"
+                              onClick={() => openCarrierInvoice(row.invoiceId)}
+                              className="dashboard-btn-secondary dashboard-btn-compact inline-flex items-center gap-1"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              Open
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {billedInvoices.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="text-center text-slate-500 py-6">
+                            No paid or Credyx-closed invoices in {periodLabel}.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="shrink-0 max-h-[32%] border border-slate-200 rounded-lg overflow-auto">
+                  <table className="dashboard-table dashboard-table--compact w-full">
+                    <thead className="sticky top-0 z-[1] bg-slate-50">
+                      <tr>
+                        <th>Line item</th>
+                        <th className="text-right w-28">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lineItems.map((li) => (
+                        <tr key={li.id}>
+                          <td className="text-sm">{li.description}</td>
+                          <td
+                            className={`text-right tabular-nums text-sm font-medium ${
+                              li.amount < 0 ? 'text-emerald-700' : ''
+                            }`}
+                          >
+                            {formatCurrency(li.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                      {lineItems.length === 0 && (
+                        <tr>
+                          <td colSpan={2} className="text-center text-slate-500 py-4">
+                            No line items for this period.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                    <tfoot className="sticky bottom-0 bg-white">
+                      <tr>
+                        <td className="font-semibold text-sm">Amount due</td>
+                        <td className="text-right tabular-nums font-semibold text-sm">
+                          {formatCurrency(amountDue)}
                         </td>
                       </tr>
-                    )}
-                  </tbody>
-                  <tfoot className="sticky bottom-0 bg-white">
-                    <tr>
-                      <td className="font-semibold text-sm">Amount due</td>
-                      <td className="text-right tabular-nums font-semibold text-sm">
-                        {formatCurrency(amountDue)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
             )}
           </div>
 
-          <div className="shrink-0 px-4 py-2.5 border-t border-slate-200 bg-white flex flex-wrap items-center gap-2">
-            {step === 'preview' && (
+          <div
+            id="billing-issue-actions"
+            className="shrink-0 px-4 py-2.5 border-t border-slate-200 bg-white space-y-2.5"
+          >
+            <label className="flex items-center gap-2 text-sm text-slate-800">
+              <input
+                type="checkbox"
+                checked={bill?.include_app_fee ?? includeAppFee}
+                disabled={Boolean(bill) || busy || isTrial}
+                onChange={(e) => setIncludeAppFee(e.target.checked)}
+              />
+              Include $99 software fee
+              {isTrial ? (
+                <span className="text-xs text-slate-500">waived on trial</span>
+              ) : bill ? (
+                <span className="text-xs text-slate-500">locked on issue</span>
+              ) : null}
+            </label>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <label className="block text-xs">
+                <span className="font-medium text-slate-600 uppercase tracking-wide">Send to</span>
+                <input
+                  type="email"
+                  value={emailTo}
+                  onChange={(e) => setEmailTo(e.target.value)}
+                  className="client-input mt-1 w-full text-sm"
+                  placeholder="carrier@example.com"
+                />
+              </label>
+              <label className="block text-xs">
+                <span className="font-medium text-slate-600 uppercase tracking-wide">
+                  Payment URL
+                </span>
+                <input
+                  type="url"
+                  value={paymentUrl}
+                  onChange={(e) => setPaymentUrl(e.target.value)}
+                  className="client-input mt-1 w-full text-sm"
+                  placeholder="https://pay.example.com/invoice"
+                />
+              </label>
+              <label className="block text-xs md:col-span-2">
+                <span className="font-medium text-slate-600 uppercase tracking-wide">
+                  Note (optional)
+                </span>
+                <input
+                  type="text"
+                  value={emailNote}
+                  onChange={(e) => setEmailNote(e.target.value)}
+                  className="client-input mt-1 w-full text-sm"
+                  placeholder="Shown in the email above the pay button"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                disabled={busy || (!computed && !bill) || Boolean(computeError && !bill)}
+                disabled={busy || Boolean(bill) || (!computed && !bill) || Boolean(computeError && !bill)}
                 onClick={() => void handleIssue()}
                 className="dashboard-btn-primary inline-flex items-center gap-1.5"
               >
                 <CreditCard className="w-3.5 h-3.5" />
-                Issue invoice for {periodLabel}
+                {bill ? `Issued ${periodLabel}` : `Issue invoice for ${periodLabel}`}
               </button>
-            )}
-            {step === 'issued' && (
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => void handlePayoneer()}
-                className="dashboard-btn-primary inline-flex items-center gap-1.5"
+                disabled={busy || !bill}
+                title={!bill ? 'Issue the invoice first' : undefined}
+                onClick={() => void handleSendInvoice()}
+                className="dashboard-btn-primary inline-flex items-center gap-1.5 disabled:opacity-50"
               >
-                <Send className="w-3.5 h-3.5" />
-                Request Payoneer payment
+                {bill?.emailed_at ? (
+                  <Mail className="w-3.5 h-3.5" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                {bill?.emailed_at ? 'Resend invoice' : 'Send invoice'}
               </button>
-            )}
-            {step === 'payoneer' && (
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || !bill || bill.status === 'paid'}
+                title={!bill ? 'Issue the invoice first' : undefined}
                 onClick={() => void handleMarkPaid()}
-                className="dashboard-btn-primary inline-flex items-center gap-1.5"
+                className="dashboard-btn-secondary inline-flex items-center gap-1.5 disabled:opacity-50"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Mark payment received
+                {bill?.status === 'paid' ? 'Paid' : 'Mark payment received'}
               </button>
-            )}
-            {step === 'paid' && (
-              <span className="inline-flex items-center gap-1.5 text-sm text-emerald-700 font-medium">
-                <CheckCircle2 className="w-4 h-4" />
-                Paid {bill?.paid_at?.slice(0, 10) ?? ''}
-              </span>
-            )}
-            {bill?.payoneer_reference ? (
-              <span className="text-xs text-slate-500 tabular-nums">
-                Ref {bill.payoneer_reference}
-              </span>
-            ) : null}
+              {bill?.emailed_at ? (
+                <span className="text-xs text-slate-500">
+                  Last sent {bill.emailed_at.slice(0, 10)}
+                  {bill.emailed_to ? ` · ${bill.emailed_to}` : ''}
+                  {(bill.email_send_count ?? 0) > 1 ? ` · ${bill.email_send_count}×` : ''}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : (

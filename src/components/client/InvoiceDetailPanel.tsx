@@ -106,8 +106,9 @@ import {
 } from '../../utils/carrierRemittance'
 import type { ClientDocument } from '../../types/clientDocument'
 import MobileInvoiceOverview from './MobileInvoiceOverview'
+import HoldPaperworkReviewBanner from '../admin/HoldPaperworkReviewBanner'
 import { InvoiceActivityNoteList, declutterActivityEntries } from './InvoiceActivityNoteList'
-import { getCarrierInvoiceActionRequired } from '../../utils/invoiceMobileInsights'
+import { isCarrierDocumentUploadNote } from '../../utils/holdPaperworkReview'
 import { getCarrierVisibleBrokerRiskLevel } from '../../utils/clientBrokers'
 import ConfirmPaymentReceiptModal from './ConfirmPaymentReceiptModal'
 
@@ -421,6 +422,7 @@ export default function InvoiceDetailPanel({
   useEffect(() => {
     setNoteVisibility('client')
     setNewNote('')
+    setUploadSuccess(null)
     setStatusError(null)
     setStatusDate(new Date().toISOString().slice(0, 10))
   }, [invoice.id])
@@ -568,13 +570,14 @@ export default function InvoiceDetailPanel({
     }
     for (const entry of noteEntries) {
       const typeKey = entry.type || 'note'
-      if (typeKey === 'note' || typeKey === 'client_note') continue
+      const isUploadNote = isCarrierDocumentUploadNote(entry.note)
+      if ((typeKey === 'note' || typeKey === 'client_note') && !isUploadNote) continue
       // Payment / invoice dispute lifecycle notes are shown once via structured rows.
       if (isRedundantPaymentLifecycleNote(entry.note, entry.type)) continue
       const source = noteSource(typeKey)
       entries.push({
         id: `activity-note-${entry.id}`,
-        title: noteTitle(typeKey),
+        title: isUploadNote ? 'Documents uploaded' : noteTitle(typeKey),
         detail: entry.note,
         timestamp: entry.created_at,
         tone: noteTone(typeKey),
@@ -705,6 +708,8 @@ export default function InvoiceDetailPanel({
       .filter((entry) => {
         const typeKey = entry.type || 'note'
         if (typeKey !== 'note' && typeKey !== 'client_note') return false
+        // Document uploads live under Activity so they stay visible after a footer upload.
+        if (isCarrierDocumentUploadNote(entry.note)) return false
         // Payment-related notes live under the Payments tab only.
         return !isPaymentRelatedInvoiceNote(entry.note, entry.type)
       })
@@ -1112,27 +1117,24 @@ export default function InvoiceDetailPanel({
     if (isUploadingDocs || files.length === 0) return
     setIsUploadingDocs(true)
     try {
-      const wasActionRequiredUpload = Boolean(
-        getCarrierInvoiceActionRequired(invoice)?.cta === 'upload'
+      const extraNote = newNote.trim()
+      const updated = await uploadClientInvoiceDocuments(
+        invoice.id,
+        files,
+        authorName,
+        extraNote || undefined
       )
-      const updated = await uploadClientInvoiceDocuments(invoice.id, files, authorName)
       if (!updated) throw new Error('Upload failed')
       // Complete Assistant "Upload POD / missing docs" tasks for this invoice.
       markAssistantInvoiceDocsUploaded(invoice.id)
+      if (extraNote) setNewNote('')
 
-      const successMessage = wasActionRequiredUpload
-        ? 'Documents uploaded. Credyx is reviewing and will advise if further action is required.'
-        : `${files.length} file${files.length > 1 ? 's' : ''} uploaded — Credyx has been notified.`
+      const successMessage =
+        'Documents uploaded. Credyx is reviewing and will advise if further action is required.'
 
-      // Overview banner uses a short body; toast carries the full confirmation.
-      setUploadSuccess(
-        wasActionRequiredUpload
-          ? 'Credyx is reviewing and will advise if further action is required.'
-          : successMessage
-      )
+      // Overview keeps this from invoice notes; local state is only an immediate hint.
+      setUploadSuccess('Credyx is reviewing and will advise if further action is required.')
       showToast(successMessage, 'success')
-      // Keep confirmation visible long enough to read on mobile overview.
-      window.setTimeout(() => setUploadSuccess(null), wasActionRequiredUpload ? 12000 : 5000)
       if (isMobile) setDetailSurface('overview')
       onInvoiceUpdated?.()
     } catch (error) {
@@ -1545,6 +1547,14 @@ export default function InvoiceDetailPanel({
           </>
         )}
       </header>
+
+      {isAdminPortal ? (
+        <HoldPaperworkReviewBanner
+          invoice={visibleInvoice}
+          reviewedBy={authorName}
+          onDone={() => onInvoiceUpdated?.()}
+        />
+      ) : null}
 
       <div className="payment-confirmation-panel__body">
         <div

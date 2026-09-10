@@ -1,5 +1,7 @@
 import type { EnrichedInvoice } from './invoiceAging'
+import type { Payment } from '../types/payment'
 import { invoiceHasOpenDisputedStatus } from './clientInvoiceDisputeStatus'
+import { getInvoiceOpenArBalance } from './paymentVariance'
 
 /** Carrier parent row on the admin Invoices list. */
 export type CarrierInvoiceGroup = {
@@ -14,18 +16,18 @@ export type CarrierInvoiceGroup = {
   invoices: EnrichedInvoice[]
 }
 
-/** Counts and open A/R total for a set of invoices. */
-export function summarizeCarrierInvoices(invoices: EnrichedInvoice[]): Omit<
-  CarrierInvoiceGroup,
-  'clientId' | 'clientName' | 'invoices'
-> {
+/** Counts and remaining open A/R for a set of invoices. */
+export function summarizeCarrierInvoices(
+  invoices: EnrichedInvoice[],
+  payments: Payment[] = []
+): Omit<CarrierInvoiceGroup, 'clientId' | 'clientName' | 'invoices'> {
   let totalAmount = 0
   let willPayCount = 0
   let overdueCount = 0
   let holdCount = 0
   let disputeCount = 0
   for (const invoice of invoices) {
-    totalAmount += invoice.amount
+    totalAmount += getInvoiceOpenArBalance(invoice, payments)
     if (invoice.collection_status === 'W/P') willPayCount += 1
     if (invoice.isOverdue) overdueCount += 1
     if (invoice.status === 'hold') holdCount += 1
@@ -42,7 +44,10 @@ export function summarizeCarrierInvoices(invoices: EnrichedInvoice[]): Omit<
 }
 
 /** Group invoices under their carrier (client), preserving invoice order. */
-export function buildCarrierInvoiceGroups(invoices: EnrichedInvoice[]): CarrierInvoiceGroup[] {
+export function buildCarrierInvoiceGroups(
+  invoices: EnrichedInvoice[],
+  payments: Payment[] = []
+): CarrierInvoiceGroup[] {
   const byClient = new Map<string, EnrichedInvoice[]>()
   for (const invoice of invoices) {
     const clientId = invoice.client_id || `name:${invoice.client_name}`
@@ -53,7 +58,7 @@ export function buildCarrierInvoiceGroups(invoices: EnrichedInvoice[]): CarrierI
 
   const groups: CarrierInvoiceGroup[] = []
   for (const [clientId, list] of byClient) {
-    const stats = summarizeCarrierInvoices(list)
+    const stats = summarizeCarrierInvoices(list, payments)
     groups.push({
       clientId: list[0]?.client_id || clientId,
       clientName: list[0]?.client_name || 'Carrier',

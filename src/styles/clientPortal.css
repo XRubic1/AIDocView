@@ -4526,7 +4526,7 @@
 }
 
 .client-portal .client-invoices-page .client-table-scroll {
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 .client-portal .client-invoices-page .dashboard-table th,
@@ -4549,7 +4549,7 @@
 
 .client-portal .client-invoices-page .dashboard-table th.client-list-td--broker,
 .client-portal .client-invoices-page .dashboard-table td.client-list-td--broker {
-  width: 18%;
+  width: 14%;
 }
 
 .client-portal .client-invoices-page .dashboard-table th.client-list-td--batch,
@@ -4570,8 +4570,19 @@
 }
 
 .client-portal .client-invoices-page .dashboard-table th:nth-child(8),
-.client-portal .client-invoices-page .dashboard-table td:nth-child(8) {
-  width: 6%;
+.client-portal .client-invoices-page .dashboard-table td:nth-child(8),
+.client-portal .client-invoices-page .dashboard-table th.client-list-td--invoice-date,
+.client-portal .client-invoices-page .dashboard-table td.client-list-td--invoice-date {
+  width: 6.5rem;
+  min-width: 6.5rem;
+}
+
+.client-portal .client-invoices-page .dashboard-table th.client-list-td--pay-date,
+.client-portal .client-invoices-page .dashboard-table td.client-list-td--pay-date {
+  width: 7.25rem;
+  min-width: 7.25rem;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .client-portal .client-invoices-page .client-invoices-age {
@@ -4884,7 +4895,7 @@
 }
 
 .client-portal .post-payment-split {
-  --post-payment-detail-width: min(520px, 48%);
+  --post-payment-detail-width: min(46rem, 58%);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 0px;
   flex: 1 1 0;
@@ -4923,6 +4934,27 @@
   border: 1px solid var(--cp-border, #e2e8f0);
   border-radius: 0.5rem;
   background: var(--cp-card, #fff);
+}
+
+.client-portal .post-payment-list-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.5rem;
+}
+
+.client-portal .post-payment-list-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--cp-border, #e2e8f0);
+  border-radius: 0.5rem;
+  background: var(--cp-card, #fff);
+}
+
+.client-portal .post-payment-list-pane .dashboard-table {
+  width: 100%;
 }
 
 .client-portal .post-payment-list__empty {
@@ -5025,11 +5057,101 @@
 .client-portal .post-payment-detail-scroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.75rem;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+}
+
+.client-portal .post-payment-detail-body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(16.5rem, 18.5rem);
+  gap: 0.625rem;
+  overflow: hidden;
+  align-items: stretch;
+}
+
+.client-portal .post-payment-detail-scroll .post-payment-workspace__main {
+  min-height: 0;
+  overflow: hidden;
+  gap: 0.45rem;
+}
+
+.client-portal .post-payment-detail-scroll .post-payment-workspace__aside {
+  min-height: 0;
+  overflow: auto;
+  gap: 0.5rem;
+}
+
+.client-portal .post-payment-detail-scroll .invoice-balance-summary {
+  padding: 0.45rem 0.55rem;
+  gap: 0.4rem;
+}
+
+.client-portal .post-payment-detail-scroll .invoice-balance-summary__figures {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.client-portal .post-payment-detail-scroll .invoice-balance-summary__fig {
+  padding: 0.3rem 0.4rem;
+}
+
+.client-portal .post-payment-detail-scroll .invoice-balance-summary__fig-value,
+.client-portal .post-payment-detail-scroll .invoice-balance-summary__fig-value--balance {
+  font-size: 0.875rem;
+}
+
+.client-portal .post-payment-detail-scroll .post-payment-entry__fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem 0.5rem;
+}
+
+.client-portal .post-payment-detail-scroll .post-payment-entry__field--amount {
+  grid-column: auto;
+}
+
+.client-portal .post-payment-detail-scroll .post-payment-entry__fieldset {
+  gap: 0.5rem;
+}
+
+.client-portal .post-payment-detail-scroll .client-label {
+  margin-bottom: 0.2rem;
+  font-size: 0.6875rem;
+}
+
+.client-portal .post-payment-detail-scroll .client-input {
+  height: 2rem;
+  font-size: 0.8125rem;
+}
+
+.client-portal .post-payment-detail-scroll .post-payment-context-card {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.45rem 0.55rem;
+  overflow: hidden;
+}
+
+.client-portal .post-payment-detail-scroll .post-payment-context-card__title {
+  font-size: 0.75rem;
+  margin: 0 0 0.35rem;
+}
+
+.client-portal .post-payment-prior-table-scroll,
+.client-portal .post-payment-audit-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.client-portal .post-payment-detail-scroll .invoice-activity-note-list,
+.client-portal .post-payment-detail-scroll .invoice-activity-note-list li {
+  font-size: 0.6875rem;
 }
 
 .client-portal .post-payment-split--open .post-payment-workspace__main,
@@ -5037,6 +5159,26 @@
   border: none;
   padding: 0;
   border-radius: 0;
+}
+
+.client-portal .post-payment-detail-scroll .payment-confirmation-panel__notes-list {
+  gap: 0.25rem;
+}
+
+.client-portal .post-payment-detail-scroll .payment-confirmation-panel__note-row {
+  padding: 0.25rem 0;
+}
+
+.client-portal .post-payment-detail-scroll .payment-confirmation-panel__note-row-title,
+.client-portal .post-payment-detail-scroll .payment-confirmation-panel__note-row-detail {
+  font-size: 0.6875rem;
+  line-height: 1.3;
+}
+
+@media (max-width: 1100px) {
+  .client-portal .post-payment-split {
+    --post-payment-detail-width: min(42rem, 62%);
+  }
 }
 
 @media (max-width: 767px) {
@@ -5058,22 +5200,52 @@
 
 /* ── Needs attention (paperwork holds) ── */
 .client-portal .client-invoices-page.client-attention-page {
-  background: var(--cp-surface, #eef1f5);
+  background: var(--cp-card, #fff);
 }
 
 .client-portal .client-attention-page__split {
   display: grid;
-  grid-template-columns: minmax(280px, 400px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   min-height: 0;
 }
 
 .client-portal .client-attention-page__list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px;
+  background: var(--cp-card, #fff);
+}
+
+.client-portal .client-attention-page__split .client-attention-page__list {
+  border-right: 1px solid var(--cp-border, #e2e8f0);
+}
+
+.client-portal .client-attention-page__list-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px 10px;
+  background: var(--cp-card, #fff);
+  border-bottom: 1px solid var(--cp-border, #e2e8f0);
+}
+
+.client-portal .client-attention-page__list-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--cp-text, #0f172a);
+}
+
+.client-portal .client-attention-page__list-meta {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--cp-text-muted, #64748b);
 }
 
 .client-portal .client-attention-page__detail {
@@ -5082,7 +5254,6 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-left: 1px solid var(--cp-border, #e2e8f0);
   background: var(--cp-card, #fff);
 }
 
@@ -5140,48 +5311,43 @@
 .client-portal .client-attention-card {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  align-items: stretch;
+  gap: 4px;
   width: 100%;
-  padding: 14px 14px 12px;
+  padding: 12px 16px;
   text-align: left;
-  border: 1px solid var(--cp-border, #e2e8f0);
-  border-radius: 14px;
-  background: var(--cp-card, #fff);
+  border: none;
+  border-bottom: 1px solid var(--cp-border, #e2e8f0);
+  border-radius: 0;
+  background: transparent;
   color: inherit;
   font: inherit;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  animation: client-attention-card-in 0.32s ease both;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    background-color 0.15s ease,
-    transform 0.15s ease;
+  box-shadow: none;
+  animation: client-attention-card-in 0.28s ease both;
+  transition: background-color 0.15s ease;
 }
 
 .client-portal .client-attention-card:hover {
-  border-color: color-mix(in srgb, var(--cp-accent, #1684fe) 35%, var(--cp-border, #e2e8f0));
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  background: color-mix(in srgb, var(--cp-text, #0f172a) 4%, var(--cp-card, #fff));
 }
 
 .client-portal .client-attention-card:active {
-  transform: translateY(1px);
+  background: color-mix(in srgb, var(--cp-text, #0f172a) 7%, var(--cp-card, #fff));
 }
 
 .client-portal .client-attention-card.is-selected {
-  border-color: color-mix(in srgb, var(--cp-accent, #1684fe) 50%, var(--cp-border, #e2e8f0));
+  background: color-mix(in srgb, var(--cp-accent, #1684fe) 8%, var(--cp-card, #fff));
   box-shadow: inset 3px 0 0 var(--cp-accent, #1684fe);
-  background: color-mix(in srgb, var(--cp-accent, #1684fe) 6%, var(--cp-card, #fff));
 }
 
 .client-portal .client-attention-card.is-from-email:not(.is-selected) {
-  border-color: color-mix(in srgb, var(--cp-accent, #1684fe) 28%, var(--cp-border, #e2e8f0));
+  background: color-mix(in srgb, var(--cp-accent, #1684fe) 4%, var(--cp-card, #fff));
 }
 
 .client-portal .client-attention-card__top {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 10px;
   width: 100%;
@@ -5190,13 +5356,13 @@
 .client-portal .client-attention-card__ids {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
 .client-portal .client-attention-card__inv {
   font-size: 0.8125rem;
-  font-weight: 700;
+  font-weight: 650;
   letter-spacing: 0.01em;
   color: var(--cp-text, #0f172a);
 }
@@ -5204,8 +5370,8 @@
 .client-portal .client-attention-card__email {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
+  gap: 3px;
+  padding: 1px 6px;
   border-radius: 999px;
   font-size: 0.625rem;
   font-weight: 700;
@@ -5216,41 +5382,35 @@
 }
 
 .client-portal .client-attention-card__amount {
-  margin: 2px 0 0;
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
   color: var(--cp-text, #0f172a);
+  flex-shrink: 0;
 }
 
 .client-portal .client-attention-card__meta {
   margin: 0;
   font-size: 0.75rem;
-  line-height: 1.4;
+  line-height: 1.35;
   color: var(--cp-text-muted, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .client-portal .client-attention-card__reason {
-  margin: 2px 0 0;
+  margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   line-clamp: 2;
   overflow: hidden;
   font-size: 0.75rem;
-  line-height: 1.45;
-  color: var(--cp-text, #0f172a);
-}
-
-.client-portal .client-attention-card__cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-top: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--cp-accent, #1684fe);
+  line-height: 1.4;
+  color: #b45309;
 }
 
 @keyframes client-attention-card-in {
@@ -9544,6 +9704,7 @@
   background: transparent;
   border: none;
   cursor: pointer;
+  text-decoration: none;
   white-space: nowrap;
   transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -9557,6 +9718,21 @@
   font-weight: 600;
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.client-portal .client-segmented-control__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: #1684FE;
 }
 
 /* Form controls */
@@ -14116,6 +14292,16 @@
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
 }
 
+.client-portal .mobile-invoice-overview__status--call-back {
+  border-color: color-mix(in srgb, #1684fe 45%, var(--cp-border));
+  color: #1684fe;
+}
+
+.client-portal .mobile-invoice-overview__status--call-back .mobile-invoice-overview__status-dot {
+  background: #1684fe;
+  box-shadow: 0 0 0 3px rgba(22, 132, 254, 0.2);
+}
+
 /* Open — gray */
 .client-portal .mobile-invoice-overview__status--approved {
   border-color: color-mix(in srgb, #94a3b8 50%, var(--cp-border));
@@ -15339,6 +15525,11 @@
 .client-portal .mobile-invoice-list-card__status--will-pay {
   background: rgba(34, 197, 94, 0.1);
   color: #16a34a;
+}
+
+.client-portal .mobile-invoice-list-card__status--call-back {
+  background: rgba(22, 132, 254, 0.1);
+  color: #1684fe;
 }
 
 /* Open — gray */

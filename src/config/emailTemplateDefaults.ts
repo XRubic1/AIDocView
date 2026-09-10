@@ -2,6 +2,7 @@ import { AUTH_EMAIL_TEMPLATE_DEFAULTS } from './authEmailTemplates'
 import {
   BROKER_PACKET_BODY_HTML,
   BROKER_REMITTANCE_UPDATED_BODY_HTML,
+  CARRIER_BILLING_INVOICE_BODY_HTML,
   CARRIER_DOCUMENT_ISSUE_BODY_HTML,
   CLIENT_WELCOME_BODY_HTML,
 } from './emailLayouts'
@@ -25,6 +26,7 @@ export type EmailTemplateId =
   | 'broker_payment_status_followup'
   | 'calendar_event_notice'
   | 'carrier_document_issue'
+  | 'carrier_billing_invoice'
   | 'auth_signup'
   | 'auth_invite'
   | 'auth_magiclink'
@@ -87,6 +89,17 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
       'companyLogoHtml, contactName, clientName, invoiceNumber, loadNumber, brokerName, issueList, issueListHtml, message, messageHtml, portalLink, ctaLabel',
     subject: 'Action needed — invoice {{invoiceNumber}} · Load {{loadNumber}}',
     body_html: CARRIER_DOCUMENT_ISSUE_BODY_HTML,
+  },
+  {
+    id: 'carrier_billing_invoice',
+    name: 'Carrier — monthly invoice',
+    description:
+      'Sent from Billing with the period charges, collected loads, and a payment URL you enter.',
+    audience: 'carrier',
+    placeholders:
+      'companyLogoHtml, contactName, clientName, periodLabel, amountDue, dueDate, feeTermsLabel, collectedVolume, lineItemsHtml, invoiceRowsHtml, paymentUrl, ctaLabel, messageHtml',
+    subject: 'Credyx invoice — {{periodLabel}} · {{amountDue}}',
+    body_html: CARRIER_BILLING_INVOICE_BODY_HTML,
   },
   {
     id: 'carrier_batch_processed',

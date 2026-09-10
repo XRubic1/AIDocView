@@ -3,6 +3,7 @@ import {
   getInvoiceDisputeOverviewNote,
   getOpenDisputedStatusLabel,
   invoiceHasOpenDisputedStatus,
+  listOpenDisputedInvoices,
 } from './clientInvoiceDisputeStatus'
 import { getInvoiceMobileInsights } from './invoiceMobileInsights'
 import { enrichInvoice } from './invoiceAging'
@@ -122,8 +123,116 @@ describe('clientInvoiceDisputeStatus', () => {
     expect(insights[0]?.subtitle).toBe('Missing lumper receipt')
   })
 
+  it('puts Will Pay above an older open dispute in overview insights', () => {
+    const invoice = baseInvoice({
+      collection_status: 'W/P',
+      collection_date: '2026-09-18',
+      disputes: [
+        {
+          id: 'd1',
+          reason: 'amount',
+          description: 'Missing lumper receipt',
+          status: 'open',
+          created_by: 'Carrier',
+          created_at: '2026-09-10T12:00:00Z',
+        },
+      ],
+      notes_history: [
+        {
+          id: 'n-wp',
+          note: 'Status: Will Pay · 09/18/2026 — Remaining balance on 09/18',
+          created_by: 'Credyx',
+          created_at: '2026-09-10T18:00:00Z',
+          type: 'status_update',
+        },
+      ],
+    })
+    const insights = getInvoiceMobileInsights({
+      invoice,
+      enriched: enrichInvoice(invoice),
+    })
+    expect(insights[0]?.id).toBe('will-pay')
+    expect(insights[0]?.subtitle).toMatch(/09\/18\/2026/)
+    expect(insights.find((row) => row.id === 'dispute')?.subtitle).toBe('Missing lumper receipt')
+  })
+
   it('uses payment dispute description when invoice disputes are empty', () => {
     const note = getInvoiceDisputeOverviewNote(baseInvoice(), 'Funds never arrived')
     expect(note?.note).toBe('Funds never arrived')
+  })
+
+  it('lists open disputed invoices with invoice vs receipt source', () => {
+    const invoiceDispute = baseInvoice({
+      id: 'inv-d',
+      invoice_number: '2001',
+      amount: 2100,
+      updated_at: '2026-09-10T12:00:00Z',
+      disputes: [
+        {
+          id: 'd1',
+          reason: 'amount',
+          description: 'Broker shorted $200',
+          status: 'open',
+          created_by: 'Carrier',
+          created_at: '2026-07-02T00:00:00Z',
+        },
+      ],
+    })
+    const receiptDispute = baseInvoice({
+      id: 'inv-r',
+      invoice_number: '2002',
+      amount: 800,
+      status: 'hold',
+      hold_reason: RECEIPT_DISPUTE_HOLD_REASON,
+      updated_at: '2026-09-10T11:00:00Z',
+    })
+    const notesOnly = baseInvoice({
+      id: 'inv-n',
+      invoice_number: '2003',
+      amount: 500,
+      updated_at: '2026-09-10T10:00:00Z',
+      notes_history: [
+        {
+          id: 'n1',
+          note: 'Dispute opened: Claim dispute — cargo claim',
+          created_by: 'Credyx',
+          created_at: '2026-07-02T00:00:00Z',
+          type: 'dispute',
+        },
+      ],
+    })
+    const paperworkHold = baseInvoice({
+      id: 'inv-h',
+      invoice_number: '2004',
+      status: 'hold',
+      hold_reason: 'Missing BOL',
+    })
+    const rows = listOpenDisputedInvoices([
+      paperworkHold,
+      notesOnly,
+      receiptDispute,
+      invoiceDispute,
+    ])
+    expect(rows.map((r) => r.invoice.id)).toEqual(['inv-d', 'inv-r', 'inv-n'])
+    expect(rows[0]).toMatchObject({ source: 'invoice', reason: 'Broker shorted $200' })
+    expect(rows[1].source).toBe('receipt')
+    expect(rows[2]).toMatchObject({
+      source: 'invoice',
+      reason: 'Dispute opened: Claim dispute — cargo claim',
+    })
+  })
+
+  it('includes remittance disputes that are not on invoice hold', () => {
+    const invoice = baseInvoice({
+      id: 'inv-pay',
+      invoice_number: '2005',
+      status: 'approved',
+    })
+    const rows = listOpenDisputedInvoices([invoice], {
+      receiptDisputedInvoiceIds: new Set(['inv-pay']),
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].source).toBe('receipt')
+    expect(rows[0].reason).toMatch(/Payment receipt disputed/)
   })
 })

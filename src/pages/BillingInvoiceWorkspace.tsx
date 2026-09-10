@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ExternalLink, FileText, X } from 'lucide-react'
-import BillingBillDetailPanel from '../components/admin/BillingBillDetailPanel'
+import CarrierMonthlyBillPanel from '../components/admin/CarrierMonthlyBillPanel'
 import EmptyState from '../components/ui/EmptyState'
 import { useToast } from '../components/ui/ToastProvider'
 import { getClientById, getAllClients } from '../services/clientRegistry'
@@ -161,12 +161,12 @@ export default function BillingInvoiceWorkspace() {
           <EmptyState
             icon={FileText}
             title="No client selected"
-            hint="Open an invoice from Monthly Billing with Open."
+            hint="Select a carrier on Monthly Billing."
           />
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-hidden" style={{ backgroundColor: c.card }}>
-          <BillingBillDetailPanel
+          <CarrierMonthlyBillPanel
             key={`${selectedClient.id}-${periodKey}-${refreshKey}`}
             client={selectedClient}
             period={period}

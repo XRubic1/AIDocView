@@ -6,6 +6,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    // Bind IPv4 so http://localhost:3000 and http://127.0.0.1:3000 both work
+    // (Node otherwise listens on ::1 only, and browsers hang on 127.0.0.1).
+    host: '127.0.0.1',
+    strictPort: true,
     open: true,
   },
   build: {

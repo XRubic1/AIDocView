@@ -11,10 +11,10 @@ import {
 } from '../../utils/invoiceListPriority'
 import {
   getOpenDisputedStatusLabelUpper,
-  invoiceHasOpenDisputedStatus,
 } from '../../utils/clientInvoiceDisputeStatus'
 import { getClientVisibleDueDate } from '../../utils/ppwSent'
-import { getWillPayScheduledDate, invoiceHasWillPayStatus } from '../../utils/invoiceWillPay'
+import { getClientVisiblePayDate } from '../../utils/invoiceWillPay'
+import { getInvoiceNoteStatusDisplay } from '../../utils/invoiceStatusHeadline'
 import BrokerRiskLevelChip from './BrokerRiskLevelChip'
 import type { BrokerRiskLevel } from '../../types/brokerRisk'
 
@@ -67,18 +67,29 @@ export default function MobileInvoiceListCard({
     displayStatus: invoice.displayStatus,
     isOverdue: invoice.isOverdue,
   }
-  const showOpenDisputed = invoiceHasOpenDisputedStatus(invoice, { paymentDisputed })
-  const showWillPay = invoiceHasWillPayStatus(invoice) && !showOpenDisputed && !awaitingReceipt
+  const noteStatus = getInvoiceNoteStatusDisplay(invoice, { paymentDisputed })
+  const showOpenDisputed = noteStatus === 'open_disputed'
+  const showOnHold = noteStatus === 'on_hold'
+  const showWillPay = noteStatus === 'will_pay' && !awaitingReceipt
+  const showCallBack = noteStatus === 'call_back' && !awaitingReceipt
   const statusLabel = showOpenDisputed
     ? getOpenDisputedStatusLabelUpper()
+    : showOnHold
+      ? 'ON HOLD'
     : showWillPay
       ? 'WILL PAY'
-      : invoiceListPriorityStatusLabel(priorityInput)
+      : showCallBack
+        ? 'CALL BACK'
+        : invoiceListPriorityStatusLabel(priorityInput)
   const statusKey = showOpenDisputed
     ? 'disputed'
+    : showOnHold
+      ? 'hold'
     : showWillPay
       ? 'will-pay'
-      : invoiceListPriorityStatusKey(priorityInput)
+      : showCallBack
+        ? 'call-back'
+        : invoiceListPriorityStatusKey(priorityInput)
   // Short paid: show remaining open balance, not the full invoice face amount.
   const amount =
     isShortPaid && openAmount != null && openAmount > 0
@@ -86,13 +97,18 @@ export default function MobileInvoiceListCard({
       : getMobileInvoiceHeroAmount(invoice)
   const load = invoice.load_number?.trim() || '—'
   const visibleDueDate = getClientVisibleDueDate(invoice)
-  const scheduled = getWillPayScheduledDate(invoice)
   const due = visibleDueDate ? formatMobileInvoiceDate(visibleDueDate) : '—'
-  const pay = payDate
-    ? formatMobileInvoiceDate(payDate)
-    : pendingPayDate
-      ? `${formatMobileInvoiceDate(pendingPayDate)} (pending)`
-      : '—'
+  const visiblePay = getClientVisiblePayDate(invoice, {
+    confirmedPayDate: payDate,
+    pendingPayDate,
+  })
+  const pay = visiblePay
+    ? visiblePay.source === 'pending'
+      ? `${formatMobileInvoiceDate(visiblePay.date)} (pending)`
+      : visiblePay.source === 'scheduled'
+        ? `${formatMobileInvoiceDate(visiblePay.date)} (scheduled)`
+        : formatMobileInvoiceDate(visiblePay.date)
+    : '—'
 
   return (
     <button
@@ -137,12 +153,6 @@ export default function MobileInvoiceListCard({
         <span>Due {due}</span>
         <span aria-hidden>·</span>
         <span>Pay {pay}</span>
-        {scheduled ? (
-          <>
-            <span aria-hidden>·</span>
-            <span>Scheduled {formatMobileInvoiceDate(scheduled)}</span>
-          </>
-        ) : null}
         <ChevronRight
           className="mobile-invoice-list-card__chevron"
           size={16}

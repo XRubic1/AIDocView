@@ -17,7 +17,9 @@ import {
   computeMonthlyBill,
   formatBillingPeriod,
   getClientCollectedVolume,
+  getPeriodBilledInvoices,
   issueClientBill,
+  normalizePaymentUrl,
 } from '../services/arBillingService'
 import {
   clearReimbursementLedger,
@@ -99,6 +101,51 @@ describe('arBillingService', () => {
     expect(formatBillingPeriod({ year: 2026, month: 6 })).toBe('2026-06')
   })
 
+  it('omits the $99 software fee when includeAppFee is false', () => {
+    const bill = computeMonthlyBill(clientId, { year: 2026, month: 6 }, { includeAppFee: false })
+    expect(bill.includeAppFee).toBe(false)
+    expect(bill.appFee).toBe(0)
+    expect(bill.lineItems.some((li) => li.description.includes('Platform'))).toBe(false)
+    expect(bill.total).toBeCloseTo((FEE_PCT / 100) * 5000, 2)
+  })
+
+  it('lists paid invoices and marks force-closed loads as closed by Credyx', async () => {
+    hydrateInvoices([
+      {
+        id: 'inv-1',
+        invoice_number: 'INV-1',
+        client_id: clientId,
+        client_name: 'Test Carrier',
+        broker_id: 'b1',
+        broker_name: 'Broker',
+        amount: 5000,
+        invoice_date: '2026-06-01',
+        due_date: '2026-07-01',
+        expected_payment_date: '2026-07-01',
+        status: 'paid',
+        created_at: '2026-06-01T00:00:00Z',
+      },
+      {
+        id: 'inv-2',
+        invoice_number: 'INV-2',
+        client_id: clientId,
+        client_name: 'Test Carrier',
+        broker_id: 'b1',
+        broker_name: 'Broker',
+        amount: 2000,
+        invoice_date: '2026-06-02',
+        status: 'force_closed',
+        created_at: '2026-06-02T00:00:00Z',
+        updated_at: '2026-06-20T00:00:00Z',
+      },
+    ])
+
+    const rows = getPeriodBilledInvoices(clientId, { year: 2026, month: 6 })
+    expect(rows).toHaveLength(2)
+    expect(rows.find((r) => r.invoiceNumber === 'INV-1')?.closedByCredyx).toBe(false)
+    expect(rows.find((r) => r.invoiceNumber === 'INV-2')?.closedByCredyx).toBe(true)
+  })
+
   it('shows waived gross fees for trial clients but charges $0', async () => {
     await updateClient(clientId, {
       billing: {
@@ -165,5 +212,12 @@ describe('arBillingService', () => {
   it('requires fee terms when client has none', async () => {
     await updateClient(clientId, { fee_terms: undefined })
     expect(() => computeMonthlyBill(clientId, { year: 2026, month: 6 })).toThrow(/Fee terms/)
+  })
+
+  it('normalizes payment URLs', () => {
+    expect(normalizePaymentUrl('pay.example.com/x')).toBe('https://pay.example.com/x')
+    expect(normalizePaymentUrl('https://pay.example.com/x')).toBe('https://pay.example.com/x')
+    expect(normalizePaymentUrl('not a url')).toBe('')
+    expect(normalizePaymentUrl('')).toBe('')
   })
 })

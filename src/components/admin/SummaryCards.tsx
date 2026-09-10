@@ -5,6 +5,7 @@ import {
   Phone,
   TrendingUp,
   Clock,
+  Scale,
 } from 'lucide-react'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { formatCurrency } from '../../utils/format'
@@ -12,6 +13,7 @@ import { formatCurrency } from '../../utils/format'
 interface SummaryCardsProps {
   totalBatchesPending: number
   totalInvoicesHLD: number
+  disputedInvoices: number
   totalAR: number
   collectionsAlerts: number
   forceCloseRate: number
@@ -22,6 +24,7 @@ interface SummaryCardsProps {
 export function SummaryCards({
   totalBatchesPending,
   totalInvoicesHLD,
+  disputedInvoices,
   totalAR,
   collectionsAlerts,
   forceCloseRate,
@@ -47,6 +50,14 @@ export function SummaryCards({
       tone: totalInvoicesHLD > 0 ? 'red' : 'slate',
       valueColor: totalInvoicesHLD > 0 ? c.error : c.primary,
       type: 'invoices',
+    },
+    {
+      label: 'Open Disputed',
+      value: disputedInvoices,
+      icon: Scale,
+      tone: disputedInvoices > 0 ? 'amber' : 'slate',
+      valueColor: disputedInvoices > 0 ? c.warning : c.primary,
+      type: 'disputes',
     },
     {
       label: 'Batches Pending',
@@ -101,7 +112,7 @@ export function SummaryCards({
   }
 
   return (
-    <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+    <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
       {cards.map((card) => {
         const Icon = card.icon
         return (

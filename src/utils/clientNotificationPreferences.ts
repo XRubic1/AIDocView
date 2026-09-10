@@ -85,6 +85,9 @@ export function getClientNotificationCategory(
   notification: Pick<Notification, 'type' | 'metadata'>
 ): ClientNotificationCategory | null {
   if (notification.type === 'invoice_on_hold') return 'hold'
+  if (notification.type === 'invoice_approved' || notification.type === 'invoice_rejected') {
+    if (notification.metadata?.paperwork_review) return 'hold'
+  }
   if (notification.type === 'invoice_note') return 'notes'
 
   if (notification.type === 'payment_received' || notification.type === 'payment_pending') {

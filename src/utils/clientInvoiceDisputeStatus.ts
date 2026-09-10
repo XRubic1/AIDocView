@@ -86,3 +86,53 @@ export function getInvoiceDisputeOverviewNote(
 
   return null
 }
+
+/** One open-disputed invoice for admin queues and dashboards. */
+export type OpenDisputedInvoiceRow = {
+  invoice: Invoice
+  /** Invoice-level (claim/docs) vs carrier receipt dispute on a posted payment. */
+  source: 'invoice' | 'receipt'
+  reason: string
+}
+
+/**
+ * Open A/R invoices that are Open Disputed (structured dispute, dispute note, or receipt hold).
+ * Pass receipt-disputed payment invoice IDs so remittance disputes count without a paperwork hold.
+ */
+export function listOpenDisputedInvoices(
+  invoices: Invoice[],
+  options?: { receiptDisputedInvoiceIds?: Iterable<string> }
+): OpenDisputedInvoiceRow[] {
+  const receiptIds = new Set(options?.receiptDisputedInvoiceIds ?? [])
+  const rows: OpenDisputedInvoiceRow[] = []
+  for (const invoice of invoices) {
+    const receiptHold = isReceiptDisputeHold(invoice)
+    const paymentDisputed = receiptHold || receiptIds.has(invoice.id)
+    if (!invoiceHasOpenDisputedStatus(invoice, { paymentDisputed })) continue
+    const open = getOpenDisputes(invoice)
+    const overview = getInvoiceDisputeOverviewNote(invoice, undefined, { paymentDisputed })
+    const source: OpenDisputedInvoiceRow['source'] =
+      paymentDisputed && open.length === 0 ? 'receipt' : 'invoice'
+    const latestNote =
+      invoice.notes_history
+        ?.filter((n) => n.type === 'dispute')
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+        ?.note
+    rows.push({
+      invoice,
+      source,
+      reason:
+        overview?.note ||
+        latestNote?.trim() ||
+        (source === 'receipt'
+          ? 'Payment receipt disputed — Credyx is reviewing.'
+          : 'Open dispute'),
+    })
+  }
+  rows.sort((a, b) => {
+    const aAt = new Date(a.invoice.updated_at || a.invoice.created_at).getTime()
+    const bAt = new Date(b.invoice.updated_at || b.invoice.created_at).getTime()
+    return bAt - aAt
+  })
+  return rows
+}
