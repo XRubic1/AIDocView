@@ -2,6 +2,7 @@ import { DocumentReviewResult } from '../types/documentReview'
 import { RateConParse } from '../types/documentPipeline'
 import { extractBatchContext } from '../services/crossValidationService'
 import { coerceRateValue } from './effectiveRateAmount'
+import { paperworkFileStem } from './batchPaperworkFile'
 import { InvoiceUnit } from './multiInvoiceValidation'
 
 /** Fields pulled from AI-reviewed documents for Excel / cross-check. */
@@ -36,11 +37,22 @@ export function loadNumbersMatch(a?: string | null, b?: string | null): boolean 
   return false
 }
 
-/** Load number from PDF filename stem (e.g. 14503.pdf → 14503). */
+const MIN_FILENAME_LOAD_LEN = 5
+
+/** Digit runs in a paperwork filename that look like load / PO numbers. */
+export function loadNumbersFromFileName(fileName: string): string[] {
+  const stem = paperworkFileStem(fileName)
+  const runs = [...stem.matchAll(/(\d{4,})/g)].map((match) => match[1])
+  const strong = runs.filter((run) => {
+    const trimmed = run.replace(/^0+/, '') || run
+    return trimmed.length >= MIN_FILENAME_LOAD_LEN
+  })
+  return strong.sort((a, b) => b.length - a.length)
+}
+
+/** Load number from filename stem (prefers the longest real load #, not unit codes like 0040). */
 export function loadNumberFromFileName(fileName: string): string | undefined {
-  const stem = fileName.replace(/\.pdf$/i, '').trim()
-  const match = stem.match(/(\d{4,})/)
-  return match?.[1]
+  return loadNumbersFromFileName(fileName)[0]
 }
 
 /** Try to read invoice number from filename (e.g. INV-12345.pdf). */

@@ -39,7 +39,7 @@ export async function runDocSort(
 ): Promise<DocSortResult> {
   const total = uploads.length
   if (total === 0) {
-    throw new Error('Add at least one PDF to sort.')
+    throw new Error('Add at least one document to sort.')
   }
 
   onProgress?.({ phase: 'scanning', completed: 0, total, message: 'Scanning documents…' })

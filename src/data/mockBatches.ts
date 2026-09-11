@@ -141,11 +141,14 @@ export const addInvoicesForBatch = (
   invoices: Omit<Invoice, 'id' | 'created_at' | 'batch_id' | 'batch_number'>[]
 ): Invoice[] => {
   const created = invoices.map((inv) =>
-    addInvoice({
-      ...inv,
-      batch_id: batchId,
-      batch_number: batchNumber,
-    })
+    addInvoice(
+      {
+        ...inv,
+        batch_id: batchId,
+        batch_number: batchNumber,
+      },
+      { deferPersist: true }
+    )
   )
   updateBatchTotals(batchId)
   return created

@@ -1,5 +1,5 @@
 import type { CredyxInvoiceDraft } from '../types/credyxBatch'
-import type { DocSortFingerprint } from '../products/docSort/types'
+import { classifyPacketDoc, draftViewKindForCategory, invoiceFingerprints } from './batchPacketDocs'
 
 export interface DraftViewDocument {
   id: string
@@ -8,7 +8,9 @@ export interface DraftViewDocument {
   kind?: string
 }
 
-/** Resolve uploaded + generated files for a load draft. */
+import { classifyPacketDoc, draftViewKindForCategory, invoiceFingerprints } from './batchPacketDocs'
+
+/** Resolve uploaded + generated files for a load draft. Invoice page is always first. */
 export function getDraftViewDocuments(
   draft: CredyxInvoiceDraft,
   fileById: Map<string, File>
@@ -31,20 +33,27 @@ export function getDraftViewDocuments(
     )
   }
 
-  const addFingerprint = (fp: DocSortFingerprint, kind: string) => {
+  for (const fp of invoiceFingerprints(draft)) {
     const file = fileById.get(fp.docId)
     if (file) {
-      addFile(fp.docId, fp.fileName || file.name, file, kind)
+      addFile(
+        fp.docId,
+        fp.fileName || file.name,
+        file,
+        draftViewKindForCategory(classifyPacketDoc(fp))
+      )
     }
   }
-
-  draft.fingerprints.rateCons.forEach((fp) => addFingerprint(fp, 'Rate con'))
-  draft.fingerprints.bols.forEach((fp) => addFingerprint(fp, 'BOL'))
 
   draft.document_doc_ids.forEach((docId) => {
     const file = fileById.get(docId)
     if (file) {
-      addFile(docId, file.name, file, 'Document')
+      addFile(
+        docId,
+        file.name,
+        file,
+        draftViewKindForCategory(classifyPacketDoc({ fileName: file.name, kind: 'other' }))
+      )
     }
   })
 

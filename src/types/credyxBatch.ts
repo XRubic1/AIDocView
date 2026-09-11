@@ -19,6 +19,7 @@ export interface CredyxInvoiceDraft {
   fingerprints: {
     rateCons: DocSortFingerprint[]
     bols: DocSortFingerprint[]
+    other?: DocSortFingerprint[]
   }
 }
 

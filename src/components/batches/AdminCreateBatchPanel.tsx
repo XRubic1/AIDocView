@@ -129,10 +129,10 @@ export default function AdminCreateBatchPanel({
             onClick={() => setStep('ai')}
           >
             <h3 className="text-sm font-bold mb-1" style={{ color: '#113543' }}>
-              AI upload
+              Drop paperwork
             </h3>
             <p className="text-xs" style={{ color: '#819291' }}>
-              Sort PDFs by load, confirm in a table, then submit
+              Add PDFs or photos, process when ready, then review drafts beside the docs
             </p>
           </button>
           <button

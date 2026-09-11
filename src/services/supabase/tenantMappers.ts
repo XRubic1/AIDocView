@@ -2,6 +2,7 @@ import type { Invoice, InvoiceDispute, InvoiceNote, DocumentSendRecord } from '.
 import type { Payment } from '../../types/payment'
 import type { Batch } from '../../data/mockBatches'
 import type { FeeTermsSnapshot } from '../../types/feeTerms'
+import { dueDatesForDatabase } from '../../utils/invoiceDueDate'
 
 export interface InvoiceRow {
   id: string
@@ -255,8 +256,7 @@ export function invoiceToRow(invoice: Invoice): InvoiceRow {
     paid_amount: invoice.paid_amount ?? null,
     overpayment_accepted_at: invoice.overpayment_accepted_at ?? null,
     invoice_date: invoice.invoice_date,
-    due_date: invoice.due_date ?? null,
-    expected_payment_date: invoice.expected_payment_date ?? null,
+    ...dueDatesForDatabase(invoice),
     status: invoice.status,
     load_number: invoice.load_number ?? null,
     batch_id: invoice.batch_id ?? null,

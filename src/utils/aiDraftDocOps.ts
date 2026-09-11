@@ -32,6 +32,10 @@ function cloneUnmatched(unmatched: BatchIntakeDraft['unmatched']) {
   }
 }
 
+function otherFps(invoice: CredyxInvoiceDraft): DocSortFingerprint[] {
+  return invoice.fingerprints.other ?? []
+}
+
 /** Remove a supporting doc from an invoice draft (not the generated invoice PDF). */
 export function removeDocFromInvoice(
   invoice: CredyxInvoiceDraft,
@@ -55,11 +59,19 @@ export function removeDocFromInvoice(
     return true
   })
 
+  const other = otherFps(invoice).filter((fp) => {
+    if (fp.docId === docId) {
+      fingerprint = fp
+      return false
+    }
+    return true
+  })
+
   return {
     invoice: {
       ...invoice,
       document_doc_ids: invoice.document_doc_ids.filter((id) => id !== docId),
-      fingerprints: { rateCons, bols },
+      fingerprints: { rateCons, bols, other },
     },
     fingerprint,
   }
@@ -81,6 +93,7 @@ export function addDocToInvoice(
       fingerprints: {
         ...invoice.fingerprints,
         rateCons: [...invoice.fingerprints.rateCons, fingerprint],
+        other: otherFps(invoice),
       },
     }
   }
@@ -92,11 +105,19 @@ export function addDocToInvoice(
       fingerprints: {
         ...invoice.fingerprints,
         bols: [...invoice.fingerprints.bols, fingerprint],
+        other: otherFps(invoice),
       },
     }
   }
 
-  return { ...invoice, document_doc_ids }
+  return {
+    ...invoice,
+    document_doc_ids,
+    fingerprints: {
+      ...invoice.fingerprints,
+      other: [...otherFps(invoice), fingerprint],
+    },
+  }
 }
 
 function findUnmatchedFingerprint(
@@ -128,7 +149,8 @@ function resolveFingerprint(
 ): DocSortFingerprint | null {
   const fromFp =
     invoice.fingerprints.rateCons.find((fp) => fp.docId === docId) ??
-    invoice.fingerprints.bols.find((fp) => fp.docId === docId)
+    invoice.fingerprints.bols.find((fp) => fp.docId === docId) ??
+    otherFps(invoice).find((fp) => fp.docId === docId)
   if (fromFp) return fromFp
 
   const file = draft.fileById.get(docId)
@@ -189,7 +211,7 @@ export function removeInvoiceFromDraft(
   draftId: string
 ): BatchIntakeDraft {
   const target = draft.invoices.find((inv) => inv.draftId === draftId)
-  if (!target || target.confirmed) return draft
+  if (!target) return draft
 
   const unmatched = cloneUnmatched(draft.unmatched)
   const seen = new Set<string>()
@@ -203,6 +225,7 @@ export function removeInvoiceFromDraft(
 
   target.fingerprints.rateCons.forEach(pushUnmatched)
   target.fingerprints.bols.forEach(pushUnmatched)
+  otherFps(target).forEach(pushUnmatched)
 
   target.document_doc_ids.forEach((docId) => {
     if (seen.has(docId)) return
@@ -219,7 +242,22 @@ export function removeInvoiceFromDraft(
 
 export function docKindLabel(doc: DraftViewDocument): string {
   if (doc.kind === 'Generated invoice') return 'Invoice PDF'
-  if (doc.kind === 'Rate con') return 'Rate con'
+  if (doc.kind === 'Rate con') return 'Rate confirmation'
   if (doc.kind === 'BOL') return 'BOL'
   return doc.kind || 'Document'
+}
+
+/** Permanently remove a supporting document from the draft (not the generated invoice page). */
+export function deleteDraftDocument(
+  draft: BatchIntakeDraft,
+  docId: string
+): BatchIntakeDraft {
+  if (draft.invoices.some((inv) => isGeneratedInvoicePdfDoc(inv, docId))) return draft
+
+  const invoices = draft.invoices.map((inv) => removeDocFromInvoice(inv, docId).invoice)
+  const { unmatched } = removeFromUnmatched(draft.unmatched, docId)
+  const fileById = new Map(draft.fileById)
+  fileById.delete(docId)
+
+  return { ...draft, invoices, unmatched, fileById }
 }

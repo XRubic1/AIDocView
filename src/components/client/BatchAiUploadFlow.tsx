@@ -15,6 +15,9 @@ import {
 } from '../../integrations/docSortToCredyx'
 import {
   assignUnmatchedDocument,
+  createManualDocFingerprint,
+  addDocToInvoice,
+  deleteDraftDocument,
   moveDraftDocument,
   removeInvoiceFromDraft,
 } from '../../utils/aiDraftDocOps'
@@ -27,6 +30,11 @@ import {
   getWithinBatchLoadWarnings,
   validateBatchInvoiceNumbers,
 } from '../../utils/invoiceDuplicateChecks'
+import { invoiceDraftBlocker } from '../../utils/invoiceDraftReady'
+import {
+  BATCH_PAPERWORK_ACCEPT,
+  isBatchPaperworkFile,
+} from '../../utils/batchPaperworkFile'
 
 const INVOICE_PDF_FIELDS: (keyof CredyxInvoiceDraft)[] = [
   'amount',
@@ -72,9 +80,9 @@ interface BatchAiUploadFlowProps {
 }
 
 const STEPS: { id: Step; label: string }[] = [
-  { id: 'upload', label: 'Upload' },
-  { id: 'processing', label: 'Process' },
-  { id: 'confirm', label: 'Confirm' },
+  { id: 'upload', label: 'Drop files' },
+  { id: 'processing', label: 'Reading' },
+  { id: 'confirm', label: 'Packets' },
 ]
 
 function formatFileSize(bytes: number) {
@@ -135,9 +143,7 @@ export default function BatchAiUploadFlow({
   const c = useClientTheme()
   const confirmedByName = confirmedBy ?? clientName
   const hasRestored = Boolean(restoredDraft)
-  const [step, setStep] = useState<Step>(
-    restoredDraft?.step ?? (initialFiles?.length ? 'processing' : 'upload')
-  )
+  const [step, setStep] = useState<Step>(restoredDraft?.step ?? 'upload')
   const [files, setFiles] = useState<File[]>(restoredDraft?.uploadFiles ?? initialFiles ?? [])
   const [draft, setDraft] = useState<BatchIntakeDraft | null>(restoredDraft?.intake ?? null)
   const restoredAppliedRef = useRef(hasRestored)
@@ -215,13 +221,6 @@ export default function BatchAiUploadFlow({
   }, [draftBatchNumber, clientId])
 
   useEffect(() => {
-    if (initialFiles?.length && !hasRestored) {
-      runPipeline(initialFiles)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when prefilled from dashboard
-  }, [])
-
-  useEffect(() => {
     if (!restoredDraft || restoredAppliedRef.current) return
     setStep(restoredDraft.step)
     setFiles(restoredDraft.uploadFiles)
@@ -237,22 +236,25 @@ export default function BatchAiUploadFlow({
     return () => clearTimeout(timer)
   }, [step, files, draft, draftReady, onPersistDraft])
 
-  const addPdfs = (list: FileList | File[]) => {
-    const pdfs = Array.from(list).filter(
-      (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
-    )
-    if (pdfs.length === 0) {
-      setError('Only PDF files are supported.')
+  const addPaperwork = (list: FileList | File[]) => {
+    const incoming = Array.from(list)
+    const accepted = incoming.filter(isBatchPaperworkFile)
+    if (accepted.length === 0) {
+      setError('Use PDF, JPG, or PNG files.')
       return
     }
-    setFiles((prev) => [...prev, ...pdfs])
-    setError(null)
+    setFiles((prev) => [...prev, ...accepted])
+    setError(
+      accepted.length < incoming.length
+        ? 'Some files were skipped. Use PDF, JPG, or PNG.'
+        : null
+    )
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files
     if (!list) return
-    addPdfs(list)
+    addPaperwork(list)
     e.target.value = ''
   }
 
@@ -278,7 +280,7 @@ export default function BatchAiUploadFlow({
     e.preventDefault()
     e.stopPropagation()
     setIsDragging(false)
-    if (e.dataTransfer.files.length > 0) addPdfs(e.dataTransfer.files)
+    if (e.dataTransfer.files.length > 0) addPaperwork(e.dataTransfer.files)
   }
 
   const removeFile = (index: number) => {
@@ -287,10 +289,10 @@ export default function BatchAiUploadFlow({
 
   const handleProcess = () => {
     if (files.length === 0) {
-      setError('Add at least one PDF.')
+      setError('Add at least one file.')
       return
     }
-    runPipeline(files)
+    void runPipeline(files)
   }
 
   const updateDraft = (draftId: string, patch: Partial<CredyxInvoiceDraft>) => {
@@ -325,24 +327,6 @@ export default function BatchAiUploadFlow({
     if (patchUpdatesInvoicePdf(nextPatch)) {
       scheduleInvoicePdfRegen(draftId)
     }
-  }
-
-  const confirmDraft = (draftId: string) => {
-    const inv = draftRef.current?.invoices.find((i) => i.draftId === draftId)
-    if (!inv || inv.amount <= 0) return
-
-    const pending = regenTimersRef.current[draftId]
-    if (pending) {
-      clearTimeout(pending)
-      delete regenTimersRef.current[draftId]
-      void regenInvoicePdf(draftId)
-    }
-
-    updateDraft(draftId, { confirmed: true })
-  }
-
-  const unconfirmDraft = (draftId: string) => {
-    updateDraft(draftId, { confirmed: false })
   }
 
   const addManualDraft = async () => {
@@ -394,27 +378,23 @@ export default function BatchAiUploadFlow({
     setDraft((prev) => {
       if (!prev) return prev
       const nextFileById = new Map(prev.fileById)
-      const newDocIds: string[] = []
+      let invoices = prev.invoices
 
       files.forEach((file) => {
         const docId = `manual-doc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
         nextFileById.set(docId, file)
-        newDocIds.push(docId)
+        const fingerprint = createManualDocFingerprint(docId, file)
+        invoices = invoices.map((inv) =>
+          inv.draftId === draftId ? addDocToInvoice(inv, fingerprint) : inv
+        )
       })
 
-      return {
-        ...prev,
-        fileById: nextFileById,
-        invoices: prev.invoices.map((inv) =>
-          inv.draftId === draftId
-            ? {
-                ...inv,
-                document_doc_ids: [...inv.document_doc_ids, ...newDocIds],
-              }
-            : inv
-        ),
-      }
+      return { ...prev, fileById: nextFileById, invoices }
     })
+  }
+
+  const deleteDocument = (docId: string) => {
+    setDraft((prev) => (prev ? deleteDraftDocument(prev, docId) : prev))
   }
 
   const handleSubmit = async () => {
@@ -426,6 +406,21 @@ export default function BatchAiUploadFlow({
     )
     if (numberIssues.length > 0) {
       setError(numberIssues[0].message)
+      return
+    }
+
+    const unmatchedCount =
+      draft.unmatched.rateCons.length +
+      draft.unmatched.bols.length +
+      draft.unmatched.other.length
+    if (unmatchedCount > 0) {
+      setError('Assign or delete every document before sending this batch to verification.')
+      return
+    }
+
+    const firstBlocker = draft.invoices.map((inv) => invoiceDraftBlocker(inv)).find(Boolean)
+    if (firstBlocker) {
+      setError(firstBlocker)
       return
     }
 
@@ -452,7 +447,7 @@ export default function BatchAiUploadFlow({
       const { batchId } = await submitAiBatch({
         clientId,
         clientName,
-        drafts: draft.invoices,
+        drafts: draft.invoices.map((inv) => ({ ...inv, confirmed: true })),
         sortResult: draft.sortResult,
         fileById: draft.fileById,
         confirmedBy: confirmedByName,
@@ -503,14 +498,13 @@ export default function BatchAiUploadFlow({
           crossCarrierLoadWarnings={crossCarrierLoadWarnings}
           brokerPickerMode={skipSetupGate ? 'admin' : 'carrier'}
           onUpdateDraft={updateDraft}
-          onConfirmDraft={confirmDraft}
-          onUnconfirmDraft={unconfirmDraft}
           onAddInvoice={addManualDraft}
           onRemoveDraft={removeDraft}
           onMoveDocument={moveDocument}
           onAssignUnmatchedDoc={assignUnmatchedDoc}
           onAssignUnmatchedDocs={assignUnmatchedDocs}
           onAttachDocuments={attachDraftDocuments}
+          onDeleteDocument={deleteDocument}
           addingInvoice={addingInvoice}
           onSubmitBatch={handleSubmit}
           submitting={submitting}
@@ -532,11 +526,19 @@ export default function BatchAiUploadFlow({
             <Loader2 className="client-ai-upload__spinner w-10 h-10" />
           </div>
           <p className="text-sm font-semibold mt-4" style={{ color: c.primary }}>
-            Sorting paperwork &amp; creating invoices…
+            Reading load #, broker, and rate…
           </p>
           <p className="text-xs mt-2" style={{ color: c.secondary }}>
-            {progress || 'This usually takes a moment'}
+            {progress || 'Creating invoice drafts from your PDFs'}
           </p>
+          <ul className="client-ai-upload__reading-files">
+            {files.map((file, index) => (
+              <li key={`${file.name}-${index}`}>
+                <FileText className="w-3.5 h-3.5 shrink-0" />
+                <span>{file.name}</span>
+              </li>
+            ))}
+          </ul>
           <div className="client-ai-upload__progress-track">
             <div className="client-ai-upload__progress-bar" />
           </div>
@@ -551,7 +553,7 @@ export default function BatchAiUploadFlow({
         title={draftBatchNumber ?? 'Upload paperwork'}
         badge={{ label: 'Draft saved', className: 'status-pill--pending-batch' }}
         stepIndex={stepIndex}
-        meta={`${files.length} file${files.length !== 1 ? 's' : ''}${files.length ? ` · ${formatFileSize(totalBytes)}` : ''} · PDF`}
+        meta={`${files.length} file${files.length !== 1 ? 's' : ''}${files.length ? ` · ${formatFileSize(totalBytes)}` : ''} · PDF / JPG / PNG`}
       />
 
       <div className="client-ai-upload__body">
@@ -565,7 +567,7 @@ export default function BatchAiUploadFlow({
           >
             <input
               type="file"
-              accept=".pdf,application/pdf"
+              accept={BATCH_PAPERWORK_ACCEPT}
               multiple
               className="hidden"
               onChange={handleFileSelect}
@@ -574,25 +576,29 @@ export default function BatchAiUploadFlow({
               <Upload className="w-6 h-6" />
             </div>
             <span className="client-ai-upload__dropzone-title">
-              {isDragging ? 'Drop PDFs to upload' : 'Drop PDFs here or click to browse'}
+              {isDragging ? 'Drop files to add them' : 'Drop files, then process when ready'}
             </span>
             <span className="client-ai-upload__dropzone-desc">
-              Rate cons, BOLs, and other load paperwork
+              PDF, JPG, or PNG. Add every page you have, then click Process files.
             </span>
           </label>
 
           <ul className="client-ai-upload__tips">
             <li>
               <CheckCircle2 className="w-3.5 h-3.5" />
-              We group documents by load automatically
+              Add more files anytime before processing
             </li>
             <li>
               <CheckCircle2 className="w-3.5 h-3.5" />
-              You review and confirm each drafted invoice
+              AI fills load #, broker, and rate from the pages
             </li>
             <li>
               <CheckCircle2 className="w-3.5 h-3.5" />
-              Submit the batch when everything looks right
+              You review drafts next to the paperwork
+            </li>
+            <li>
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Submit when every invoice looks right
             </li>
           </ul>
         </div>
@@ -607,7 +613,7 @@ export default function BatchAiUploadFlow({
             <div className="client-ai-upload__files-empty">
               <FileText className="w-8 h-8 mb-2" style={{ color: c.mutedLight }} />
               <p className="text-xs" style={{ color: c.secondary }}>
-                No files yet — add PDFs to get started
+                No files yet — add PDF, JPG, or PNG, then process
               </p>
             </div>
           ) : (
@@ -642,7 +648,7 @@ export default function BatchAiUploadFlow({
               onClick={handleProcess}
             >
               <Sparkles className="w-4 h-4" />
-              Process paperwork
+              Process files
             </button>
           </div>
         </aside>

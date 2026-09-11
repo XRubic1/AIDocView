@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, Eye, Loader2, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, Bug, FileText, FolderOpen, Loader2, Plus, Trash2 } from 'lucide-react'
 import DocumentViewer from '../DocumentViewer'
 import ClientInvoiceDocumentUploadModal, {
   type UploadModalDocument,
@@ -18,78 +18,58 @@ import {
   getLoadNumberWarnings,
   invoiceNumbersConflict,
 } from '../../utils/invoiceDuplicateChecks'
+import { invoiceDraftBlocker, isInvoiceDraftReady } from '../../utils/invoiceDraftReady'
+import { groupPacketDocuments } from '../../utils/batchPacketDocs'
+import BatchAiAssignmentDebug from './BatchAiAssignmentDebug'
 
 interface BatchAiConfirmPanelProps {
   draft: BatchIntakeDraft
-  /** Carrier being billed — used for duplicate invoice/load checks. */
   clientId: string
-  /** When true (Credyx admin), warn if other carriers reused the load #. */
   crossCarrierLoadWarnings?: boolean
-  /** Carrier vs Credyx admin broker picker behavior. */
   brokerPickerMode?: 'carrier' | 'admin'
   onUpdateDraft: (draftId: string, patch: Partial<CredyxInvoiceDraft>) => void
-  onConfirmDraft: (draftId: string) => void
-  onUnconfirmDraft: (draftId: string) => void
   onAddInvoice: () => void | Promise<void>
   onRemoveDraft: (draftId: string) => void
   onMoveDocument: (fromDraftId: string, docId: string, toDraftId: string | null) => void
   onAssignUnmatchedDoc: (docId: string, toDraftId: string) => void
   onAssignUnmatchedDocs: (docIds: string[], toDraftId: string) => void
   onAttachDocuments: (draftId: string, files: File[]) => void
+  onDeleteDocument: (docId: string) => void
   addingInvoice: boolean
   onSubmitBatch: () => void
   submitting: boolean
 }
 
-type ViewerMode =
-  | { type: 'invoice'; draftId: string }
-  | { type: 'unmatched' }
-  | null
+type RailTab = 'invoices' | 'docs' | 'debug'
+type Focus =
+  | { type: 'invoice'; draftId: string; docId?: string }
+  | { type: 'unassigned'; docId?: string }
 
-function docsSummary(inv: CredyxInvoiceDraft, docCount: number) {
-  if (isManualCredyxDraft(inv)) {
-    return docCount === 0 ? 'Add docs' : `${docCount} doc${docCount !== 1 ? 's' : ''}`
-  }
-  const parts: string[] = []
-  if (inv.fingerprints.rateCons.length > 0) {
-    parts.push(`${inv.fingerprints.rateCons.length} RC`)
-  }
-  if (inv.fingerprints.bols.length > 0) {
-    parts.push(`${inv.fingerprints.bols.length} BOL`)
-  }
-  if (parts.length === 0) {
-    return docCount > 0 ? `${docCount} doc${docCount !== 1 ? 's' : ''}` : '—'
-  }
-  let text = parts.join(' · ')
-  if (inv.rate_missing) text += ' · rate?'
-  return text
-}
-
-function shortFileName(name: string, max = 28) {
+function shortFileName(name: string, max = 32) {
   return name.length > max ? `${name.slice(0, max - 1)}…` : name
 }
 
-/** Review table for AI-drafted invoices before batch submit. */
+/** Packet workspace: edit invoices, assign docs, send to verification. */
 export default function BatchAiConfirmPanel({
   draft,
   clientId,
   crossCarrierLoadWarnings = false,
   brokerPickerMode = 'carrier',
   onUpdateDraft,
-  onConfirmDraft,
-  onUnconfirmDraft,
   onAddInvoice,
   onRemoveDraft,
   onMoveDocument,
   onAssignUnmatchedDoc,
   onAssignUnmatchedDocs,
   onAttachDocuments,
+  onDeleteDocument,
   addingInvoice,
   onSubmitBatch,
   submitting,
 }: BatchAiConfirmPanelProps) {
   const c = useClientTheme()
-  const [viewerMode, setViewerMode] = useState<ViewerMode>(null)
+  const [railTab, setRailTab] = useState<RailTab>('invoices')
+  const [focus, setFocus] = useState<Focus | null>(null)
   const [uploadDraftId, setUploadDraftId] = useState<string | null>(null)
   const [pendingDocs, setPendingDocs] = useState<UploadModalDocument[]>([])
   const [pendingFiles, setPendingFiles] = useState<Map<string, File>>(new Map())
@@ -97,9 +77,9 @@ export default function BatchAiConfirmPanel({
 
   const invoiceOptions = useMemo(
     () =>
-      draft.invoices.map((inv, index) => ({
+      draft.invoices.map((inv) => ({
         draftId: inv.draftId,
-        label: `Invoice #${index + 1}${inv.load_number ? ` · ${inv.load_number}` : ''}`,
+        label: `Inv #${inv.invoice_number}${inv.load_number ? ` · ${inv.load_number}` : ''}`,
       })),
     [draft.invoices]
   )
@@ -109,39 +89,48 @@ export default function BatchAiConfirmPanel({
     [draft.invoices, uploadDraftId]
   )
 
-  const viewingInvoice = useMemo(
-    () =>
-      viewerMode?.type === 'invoice'
-        ? draft.invoices.find((inv) => inv.draftId === viewerMode.draftId) ?? null
-        : null,
-    [draft.invoices, viewerMode]
-  )
-
-  const viewingInvoiceIndex = useMemo(() => {
-    if (!viewingInvoice) return 0
-    return draft.invoices.findIndex((inv) => inv.draftId === viewingInvoice.draftId) + 1
-  }, [draft.invoices, viewingInvoice])
-
   const unmatchedDocs = useMemo(
     () => [
-      ...draft.unmatched.rateCons.map((fp) => ({ ...fp, bucket: 'RC' as const })),
-      ...draft.unmatched.bols.map((fp) => ({ ...fp, bucket: 'BOL' as const })),
-      ...draft.unmatched.other.map((fp) => ({ ...fp, bucket: 'Other' as const })),
+      ...draft.unmatched.rateCons,
+      ...draft.unmatched.bols,
+      ...draft.unmatched.other,
     ],
     [draft.unmatched]
   )
 
-  const hasUnmatched = unmatchedDocs.length > 0
+  const unmatchedCount = unmatchedDocs.length
 
-  const viewerDocuments = useMemo(() => {
-    if (viewerMode?.type === 'invoice' && viewingInvoice) {
-      return getDraftViewDocuments(viewingInvoice, draft.fileById).map((doc) => ({
+  useEffect(() => {
+    setFocus((prev) => {
+      if (prev?.type === 'invoice' && draft.invoices.some((i) => i.draftId === prev.draftId)) {
+        return prev
+      }
+      if (prev?.type === 'unassigned' && unmatchedCount > 0) return prev
+      if (draft.invoices[0]) return { type: 'invoice', draftId: draft.invoices[0].draftId }
+      if (unmatchedCount > 0) return { type: 'unassigned' }
+      return null
+    })
+  }, [draft.invoices, unmatchedCount])
+
+  const selectedInvoice = useMemo(() => {
+    if (focus?.type !== 'invoice') return null
+    return draft.invoices.find((inv) => inv.draftId === focus.draftId) ?? null
+  }, [draft.invoices, focus])
+
+  const packetGroups = useMemo(
+    () => (selectedInvoice ? groupPacketDocuments(selectedInvoice, draft.fileById) : []),
+    [selectedInvoice, draft.fileById]
+  )
+
+  const paneDocuments = useMemo(() => {
+    if (focus?.type === 'invoice' && selectedInvoice) {
+      return getDraftViewDocuments(selectedInvoice, draft.fileById).map((doc) => ({
         id: doc.id,
         name: doc.name,
         file: doc.file,
       }))
     }
-    if (viewerMode?.type === 'unmatched') {
+    if (focus?.type === 'unassigned') {
       return unmatchedDocs
         .map((fp) => {
           const file = draft.fileById.get(fp.docId)
@@ -151,31 +140,29 @@ export default function BatchAiConfirmPanel({
         .filter((doc): doc is { id: string; name: string; file: File } => doc !== null)
     }
     return []
-  }, [viewerMode, viewingInvoice, draft.fileById, unmatchedDocs])
+  }, [focus, selectedInvoice, draft.fileById, unmatchedDocs])
 
   const viewerMoveTargets = useMemo(() => {
-    if (viewerMode?.type === 'invoice' && viewingInvoice) {
+    if (focus?.type === 'invoice' && selectedInvoice) {
       return [
         ...invoiceOptions
-          .filter((opt) => opt.draftId !== viewingInvoice.draftId)
+          .filter((opt) => opt.draftId !== selectedInvoice.draftId)
           .map((opt) => ({ draftId: opt.draftId, label: opt.label })),
-        { draftId: null, label: 'Unmatched pool' },
+        { draftId: null, label: 'Unassigned pile' },
       ]
     }
-    if (viewerMode?.type === 'unmatched') {
+    if (focus?.type === 'unassigned') {
       return invoiceOptions.map((opt) => ({ draftId: opt.draftId, label: opt.label }))
     }
     return []
-  }, [viewerMode, viewingInvoice, invoiceOptions])
+  }, [focus, selectedInvoice, invoiceOptions])
 
   const viewerLockedIds = useMemo(() => {
-    if (!viewingInvoice) return []
-    return viewerDocuments
-      .filter((doc) => isGeneratedInvoicePdfDoc(viewingInvoice, doc.id))
+    if (!selectedInvoice) return []
+    return paneDocuments
+      .filter((doc) => isGeneratedInvoicePdfDoc(selectedInvoice, doc.id))
       .map((doc) => doc.id)
-  }, [viewingInvoice, viewerDocuments])
-
-  const viewerMoveDisabled = viewingInvoice?.confirmed ?? false
+  }, [selectedInvoice, paneDocuments])
 
   useEffect(() => {
     setSelectedUnmatched((prev) => {
@@ -184,17 +171,6 @@ export default function BatchAiConfirmPanel({
     })
   }, [unmatchedDocs])
 
-  useEffect(() => {
-    if (viewerMode?.type === 'invoice' && !draft.invoices.some((i) => i.draftId === viewerMode.draftId)) {
-      setViewerMode(null)
-    }
-    if (viewerMode?.type === 'unmatched' && unmatchedDocs.length === 0) {
-      setViewerMode(null)
-    }
-  }, [draft.invoices, viewerMode, unmatchedDocs.length])
-
-  const allConfirmed = draft.invoices.length > 0 && draft.invoices.every((i) => i.confirmed)
-  const confirmedCount = draft.invoices.filter((i) => i.confirmed).length
   const batchTotal = useMemo(
     () => draft.invoices.reduce((s, i) => s + (i.amount || 0), 0),
     [draft.invoices]
@@ -202,14 +178,10 @@ export default function BatchAiConfirmPanel({
 
   const warnMode = crossCarrierLoadWarnings ? 'admin' : 'client'
 
-  /** Per-draft invoice # / load # feedback for the confirm table. */
   const fieldFeedback = useMemo(() => {
     const map = new Map<string, { invoiceError?: string; loadWarning?: string }>()
-
     draft.invoices.forEach((inv, index) => {
-      const otherNumbers = draft.invoices
-        .filter((_, i) => i !== index)
-        .map((o) => o.invoice_number)
+      const otherNumbers = draft.invoices.filter((_, i) => i !== index).map((o) => o.invoice_number)
       const num = inv.invoice_number?.trim() ?? ''
       let invoiceError: string | undefined
       if (num) {
@@ -222,67 +194,26 @@ export default function BatchAiConfirmPanel({
             : `Invoice number ${num} is already used for your account`
         }
       }
-
       const loadWarnings = getLoadNumberWarnings(inv.load_number, {
         forClientId: clientId,
         crossCarrier: crossCarrierLoadWarnings,
       })
       const loadWarning =
-        loadWarnings.length > 0
-          ? formatLoadNumberWarning(loadWarnings[0], warnMode)
-          : undefined
-
-      if (invoiceError || loadWarning) {
-        map.set(inv.draftId, { invoiceError, loadWarning })
-      }
+        loadWarnings.length > 0 ? formatLoadNumberWarning(loadWarnings[0], warnMode) : undefined
+      if (invoiceError || loadWarning) map.set(inv.draftId, { invoiceError, loadWarning })
     })
-
     return map
   }, [draft.invoices, clientId, crossCarrierLoadWarnings, warnMode])
 
-  /** True when the invoice has a directory broker or a pending-new name. */
-  const hasBrokerSelection = (inv: CredyxInvoiceDraft): boolean =>
-    Boolean(inv.broker_id?.trim()) || Boolean(inv.broker_name?.trim())
-
-  /** Block confirm when invoice # is taken or broker is empty; load warnings are informational only. */
-  const tryConfirmDraft = (inv: CredyxInvoiceDraft): boolean => {
-    const feedback = fieldFeedback.get(inv.draftId)
-    if (feedback?.invoiceError) {
-      window.alert(feedback.invoiceError)
-      return false
-    }
-    const num = inv.invoice_number?.trim()
-    if (!num) {
-      window.alert('Invoice number is required before confirming')
-      return false
-    }
-    if (!hasBrokerSelection(inv)) {
-      window.alert(
-        brokerPickerMode === 'admin'
-          ? 'Select or create a broker before confirming'
-          : 'Select an existing broker or request a new broker before confirming'
-      )
-      return false
-    }
-    onConfirmDraft(inv.draftId)
-    return true
-  }
-
-  const handleConfirmAll = () => {
-    draft.invoices.forEach((inv) => {
-      if (!inv.confirmed && inv.amount > 0) {
-        tryConfirmDraft(inv)
-      }
-    })
-  }
-
-  const toggleConfirm = (inv: CredyxInvoiceDraft) => {
-    if (inv.confirmed) {
-      onUnconfirmDraft(inv.draftId)
-      return
-    }
-    tryConfirmDraft(inv)
-  }
+  const readyCount = draft.invoices.filter((inv) =>
+    isInvoiceDraftReady(inv, fieldFeedback.get(inv.draftId))
+  ).length
+  const allReady = draft.invoices.length > 0 && readyCount === draft.invoices.length
+  const canSendToVerification = allReady && unmatchedCount === 0
+  const selectedFeedback = selectedInvoice ? fieldFeedback.get(selectedInvoice.draftId) : undefined
+  const selectedBlocker = selectedInvoice
+    ? invoiceDraftBlocker(selectedInvoice, selectedFeedback)
+    : null
 
   const openDocUpload = (draftId: string) => {
     setUploadDraftId(draftId)
@@ -299,14 +230,12 @@ export default function BatchAiConfirmPanel({
   const addPendingFiles = (files: FileList | File[]) => {
     const list = Array.from(files)
     if (list.length === 0) return
-
     const entries = list.map((file) => ({
       id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       name: file.name,
       size: file.size,
       file,
     }))
-
     setPendingDocs((prev) => [
       ...prev,
       ...entries.map(({ id, name, size }) => ({ id, name, size })),
@@ -318,386 +247,455 @@ export default function BatchAiConfirmPanel({
     })
   }
 
-  const removePendingDoc = (docId: string) => {
-    setPendingDocs((prev) => prev.filter((d) => d.id !== docId))
-    setPendingFiles((prev) => {
-      const next = new Map(prev)
-      next.delete(docId)
-      return next
-    })
-  }
-
-  const handleDocUploadComplete = () => {
-    if (!uploadDraftId) return
-    onAttachDocuments(uploadDraftId, Array.from(pendingFiles.values()))
-    closeDocUpload()
-  }
-
-  const handleDocsClick = (inv: CredyxInvoiceDraft, docCount: number) => {
-    if (isManualCredyxDraft(inv) && docCount === 0 && !inv.confirmed) {
-      openDocUpload(inv.draftId)
-      return
-    }
-    if (docCount > 0) {
-      setViewerMode({ type: 'invoice', draftId: inv.draftId })
-    }
-  }
-
-  const toggleUnmatchedSelection = (docId: string) => {
-    setSelectedUnmatched((prev) => {
-      const next = new Set(prev)
-      if (next.has(docId)) next.delete(docId)
-      else next.add(docId)
-      return next
-    })
-  }
-
-  const handleBulkAssign = (toDraftId: string) => {
-    if (!toDraftId || selectedUnmatched.size === 0) return
-    onAssignUnmatchedDocs([...selectedUnmatched], toDraftId)
-    setSelectedUnmatched(new Set())
-  }
-
   const handleViewerMove = (docId: string, toDraftId: string | null) => {
-    if (viewerMode?.type === 'invoice' && viewingInvoice) {
-      onMoveDocument(viewingInvoice.draftId, docId, toDraftId)
+    if (focus?.type === 'invoice' && selectedInvoice) {
+      onMoveDocument(selectedInvoice.draftId, docId, toDraftId)
       return
     }
-    if (viewerMode?.type === 'unmatched' && toDraftId) {
+    if (focus?.type === 'unassigned' && toDraftId) {
       onAssignUnmatchedDoc(docId, toDraftId)
     }
   }
 
   const viewerTitle =
-    viewerMode?.type === 'unmatched'
-      ? 'Unmatched documents'
-      : viewingInvoice
-        ? `Invoice #${viewingInvoiceIndex}${viewingInvoice.load_number ? ` · Load ${viewingInvoice.load_number}` : ''}`
-        : 'Documents'
+    focus?.type === 'unassigned'
+      ? 'Unassigned documents'
+      : selectedInvoice
+        ? `Inv #${selectedInvoice.invoice_number}${selectedInvoice.load_number ? ` · Load ${selectedInvoice.load_number}` : ''}`
+        : 'Packet'
 
   return (
-    <div className="client-ai-confirm">
-      <div className="client-ai-confirm__stats">
-        <div className="client-ai-confirm__stat">
-          <span className="invoice-detail-field-label">Invoices</span>
-          <span className="client-ai-confirm__stat-value tabular-nums">{draft.invoices.length}</span>
-        </div>
-        <div className="client-ai-confirm__stat">
-          <span className="invoice-detail-field-label">Confirmed</span>
-          <span className="client-ai-confirm__stat-value tabular-nums">
-            {confirmedCount}/{draft.invoices.length}
-          </span>
-        </div>
-        <div className="client-ai-confirm__stat">
-          <span className="invoice-detail-field-label">Batch total</span>
-          <span className="client-ai-confirm__stat-value tabular-nums">
-            {formatCurrency(batchTotal)}
-          </span>
-        </div>
-        {hasUnmatched && (
-          <div className="client-ai-confirm__stat">
-            <span className="invoice-detail-field-label">Unmatched</span>
-            <span className="client-ai-confirm__stat-value client-ai-confirm__stat-value--warn tabular-nums">
-              {unmatchedDocs.length}
-            </span>
-          </div>
-        )}
-        <div className="client-ai-confirm__stat client-ai-confirm__stat--action">
+    <div className="client-ai-review">
+      <div className="client-ai-review__rail">
+        <div className="client-ai-packet__tabs">
           <button
             type="button"
-            className="client-ai-confirm__add-btn"
-            onClick={() => void onAddInvoice()}
-            disabled={addingInvoice}
+            className={`client-ai-packet__tab${railTab === 'invoices' ? ' is-active' : ''}`}
+            onClick={() => setRailTab('invoices')}
           >
-            {addingInvoice ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Plus className="w-3.5 h-3.5" />
+            Invoices
+            <span>{draft.invoices.length}</span>
+          </button>
+          <button
+            type="button"
+            className={`client-ai-packet__tab${railTab === 'docs' ? ' is-active' : ''}`}
+            onClick={() => setRailTab('docs')}
+          >
+            Docs
+            {unmatchedCount > 0 && (
+              <span className="client-ai-packet__tab-warn">{unmatchedCount}</span>
             )}
-            Add invoice
+          </button>
+          <button
+            type="button"
+            className={`client-ai-packet__tab${railTab === 'debug' ? ' is-active' : ''}`}
+            onClick={() => setRailTab('debug')}
+          >
+            <Bug className="w-3.5 h-3.5" aria-hidden />
+            Debug
           </button>
         </div>
-      </div>
 
-      <div className="client-ai-confirm__disclaimer">
-        <AlertTriangle className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
-        <span>{DOCSORT_AI_DISCLAIMER_SHORT}</span>
-      </div>
-
-      {hasUnmatched && (
-        <div className="client-ai-confirm__unmatched-compact">
-          <div className="client-ai-confirm__unmatched-head">
-            <span className="client-ai-confirm__unmatched-title">
-              {unmatchedDocs.length} unmatched
-            </span>
-            <button
-              type="button"
-              className="client-ai-confirm__unmatched-view"
-              onClick={() => setViewerMode({ type: 'unmatched' })}
-            >
-              <Eye className="w-3.5 h-3.5" />
-              View
-            </button>
-          </div>
-
-          {selectedUnmatched.size > 0 && (
-            <div className="client-ai-confirm__unmatched-bulk">
-              <span>{selectedUnmatched.size} selected</span>
-              <select
-                className="client-ai-confirm__unmatched-bulk-select"
-                defaultValue=""
-                disabled={draft.invoices.length === 0}
-                onChange={(e) => {
-                  if (!e.target.value) return
-                  handleBulkAssign(e.target.value)
-                  e.target.value = ''
-                }}
-              >
-                <option value="">Assign to…</option>
-                {invoiceOptions.map((opt) => (
-                  <option key={opt.draftId} value={opt.draftId}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+        {railTab === 'invoices' ? (
+          <>
+            <div className="client-ai-review__rail-head">
+              <div>
+                <p className="client-ai-review__rail-kicker">Packets</p>
+                <p className="client-ai-review__rail-count">
+                  {readyCount}/{draft.invoices.length} ready
+                </p>
+              </div>
               <button
                 type="button"
-                className="client-ai-confirm__unmatched-clear"
-                onClick={() => setSelectedUnmatched(new Set())}
+                className="client-ai-confirm__add-btn"
+                onClick={() => void onAddInvoice()}
+                disabled={addingInvoice}
               >
-                Clear
+                {addingInvoice ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Plus className="w-3.5 h-3.5" />
+                )}
+                Add
               </button>
             </div>
-          )}
+            <div className="client-ai-review__rail-list">
+              {draft.invoices.length === 0 && (
+                <p className="client-ai-review__empty">No invoices yet. Drop paperwork or add one.</p>
+              )}
+              {draft.invoices.map((inv, index) => {
+                const ready = isInvoiceDraftReady(inv, fieldFeedback.get(inv.draftId))
+                const active = focus?.type === 'invoice' && focus.draftId === inv.draftId
+                const groups = groupPacketDocuments(inv, draft.fileById)
+                const docCount = groups.reduce((n, g) => n + g.docs.length, 0)
+                return (
+                  <button
+                    key={inv.draftId}
+                    type="button"
+                    className={`client-ai-packet__item${active ? ' is-active' : ''}${
+                      ready ? '' : ' needs-review'
+                    }`}
+                    onClick={() => {
+                      const firstDoc = groups[0]?.docs[0]?.docId
+                      setFocus({ type: 'invoice', draftId: inv.draftId, docId: firstDoc })
+                      setRailTab('invoices')
+                    }}
+                  >
+                    <span className="client-ai-packet__item-index">{index + 1}</span>
+                    <span className="client-ai-packet__item-title">
+                      Inv #{inv.invoice_number}
+                    </span>
+                    <span className="client-ai-packet__item-load">
+                      {inv.load_number ? `Load ${inv.load_number}` : 'No load #'}
+                    </span>
+                    <span className="client-ai-packet__item-meta">
+                      {inv.broker_name?.trim() || 'No broker'}
+                    </span>
+                    <span className="client-ai-packet__item-amount tabular-nums">
+                      {inv.amount > 0 ? formatCurrency(inv.amount) : '—'}
+                    </span>
+                    <span className="client-ai-packet__item-docs">{docCount} docs</span>
+                    <span className={`client-ai-review__pill${ready ? ' client-ai-review__pill--ok' : ''}`}>
+                      {ready ? 'Ready' : 'Needs review'}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        ) : railTab === 'docs' ? (
+          <div className="client-ai-packet__tree">
+            {draft.invoices.map((inv) => {
+              const groups = groupPacketDocuments(inv, draft.fileById)
+              const activePacket = focus?.type === 'invoice' && focus.draftId === inv.draftId
+              return (
+                <section
+                  key={inv.draftId}
+                  className={`client-ai-packet__block${activePacket ? ' is-active' : ''}`}
+                >
+                  <button
+                    type="button"
+                    className="client-ai-packet__block-head"
+                    onClick={() => {
+                      const firstDoc = groups[0]?.docs[0]?.docId
+                      setFocus({ type: 'invoice', draftId: inv.draftId, docId: firstDoc })
+                    }}
+                  >
+                    Inv #{inv.invoice_number}
+                    {inv.load_number ? ` · Load ${inv.load_number}` : ''}
+                  </button>
+                  {groups.map((group) => (
+                    <div key={group.category} className="client-ai-packet__tree-cat">
+                      <p>{group.label}</p>
+                      {group.docs.map((doc) => (
+                        <button
+                          key={doc.docId}
+                          type="button"
+                          className={`client-ai-packet__tree-doc${
+                            focus?.type === 'invoice' && focus.docId === doc.docId ? ' is-active' : ''
+                          }`}
+                          onClick={() =>
+                            setFocus({ type: 'invoice', draftId: inv.draftId, docId: doc.docId })
+                          }
+                          title={doc.fileName}
+                        >
+                          {shortFileName(doc.fileName)}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </section>
+              )
+            })}
 
-          <div className="client-ai-confirm__unmatched-chips">
-            {unmatchedDocs.map((fp) => (
-              <label key={fp.docId} className="client-ai-confirm__unmatched-chip">
+            <section className={`client-ai-packet__block client-ai-packet__block--unassigned${
+              focus?.type === 'unassigned' ? ' is-active' : ''
+            }`}>
+              <button
+                type="button"
+                className="client-ai-packet__block-head"
+                onClick={() => setFocus({ type: 'unassigned' })}
+              >
+                Unassigned docs ({unmatchedCount})
+              </button>
+              {unmatchedCount === 0 ? (
+                <p className="client-ai-packet__tree-empty">All documents are in a packet.</p>
+              ) : (
+                unmatchedDocs.map((fp) => (
+                  <div key={fp.docId} className="client-ai-packet__unassigned-row">
+                    <button
+                      type="button"
+                      className={`client-ai-packet__tree-doc${
+                        focus?.type === 'unassigned' && focus.docId === fp.docId ? ' is-active' : ''
+                      }`}
+                      onClick={() => setFocus({ type: 'unassigned', docId: fp.docId })}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedUnmatched.has(fp.docId)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => {
+                          setSelectedUnmatched((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(fp.docId)) next.delete(fp.docId)
+                            else next.add(fp.docId)
+                            return next
+                          })
+                        }}
+                      />
+                      <span title={fp.fileName}>{shortFileName(fp.fileName)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="client-ai-confirm__remove-btn"
+                      title="Delete document"
+                      onClick={() => {
+                        if (window.confirm(`Delete ${fp.fileName}?`)) onDeleteDocument(fp.docId)
+                      }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+              {selectedUnmatched.size > 0 && (
+                <div className="client-ai-packet__assign-bar">
+                  <select
+                    className="client-ai-confirm__unmatched-bulk-select"
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (!e.target.value) return
+                      onAssignUnmatchedDocs([...selectedUnmatched], e.target.value)
+                      setSelectedUnmatched(new Set())
+                      e.target.value = ''
+                    }}
+                  >
+                    <option value="">Move selected to…</option>
+                    {invoiceOptions.map((opt) => (
+                      <option key={opt.draftId} value={opt.draftId}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </section>
+          </div>
+        ) : (
+          <p className="client-ai-review__empty" style={{ padding: 16 }}>
+            Select a file on the right to see why it was grouped.
+          </p>
+        )}
+      </div>
+
+      <div className="client-ai-review__main">
+        {railTab === 'debug' ? (
+          <BatchAiAssignmentDebug draft={draft} />
+        ) : (
+        <>
+        <p className="client-ai-review__disclaimer">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
+          <span>{DOCSORT_AI_DISCLAIMER_SHORT}</span>
+        </p>
+
+        {focus?.type === 'unassigned' ? (
+          <div className="client-ai-review__unmatched">
+            <h3 className="client-ai-review__panel-title">Unassigned pile</h3>
+            <p className="client-ai-review__panel-desc">
+              Move each file into the correct invoice packet, or delete it. Every document must be
+              assigned or deleted before verification.
+            </p>
+          </div>
+        ) : selectedInvoice ? (
+          <div className="client-ai-review__editor">
+            <div className="client-ai-review__editor-head">
+              <div>
+                <h3 className="client-ai-review__panel-title">
+                  Load #{selectedInvoice.load_number || '—'} ·{' '}
+                  {selectedInvoice.broker_name || 'No broker'} ·{' '}
+                  {selectedInvoice.amount > 0 ? formatCurrency(selectedInvoice.amount) : '—'}
+                </h3>
+                <p className="client-ai-review__panel-desc">
+                  Generated invoice page is first in this packet. Edit fields, then check the docs.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {isManualCredyxDraft(selectedInvoice) && (
+                  <button
+                    type="button"
+                    className="client-ai-review__attach"
+                    onClick={() => openDocUpload(selectedInvoice.draftId)}
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    Attach
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="client-ai-confirm__remove-btn"
+                  onClick={() => onRemoveDraft(selectedInvoice.draftId)}
+                  title="Remove invoice"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {selectedBlocker && <p className="client-ai-review__blocker">{selectedBlocker}</p>}
+
+            <div className="client-ai-review__fields">
+              <label className="client-ai-review__field">
+                <span>Invoice #</span>
                 <input
-                  type="checkbox"
-                  checked={selectedUnmatched.has(fp.docId)}
-                  onChange={() => toggleUnmatchedSelection(fp.docId)}
+                  type="text"
+                  value={selectedInvoice.invoice_number}
+                  onChange={(e) =>
+                    onUpdateDraft(selectedInvoice.draftId, { invoice_number: e.target.value })
+                  }
+                  className={`client-ai-confirm__input${
+                    selectedFeedback?.invoiceError ? ' client-ai-confirm__input--error' : ''
+                  }`}
                 />
-                <span className="client-ai-confirm__unmatched-chip-name" title={fp.fileName}>
-                  {shortFileName(fp.fileName)}
-                </span>
-                <span className="client-ai-confirm__unmatched-chip-kind">{fp.bucket}</span>
               </label>
-            ))}
+              <label className="client-ai-review__field">
+                <span>Load #</span>
+                <input
+                  type="text"
+                  value={selectedInvoice.load_number}
+                  onChange={(e) =>
+                    onUpdateDraft(selectedInvoice.draftId, { load_number: e.target.value })
+                  }
+                  className={`client-ai-confirm__input${
+                    selectedFeedback?.loadWarning ? ' client-ai-confirm__input--warn' : ''
+                  }`}
+                />
+              </label>
+              <div className="client-ai-review__field">
+                <span>Broker</span>
+                <BrokerPicker
+                  mode={brokerPickerMode}
+                  compact
+                  inputClassName="client-ai-confirm__input client-ai-confirm__input--wide"
+                  value={{
+                    broker_id: selectedInvoice.broker_id,
+                    broker_name: selectedInvoice.broker_name,
+                    pending_new: Boolean(selectedInvoice.broker_name && !selectedInvoice.broker_id),
+                  }}
+                  onChange={(next) =>
+                    onUpdateDraft(selectedInvoice.draftId, {
+                      broker_id: next.broker_id,
+                      broker_name: next.broker_name,
+                    })
+                  }
+                />
+              </div>
+              <label className="client-ai-review__field">
+                <span>Rate</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={selectedInvoice.amount || ''}
+                  onChange={(e) =>
+                    onUpdateDraft(selectedInvoice.draftId, {
+                      amount: Number.parseFloat(e.target.value) || 0,
+                      rate_missing: false,
+                    })
+                  }
+                  className="client-ai-confirm__input client-ai-confirm__input--amount"
+                />
+              </label>
+            </div>
+          </div>
+        ) : (
+          <div className="client-ai-review__empty-main">Drop paperwork to create invoice packets.</div>
+        )}
+
+        <div className="client-ai-review__preview">
+          {selectedInvoice && focus?.type === 'invoice' && (
+            <div className="client-ai-packet__file-strip" aria-label="Packet documents">
+              {packetGroups.flatMap((group) =>
+                group.docs.map((doc) => (
+                  <button
+                    key={doc.docId}
+                    type="button"
+                    className={`client-ai-packet__file-chip${
+                      (focus.docId === doc.docId) || (!focus.docId && doc.generated)
+                        ? ' is-active'
+                        : ''
+                    }`}
+                    onClick={() =>
+                      setFocus({
+                        type: 'invoice',
+                        draftId: selectedInvoice.draftId,
+                        docId: doc.docId,
+                      })
+                    }
+                  >
+                    <span className="client-ai-packet__file-kind">{group.label}</span>
+                    <span>{shortFileName(doc.fileName, 22)}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+          <div className="client-ai-review__docs">
+          {paneDocuments.length > 0 ? (
+            <DocumentViewer
+              isOpen
+              layout="pane"
+              onClose={() => undefined}
+              documents={paneDocuments}
+              activeDocId={focus?.docId}
+              invoiceNumber={selectedInvoice?.invoice_number}
+              title={viewerTitle}
+              moveTargets={viewerMoveTargets}
+              onMoveDocument={handleViewerMove}
+              onUnassignDocument={
+                focus?.type === 'invoice'
+                  ? (docId) =>
+                      selectedInvoice && onMoveDocument(selectedInvoice.draftId, docId, null)
+                  : undefined
+              }
+              onDeleteDocument={onDeleteDocument}
+              lockedDocIds={viewerLockedIds}
+            />
+          ) : (
+            <div className="client-ai-review__docs-empty">
+              <FileText className="w-8 h-8 mb-2" style={{ color: c.mutedLight }} />
+              <p>No documents in this view</p>
+            </div>
+          )}
           </div>
         </div>
-      )}
-
-      <div className="client-ai-confirm__table-wrap">
-        <table className="dashboard-table dashboard-table--compact client-ai-confirm__table">
-          <thead>
-            <tr>
-              <th className="client-ai-confirm__index-col">#</th>
-              <th>Docs</th>
-              <th>Invoice #</th>
-              <th>Load #</th>
-              <th>Broker</th>
-              <th className="text-right">Amount</th>
-              <th className="text-center client-ai-confirm__action-col"> </th>
-            </tr>
-          </thead>
-          <tbody>
-            {draft.invoices.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="client-ai-confirm__empty-row">
-                  No invoices yet. Click <strong>Add invoice</strong> to create one manually.
-                </td>
-              </tr>
-            ) : (
-              draft.invoices.map((inv, index) => {
-                const docCount = getDraftViewDocuments(inv, draft.fileById).length
-                const manual = isManualCredyxDraft(inv)
-                const docsDisabled = docCount === 0 && (!manual || inv.confirmed)
-                const feedback = fieldFeedback.get(inv.draftId)
-                return (
-                  <tr
-                    key={inv.draftId}
-                    className={inv.confirmed ? 'client-ai-confirm__row--confirmed' : ''}
-                  >
-                    <td className="client-ai-confirm__index-cell tabular-nums">
-                      <span className="client-ai-confirm__index">{index + 1}</span>
-                    </td>
-                    <td className="client-ai-confirm__docs-cell">
-                      <div className="client-ai-confirm__docs-wrap">
-                        <button
-                          type="button"
-                          className={`client-ai-confirm__docs-link${manual && docCount === 0 ? ' client-ai-confirm__docs-link--add' : ''}`}
-                          onClick={() => handleDocsClick(inv, docCount)}
-                          disabled={docsDisabled}
-                          title={
-                            docCount > 0
-                              ? `View ${docCount} document${docCount !== 1 ? 's' : ''}`
-                              : manual
-                                ? 'Attach supporting documents'
-                                : undefined
-                          }
-                        >
-                          {docsSummary(inv, docCount)}
-                        </button>
-                        {manual && docCount > 0 && !inv.confirmed && (
-                          <button
-                            type="button"
-                            className="client-ai-confirm__docs-more"
-                            onClick={() => openDocUpload(inv.draftId)}
-                          >
-                            + Add
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={inv.invoice_number}
-                        disabled={inv.confirmed}
-                        onChange={(e) =>
-                          onUpdateDraft(inv.draftId, { invoice_number: e.target.value })
-                        }
-                        className={`client-ai-confirm__input${feedback?.invoiceError ? ' client-ai-confirm__input--error' : ''}`}
-                        aria-invalid={Boolean(feedback?.invoiceError)}
-                      />
-                      {feedback?.invoiceError && (
-                        <p className="client-ai-confirm__field-msg client-ai-confirm__field-msg--error">
-                          {feedback.invoiceError}
-                        </p>
-                      )}
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={inv.load_number}
-                        disabled={inv.confirmed}
-                        onChange={(e) => onUpdateDraft(inv.draftId, { load_number: e.target.value })}
-                        className={`client-ai-confirm__input${feedback?.loadWarning ? ' client-ai-confirm__input--warn' : ''}`}
-                      />
-                      {feedback?.loadWarning && (
-                        <p className="client-ai-confirm__field-msg client-ai-confirm__field-msg--warn">
-                          {feedback.loadWarning}
-                        </p>
-                      )}
-                    </td>
-                    <td>
-                      <BrokerPicker
-                        mode={brokerPickerMode}
-                        compact
-                        disabled={inv.confirmed}
-                        inputClassName="client-ai-confirm__input client-ai-confirm__input--wide"
-                        value={{
-                          broker_id: inv.broker_id,
-                          broker_name: inv.broker_name,
-                          pending_new: Boolean(inv.broker_name && !inv.broker_id),
-                        }}
-                        onChange={(next) =>
-                          onUpdateDraft(inv.draftId, {
-                            broker_id: next.broker_id,
-                            broker_name: next.broker_name,
-                          })
-                        }
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={inv.amount || ''}
-                        disabled={inv.confirmed}
-                        onChange={(e) =>
-                          onUpdateDraft(inv.draftId, {
-                            amount: Number.parseFloat(e.target.value) || 0,
-                            rate_missing: false,
-                          })
-                        }
-                        className="client-ai-confirm__input client-ai-confirm__input--amount"
-                      />
-                    </td>
-                    <td className="client-ai-confirm__action-cell">
-                      <div className="client-ai-confirm__action-wrap">
-                        <button
-                          type="button"
-                          className={`client-ai-confirm__action-btn${inv.confirmed ? ' client-ai-confirm__action-btn--confirmed' : ''}`}
-                          onClick={() => toggleConfirm(inv)}
-                          disabled={
-                            !inv.confirmed &&
-                            (inv.amount <= 0 ||
-                              Boolean(feedback?.invoiceError) ||
-                              !hasBrokerSelection(inv))
-                          }
-                          title={
-                            feedback?.invoiceError
-                              ? feedback.invoiceError
-                              : !hasBrokerSelection(inv)
-                                ? 'Select or request a broker first'
-                                : inv.confirmed
-                                  ? 'Click to edit'
-                                  : 'Confirm invoice'
-                          }
-                        >
-                          {inv.confirmed ? <Check className="w-3.5 h-3.5" /> : 'Confirm'}
-                        </button>
-                        {!inv.confirmed && (
-                          <button
-                            type="button"
-                            className="client-ai-confirm__remove-btn"
-                            onClick={() => onRemoveDraft(inv.draftId)}
-                            title="Remove invoice"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
+        </>
+        )}
       </div>
 
-      <div className="client-ai-confirm__footer">
+      <div className="client-ai-review__footer">
         <div className="client-ai-confirm__footer-summary">
-          <span className="client-ai-confirm__footer-label">Ready to submit</span>
+          <span className="client-ai-confirm__footer-label">Send to verification</span>
           <span className="client-ai-confirm__footer-value">
-            {confirmedCount}/{draft.invoices.length} confirmed · {formatCurrency(batchTotal)}
+            {readyCount}/{draft.invoices.length} invoices · {formatCurrency(batchTotal)}
+            {unmatchedCount > 0 ? ` · ${unmatchedCount} unassigned` : ''}
           </span>
         </div>
-        <div className="client-ai-confirm__footer-actions">
-          <button
-            type="button"
-            className="dashboard-btn-secondary"
-            onClick={handleConfirmAll}
-            disabled={allConfirmed || draft.invoices.length === 0}
-          >
-            Confirm all
-          </button>
-          <button
-            type="button"
-            className="dashboard-btn-primary"
-            disabled={!allConfirmed || submitting}
-            onClick={onSubmitBatch}
-          >
-            {submitting ? 'Submitting…' : 'Submit batch'}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="dashboard-btn-primary"
+          disabled={!canSendToVerification || submitting}
+          title={
+            unmatchedCount > 0
+              ? 'Assign or delete every document first'
+              : !allReady
+                ? 'Finish invoice fields first'
+                : undefined
+          }
+          onClick={onSubmitBatch}
+        >
+          {submitting ? 'Sending…' : 'Send to verification'}
+        </button>
       </div>
-
-      <DocumentViewer
-        isOpen={viewerMode !== null && viewerDocuments.length > 0}
-        onClose={() => setViewerMode(null)}
-        documents={viewerDocuments}
-        invoiceNumber={viewingInvoice?.invoice_number}
-        title={viewerTitle}
-        moveTargets={viewerMoveTargets}
-        onMoveDocument={handleViewerMove}
-        lockedDocIds={viewerLockedIds}
-        moveDisabled={viewerMoveDisabled}
-      />
 
       {uploadDraft && (
         <ClientInvoiceDocumentUploadModal
@@ -708,13 +706,23 @@ export default function BatchAiConfirmPanel({
           documents={pendingDocs}
           isEditingExistingInvoice={false}
           onClose={closeDocUpload}
-          onComplete={handleDocUploadComplete}
+          onComplete={() => {
+            onAttachDocuments(uploadDraft.draftId, Array.from(pendingFiles.values()))
+            closeDocUpload()
+          }}
           onFileSelect={(e) => {
             if (e.target.files?.length) addPendingFiles(e.target.files)
             e.target.value = ''
           }}
           onFileDrop={(files) => addPendingFiles(files)}
-          onRemoveDocument={removePendingDoc}
+          onRemoveDocument={(docId) => {
+            setPendingDocs((prev) => prev.filter((d) => d.id !== docId))
+            setPendingFiles((prev) => {
+              const next = new Map(prev)
+              next.delete(docId)
+              return next
+            })
+          }}
         />
       )}
     </div>

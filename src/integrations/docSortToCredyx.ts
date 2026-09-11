@@ -33,36 +33,46 @@ function isoDateFromUs(usDate: string): string {
 }
 
 function collectDocIds(group: DocSortLoadGroup): string[] {
-  return [...group.rateCons, ...group.bols].map((fp) => fp.docId)
+  return [...group.rateCons, ...group.bols, ...(group.others ?? [])].map((fp) => fp.docId)
 }
 
 /** Build client-editable draft from a matched DocSort load group. */
 export async function buildCredyxDraftFromGroup(
-  group: DocSortLoadGroup
+  group: DocSortLoadGroup,
+  clientId: string,
+  usedInvoiceNumbers: string[] = []
 ): Promise<CredyxInvoiceDraft> {
   const pdfInput = buildInvoiceDraftFromGroup(group)
-  const invoicePdf = await generateInvoicePDFFile(pdfInput)
+  const invoice_number = getNextClientInvoiceNumber(clientId, usedInvoiceNumbers)
+  const invoicePdf = await generateInvoicePDFFile({
+    ...pdfInput,
+    invoiceNumber: invoice_number,
+  })
   // Carrier path: match only — unknown names stay pending for Credyx to link.
   const broker = matchBrokerByName(pdfInput.brokerName || '')
   const amount = pdfInput.invoiceAmount ?? 0
+  const load_number = pdfInput.loadNumber?.trim() || group.label
+  const brokerName = broker.broker_name || pdfInput.brokerName?.trim() || ''
+  const fieldsReady = Boolean(load_number) && Boolean(brokerName) && amount > 0
 
   return {
     draftId: `draft-${group.groupId}`,
     groupId: group.groupId,
-    invoice_number: pdfInput.invoiceNumber,
-    load_number: group.label,
-    broker_name: broker.broker_name,
+    invoice_number,
+    load_number,
+    broker_name: brokerName,
     broker_id: broker.broker_id,
     amount,
     invoice_date: isoDateFromUs(pdfInput.invoiceDate),
     carrier_name: pdfInput.carrierName,
     rate_missing: amount <= 0,
-    confirmed: false,
+    confirmed: fieldsReady,
     document_doc_ids: collectDocIds(group),
     invoice_pdf: invoicePdf,
     fingerprints: {
       rateCons: group.rateCons,
       bols: group.bols,
+      other: group.others ?? [],
     },
   }
 }
@@ -135,7 +145,7 @@ export async function createManualCredyxDraft(
     rate_missing: true,
     confirmed: false,
     document_doc_ids: [],
-    fingerprints: { rateCons: [], bols: [] },
+    fingerprints: { rateCons: [], bols: [], other: [] },
   }
   const invoice_pdf = await regenerateDraftInvoicePdf(base, clientName)
   return { ...base, invoice_pdf }

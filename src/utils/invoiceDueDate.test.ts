@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   addDaysToYmd,
   buildBrokerTermsDueDatePatch,
+  dueDatesForDatabase,
   formatBrokerDueDays,
   getInvoiceBrokerDueDays,
   resolveDueDateFromBroker,
@@ -29,6 +30,26 @@ describe('resolveDueDateFromBroker', () => {
       due_date: '2026-08-15',
       expected_payment_date: '2026-08-15',
     })
+  })
+})
+
+describe('dueDatesForDatabase', () => {
+  it('keeps broker due dates when set', () => {
+    expect(
+      dueDatesForDatabase({
+        invoice_date: '2026-08-01',
+        due_date: '2026-09-01',
+        expected_payment_date: '2026-09-01',
+      })
+    ).toEqual({ due_date: '2026-09-01', expected_payment_date: '2026-09-01' })
+  })
+
+  it('falls back to invoice_date so NOT NULL databases can save', () => {
+    expect(
+      dueDatesForDatabase({
+        invoice_date: '2026-08-01',
+      })
+    ).toEqual({ due_date: '2026-08-01', expected_payment_date: '2026-08-01' })
   })
 })
 

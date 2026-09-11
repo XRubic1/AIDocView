@@ -14,6 +14,7 @@ import {
   fingerprintDocIds,
 } from '../../integrations/docSortToCredyx'
 import { runDocSort } from '../../products/docSort/services/docSortRunner'
+import { invoiceDraftGroupsFromSort } from '../../products/docSort/utils/invoiceDraftGroups'
 import type { DocSortProgress, DocSortUpload } from '../../products/docSort/types'
 import type {
   BatchIntakeDraft,
@@ -50,7 +51,7 @@ export async function runBatchIntakePipeline(
     )
   }
   if (files.length === 0) {
-    throw new Error('Upload at least one PDF.')
+    throw new Error('Upload at least one document.')
   }
 
   const uploads = filesToUploads(files)
@@ -59,21 +60,27 @@ export async function runBatchIntakePipeline(
   const fileById = new Map<string, File>()
   uploads.forEach((u) => fileById.set(u.id, u.file))
 
+  const drafted = invoiceDraftGroupsFromSort(sortResult)
   const invoices: BatchIntakeDraft['invoices'] = []
-  for (const group of sortResult.groups) {
-    const draft = await buildCredyxDraftFromGroup(group)
+  const usedInvoiceNumbers: string[] = []
+  for (const group of drafted.groups) {
+    const draft = await buildCredyxDraftFromGroup(group, clientId, usedInvoiceNumbers)
+    usedInvoiceNumbers.push(draft.invoice_number)
     invoices.push(draft)
+  }
+
+  const nextSort = {
+    ...sortResult,
+    unmatchedRateCons: drafted.unmatched.rateCons,
+    unmatchedBols: drafted.unmatched.bols,
+    otherDocuments: drafted.unmatched.other,
   }
 
   return {
     batchNumber: generateBatchNumber(clientId),
-    sortResult,
+    sortResult: nextSort,
     invoices,
-    unmatched: {
-      rateCons: sortResult.unmatchedRateCons,
-      bols: sortResult.unmatchedBols,
-      other: sortResult.otherDocuments,
-    },
+    unmatched: drafted.unmatched,
     fileById,
   }
 }

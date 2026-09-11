@@ -27,8 +27,8 @@ interface ClientSubmitDocsViewProps {
 }
 
 const MODE_LABELS: Record<Exclude<SubmitDocsMode, 'choose'>, string> = {
-  ai: 'AI upload',
-  manual: 'Manual batch',
+  ai: 'Paperwork',
+  manual: 'Typed invoices',
 }
 
 interface MethodOptionProps {
@@ -100,7 +100,7 @@ function MethodOption({
 }
 
 function draftModeLabel(uploadMode?: string) {
-  return uploadMode === 'manual' ? 'Manual' : 'AI'
+  return uploadMode === 'manual' ? 'Typed' : 'Paperwork'
 }
 
 function draftSummary(draft: SubmitDocsDraftBatch) {
@@ -195,7 +195,7 @@ export default function ClientSubmitDocsView({
         ) : (
           <button type="button" onClick={onBackToChoose} className="client-submit-docs__back">
             <ChevronLeft className="w-4 h-4" />
-            Choose method
+            Back
           </button>
         )}
 
@@ -216,32 +216,34 @@ export default function ClientSubmitDocsView({
           <div className="client-submit-docs__options">
             <MethodOption
               featured
-              icon={<PenLine className="w-5 h-5" />}
-              iconClassName="client-submit-docs__option-icon--manual"
-              title="Manual batch"
+              icon={<Sparkles className="w-5 h-5" />}
+              iconClassName="client-submit-docs__option-icon--ai"
+              title="Drop paperwork"
               badge="Recommended"
-              description="Enter invoice details and attach docs for each load."
-              steps={['Add invoices one at a time', 'Attach supporting docs', 'Submit when ready']}
-              onClick={onSelectManual}
+              description="We read load #, broker, and rate from your PDFs and photos and draft the invoices."
+              steps={[
+                'Drop rate cons, BOLs, and invoices (PDF, JPG, or PNG)',
+                'Add every page, then process',
+                'Review drafts next to the docs',
+              ]}
+              ctaLabel="Start with PDFs"
+              onClick={onSelectAi}
             />
 
             <MethodOption
-              wip
-              icon={<Sparkles className="w-5 h-5" />}
-              iconClassName="client-submit-docs__option-icon--ai"
-              title="AI upload"
-              badge="Preview"
-              badgeVariant="wip"
-              description="Bulk PDF sorting and auto-drafted invoices — still in preview."
-              steps={['Drop rate cons & BOLs', 'Review drafted invoices', 'Submit batch to Credyx']}
-              ctaLabel="Try preview"
-              onClick={onSelectAi}
+              icon={<PenLine className="w-5 h-5" />}
+              iconClassName="client-submit-docs__option-icon--manual"
+              title="Type invoices"
+              description="Enter load details yourself and attach docs one invoice at a time."
+              steps={['Add invoices one at a time', 'Attach supporting docs', 'Submit when ready']}
+              ctaLabel="Enter manually"
+              onClick={onSelectManual}
             />
           </div>
 
           <div className="client-submit-docs__hint">
             <FileStack className="w-3.5 h-3.5 shrink-0" style={{ color: c.mutedLight }} aria-hidden />
-            <span>Manual batch for production · PDF or images for attachments</span>
+            <span>PDF, JPG, or PNG for paperwork · images also OK as attachments on a typed invoice</span>
           </div>
         </div>
       ) : (

@@ -55,6 +55,7 @@
 .client-portal[data-theme='dark'] .client-manual-batch,
 .client-portal[data-theme='dark'] .client-ai-upload,
 .client-portal[data-theme='dark'] .client-ai-confirm,
+.client-portal[data-theme='dark'] .client-ai-review,
 .client-portal[data-theme='dark'] .client-batch-detail {
   background: var(--cp-surface);
   color: var(--cp-text);
@@ -180,6 +181,27 @@
 .client-portal[data-theme='dark'] .client-ai-confirm__unmatched-compact {
   background: #422006;
   border-color: #92400e;
+}
+
+.client-portal[data-theme='dark'] .client-ai-review__rail,
+.client-portal[data-theme='dark'] .client-ai-review__editor,
+.client-portal[data-theme='dark'] .client-ai-review__unmatched,
+.client-portal[data-theme='dark'] .client-ai-review__footer,
+.client-portal[data-theme='dark'] .client-ai-review__card {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .client-ai-review__card-title,
+.client-portal[data-theme='dark'] .client-ai-review__card-amount,
+.client-portal[data-theme='dark'] .client-ai-review__panel-title,
+.client-portal[data-theme='dark'] .client-ai-review__rail-count {
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .client-ai-review__docs {
+  background: var(--cp-surface);
 }
 
 .client-portal[data-theme='dark'] .client-ai-confirm__input,

@@ -1,19 +1,20 @@
 /** DocSort-only prompts — classify + fingerprint in one call (no audit). */
 
-export const DOC_SORT_FINGERPRINT_PROMPT = `You help freight brokers sort uploaded PDFs into loads. Look at the first page image.
+export const DOC_SORT_FINGERPRINT_PROMPT = `You help trucking A/R staff package uploaded PDFs into loads. You may see several pages of the SAME file.
 
-Identify document type and extract ONLY fields useful to match a rate confirmation to its bill of lading (BOL). Do not judge signatures, amounts, or approval.
+These pages are ONE document, not separate invoices:
+- Rate confirmation page 1: broker, load #, pickup/delivery
+- Later pages: driver instructions, pay breakdown, terms, signatures
+If ANY page is a rate confirmation / load tender, doc_type is RATE_CON even when later pages look like instructions.
+If ANY page is a bill of lading, doc_type is BOL.
+Do not invent a new invoice from an instructions-only page.
 
-doc_type:
-- RATE_CON — broker load tender / rate confirmation
-- BOL — bill of lading (shipper/consignee, freight description)
-- OTHER — invoice, POD, lumper, unknown, etc.
-
-load_numbers: every load/PO/reference # visible (strings). Broker PO on rate con is most important.
-pickup / delivery: short "City, ST" for origin and final delivery when visible.
-broker_name: freight broker (TQL, Landstar, etc.), not the motor carrier.
-carrier_name: motor carrier / trucking company on rate con or BOL.
-rate_amount: numeric linehaul or total rate in dollars on RATE_CON only (no $ symbol in JSON). Use the main payable rate, not fuel surcharge alone. Omit or null if not visible or not a rate con.
+load_numbers: broker load / rate confirmation / PO only — the number that identifies THIS shipment. Never trailer #, truck/unit # (like 0040), SCAC, PRO, BOL number unless it is clearly the load, or page counts.
+pickup / delivery: short "City, ST" when visible.
+pickup_date / delivery_date: calendar dates on the page (pickup or delivery / ship). Use YYYY-MM-DD when you can. Different dates mean different loads.
+broker_name: freight broker, not the motor carrier and not the shipper.
+carrier_name: motor carrier / trucking company.
+rate_amount: numeric payable linehaul or total in dollars (no $). Look at EVERY page — the amount is often not on page 1. Omit or null if not visible.
 rate_currency: "USD" unless another currency is clearly stated.
 
 JSON only:
@@ -25,6 +26,8 @@ JSON only:
   "carrier_name": "ABC Trucking",
   "pickup": "Vandalia, OH",
   "delivery": "Salem, VA",
+  "pickup_date": "2026-03-11",
+  "delivery_date": "2026-03-12",
   "rate_amount": 4300,
   "rate_currency": "USD",
   "notes": ""

@@ -1514,7 +1514,7 @@ export default function ClientBatches() {
                   refreshBatches()
                   setActiveTab('view')
                   setSelectedBatch(batchId)
-                  showToast('Batch uploaded. Credyx will review your paperwork.', 'success')
+                  showToast('Batch sent to verification.', 'success')
                 }}
               />
             )}

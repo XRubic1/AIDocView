@@ -13,7 +13,7 @@ export interface DocSortUpload {
   error?: string
 }
 
-/** Match keys extracted from page 1 (no approval / audit checks). */
+/** Match keys extracted from the file (up to the first 4 pages). */
 export interface DocSortFingerprint {
   docId: string
   fileName: string
@@ -24,6 +24,10 @@ export interface DocSortFingerprint {
   carrier?: string
   pickup?: string
   delivery?: string
+  /** Pickup date as printed, normalized to YYYY-MM-DD when possible. */
+  pickupDate?: string
+  /** Delivery / ship date as printed, normalized to YYYY-MM-DD when possible. */
+  deliveryDate?: string
   /** Linehaul / total rate from rate con (AI-extracted — verify manually). */
   rateAmount?: number
   rateCurrency?: string
@@ -36,11 +40,10 @@ export interface DocSortLoadGroup {
   label: string
   rateCons: DocSortFingerprint[]
   bols: DocSortFingerprint[]
+  others?: DocSortFingerprint[]
   matchReason: string
   matchScore: number
 }
-
-/** Full sort run output. */
 export interface DocSortResult {
   sortedAt: string
   groups: DocSortLoadGroup[]

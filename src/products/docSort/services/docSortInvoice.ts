@@ -1,27 +1,26 @@
 import { generateInvoicePDFFile, type InvoicePDFInput } from '../../../utils/generateInvoicePDF'
 import type { DocSortLoadGroup } from '../types'
-import { primaryRateCon } from '../utils/formatRate'
+import { invoiceFieldsFromLoadGroup } from '../utils/formatRate'
 
 function todayUs(): string {
   const d = new Date()
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`
 }
 
-/** Pre-fill invoice fields from the rate con in a sorted load group. */
+/** Pre-fill invoice fields from the rate con / BOL fingerprints in a sorted load. */
 export function buildInvoiceDraftFromGroup(group: DocSortLoadGroup): InvoicePDFInput {
-  const rateCon = primaryRateCon(group)
-  const load = group.label
-  const aiRate = rateCon?.rateAmount && rateCon.rateAmount > 0 ? rateCon.rateAmount : 0
+  const fields = invoiceFieldsFromLoadGroup(group)
+  const load = fields.loadNumber || group.label
 
   return {
     invoiceNumber: `INV-${load}-${Date.now().toString().slice(-6)}`,
     invoiceDate: todayUs(),
-    invoiceAmount: aiRate,
+    invoiceAmount: fields.rateAmount,
     loadNumber: load,
-    brokerName: rateCon?.broker?.trim() || 'Broker',
+    brokerName: fields.brokerName,
     brokerAddress: '',
-    carrierName: rateCon?.carrier?.trim() || 'Carrier',
-    clientName: rateCon?.broker?.trim() || 'Client',
+    carrierName: fields.carrierName,
+    clientName: fields.brokerName || 'Client',
     clientAddress: '',
     remittanceInfo: '',
   }

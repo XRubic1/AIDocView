@@ -27,6 +27,12 @@ interface DocumentViewerProps {
   onMoveDocument?: (docId: string, toDraftId: string | null) => void
   lockedDocIds?: string[]
   moveDisabled?: boolean
+  /** Unassign the current supporting doc back to the unmatched pile. */
+  onUnassignDocument?: (docId: string) => void
+  /** Permanently delete the current supporting doc. */
+  onDeleteDocument?: (docId: string) => void
+  /** Highlight / jump to this document id in the list. */
+  activeDocId?: string
   /** `pane` fills the parent (split layouts); default is a centered modal. */
   layout?: 'modal' | 'pane'
 }
@@ -41,6 +47,9 @@ export default function DocumentViewer({
   onMoveDocument,
   lockedDocIds = [],
   moveDisabled = false,
+  onUnassignDocument,
+  onDeleteDocument,
+  activeDocId,
   layout = 'modal',
 }: DocumentViewerProps) {
   const { showToast } = useToast()
@@ -66,7 +75,13 @@ export default function DocumentViewer({
     })
 
     setDocumentUrls(urls)
-    setCurrentIndex(0)
+    setCurrentIndex((prev) => {
+      const preferred = activeDocId
+        ? documents.findIndex((doc) => doc.id === activeDocId)
+        : prev
+      if (preferred >= 0 && preferred < documents.length) return preferred
+      return Math.min(prev, Math.max(0, documents.length - 1))
+    })
 
     // Cleanup URLs on unmount
     return () => {
@@ -79,10 +94,10 @@ export default function DocumentViewer({
   }, [isOpen, isPane, documents])
 
   useEffect(() => {
-    if (currentIndex >= documents.length) {
-      setCurrentIndex(Math.max(0, documents.length - 1))
-    }
-  }, [documents.length, currentIndex])
+    if (!activeDocId) return
+    const idx = documents.findIndex((doc) => doc.id === activeDocId)
+    if (idx >= 0) setCurrentIndex(idx)
+  }, [activeDocId, documents])
 
   const currentDocument = documents[currentIndex]
   const currentUrl = documentUrls[currentIndex]
@@ -254,6 +269,12 @@ export default function DocumentViewer({
     Boolean(onMoveDocument && moveTargets?.length && currentDocument) &&
     !lockedDocIds.includes(currentDocument.id) &&
     !moveDisabled
+  const canUnassignCurrent =
+    Boolean(onUnassignDocument && currentDocument) &&
+    !lockedDocIds.includes(currentDocument.id)
+  const canDeleteCurrent =
+    Boolean(onDeleteDocument && currentDocument) &&
+    !lockedDocIds.includes(currentDocument.id)
 
   if (!isOpen && !isPane) return null
 
@@ -488,6 +509,31 @@ export default function DocumentViewer({
             </div>
           </div>
           <div className="flex items-center space-x-3">
+            {canUnassignCurrent && (
+              <button
+                type="button"
+                className="px-3 py-2 text-sm font-medium rounded border"
+                style={{ color: '#113543', borderColor: '#819291' }}
+                onClick={() => currentDocument && onUnassignDocument?.(currentDocument.id)}
+              >
+                Unassign
+              </button>
+            )}
+            {canDeleteCurrent && (
+              <button
+                type="button"
+                className="px-3 py-2 text-sm font-medium rounded border"
+                style={{ color: '#b91c1c', borderColor: '#fecaca' }}
+                onClick={() => {
+                  if (!currentDocument) return
+                  if (window.confirm(`Delete ${currentDocument.name}? This cannot be undone.`)) {
+                    onDeleteDocument?.(currentDocument.id)
+                  }
+                }}
+              >
+                Delete
+              </button>
+            )}
             {canMoveCurrent && (
               <label className="flex items-center gap-2">
                 <span className="text-xs font-medium" style={{ color: '#64748b' }}>

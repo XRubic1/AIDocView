@@ -3,6 +3,7 @@ import { DOC_SORT_FINGERPRINT_PROMPT } from '../config/prompts'
 import type { DocSortFingerprint, DocSortKind } from '../types'
 import { loadNumberFromFileName } from '../../../utils/extractBatchFields'
 import { parseRateAmount } from '../utils/formatRate'
+import { normalizeDocDate } from '../utils/matchKeys'
 import { fileToReviewImages } from '../../../utils/fileToReviewImage'
 import { postOpenAIChatCompletions } from '../../../utils/openaiFetch'
 import type { ReviewImageInfo } from '../../../types/documentReview'
@@ -14,15 +15,22 @@ function mapDocType(raw: string): DocSortKind {
   return 'other'
 }
 
-function buildVisionContent(prompt: string, image: ReviewImageInfo) {
-  return [
+function buildVisionContent(prompt: string, pages: ReviewImageInfo[]) {
+  const content: Array<Record<string, unknown>> = [
     { type: 'text', text: prompt },
-    { type: 'text', text: `Page 1 of ${image.totalPages}` },
     {
-      type: 'image_url',
-      image_url: { url: image.previewDataUrl, detail: AI_REVIEW_CONFIG.PAGE_CLASSIFY_DETAIL },
+      type: 'text',
+      text: `This file has ${pages[0]?.totalPages ?? pages.length} page(s). Treat every page as part of ONE document. The payable rate may appear after page 1.`,
     },
   ]
+  pages.forEach((image) => {
+    content.push({ type: 'text', text: `Page ${image.pageNumber} of ${image.totalPages}` })
+    content.push({
+      type: 'image_url',
+      image_url: { url: image.previewDataUrl, detail: AI_REVIEW_CONFIG.PAGE_CLASSIFY_DETAIL },
+    })
+  })
+  return content
 }
 
 function parseFingerprintResponse(
@@ -46,8 +54,8 @@ function parseFingerprintResponse(
   }
 
   const kind = mapDocType(String(raw.doc_type ?? raw.docType ?? 'OTHER'))
-  const rateRaw = raw.rate_amount ?? raw.rateAmount ?? raw.linehaul_rate
-  const rateAmount = kind === 'rate_confirmation' ? parseRateAmount(rateRaw) : undefined
+  const rateRaw = raw.rate_amount ?? raw.rateAmount ?? raw.linehaul_rate ?? raw.total_rate
+  const rateAmount = parseRateAmount(rateRaw)
   const rateCurrency =
     typeof raw.rate_currency === 'string' && raw.rate_currency.trim()
       ? raw.rate_currency.trim().toUpperCase()
@@ -65,14 +73,22 @@ function parseFingerprintResponse(
     carrier: typeof raw.carrier_name === 'string' ? raw.carrier_name.trim() : undefined,
     pickup: typeof raw.pickup === 'string' ? raw.pickup.trim() : undefined,
     delivery: typeof raw.delivery === 'string' ? raw.delivery.trim() : undefined,
+    pickupDate: normalizeDocDate(
+      typeof raw.pickup_date === 'string' ? raw.pickup_date : String(raw.pickupDate ?? '')
+    ) || undefined,
+    deliveryDate: normalizeDocDate(
+      typeof raw.delivery_date === 'string' ? raw.delivery_date : String(raw.deliveryDate ?? '')
+    ) || undefined,
     rateAmount,
     rateCurrency,
     notes: typeof raw.notes === 'string' ? raw.notes.trim() : undefined,
   }
 }
 
+const DOC_SORT_PAGES_PER_FILE = 4
+
 /**
- * One vision call per file — classify + extract match keys (page 1 only).
+ * One vision call per file — classify + extract match keys (up to first 4 pages).
  */
 export async function fingerprintDocSortFile(
   file: File,
@@ -82,9 +98,8 @@ export async function fingerprintDocSortFile(
     throw new Error('OpenAI API key is not configured. Add VITE_OPENAI_API_KEY to your .env file.')
   }
 
-  const pages = await fileToReviewImages(file)
-  const firstPage = pages[0]
-  if (!firstPage) {
+  const pages = await fileToReviewImages(file, DOC_SORT_PAGES_PER_FILE)
+  if (pages.length === 0) {
     throw new Error('Could not read document image.')
   }
 
@@ -92,7 +107,7 @@ export async function fingerprintDocSortFile(
     model: AI_REVIEW_CONFIG.CLASSIFY_MODEL,
     temperature: 0.1,
     response_format: { type: 'json_object' },
-    messages: [{ role: 'user', content: buildVisionContent(DOC_SORT_FINGERPRINT_PROMPT, firstPage) }],
+    messages: [{ role: 'user', content: buildVisionContent(DOC_SORT_FINGERPRINT_PROMPT, pages) }],
   })
 
   if (!response.ok) {

@@ -30,6 +30,24 @@ export function resolveDueDatesFromBroker(
   return { due_date: due, expected_payment_date: due }
 }
 
+/**
+ * Dates to upsert while some databases still require NOT NULL due_date.
+ * Prefer broker-derived dates; otherwise stamp invoice_date so batch create can save.
+ */
+export function dueDatesForDatabase(
+  invoice: Pick<Invoice, 'due_date' | 'expected_payment_date' | 'invoice_date'>
+): { due_date: string; expected_payment_date: string } {
+  const due =
+    invoice.due_date?.trim() ||
+    invoice.expected_payment_date?.trim() ||
+    invoice.invoice_date
+  const expected =
+    invoice.expected_payment_date?.trim() ||
+    invoice.due_date?.trim() ||
+    invoice.invoice_date
+  return { due_date: due, expected_payment_date: expected }
+}
+
 const CLOSED_FOR_DUE_SYNC: ReadonlySet<Invoice['status']> = new Set([
   'paid',
   'rejected',

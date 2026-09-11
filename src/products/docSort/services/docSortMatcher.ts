@@ -1,9 +1,9 @@
 import type { DocSortFingerprint, DocSortLoadGroup, DocSortResult } from '../types'
 import {
   allLoadKeys,
+  clusterFingerprints,
+  explainFingerprintsLink,
   lanesOverlap,
-  loadKeysMatch,
-  namesOverlap,
   primaryLoadLabel,
 } from '../utils/matchKeys'
 
@@ -11,36 +11,32 @@ function scoreBolToRateCon(bol: DocSortFingerprint, rateCon: DocSortFingerprint)
   score: number
   reason: string
 } {
-  const bolKeys = allLoadKeys(bol)
-  const rcKeys = allLoadKeys(rateCon)
+  const link = explainFingerprintsLink(bol, rateCon)
+  const hardBlock = link.blockers.filter(
+    (item) => item.startsWith('different brokers') || item.startsWith('different dates')
+  )
+  if (hardBlock.length > 0) {
+    return { score: 0, reason: hardBlock.join(' + ') }
+  }
+  if (link.linked) {
+    return { score: 80, reason: link.reasons.join(' + ') }
+  }
+
   let score = 0
   const reasons: string[] = []
-
-  for (const bk of bolKeys) {
-    for (const rk of rcKeys) {
-      if (loadKeysMatch(bk, rk)) {
-        score += 50
-        reasons.push(`load # ${bk}`)
-        break
-      }
-    }
-  }
-
-  if (namesOverlap(bol.broker, rateCon.broker)) {
-    score += 15
-    reasons.push('broker')
-  }
-  if (namesOverlap(bol.carrier, rateCon.carrier)) {
-    score += 10
-    reasons.push('carrier')
-  }
-  if (lanesOverlap(bol.pickup, rateCon.pickup)) {
-    score += 12
+  const pickupHit = lanesOverlap(bol.pickup, rateCon.pickup)
+  const deliveryHit = lanesOverlap(bol.delivery, rateCon.delivery)
+  if (pickupHit) {
+    score += 20
     reasons.push('pickup')
   }
-  if (lanesOverlap(bol.delivery, rateCon.delivery)) {
-    score += 15
+  if (deliveryHit) {
+    score += 20
     reasons.push('delivery')
+  }
+
+  if (pickupHit && deliveryHit) {
+    score = Math.max(score, 55)
   }
 
   return {
@@ -58,30 +54,26 @@ export function matchSortedDocuments(fingerprints: DocSortFingerprint[]): DocSor
   const otherDocuments = fingerprints.filter((f) => f.kind === 'other')
 
   const groups: DocSortLoadGroup[] = []
-  const groupByKey = new Map<string, DocSortLoadGroup>()
 
-  rateCons.forEach((rc, index) => {
-    const label = primaryLoadLabel(rc)
-    const key = allLoadKeys(rc)[0] ?? `rc-${index}`
-    const existing = groupByKey.get(key)
-    if (existing) {
-      existing.rateCons.push(rc)
-    } else {
-      const group: DocSortLoadGroup = {
-        groupId: `load-${key}`,
-        label,
-        rateCons: [rc],
-        bols: [],
-        matchScore: 100,
-        matchReason: 'rate confirmation anchor',
-      }
-      groupByKey.set(key, group)
-      groups.push(group)
-    }
+  clusterFingerprints(rateCons).forEach((cluster, index) => {
+    const label = primaryLoadLabel(
+      cluster.find((rc) => rc.broker?.trim()) ??
+        cluster.find((rc) => (rc.rateAmount ?? 0) > 0) ??
+        cluster[0]
+    )
+    const key = allLoadKeys(cluster[0])[0] ?? `rc-${index}`
+    groups.push({
+      groupId: `load-${key}-${index}`,
+      label,
+      rateCons: cluster,
+      bols: [],
+      matchScore: 100,
+      matchReason: cluster.length > 1 ? 'rate confirmation pages' : 'rate confirmation anchor',
+    })
   })
 
   const unmatchedBols: DocSortFingerprint[] = []
-  const MATCH_THRESHOLD = 25
+  const MATCH_THRESHOLD = 50
 
   for (const bol of bols) {
     let bestGroup: DocSortLoadGroup | undefined
@@ -89,13 +81,13 @@ export function matchSortedDocuments(fingerprints: DocSortFingerprint[]): DocSor
     let bestReason = ''
 
     for (const group of groups) {
-      const anchor = group.rateCons[0]
-      if (!anchor) continue
-      const { score, reason } = scoreBolToRateCon(bol, anchor)
-      if (score > bestScore) {
-        bestScore = score
-        bestGroup = group
-        bestReason = reason
+      for (const anchor of group.rateCons) {
+        const { score, reason } = scoreBolToRateCon(bol, anchor)
+        if (score > bestScore) {
+          bestScore = score
+          bestGroup = group
+          bestReason = reason
+        }
       }
     }
 

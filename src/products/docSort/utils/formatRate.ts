@@ -17,6 +17,34 @@ export function primaryRateCon(group: DocSortLoadGroup): DocSortFingerprint | un
   return withRate ?? group.rateCons[0]
 }
 
+/** Load #, broker, and payable rate from any fingerprint in a sorted load group. */
+export function invoiceFieldsFromLoadGroup(group: DocSortLoadGroup): {
+  loadNumber: string
+  brokerName: string
+  carrierName: string
+  rateAmount: number
+} {
+  const fingerprints = [...group.rateCons, ...group.bols, ...(group.others ?? [])]
+  const rateCon = primaryRateCon(group)
+  const withRate = fingerprints.find((fp) => fp.rateAmount != null && fp.rateAmount > 0)
+  const withBroker = fingerprints.find((fp) => {
+    const name = fp.broker?.trim()
+    return Boolean(name) && name.toLowerCase() !== 'broker'
+  })
+  const loadFromFp = fingerprints.flatMap((fp) => fp.loadNumbers).find((n) => n.trim())
+  const carrier =
+    fingerprints.find((fp) => fp.carrier?.trim())?.carrier?.trim() ||
+    rateCon?.carrier?.trim() ||
+    'Carrier'
+
+  return {
+    loadNumber: group.label?.trim() || loadFromFp?.trim() || '',
+    brokerName: withBroker?.broker?.trim() || rateCon?.broker?.trim() || '',
+    carrierName: carrier,
+    rateAmount: withRate?.rateAmount ?? 0,
+  }
+}
+
 /** Formatted currency for UI, or null if not extracted. */
 export function formatExtractedRate(fp: DocSortFingerprint | undefined): string | null {
   if (!fp?.rateAmount || fp.rateAmount <= 0) return null
