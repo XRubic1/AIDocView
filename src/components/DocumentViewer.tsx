@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { X, ChevronLeft, ChevronRight, Download, Printer, FileText } from 'lucide-react'
 import jsPDF from 'jspdf'
 import { useToast } from './ui/ToastProvider'
+import DocumentDownloadOverlay from './ui/DocumentDownloadOverlay'
 
 interface Document {
   id: string
@@ -35,6 +36,11 @@ interface DocumentViewerProps {
   activeDocId?: string
   /** `pane` fills the parent (split layouts); default is a centered modal. */
   layout?: 'modal' | 'pane'
+  /** Show blurry download overlay while a remote PDF is being fetched. */
+  isDownloading?: boolean
+  downloadProgress?: number
+  downloadLabel?: string
+  downloadFileName?: string
 }
 
 export default function DocumentViewer({
@@ -51,6 +57,10 @@ export default function DocumentViewer({
   onDeleteDocument,
   activeDocId,
   layout = 'modal',
+  isDownloading = false,
+  downloadProgress,
+  downloadLabel,
+  downloadFileName,
 }: DocumentViewerProps) {
   const { showToast } = useToast()
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -287,8 +297,16 @@ export default function DocumentViewer({
     : 'bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[95vh] overflow-hidden flex flex-col'
 
   return (
-    <div className={shellClass}>
-      <div className={panelClass} style={{ backgroundColor: '#FFFFFF' }}>
+    <div className={`${shellClass} relative`}>
+      <div className={`${panelClass} relative`} style={{ backgroundColor: '#FFFFFF' }}>
+        <DocumentDownloadOverlay
+          open={isDownloading}
+          progress={downloadProgress}
+          title={downloadLabel || 'Downloading document'}
+          fileName={downloadFileName}
+          subtitle="Fetching the file so you can review it…"
+          variant="absolute"
+        />
         {/* Header */}
         <div
           className={`flex items-center justify-between border-b ${isPane ? 'px-4 py-3' : 'p-6'}`}

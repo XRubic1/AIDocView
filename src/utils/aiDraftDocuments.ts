@@ -8,8 +8,6 @@ export interface DraftViewDocument {
   kind?: string
 }
 
-import { classifyPacketDoc, draftViewKindForCategory, invoiceFingerprints } from './batchPacketDocs'
-
 /** Resolve uploaded + generated files for a load draft. Invoice page is always first. */
 export function getDraftViewDocuments(
   draft: CredyxInvoiceDraft,

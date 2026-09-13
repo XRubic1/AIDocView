@@ -27,6 +27,9 @@ import {
   resolveInvoiceDocumentsAsync,
 } from '../../utils/resolveInvoiceDocuments'
 import { useToast } from '../ui/ToastProvider'
+import DocumentDownloadOverlay, {
+  useDocumentDownloadProgress,
+} from '../ui/DocumentDownloadOverlay'
 import {
   buildInvoiceRemittanceInfo,
   buildRemittanceUpdatedBannerHtml,
@@ -110,6 +113,8 @@ export default function AdminInvoiceDetailView({
   const [emailSubject, setEmailSubject] = useState('')
   const [emailMessage, setEmailMessage] = useState('')
   const [documents, setDocuments] = useState<Document[]>([])
+  const [documentsLoading, setDocumentsLoading] = useState(false)
+  const docsDownloadProgress = useDocumentDownloadProgress(documentsLoading)
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [documentUrls, setDocumentUrls] = useState<Map<string, string>>(new Map())
@@ -342,16 +347,22 @@ export default function AdminInvoiceDetailView({
   useEffect(() => {
     if (!currentInvoice) {
       setDocuments([])
+      setDocumentsLoading(false)
       return
     }
 
     let cancelled = false
-    void resolveInvoiceDocumentsAsync(currentInvoice).then((storeDocs) => {
-      if (!cancelled) {
-        setDocuments(storeDocs)
-        setCurrentDocumentIndex(0)
-      }
-    })
+    setDocumentsLoading(true)
+    void resolveInvoiceDocumentsAsync(currentInvoice)
+      .then((storeDocs) => {
+        if (!cancelled) {
+          setDocuments(storeDocs)
+          setCurrentDocumentIndex(0)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDocumentsLoading(false)
+      })
 
     return () => {
       cancelled = true
@@ -2904,7 +2915,14 @@ export default function AdminInvoiceDetailView({
             </div>
 
             {/* Document Viewer - Inline */}
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 flex flex-col overflow-hidden relative min-h-0">
+              <DocumentDownloadOverlay
+                open={documentsLoading}
+                progress={docsDownloadProgress}
+                title="Downloading documents"
+                subtitle="Fetching invoice paperwork so you can review it…"
+                variant="absolute"
+              />
               {documents.length > 0 ? (
                 <>
                   {/* Document Navigation */}

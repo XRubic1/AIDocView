@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Bot,
   CheckCircle2,
+  ExternalLink,
   FileWarning,
   Mail,
   RefreshCw,
@@ -20,7 +21,7 @@ import { useAuth } from '../../context/AuthContext'
 import { getAdminUserDisplayName } from '../../config/adminNav'
 import { sendPaperworkForBatch } from '../../utils/paperworkSender'
 import { hasPpwBeenSent } from '../../utils/ppwSent'
-import BatchAiReviewPanel from './BatchAiReviewPanel'
+import BatchAiReviewPanel, { InvoiceAiReviewBadge } from './BatchAiReviewPanel'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 import { formatCurrency } from '../../utils/format'
 
@@ -33,6 +34,7 @@ interface AiBatchTabProps {
   onBack: () => void
   refreshKey: number
   onRefresh: () => void
+  onOpenPacketRework?: (batchId: string) => void
 }
 
 function sortStatusLabel(status?: string): { label: string; tone: 'ok' | 'warn' | 'err' | 'muted' } {
@@ -73,6 +75,7 @@ export default function AiBatchTab({
   onBack,
   refreshKey,
   onRefresh,
+  onOpenPacketRework,
 }: AiBatchTabProps) {
   const c = useClientTheme()
   const { showToast } = useToast()
@@ -81,6 +84,10 @@ export default function AiBatchTab({
   const adminUserId = authUser?.id ?? 'unknown'
   const adminUserName = getAdminUserDisplayName(authUser?.email ?? null)
   const [sendingPpw, setSendingPpw] = useState(false)
+
+  const openBatchPreview = (targetBatchId: string) => {
+    onOpenPacketRework?.(targetBatchId)
+  }
 
   const aiBatches = useMemo(() => {
     return getAllBatches().filter(
@@ -136,6 +143,10 @@ export default function AiBatchTab({
           onAction={(item, e) => {
             e.stopPropagation()
             onBatchSelect(item.id)
+          }}
+          onPreviewClick={(item, e) => {
+            e.stopPropagation()
+            openBatchPreview(item.id)
           }}
           emptyTitle="No AI-tracked batches"
           emptyHint="AI uploads and batches with sort/review activity appear here"
@@ -210,6 +221,15 @@ export default function AiBatchTab({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => openBatchPreview(batchId)}
+            className="dashboard-btn-secondary inline-flex items-center gap-1.5"
+            title="Open Packets rework workspace"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Packets
+          </button>
           <BatchAiReviewPanel batchId={batchId} onComplete={onRefresh} />
           <button
             type="button"
@@ -390,7 +410,12 @@ export default function AiBatchTab({
                 {batchInvoices.map((inv) => {
                   const rev = reviewStatusLabel(inv.ai_review_status)
                   return (
-                    <tr key={inv.id}>
+                    <tr
+                      key={inv.id}
+                      className="cursor-pointer dashboard-card-interactive"
+                      onClick={() => openBatchPreview(batchId)}
+                      title="Open Packets rework"
+                    >
                       <td className="font-medium" style={{ color: c.primary }}>
                         {inv.invoice_number}
                       </td>
@@ -401,7 +426,9 @@ export default function AiBatchTab({
                         )}
                       </td>
                       <td className="text-right tabular-nums">{formatCurrency(inv.amount)}</td>
-                      <td style={{ color: toneColor(rev.tone) }}>{rev.label}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <InvoiceAiReviewBadge invoice={inv} status={inv.ai_review_status} />
+                      </td>
                       <td>
                         {hasPpwBeenSent(inv) ? (
                           <span className="inline-flex items-center gap-1" style={{ color: c.success }}>
@@ -412,7 +439,11 @@ export default function AiBatchTab({
                           <span style={{ color: c.secondary }}>Not sent</span>
                         )}
                       </td>
-                      <td className="text-xs max-w-[220px] truncate" style={{ color: c.secondary }} title={inv.ai_review_summary}>
+                      <td
+                        className="text-xs max-w-[220px] truncate"
+                        style={{ color: rev.tone === 'err' ? toneColor('err') : c.secondary }}
+                        title={inv.ai_review_summary}
+                      >
                         {inv.ai_review_summary || '—'}
                       </td>
                     </tr>

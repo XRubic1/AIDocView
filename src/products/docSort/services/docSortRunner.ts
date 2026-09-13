@@ -1,7 +1,12 @@
 import type { DocSortProgress, DocSortResult, DocSortUpload } from '../types'
 import { fingerprintDocSortFile } from './docSortVision'
 import { matchSortedDocuments } from './docSortMatcher'
-const DEFAULT_PARALLEL = 4
+import {
+  getDocSortStartIntervalMs,
+  getEffectiveDocSortParallel,
+  getEffectiveDocsPerMinute,
+} from '../../../utils/aiReviewUserSettings'
+import { DocScanRateLimiter } from '../../../utils/docScanRateLimiter'
 
 async function runWithConcurrency<T, R>(
   items: T[],
@@ -24,14 +29,9 @@ async function runWithConcurrency<T, R>(
   return results
 }
 
-function readParallelLimit(): number {
-  const raw = import.meta.env.VITE_DOCSORT_PARALLEL?.trim()
-  const parsed = raw ? Number.parseInt(raw, 10) : DEFAULT_PARALLEL
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PARALLEL
-}
-
 /**
  * Scan all uploads, then match rate cons ↔ BOLs (no AIDocView review pipeline).
+ * Respects Settings → docs/min and DocSort parallel so OpenAI TPM is not blown.
  */
 export async function runDocSort(
   uploads: DocSortUpload[],
@@ -42,12 +42,22 @@ export async function runDocSort(
     throw new Error('Add at least one document to sort.')
   }
 
-  onProgress?.({ phase: 'scanning', completed: 0, total, message: 'Scanning documents…' })
+  const parallel = getEffectiveDocSortParallel()
+  const docsPerMinute = getEffectiveDocsPerMinute()
+  const intervalMs = getDocSortStartIntervalMs()
+  const limiter = new DocScanRateLimiter(intervalMs)
 
-  const parallel = readParallelLimit()
+  onProgress?.({
+    phase: 'scanning',
+    completed: 0,
+    total,
+    message: `Scanning documents (max ${docsPerMinute}/min, ${parallel} at a time)…`,
+  })
+
   let completed = 0
 
   const fingerprints = await runWithConcurrency(uploads, parallel, async (upload) => {
+    await limiter.acquire()
     try {
       const fp = await fingerprintDocSortFile(upload.file, upload.id)
       completed += 1

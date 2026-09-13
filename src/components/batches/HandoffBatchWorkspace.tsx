@@ -114,15 +114,25 @@ export default function HandoffBatchWorkspace({
     setLoadingDocs(true)
     try {
       // Start with batch-level (handoff / unassigned) documents.
-      const base = await resolveHandoffDocuments(batchId, clientId)
+      const base = await resolveHandoffDocuments(batchId, clientId, { downloadFiles: true })
       const byId = new Map<string, HandoffDocument>()
-      for (const doc of base) byId.set(doc.id, doc)
+      for (const doc of base) {
+        if (!doc.file) continue
+        byId.set(doc.id, {
+          id: doc.id,
+          name: doc.name,
+          type: doc.type,
+          size: doc.size,
+          file: doc.file,
+          storagePath: doc.storagePath,
+        })
+      }
 
       // Merge in documents already attached to existing invoices.
       for (const invoice of existingInvoices) {
         const invoiceDocs = await resolveInvoiceDocumentsAsync(invoice)
         for (const doc of invoiceDocs) {
-          if (!byId.has(doc.id)) {
+          if (!byId.has(doc.id) && doc.file) {
             byId.set(doc.id, {
               id: doc.id,
               name: doc.name,

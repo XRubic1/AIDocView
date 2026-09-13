@@ -14,11 +14,25 @@ export function isGeneratedInvoicePdfDoc(draft: CredyxInvoiceDraft, docId: strin
   return docId === `invoice-pdf-${draft.groupId}`
 }
 
+/** Guess DocSort kind from file name when AI has not classified the doc yet. */
+export function guessDocSortKindFromFileName(
+  fileName: string
+): DocSortFingerprint['kind'] {
+  const lower = fileName.toLowerCase()
+  if (/rate\s*con|rate\s*sheet|rate\s*conf|\brc\b/.test(lower)) {
+    return 'rate_confirmation'
+  }
+  if (/\bbol\b|bill\s*of\s*lad|pod\b|proof\s*of\s*deliv/.test(lower)) {
+    return 'bill_of_lading'
+  }
+  return 'other'
+}
+
 export function createManualDocFingerprint(docId: string, file: File): DocSortFingerprint {
   return {
     docId,
     fileName: file.name,
-    kind: 'other',
+    kind: guessDocSortKindFromFileName(file.name),
     confidence: 1,
     loadNumbers: [],
   }
@@ -260,4 +274,84 @@ export function deleteDraftDocument(
   fileById.delete(docId)
 
   return { ...draft, invoices, unmatched, fileById }
+}
+
+/**
+ * Remove a supporting doc from wherever it lives (invoice or unmatched pool).
+ * Returns null fingerprint when the doc is the generated invoice PDF or missing.
+ */
+export function extractDraftDocument(
+  draft: BatchIntakeDraft,
+  docId: string
+): {
+  draft: BatchIntakeDraft
+  fingerprint: DocSortFingerprint | null
+  fromDraftId: string | null
+} {
+  if (draft.invoices.some((inv) => isGeneratedInvoicePdfDoc(inv, docId))) {
+    return { draft, fingerprint: null, fromDraftId: null }
+  }
+
+  for (const inv of draft.invoices) {
+    const fingerprint = resolveFingerprint(draft, inv, docId)
+    if (!fingerprint) continue
+    const inInvoice =
+      inv.fingerprints.rateCons.some((fp) => fp.docId === docId) ||
+      inv.fingerprints.bols.some((fp) => fp.docId === docId) ||
+      otherFps(inv).some((fp) => fp.docId === docId) ||
+      inv.document_doc_ids.includes(docId)
+    if (!inInvoice) continue
+
+    const { invoice } = removeDocFromInvoice(inv, docId)
+    return {
+      draft: {
+        ...draft,
+        invoices: draft.invoices.map((row) => (row.draftId === inv.draftId ? invoice : row)),
+      },
+      fingerprint,
+      fromDraftId: inv.draftId,
+    }
+  }
+
+  const { unmatched, fingerprint } = removeFromUnmatched(draft.unmatched, docId)
+  if (!fingerprint) return { draft, fingerprint: null, fromDraftId: null }
+  return {
+    draft: { ...draft, unmatched },
+    fingerprint,
+    fromDraftId: null,
+  }
+}
+
+/**
+ * Place a supporting doc onto an invoice (or unmatched) with an explicit kind.
+ * Pass `preserve` to keep the document's current RC/BOL/other classification.
+ */
+export function placeDraftDocument(
+  draft: BatchIntakeDraft,
+  docId: string,
+  toDraftId: string | null,
+  kind: DocSortFingerprint['kind'] | 'preserve'
+): BatchIntakeDraft {
+  const extracted = extractDraftDocument(draft, docId)
+  if (!extracted.fingerprint) return draft
+
+  const nextKind: DocSortFingerprint['kind'] =
+    kind === 'preserve' ? extracted.fingerprint.kind : kind
+
+  const fingerprint: DocSortFingerprint = {
+    ...extracted.fingerprint,
+    kind: nextKind,
+  }
+
+  if (toDraftId === null) {
+    const unmatched = cloneUnmatched(extracted.draft.unmatched)
+    const bucket = unmatchedBucketForKind(nextKind)
+    unmatched[bucket] = [...unmatched[bucket], fingerprint]
+    return { ...extracted.draft, unmatched }
+  }
+
+  const invoices = extracted.draft.invoices.map((inv) =>
+    inv.draftId === toDraftId ? addDocToInvoice(inv, fingerprint) : inv
+  )
+  return { ...extracted.draft, invoices }
 }

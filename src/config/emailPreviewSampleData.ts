@@ -17,6 +17,16 @@ export function getEmailPreviewSampleData(templateId: EmailTemplateId): Record<s
   }
 
   switch (templateId) {
+    case 'staff_calendar_digest':
+      return {
+        ...shared,
+        recipientName: 'team',
+        whenLabel: 'Monday, Sep 14, 2026',
+        taskCount: '3',
+        taskListHtml:
+          '<ol style="padding-left:18px;"><li><strong>Call Back</strong><div>Northline · TQL · #INV-10428</div></li><li><strong>Invoice due</strong><div>Northline · Summit · #INV-10431</div></li><li><strong>Will Pay</strong><div>Expected today · $2,450.00</div></li></ol>',
+        portalLink: `${shared.portalLink}/admin/calendar`,
+      }
     case 'carrier_document_issue':
       return carrier
     case 'carrier_billing_invoice':

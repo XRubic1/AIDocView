@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Plus, Video } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Mail, Plus, Video } from 'lucide-react'
 import type { Client } from '../../types/client'
 import type { Invoice } from '../../types/invoice'
 import type { SharedCalendarEvent } from '../../data/sharedCalendarEvents'
@@ -18,6 +18,7 @@ import AssistantAddEventModal from '../client/assistant/AssistantAddEventModal'
 import { markAssistantEventCompleted } from '../../utils/assistantTaskStore'
 import { openAdminInvoiceWorkspace } from '../../utils/openAdminInvoiceWorkspace'
 import { applyAssistantCompletions } from '../../utils/assistantTaskStore'
+import { sendStaffCalendarDigest } from '../../services/staffCalendarDigestService'
 
 type AdminCalFilter = 'all' | 'chase' | 'meeting' | 'docs' | 'expected' | 'reminder'
 
@@ -112,6 +113,23 @@ function isChaseType(type: SharedCalendarEvent['type']): boolean {
   )
 }
 
+function isStaffTaskEvent(e: SharedCalendarEvent): boolean {
+  if (isChaseType(e.type)) return true
+  return (
+    e.id.startsWith('live-callback-') ||
+    e.id.startsWith('live-willpay-') ||
+    e.id.startsWith('live-wpmissed-') ||
+    e.id.startsWith('live-due-') ||
+    e.id.startsWith('live-hold-') ||
+    e.id.startsWith('live-noppw-') ||
+    e.id.startsWith('live-payconfirm-') ||
+    e.id.startsWith('live-aging-') ||
+    e.id.startsWith('live-chase-') ||
+    (e.type === 'reminder' &&
+      (e.id.startsWith('admin-evt-') || e.id.startsWith('live-')))
+  )
+}
+
 function filterEvents(
   events: SharedCalendarEvent[],
   filter: AdminCalFilter,
@@ -120,16 +138,7 @@ function filterEvents(
   let list = events
   if (clientId) list = list.filter((e) => e.clientId === clientId)
   if (filter === 'chase') {
-    return list.filter(
-      (e) =>
-        isChaseType(e.type) ||
-        e.id.startsWith('live-callback-') ||
-        e.id.startsWith('live-payconfirm-') ||
-        (e.type === 'reminder' &&
-          (e.id.startsWith('admin-evt-') ||
-            e.id.startsWith('live-chase-') ||
-            e.id.startsWith('live-callback-')))
-    )
+    return list.filter(isStaffTaskEvent)
   }
   if (filter === 'meeting') return list.filter((e) => e.type === 'meeting')
   if (filter === 'docs') return list.filter((e) => e.type === 'paperwork_check')
@@ -204,6 +213,8 @@ export default function AdminSharedCalendar({
   const [addOpen, setAddOpen] = useState(false)
   const [addClientId, setAddClientId] = useState('')
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [digestBusy, setDigestBusy] = useState(false)
+  const [digestMessage, setDigestMessage] = useState<string | null>(null)
 
   useEffect(() => {
     const fromUrl = searchParams.get('client') || ''
@@ -329,6 +340,35 @@ export default function AdminSharedCalendar({
     setAddOpen(true)
   }
 
+  /** Email today's calendar tasks to the ops alert address. */
+  const emailTodaysTasks = async () => {
+    if (digestBusy) return
+    setDigestBusy(true)
+    setDigestMessage(null)
+    try {
+      const result = await sendStaffCalendarDigest({
+        invoices: mockInvoices,
+        brokers: mockBrokers,
+        force: true,
+      })
+      if (result.skipped) {
+        setDigestMessage(result.reason ?? 'Already sent today')
+      } else if (!result.ok) {
+        setDigestMessage(result.reason ?? result.email?.error ?? 'Send failed')
+      } else {
+        setDigestMessage(
+          result.taskCount === 0
+            ? 'Digest sent — nothing due today'
+            : `Digest sent — ${result.taskCount} task(s)`
+        )
+      }
+    } catch (err) {
+      setDigestMessage(err instanceof Error ? err.message : 'Send failed')
+    } finally {
+      setDigestBusy(false)
+    }
+  }
+
   return (
     <div className="assistant-cal admin-shared-cal">
       <div className="assistant-cal__toolbar">
@@ -376,6 +416,21 @@ export default function AdminSharedCalendar({
               <Plus className="w-3.5 h-3.5" strokeWidth={2.25} />
               Add
             </button>
+            <button
+              type="button"
+              className="assistant-cal__today-btn"
+              onClick={() => void emailTodaysTasks()}
+              disabled={digestBusy}
+              title="Email today's calendar tasks to the ops team"
+            >
+              <Mail className="w-3.5 h-3.5 inline-block mr-1" strokeWidth={2.25} />
+              {digestBusy ? 'Sending…' : "Email today's tasks"}
+            </button>
+            {digestMessage ? (
+              <span className="text-xs text-slate-500 max-w-[14rem] truncate" title={digestMessage}>
+                {digestMessage}
+              </span>
+            ) : null}
           </div>
 
           <div className="assistant-cal__filter-bar">

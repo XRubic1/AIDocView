@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, CheckCircle, Mail } from 'lucide-react'
+import { ArrowLeft, CheckCircle, ExternalLink, Mail } from 'lucide-react'
 import { getAllBatches } from '../../data/mockBatches'
 import { mockInvoices } from '../../data/mockInvoices'
 import { Invoice } from '../../types/invoice'
@@ -19,6 +19,7 @@ interface ReadyToPostTabProps {
   onBatchSelect: (batchId: string) => void
   onMoveToVerification: (batchId: string) => void
   onBack: () => void
+  onOpenPacketRework?: (batchId: string) => void
 }
 
 export default function ReadyToPostTab({
@@ -26,6 +27,7 @@ export default function ReadyToPostTab({
   onBatchSelect,
   onMoveToVerification,
   onBack,
+  onOpenPacketRework,
 }: ReadyToPostTabProps) {
   const { showToast } = useToast()
   const c = useClientTheme()
@@ -130,6 +132,17 @@ export default function ReadyToPostTab({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              if (batchId && onOpenPacketRework) onOpenPacketRework(batchId)
+            }}
+            className="dashboard-btn-secondary inline-flex items-center gap-1.5"
+            title="Open Packets rework workspace"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Packets
+          </button>
           {!isHandoffAwaitingInvoices && (
             <BatchAiReviewPanel batchId={batchId} onComplete={() => setReviewRefresh((k) => k + 1)} />
           )}

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { getAdminUserDisplayName } from '../../config/adminNav'
 import { formatCurrency } from '../../utils/format'
-import { ArrowLeft, Check, AlertCircle, CheckCircle } from 'lucide-react'
+import { ArrowLeft, Check, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react'
 import { getAllBatches } from '../../data/mockBatches'
 import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
 import { mockInvoices } from '../../data/mockInvoices'
@@ -19,6 +19,7 @@ interface VerificationTabProps {
   onBatchSelect: (batchId: string) => void
   onBack: () => void
   onProcessed?: () => void
+  onOpenPacketRework?: (batchId: string) => void
 }
 
 export default function VerificationTab({
@@ -26,6 +27,7 @@ export default function VerificationTab({
   onBatchSelect,
   onBack,
   onProcessed,
+  onOpenPacketRework,
 }: VerificationTabProps) {
   const { resolved, session } = useAuth()
   const { showToast } = useToast()
@@ -201,6 +203,18 @@ export default function VerificationTab({
           </div>
         </div>
         <div className="flex items-center space-x-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (batchId && onOpenPacketRework) onOpenPacketRework(batchId)
+            }}
+            className="flex items-center space-x-2 px-4 py-2 text-sm font-medium border transition-colors"
+            style={{ borderColor: '#819291', color: '#113543' }}
+            title="Open Packets rework workspace"
+          >
+            <ExternalLink className="w-4 h-4" />
+            <span>Packets</span>
+          </button>
           <button
             onClick={() => setShowAccountingModal(true)}
             className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white transition-colors"

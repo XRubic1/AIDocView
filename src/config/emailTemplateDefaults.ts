@@ -25,6 +25,7 @@ export type EmailTemplateId =
   | 'broker_payment_status_inquiry'
   | 'broker_payment_status_followup'
   | 'calendar_event_notice'
+  | 'staff_calendar_digest'
   | 'carrier_document_issue'
   | 'carrier_billing_invoice'
   | 'auth_signup'
@@ -304,6 +305,23 @@ Broker: {{brokerName}} · Invoice: {{invoiceNumber}}</p>
 {{meetingBlock}}
 <p style="white-space:pre-wrap">{{message}}</p>
 <p><a href="{{portalLink}}">Open in Credyx</a></p>`,
+  },
+  {
+    id: 'staff_calendar_digest',
+    name: 'Staff calendar digest',
+    description:
+      'Daily employee reminder of Credyx calendar tasks due today (due dates, call backs, Will Pay, chase).',
+    audience: 'admin',
+    placeholders: 'recipientName, whenLabel, taskCount, taskListHtml, portalLink',
+    subject: 'Credyx today — {{taskCount}} task(s) · {{whenLabel}}',
+    body_html: `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#0f172a;">
+  <p style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;">Staff calendar</p>
+  <h1 style="font-size:20px;margin:8px 0 4px;">What you need to do today</h1>
+  <p style="color:#475569;font-size:14px;margin:0 0 16px;">Hi {{recipientName}} — {{taskCount}} item(s) for {{whenLabel}} from the Credyx calendar.</p>
+  {{taskListHtml}}
+  <p style="margin-top:24px;"><a href="{{portalLink}}" style="display:inline-block;background:#1684FE;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-size:13px;">Open calendar</a></p>
+  <p style="margin-top:20px;font-size:12px;color:#94a3b8;">Credyx · Paid on time</p>
+</div>`,
   },
 ]
 

@@ -141,14 +141,14 @@ export async function createManualCredyxDraft(
     broker_id: '',
     amount: 0,
     invoice_date,
-    carrier_name: 'Carrier',
+    carrier_name: clientName || 'Carrier',
     rate_missing: true,
     confirmed: false,
     document_doc_ids: [],
     fingerprints: { rateCons: [], bols: [], other: [] },
   }
   const invoice_pdf = await regenerateDraftInvoicePdf(base, clientName)
-  return { ...base, invoice_pdf }
+  return { ...base, carrier_name: clientName, invoice_pdf }
 }
 
 function isoToUsDate(iso: string): string {

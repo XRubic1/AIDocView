@@ -4,6 +4,9 @@ import { FileText, Search, X } from 'lucide-react'
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
 import DocumentViewer from '../components/DocumentViewer'
 import EmptyState from '../components/ui/EmptyState'
+import DocumentDownloadOverlay, {
+  useDocumentDownloadProgress,
+} from '../components/ui/DocumentDownloadOverlay'
 import { useToast } from '../components/ui/ToastProvider'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
@@ -45,6 +48,7 @@ export default function BrokerAgingInvoicesPopup() {
   const [listSearch, setListSearch] = useState('')
   const [docs, setDocs] = useState<WorkspaceDoc[]>([])
   const [docsLoading, setDocsLoading] = useState(false)
+  const docsDownloadProgress = useDocumentDownloadProgress(docsLoading)
 
   const brokerId = searchParams.get('broker') || ''
   const brokerNameParam = searchParams.get('name') || ''
@@ -338,11 +342,16 @@ export default function BrokerAgingInvoicesPopup() {
                 />
               </div>
 
-              <div className="min-h-0 overflow-hidden flex flex-col" style={{ backgroundColor: c.card }}>
+              <div className="min-h-0 overflow-hidden flex flex-col relative" style={{ backgroundColor: c.card }}>
+                <DocumentDownloadOverlay
+                  open={docsLoading}
+                  progress={docsDownloadProgress}
+                  title="Downloading documents"
+                  subtitle="Fetching invoice paperwork so you can review it…"
+                  variant="absolute"
+                />
                 {docsLoading ? (
-                  <div className="flex-1 flex items-center justify-center text-sm" style={{ color: c.secondary }}>
-                    Loading documents…
-                  </div>
+                  <div className="flex-1 min-h-[240px]" />
                 ) : docs.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center p-6">
                     <EmptyState

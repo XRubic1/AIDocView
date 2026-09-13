@@ -19,6 +19,7 @@ import {
   addDocToInvoice,
   deleteDraftDocument,
   moveDraftDocument,
+  placeDraftDocument,
   removeInvoiceFromDraft,
 } from '../../utils/aiDraftDocOps'
 import type { AiDraftStep } from '../../types/clientBatchDraft'
@@ -72,7 +73,7 @@ interface BatchAiUploadFlowProps {
     step: Step
     files: File[]
     intake: BatchIntakeDraft | null
-  }) => void
+  }) => void | Promise<void>
   /** Credyx admin: also warn when other carriers reused a load number. */
   crossCarrierLoadWarnings?: boolean
   /** Admin create-batch skips vault onboarding gate. */
@@ -152,6 +153,9 @@ export default function BatchAiUploadFlow({
   const [submitting, setSubmitting] = useState(false)
   const [addingInvoice, setAddingInvoice] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [draftPersistStatus, setDraftPersistStatus] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >(draftBatchId || restoredDraft ? 'saved' : 'idle')
   const regenTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const draftRef = useRef(draft)
   draftRef.current = draft
@@ -231,10 +235,26 @@ export default function BatchAiUploadFlow({
   useEffect(() => {
     if (!onPersistDraft || !draftReady || step === 'processing') return
     const timer = setTimeout(() => {
-      onPersistDraft({ step, files, intake: draft })
+      setDraftPersistStatus('saving')
+      void Promise.resolve(onPersistDraft({ step, files, intake: draft }))
+        .then(() => setDraftPersistStatus('saved'))
+        .catch((err) => {
+          console.error('[BatchAiUploadFlow] draft persist failed', err)
+          setDraftPersistStatus('error')
+        })
     }, 900)
     return () => clearTimeout(timer)
   }, [step, files, draft, draftReady, onPersistDraft])
+
+  const draftBadge = !onPersistDraft
+    ? { label: 'Session only', className: 'status-pill--pending-batch' }
+    : draftPersistStatus === 'saving'
+      ? { label: 'Saving draft…', className: 'status-pill--pending-batch' }
+      : draftPersistStatus === 'error'
+        ? { label: 'Draft save failed', className: 'status-pill--hold' }
+        : draftPersistStatus === 'saved' || Boolean(draftBatchId)
+          ? { label: 'Draft saved', className: 'status-pill--pending-batch' }
+          : { label: 'Unsaved', className: 'status-pill--pending-batch' }
 
   const addPaperwork = (list: FileList | File[]) => {
     const incoming = Array.from(list)
@@ -295,6 +315,40 @@ export default function BatchAiUploadFlow({
     void runPipeline(files)
   }
 
+  /** Skip DocSort and open Packets for manual invoice/doc assignment. */
+  const handleManualProcess = () => {
+    setError(null)
+    const fileById = new Map<string, File>()
+    const rateCons: ReturnType<typeof createManualDocFingerprint>[] = []
+    const bols: ReturnType<typeof createManualDocFingerprint>[] = []
+    const other: ReturnType<typeof createManualDocFingerprint>[] = []
+    files.forEach((file, index) => {
+      const docId = `manual-upload-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`
+      fileById.set(docId, file)
+      const fp = createManualDocFingerprint(docId, file)
+      if (fp.kind === 'rate_confirmation') rateCons.push(fp)
+      else if (fp.kind === 'bill_of_lading') bols.push(fp)
+      else other.push(fp)
+    })
+    const batchNumber =
+      draftBatchNumber ?? `BATCH-MANUAL-${new Date().toISOString().slice(0, 10)}`
+    setDraft({
+      batchNumber,
+      sortResult: {
+        sortedAt: new Date().toISOString(),
+        groups: [],
+        unmatchedRateCons: rateCons,
+        unmatchedBols: bols,
+        otherDocuments: other,
+        totalDocuments: files.length,
+      },
+      invoices: [],
+      unmatched: { rateCons, bols, other },
+      fileById,
+    })
+    setStep('confirm')
+  }
+
   const updateDraft = (draftId: string, patch: Partial<CredyxInvoiceDraft>) => {
     let nextPatch = patch
     // Prefer explicit broker_id from BrokerPicker; otherwise match-only (no auto-create).
@@ -320,7 +374,9 @@ export default function BatchAiUploadFlow({
       return {
         ...prev,
         invoices: prev.invoices.map((inv) =>
-          inv.draftId === draftId ? { ...inv, ...nextPatch } : inv
+          inv.draftId === draftId
+            ? { ...inv, ...nextPatch, carrier_name: clientName || inv.carrier_name }
+            : inv
         ),
       }
     })
@@ -356,6 +412,14 @@ export default function BatchAiUploadFlow({
     toDraftId: string | null
   ) => {
     setDraft((prev) => (prev ? moveDraftDocument(prev, fromDraftId, docId, toDraftId) : prev))
+  }
+
+  const placeDocument = (
+    docId: string,
+    toDraftId: string | null,
+    kind: 'rate_confirmation' | 'bill_of_lading' | 'other' | 'preserve'
+  ) => {
+    setDraft((prev) => (prev ? placeDraftDocument(prev, docId, toDraftId, kind) : prev))
   }
 
   const assignUnmatchedDoc = (docId: string, toDraftId: string) => {
@@ -487,7 +551,7 @@ export default function BatchAiUploadFlow({
       <div className="client-ai-upload">
         <AiUploadOverviewBar
           title={draft.batchNumber}
-          badge={{ label: 'Draft saved', className: 'status-pill--pending-batch' }}
+          badge={draftBadge}
           stepIndex={stepIndex}
           meta={`${draft.invoices.length} invoice${draft.invoices.length !== 1 ? 's' : ''}`}
         />
@@ -495,12 +559,14 @@ export default function BatchAiUploadFlow({
         <BatchAiConfirmPanel
           draft={draft}
           clientId={clientId}
+          carrierName={clientName}
           crossCarrierLoadWarnings={crossCarrierLoadWarnings}
           brokerPickerMode={skipSetupGate ? 'admin' : 'carrier'}
           onUpdateDraft={updateDraft}
           onAddInvoice={addManualDraft}
           onRemoveDraft={removeDraft}
           onMoveDocument={moveDocument}
+          onPlaceDocument={placeDocument}
           onAssignUnmatchedDoc={assignUnmatchedDoc}
           onAssignUnmatchedDocs={assignUnmatchedDocs}
           onAttachDocuments={attachDraftDocuments}
@@ -508,6 +574,7 @@ export default function BatchAiUploadFlow({
           addingInvoice={addingInvoice}
           onSubmitBatch={handleSubmit}
           submitting={submitting}
+          onCancel={onCancel}
         />
       </div>
     )
@@ -551,7 +618,7 @@ export default function BatchAiUploadFlow({
     <div className="client-ai-upload">
       <AiUploadOverviewBar
         title={draftBatchNumber ?? 'Upload paperwork'}
-        badge={{ label: 'Draft saved', className: 'status-pill--pending-batch' }}
+        badge={draftBadge}
         stepIndex={stepIndex}
         meta={`${files.length} file${files.length !== 1 ? 's' : ''}${files.length ? ` · ${formatFileSize(totalBytes)}` : ''} · PDF / JPG / PNG`}
       />
@@ -641,6 +708,14 @@ export default function BatchAiUploadFlow({
           {error && <p className="client-ai-upload__error">{error}</p>}
 
           <div className="client-ai-upload__files-footer">
+            <button
+              type="button"
+              className="dashboard-btn-secondary client-ai-upload__process-btn"
+              onClick={handleManualProcess}
+              title="Open Packets without AI — assign docs and fill invoices manually"
+            >
+              Manual process
+            </button>
             <button
               type="button"
               className="dashboard-btn-primary client-ai-upload__process-btn"

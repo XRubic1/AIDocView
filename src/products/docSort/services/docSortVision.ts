@@ -1,4 +1,4 @@
-import { AI_REVIEW_CONFIG, getOpenAIApiKey } from '../../../config/aiReview'
+import { AI_REVIEW_CONFIG } from '../../../config/aiReview'
 import { DOC_SORT_FINGERPRINT_PROMPT } from '../config/prompts'
 import type { DocSortFingerprint, DocSortKind } from '../types'
 import { loadNumberFromFileName } from '../../../utils/extractBatchFields'
@@ -6,6 +6,7 @@ import { parseRateAmount } from '../utils/formatRate'
 import { normalizeDocDate } from '../utils/matchKeys'
 import { fileToReviewImages } from '../../../utils/fileToReviewImage'
 import { postOpenAIChatCompletions } from '../../../utils/openaiFetch'
+import { isAiReviewConfigured } from '../../../utils/aiConfigured'
 import type { ReviewImageInfo } from '../../../types/documentReview'
 
 function mapDocType(raw: string): DocSortKind {
@@ -14,6 +15,9 @@ function mapDocType(raw: string): DocSortKind {
   if (t === 'BOL' || t === 'BILL_OF_LADING') return 'bill_of_lading'
   return 'other'
 }
+
+/** DocSort classify uses low detail — smaller payloads, fewer Edge Function 502s. */
+const DOC_SORT_VISION_DETAIL = 'low' as const
 
 function buildVisionContent(prompt: string, pages: ReviewImageInfo[]) {
   const content: Array<Record<string, unknown>> = [
@@ -27,7 +31,7 @@ function buildVisionContent(prompt: string, pages: ReviewImageInfo[]) {
     content.push({ type: 'text', text: `Page ${image.pageNumber} of ${image.totalPages}` })
     content.push({
       type: 'image_url',
-      image_url: { url: image.previewDataUrl, detail: AI_REVIEW_CONFIG.PAGE_CLASSIFY_DETAIL },
+      image_url: { url: image.previewDataUrl, detail: DOC_SORT_VISION_DETAIL },
     })
   })
   return content
@@ -94,8 +98,10 @@ export async function fingerprintDocSortFile(
   file: File,
   docId: string
 ): Promise<DocSortFingerprint> {
-  if (!getOpenAIApiKey()) {
-    throw new Error('OpenAI API key is not configured. Add VITE_OPENAI_API_KEY to your .env file.')
+  if (!isAiReviewConfigured()) {
+    throw new Error(
+      'AI review requires Supabase. Deploy openai-proxy with OPENAI_API_KEY.'
+    )
   }
 
   const pages = await fileToReviewImages(file, DOC_SORT_PAGES_PER_FILE)

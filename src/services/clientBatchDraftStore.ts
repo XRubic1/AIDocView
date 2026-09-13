@@ -129,6 +129,20 @@ export async function listDraftRecordsForClient(clientId: string): Promise<Clien
   return records.filter((record) => record.clientId === clientId)
 }
 
+/** All draft records in IndexedDB (admin restore across clients). */
+export async function listAllDraftRecords(): Promise<ClientBatchDraftRecord[]> {
+  const db = await openDb()
+  const tx = db.transaction(META_STORE, 'readonly')
+  const request = tx.objectStore(META_STORE).getAll()
+  const records = await new Promise<ClientBatchDraftRecord[]>((resolve, reject) => {
+    request.onsuccess = () => resolve((request.result as ClientBatchDraftRecord[]) ?? [])
+    request.onerror = () => reject(request.error)
+  })
+  await txDone(tx)
+  db.close()
+  return records
+}
+
 export function draftFileKey(batchId: string, suffix: string): string {
   return `${batchId}::${suffix}`
 }

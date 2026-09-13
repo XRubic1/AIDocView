@@ -4,9 +4,17 @@ import { PendingBatch } from '../../types/admin'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 import { useClientTheme, useTheme } from '../../theme/ThemeContext'
 import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
+import {
+  resolveAdminBatchWorkflowStage,
+  type AdminBatchWorkflowStage,
+} from '../../utils/adminBatchQueue'
 
 interface AllBatchesTabProps {
-  onBatchSelect: (batchId: string, tab?: 'ready_to_post' | 'verification' | 'ai') => void
+  /** Pre-filtered batches from page-level display chips. */
+  batches?: PendingBatch[]
+  onBatchSelect: (batchId: string, stage?: AdminBatchWorkflowStage) => void
+  /** Open the Packets rework workspace (same UI as AI upload confirm). */
+  onPacketRework: (batchId: string) => void
 }
 
 interface Batch extends PendingBatch {
@@ -18,12 +26,20 @@ interface Batch extends PendingBatch {
   in_use_by?: string
 }
 
-export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
+export default function AllBatchesTab({
+  batches: batchesProp,
+  onBatchSelect,
+  onPacketRework,
+}: AllBatchesTabProps) {
   const c = useClientTheme()
   const { resolvedTheme } = useTheme()
   const tenantRevision = useTenantDataRevision()
   const [listVersion, setListVersion] = useState(0)
-  const batches = useMemo(() => getAllBatches() as Batch[], [listVersion, tenantRevision])
+  const allBatches = useMemo(
+    () => getAllBatches() as Batch[],
+    [listVersion, tenantRevision]
+  )
+  const batches = (batchesProp as Batch[] | undefined) ?? allBatches
   const [showNavigationModal, setShowNavigationModal] = useState(false)
   const [selectedBatchForNavigation, setSelectedBatchForNavigation] = useState<Batch | null>(null)
 
@@ -44,28 +60,30 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
 
   const handleViewClick = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
-    const full = batches.find((b) => b.id === batch.id)
+    const full = allBatches.find((b) => b.id === batch.id) ?? batches.find((b) => b.id === batch.id)
     if (!full) return
 
-    if (full.status === 'ready_to_post') {
-      onBatchSelect(full.id, 'ready_to_post')
-    } else if (full.status === 'verification' || full.status === 'approval') {
+    if (full.status === 'verification' || full.status === 'approval') {
       setSelectedBatchForNavigation(full)
       setShowNavigationModal(true)
-    } else if (full.upload_mode === 'ai' || full.sort_status) {
-      onBatchSelect(full.id, 'ai')
-    } else {
-      onBatchSelect(full.id)
+      return
     }
+
+    onBatchSelect(full.id, resolveAdminBatchWorkflowStage(full))
+  }
+
+  const handlePreviewClick = (batch: AdminBatchListItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    onPacketRework(batch.id)
   }
 
   const handleReturnToVerification = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
-    const full = batches.find((b) => b.id === batch.id)
+    const full = allBatches.find((b) => b.id === batch.id)
     if (!full || full.status === 'verification' || full.status === 'draft') return
 
     const confirmed = window.confirm(
-      `Return batch ${full.batch_number} to Verification? It will reappear in the Verification workflow.`
+      `Return batch ${full.batch_number} to Verification? It will reappear under the Verification filter.`
     )
     if (!confirmed) return
 
@@ -76,9 +94,9 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
   const canReturnToVerification = (status: string) =>
     status !== 'verification' && status !== 'draft' && status !== 'ready_to_post'
 
-  const handleNavigateToTab = (tab: 'ready_to_post' | 'verification' | 'ai') => {
+  const handleNavigateToStage = (stage: AdminBatchWorkflowStage) => {
     if (selectedBatchForNavigation) {
-      onBatchSelect(selectedBatchForNavigation.id, tab)
+      onBatchSelect(selectedBatchForNavigation.id, stage)
       setShowNavigationModal(false)
       setSelectedBatchForNavigation(null)
     }
@@ -89,8 +107,22 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
       <AdminBatchesListView
         batches={listItems}
         variant="all"
-        onSelectBatch={(batchId) => onBatchSelect(batchId)}
+        onSelectBatch={(batchId) => {
+          const full =
+            allBatches.find((b) => b.id === batchId) ?? batches.find((b) => b.id === batchId)
+          if (!full) {
+            onBatchSelect(batchId)
+            return
+          }
+          if (full.status === 'verification' || full.status === 'approval') {
+            setSelectedBatchForNavigation(full)
+            setShowNavigationModal(true)
+            return
+          }
+          onBatchSelect(batchId, resolveAdminBatchWorkflowStage(full))
+        }}
         onViewClick={handleViewClick}
+        onPreviewClick={handlePreviewClick}
         onReturnToApproval={handleReturnToVerification}
         canReturnToApproval={canReturnToVerification}
         actionLabel="View"
@@ -121,7 +153,7 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
               >
                 <div className="min-w-0">
                   <h3 className="text-base font-semibold truncate" style={{ color: c.primary }}>
-                    Select workflow stage
+                    Open batch
                   </h3>
                   <p className="text-sm truncate" style={{ color: c.secondary }}>
                     {selectedBatchForNavigation.batch_number}
@@ -144,7 +176,24 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
               <div className="p-4 space-y-2">
                 <button
                   type="button"
-                  onClick={() => handleNavigateToTab('verification')}
+                  onClick={() => {
+                    onPacketRework(selectedBatchForNavigation.id)
+                    setShowNavigationModal(false)
+                    setSelectedBatchForNavigation(null)
+                  }}
+                  className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
+                  style={{ borderColor: c.border, backgroundColor: c.card }}
+                >
+                  <div className="font-medium text-sm" style={{ color: c.primary }}>
+                    Packets rework
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
+                    Same Packets window as AI upload — reassign docs and edit invoice packets
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNavigateToStage('verification')}
                   className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
                   style={{ borderColor: c.border, backgroundColor: c.card }}
                 >
@@ -157,7 +206,7 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleNavigateToTab('ai')}
+                  onClick={() => handleNavigateToStage('ai')}
                   className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
                   style={{ borderColor: c.border, backgroundColor: c.card }}
                 >
@@ -170,7 +219,7 @@ export default function AllBatchesTab({ onBatchSelect }: AllBatchesTabProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleNavigateToTab('ready_to_post')}
+                  onClick={() => handleNavigateToStage('ready_to_post')}
                   className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
                   style={{ borderColor: c.border, backgroundColor: c.card }}
                 >

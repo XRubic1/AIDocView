@@ -1,13 +1,22 @@
 /** Named browser window for the Credyx invoice detail + document workspace. */
 export const ADMIN_INVOICE_WORKSPACE_WINDOW = 'credyx-invoice-workspace'
 
+export type OpenAdminInvoiceWorkspaceOptions = {
+  /** Limit prev/next navigation to invoices in this batch. */
+  batchId?: string | null
+}
+
 /**
  * Open (or focus) a separate window with invoice detail on the left and
  * documents on the right. Pass an invoice id to deep-link into that invoice.
  */
-export function openAdminInvoiceWorkspace(invoiceId?: string | null): Window | null {
+export function openAdminInvoiceWorkspace(
+  invoiceId?: string | null,
+  options?: OpenAdminInvoiceWorkspaceOptions
+): Window | null {
   const params = new URLSearchParams()
   if (invoiceId) params.set('invoice', invoiceId)
+  if (options?.batchId) params.set('batch', options.batchId)
   const qs = params.toString()
   const url = `/invoices/workspace${qs ? `?${qs}` : ''}`
 
@@ -29,4 +38,15 @@ export function openAdminInvoiceWorkspace(invoiceId?: string | null): Window | n
     /* ignore focus errors from cross-origin / blocked popups */
   }
   return win
+}
+
+/**
+ * Open the updated invoice + document preview workspace for a whole batch
+ * (starts on `invoiceId` or the first invoice in the batch).
+ */
+export function openAdminBatchInvoicePreview(
+  batchId: string,
+  invoiceId?: string | null
+): Window | null {
+  return openAdminInvoiceWorkspace(invoiceId, { batchId })
 }

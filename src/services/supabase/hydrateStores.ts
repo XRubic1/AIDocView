@@ -32,7 +32,7 @@ import {
   type NotificationRow,
 } from './platformMappers'
 import { hydrateClientRegistry, resetClientRegistryCache, getClientById } from '../clientRegistry'
-import { restoreClientDraftBatches } from '../clientBatchDraftService'
+import { restoreAllDraftBatches, restoreClientDraftBatches } from '../clientBatchDraftService'
 import { clearClientBills, hydrateClientBillsFromSupabase, refreshOverdueBillStatuses } from '../arBillingService'
 import {
   clearReimbursementLedger,
@@ -218,6 +218,13 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
       await hydrateEmailInboxFromSupabase()
     } catch (err) {
       errors.push(`email_inbox: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      // Merge any IndexedDB-only draft shells (files stay local; rows may also exist in Supabase).
+      await restoreAllDraftBatches((id) => getClientById(id)?.name ?? 'Client')
+    } catch (err) {
+      errors.push(`draft_batches: ${err instanceof Error ? err.message : String(err)}`)
     }
   } else if (principal === 'client' && clientId) {
     await hydrateClientRegistry({ scope: 'client', clientId })

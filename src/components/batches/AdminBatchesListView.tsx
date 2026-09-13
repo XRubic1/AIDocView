@@ -38,16 +38,6 @@ type BatchSortField =
   | 'status'
   | 'reviewed_at'
 
-type StatusFilter =
-  | 'all'
-  | 'ready_to_post'
-  | 'verification'
-  | 'approval'
-  | 'submitted'
-  | 'processing'
-  | 'approved'
-  | 'documents_uploaded'
-
 interface AdminBatchesListViewProps {
   batches: AdminBatchListItem[]
   variant: AdminBatchListVariant
@@ -57,6 +47,8 @@ interface AdminBatchesListViewProps {
   actionLabel?: string
   onAction?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   onViewClick?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
+  /** Opens the updated invoice + document preview workspace for this batch. */
+  onPreviewClick?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   onReturnToApproval?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   canReturnToApproval?: (status: string) => boolean
 }
@@ -91,12 +83,12 @@ export default function AdminBatchesListView({
   actionLabel = 'Open',
   onAction,
   onViewClick,
+  onPreviewClick,
   onReturnToApproval,
   canReturnToApproval,
 }: AdminBatchesListViewProps) {
   const c = useClientTheme()
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<BatchSortField>(
@@ -104,17 +96,17 @@ export default function AdminBatchesListView({
   )
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
+  // Status chips live on the Batches page; this list only applies search.
   const filteredBatches = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
     return batches.filter((batch) => {
-      const matchesSearch =
+      return (
         !q ||
         batch.batch_number.toLowerCase().includes(q) ||
         batch.client_name.toLowerCase().includes(q)
-      const matchesStatus = variant !== 'all' || statusFilter === 'all' || batch.status === statusFilter
-      return matchesSearch && matchesStatus
+      )
     })
-  }, [batches, searchTerm, statusFilter, variant])
+  }, [batches, searchTerm])
 
   const sortedBatches = useMemo(() => {
     const sorted = [...filteredBatches]
@@ -179,7 +171,7 @@ export default function AdminBatchesListView({
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, statusFilter, pageSize, sortField, sortDir])
+  }, [searchTerm, pageSize, sortField, sortDir, batches])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -191,15 +183,6 @@ export default function AdminBatchesListView({
     () => batches.reduce((sum, b) => sum + b.total_amount, 0),
     [batches]
   )
-
-  const statusFilters: { id: StatusFilter; label: string }[] = [
-    { id: 'all', label: 'All' },
-    { id: 'ready_to_post', label: 'Ready' },
-    { id: 'verification', label: 'Verification' },
-    { id: 'submitted', label: 'Submitted' },
-    { id: 'processing', label: 'Processing' },
-    { id: 'approved', label: 'Approved' },
-  ]
 
   const inputStyle = {
     backgroundColor: c.card,
@@ -337,26 +320,10 @@ export default function AdminBatchesListView({
       </section>
 
       <div
-        className="client-page-toolbar px-4 py-2 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 shrink-0"
+        className="client-page-toolbar px-4 py-2 border-b flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 shrink-0"
         style={{ borderColor: c.border, backgroundColor: c.card }}
       >
-        {variant === 'all' ? (
-          <div className="flex flex-wrap gap-1.5">
-            {statusFilters.map((btn) => (
-              <button
-                key={btn.id}
-                type="button"
-                onClick={() => setStatusFilter(btn.id)}
-                className={`batch-filter-pill ${statusFilter === btn.id ? 'batch-filter-pill--active' : ''}`}
-              >
-                {btn.label}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div />
-        )}
-        <div className="relative w-full lg:w-auto lg:min-w-[280px] lg:max-w-sm">
+        <div className="relative w-full sm:w-auto sm:min-w-[280px] sm:max-w-sm">
           <Search
             className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
             style={{ color: c.secondary }}
@@ -501,6 +468,16 @@ export default function AdminBatchesListView({
                           >
                             <RotateCcw className="w-3 h-3" />
                             Verification
+                          </button>
+                        )}
+                        {onPreviewClick && (
+                          <button
+                            type="button"
+                            onClick={(e) => onPreviewClick(batch, e)}
+                            className="dashboard-btn-secondary !h-7 !px-2.5 !text-xs"
+                            title="Open Packets rework workspace"
+                          >
+                            Packets
                           </button>
                         )}
                         <button

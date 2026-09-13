@@ -1,7 +1,7 @@
 import { Bug } from 'lucide-react'
 import type { BatchIntakeDraft } from '../../types/credyxBatch'
 import { buildAssignmentDebug } from '../../products/docSort/utils/assignmentDebug'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 interface BatchAiAssignmentDebugProps {
   draft: BatchIntakeDraft
@@ -11,6 +11,18 @@ interface BatchAiAssignmentDebugProps {
 export default function BatchAiAssignmentDebug({ draft }: BatchAiAssignmentDebugProps) {
   const rows = useMemo(() => buildAssignmentDebug(draft), [draft])
   const [activeId, setActiveId] = useState(rows[0]?.docId ?? '')
+
+  // Keep selection valid when packets are reassigned / draft reloads.
+  useEffect(() => {
+    if (rows.length === 0) {
+      setActiveId('')
+      return
+    }
+    if (!rows.some((row) => row.docId === activeId)) {
+      setActiveId(rows[0].docId)
+    }
+  }, [rows, activeId])
+
   const active = rows.find((row) => row.docId === activeId) ?? rows[0]
 
   if (rows.length === 0) {

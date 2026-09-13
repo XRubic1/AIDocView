@@ -22,6 +22,7 @@ type EmailTemplate =
   | 'broker_payment_status_inquiry'
   | 'broker_payment_status_followup'
   | 'calendar_event_notice'
+  | 'staff_calendar_digest'
   | 'carrier_document_issue'
   | 'carrier_billing_invoice'
   | 'auth_signup'
@@ -70,6 +71,7 @@ function audienceForTemplate(template: EmailTemplate): FromAudience {
   if (
     template === 'admin_enrollment_alert' ||
     template === 'waitlist_signup_alert' ||
+    template === 'staff_calendar_digest' ||
     template.startsWith('credyx_')
   ) {
     return 'admin'
@@ -434,6 +436,21 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
   {{meetingBlock}}
   <p style="font-size:14px;white-space:pre-wrap;color:#334155;">{{message}}</p>
   <p style="margin-top:20px;"><a href="{{portalLink}}" style="display:inline-block;background:#0f172a;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none;font-size:13px;">Open in Credyx</a></p>
+</div>`,
+          d
+        ),
+      }
+    case 'staff_calendar_digest':
+      return {
+        subject: renderTemplateString('Credyx today — {{taskCount}} task(s) · {{whenLabel}}', d),
+        html: renderTemplateString(
+          `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#0f172a;">
+  <p style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;">Staff calendar</p>
+  <h1 style="font-size:20px;margin:8px 0 4px;">What you need to do today</h1>
+  <p style="color:#475569;font-size:14px;margin:0 0 16px;">Hi {{recipientName}} — {{taskCount}} item(s) for {{whenLabel}} from the Credyx calendar.</p>
+  {{taskListHtml}}
+  <p style="margin-top:24px;"><a href="{{portalLink}}" style="display:inline-block;background:#1684FE;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-size:13px;">Open calendar</a></p>
+  <p style="margin-top:20px;font-size:12px;color:#94a3b8;">Credyx · Paid on time</p>
 </div>`,
           d
         ),

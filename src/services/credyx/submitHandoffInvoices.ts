@@ -98,16 +98,6 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
   }))
   const feeCalculation = calculateBatchFeeCalculation(draftForCalc, feeTerms)
 
-  const batch = updateBatch(batchId, {
-    total_invoices: invoices.length,
-    total_amount: totalAmount,
-    status: 'ready_to_post',
-    submitted_at: existingBatch.submitted_at,
-    upload_mode: 'manual',
-    sort_status: 'ready',
-    fee_calculation: feeCalculation,
-  })!
-
   // Resolve invoice numbers (auto-fill blanks), then hard-block duplicates.
   const reservedForNext: string[] = []
   const resolvedNumbers: string[] = invoices.map((inv) => {
@@ -167,7 +157,13 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
     })
   }
 
-  const created = addInvoicesForBatch(batch.id, batch.batch_number, invoiceFields)
+  // Persist invoices BEFORE updating batch totals so a failed save cannot leave
+  // a batch claiming N invoices with zero invoice rows (Packets empty after refresh).
+  const created = addInvoicesForBatch(
+    existingBatch.id,
+    existingBatch.batch_number,
+    invoiceFields
+  )
 
   if (isSupabaseConfigured()) {
     for (const invoice of created) {
@@ -183,6 +179,16 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
       updateInvoice(invoice.id, invoice)
     }
   }
+
+  const batch = updateBatch(batchId, {
+    total_invoices: invoices.length,
+    total_amount: totalAmount,
+    status: 'ready_to_post',
+    submitted_at: existingBatch.submitted_at,
+    upload_mode: 'manual',
+    sort_status: 'ready',
+    fee_calculation: feeCalculation,
+  })!
 
   clearClientTenantCache(clientId)
   return { batch, invoices: created }

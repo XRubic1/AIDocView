@@ -277,7 +277,7 @@ export function invoiceToRow(invoice: Invoice): InvoiceRow {
     remittance_snapshot: invoice.remittance_snapshot ?? null,
     collection_date: invoice.collection_date ?? null,
     collection_status: invoice.collection_status ?? null,
-    collections_needs_attention: invoice.collections_needs_attention ?? null,
+    collections_needs_attention: invoice.collections_needs_attention ?? false,
     collections_last_inquiry_at: invoice.collections_last_inquiry_at ?? null,
     collections_followup_at: invoice.collections_followup_at ?? null,
     verification_status: invoice.verification_status ?? null,

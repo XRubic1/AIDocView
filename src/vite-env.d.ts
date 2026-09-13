@@ -32,6 +32,10 @@ interface ImportMetaEnv {
   readonly VITE_AI_MAX_REVIEW_COST_USD?: string
   /** OpenAI tokens-per-minute limit for pre-flight checks (default 30000) */
   readonly VITE_AI_TPM_LIMIT?: string
+  /** Max DocSort / batch AI document scans started per minute (default 6) */
+  readonly VITE_AI_DOCS_PER_MINUTE?: string
+  /** DocSort concurrent file scans (default 1) */
+  readonly VITE_DOCSORT_PARALLEL?: string
   /** Warn when estimated peak exceeds this fraction of TPM (default 0.85) */
   readonly VITE_AI_TPM_WARN_RATIO?: string
   /** Auto-reduce parallel PDFs when estimate exceeds TPM (default true) */

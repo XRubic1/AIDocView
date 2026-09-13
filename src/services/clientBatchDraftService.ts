@@ -22,6 +22,7 @@ import {
   deleteDraftRecord,
   draftFileKey,
   listDraftRecordsForClient,
+  listAllDraftRecords,
   loadDraftFile,
   loadDraftRecord,
   saveDraftRecord,
@@ -145,12 +146,26 @@ export async function restoreClientDraftBatches(
   clientName: string
 ): Promise<void> {
   const records = await listDraftRecordsForClient(clientId)
+  await restoreDraftRecords(records, () => clientName)
+}
 
+/** Admin: restore every IndexedDB draft shell for any client. */
+export async function restoreAllDraftBatches(
+  resolveClientName: (clientId: string) => string
+): Promise<void> {
+  const records = await listAllDraftRecords()
+  await restoreDraftRecords(records, resolveClientName)
+}
+
+async function restoreDraftRecords(
+  records: ClientBatchDraftRecord[],
+  resolveClientName: (clientId: string) => string
+): Promise<void> {
   for (const record of records) {
     if (getBatchById(record.batchId)) continue
 
     const batchNumber =
-      record.ai?.intake?.batchNumber ?? generateBatchNumber(clientId)
+      record.ai?.intake?.batchNumber ?? generateBatchNumber(record.clientId)
     const sortStatus =
       record.mode === 'ai'
         ? record.ai?.step === 'confirm'
@@ -160,13 +175,25 @@ export async function restoreClientDraftBatches(
             : 'pending'
         : 'pending'
 
+    const invoiceCount =
+      record.mode === 'ai'
+        ? record.ai?.intake?.invoices.length ?? 0
+        : record.manual?.invoices.length ?? 0
+    const totalAmount =
+      record.mode === 'ai'
+        ? (record.ai?.intake?.invoices.reduce((sum, inv) => sum + (inv.amount || 0), 0) ?? 0)
+        : (record.manual?.invoices.reduce(
+            (sum, inv) => sum + (Number.parseFloat(inv.amount || '0') || 0),
+            0
+          ) ?? 0)
+
     addBatch({
       id: record.batchId,
       batch_number: batchNumber,
-      client_name: clientName,
-      client_id: clientId,
-      total_invoices: 0,
-      total_amount: 0,
+      client_name: resolveClientName(record.clientId),
+      client_id: record.clientId,
+      total_invoices: invoiceCount,
+      total_amount: totalAmount,
       status: 'draft',
       submitted_at: record.updatedAt,
       upload_mode: record.mode,

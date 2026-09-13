@@ -25,6 +25,9 @@ import {
 } from '../utils/carrierRemittance'
 import { getClientById } from '../services/clientRegistry'
 import DocumentViewer from '../components/DocumentViewer'
+import DocumentDownloadOverlay, {
+  useDocumentDownloadProgress,
+} from '../components/ui/DocumentDownloadOverlay'
 import ClientBatchesListView from '../components/client/ClientBatchesListView'
 import ClientBatchDetailView from '../components/client/ClientBatchDetailView'
 import ClientSubmitDocsView from '../components/client/ClientSubmitDocsView'
@@ -147,6 +150,8 @@ export default function ClientBatches() {
   const [createSubMode, setCreateSubMode] = useState<'choose' | 'ai' | 'manual'>('choose')
   const [dashboardAiFiles, setDashboardAiFiles] = useState<File[] | undefined>(undefined)
   const [activeDraftBatchId, setActiveDraftBatchId] = useState<string | null>(null)
+  const activeDraftBatchIdRef = useRef<string | null>(null)
+  activeDraftBatchIdRef.current = activeDraftBatchId
   const [aiDraftRestored, setAiDraftRestored] = useState<RestoredAiDraftSession | null>(null)
   const [aiDraftReady, setAiDraftReady] = useState(false)
   const [manualDraftReady, setManualDraftReady] = useState(false)
@@ -241,6 +246,8 @@ export default function ClientBatches() {
 
   const [showDocumentUploadModal, setShowDocumentUploadModal] = useState(false)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
+  const [docsDownloading, setDocsDownloading] = useState(false)
+  const docsDownloadProgress = useDocumentDownloadProgress(docsDownloading)
   const [viewerDocumentsFromStore, setViewerDocumentsFromStore] = useState<
     Array<{ id: string; name: string; file?: File; type: string; size: number }>
   >([])
@@ -470,28 +477,28 @@ export default function ClientBatches() {
   }, [clientId, refreshBatches, resetManualEditorState])
 
   const handlePersistAiDraft = useCallback(
-    (payload: {
+    async (payload: {
       step: 'upload' | 'processing' | 'confirm'
       files: File[]
       intake: BatchIntakeDraft | null
     }) => {
-      void persistAiDraftIfNeeded(
+      const { batchId, result } = await persistAiDraftIfNeeded(
         clientId,
         clientName,
-        activeDraftBatchId,
+        activeDraftBatchIdRef.current,
         { step: payload.step },
         payload.intake,
         payload.files
-      ).then(({ batchId, result }) => {
-        if (batchId !== activeDraftBatchId) {
-          setActiveDraftBatchId(batchId)
-        }
-        if (result !== 'skipped') {
-          refreshBatches()
-        }
-      })
+      )
+      if (batchId !== activeDraftBatchIdRef.current) {
+        setActiveDraftBatchId(batchId)
+        activeDraftBatchIdRef.current = batchId
+      }
+      if (result !== 'skipped') {
+        refreshBatches()
+      }
     },
-    [activeDraftBatchId, clientId, clientName, refreshBatches]
+    [clientId, clientName, refreshBatches]
   )
 
   useEffect(() => {
@@ -1322,23 +1329,28 @@ export default function ClientBatches() {
       return
     }
 
-    const resolved = await resolveInvoiceDocumentsAsync(invoice)
-    if (resolved.length === 0) {
-      showToast('No documents found for this invoice.', 'error')
-      return
-    }
+    setDocsDownloading(true)
+    try {
+      const resolved = await resolveInvoiceDocumentsAsync(invoice)
+      if (resolved.length === 0) {
+        showToast('No documents found for this invoice.', 'error')
+        return
+      }
 
-    setViewerDocumentsFromStore(
-      resolved.map((doc) => ({
-        id: doc.id,
-        name: doc.name,
-        file: doc.file,
-        type: doc.type,
-        size: doc.size,
-      }))
-    )
-    setViewerInvoiceNumber(invoice.invoice_number)
-    setShowDocumentViewer(true)
+      setViewerDocumentsFromStore(
+        resolved.map((doc) => ({
+          id: doc.id,
+          name: doc.name,
+          file: doc.file,
+          type: doc.type,
+          size: doc.size,
+        }))
+      )
+      setViewerInvoiceNumber(invoice.invoice_number)
+      setShowDocumentViewer(true)
+    } finally {
+      setDocsDownloading(false)
+    }
   }
 
   const handleBatchAddNote = async (invoiceId: string, note: string) => {
@@ -1576,6 +1588,13 @@ export default function ClientBatches() {
       )}
 
       {/* Document Viewer */}
+      <DocumentDownloadOverlay
+        open={docsDownloading}
+        progress={docsDownloadProgress}
+        title="Downloading documents"
+        subtitle="Fetching invoice paperwork so you can review it…"
+        variant="fixed"
+      />
       {showDocumentViewer && (viewingInvoiceDocuments || viewerDocumentsFromStore.length > 0) && (
         <DocumentViewer
           isOpen={showDocumentViewer}

@@ -34,6 +34,8 @@ export interface BatchIntakeDraft {
     other: DocSortFingerprint[]
   }
   fileById: Map<string, File>
+  /** Storage paths for lazy PDF fetch in Packets rework (docId → path). */
+  storagePathsByDocId?: Record<string, string>
 }
 
 export type BatchUploadMode = 'ai' | 'manual'

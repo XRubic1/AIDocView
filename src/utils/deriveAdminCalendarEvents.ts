@@ -8,9 +8,9 @@ import type { Broker } from '../types/broker'
 import type { SharedCalendarEvent } from '../data/sharedCalendarEvents'
 import { formatCurrency } from './format'
 import { buildCollectionsChaseQueue, type ChaseQueueItem } from './collectionsChase'
-import { COLLECTIONS_POLICY } from './collectionsPolicy'
+import { COLLECTIONS_POLICY, daysPastYmd } from './collectionsPolicy'
 import { enrichInvoice, isOpenArInvoice } from './invoiceAging'
-import { getPpwSentAt } from './ppwSent'
+import { getPpwSentAt, hasPpwBeenSent } from './ppwSent'
 import { applyAssistantCompletions } from './assistantTaskStore'
 
 function toDateKey(d: Date): string {
@@ -181,6 +181,118 @@ function mapWillPayEvent(inv: Invoice): AssistantCalendarEvent | null {
   }
 }
 
+/**
+ * Invoice Net / due date — staff cue when the invoice becomes due.
+ * Skipped when Will Pay is already scheduled for the same day (W/P is the action that day).
+ */
+function mapInvoiceDueEvent(inv: Invoice): AssistantCalendarEvent | null {
+  if (!isOpenArInvoice(inv)) return null
+  const dueDate = normalizeDateKey(inv.due_date)
+  if (!dueDate) return null
+
+  if (
+    inv.collection_status === 'W/P' &&
+    normalizeDateKey(inv.collection_date) === dueDate
+  ) {
+    return null
+  }
+
+  return {
+    id: `live-due-${inv.id}`,
+    type: 'reminder',
+    title: 'Invoice due',
+    invoiceNumber: inv.invoice_number,
+    invoiceId: inv.id,
+    brokerName: `${inv.broker_name} · ${inv.client_name}`,
+    dueDate,
+    dueLabel: formatShortDate(dueDate),
+    owner: 'credyx_staff',
+    status: 'pending',
+    detail: `Invoice #${inv.invoice_number} for ${inv.client_name} is due ${formatShortDate(dueDate)}. Confirm payment status or start chase.`,
+    amountLabel: formatCurrency(inv.amount),
+  }
+}
+
+/**
+ * Will Pay date passed grace window with no payment — follow up today (or on the miss day).
+ */
+function mapWillPayMissedEvent(inv: Invoice, asOf: Date): AssistantCalendarEvent | null {
+  if (inv.collection_status !== 'W/P') return null
+  if (!isOpenArInvoice(inv)) return null
+  const wpDate = normalizeDateKey(inv.collection_date)
+  if (!wpDate) return null
+
+  const daysPast = daysPastYmd(wpDate, asOf)
+  if (daysPast < COLLECTIONS_POLICY.willPayMissedDays) return null
+
+  const missKey = addDaysToIso(`${wpDate}T12:00:00`, COLLECTIONS_POLICY.willPayMissedDays)
+  const dueDate = clampToTodayOrLater(missKey, asOf)
+
+  return {
+    id: `live-wpmissed-${inv.id}`,
+    type: 'escalate',
+    title: 'Will Pay missed — follow up',
+    invoiceNumber: inv.invoice_number,
+    invoiceId: inv.id,
+    brokerName: `${inv.broker_name} · ${inv.client_name}`,
+    dueDate,
+    dueLabel: formatShortDate(dueDate),
+    owner: 'credyx_staff',
+    status: 'pending',
+    detail: `Will Pay was ${formatShortDate(wpDate)} (${daysPast}d ago). Follow up with ${inv.broker_name} on invoice #${inv.invoice_number}.`,
+    amountLabel: formatCurrency(inv.amount),
+  }
+}
+
+/** Open hold — staff should chase missing docs / resolve hold. */
+function mapHoldStaffEvent(inv: Invoice, asOf: Date): AssistantCalendarEvent | null {
+  if (inv.status !== 'hold') return null
+  const dueDate = todayKey(asOf)
+
+  return {
+    id: `live-hold-${inv.id}`,
+    type: 'paperwork_check',
+    title: 'Hold — chase docs',
+    invoiceNumber: inv.invoice_number,
+    invoiceId: inv.id,
+    brokerName: `${inv.broker_name} · ${inv.client_name}`,
+    dueDate,
+    dueLabel: formatShortDate(dueDate),
+    owner: 'credyx_staff',
+    status: 'pending',
+    detail:
+      inv.hold_reason?.trim() ||
+      `Invoice #${inv.invoice_number} is on hold — chase missing paperwork with ${inv.client_name}.`,
+    amountLabel: formatCurrency(inv.amount),
+  }
+}
+
+/** Approved open A/R with no PPW past policy threshold — send paperwork. */
+function mapNoPpwEvent(inv: Invoice, asOf: Date): AssistantCalendarEvent | null {
+  if (!isOpenArInvoice(inv)) return null
+  if (inv.status !== 'approved') return null
+  if (hasPpwBeenSent(inv)) return null
+
+  const enriched = enrichInvoice(inv, asOf)
+  if (enriched.daysOutstanding < COLLECTIONS_POLICY.noPpwAfterDays) return null
+
+  const dueDate = todayKey(asOf)
+  return {
+    id: `live-noppw-${inv.id}`,
+    type: 'reminder',
+    title: 'Send PPW',
+    invoiceNumber: inv.invoice_number,
+    invoiceId: inv.id,
+    brokerName: `${inv.broker_name} · ${inv.client_name}`,
+    dueDate,
+    dueLabel: formatShortDate(dueDate),
+    owner: 'credyx_staff',
+    status: 'pending',
+    detail: `Invoice #${inv.invoice_number} is ${enriched.daysOutstanding}d old with no PPW sent. Send paperwork to ${inv.broker_name}.`,
+    amountLabel: formatCurrency(inv.amount),
+  }
+}
+
 /** Parse MM/DD/YYYY from a status note body into YYYY-MM-DD. */
 function parseUsDateFromStatusNote(note: string): string | null {
   const m = note.match(/·\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/)
@@ -239,23 +351,40 @@ export function deriveAdminCalendarEvents(
 ): AssistantCalendarEvent[] {
   const events: AssistantCalendarEvent[] = []
   const chase = buildCollectionsChaseQueue(invoices, brokers, asOf.getTime())
+  const chasedIds = new Set(chase.map((c) => c.invoice.id))
 
   for (const item of chase.slice(0, 60)) {
     events.push(mapChaseItem(item, asOf))
   }
 
-  // Collection status notes — Credyx staff only.
+  // Collection status notes + due dates — Credyx staff only.
   for (const inv of invoices) {
     const cb = mapCallBackEvent(inv)
     if (cb) events.push(cb)
     const wp = mapWillPayEvent(inv)
     if (wp) events.push(wp)
+    const wpMissed = mapWillPayMissedEvent(inv, asOf)
+    if (wpMissed) events.push(wpMissed)
+    const due = mapInvoiceDueEvent(inv)
+    if (due) events.push(due)
     const pc = mapPaymentConfirmedEvent(inv)
     if (pc) events.push(pc)
   }
 
+  // Holds + no-PPW cues (capped so the month grid stays readable).
+  const holds = invoices
+    .map((inv) => mapHoldStaffEvent(inv, asOf))
+    .filter((e): e is AssistantCalendarEvent => Boolean(e))
+    .slice(0, 20)
+  events.push(...holds)
+
+  const noPpw = invoices
+    .map((inv) => mapNoPpwEvent(inv, asOf))
+    .filter((e): e is AssistantCalendarEvent => Boolean(e))
+    .slice(0, 15)
+  events.push(...noPpw)
+
   // Aging reviews — open A/R that crossed collections overdue band (not already in chase).
-  const chasedIds = new Set(chase.map((c) => c.invoice.id))
   const aging = invoices
     .filter((inv) => isOpenArInvoice(inv) && !chasedIds.has(inv.id))
     .map((inv) => enrichInvoice(inv, asOf))
@@ -320,11 +449,13 @@ export function deriveAdminDueTodayActions(
     .slice(0, 12)
     .map((e) => {
       const kind =
-        e.type === 'call' || e.type === 'escalate'
-          ? ('check_payment' as const)
-          : e.title.toLowerCase().includes('aging')
-            ? ('review_invoice' as const)
-            : ('check_payment' as const)
+        e.type === 'paperwork_check'
+          ? ('upload_docs' as const)
+          : e.type === 'call' || e.type === 'escalate'
+            ? ('check_payment' as const)
+            : e.title.toLowerCase().includes('aging') || e.title.toLowerCase().includes('invoice due')
+              ? ('review_invoice' as const)
+              : ('check_payment' as const)
       return {
         id: e.id.replace(/^live-/, 'admin-act-'),
         title: e.title.includes('#')
@@ -336,6 +467,8 @@ export function deriveAdminDueTodayActions(
         dueLabel: 'Due today',
         status: 'pending' as const,
         kind,
+        amountLabel: e.amountLabel,
+        detail: e.detail,
       }
     })
 }

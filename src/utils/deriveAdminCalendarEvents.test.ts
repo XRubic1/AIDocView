@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Invoice } from '../types/invoice'
 import { deriveAdminCalendarEvents } from './deriveAdminCalendarEvents'
+import { COLLECTIONS_POLICY } from './collectionsPolicy'
 
 function baseInvoice(overrides: Partial<Invoice> = {}): Invoice {
   return {
@@ -103,5 +104,74 @@ describe('deriveAdminCalendarEvents — status notes', () => {
       new Date('2026-08-05T12:00:00')
     )
     expect(events.some((e) => e.id.startsWith('live-callback-'))).toBe(false)
+  })
+})
+
+describe('deriveAdminCalendarEvents — due / hold / missed W/P', () => {
+  it('adds Invoice due on the due_date', () => {
+    const events = deriveAdminCalendarEvents(
+      [baseInvoice({ id: 'inv-due', due_date: '2026-08-15' })],
+      [],
+      new Date('2026-08-05T12:00:00')
+    )
+    const due = events.find((e) => e.id === 'live-due-inv-due')
+    expect(due?.title).toBe('Invoice due')
+    expect(due?.dueDate).toBe('2026-08-15')
+    expect(due?.type).toBe('reminder')
+  })
+
+  it('skips Invoice due when Will Pay is on the same day', () => {
+    const events = deriveAdminCalendarEvents(
+      [
+        baseInvoice({
+          id: 'inv-same',
+          due_date: '2026-08-22',
+          collection_status: 'W/P',
+          collection_date: '2026-08-22',
+        }),
+      ],
+      [],
+      new Date('2026-08-05T12:00:00')
+    )
+    expect(events.some((e) => e.id === 'live-due-inv-same')).toBe(false)
+    expect(events.some((e) => e.id === 'live-willpay-inv-same')).toBe(true)
+  })
+
+  it('adds Will Pay missed follow-up after grace days', () => {
+    expect(COLLECTIONS_POLICY.willPayMissedDays).toBeLessThanOrEqual(5)
+
+    const events = deriveAdminCalendarEvents(
+      [
+        baseInvoice({
+          id: 'inv-miss',
+          collection_status: 'W/P',
+          collection_date: '2026-08-01',
+        }),
+      ],
+      [],
+      new Date('2026-08-10T12:00:00')
+    )
+    const missed = events.find((e) => e.id === 'live-wpmissed-inv-miss')
+    expect(missed?.title).toBe('Will Pay missed — follow up')
+    expect(missed?.type).toBe('escalate')
+    expect(missed?.dueDate).toBe('2026-08-10')
+  })
+
+  it('adds Hold chase docs for open holds', () => {
+    const events = deriveAdminCalendarEvents(
+      [
+        baseInvoice({
+          id: 'inv-hold',
+          status: 'hold',
+          hold_reason: 'Missing signed POD',
+        }),
+      ],
+      [],
+      new Date('2026-08-05T12:00:00')
+    )
+    const hold = events.find((e) => e.id === 'live-hold-inv-hold')
+    expect(hold?.type).toBe('paperwork_check')
+    expect(hold?.title).toBe('Hold — chase docs')
+    expect(hold?.dueDate).toBe('2026-08-05')
   })
 })

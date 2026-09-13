@@ -35,6 +35,7 @@ import CollectionsSettingsPanel, {
 import BrokerRiskSettingsPanel, {
   type BrokerRiskSettingsForm,
 } from '../components/admin/BrokerRiskSettingsPanel'
+import AiRateLimitSettingsPanel from '../components/admin/AiRateLimitSettingsPanel'
 import { useClientTheme } from '../theme/ThemeContext'
 
 type SettingsTab =
@@ -868,6 +869,10 @@ export default function Settings() {
                     checked={systemSettings.autoBackup}
                     onChange={(v) => setSystemSettings((p) => ({ ...p, autoBackup: v }))}
                   />
+                </div>
+
+                <div className="mt-6">
+                  <AiRateLimitSettingsPanel variant="admin" />
                 </div>
 
               </SettingsTabPanel>

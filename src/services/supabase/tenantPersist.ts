@@ -106,20 +106,28 @@ export async function listHandoffBatchDocuments(
   const { data: docFolders, error } = await supabase.storage.from('batch-documents').list(prefix)
   if (error || !docFolders?.length) return []
 
-  const results: HandoffStorageDocument[] = []
-  for (const folder of docFolders) {
-    if (!folder.name || folder.name === '.emptyFolderPlaceholder') continue
-    const docId = folder.name
-    const { data: files } = await supabase.storage.from('batch-documents').list(`${prefix}/${docId}`)
-    const fileName = files?.find((f) => f.name && f.name !== '.emptyFolderPlaceholder')?.name
-    if (!fileName) continue
-    results.push({
-      docId,
-      storagePath: `${prefix}/${docId}/${fileName}`,
-      fileName,
+  const folders = docFolders.filter(
+    (folder) => folder.name && folder.name !== '.emptyFolderPlaceholder'
+  )
+
+  // Parallel folder probes — sequential listing was making Packets open feel stuck.
+  const listed = await Promise.all(
+    folders.map(async (folder) => {
+      const docId = folder.name
+      const { data: files } = await supabase.storage
+        .from('batch-documents')
+        .list(`${prefix}/${docId}`)
+      const fileName = files?.find((f) => f.name && f.name !== '.emptyFolderPlaceholder')?.name
+      if (!fileName) return null
+      return {
+        docId,
+        storagePath: `${prefix}/${docId}/${fileName}`,
+        fileName,
+      } satisfies HandoffStorageDocument
     })
-  }
-  return results
+  )
+
+  return listed.filter((item): item is HandoffStorageDocument => item != null)
 }
 
 /** Download a batch document from storage. */
@@ -211,10 +219,9 @@ export async function updateInvoiceDocumentMetadata(
   return updated
 }
 
-/** Persist batch and invalidate tenant cache (drafts stay local until submit). */
+/** Persist batch and invalidate tenant cache (includes draft shells; files stay in IndexedDB). */
 export async function persistBatch(batch: Batch): Promise<void> {
   if (!isSupabaseConfigured()) return
-  if (batch.status === 'draft') return
   await upsert('batches', batchToRow(batch))
   invalidateTenant(batch.client_id)
 }
