@@ -66,6 +66,16 @@ describe('collections urgency', () => {
     expect(reasons).toContain('callback_missed')
   })
 
+  it('flags missing PPW immediately when noPpwAfterDays is 0', () => {
+    const reasons = getCollectionsUrgentReasons({
+      stillOpen: true,
+      ppwSent: false,
+      invoiceAgeDays: 0,
+      policy: { ...COLLECTIONS_POLICY, noPpwUrgent: true, noPpwAfterDays: 0 },
+    })
+    expect(reasons).toContain('no_ppw')
+  })
+
   it('does not flag Call back due before the scheduled day', () => {
     const asOf = new Date(2026, 7, 10)
     const reasons = getCollectionsUrgentReasons({

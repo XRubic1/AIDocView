@@ -10,12 +10,14 @@ export type InvoiceStatusNoteKind =
   | 'will_pay'
   | 'call_back'
   | 'payment_confirmed'
+  | 'ppw_confirmed'
   | 'set_due_date'
 
 const STATUS_NOTE_LABELS: Record<InvoiceStatusNoteKind, string> = {
   will_pay: 'Will Pay',
   call_back: 'Call Back',
   payment_confirmed: 'Payment status confirmed',
+  ppw_confirmed: 'Broker confirmed paperwork',
   set_due_date: 'Due date set',
 }
 
@@ -209,6 +211,17 @@ export function postInvoiceStatusNote(
   } else if (input.kind === 'set_due_date' && date) {
     patch.due_date = date
     patch.expected_payment_date = date
+  } else if (input.kind === 'ppw_confirmed') {
+    const now = new Date().toISOString()
+    patch.email_lifecycle = {
+      ...(invoice.email_lifecycle ?? { paperwork_status: 'unknown' }),
+      paperwork_status: 'good',
+      payment: {
+        ...(invoice.email_lifecycle?.payment ?? {}),
+        startedAt: invoice.email_lifecycle?.payment?.startedAt ?? now,
+      },
+    }
+    patch.collections_needs_attention = false
   }
 
   const updated = updateInvoice(invoiceId, patch)

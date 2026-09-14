@@ -17,6 +17,7 @@ export interface BrokerRow {
   dot_number: string | null
   notes: string | null
   payment_terms_days: number | null
+  paperwork_status_check_days?: number | null
   payment_status_inquiry_days?: number | null
   preferred_contact?: string | null
   is_new?: boolean | null
@@ -48,6 +49,7 @@ export function brokerRowToBroker(row: BrokerRow): Broker {
     dot_number: row.dot_number ?? undefined,
     notes: row.notes ?? undefined,
     payment_terms_days: row.payment_terms_days ?? undefined,
+    paperwork_status_check_days: row.paperwork_status_check_days ?? undefined,
     payment_status_inquiry_days: row.payment_status_inquiry_days ?? undefined,
     preferred_contact: asPreferredContact(row.preferred_contact),
     is_new: Boolean(row.is_new),
@@ -66,7 +68,7 @@ export function brokerRowToPublicBroker(row: BrokerRow): Broker {
 
 /** Columns safe to select for carrier portal hydrate (excludes internal notes). */
 export const BROKER_PUBLIC_SELECT =
-  'id, name, contact_person, email, emails, phone, phones, fax, address, city, state, zip, mc_number, dot_number, payment_terms_days, payment_status_inquiry_days, preferred_contact, is_new, carrier_notes, created_at, updated_at'
+  'id, name, contact_person, email, emails, phone, phones, fax, address, city, state, zip, mc_number, dot_number, payment_terms_days, paperwork_status_check_days, payment_status_inquiry_days, preferred_contact, is_new, carrier_notes, created_at, updated_at'
 
 export function brokerToRow(broker: Broker): BrokerRow {
   return {
@@ -86,6 +88,7 @@ export function brokerToRow(broker: Broker): BrokerRow {
     dot_number: broker.dot_number ?? null,
     notes: broker.notes ?? null,
     payment_terms_days: broker.payment_terms_days ?? null,
+    paperwork_status_check_days: broker.paperwork_status_check_days ?? null,
     payment_status_inquiry_days: broker.payment_status_inquiry_days ?? null,
     preferred_contact: broker.preferred_contact ?? null,
     is_new: Boolean(broker.is_new),

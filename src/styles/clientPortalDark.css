@@ -204,6 +204,28 @@
   background: var(--cp-surface);
 }
 
+.client-portal[data-theme='dark'] .client-ai-verify__row,
+.client-portal[data-theme='dark'] .client-ai-verify__outcome,
+.client-portal[data-theme='dark'] .client-ai-verify__actions,
+.client-portal[data-theme='dark'] .client-ai-verify__chip,
+.client-portal[data-theme='dark'] .client-ai-verify__hold textarea {
+  background: var(--cp-card);
+  border-color: var(--cp-border);
+  color: var(--cp-text);
+}
+
+.client-portal[data-theme='dark'] .client-ai-verify__row-fill {
+  background: rgba(22, 132, 254, 0.42);
+}
+
+.client-portal[data-theme='dark'] .client-ai-verify__row-num,
+.client-portal[data-theme='dark'] .client-ai-verify__row-amt,
+.client-portal[data-theme='dark'] .client-ai-verify__facts dd,
+.client-portal[data-theme='dark'] .client-ai-verify__outcome-title,
+.client-portal[data-theme='dark'] .client-ai-verify__outcome-headline {
+  color: var(--cp-text);
+}
+
 .client-portal[data-theme='dark'] .client-ai-confirm__input,
 .client-portal[data-theme='dark'] .client-ai-confirm__unmatched-bulk-select,
 .client-portal[data-theme='dark'] .client-ai-confirm__unmatched-view {
@@ -497,6 +519,23 @@
 }
 
 /* Overdue / force-close rows — keep dark surfaces (light #fffbfb is unreadable in dark mode) */
+.client-portal[data-theme='dark'] .status-pill--urgent-collection {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.client-portal[data-theme='dark'] .invoice-row--urgent-collection,
+.client-portal[data-theme='dark'] .invoice-row--urgent-collection td {
+  background: rgba(127, 29, 29, 0.35);
+  color: var(--cp-text);
+  box-shadow: inset 4px 0 0 #fca5a5;
+}
+
+.client-portal[data-theme='dark'] .invoice-row--urgent-collection:hover,
+.client-portal[data-theme='dark'] .invoice-row--urgent-collection:hover td {
+  background: rgba(127, 29, 29, 0.5);
+}
+
 .client-portal[data-theme='dark'] .invoice-row--overdue,
 .client-portal[data-theme='dark'] .invoice-row--overdue td {
   background: rgba(209, 67, 67, 0.12);

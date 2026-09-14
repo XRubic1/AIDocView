@@ -21,11 +21,14 @@ function row(partial: Partial<AdminCollectionsRow>): AdminCollectionsRow {
     collectionStatus: undefined,
     ppwSentAt: '2026-07-20',
     daysSincePpw: 16,
+    paperworkCheckDays: 7,
     inquiryDays: 15,
+    trackStage: 'payment_verify',
     chaseStatus: 'not_due',
     lastContact: null,
     brokerRiskLevel: 'unrated',
     isUrgent: false,
+    isUrgentCollection: false,
     urgentReasons: [],
     isCallbackDue: false,
     ...partial,
@@ -47,6 +50,17 @@ describe('matchesCollectionsFocus', () => {
     const chase = row({ chaseStatus: 'due_for_inquiry' })
     expect(matchesCollectionsFocus(chase, 'chase')).toBe(true)
     expect(matchesCollectionsFocus(chase, 'overdue')).toBe(false)
+  })
+
+  it('puts missing PPW in the urgent collection queue', () => {
+    const missing = row({
+      ppwSentAt: null,
+      trackStage: 'no_ppw',
+      isUrgentCollection: true,
+      urgentReasons: ['no_ppw'],
+    })
+    expect(matchesCollectionsFocus(missing, 'no_ppw')).toBe(true)
+    expect(matchesCollectionsFocus(missing, 'urgent')).toBe(true)
   })
 })
 

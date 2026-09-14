@@ -92,6 +92,8 @@ export interface HandoffStorageDocument {
   docId: string
   storagePath: string
   fileName: string
+  /** Invoice folder id when the file was stored under an invoice (AI upload). */
+  invoiceId?: string
 }
 
 /** List documents uploaded via managed handoff before invoices exist. */
@@ -128,6 +130,67 @@ export async function listHandoffBatchDocuments(
   )
 
   return listed.filter((item): item is HandoffStorageDocument => item != null)
+}
+
+const SKIP_STORAGE_NAMES = new Set(['.emptyFolderPlaceholder'])
+
+/**
+ * List every stored batch document (AI invoice folders + managed handoff).
+ * Paths look like `{clientId}/{batchId}/{invoiceId}/{docId}/{fileName}`.
+ */
+export async function listStoredBatchDocuments(
+  clientId: string,
+  batchId: string
+): Promise<HandoffStorageDocument[]> {
+  const supabase = getSupabase()
+  if (!supabase) return []
+
+  const root = `${clientId}/${batchId}`
+  const { data: invoiceFolders, error } = await supabase.storage.from('batch-documents').list(root)
+  if (error || !invoiceFolders?.length) return []
+
+  const folders = invoiceFolders.filter(
+    (folder) => folder.name && !SKIP_STORAGE_NAMES.has(folder.name)
+  )
+
+  const nested = await Promise.all(
+    folders.map(async (invoiceFolder) => {
+      const invoicePrefix = `${root}/${invoiceFolder.name}`
+      const { data: docFolders } = await supabase.storage.from('batch-documents').list(invoicePrefix)
+      const docEntries = (docFolders ?? []).filter(
+        (folder) => folder.name && !SKIP_STORAGE_NAMES.has(folder.name)
+      )
+
+      const files = await Promise.all(
+        docEntries.map(async (entry) => {
+          const docPrefix = `${invoicePrefix}/${entry.name}`
+          const { data: inner } = await supabase.storage.from('batch-documents').list(docPrefix)
+          const fileName = inner?.find((f) => f.name && !SKIP_STORAGE_NAMES.has(f.name))?.name
+          if (fileName) {
+            return {
+              docId: entry.name,
+              storagePath: `${docPrefix}/${fileName}`,
+              fileName,
+              invoiceId: invoiceFolder.name,
+            } satisfies HandoffStorageDocument
+          }
+          if (/\.(pdf|jpe?g|png)$/i.test(entry.name)) {
+            return {
+              docId: entry.name.replace(/\.[^.]+$/, ''),
+              storagePath: docPrefix,
+              fileName: entry.name,
+              invoiceId: invoiceFolder.name,
+            } satisfies HandoffStorageDocument
+          }
+          return null
+        })
+      )
+
+      return files.filter((item): item is HandoffStorageDocument => item != null)
+    })
+  )
+
+  return nested.flat()
 }
 
 /** Download a batch document from storage. */

@@ -20,7 +20,10 @@ export interface InvoiceAiReviewOutcome {
 export interface BatchAiReviewProgress {
   completed: number
   total: number
+  currentInvoiceId?: string
   currentInvoiceNumber?: string
+  /** 0–100 how far this invoice's review has gone. Overlay fill is 100 − this. */
+  invoiceProgress?: number
 }
 
 function minimalReviewSnapshot(
@@ -62,10 +65,23 @@ export async function runBatchAiReview(
 
   for (let i = 0; i < invoices.length; i++) {
     const inv = invoices[i]
+    const docProgress = new Map<string, number>()
+    const emitInvoiceProgress = (progress: number) => {
+      onProgress?.({
+        completed: i,
+        total: invoices.length,
+        currentInvoiceId: inv.id,
+        currentInvoiceNumber: inv.invoice_number,
+        invoiceProgress: Math.max(0, Math.min(100, Math.round(progress))),
+      })
+    }
+
     onProgress?.({
       completed: i,
       total: invoices.length,
+      currentInvoiceId: inv.id,
       currentInvoiceNumber: inv.invoice_number,
+      invoiceProgress: 0,
     })
 
     updateInvoice(inv.id, { ai_review_status: 'running' })
@@ -105,11 +121,22 @@ export async function runBatchAiReview(
         headline,
         detail: 'No documents on file for AI review',
       })
+      emitInvoiceProgress(100)
       continue
     }
 
     try {
-      const result = await reviewUploadedDocuments(docs)
+      const result = await reviewUploadedDocuments(docs, {
+        onDocumentProgress: (event) => {
+          docProgress.set(event.docId, event.progress)
+          const totalDocs = Math.max(1, docs.length)
+          let sum = 0
+          for (const doc of docs) {
+            sum += docProgress.get(doc.id) ?? 0
+          }
+          emitInvoiceProgress(sum / totalDocs)
+        },
+      })
       const primaryDoc =
         result.documents.find((d) => /rate|confirmation|rc/i.test(d.fileName)) ??
         result.documents[0]
@@ -131,9 +158,17 @@ export async function runBatchAiReview(
           detail: 'No review results returned',
           result,
         })
+        emitInvoiceProgress(100)
         continue
       }
-      const structured = buildStructuredLoadReview(primaryDoc, result)
+      const structured = buildStructuredLoadReview(primaryDoc, result, {
+        packet: {
+          loadNumber: inv.load_number,
+          amount: inv.amount,
+          brokerName: inv.broker_name,
+          carrierName: inv.client_name,
+        },
+      })
       const gate = getApprovalGateMessage(
         structured.requiredPassed.length,
         structured.requiredTotal
@@ -166,6 +201,7 @@ export async function runBatchAiReview(
         detail: gate.detail,
         result,
       })
+      emitInvoiceProgress(100)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Review failed'
       const snapshot = minimalReviewSnapshot('Review failed', msg, [msg])
@@ -181,6 +217,7 @@ export async function runBatchAiReview(
         headline: 'Review failed',
         detail: msg,
       })
+      emitInvoiceProgress(100)
     }
   }
 

@@ -15,6 +15,7 @@ import {
 } from '../../integrations/docSortToCredyx'
 import { runDocSort } from '../../products/docSort/services/docSortRunner'
 import { invoiceDraftGroupsFromSort } from '../../products/docSort/utils/invoiceDraftGroups'
+import { buildDocSortSnapshot } from '../../products/docSort/utils/docSortSnapshot'
 import type { DocSortProgress, DocSortUpload } from '../../products/docSort/types'
 import type {
   BatchIntakeDraft,
@@ -144,11 +145,7 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
         submitted_at: new Date().toISOString(),
         upload_mode: 'ai',
         sort_status: 'ready',
-        doc_sort_snapshot: JSON.stringify({
-          sortedAt: sortResult.sortedAt,
-          totalDocuments: sortResult.totalDocuments,
-          groupCount: sortResult.groups.length,
-        }),
+        doc_sort_snapshot: buildDocSortSnapshot(sortResult, drafts),
         unmatched_doc_ids: unmatchedIds,
         fee_calculation: feeCalculation,
       })!
@@ -162,17 +159,13 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
         submitted_at: new Date().toISOString(),
         upload_mode: 'ai',
         sort_status: 'ready',
-        doc_sort_snapshot: JSON.stringify({
-          sortedAt: sortResult.sortedAt,
-          totalDocuments: sortResult.totalDocuments,
-          groupCount: sortResult.groups.length,
-        }),
+        doc_sort_snapshot: buildDocSortSnapshot(sortResult, drafts),
         unmatched_doc_ids: unmatchedIds,
         fee_calculation: feeCalculation,
       })
 
   const invoiceFields = drafts.map((draft) => {
-    const fields = draftToInvoiceFields(draft, clientId, confirmedBy)
+    const fields = draftToInvoiceFields(draft, clientId, clientName)
     fields.ai_confirmed_by = confirmedBy
     return fields
   })

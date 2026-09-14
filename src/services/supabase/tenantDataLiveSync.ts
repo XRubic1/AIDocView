@@ -222,7 +222,7 @@ async function refreshTenantDataFromServer(scope: SyncScope): Promise<void> {
       supabase
         .from('brokers')
         .select(
-          'id, name, contact_person, email, emails, phone, phones, fax, address, city, state, zip, mc_number, dot_number, payment_terms_days, payment_status_inquiry_days, preferred_contact, is_new, carrier_notes, created_at, updated_at'
+          'id, name, contact_person, email, emails, phone, phones, fax, address, city, state, zip, mc_number, dot_number, payment_terms_days, paperwork_status_check_days, payment_status_inquiry_days, preferred_contact, is_new, carrier_notes, created_at, updated_at'
         )
         .order('name', { ascending: true }),
     ])

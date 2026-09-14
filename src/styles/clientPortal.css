@@ -4304,6 +4304,30 @@
   border-left-color: #fca5a5;
 }
 
+.client-portal .status-pill--urgent-collection {
+  background: #7f1d1d;
+  color: #fecaca;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.client-portal .invoice-row--urgent-collection,
+.client-portal .invoice-row--urgent-collection td {
+  background: #fef2f2;
+  box-shadow: inset 4px 0 0 #7f1d1d;
+}
+
+.client-portal .invoice-row--urgent-collection:hover,
+.client-portal .invoice-row--urgent-collection:hover td {
+  background: #fee2e2;
+}
+
+.client-portal .collections-urgent-tab.page-tab--active {
+  background: #7f1d1d;
+  color: #fff;
+  border-color: #7f1d1d;
+}
+
 .client-portal .invoice-row--overdue {
   background: #fffbfb;
 }
@@ -9649,6 +9673,284 @@
   padding: 6px;
   background: #f1f5f9;
   align-content: stretch;
+}
+
+/* Compact AI verification invoice rail */
+.client-portal .client-ai-verify__row {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: 1px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.client-portal .client-ai-verify__row-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--ai-fill, 100%);
+  background: rgba(22, 132, 254, 0.34);
+  pointer-events: none;
+  z-index: 0;
+  transition: width 0.35s ease-out;
+}
+
+.client-portal .client-ai-verify__row-num,
+.client-portal .client-ai-verify__row-amt,
+.client-portal .client-ai-verify__row-meta,
+.client-portal .client-ai-verify__badge {
+  position: relative;
+  z-index: 1;
+}
+
+.client-portal .client-ai-verify__row:hover {
+  border-color: #cbd5e1;
+}
+
+.client-portal .client-ai-verify__row.is-active {
+  border-color: #1684fe;
+  box-shadow: 0 0 0 1px #1684fe;
+}
+
+.client-portal .client-ai-verify__row-num {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.client-portal .client-ai-verify__row-amt {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  justify-self: end;
+}
+
+.client-portal .client-ai-verify__row-meta {
+  grid-column: 1;
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-portal .client-ai-verify__badge {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+  align-self: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  line-height: 14px;
+  color: #fff;
+}
+
+.client-portal .client-ai-verify__badge--ok {
+  background: #16a34a;
+}
+
+.client-portal .client-ai-verify__badge--needs {
+  background: #c2a558;
+}
+
+.client-portal .client-ai-verify__badge--reviewing {
+  background: #64748b;
+}
+
+.client-portal .client-ai-verify__facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.client-portal .client-ai-verify__facts dt {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.client-portal .client-ai-verify__facts dd {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.client-portal .client-ai-verify__outcome,
+.client-portal .client-ai-verify__actions {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+.client-portal .client-ai-verify__outcome-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.client-portal .client-ai-verify__outcome-headline {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.client-portal .client-ai-verify__outcome-headline span,
+.client-portal .client-ai-verify__outcome-detail,
+.client-portal .client-ai-verify__outcome-empty {
+  font-size: 11px;
+  font-weight: 400;
+  color: #64748b;
+}
+
+.client-portal .client-ai-verify__badge--hold {
+  background: #c2a558;
+}
+
+.client-portal .client-ai-verify__outcome-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.client-portal .client-ai-verify__outcome-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.client-portal .client-ai-verify__checks {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.client-portal .client-ai-verify__check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.client-portal .client-ai-verify__check.is-ok {
+  color: #15803d;
+}
+
+.client-portal .client-ai-verify__check.is-fail {
+  color: #b45309;
+}
+
+.client-portal .client-ai-verify__check-label {
+  min-width: 0;
+}
+
+.client-portal .client-ai-verify__mini-btn {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.client-portal .client-ai-verify__mini-btn--ok {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+.client-portal .client-ai-verify__mini-btn--hold {
+  background: #fff;
+  border-color: #c2a558;
+  color: #92400e;
+}
+
+.client-portal .client-ai-verify__channel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 6px;
+}
+
+.client-portal .client-ai-verify__chip {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  font-size: 10px;
+  color: #334155;
+}
+
+.client-portal .client-ai-verify__chip.is-on {
+  border-color: #1684fe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.client-portal .client-ai-verify__btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.client-portal .client-ai-verify__hold {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+
+.client-portal .client-ai-verify__hold textarea {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: #0f172a;
+  resize: vertical;
 }
 
 .client-portal .client-ai-review__main--span {

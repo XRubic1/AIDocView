@@ -11,7 +11,7 @@ export type ComputeInvoicePlanInput = {
   invoice: Invoice
   clientId: string
   /** Broker master record when known (inquiry days + terms). */
-  broker?: Pick<Broker, 'payment_terms_days' | 'payment_status_inquiry_days'> | null
+  broker?: Pick<Broker, 'payment_terms_days' | 'payment_status_inquiry_days' | 'paperwork_status_check_days'> | null
   /** Managed tier → chase events owned by Credyx staff. */
   chaseOwner?: InvoiceCalendarEventOwner
   now?: Date
@@ -57,6 +57,7 @@ export function computeInvoiceActionPlan(input: ComputeInvoicePlanInput): {
           )
         )
       : 30)
+  const paperworkDays = input.broker?.paperwork_status_check_days ?? 7
   const inquiryDays = input.broker?.payment_status_inquiry_days ?? 15
   const chaseOwner: InvoiceCalendarEventOwner = input.chaseOwner ?? 'user'
 
@@ -81,7 +82,7 @@ export function computeInvoiceActionPlan(input: ComputeInvoicePlanInput): {
   const events: InvoiceCalendarEvent[] = []
 
   // Paperwork check shortly after invoice date if still early.
-  const paperworkDue = addDays(invoice.invoice_date, 2)
+  const paperworkDue = addDays(invoice.invoice_date, paperworkDays)
   if (paperworkDue.getTime() >= now.getTime() - 1000 * 60 * 60 * 24) {
     events.push({
       id: newId('ice'),
@@ -89,8 +90,8 @@ export function computeInvoiceActionPlan(input: ComputeInvoicePlanInput): {
       invoice_id: invoice.id,
       client_id: clientId,
       type: 'paperwork_check',
-      title: `Confirm paperwork complete — #${invoice.invoice_number}`,
-      detail: 'Verify rate con, BOL, POD, and invoice packet are with the broker.',
+      title: `PPW status check — #${invoice.invoice_number}`,
+      detail: `Confirm the broker received paperwork (${paperworkDays} days after invoice / PPW).`,
       due_at: paperworkDue.toISOString(),
       owner: 'user',
       status: 'pending',

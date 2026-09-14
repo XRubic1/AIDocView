@@ -3,6 +3,13 @@ import type { Payment } from '../../types/payment'
 import type { Batch } from '../../data/mockBatches'
 import type { FeeTermsSnapshot } from '../../types/feeTerms'
 import { dueDatesForDatabase } from '../../utils/invoiceDueDate'
+import { getClientById } from '../clientRegistry'
+
+/** Prefer the carrier account name over a confirmer name stored on the invoice. */
+function carrierNameForClient(clientId: string, storedName: string): string {
+  const fromAccount = getClientById(clientId)?.name?.trim()
+  return fromAccount || storedName
+}
 
 export interface InvoiceRow {
   id: string
@@ -130,7 +137,7 @@ export function invoiceRowToInvoice(row: InvoiceRow): Invoice {
     id: row.id,
     invoice_number: row.invoice_number,
     client_id: row.client_id,
-    client_name: row.client_name,
+    client_name: carrierNameForClient(row.client_id, row.client_name),
     broker_id: row.broker_id ?? '',
     broker_name: row.broker_name,
     amount: num(row.amount),
@@ -249,7 +256,7 @@ export function invoiceToRow(invoice: Invoice): InvoiceRow {
     id: invoice.id,
     invoice_number: invoice.invoice_number,
     client_id: invoice.client_id,
-    client_name: invoice.client_name,
+    client_name: carrierNameForClient(invoice.client_id, invoice.client_name),
     broker_id: invoice.broker_id || null,
     broker_name: invoice.broker_name,
     amount: invoice.amount,

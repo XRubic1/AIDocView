@@ -34,8 +34,13 @@ export interface Broker {
   notes?: string
   payment_terms_days?: number // Due by (days): 0 = no auto due date; N = today + N
   /**
-   * Days after PPW was sent before Credyx asks the broker for payment status.
-   * Distinct from Due by (when payment is due).
+   * Days after PPW was sent before Credyx asks the broker to confirm paperwork received.
+   * Default 7; some brokers want 10–15. Distinct from Due by (Net terms).
+   */
+  paperwork_status_check_days?: number
+  /**
+   * Fallback days after PPW before payment-status verify when this broker has no Net / due date.
+   * Distinct from Due by (when payment is due) and from paperwork_status_check_days.
    */
   payment_status_inquiry_days?: number
   /** How Credyx should chase payment status. */

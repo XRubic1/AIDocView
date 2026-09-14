@@ -98,7 +98,7 @@ const DEFAULT_CLOCK: EmailTrackClockDefaults = {
 
 export const DEFAULT_EMAIL_LIFECYCLE_SETTINGS: EmailLifecycleSettings = {
   rules: Object.fromEntries(EMAIL_LIFECYCLE_RULES.map((r) => [r.id, { enabled: true }])),
-  paperwork: { ...DEFAULT_CLOCK, firstAskDays: 2 },
+  paperwork: { ...DEFAULT_CLOCK, firstAskDays: 7 },
   payment: { ...DEFAULT_CLOCK, firstAskDays: 15 },
 }
 

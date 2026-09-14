@@ -289,7 +289,7 @@ export default function CompactPacketDocPane({
   title,
   documents,
   emptyHint = 'No documents',
-  downloading = false,
+  downloading: _downloading = false,
   downloadProgress,
   onEnsureDocument,
   activeDocId,
@@ -326,6 +326,7 @@ export default function CompactPacketDocPane({
     let cancelled = false
     const docsWithFiles = documents.filter((d) => d.file)
     if (docsWithFiles.length === 0) {
+      setBuilding(false)
       setBundlePages([])
       setPdfByDocId({})
       setImageUrlByDocId({})
@@ -554,7 +555,11 @@ export default function CompactPacketDocPane({
         ref={scrollRef}
       >
         <DocumentDownloadOverlay
-          open={(downloading || waitingForFiles || building) && totalPages === 0}
+          open={
+            documents.length > 0 &&
+            totalPages === 0 &&
+            (waitingForFiles || building)
+          }
           progress={downloadProgress}
           title={building ? 'Building page bundle' : 'Downloading documents'}
           variant="absolute"

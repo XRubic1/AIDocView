@@ -198,23 +198,10 @@ export default function AllBatchesTab({
                   style={{ borderColor: c.border, backgroundColor: c.card }}
                 >
                   <div className="font-medium text-sm" style={{ color: c.primary }}>
-                    Verification
+                    AI verification
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
-                    Verify, hold/approve, and process batch
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleNavigateToStage('ai')}
-                  className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
-                  style={{ borderColor: c.border, backgroundColor: c.card }}
-                >
-                  <div className="font-medium text-sm" style={{ color: c.primary }}>
-                    AI
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
-                    DocSort mismatches and AI review status
+                    Packet docs, AI outcome, mark OK / needs review / hold, and process
                   </div>
                 </button>
                 <button

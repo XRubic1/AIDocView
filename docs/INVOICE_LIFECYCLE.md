@@ -204,17 +204,31 @@ Self-service: **no** force-close. Managed: force-close at 90+ days outstanding w
 
 ### Collections chase (after PPW)
 
-Relative to broker **status inquiry days** (or default 15):
+Relative to **paperwork confirm days** (broker override, default **7**) then **Net terms**:
+
+| Track | Meaning |
+|---|---|
+| `no_ppw` | Open invoice, packet never sent — **major issue**, urgent collection |
+| `ppw_waiting` | PPW sent; waiting until the broker’s confirm window |
+| `ppw_check` | Window elapsed — confirm the broker received paperwork (**broker confirmed**) |
+| `payment_waiting` | Paperwork confirmed; waiting until Net / due date |
+| `payment_verify` | Net terms reached — call the broker for payment status |
+| `past_due_urgent` | X days (Settings) past Net with no pay — **urgent collection** (distinct queue styling) |
+
+Chase follow-up if they go quiet after an inquiry:
 
 | Chase status | Meaning |
 |---|---|
 | `not_due` | Too soon to inquire |
-| `due_for_inquiry` | First payment/paperwork status ask |
+| `due_for_inquiry` / `ppw_check_due` / `payment_verify` | Ask is due |
 | `awaiting_response` | Inquiry sent, waiting |
 | `due_for_followup` | ~3 days, no reply |
 | `needs_attention` | ~5 days no reply **or** `collections_needs_attention` — Credyx should call |
+| `past_due_urgent` | Urgent collection queue |
 
-Urgent flags (can stack): missed Will Pay, missed callback, risky broker, 15d+ overdue, no PPW after 7d, stale contact, needs call.
+Urgent flags (can stack): missed Will Pay, missed callback, risky broker, past due, **PPW not sent on open invoices**, stale contact, needs call.
+
+Broker **Paperwork confirm (days after PPW)** defaults to 7; set 10–15 per broker if they are slow to reply. Payment verify starts at **Net terms**, not a fixed day after PPW (unless the broker has no due date).
 
 ### Email lifecycle tracks
 

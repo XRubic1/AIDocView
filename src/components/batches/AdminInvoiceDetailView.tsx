@@ -16,7 +16,7 @@ import SendCarrierIssueEmailModal from '../admin/SendCarrierIssueEmailModal'
 import { useAuth } from '../../context/AuthContext'
 import { getAdminUserDisplayName } from '../../config/adminNav'
 import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
-import { addAdminInvoiceNote, isCredyxRemovableNote, removeAdminInvoiceNote } from '../../services/adminInvoiceNoteActions'
+import { addAdminInvoiceNote, isCredyxRemovableNote, postInvoiceStatusNote, removeAdminInvoiceNote } from '../../services/adminInvoiceNoteActions'
 import { notifyTenantDataUpdated } from '../../services/supabase/tenantDataLiveSync'
 import {
   saveInvoiceDocuments,
@@ -2414,6 +2414,30 @@ export default function AdminInvoiceDetailView({
                   <h3 className="text-lg font-semibold" style={{ color: '#113543' }}>
                     Collection Information
                   </h3>
+                  {currentInvoice.email_lifecycle?.paperwork_status === 'good' ? (
+                    <p className="text-xs font-medium" style={{ color: '#1684FE' }}>
+                      Broker confirmed paperwork — payment waiting / verify
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 text-xs font-medium text-white rounded"
+                      style={{ backgroundColor: '#1684FE' }}
+                      onClick={() => {
+                        const updated = postInvoiceStatusNote(currentInvoice.id, {
+                          kind: 'ppw_confirmed',
+                          authorName: adminActor,
+                        })
+                        if (updated) {
+                          setCurrentInvoice(updated)
+                          showToast('Broker confirmed paperwork', 'success')
+                          notifyTenantDataUpdated(['invoices'], updated.client_id)
+                        }
+                      }}
+                    >
+                      Mark broker confirmed (PPW received)
+                    </button>
+                  )}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium mb-1" style={{ color: '#819291' }}>

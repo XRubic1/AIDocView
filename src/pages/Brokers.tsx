@@ -78,6 +78,7 @@ export default function Brokers() {
     dot_number: '',
     notes: '',
     payment_terms_days: 0,
+    paperwork_status_check_days: 7,
     payment_status_inquiry_days: 15,
     preferred_contact: 'either',
   })
@@ -155,6 +156,7 @@ export default function Brokers() {
     carrier_notes: '',
     is_new: false,
     payment_terms_days: 0,
+    paperwork_status_check_days: 7,
     payment_status_inquiry_days: 15,
     preferred_contact: 'either',
   })
@@ -177,6 +179,7 @@ export default function Brokers() {
       carrier_notes: broker.carrier_notes || '',
       is_new: Boolean(broker.is_new),
       payment_terms_days: broker.payment_terms_days ?? 0,
+      paperwork_status_check_days: broker.paperwork_status_check_days ?? 7,
       payment_status_inquiry_days: broker.payment_status_inquiry_days ?? 15,
       preferred_contact: broker.preferred_contact ?? 'either',
     })
@@ -301,6 +304,7 @@ export default function Brokers() {
       carrier_notes: formData.carrier_notes?.trim() || undefined,
       is_new: Boolean(formData.is_new),
       payment_terms_days: formData.payment_terms_days,
+      paperwork_status_check_days: formData.paperwork_status_check_days ?? 7,
       payment_status_inquiry_days: formData.payment_status_inquiry_days ?? 15,
       preferred_contact: formData.preferred_contact ?? 'either',
     }
@@ -676,7 +680,7 @@ export default function Brokers() {
                 <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
                   Collections preferences
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-px rounded-lg border border-slate-200 overflow-hidden bg-slate-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px rounded-lg border border-slate-200 overflow-hidden bg-slate-200">
                   <div className="bg-white px-3 py-2">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
                       Due by
@@ -689,7 +693,15 @@ export default function Brokers() {
                   </div>
                   <div className="bg-white px-3 py-2">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
-                      Status inquiry
+                      PPW confirm
+                    </p>
+                    <p className="text-sm font-medium text-slate-900 mt-0.5 tabular-nums">
+                      {selectedBroker.paperwork_status_check_days ?? 7} days after PPW
+                    </p>
+                  </div>
+                  <div className="bg-white px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                      Pay verify (no Net)
                     </p>
                     <p className="text-sm font-medium text-slate-900 mt-0.5 tabular-nums">
                       {selectedBroker.payment_status_inquiry_days ?? 15} days after PPW
@@ -947,7 +959,27 @@ export default function Brokers() {
                     </label>
                     <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
-                        Status inquiry (days after PPW)
+                        Paperwork confirm (days after PPW)
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={formData.paperwork_status_check_days ?? 7}
+                        onChange={(e) =>
+                          handleInputChange(
+                            'paperwork_status_check_days',
+                            parseInt(e.target.value, 10) || 7
+                          )
+                        }
+                        className={`${inputClass} mt-1 tabular-nums`}
+                      />
+                      <span className="mt-1 block text-[10px] text-slate-500 leading-snug">
+                        Default 7. Use 10–15 if this broker is slow to confirm they received the packet.
+                      </span>
+                    </label>
+                    <label className={labelClass}>
+                      <span className="font-medium text-slate-600 uppercase tracking-wide">
+                        Payment verify if no Net (days after PPW)
                       </span>
                       <input
                         type="number"
@@ -961,6 +993,9 @@ export default function Brokers() {
                         }
                         className={`${inputClass} mt-1 tabular-nums`}
                       />
+                      <span className="mt-1 block text-[10px] text-slate-500 leading-snug">
+                        Only used when Due by is 0. With Net terms, payment verify starts on the due date.
+                      </span>
                     </label>
                     <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">

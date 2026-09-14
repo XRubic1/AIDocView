@@ -272,7 +272,9 @@ export default function Settings() {
   })
 
   const [collectionsSettings, setCollectionsSettings] = useState<CollectionsSettingsForm>({
+    defaultPaperworkCheckDays: '7',
     defaultInquiryDays: '15',
+    paymentVerifyUrgentDays: '5',
     followupAfterDays: '3',
     needsAttentionAfterDays: '5',
     willPayUrgent: true,
@@ -284,7 +286,7 @@ export default function Settings() {
     overdueUrgent: true,
     overdueUrgentDays: '15',
     noPpwUrgent: true,
-    noPpwAfterDays: '7',
+    noPpwAfterDays: '0',
     staleContactUrgent: true,
     staleContactDays: '7',
     needsCallUrgent: true,
@@ -339,7 +341,9 @@ export default function Settings() {
     void loadCollectionsPolicy().then((policy) => {
       applyCollectionsPolicy(policy)
       setCollectionsSettings({
+        defaultPaperworkCheckDays: String(policy.defaultPaperworkCheckDays),
         defaultInquiryDays: String(policy.defaultInquiryDays),
+        paymentVerifyUrgentDays: String(policy.paymentVerifyUrgentDays),
         followupAfterDays: String(policy.followupAfterDays),
         needsAttentionAfterDays: String(policy.needsAttentionAfterDays),
         willPayUrgent: policy.willPayUrgent,
@@ -393,7 +397,9 @@ export default function Settings() {
       }
       if (activeTab === 'collections') {
         await saveCollectionsPolicy({
+          defaultPaperworkCheckDays: Number(collectionsSettings.defaultPaperworkCheckDays) || 7,
           defaultInquiryDays: Number(collectionsSettings.defaultInquiryDays) || 15,
+          paymentVerifyUrgentDays: Number(collectionsSettings.paymentVerifyUrgentDays) || 5,
           followupAfterDays: Number(collectionsSettings.followupAfterDays) || 3,
           needsAttentionAfterDays: Number(collectionsSettings.needsAttentionAfterDays) || 5,
           willPayUrgent: collectionsSettings.willPayUrgent,
@@ -407,7 +413,9 @@ export default function Settings() {
           overdueUrgent: collectionsSettings.overdueUrgent,
           overdueUrgentDays: Number(collectionsSettings.overdueUrgentDays) || 15,
           noPpwUrgent: collectionsSettings.noPpwUrgent,
-          noPpwAfterDays: Number(collectionsSettings.noPpwAfterDays) || 7,
+          noPpwAfterDays: Number.isFinite(Number(collectionsSettings.noPpwAfterDays))
+            ? Number(collectionsSettings.noPpwAfterDays)
+            : 0,
           staleContactUrgent: collectionsSettings.staleContactUrgent,
           staleContactDays: Number(collectionsSettings.staleContactDays) || 7,
           needsCallUrgent: collectionsSettings.needsCallUrgent,

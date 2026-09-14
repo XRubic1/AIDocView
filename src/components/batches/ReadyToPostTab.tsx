@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { ArrowLeft, CheckCircle, ExternalLink, Mail } from 'lucide-react'
+import { ArrowLeft, CheckCircle, ExternalLink, Mail, Sparkles } from 'lucide-react'
 import { getAllBatches } from '../../data/mockBatches'
 import { mockInvoices } from '../../data/mockInvoices'
 import { Invoice } from '../../types/invoice'
 import AdminInvoiceDetailView from './AdminInvoiceDetailView'
 import AccountingModal from './AccountingModal'
-import BatchAiReviewPanel from './BatchAiReviewPanel'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 import HandoffBatchWorkspace from './HandoffBatchWorkspace'
 import { useClientTheme } from '../../theme/ThemeContext'
@@ -20,6 +19,7 @@ interface ReadyToPostTabProps {
   onMoveToVerification: (batchId: string) => void
   onBack: () => void
   onOpenPacketRework?: (batchId: string) => void
+  onOpenAiVerification?: (batchId: string) => void
 }
 
 export default function ReadyToPostTab({
@@ -28,6 +28,7 @@ export default function ReadyToPostTab({
   onMoveToVerification,
   onBack,
   onOpenPacketRework,
+  onOpenAiVerification,
 }: ReadyToPostTabProps) {
   const { showToast } = useToast()
   const c = useClientTheme()
@@ -38,7 +39,6 @@ export default function ReadyToPostTab({
   const batches = getAllBatches().filter((b) => b.status === 'ready_to_post')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [showAccountingModal, setShowAccountingModal] = useState(false)
-  const [, setReviewRefresh] = useState(0)
   const [batchRefresh, setBatchRefresh] = useState(0)
   const [sendingPpw, setSendingPpw] = useState(false)
 
@@ -143,8 +143,16 @@ export default function ReadyToPostTab({
             <ExternalLink className="w-4 h-4" />
             Packets
           </button>
-          {!isHandoffAwaitingInvoices && (
-            <BatchAiReviewPanel batchId={batchId} onComplete={() => setReviewRefresh((k) => k + 1)} />
+          {onOpenAiVerification && batchId && !isHandoffAwaitingInvoices && (
+            <button
+              type="button"
+              onClick={() => onOpenAiVerification(batchId)}
+              className="dashboard-btn-primary inline-flex items-center gap-1.5"
+              title="Open AI verification with packet docs"
+            >
+              <Sparkles className="w-4 h-4" />
+              AI verification
+            </button>
           )}
           {!isHandoffAwaitingInvoices && batchInvoices.length > 0 && (
             <button

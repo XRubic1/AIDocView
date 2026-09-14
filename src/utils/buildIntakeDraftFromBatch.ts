@@ -1,17 +1,25 @@
 import { getBatchById } from '../data/mockBatches'
-import { mergeInvoice, mockInvoices } from '../data/mockInvoices'
+import { mergeInvoice, mockInvoices, updateInvoice } from '../data/mockInvoices'
 import { getBatchFiles, mergeBatchFiles } from '../data/batchFileStore'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import {
   invoiceRowToInvoice,
   type InvoiceRow,
 } from '../services/supabase/tenantMappers'
+import {
+  listStoredBatchDocuments,
+  persistInvoice,
+} from '../services/supabase/tenantPersist'
 import type { BatchIntakeDraft, CredyxInvoiceDraft } from '../types/credyxBatch'
 import type { Invoice } from '../types/invoice'
 import type { DocSortFingerprint, DocSortKind, DocSortResult } from '../products/docSort/types'
 import { classifyPacketDoc } from './batchPacketDocs'
 import { listHandoffDocumentMeta } from './resolveHandoffDocuments'
 import { resolveInvoiceDocuments } from './resolveInvoiceDocuments'
+import {
+  parseFingerprintCatalog,
+  type PersistedDocFingerprint,
+} from '../products/docSort/utils/docSortSnapshot'
 
 function emptySortResult(totalDocuments: number): DocSortResult {
   return {
@@ -32,33 +40,56 @@ function kindFromFileName(fileName: string): DocSortKind {
   return 'other'
 }
 
+function kindFromPersisted(
+  docId: string,
+  fileName: string,
+  catalog: Map<string, PersistedDocFingerprint>
+): DocSortKind {
+  const saved = catalog.get(docId)
+  if (saved?.kind) return saved.kind
+  return kindFromFileName(fileName)
+}
+
 function fingerprintFromFile(
   docId: string,
   file: File,
-  context?: { loadNumber?: string; broker?: string }
+  context?: { loadNumber?: string; broker?: string },
+  catalog?: Map<string, PersistedDocFingerprint>
 ): DocSortFingerprint {
+  const saved = catalog?.get(docId)
   return {
     docId,
-    fileName: file.name,
-    kind: kindFromFileName(file.name),
-    confidence: 0.5,
-    loadNumbers: context?.loadNumber ? [context.loadNumber] : [],
-    broker: context?.broker || undefined,
+    fileName: file.name || saved?.fileName || docId,
+    kind: kindFromPersisted(docId, file.name, catalog ?? new Map()),
+    confidence: saved?.kind ? 0.9 : 0.5,
+    loadNumbers: saved?.loadNumbers?.length
+      ? saved.loadNumbers
+      : context?.loadNumber
+        ? [context.loadNumber]
+        : [],
+    broker: saved?.broker || context?.broker || undefined,
   }
 }
 
 function fingerprintStub(
   docId: string,
   fileName = docId,
-  context?: { loadNumber?: string; broker?: string }
+  context?: { loadNumber?: string; broker?: string },
+  catalog?: Map<string, PersistedDocFingerprint>
 ): DocSortFingerprint {
+  const saved = catalog?.get(docId)
+  const name = saved?.fileName || fileName
   return {
     docId,
-    fileName,
-    kind: kindFromFileName(fileName),
-    confidence: 0.3,
-    loadNumbers: context?.loadNumber ? [context.loadNumber] : [],
-    broker: context?.broker || undefined,
+    fileName: name,
+    kind: kindFromPersisted(docId, name, catalog ?? new Map()),
+    confidence: saved?.kind ? 0.9 : 0.3,
+    loadNumbers: saved?.loadNumbers?.length
+      ? saved.loadNumbers
+      : context?.loadNumber
+        ? [context.loadNumber]
+        : [],
+    broker: saved?.broker || context?.broker || undefined,
   }
 }
 
@@ -78,7 +109,9 @@ function invoiceDocumentIds(invoice: Invoice, extraIds: string[] = []): string[]
 export function invoiceToCredyxDraft(
   invoice: Invoice,
   fileById: Map<string, File>,
-  extraDocIds: string[] = []
+  extraDocIds: string[] = [],
+  fileNameById: Map<string, string> = new Map(),
+  catalog: Map<string, PersistedDocFingerprint> = new Map()
 ): CredyxInvoiceDraft {
   const groupId = invoice.doc_sort_group_id || invoice.id
   const docIds = invoiceDocumentIds(invoice, extraDocIds)
@@ -92,16 +125,48 @@ export function invoiceToCredyxDraft(
 
   for (const docId of docIds) {
     const file = fileById.get(docId)
+    const fileName = file?.name || fileNameById.get(docId) || catalog.get(docId)?.fileName || docId
     const fp = file
-      ? fingerprintFromFile(docId, file, context)
-      : fingerprintStub(docId, docId, context)
+      ? fingerprintFromFile(docId, file, context, catalog)
+      : fingerprintStub(docId, fileName, context, catalog)
     if (fp.kind === 'rate_confirmation') rateCons.push(fp)
     else if (fp.kind === 'bill_of_lading') bols.push(fp)
     else other.push(fp)
   }
 
-  const invoicePdfKey = `invoice-pdf-${groupId}`
-  const invoice_pdf = fileById.get(invoicePdfKey)
+  // Legacy batches stored no fingerprint catalog; unlabeled scans would all land in "other".
+  if (catalog.size === 0) {
+    const support = (fp: DocSortFingerprint) => {
+      const category = classifyPacketDoc(fp)
+      return category === 'lumper' || category === 'scale' || category === 'pod' || category === 'invoice'
+    }
+    const leftover: DocSortFingerprint[] = []
+    for (const fp of other) {
+      if (support(fp)) {
+        leftover.push(fp)
+        continue
+      }
+      if (rateCons.length === 0) {
+        rateCons.push({ ...fp, kind: 'rate_confirmation' })
+        continue
+      }
+      if (bols.length === 0) {
+        bols.push({ ...fp, kind: 'bill_of_lading' })
+        continue
+      }
+      leftover.push(fp)
+    }
+    other.length = 0
+    other.push(...leftover)
+  }
+
+  const invoice_pdf =
+    fileById.get(`invoice-pdf-${groupId}`) ||
+    fileById.get(`invoice-pdf-${invoice.id}`) ||
+    [...fileById.entries()].find(
+      ([id]) =>
+        id.startsWith('invoice-pdf-') && (id.includes(invoice.id) || id.includes(groupId))
+    )?.[1]
 
   return {
     draftId: invoice.id,
@@ -217,6 +282,33 @@ async function resolveInvoicesForBatch(
   return fetchInvoicesForBatchFromDb(batchId, batchNumber, clientId)
 }
 
+async function repairInvoiceCarrierName(
+  invoices: Invoice[],
+  clientId: string,
+  clientName: string
+): Promise<Invoice[]> {
+  const next: Invoice[] = []
+  for (const inv of invoices) {
+    if (inv.client_id === clientId && inv.client_name !== clientName && clientName.trim()) {
+      const patched = updateInvoice(inv.id, { client_name: clientName }) ?? {
+        ...inv,
+        client_name: clientName,
+      }
+      if (isSupabaseConfigured()) {
+        try {
+          await persistInvoice(patched)
+        } catch (err) {
+          console.warn('[hydrateIntakeDraftFromBatch] client name repair failed', err)
+        }
+      }
+      next.push(patched)
+    } else {
+      next.push(inv)
+    }
+  }
+  return next
+}
+
 /**
  * Hydrate Packets draft quickly — metadata + in-memory files only.
  * PDF bodies are fetched later via prefetch / on-demand (keeps open time to a few seconds).
@@ -227,30 +319,52 @@ export async function hydrateIntakeDraftFromBatch(
   const batch = getBatchById(batchId)
   if (!batch) return null
 
-  const invoices = await resolveInvoicesForBatch(
+  const catalog = parseFingerprintCatalog(batch.doc_sort_snapshot)
+  let invoices = await resolveInvoicesForBatch(
     batchId,
     batch.batch_number,
     batch.client_id
   )
+  invoices = await repairInvoiceCarrierName(invoices, batch.client_id, batch.client_name)
+
   const fileById = new Map(getBatchFiles(batchId))
   const fileNameById = new Map<string, string>()
   const storagePathsByDocId: Record<string, string> = {}
   const extraDocIdsByInvoice = new Map<string, string[]>()
+  const invoiceIds = new Set(invoices.map((inv) => inv.id))
 
-  // Handoff list only (no PDF downloads).
+  const rememberListed = (
+    item: { docId: string; fileName: string; storagePath: string; invoiceId?: string }
+  ) => {
+    fileNameById.set(item.docId, item.fileName)
+    storagePathsByDocId[item.docId] = item.storagePath
+    if (item.invoiceId && invoiceIds.has(item.invoiceId) && !item.docId.startsWith('invoice-pdf-')) {
+      const extra = extraDocIdsByInvoice.get(item.invoiceId) ?? []
+      extra.push(item.docId)
+      extraDocIdsByInvoice.set(item.invoiceId, extra)
+    }
+  }
+
+  try {
+    const stored = await listStoredBatchDocuments(batch.client_id, batchId)
+    stored.forEach(rememberListed)
+  } catch (err) {
+    console.warn('[hydrateIntakeDraftFromBatch] stored list failed', err)
+  }
+
   try {
     const listed = await listHandoffDocumentMeta(batchId, batch.client_id)
-    for (const item of listed) {
-      fileNameById.set(item.docId, item.fileName)
-      storagePathsByDocId[item.docId] = item.storagePath
-    }
+    listed.forEach(rememberListed)
   } catch (err) {
     console.warn('[hydrateIntakeDraftFromBatch] handoff list failed', err)
   }
 
-  // Invoice doc ids + paths from rows; use memory files only (no storage download here).
+  catalog.forEach((fp) => {
+    if (!fileNameById.has(fp.docId)) fileNameById.set(fp.docId, fp.fileName)
+  })
+
   for (const inv of invoices) {
-    const extraIds: string[] = []
+    const extraIds = extraDocIdsByInvoice.get(inv.id) ?? []
     const paths = inv.document_storage_paths ?? {}
     for (const [docId, storagePath] of Object.entries(paths)) {
       storagePathsByDocId[docId] = storagePath
@@ -273,9 +387,7 @@ export async function hydrateIntakeDraftFromBatch(
       /* keep metadata */
     }
 
-    if (extraIds.length > 0) {
-      extraDocIdsByInvoice.set(inv.id, [...new Set(extraIds)])
-    }
+    extraDocIdsByInvoice.set(inv.id, [...new Set(extraIds)])
   }
 
   if (fileById.size > 0) {
@@ -283,7 +395,13 @@ export async function hydrateIntakeDraftFromBatch(
   }
 
   const drafts = invoices.map((inv) =>
-    invoiceToCredyxDraft(inv, fileById, extraDocIdsByInvoice.get(inv.id) ?? [])
+    invoiceToCredyxDraft(
+      { ...inv, client_name: batch.client_name },
+      fileById,
+      extraDocIdsByInvoice.get(inv.id) ?? [],
+      fileNameById,
+      catalog
+    )
   )
   const assignedIds = new Set(
     drafts.flatMap((d) => [
@@ -311,8 +429,8 @@ export async function hydrateIntakeDraftFromBatch(
     const file = fileById.get(docId)
     const fileName = fileNameById.get(docId) ?? file?.name ?? docId
     const fp = file
-      ? fingerprintFromFile(docId, file)
-      : fingerprintStub(docId, fileName)
+      ? fingerprintFromFile(docId, file, undefined, catalog)
+      : fingerprintStub(docId, fileName, undefined, catalog)
     if (fp.kind === 'rate_confirmation') unmatchedRateCons.push(fp)
     else if (fp.kind === 'bill_of_lading') unmatchedBols.push(fp)
     else otherDocuments.push(fp)

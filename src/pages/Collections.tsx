@@ -28,6 +28,7 @@ import {
   reviewReasonPillLabel,
   type CollectionsFocus,
 } from '../utils/adminCollections'
+import { collectionsTrackLabel } from '../utils/collectionsTrack'
 import { formatCurrency, formatDate, formatRelativeTime } from '../utils/format'
 import {
   applyCollectionsPolicy,
@@ -57,6 +58,8 @@ const FOCUS_TABS: CollectionsFocus[] = [
   'all',
   'urgent',
   'chase',
+  'ppw_check',
+  'payment_verify',
   'overdue',
   'will_pay',
   'callback',
@@ -64,11 +67,15 @@ const FOCUS_TABS: CollectionsFocus[] = [
 ]
 
 const CHASE_RANK: Record<string, number> = {
-  needs_attention: 0,
-  due_for_followup: 1,
-  due_for_inquiry: 2,
-  awaiting_response: 3,
-  not_due: 4,
+  past_due_urgent: 0,
+  needs_attention: 1,
+  due_for_followup: 2,
+  payment_verify: 3,
+  ppw_check_due: 4,
+  due_for_inquiry: 5,
+  awaiting_response: 6,
+  payment_waiting: 7,
+  not_due: 8,
 }
 
 export default function Collections() {
@@ -119,17 +126,25 @@ export default function Collections() {
     let overdue = 0
     let willPay = 0
     let urgent = 0
+    let ppwCheck = 0
+    let paymentVerify = 0
+    let noPpw = 0
     let overdueAmount = 0
     let openAmount = 0
     for (const row of rows) {
       openAmount += row.amount
-      if (row.chaseStatus !== 'not_due') chase += 1
+      if (matchesCollectionsFocus(row, 'chase')) chase += 1
       if (row.isOverdue) {
         overdue += 1
         overdueAmount += row.amount
       }
       if (row.collectionStatus === 'W/P') willPay += 1
-      if (row.isUrgent) urgent += 1
+      if (row.isUrgentCollection) urgent += 1
+      if (row.trackStage === 'ppw_check' || row.trackStage === 'ppw_waiting') ppwCheck += 1
+      if (row.trackStage === 'payment_verify' || row.trackStage === 'payment_waiting') {
+        paymentVerify += 1
+      }
+      if (row.trackStage === 'no_ppw') noPpw += 1
     }
     return {
       open: rows.length,
@@ -139,6 +154,9 @@ export default function Collections() {
       overdueAmount,
       willPay,
       urgent,
+      ppwCheck,
+      paymentVerify,
+      noPpw,
     }
   }, [rows])
 
@@ -182,7 +200,8 @@ export default function Collections() {
       } else if (sortField === 'last_contact') {
         cmp = (a.lastContact || '').localeCompare(b.lastContact || '')
       } else if (sortField === 'urgent') {
-        cmp = Number(a.isUrgent) - Number(b.isUrgent)
+        cmp = Number(a.isUrgentCollection) - Number(b.isUrgentCollection)
+        if (cmp === 0) cmp = Number(a.isUrgent) - Number(b.isUrgent)
         if (cmp === 0) cmp = CHASE_RANK[b.chaseStatus] - CHASE_RANK[a.chaseStatus]
       } else {
         cmp = CHASE_RANK[a.chaseStatus] - CHASE_RANK[b.chaseStatus]
@@ -327,16 +346,24 @@ export default function Collections() {
               <button
                 type="button"
                 onClick={() => setFocus(focus === 'urgent' ? 'all' : 'urgent')}
-                className="flex items-center justify-between gap-2 px-4 py-2.5 text-left"
+                className={`flex items-center justify-between gap-2 px-4 py-2.5 text-left${
+                  focus === 'urgent' ? ' collections-urgent-stat' : ''
+                }`}
                 style={{
-                  backgroundColor: focus === 'urgent' ? c.stat.red : c.card,
-                  borderColor: c.border,
+                  backgroundColor: focus === 'urgent' ? '#7f1d1d' : c.card,
+                  borderColor: focus === 'urgent' ? '#7f1d1d' : c.border,
                 }}
               >
-                <span className="text-xs font-medium" style={{ color: c.secondary }}>
-                  Urgent
+                <span
+                  className="text-xs font-semibold uppercase tracking-wide"
+                  style={{ color: focus === 'urgent' ? '#fecaca' : c.secondary }}
+                >
+                  Urgent collection
                 </span>
-                <span className="text-lg font-bold tabular-nums" style={{ color: c.error }}>
+                <span
+                  className="text-lg font-bold tabular-nums"
+                  style={{ color: focus === 'urgent' ? '#fff' : c.error }}
+                >
                   {counts.urgent}
                 </span>
               </button>
@@ -388,7 +415,9 @@ export default function Collections() {
                     key={key}
                     type="button"
                     onClick={() => setFocus(key)}
-                    className={`page-tab !py-1 !px-2 !text-xs ${focus === key ? 'page-tab--active' : ''}`}
+                    className={`page-tab !py-1 !px-2 !text-xs ${focus === key ? 'page-tab--active' : ''}${
+                      key === 'urgent' ? ' collections-urgent-tab' : ''
+                    }`}
                   >
                     {collectionsFocusLabel(key)}
                     {key === 'chase'
@@ -399,9 +428,15 @@ export default function Collections() {
                           ? ` (${counts.willPay})`
                           : key === 'urgent'
                             ? ` (${counts.urgent})`
-                            : key === 'all'
-                              ? ` (${counts.open})`
-                              : ''}
+                            : key === 'ppw_check'
+                              ? ` (${counts.ppwCheck})`
+                              : key === 'payment_verify'
+                                ? ` (${counts.paymentVerify})`
+                                : key === 'no_ppw'
+                                  ? ` (${counts.noPpw})`
+                                  : key === 'all'
+                                    ? ` (${counts.open})`
+                                    : ''}
                   </button>
                 ))}
               </div>
@@ -507,7 +542,11 @@ export default function Collections() {
                         <tr
                           key={row.invoice.id}
                           className={`cursor-pointer ${selected ? 'invoice-row--selected' : ''} ${
-                            row.isUrgent || row.isOverdue ? 'invoice-row--overdue' : ''
+                            row.isUrgentCollection
+                              ? 'invoice-row--urgent-collection'
+                              : row.isOverdue
+                                ? 'invoice-row--overdue'
+                                : ''
                           }`}
                           onClick={() => {
                             setSelectedInvoice(row.invoice)
@@ -527,9 +566,7 @@ export default function Collections() {
                             <div>{row.broker?.name || row.invoice.broker_name}</div>
                             <div className="text-[11px]" style={{ color: c.secondary }}>
                               {formatBrokerNetDays(row.dueDays)}
-                              {row.broker?.payment_status_inquiry_days != null
-                                ? ` · inquiry ${row.inquiryDays}d`
-                                : ''}
+                              {` · PPW check ${row.paperworkCheckDays}d`}
                             </div>
                           </ClientListTd>
                           <ClientListTd variant="amount" className="tabular-nums">
@@ -580,9 +617,22 @@ export default function Collections() {
                                 <div className="text-[11px]" style={{ color: c.secondary }}>
                                   {row.daysSincePpw}d ago
                                 </div>
+                                {row.invoice.email_lifecycle?.paperwork_status === 'good' ? (
+                                  <span className="status-pill status-pill--approved">
+                                    Broker confirmed
+                                  </span>
+                                ) : row.trackStage === 'ppw_check' ? (
+                                  <span className="status-pill status-pill--pending">
+                                    PPW check
+                                  </span>
+                                ) : (
+                                  <span className="status-pill status-pill--hold">Waiting</span>
+                                )}
                               </>
                             ) : (
-                              <span className="status-pill status-pill--warn">Not sent</span>
+                              <span className="status-pill status-pill--urgent-collection">
+                                PPW not sent
+                              </span>
                             )}
                           </ClientListTd>
                           <ClientListTd>
@@ -599,11 +649,24 @@ export default function Collections() {
                           </ClientListTd>
                           <ClientListTd variant="status">
                             <span className={chaseStatusPillClass(row.chaseStatus)}>
-                              {chaseStatusLabel(row.chaseStatus)}
+                              {row.chaseStatus === 'not_due'
+                                ? collectionsTrackLabel(row.trackStage)
+                                : chaseStatusLabel(row.chaseStatus)}
                             </span>
                           </ClientListTd>
                           <ClientListTd>
-                            {row.isUrgent ? (
+                            {row.isUrgentCollection ? (
+                              <div className="flex flex-col items-start gap-0.5">
+                                <span className="status-pill status-pill--urgent-collection">
+                                  Urgent collection
+                                </span>
+                                {row.urgentReasons.map((reason) => (
+                                  <span key={reason} className={reviewReasonPillClass(reason)}>
+                                    {reviewReasonPillLabel(reason)}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : row.isUrgent ? (
                               <div className="flex flex-col items-start gap-0.5">
                                 {row.urgentReasons.map((reason) => (
                                   <span key={reason} className={reviewReasonPillClass(reason)}>

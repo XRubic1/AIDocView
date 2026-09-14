@@ -17,11 +17,11 @@ import { isManualCredyxDraft } from '../../integrations/docSortToCredyx'
 import type { BatchIntakeDraft, CredyxInvoiceDraft } from '../../types/credyxBatch'
 import { formatCurrency } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
-import { isInvoiceNumberTaken } from '../../utils/clientInvoiceNumbers'
 import {
   formatLoadNumberWarning,
   getLoadNumberWarnings,
   invoiceNumbersConflict,
+  isInvoiceNumberTakenExcluding,
 } from '../../utils/invoiceDuplicateChecks'
 import { invoiceDraftBlocker, isInvoiceDraftReady } from '../../utils/invoiceDraftReady'
 import {
@@ -304,7 +304,12 @@ export default function BatchAiConfirmPanel({
     }
     const invoiceRows = packetGroups.flatMap((g) => (g.category === 'invoice' ? g.docs : []))
     const rcRows = packetGroups.flatMap((g) =>
-      g.category === 'rate_confirmation' ? g.docs : []
+      g.category === 'rate_confirmation' ||
+      g.category === 'other' ||
+      g.category === 'lumper' ||
+      g.category === 'scale'
+        ? g.docs
+        : []
     )
     return [
       ...invoiceRows.map((row) => ({
@@ -516,7 +521,7 @@ export default function BatchAiConfirmPanel({
         const inBatchDup = otherNumbers.some((n) => invoiceNumbersConflict(n, num))
         if (inBatchDup) {
           invoiceError = `Invoice number ${num} is duplicated in this batch`
-        } else if (isInvoiceNumberTaken(clientId, num)) {
+        } else if (isInvoiceNumberTakenExcluding(clientId, num, [], [inv.draftId])) {
           invoiceError = crossCarrierLoadWarnings
             ? `Invoice number ${num} is already used for this carrier`
             : `Invoice number ${num} is already used for your account`
@@ -525,6 +530,7 @@ export default function BatchAiConfirmPanel({
       const loadWarnings = getLoadNumberWarnings(inv.load_number, {
         forClientId: clientId,
         crossCarrier: crossCarrierLoadWarnings,
+        excludeInvoiceIds: [inv.draftId],
       })
       const loadWarning =
         loadWarnings.length > 0 ? formatLoadNumberWarning(loadWarnings[0], warnMode) : undefined

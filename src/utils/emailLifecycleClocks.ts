@@ -51,5 +51,12 @@ export function resolveTrackClock(
       : EMAIL_LIFECYCLE_SETTINGS.payment
   const override =
     track === 'paperwork' ? broker?.chase_clocks?.paperwork : broker?.chase_clocks?.payment
-  return mergeClock(base, override)
+  const merged = mergeClock(base, override)
+  if (track === 'paperwork') {
+    const brokerDays = broker?.paperwork_status_check_days
+    if (typeof brokerDays === 'number' && brokerDays > 0) {
+      merged.firstAskDays = brokerDays
+    }
+  }
+  return merged
 }

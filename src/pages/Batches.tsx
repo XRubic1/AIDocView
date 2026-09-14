@@ -6,6 +6,7 @@ import VerificationTab from '../components/batches/VerificationTab'
 import AiBatchTab from '../components/batches/AiBatchTab'
 import AllBatchesTab from '../components/batches/AllBatchesTab'
 import BatchPacketReworkWorkspace from '../components/batches/BatchPacketReworkWorkspace'
+import BatchAiVerificationWorkspace from '../components/batches/BatchAiVerificationWorkspace'
 import { getAllBatches, updateBatchStatus } from '../data/mockBatches'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
@@ -29,6 +30,7 @@ export default function Batches() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
   const [workflowStage, setWorkflowStage] = useState<AdminBatchWorkflowStage | null>(null)
   const [packetReworkBatchId, setPacketReworkBatchId] = useState<string | null>(null)
+  const [aiVerifyBatchId, setAiVerifyBatchId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [showCreateBatch, setShowCreateBatch] = useState(false)
   const [resumeDraftBatchId, setResumeDraftBatchId] = useState<string | null>(null)
@@ -77,24 +79,41 @@ export default function Batches() {
     }))
   }
 
-  const openBatch = (batchId: string, stage?: AdminBatchWorkflowStage) => {
-    setPacketReworkBatchId(null)
-    setSelectedBatchId(batchId)
-    setWorkflowStage(stage ?? 'ready_to_post')
-  }
-
   const openPacketRework = (batchId: string) => {
     setSelectedBatchId(null)
     setWorkflowStage(null)
     setShowCreateBatch(false)
     setResumeDraftBatchId(null)
+    setAiVerifyBatchId(null)
     setPacketReworkBatchId(batchId)
+  }
+
+  const openAiVerification = (batchId: string) => {
+    setSelectedBatchId(null)
+    setWorkflowStage(null)
+    setShowCreateBatch(false)
+    setResumeDraftBatchId(null)
+    setPacketReworkBatchId(null)
+    setAiVerifyBatchId(batchId)
+  }
+
+  const openBatch = (batchId: string, stage?: AdminBatchWorkflowStage) => {
+    const nextStage = stage ?? 'ready_to_post'
+    if (nextStage === 'verification' || nextStage === 'ai') {
+      openAiVerification(batchId)
+      return
+    }
+    setPacketReworkBatchId(null)
+    setAiVerifyBatchId(null)
+    setSelectedBatchId(batchId)
+    setWorkflowStage(nextStage)
   }
 
   const openDraftBatch = (batchId: string) => {
     setSelectedBatchId(null)
     setWorkflowStage(null)
     setPacketReworkBatchId(null)
+    setAiVerifyBatchId(null)
     setResumeDraftBatchId(batchId)
     setShowCreateBatch(true)
   }
@@ -102,6 +121,7 @@ export default function Batches() {
   const closeBatch = () => {
     setSelectedBatchId(null)
     setWorkflowStage(null)
+    setAiVerifyBatchId(null)
   }
 
   const handleBatchCreated = (batchId: string) => {
@@ -121,7 +141,7 @@ export default function Batches() {
   const handleMoveToVerification = (batchId: string) => {
     updateBatchStatus(batchId, 'verification')
     setRefreshKey((prev) => prev + 1)
-    openBatch(batchId, 'verification')
+    openAiVerification(batchId)
   }
 
   const handleBatchSelect = (batchId: string, stage?: AdminBatchWorkflowStage) => {
@@ -135,6 +155,7 @@ export default function Batches() {
 
   const inDetailView = Boolean(selectedBatchId && workflowStage)
   const inPacketRework = Boolean(packetReworkBatchId)
+  const inAiVerify = Boolean(aiVerifyBatchId)
 
   const dateInputStyle = {
     backgroundColor: c.card,
@@ -162,6 +183,18 @@ export default function Batches() {
             batchId={packetReworkBatchId}
             onClose={() => setPacketReworkBatchId(null)}
             onSaved={() => setRefreshKey((k) => k + 1)}
+            onContinueToAiVerification={openAiVerification}
+          />
+        ) : inAiVerify && aiVerifyBatchId ? (
+          <BatchAiVerificationWorkspace
+            key={aiVerifyBatchId}
+            batchId={aiVerifyBatchId}
+            onClose={() => {
+              setAiVerifyBatchId(null)
+              setRefreshKey((k) => k + 1)
+            }}
+            onOpenPackets={openPacketRework}
+            onProcessed={() => setRefreshKey((k) => k + 1)}
           />
         ) : (
           <>
@@ -285,6 +318,7 @@ export default function Batches() {
                   onMoveToVerification={handleMoveToVerification}
                   onBack={closeBatch}
                   onOpenPacketRework={openPacketRework}
+                  onOpenAiVerification={openAiVerification}
                 />
               )}
               {inDetailView && workflowStage === 'verification' && (

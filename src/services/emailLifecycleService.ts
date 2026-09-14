@@ -38,6 +38,8 @@ import { resolveBrokerPaperworkEmail } from '../utils/paperworkSender'
 import { defaultPortalLink } from '../utils/carrierAttentionLink'
 import { formatCurrency } from '../utils/format'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
+import { getEffectiveInvoiceDueDate } from '../utils/invoiceAging'
+import { daysFromYmd } from '../utils/collectionsPolicy'
 
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -508,6 +510,12 @@ export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
     const latest = getInvoiceById(invoice.id) ?? invoice
     const life = ensureLifecycle(latest)
     if (life.paperwork_status !== 'good') continue
+
+    const dueYmd = getEffectiveInvoiceDueDate(latest)
+    if (dueYmd) {
+      const daysPastDue = daysFromYmd(dueYmd, new Date(nowMs))
+      if (daysPastDue == null || daysPastDue < 0) continue
+    }
 
     const payClock = resolveTrackClock('payment', broker)
     const payStart = life.payment?.startedAt

@@ -2,7 +2,9 @@ import type { ReactNode } from 'react'
 import { useClientTheme } from '../../theme/ThemeContext'
 
 export type CollectionsSettingsForm = {
+  defaultPaperworkCheckDays: string
   defaultInquiryDays: string
+  paymentVerifyUrgentDays: string
   followupAfterDays: string
   needsAttentionAfterDays: string
   willPayUrgent: boolean
@@ -208,25 +210,59 @@ export default function CollectionsSettingsPanel({
         eyebrow="Chase"
         title="Broker follow-up clock"
         info="This is the email/call cadence after paperwork is sent. It does not change the invoice due date. Due date is still invoice date + broker Net terms. Status inquiry is a check-in, not a demand for payment."
-        lead="After PPW is sent, ask if the broker has the invoice. If they go quiet, follow up, then call."
+        lead="After PPW is sent, wait for the broker to confirm they have the packet. After they confirm, wait until Net terms, then call to verify payment. Past that window, it is urgent collection."
       >
         <ol className="collections-chase-steps">
           <Step
             n={1}
-            label="Status inquiry"
-            info="PPW is the invoice packet emailed to the broker. This is the first “do you have it?” check. If that broker has its own Status inquiry days on the broker record, that number is used instead of this default."
+            label="PPW status check"
+            info="After the packet is emailed, wait this many days, then confirm the broker received paperwork. Each broker can override this (7 default, some want 10–15). Until they confirm, the invoice stays on PPW status check."
           >
             Wait{' '}
             <DaysInput
-              label="Days after PPW before inquiry"
-              value={s.defaultInquiryDays}
-              onChange={(v) => onChange({ defaultInquiryDays: v })}
+              label="Days after PPW before paperwork check"
+              value={s.defaultPaperworkCheckDays}
+              onChange={(v) => onChange({ defaultPaperworkCheckDays: v })}
             />{' '}
-            days after PPW, then send a status inquiry.
+            days after PPW (broker record can override), then check that paperwork was received.
           </Step>
           <Step
             n={2}
-            label="Follow-up email"
+            label="Payment waiting"
+            info="Once paperwork is broker-confirmed, do not chase payment until Net terms (due date). The invoice sits in payment waiting."
+          >
+            After broker confirmed, wait until the invoice reaches Net terms (due by days on the broker).
+            If the broker has no due date, wait{' '}
+            <DaysInput
+              label="Days after PPW before payment verify when no Net terms"
+              value={s.defaultInquiryDays}
+              onChange={(v) => onChange({ defaultInquiryDays: v })}
+            />{' '}
+            days after PPW instead.
+          </Step>
+          <Step
+            n={3}
+            label="Payment verify"
+            info="On the due date, the invoice enters the verification queue. Someone must call or email the broker for payment status."
+          >
+            At Net terms, place it in the payment-verify queue so Credyx can call the broker.
+          </Step>
+          <Step
+            n={4}
+            label="Urgent collection"
+            info="If verification is still open this many days after Net terms, the invoice is past due and moves to the urgent collection queue (marked separately from ordinary chase)."
+          >
+            If still unpaid{' '}
+            <DaysInput
+              label="Days after Net terms before urgent collection"
+              value={s.paymentVerifyUrgentDays}
+              onChange={(v) => onChange({ paymentVerifyUrgentDays: v })}
+            />{' '}
+            days after Net terms, mark past due and urgent collection.
+          </Step>
+          <Step
+            n={5}
+            label="Follow-up if they go quiet"
             info="Counted from the day the inquiry was sent — not from PPW. A second email if they never answered the first."
           >
             If they don’t reply, send a follow-up{' '}
@@ -238,7 +274,7 @@ export default function CollectionsSettingsPanel({
             days after that inquiry.
           </Step>
           <Step
-            n={3}
+            n={6}
             label="Call the broker"
             info="Counted from the inquiry date. Collections shows “Call broker.” This is a person task — Credyx does not auto-dial."
           >
@@ -314,16 +350,17 @@ export default function CollectionsSettingsPanel({
               on={s.noPpwUrgent}
               onToggle={(v) => onChange({ noPpwUrgent: v })}
               title="PPW never sent"
-              info="Age is days since the invoice date. If the packet was never emailed to the broker, they can’t pay it. This catches files stuck before chase even starts."
+              info="Open invoices must have PPW sent to the broker. This is a major issue — they cannot pay without the packet. 0 days means flag as soon as the invoice is open."
             >
-              No PPW sent and the invoice is already{' '}
+              No PPW sent on an open invoice, after{' '}
               <DaysInput
-                label="Invoice age before missing PPW is urgent"
+                label="Invoice age before missing PPW is a major issue"
                 value={s.noPpwAfterDays}
                 onChange={(v) => onChange({ noPpwAfterDays: v })}
                 disabled={!s.noPpwUrgent}
+                min={0}
               />{' '}
-              days old.
+              days (0 = immediately).
             </RuleRow>
             <RuleRow
               on={s.staleContactUrgent}

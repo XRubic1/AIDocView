@@ -22,15 +22,15 @@ function parseSnapshot(invoice: Invoice): InvoiceAiReviewSnapshot | null {
 
 function statusStyle(status?: string) {
   if (status === 'ready') {
-    return { label: 'Good to go', bg: '#3ddb7a', Icon: CheckCircle }
+    return { label: 'OK', bg: '#3ddb7a', Icon: CheckCircle }
   }
   if (status === 'needs_work') {
-    return { label: 'Needs work', bg: '#C2A558', Icon: AlertTriangle }
+    return { label: 'Needs review', bg: '#C2A558', Icon: AlertTriangle }
   }
   if (status === 'running') {
-    return { label: 'Reviewing…', bg: '#819291', Icon: Sparkles }
+    return { label: 'Reviewing', bg: '#819291', Icon: Sparkles }
   }
-  return { label: 'Not run', bg: '#cccccc', Icon: AlertCircle }
+  return { label: 'Reviewing', bg: '#cccccc', Icon: AlertCircle }
 }
 
 function checkStatusIcon(status: LoadCheckRow['status']) {

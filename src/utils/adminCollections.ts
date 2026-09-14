@@ -6,7 +6,6 @@ import { getLatestBrokerRiskProfile } from '../data/brokerRiskStore'
 import { hasBrokerConfirmedPayDate } from './clientCashWindows'
 import { getChaseStatus, type ChaseQueueStatus } from './collectionsChase'
 import {
-  COLLECTIONS_POLICY,
   collectionsUrgentLabel,
   getCollectionsUrgentReasons,
   type CollectionsUrgentReason,
@@ -21,6 +20,13 @@ import {
 import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from './paymentVariance'
 import { isRoutineLifecycleNote } from './brokerRiskPolicy'
 import { getDaysSincePpwSent, getPpwSentAt } from './ppwSent'
+import {
+  getCollectionsTrackStage,
+  isUrgentCollectionStage,
+  resolvePaperworkCheckDays,
+  resolvePaymentInquiryDays,
+  type CollectionsTrackStage,
+} from './collectionsTrack'
 
 export type CollectionsFocus =
   | 'all'
@@ -29,6 +35,8 @@ export type CollectionsFocus =
   | 'will_pay'
   | 'callback'
   | 'no_ppw'
+  | 'ppw_check'
+  | 'payment_verify'
   | 'urgent'
 
 export type AdminCollectionsRow = {
@@ -44,11 +52,15 @@ export type AdminCollectionsRow = {
   collectionStatus: Invoice['collection_status']
   ppwSentAt: string | null
   daysSincePpw: number | null
+  paperworkCheckDays: number
   inquiryDays: number
+  trackStage: CollectionsTrackStage
   chaseStatus: ChaseQueueStatus
   lastContact: string | null
   brokerRiskLevel: BrokerRiskLevel
   isUrgent: boolean
+  /** Past-due verify window or PPW never sent — distinct queue styling. */
+  isUrgentCollection: boolean
   urgentReasons: CollectionsUrgentReason[]
   /** Call Back date is today or in the past. */
   isCallbackDue: boolean
@@ -70,8 +82,7 @@ export function isCollectionsWorkInvoice(invoice: Invoice): boolean {
 }
 
 function inquiryDaysFor(broker: Broker | undefined): number {
-  const n = broker?.payment_status_inquiry_days
-  return typeof n === 'number' && n >= 0 ? n : COLLECTIONS_POLICY.defaultInquiryDays
+  return resolvePaymentInquiryDays(broker)
 }
 
 /**
@@ -79,7 +90,7 @@ function inquiryDaysFor(broker: Broker | undefined): number {
  * PPW / paperwork send is not contact — that already has its own column.
  */
 const BROKER_CONTACT_NOTE_RE =
-  /payment.?status inquiry|payment.?status follow-up|follow-up emailed|called (?:the )?broker|spoke (?:with|to)|contacted (?:the )?broker|left (?:a )?voicemail|broker contacted|expected payment updated from broker|^status:\s*(will pay|call back|payment status confirmed)/i
+  /payment.?status inquiry|payment.?status follow-up|paperwork.?status|follow-up emailed|called (?:the )?broker|spoke (?:with|to)|contacted (?:the )?broker|left (?:a )?voicemail|broker contacted|broker confirmed paperwork|expected payment updated from broker|^status:\s*(will pay|call back|payment status confirmed|broker confirmed paperwork)/i
 
 /** True when a timeline note is a real collections contact, not PPW/lifecycle. */
 export function isBrokerContactActivityNote(text: string | undefined): boolean {
@@ -133,6 +144,7 @@ export function buildAdminCollectionsRow(
   const risk = resolveBrokerRisk(invoice)
   const lastContact = resolveLastBrokerContact(invoice)
   const ppwSentAt = getPpwSentAt(invoice)
+  const trackStage = getCollectionsTrackStage({ invoice, broker })
   const chaseStatus = getChaseStatus(invoice, broker)
   const callbackDate =
     invoice.collection_status === 'C/B' ? invoice.collection_date ?? null : null
@@ -149,6 +161,9 @@ export function buildAdminCollectionsRow(
     daysSincePpw: getDaysSincePpwSent(invoice),
     lastContact,
     needsCall: chaseStatus === 'needs_attention',
+    ppwCheckDue: trackStage === 'ppw_check',
+    paymentVerifyDue: trackStage === 'payment_verify',
+    pastDueUrgent: trackStage === 'past_due_urgent',
   })
 
   return {
@@ -164,11 +179,14 @@ export function buildAdminCollectionsRow(
     collectionStatus: invoice.collection_status,
     ppwSentAt,
     daysSincePpw: getDaysSincePpwSent(invoice),
+    paperworkCheckDays: resolvePaperworkCheckDays(broker),
     inquiryDays: inquiryDaysFor(broker),
+    trackStage,
     chaseStatus,
     lastContact,
     brokerRiskLevel: risk.level,
     isUrgent: urgentReasons.length > 0,
+    isUrgentCollection: isUrgentCollectionStage(trackStage) || urgentReasons.includes('no_ppw'),
     urgentReasons,
     isCallbackDue: urgentReasons.includes('callback_missed'),
   }
@@ -199,8 +217,23 @@ export function matchesCollectionsFocus(
   if (focus === 'overdue') return row.isOverdue
   if (focus === 'will_pay') return row.collectionStatus === 'W/P'
   if (focus === 'callback') return row.collectionStatus === 'C/B'
-  if (focus === 'no_ppw') return !row.ppwSentAt
-  if (focus === 'urgent') return row.isUrgent
+  if (focus === 'no_ppw') return row.trackStage === 'no_ppw'
+  if (focus === 'ppw_check') return row.trackStage === 'ppw_check' || row.trackStage === 'ppw_waiting'
+  if (focus === 'payment_verify') {
+    return row.trackStage === 'payment_verify' || row.trackStage === 'payment_waiting'
+  }
+  if (focus === 'urgent') return row.isUrgentCollection
+  if (focus === 'chase') {
+    return (
+      row.chaseStatus === 'ppw_check_due' ||
+      row.chaseStatus === 'payment_verify' ||
+      row.chaseStatus === 'past_due_urgent' ||
+      row.chaseStatus === 'due_for_inquiry' ||
+      row.chaseStatus === 'due_for_followup' ||
+      row.chaseStatus === 'needs_attention' ||
+      row.chaseStatus === 'awaiting_response'
+    )
+  }
   return row.chaseStatus !== 'not_due'
 }
 
@@ -215,9 +248,13 @@ export function collectionsFocusLabel(focus: CollectionsFocus): string {
     case 'callback':
       return 'Call back'
     case 'no_ppw':
-      return 'No PPW'
+      return 'PPW not sent'
+    case 'ppw_check':
+      return 'PPW status check'
+    case 'payment_verify':
+      return 'Payment verify'
     case 'urgent':
-      return 'Urgent'
+      return 'Urgent collection'
     default:
       return 'Open'
   }
@@ -233,7 +270,9 @@ export function formatUrgentReasons(reasons: CollectionsUrgentReason[]): string 
 export function reviewReasonPillClass(reason: CollectionsUrgentReason): string {
   if (reason === 'callback_missed') return 'status-pill status-pill--overdue'
   if (reason === 'risky_broker') return 'status-pill status-pill--dark-red'
-  if (reason === 'overdue') return 'status-pill status-pill--yellow'
+  if (reason === 'overdue' || reason === 'no_ppw') return 'status-pill status-pill--urgent-collection'
+  if (reason === 'ppw_check_due') return 'status-pill status-pill--pending'
+  if (reason === 'payment_verify') return 'status-pill status-pill--warn'
   return 'status-pill status-pill--overdue'
 }
 
@@ -241,7 +280,10 @@ export function reviewReasonPillClass(reason: CollectionsUrgentReason): string {
 export function reviewReasonPillLabel(reason: CollectionsUrgentReason): string {
   if (reason === 'callback_missed') return 'Call back due'
   if (reason === 'risky_broker') return 'Risky broker'
-  if (reason === 'overdue') return `${COLLECTIONS_POLICY.overdueUrgentDays}d+`
+  if (reason === 'overdue') return 'Urgent collection'
+  if (reason === 'no_ppw') return 'PPW not sent'
+  if (reason === 'ppw_check_due') return 'PPW check'
+  if (reason === 'payment_verify') return 'Verify pay'
   return collectionsUrgentLabel(reason)
 }
 
@@ -255,6 +297,14 @@ export function chaseStatusLabel(status: ChaseQueueStatus): string {
       return 'Inquiry due'
     case 'awaiting_response':
       return 'Awaiting'
+    case 'ppw_check_due':
+      return 'PPW status check'
+    case 'payment_waiting':
+      return 'Payment waiting'
+    case 'payment_verify':
+      return 'Call — payment'
+    case 'past_due_urgent':
+      return 'Urgent collection'
     default:
       return 'On track'
   }
@@ -271,6 +321,14 @@ export function carrierChaseStatusLabel(status: ChaseQueueStatus): string {
       return 'Inquiry due'
     case 'awaiting_response':
       return 'Awaiting reply'
+    case 'ppw_check_due':
+      return 'Paperwork check'
+    case 'payment_waiting':
+      return 'Waiting on Net terms'
+    case 'payment_verify':
+      return 'Payment status check'
+    case 'past_due_urgent':
+      return 'Past due'
     default:
       return 'On track'
   }
@@ -286,6 +344,14 @@ export function chaseStatusPillClass(status: ChaseQueueStatus): string {
       return 'status-pill status-pill--pending'
     case 'awaiting_response':
       return 'status-pill status-pill--hold'
+    case 'ppw_check_due':
+      return 'status-pill status-pill--pending'
+    case 'payment_waiting':
+      return 'status-pill status-pill--hold'
+    case 'payment_verify':
+      return 'status-pill status-pill--warn'
+    case 'past_due_urgent':
+      return 'status-pill status-pill--urgent-collection'
     default:
       return 'status-pill'
   }

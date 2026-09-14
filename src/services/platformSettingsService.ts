@@ -167,6 +167,14 @@ function normalizeCollectionsPolicy(
   const minLevel = value?.riskyBrokerMinLevel === 'medium' ? 'medium' : 'high'
   return {
     defaultInquiryDays: clampPolicyDays(value?.defaultInquiryDays, d.defaultInquiryDays),
+    defaultPaperworkCheckDays: clampPolicyDays(
+      value?.defaultPaperworkCheckDays,
+      d.defaultPaperworkCheckDays
+    ),
+    paymentVerifyUrgentDays: clampPolicyDays(
+      value?.paymentVerifyUrgentDays,
+      d.paymentVerifyUrgentDays
+    ),
     followupAfterDays: clampPolicyDays(value?.followupAfterDays, d.followupAfterDays),
     needsAttentionAfterDays: clampPolicyDays(
       value?.needsAttentionAfterDays,
@@ -181,7 +189,7 @@ function normalizeCollectionsPolicy(
     overdueUrgent: boolOrDefault(value?.overdueUrgent, d.overdueUrgent),
     overdueUrgentDays: clampPolicyDays(value?.overdueUrgentDays, d.overdueUrgentDays),
     noPpwUrgent: boolOrDefault(value?.noPpwUrgent, d.noPpwUrgent),
-    noPpwAfterDays: clampPolicyDays(value?.noPpwAfterDays, d.noPpwAfterDays),
+    noPpwAfterDays: clampPolicyDays(value?.noPpwAfterDays, d.noPpwAfterDays, 0),
     staleContactUrgent: boolOrDefault(value?.staleContactUrgent, d.staleContactUrgent),
     staleContactDays: clampPolicyDays(value?.staleContactDays, d.staleContactDays),
     needsCallUrgent: boolOrDefault(value?.needsCallUrgent, d.needsCallUrgent),

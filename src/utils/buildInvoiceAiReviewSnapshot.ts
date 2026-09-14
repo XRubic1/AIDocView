@@ -27,5 +27,6 @@ export function buildInvoiceAiReviewSnapshot(
     reviewedAt: result.reviewedAt,
     primaryFileName: primaryDoc.fileName,
     hasExcel: structured.hasExcel,
+    paperwork: structured.paperwork,
   }
 }

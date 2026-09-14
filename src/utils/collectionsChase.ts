@@ -10,6 +10,10 @@ import { sendTransactionalEmail } from '../services/emailService'
 import { resolveBrokerPaperworkEmail } from './paperworkSender'
 import { formatCurrency } from './format'
 import { COLLECTIONS_POLICY } from './collectionsPolicy'
+import {
+  getCollectionsTrackStage,
+  type CollectionsTrackStage,
+} from './collectionsTrack'
 
 /** Fallback inquiry age — live value is COLLECTIONS_POLICY.defaultInquiryDays. */
 export const DEFAULT_INQUIRY_DAYS = 15
@@ -24,6 +28,10 @@ export type ChaseQueueStatus =
   | 'awaiting_response'
   | 'due_for_followup'
   | 'needs_attention'
+  | 'ppw_check_due'
+  | 'payment_waiting'
+  | 'payment_verify'
+  | 'past_due_urgent'
 
 export interface ChaseQueueItem {
   invoice: Invoice
@@ -40,19 +48,7 @@ function resolveInquiryDays(broker: Broker | undefined): number {
   return typeof n === 'number' && n >= 0 ? n : COLLECTIONS_POLICY.defaultInquiryDays
 }
 
-/** Classify chase status for one invoice. */
-export function getChaseStatus(invoice: Invoice, broker: Broker | undefined, nowMs = Date.now()): ChaseQueueStatus {
-  if (invoice.collections_needs_attention) return 'needs_attention'
-  if (invoice.status === 'paid' || invoice.status === 'force_closed' || invoice.status === 'written_off') {
-    return 'not_due'
-  }
-
-  const days = getDaysSincePpwSent(invoice, nowMs)
-  if (days == null) return 'not_due'
-
-  const threshold = resolveInquiryDays(broker)
-  if (days < threshold) return 'not_due'
-
+function followupClock(invoice: Invoice, nowMs: number): ChaseQueueStatus {
   const lastInquiry = invoice.collections_last_inquiry_at
     ? new Date(invoice.collections_last_inquiry_at).getTime()
     : null
@@ -65,6 +61,48 @@ export function getChaseStatus(invoice: Invoice, broker: Broker | undefined, now
   if (daysSinceInquiry >= COLLECTIONS_POLICY.needsAttentionAfterDays) return 'needs_attention'
   if (daysSinceInquiry >= COLLECTIONS_POLICY.followupAfterDays) return 'due_for_followup'
   return 'awaiting_response'
+}
+
+function chaseFromTrack(
+  stage: CollectionsTrackStage,
+  invoice: Invoice,
+  nowMs: number
+): ChaseQueueStatus {
+  if (invoice.collections_needs_attention) return 'needs_attention'
+  switch (stage) {
+    case 'no_ppw':
+      return 'not_due'
+    case 'ppw_waiting':
+      return 'not_due'
+    case 'ppw_check': {
+      const clock = followupClock(invoice, nowMs)
+      return clock === 'due_for_inquiry' ? 'ppw_check_due' : clock
+    }
+    case 'payment_waiting':
+      return 'payment_waiting'
+    case 'payment_verify': {
+      const clock = followupClock(invoice, nowMs)
+      return clock === 'due_for_inquiry' ? 'payment_verify' : clock
+    }
+    case 'past_due_urgent':
+      return 'past_due_urgent'
+    default:
+      return 'not_due'
+  }
+}
+
+/** Classify chase status for one invoice. */
+export function getChaseStatus(invoice: Invoice, broker: Broker | undefined, nowMs = Date.now()): ChaseQueueStatus {
+  if (invoice.status === 'paid' || invoice.status === 'force_closed' || invoice.status === 'written_off') {
+    return 'not_due'
+  }
+
+  const stage = getCollectionsTrackStage({
+    invoice,
+    broker,
+    asOf: new Date(nowMs),
+  })
+  return chaseFromTrack(stage, invoice, nowMs)
 }
 
 /**
@@ -99,7 +137,7 @@ export function buildCollectionsChaseQueue(
 
     const broker = brokerById.get(invoice.broker_id)
     const status = getChaseStatus(invoice, broker, nowMs)
-    if (status === 'not_due') continue
+    if (status === 'not_due' || status === 'payment_waiting') continue
 
     items.push({
       invoice,
@@ -113,11 +151,15 @@ export function buildCollectionsChaseQueue(
   }
 
   const order: Record<ChaseQueueStatus, number> = {
-    needs_attention: 0,
-    due_for_followup: 1,
-    due_for_inquiry: 2,
-    awaiting_response: 3,
-    not_due: 4,
+    past_due_urgent: 0,
+    needs_attention: 1,
+    due_for_followup: 2,
+    payment_verify: 3,
+    ppw_check_due: 4,
+    due_for_inquiry: 5,
+    awaiting_response: 6,
+    payment_waiting: 7,
+    not_due: 8,
   }
   items.sort((a, b) => order[a.status] - order[b.status] || b.daysSincePpw - a.daysSincePpw)
   return items
@@ -160,9 +202,37 @@ export async function markBrokerContactedForCollections(
   return updateInvoiceAsync(invoiceId, patch)
 }
 
-/** Flag invoice for Credyx phone follow-up after no email response. */
-export function markCollectionsNeedsAttention(invoiceId: string): Invoice | undefined {
-  return updateInvoice(invoiceId, { collections_needs_attention: true })
+export async function markBrokerPaperworkConfirmed(
+  invoiceId: string,
+  authorName = 'Credyx'
+): Promise<Invoice | undefined> {
+  const inv = getInvoiceById(invoiceId)
+  if (!inv) return undefined
+  const now = new Date().toISOString()
+  const lifecycle = {
+    ...(inv.email_lifecycle ?? { paperwork_status: 'unknown' as const }),
+    paperwork_status: 'good' as const,
+    payment: {
+      ...(inv.email_lifecycle?.payment ?? {}),
+      startedAt: inv.email_lifecycle?.payment?.startedAt ?? now,
+    },
+  }
+  const noteText = 'Status: Broker confirmed paperwork'
+  const history = [...(inv.notes_history ?? [])]
+  history.push({
+    id: `note-ppw-confirmed-${Date.now()}`,
+    note: noteText,
+    created_by: authorName,
+    created_at: now,
+    type: 'status_update',
+    visibility: 'client',
+  })
+  return updateInvoiceAsync(invoiceId, {
+    email_lifecycle: lifecycle,
+    collections_needs_attention: false,
+    notes_history: history,
+    notes: inv.notes ? `${inv.notes}\n${noteText}` : noteText,
+  })
 }
 
 /** Update expected payment date from broker status (manual or future AI). */

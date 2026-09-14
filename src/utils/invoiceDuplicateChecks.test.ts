@@ -7,6 +7,7 @@ import {
   formatLoadNumberWarning,
   getLoadNumberWarnings,
   getWithinBatchLoadWarnings,
+  isInvoiceNumberTakenExcluding,
   normalizeLoadNumber,
   validateBatchInvoiceNumbers,
 } from './invoiceDuplicateChecks'
@@ -85,6 +86,8 @@ describe('invoiceDuplicateChecks', () => {
 
   it('assertInvoiceNumberAvailable allows editing own invoice number', () => {
     expect(assertInvoiceNumberAvailable('client-a', '001', [], ['inv-a1'])).toBe('001')
+    expect(isInvoiceNumberTakenExcluding('client-a', '001', [], ['inv-a1'])).toBe(false)
+    expect(isInvoiceNumberTakenExcluding('client-a', '001', [], ['inv-other'])).toBe(true)
   })
 
   it('ignores empty load numbers', () => {

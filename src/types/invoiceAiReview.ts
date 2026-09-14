@@ -17,4 +17,11 @@ export interface InvoiceAiReviewSnapshot {
   reviewedAt?: string
   primaryFileName?: string
   hasExcel?: boolean
+  /** Values read from paperwork so Resolve issues can update the packet. */
+  paperwork?: {
+    loadNumber?: string
+    amount?: number
+    brokerName?: string
+    carrierName?: string
+  }
 }

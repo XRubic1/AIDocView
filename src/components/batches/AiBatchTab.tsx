@@ -55,14 +55,14 @@ function sortStatusLabel(status?: string): { label: string; tone: 'ok' | 'warn' 
 function reviewStatusLabel(status?: string): { label: string; tone: 'ok' | 'warn' | 'err' | 'muted' } {
   switch (status) {
     case 'ready':
-      return { label: 'AI review OK', tone: 'ok' }
+      return { label: 'OK', tone: 'ok' }
     case 'needs_work':
-      return { label: 'Needs work', tone: 'err' }
+      return { label: 'Needs review', tone: 'err' }
     case 'running':
-      return { label: 'Reviewing…', tone: 'warn' }
+      return { label: 'Reviewing', tone: 'warn' }
     case 'not_run':
     default:
-      return { label: 'Not reviewed', tone: 'muted' }
+      return { label: 'Reviewing', tone: 'muted' }
   }
 }
 

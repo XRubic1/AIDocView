@@ -82,7 +82,7 @@ export interface Invoice {
   /** Client confirmed AI-extracted fields before batch submit */
   ai_confirmed_at?: string
   ai_confirmed_by?: string
-  /** Admin AIDocView review outcome */
+  /** Admin AIDocView review outcome (UI: Reviewing / OK / Needs review). */
   ai_review_status?: 'not_run' | 'running' | 'ready' | 'needs_work'
   ai_review_summary?: string
   /** JSON InvoiceAiReviewSnapshot — required checks, issues, gate (survives refresh). */

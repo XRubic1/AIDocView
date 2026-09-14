@@ -5,8 +5,15 @@ import type { BrokerRiskLevel } from '../types/brokerRisk'
  * Mutable singleton (same pattern as AR_POLICY); admin Settings persist it.
  */
 export const DEFAULT_COLLECTIONS_POLICY = {
-  /** Fallback when the broker has no Status inquiry (days after PPW). */
+  /** Fallback paperwork-received check after PPW when the broker has no override. */
+  defaultPaperworkCheckDays: 7,
+  /**
+   * Fallback when the broker has no Net due date: days after PPW before payment verify.
+   * (Paperwork check uses defaultPaperworkCheckDays / broker paperwork_status_check_days.)
+   */
   defaultInquiryDays: 15,
+  /** Days after Net terms (due date) in payment-verify queue before urgent collection. */
+  paymentVerifyUrgentDays: 5,
   /** Days after inquiry with no reply → send follow-up. */
   followupAfterDays: 3,
   /** Days after inquiry with no reply → Credyx should call. */
@@ -26,8 +33,11 @@ export const DEFAULT_COLLECTIONS_POLICY = {
   /** Days past due before overdue open A/R is urgent (15 = same as overdue). */
   overdueUrgentDays: 15,
   noPpwUrgent: true,
-  /** Invoice age with no PPW sent → urgent. */
-  noPpwAfterDays: 7,
+  /**
+   * Extra days of invoice age before missing PPW is urgent.
+   * 0 = open invoices with no PPW are a major issue immediately.
+   */
+  noPpwAfterDays: 0,
   staleContactUrgent: true,
   /** Days since last broker contact (after PPW) → urgent. Never contacted counts. */
   staleContactDays: 7,
@@ -61,6 +71,8 @@ export type CollectionsUrgentReason =
   | 'risky_broker'
   | 'overdue'
   | 'no_ppw'
+  | 'ppw_check_due'
+  | 'payment_verify'
   | 'stale_contact'
   | 'needs_call'
 
@@ -76,7 +88,11 @@ export function collectionsUrgentLabel(reason: CollectionsUrgentReason): string 
     case 'overdue':
       return `${p.overdueUrgentDays}d+ past due`
     case 'no_ppw':
-      return `No PPW ${p.noPpwAfterDays}d+`
+      return p.noPpwAfterDays > 0 ? `PPW not sent ${p.noPpwAfterDays}d+` : 'PPW not sent'
+    case 'ppw_check_due':
+      return 'PPW status check'
+    case 'payment_verify':
+      return 'Payment verify'
     case 'stale_contact':
       return `No contact ${p.staleContactDays}d+`
     case 'needs_call':
@@ -125,6 +141,12 @@ export type CollectionsUrgentInput = {
   daysSincePpw?: number | null
   lastContact?: string | null
   needsCall?: boolean
+  /** Paperwork not yet broker-confirmed and check window has elapsed. */
+  ppwCheckDue?: boolean
+  /** Net terms reached — call broker for payment status. */
+  paymentVerifyDue?: boolean
+  /** Past Net + paymentVerifyUrgentDays — urgent collection queue. */
+  pastDueUrgent?: boolean
   policy?: CollectionsPolicy
   asOf?: Date
 }
@@ -174,11 +196,19 @@ export function getCollectionsUrgentReasons(
     reasons.push('no_ppw')
   }
 
+  if (input.ppwCheckDue) {
+    reasons.push('ppw_check_due')
+  }
+
+  if (input.pastDueUrgent && !reasons.includes('overdue')) {
+    reasons.push('overdue')
+  }
+
   if (policy.staleContactUrgent && input.ppwSent) {
     const stale =
       !input.lastContact || daysSinceIso(input.lastContact, asOf) >= policy.staleContactDays
     const pastInquiry =
-      (input.daysSincePpw ?? 0) >= policy.defaultInquiryDays
+      (input.daysSincePpw ?? 0) >= policy.defaultPaperworkCheckDays
     if (stale && pastInquiry) reasons.push('stale_contact')
   }
 

@@ -110,7 +110,7 @@ export default function BatchAiReviewPanel({ batchId, onComplete }: BatchAiRevie
                   color: '#fff',
                 }}
               >
-                {o.status === 'ready' ? 'Good to go' : 'Needs work'}
+                {o.status === 'ready' ? 'OK' : 'Needs review'}
               </span>
             </button>
           ))}
@@ -126,15 +126,15 @@ export default function BatchAiReviewPanel({ batchId, onComplete }: BatchAiRevie
 
 function badgeForStatus(status?: string) {
   if (status === 'ready') {
-    return { label: 'Good to go', bg: '#3ddb7a' }
+    return { label: 'OK', bg: '#3ddb7a' }
   }
   if (status === 'needs_work') {
-    return { label: 'Needs work', bg: '#C2A558' }
+    return { label: 'Needs review', bg: '#C2A558' }
   }
   if (status === 'running') {
-    return { label: 'Reviewing…', bg: '#819291' }
+    return { label: 'Reviewing', bg: '#819291' }
   }
-  return { label: 'Not run', bg: '#cccccc' }
+  return { label: 'Reviewing', bg: '#cccccc' }
 }
 
 /** Clickable badge — opens AI review detail modal (AIDocView-style checks). */

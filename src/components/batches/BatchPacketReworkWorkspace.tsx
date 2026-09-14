@@ -16,6 +16,7 @@ import { useClientTheme } from '../../theme/ThemeContext'
 import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
 import { useToast } from '../ui/ToastProvider'
 import { hydrateIntakeDraftFromBatch } from '../../utils/buildIntakeDraftFromBatch'
+import { buildDocSortSnapshot } from '../../products/docSort/utils/docSortSnapshot'
 import {
   addDocToInvoice,
   assignUnmatchedDocument,
@@ -40,6 +41,27 @@ interface BatchPacketReworkWorkspaceProps {
   batchId: string
   onClose: () => void
   onSaved?: () => void
+  /** After packet save, continue to AI verification. */
+  onContinueToAiVerification?: (batchId: string) => void
+}
+
+/** Merge a downloaded file into the draft (including generated invoice PDFs). */
+function attachFetchedFile(
+  prev: BatchIntakeDraft | null,
+  docId: string,
+  file: File
+): BatchIntakeDraft | null {
+  if (!prev || prev.fileById.has(docId)) return prev
+  const nextFiles = new Map(prev.fileById)
+  nextFiles.set(docId, file)
+  const invoices = docId.startsWith('invoice-pdf-')
+    ? prev.invoices.map((inv) => {
+        const matches =
+          docId === `invoice-pdf-${inv.groupId}` || docId === `invoice-pdf-${inv.draftId}`
+        return matches && !inv.invoice_pdf ? { ...inv, invoice_pdf: file } : inv
+      })
+    : prev.invoices
+  return { ...prev, fileById: nextFiles, invoices }
 }
 
 /**
@@ -50,6 +72,7 @@ export default function BatchPacketReworkWorkspace({
   batchId,
   onClose,
   onSaved,
+  onContinueToAiVerification,
 }: BatchPacketReworkWorkspaceProps) {
   const c = useClientTheme()
   const { showToast } = useToast()
@@ -162,12 +185,7 @@ export default function BatchPacketReworkWorkspace({
       shouldContinue: () => !cancelled && !dirtyRef.current,
       onFile: (docId, file) => {
         if (cancelled || dirtyRef.current) return
-        setDraft((prev) => {
-          if (!prev || prev.fileById.has(docId)) return prev
-          const nextFiles = new Map(prev.fileById)
-          nextFiles.set(docId, file)
-          return { ...prev, fileById: nextFiles }
-        })
+        setDraft((prev) => attachFetchedFile(prev, docId, file))
       },
     })
     return () => {
@@ -183,21 +201,25 @@ export default function BatchPacketReworkWorkspace({
       const storagePath = draft.storagePathsByDocId?.[docId]
       if (!storagePath) return
       try {
+        const fileName =
+          draft.invoices
+            .flatMap((inv) => [
+              ...inv.fingerprints.rateCons,
+              ...inv.fingerprints.bols,
+              ...(inv.fingerprints.other ?? []),
+            ])
+            .find((fp) => fp.docId === docId)?.fileName ||
+          draft.unmatched.rateCons
+            .concat(draft.unmatched.bols, draft.unmatched.other)
+            .find((fp) => fp.docId === docId)?.fileName
         const file = await ensureStoredBatchFile(
           batchId,
           docId,
           storagePath,
-          draft.unmatched.rateCons
-            .concat(draft.unmatched.bols, draft.unmatched.other)
-            .find((fp) => fp.docId === docId)?.fileName
+          fileName
         )
         if (!file) return
-        setDraft((prev) => {
-          if (!prev || prev.fileById.has(docId)) return prev
-          const nextFiles = new Map(prev.fileById)
-          nextFiles.set(docId, file)
-          return { ...prev, fileById: nextFiles }
-        })
+        setDraft((prev) => attachFetchedFile(prev, docId, file))
       } catch (err) {
         console.warn('[BatchPacketReworkWorkspace] ensureDocumentFile failed', docId, err)
       }
@@ -385,6 +407,7 @@ export default function BatchPacketReworkWorkspace({
           broker_name: inv.broker_name,
           amount: inv.amount,
           invoice_date: inv.invoice_date,
+          client_name: batch.client_name,
           document_doc_ids: inv.document_doc_ids,
           documents_count: inv.document_doc_ids.length + (inv.invoice_pdf ? 1 : 0),
           doc_sort_group_id: inv.groupId,
@@ -401,12 +424,16 @@ export default function BatchPacketReworkWorkspace({
       ].map((fp) => fp.docId)
 
       updateBatchTotals(batchId)
-      updateBatch(batchId, { unmatched_doc_ids: unmatchedIds })
+      updateBatch(batchId, {
+        unmatched_doc_ids: unmatchedIds,
+        doc_sort_snapshot: buildDocSortSnapshot(draft.sortResult, draft.invoices),
+      })
 
       notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
       showToast('Packet changes saved', 'success')
       onSaved?.()
-      onClose()
+      if (onContinueToAiVerification) onContinueToAiVerification(batchId)
+      else onClose()
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Could not save packet changes', 'error')
     } finally {
@@ -453,10 +480,21 @@ export default function BatchPacketReworkWorkspace({
             {draft.batchNumber} · {batch.client_name}
           </p>
         </div>
-        <button type="button" className="dashboard-btn-secondary !h-8" onClick={onClose}>
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Close
-        </button>
+        <div className="flex items-center gap-2">
+          {onContinueToAiVerification && (
+            <button
+              type="button"
+              className="dashboard-btn-primary !h-8"
+              onClick={() => onContinueToAiVerification(batchId)}
+            >
+              AI verification
+            </button>
+          )}
+          <button type="button" className="dashboard-btn-secondary !h-8" onClick={onClose}>
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Close
+          </button>
+        </div>
       </div>
       {batch.total_invoices > 0 && draft.invoices.length === 0 && (
         <div

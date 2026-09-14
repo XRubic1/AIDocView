@@ -156,6 +156,14 @@ function describeChaseForCarrier(
       return lastContact
         ? `Waiting on the broker’s reply (last contact ${formatDate(lastContact)}).`
         : 'Waiting on the broker’s reply.'
+    case 'ppw_check_due':
+      return 'Credyx is confirming the broker received the paperwork packet.'
+    case 'payment_waiting':
+      return 'Paperwork is confirmed — waiting until Net terms to check payment.'
+    case 'payment_verify':
+      return 'Net terms reached — Credyx is verifying payment status with the broker.'
+    case 'past_due_urgent':
+      return 'This invoice is past due and in urgent collection.'
     default:
       return lastContact
         ? `On track — last broker contact ${formatDate(lastContact)}.`

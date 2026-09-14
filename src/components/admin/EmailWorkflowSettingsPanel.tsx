@@ -28,13 +28,13 @@ const RULE_GROUPS: { id: string; title: string; hint: string; ids: EmailLifecycl
   {
     id: 'paperwork',
     title: 'Paperwork status',
-    hint: 'After PPW is delivered. Payment emails wait until paperwork is good.',
+    hint: 'After PPW is delivered. Wait the broker’s paperwork-confirm days (default 7). Payment emails wait until paperwork is good and Net terms.',
     ids: ['broker_paperwork_status_inquiry', 'broker_paperwork_status_followup'],
   },
   {
     id: 'payment',
     title: 'Payment status',
-    hint: 'Starts only after paperwork status is logged good.',
+    hint: 'Starts after paperwork is broker-confirmed, then waits until Net terms (due date).',
     ids: ['broker_payment_status_inquiry', 'broker_payment_status_followup'],
   },
   {

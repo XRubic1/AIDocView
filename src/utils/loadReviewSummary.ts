@@ -13,6 +13,11 @@ import { formatLocationsCompactLine, formatRateConStop, formatStopsForSummary } 
 import { documentHasBolEvidence } from './requiredDocuments'
 import { getPerPacketCrossValidation } from './perPacketVerification'
 import { CHECK_LABELS, humanizeReviewMessage } from './reviewMessages'
+import {
+  overlayPacketOnFileChecks,
+  type PacketOnFileContext,
+  type PaperworkFields,
+} from './packetOnFileReview'
 
 export type LoadCheckStatus = 'ok' | 'issue' | 'warning' | 'info' | 'missing'
 
@@ -35,6 +40,7 @@ export interface StructuredLoadReview {
   additional: LoadCheckRow[]
   requiredTotal: number
   hasExcel: boolean
+  paperwork?: PaperworkFields
 }
 
 /** Human-readable approval gate copy for the summary header. */
@@ -133,6 +139,8 @@ function paperworkAmountForExcel(
 
 export interface BuildStructuredLoadReviewOptions {
   excelFileName?: string | null
+  /** Compare paperwork to the Credyx packet already on file. */
+  packet?: PacketOnFileContext
 }
 
 /** Six required checks in a fixed order — no duplicates. */
@@ -376,8 +384,19 @@ export function buildStructuredLoadReview(
     )
   }
 
-  const requiredFailed = required.filter((check) => check.status !== 'ok')
-  const requiredPassed = required.filter((check) => check.status === 'ok')
+  const paperwork: PaperworkFields = {
+    loadNumber: docLoad,
+    amount: rateAmount ?? docAmount ?? invAmount,
+    brokerName: docBroker,
+    carrierName: docCarrier,
+  }
+
+  const scored = options?.packet
+    ? overlayPacketOnFileChecks(required, options.packet, paperwork)
+    : required
+
+  const requiredFailed = scored.filter((check) => check.status !== 'ok')
+  const requiredPassed = scored.filter((check) => check.status === 'ok')
 
   // Additional — route/lane context and non-blocking Excel fields only
   const additional: LoadCheckRow[] = []
@@ -460,12 +479,13 @@ export function buildStructuredLoadReview(
   }
 
   return {
-    requiredAll: required,
+    requiredAll: scored,
     requiredFailed,
     requiredPassed,
     additional,
-    requiredTotal: required.length,
+    requiredTotal: scored.length,
     hasExcel,
+    paperwork,
   }
 }
 

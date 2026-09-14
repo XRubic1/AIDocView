@@ -1229,12 +1229,14 @@ export default function InvoiceDetailPanel({
       setNewNote('')
       setPendingStatusKind(null)
       onInvoiceUpdated?.()
-      showToast(
+                      showToast(
         kind === 'will_pay'
           ? 'Will Pay scheduled'
           : kind === 'set_due_date'
             ? 'Due date set'
-            : 'Status note posted',
+            : kind === 'ppw_confirmed'
+              ? 'Broker confirmed paperwork'
+              : 'Status note posted',
         'success'
       )
     } catch (error) {
@@ -1784,6 +1786,7 @@ export default function InvoiceDetailPanel({
                             [
                               ['will_pay', 'Will Pay'],
                               ['call_back', 'Call Back'],
+                              ['ppw_confirmed', 'PPW confirmed'],
                               ['payment_confirmed', 'Payment confirmed'],
                               ['set_due_date', 'Set due date'],
                             ] as const
@@ -1809,6 +1812,8 @@ export default function InvoiceDetailPanel({
                         <p className="text-[10px]" style={{ color: c.mutedLight }}>
                           {pendingStatusKind === 'will_pay' && 'Add will post Will Pay'}
                           {pendingStatusKind === 'call_back' && 'Add will post Call Back'}
+                          {pendingStatusKind === 'ppw_confirmed' &&
+                            'Add will mark broker confirmed paperwork, then payment waiting'}
                           {pendingStatusKind === 'payment_confirmed' &&
                             'Add will post Payment status confirmed'}
                           {pendingStatusKind === 'set_due_date' &&

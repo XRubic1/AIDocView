@@ -124,8 +124,8 @@ Deno.serve(async (req) => {
 
     const { data: invoices } = await admin
       .from('invoices')
-      .select('id, status, broker_id, client_id, invoice_number, load_number, client_name, broker_name, amount, email_lifecycle, document_send_history, collections_needs_attention')
-    const { data: brokers } = await admin.from('brokers').select('id, name, email, emails, email_lifecycle, payment_status_inquiry_days')
+      .select('id, status, broker_id, client_id, invoice_number, load_number, client_name, broker_name, amount, email_lifecycle, document_send_history, collections_needs_attention, due_date, expected_payment_date')
+    const { data: brokers } = await admin.from('brokers').select('id, name, email, emails, email_lifecycle, payment_status_inquiry_days, paperwork_status_check_days')
 
     const brokerById = new Map((brokers ?? []).map((b) => [b.id, b]))
     let sent = 0
@@ -170,7 +170,8 @@ Deno.serve(async (req) => {
         if (!started) continue
         const clock = mergeClock(
           paperworkClock,
-          (broker?.email_lifecycle as { paperwork?: Partial<Clock> } | undefined)?.paperwork
+          (broker?.email_lifecycle as { paperwork?: Partial<Clock> } | undefined)?.paperwork,
+          typeof broker?.paperwork_status_check_days === 'number' ? broker.paperwork_status_check_days : undefined
         )
         const firstAt = pwState.firstAskedAt
         const inbound = pwState.lastInboundAt
@@ -242,6 +243,12 @@ Deno.serve(async (req) => {
           }
         }
         continue
+      }
+
+      const dueYmd = (invoice.due_date || invoice.expected_payment_date) as string | undefined
+      if (dueYmd) {
+        const dueMs = Date.parse(`${dueYmd}T12:00:00`)
+        if (Number.isFinite(dueMs) && dueMs > nowMs) continue
       }
 
       const payStart = payState.startedAt || now
