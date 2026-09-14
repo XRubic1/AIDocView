@@ -337,7 +337,9 @@ export default function AdminCreateBatchPanel({
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {draftReady ? (
             <BatchAiUploadFlow
-              key={draftBatchId ?? `new-${selectedClient.id}`}
+              // Stable key — do not remount when draftBatchId is assigned after first save
+              // (that wiped uploaded files and then purged the draft as "empty").
+              key={`ai-upload-${selectedClient.id}`}
               clientId={selectedClient.id}
               clientName={selectedClient.name}
               confirmedBy={adminName}
