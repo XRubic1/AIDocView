@@ -10,6 +10,7 @@ export function getAdminBatchStatusBadge(status: string) {
     rejected: { label: 'Rejected', className: 'status-pill--overdue' },
     documents_uploaded: { label: 'Docs received', className: 'status-pill--pending-batch' },
     draft: { label: 'Draft', className: 'status-pill--pending' },
+    creating: { label: 'Creating', className: 'status-pill--review' },
   }
   const config = map[status] ?? {
     label: status.replace(/_/g, ' '),

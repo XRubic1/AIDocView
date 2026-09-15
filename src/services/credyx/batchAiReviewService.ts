@@ -1,7 +1,13 @@
 import { getBatchFiles } from '../../data/batchFileStore'
 import { setInvoiceAiReviewCache } from '../../data/invoiceAiReviewCache'
+import { getBatchById } from '../../data/mockBatches'
 import { getInvoicesByBatchId, updateInvoice } from '../../data/mockInvoices'
-import { reviewUploadedDocuments } from '../documentReviewService'
+import {
+  assembleBatchReviewFromDocuments,
+  reviewUploadedDocuments,
+} from '../documentReviewService'
+import { parseFingerprintCatalog } from '../../products/docSort/utils/docSortSnapshot'
+import { reviewResultFromFingerprint } from '../../products/docSort/utils/docExtractJson'
 import { buildInvoiceAiReviewSnapshot } from '../../utils/buildInvoiceAiReviewSnapshot'
 import { buildStructuredLoadReview, getApprovalGateMessage } from '../../utils/loadReviewSummary'
 import { isAIReviewEnabled } from '../../config/aiReview'
@@ -126,17 +132,60 @@ export async function runBatchAiReview(
     }
 
     try {
-      const result = await reviewUploadedDocuments(docs, {
-        onDocumentProgress: (event) => {
-          docProgress.set(event.docId, event.progress)
-          const totalDocs = Math.max(1, docs.length)
-          let sum = 0
-          for (const doc of docs) {
-            sum += docProgress.get(doc.id) ?? 0
-          }
-          emitInvoiceProgress(sum / totalDocs)
-        },
+      const catalog = parseFingerprintCatalog(getBatchById(batchId)?.doc_sort_snapshot)
+      // Skip packets already finished by the edge worker / prior run.
+      if (
+        inv.ai_review_status === 'ready' ||
+        inv.ai_review_status === 'needs_work'
+      ) {
+        outcomes.push({
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoice_number,
+          status: inv.ai_review_status,
+          headline: inv.ai_review_summary || (inv.ai_review_status === 'ready' ? 'Good to go' : 'Needs additional work'),
+          detail: inv.ai_review_summary || '',
+        })
+        emitInvoiceProgress(100)
+        continue
+      }
+
+      const paperworkDocs = docs.filter((doc) => !doc.id.startsWith('invoice-pdf-'))
+      const storedReviews = paperworkDocs.map((doc) => {
+        const saved = catalog.get(doc.id)
+        if (!saved?.extract) return null
+        return reviewResultFromFingerprint({
+          docId: doc.id,
+          fileName: doc.name || saved.fileName,
+          kind: saved.kind,
+          confidence: 0.9,
+          loadNumbers: saved.loadNumbers,
+          broker: saved.broker,
+          extract: saved.extract,
+        })
       })
+      const canReuseExtracts =
+        paperworkDocs.length > 0 && storedReviews.every((item) => item != null)
+
+      let result: BatchDocumentReviewResult
+      if (canReuseExtracts) {
+        emitInvoiceProgress(40)
+        result = assembleBatchReviewFromDocuments(
+          storedReviews.filter((item): item is NonNullable<typeof item> => item != null)
+        )
+        emitInvoiceProgress(90)
+      } else {
+        result = await reviewUploadedDocuments(docs, {
+          onDocumentProgress: (event) => {
+            docProgress.set(event.docId, event.progress)
+            const totalDocs = Math.max(1, docs.length)
+            let sum = 0
+            for (const doc of docs) {
+              sum += docProgress.get(doc.id) ?? 0
+            }
+            emitInvoiceProgress(sum / totalDocs)
+          },
+        })
+      }
       const primaryDoc =
         result.documents.find((d) => /rate|confirmation|rc/i.test(d.fileName)) ??
         result.documents[0]

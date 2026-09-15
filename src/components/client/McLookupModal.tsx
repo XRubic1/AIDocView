@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock,
   ExternalLink,
   Loader2,
   Search,
@@ -15,6 +16,8 @@ import type {
 } from '../../types/brokerSnapshot'
 import { normalizeMcQuery } from '../../utils/clientBrokers'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { useClientSession } from '../../hooks/useClientSession'
+import McLookupReviewLog from './McLookupReviewLog'
 import {
   displaySnapshotRiskFlags,
   hasActiveFreightAuthority,
@@ -26,6 +29,8 @@ interface McLookupModalProps {
   open: boolean
   /** Prefill MC when opening (e.g. from search bar). */
   initialMc?: string
+  /** Run the lookup immediately when the modal opens with initialMc. */
+  autoLookup?: boolean
   onClose: () => void
 }
 
@@ -69,8 +74,14 @@ function insuranceBannerStyle(
 /**
  * Compact MC Lookup popup — all Snapshot details visible without scrolling.
  */
-export default function McLookupModal({ open, initialMc = '', onClose }: McLookupModalProps) {
+export default function McLookupModal({
+  open,
+  initialMc = '',
+  autoLookup = false,
+  onClose,
+}: McLookupModalProps) {
   const c = useClientTheme()
+  const { clientId } = useClientSession()
   const titleId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [mcInput, setMcInput] = useState(initialMc)
@@ -78,6 +89,8 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
   const [error, setError] = useState<string | null>(null)
   const [summary, setSummary] = useState<BrokerSnapshotSummary | null>(null)
   const [searchedMc, setSearchedMc] = useState<string | null>(null)
+  const [showLog, setShowLog] = useState(false)
+  const [logRefresh, setLogRefresh] = useState(0)
 
   useEffect(() => {
     if (!open) return
@@ -86,6 +99,7 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
     setSummary(null)
     setSearchedMc(null)
     setLoading(false)
+    setShowLog(false)
     const t = window.setTimeout(() => inputRef.current?.focus(), 50)
     return () => window.clearTimeout(t)
   }, [open, initialMc])
@@ -116,12 +130,20 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
     try {
       const data = await lookupBrokerSnapshotByMc(normalized)
       setSummary(data)
+      setLogRefresh((n) => n + 1)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Lookup failed')
     } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!open || !autoLookup) return
+    const normalized = normalizeMcQuery(initialMc)
+    if (!normalized || normalized.replace(/\D/g, '').length < 4) return
+    void runLookup(normalized)
+  }, [open, autoLookup, initialMc])
 
   if (!open) return null
 
@@ -198,6 +220,17 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             {loading ? 'Looking up…' : 'Look up'}
           </button>
+          {clientId ? (
+            <button
+              type="button"
+              onClick={() => setShowLog((open) => !open)}
+              className="dashboard-btn-secondary text-xs py-1.5 px-3 shrink-0 inline-flex items-center gap-1.5"
+              aria-pressed={showLog}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              {showLog ? 'Lookup' : 'Log'}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}
@@ -209,22 +242,58 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
           </button>
         </header>
 
-        <div className="mc-lookup-modal__body px-3 py-3 overflow-hidden">
-          {!loading && !error && !summary && (
-            <div className="flex items-center justify-center gap-2 py-8 text-xs" style={{ color: c.secondary }}>
-              <Shield className="w-4 h-4 opacity-50" style={{ color: c.info }} />
-              Enter an MC to verify authority, insurance, and company details.
+        <div className="mc-lookup-modal__body px-3 py-3 overflow-y-auto">
+          {showLog && clientId && (
+            <div className="mc-review-log-panel">
+              <p className="text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: c.secondary }}>
+                Review log
+              </p>
+              <p className="text-[11px] mb-2 leading-relaxed" style={{ color: c.secondary }}>
+                Brokers you looked up, when you checked them, and their status at that time.
+              </p>
+              <McLookupReviewLog
+                clientId={clientId}
+                refreshKey={logRefresh}
+                onSelectMc={(mc) => {
+                  setShowLog(false)
+                  void runLookup(mc)
+                }}
+              />
             </div>
           )}
 
-          {loading && (
+          {!showLog && !loading && !error && !summary && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-center gap-2 py-4 text-xs" style={{ color: c.secondary }}>
+                <Shield className="w-4 h-4 opacity-50" style={{ color: c.info }} />
+                Enter an MC to verify authority, insurance, and company details.
+              </div>
+              {clientId ? (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: c.secondary }}>
+                    Recent reviews
+                  </p>
+                  <McLookupReviewLog
+                    clientId={clientId}
+                    refreshKey={logRefresh}
+                    compact
+                    maxItems={8}
+                    onSelectMc={(mc) => void runLookup(mc)}
+                    emptyHint="Your MC checks will appear here with the broker’s status at the time."
+                  />
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {!showLog && loading && (
             <div className="flex items-center justify-center gap-2 py-8 text-xs" style={{ color: c.secondary }}>
               <Loader2 className="w-4 h-4 animate-spin" />
               Fetching BrokerSnapshot…
             </div>
           )}
 
-          {error && (
+          {!showLog && error && (
             <div
               className="flex items-center gap-2 rounded-md px-2.5 py-2 text-xs"
               style={{ backgroundColor: c.stat.amber, color: c.primary }}
@@ -234,7 +303,7 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
             </div>
           )}
 
-          {!loading && summary && !summary.found && (
+          {!showLog && !loading && summary && !summary.found && (
             <div
               className="rounded-md px-2.5 py-2 text-xs"
               style={{ backgroundColor: c.stat.amber, color: c.primary }}
@@ -244,7 +313,7 @@ export default function McLookupModal({ open, initialMc = '', onClose }: McLooku
             </div>
           )}
 
-          {!loading && summary?.found && (
+          {!showLog && !loading && summary?.found && (
             <div className="mc-lookup-modal__result space-y-2">
               {/* Quick insurance note — first thing the user sees */}
               {(() => {

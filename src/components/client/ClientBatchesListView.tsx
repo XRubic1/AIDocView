@@ -19,6 +19,7 @@ import {
   type SortDir,
 } from '../../utils/clientListPage'
 import { isTourBatchId } from '../../utils/onboardingTourInvoice'
+import type { ClientBatchAiProgress } from '../../utils/clientBatchAiProgress'
 
 export interface ClientBatchListItem {
   id: string
@@ -29,6 +30,7 @@ export interface ClientBatchListItem {
   status: string
   reviewed_at: string | null
   upload_mode?: string
+  sort_status?: string
   approved_count?: number
   rejected_count?: number
 }
@@ -39,6 +41,8 @@ interface ClientBatchesListViewProps {
   onSelectBatch: (batchId: string) => void
   onCreateBatch?: () => void
   onDeleteDraft?: (batchId: string) => void
+  /** AI PPW processing progress keyed by batch id */
+  aiProgressByBatchId?: Record<string, ClientBatchAiProgress>
 }
 
 type StatusFilter = 'all' | 'pending' | 'review' | 'processed'
@@ -54,7 +58,7 @@ type BatchSortField =
 
 const STATUS_FILTER_MATCH: Record<StatusFilter, (status: string) => boolean> = {
   all: () => true,
-  pending: (s) => ['draft', 'ready_to_post', 'documents_uploaded'].includes(s),
+  pending: (s) => ['draft', 'creating', 'ready_to_post', 'documents_uploaded'].includes(s),
   review: (s) => ['verification', 'approval'].includes(s),
   processed: (s) => ['submitted', 'processing'].includes(s),
 }
@@ -62,6 +66,7 @@ const STATUS_FILTER_MATCH: Record<StatusFilter, (status: string) => boolean> = {
 function getBatchStatusBadge(status: string) {
   const map: Record<string, { label: string; className: string }> = {
     draft: { label: 'Draft', className: 'status-pill--pending-batch' },
+    creating: { label: 'Creating', className: 'status-pill--review' },
     ready_to_post: { label: 'Queued', className: 'status-pill--pending-batch' },
     documents_uploaded: { label: 'Docs received', className: 'status-pill--pending-batch' },
     verification: { label: 'Verifying', className: 'status-pill--review' },
@@ -73,6 +78,36 @@ function getBatchStatusBadge(status: string) {
   return <span className={`inline-flex items-center status-pill ${config.className}`}>{config.label}</span>
 }
 
+/** Compact AI paperwork pill next to workflow status. */
+function getAiProgressBadge(progress?: ClientBatchAiProgress | null) {
+  if (!progress?.show) return null
+  if (progress.phase === 'processing') {
+    return (
+      <span className="inline-flex items-center gap-1 status-pill status-pill--compact status-pill--review">
+        Creating…
+        {progress.etaShortLabel ? (
+          <span className="opacity-80 font-normal">{progress.etaShortLabel}</span>
+        ) : null}
+      </span>
+    )
+  }
+  if (progress.phase === 'failed') {
+    return (
+      <span className="inline-flex items-center status-pill status-pill--compact status-pill--overdue">
+        Check failed
+      </span>
+    )
+  }
+  if (progress.phase === 'done') {
+    return (
+      <span className="inline-flex items-center status-pill status-pill--compact status-pill--approved">
+        Ready to review
+      </span>
+    )
+  }
+  return null
+}
+
 /** Polished batch list for the client portal View Batches tab. */
 export default function ClientBatchesListView({
   batches,
@@ -80,6 +115,7 @@ export default function ClientBatchesListView({
   onSelectBatch,
   onCreateBatch,
   onDeleteDraft,
+  aiProgressByBatchId,
 }: ClientBatchesListViewProps) {
   const c = useClientTheme()
   const [searchTerm, setSearchTerm] = useState('')
@@ -406,7 +442,12 @@ export default function ClientBatchesListView({
                       <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
                         {formatCurrency(batch.total_amount)}
                       </ClientListTd>
-                      <ClientListTd variant="status">{getBatchStatusBadge(batch.status)}</ClientListTd>
+                      <ClientListTd variant="status">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {getBatchStatusBadge(batch.status)}
+                          {getAiProgressBadge(aiProgressByBatchId?.[batch.id])}
+                        </div>
+                      </ClientListTd>
                       <ClientListTd
                         variant="meta"
                         className="truncate client-list-td--mobile-only"

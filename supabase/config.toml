@@ -6,3 +6,14 @@ verify_jwt = false
 
 [functions.email-lifecycle-chase]
 verify_jwt = false
+
+[functions.batch-ai-process]
+verify_jwt = false
+
+# Auth checked inside the function (admin / carrier JWT via auth.getUser).
+# Gateway legacy verify_jwt rejects newer publishable / asymmetric JWTs.
+[functions.openai-proxy]
+verify_jwt = false
+
+[functions.brokersnapshot-proxy]
+verify_jwt = false

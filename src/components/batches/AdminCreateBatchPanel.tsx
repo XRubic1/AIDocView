@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { getAllClients, getClientById } from '../../services/clientRegistry'
-import { getBatchById } from '../../data/mockBatches'
+import { getBatchById, updateBatch } from '../../data/mockBatches'
 import BatchAiUploadFlow from '../client/BatchAiUploadFlow'
 import ManualBatchBuilder from './ManualBatchBuilder'
 import type { BatchIntakeDraft } from '../../types/credyxBatch'
@@ -87,11 +87,15 @@ export default function AdminCreateBatchPanel({
     try {
       const preferred = preferredDraftId ? getBatchById(preferredDraftId) : undefined
       const existing =
-        preferred?.client_id === nextClientId && preferred.status === 'draft'
+        preferred?.client_id === nextClientId &&
+        (preferred.status === 'draft' || preferred.status === 'creating')
           ? preferred
           : undefined
 
       if (existing) {
+        if (existing.status === 'draft') {
+          updateBatch(existing.id, { status: 'creating' })
+        }
         const loaded = await loadAiDraftSnapshot(existing.id)
         if (loaded) {
           setDraftBatchId(existing.id)
@@ -122,7 +126,7 @@ export default function AdminCreateBatchPanel({
   useEffect(() => {
     if (!resumeDraftBatchId || resumeAppliedRef.current) return
     const batch = getBatchById(resumeDraftBatchId)
-    if (!batch || batch.status !== 'draft') return
+    if (!batch || (batch.status !== 'draft' && batch.status !== 'creating')) return
     resumeAppliedRef.current = true
     void beginAiForClient(batch.client_id, resumeDraftBatchId)
   }, [resumeDraftBatchId, beginAiForClient])
@@ -142,7 +146,8 @@ export default function AdminCreateBatchPanel({
           draftBatchIdRef.current,
           { step: payload.step },
           payload.intake,
-          payload.files
+          payload.files,
+          { batchStatus: 'creating' }
         )
         if (batchId && batchId !== draftBatchIdRef.current) {
           setDraftBatchId(batchId)

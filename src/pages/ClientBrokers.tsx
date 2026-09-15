@@ -5,6 +5,7 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Eye,
   CircleDot,
   Shield,
@@ -30,6 +31,7 @@ import {
 } from '../utils/clientBrokers'
 import { BROKER_RISK_POLICY, normalizeBrokerNameKey } from '../utils/brokerRiskPolicy'
 import McLookupModal from '../components/client/McLookupModal'
+import McLookupReviewLog from '../components/client/McLookupReviewLog'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
@@ -74,6 +76,9 @@ export default function ClientBrokers() {
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [mcLookupOpen, setMcLookupOpen] = useState(false)
   const [mcLookupInitial, setMcLookupInitial] = useState('')
+  const [mcLookupAuto, setMcLookupAuto] = useState(false)
+  const [reviewLogOpen, setReviewLogOpen] = useState(false)
+  const [reviewLogRefresh, setReviewLogRefresh] = useState(0)
 
   /** Open Aging A/R filtered to this broker. */
   const goToAgingForBroker = useCallback(
@@ -114,10 +119,11 @@ export default function ClientBrokers() {
       (catalogBroker != null && mcLookup == null))
 
   const openMcLookup = useCallback(
-    (prefill?: string) => {
+    (prefill?: string, auto = false) => {
       const fromArg = prefill?.trim()
       const fromSearch = mcQuery.replace(/\D/g, '').length >= 4 ? mcQuery : ''
       setMcLookupInitial(fromArg || fromSearch)
+      setMcLookupAuto(auto)
       setMcLookupOpen(true)
     },
     [mcQuery]
@@ -335,6 +341,15 @@ export default function ClientBrokers() {
               <Shield className="w-3.5 h-3.5" />
               MC Lookup
             </button>
+            <button
+              type="button"
+              onClick={() => setReviewLogOpen((open) => !open)}
+              className="dashboard-btn-secondary text-xs py-1.5 px-3 shrink-0 inline-flex items-center justify-center gap-1.5"
+              aria-pressed={reviewLogOpen}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              Review log
+            </button>
             {ratingFilter !== 'all' && (
               <button
                 type="button"
@@ -385,6 +400,29 @@ export default function ClientBrokers() {
               >
                 View profile
               </button>
+            </div>
+          )}
+
+          {reviewLogOpen && (
+            <div
+              className="mc-review-log-panel mt-2 rounded-lg border px-3 py-2 max-h-56 overflow-y-auto"
+              style={{ borderColor: c.border, backgroundColor: c.stat.slate }}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
+                Brokers you reviewed
+              </p>
+              <p className="text-[11px] mt-0.5 mb-1 leading-relaxed" style={{ color: c.secondary }}>
+                Each MC Lookup is saved with the broker’s status at that time — not today’s Snapshot.
+              </p>
+              <McLookupReviewLog
+                clientId={clientId}
+                refreshKey={reviewLogRefresh}
+                compact
+                onSelectMc={(mc) => {
+                  setReviewLogOpen(false)
+                  openMcLookup(mc, true)
+                }}
+              />
             </div>
           )}
 
@@ -711,7 +749,12 @@ export default function ClientBrokers() {
       <McLookupModal
         open={mcLookupOpen}
         initialMc={mcLookupInitial}
-        onClose={() => setMcLookupOpen(false)}
+        autoLookup={mcLookupAuto}
+        onClose={() => {
+          setMcLookupOpen(false)
+          setMcLookupAuto(false)
+          setReviewLogRefresh((n) => n + 1)
+        }}
       />
     </>
   )

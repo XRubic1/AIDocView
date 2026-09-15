@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { ChevronLeft, ChevronRight, FileText, RotateCcw, RotateCw } from 'lucide-react'
 import DocumentDownloadOverlay from '../ui/DocumentDownloadOverlay'
+import { getPdfJs } from '../../utils/getPdfJs'
 
 export interface CompactDocItem {
   id: string
@@ -80,19 +81,6 @@ interface BundlePage {
   bundleIndex: number
   kind: 'pdf' | 'image'
   file: File
-}
-
-let pdfjsLib: PdfJsModule | undefined
-
-async function getPdfJs(): Promise<PdfJsModule> {
-  if (!pdfjsLib) {
-    pdfjsLib = await import('pdfjs-dist')
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
-    ).toString()
-  }
-  return pdfjsLib
 }
 
 function isPdfFile(file: File, name: string): boolean {
@@ -178,6 +166,11 @@ function BundlePageView({
 
         canvas.width = Math.floor(viewport.width)
         canvas.height = Math.floor(viewport.height)
+        // Avoid a black GPU flash before paint (blank canvases composite as black).
+        ctx.save()
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.restore()
         await pdfPage.render({ canvasContext: ctx, viewport, canvas }).promise
         if (cancelled || !textLayerRef.current) return
 

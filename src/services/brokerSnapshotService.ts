@@ -1,5 +1,8 @@
-import { requireSupabase } from '../lib/supabase'
-import type { BrokerSnapshotSummary } from '../types/brokerSnapshot'
+import { getSupabase, requireSupabase } from '../lib/supabase'
+import type {
+  BrokerSnapshotLookupLogRow,
+  BrokerSnapshotSummary,
+} from '../types/brokerSnapshot'
 
 const cache = new Map<string, { at: number; data: BrokerSnapshotSummary }>()
 const CACHE_TTL_MS = 60 * 1000 // short client memo; shared 30d/5d cache lives server-side
@@ -56,4 +59,46 @@ export async function lookupBrokerSnapshotByMc(
 
   cache.set(key, { at: Date.now(), data: summary })
   return summary
+}
+
+const LOOKUP_LOG_SELECT =
+  'id, mc_number, mc_digits, legal_name, insurance_verdict, found, operating_status, broker_authority, status_label, created_at'
+
+/**
+ * This carrier's MC Lookup history, newest first.
+ * Requires client_id so an admin session cannot pull every tenant's log.
+ */
+export async function listMyBrokerSnapshotLookups(
+  clientId: string,
+  limit = 50
+): Promise<BrokerSnapshotLookupLogRow[]> {
+  if (!clientId.trim()) return []
+  const supabase = getSupabase()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('broker_snapshot_lookup_events')
+    .select(LOOKUP_LOG_SELECT)
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    const fallback = await supabase
+      .from('broker_snapshot_lookup_events')
+      .select('id, mc_number, mc_digits, legal_name, insurance_verdict, created_at')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    if (fallback.error || !fallback.data) return []
+    return fallback.data.map((row) => ({
+      ...row,
+      found: null,
+      operating_status: null,
+      broker_authority: null,
+      status_label: null,
+    })) as BrokerSnapshotLookupLogRow[]
+  }
+
+  return (data ?? []) as BrokerSnapshotLookupLogRow[]
 }

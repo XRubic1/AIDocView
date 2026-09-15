@@ -138,7 +138,7 @@ export default function ReadyToPostTab({
               if (batchId && onOpenPacketRework) onOpenPacketRework(batchId)
             }}
             className="dashboard-btn-secondary inline-flex items-center gap-1.5"
-            title="Open Packets rework workspace"
+            title="Open Packets rework when the batch is ready"
           >
             <ExternalLink className="w-4 h-4" />
             Packets

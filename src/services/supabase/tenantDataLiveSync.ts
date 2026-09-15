@@ -28,6 +28,7 @@ export type TenantDataTable =
   | 'invoices'
   | 'broker_risk_profiles'
   | 'brokers'
+  | 'batch_processing_jobs'
 
 const POLL_INTERVAL_MS = 45_000
 
@@ -310,6 +311,9 @@ export function ensureTenantDataLiveSync(
   const brokerRiskFilter =
     principal === 'client' && clientId ? { filter: `client_id=eq.${clientId}` } : {}
 
+  const jobFilter =
+    principal === 'client' && clientId ? { filter: `client_id=eq.${clientId}` } : {}
+
   channel
     .on(
       'postgres_changes',
@@ -320,6 +324,19 @@ export function ensureTenantDataLiveSync(
           payload.new as BatchRow | null,
           payload.old as BatchRow | null
         )
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'batch_processing_jobs',
+        ...jobFilter,
+      },
+      () => {
+        emitTenantDataUpdated(['batch_processing_jobs', 'batches'], nextScope.clientId)
+        touchClientCache(nextScope.clientId)
       }
     )
     .on(

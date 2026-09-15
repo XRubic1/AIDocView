@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { CalendarDays, Plus } from 'lucide-react'
 import AdminCreateBatchPanel from '../components/batches/AdminCreateBatchPanel'
 import ReadyToPostTab from '../components/batches/ReadyToPostTab'
@@ -10,11 +10,13 @@ import BatchAiVerificationWorkspace from '../components/batches/BatchAiVerificat
 import { getAllBatches, updateBatchStatus } from '../data/mockBatches'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
+import { drainPendingBatchProcessingJobs } from '../services/credyx/batchProcessingJobs'
 import {
   ADMIN_BATCH_CHIP_FILTERS,
   adminBatchFilterLabel,
   batchPassesDateRange,
   batchPassesDisplayFlags,
+  canOpenPacketRework,
   countAdminBatchFilters,
   createAdminBatchDisplayFlags,
   toLocalDateKey,
@@ -22,9 +24,11 @@ import {
   type AdminBatchChipFilter,
   type AdminBatchWorkflowStage,
 } from '../utils/adminBatchQueue'
+import { useToast } from '../components/ui/ToastProvider'
 
 export default function Batches() {
   const c = useClientTheme()
+  const { showToast } = useToast()
   const tenantRevision = useTenantDataRevision()
   const today = toLocalDateKey()
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null)
@@ -40,6 +44,21 @@ export default function Batches() {
   // Default to today's work queue; user can widen the range.
   const [dateFrom, setDateFrom] = useState(today)
   const [dateTo, setDateTo] = useState(today)
+
+  // Drain queued background DocSort / AI jobs when Credyx opens Batches.
+  useEffect(() => {
+    let cancelled = false
+    void drainPendingBatchProcessingJobs(3)
+      .then((n) => {
+        if (!cancelled && n > 0) setRefreshKey((k) => k + 1)
+      })
+      .catch(() => {
+        /* non-blocking */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tenantRevision])
 
   const allBatches = useMemo(() => getAllBatches(), [refreshKey, tenantRevision])
 
@@ -80,6 +99,15 @@ export default function Batches() {
   }
 
   const openPacketRework = (batchId: string) => {
+    const batch = getAllBatches().find((b) => b.id === batchId)
+    if (batch && !canOpenPacketRework(batch)) {
+      showToast(
+        'Packet rework unlocks when invoices are ready (sort finished, AI not still running).',
+        'info'
+      )
+      openBatch(batchId, 'ai')
+      return
+    }
     setSelectedBatchId(null)
     setWorkflowStage(null)
     setShowCreateBatch(false)
@@ -129,7 +157,13 @@ export default function Batches() {
     setShowCreateBatch(false)
     setResumeDraftBatchId(null)
     setTodayRange()
-    openPacketRework(batchId)
+    const batch = getAllBatches().find((b) => b.id === batchId)
+    if (batch && canOpenPacketRework(batch)) {
+      openPacketRework(batchId)
+      return
+    }
+    // Still creating / sorting — open AI workspace to watch progress.
+    openBatch(batchId, 'ai')
   }
 
   const handleCreateCancel = () => {
@@ -148,6 +182,11 @@ export default function Batches() {
     const batch = getAllBatches().find((b) => b.id === batchId)
     if (batch?.status === 'draft') {
       openDraftBatch(batchId)
+      return
+    }
+    // Creating / AI in-flight → AI workspace (progress + extracts), not draft editor.
+    if (batch?.status === 'creating' || batch?.sort_status === 'sorting') {
+      openBatch(batchId, 'ai')
       return
     }
     openBatch(batchId, stage)
@@ -301,6 +340,7 @@ export default function Batches() {
                 <AllBatchesTab
                   batches={filteredBatches}
                   onBatchSelect={handleBatchSelect}
+                  onBatchesChanged={() => setRefreshKey((k) => k + 1)}
                   onPacketRework={(batchId) => {
                     const batch = getAllBatches().find((b) => b.id === batchId)
                     if (batch?.status === 'draft') {

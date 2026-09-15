@@ -121,9 +121,9 @@ const CLIENT_PAGES: AssistantPageHelp[] = [
     mode: 'client',
     paths: ['/client/brokers'],
     title: 'Brokers',
-    offer: 'broker risk, MC lookups, and who owes you the most',
-    nudge: 'I can check a broker’s MC#, risk, and open balance.',
-    chips: ['Check MC#', 'Which broker owes me the most?', 'Any risky brokers?'],
+    offer: 'broker risk, MC lookups, review history, and who owes you the most',
+    nudge: 'I can check a broker’s MC#, risk, and your lookup log.',
+    chips: ['Check MC#', 'Which brokers did I review?', 'Any risky brokers?'],
   },
   {
     id: 'client-documents',

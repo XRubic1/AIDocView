@@ -69,6 +69,12 @@ import {
   getSetupChecklist,
   isClientSetupComplete,
 } from '../utils/clientSetupDocuments'
+import {
+  getClientBatchAiProgress,
+  type BatchProcessingJobSnapshot,
+  type ClientBatchAiProgress,
+} from '../utils/clientBatchAiProgress'
+import { fetchClientBatchProcessingJobs } from '../services/credyx/batchProcessingJobs'
 
 type ClientBatchRow = {
   id: string
@@ -79,6 +85,7 @@ type ClientBatchRow = {
   status: string
   reviewed_at: string | null
   upload_mode?: string
+  sort_status?: string
   approved_count?: number
   rejected_count?: number
 }
@@ -168,6 +175,7 @@ export default function ClientBatches() {
         status: b.status,
         reviewed_at: b.reviewed_at ?? null,
         upload_mode: b.upload_mode,
+        sort_status: b.sort_status,
         approved_count: b.approved_count,
         rejected_count: b.rejected_count,
       }))
@@ -178,6 +186,113 @@ export default function ClientBatches() {
   useEffect(() => {
     refreshBatches()
   }, [refreshBatches, tenantRevision])
+
+  /** Latest AI job per batch — drives client PPW progress UI. */
+  const [jobByBatchId, setJobByBatchId] = useState<Record<string, BatchProcessingJobSnapshot>>(
+    {}
+  )
+  /** Batches just submitted — show processing before the job row is readable. */
+  const [optimisticProcessingIds, setOptimisticProcessingIds] = useState<Set<string>>(
+    () => new Set()
+  )
+  /** Recompute ETA labels while processing (clock ticks). */
+  const [etaTick, setEtaTick] = useState(0)
+
+  const refreshProcessingJobs = useCallback(async () => {
+    if (!clientId) return
+    const jobs = await fetchClientBatchProcessingJobs(clientId)
+    setJobByBatchId(jobs)
+  }, [clientId])
+
+  useEffect(() => {
+    void refreshProcessingJobs()
+  }, [refreshProcessingJobs, tenantRevision])
+
+  const aiProgressByBatchId = useMemo(() => {
+    const map: Record<string, ClientBatchAiProgress> = {}
+    for (const batch of batches) {
+      if (batch.status === 'draft') continue
+      const invoices = getInvoicesByBatchId(batch.id)
+      map[batch.id] = getClientBatchAiProgress({
+        batchId: batch.id,
+        uploadMode: batch.upload_mode,
+        sortStatus: batch.sort_status,
+        batchStatus: batch.status,
+        submittedAt: batch.submitted_at,
+        invoices,
+        job: jobByBatchId[batch.id] ?? null,
+        optimisticProcessing: optimisticProcessingIds.has(batch.id),
+      })
+    }
+    return map
+  }, [batches, jobByBatchId, optimisticProcessingIds, tenantRevision, etaTick])
+
+  const anyAiProcessing = useMemo(
+    () => Object.values(aiProgressByBatchId).some((p) => p.phase === 'processing'),
+    [aiProgressByBatchId]
+  )
+
+  useEffect(() => {
+    if (!anyAiProcessing) return
+    const id = window.setInterval(() => setEtaTick((n) => n + 1), 15_000)
+    return () => window.clearInterval(id)
+  }, [anyAiProcessing])
+
+  // Poll while any AI batch is still processing paperwork.
+  useEffect(() => {
+    if (!anyAiProcessing && optimisticProcessingIds.size === 0) return
+    const tick = () => {
+      refreshBatches()
+      void refreshProcessingJobs()
+    }
+    const id = window.setInterval(tick, 3000)
+    return () => window.clearInterval(id)
+  }, [
+    anyAiProcessing,
+    optimisticProcessingIds.size,
+    refreshBatches,
+    refreshProcessingJobs,
+  ])
+
+  // Clear optimistic flags once the job row exists, or local review finished without Supabase.
+  useEffect(() => {
+    if (optimisticProcessingIds.size === 0) return
+    setOptimisticProcessingIds((prev) => {
+      let changed = false
+      const next = new Set(prev)
+      for (const batchId of prev) {
+        const batch = batches.find((b) => b.id === batchId)
+        const settled = getClientBatchAiProgress({
+          batchId,
+          uploadMode: batch?.upload_mode,
+          sortStatus: batch?.sort_status,
+          batchStatus: batch?.status,
+          submittedAt: batch?.submitted_at,
+          invoices: getInvoicesByBatchId(batchId),
+          job: jobByBatchId[batchId] ?? null,
+          optimisticProcessing: false,
+        })
+        if (
+          jobByBatchId[batchId] ||
+          settled.phase === 'done' ||
+          settled.phase === 'failed'
+        ) {
+          next.delete(batchId)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [batches, jobByBatchId, optimisticProcessingIds, tenantRevision])
+
+  // Safety: drop optimistic flags that never settle (e.g. offline).
+  useEffect(() => {
+    if (optimisticProcessingIds.size === 0) return
+    const timer = window.setTimeout(() => {
+      setOptimisticProcessingIds(new Set())
+    }, 120_000)
+    return () => window.clearTimeout(timer)
+  }, [optimisticProcessingIds])
 
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -400,6 +515,7 @@ export default function ClientBatches() {
 
   const handleSelectBatch = (batchId: string) => {
     const batch = batches.find((b) => b.id === batchId)
+    // Only carrier-owned idle drafts are resumable/deletable. Credyx "creating" opens as view.
     if (batch?.status === 'draft') {
       void resumeDraftBatch(batchId, batch.upload_mode)
       return
@@ -1488,7 +1604,21 @@ export default function ClientBatches() {
             </div>
           </div>
         ) : activeTab === 'create' && !capabilities.canCreateBatch ? (
-          <ManagedDocHandoffView clientId={clientId} clientName={clientName} />
+          <ManagedDocHandoffView
+            clientId={clientId}
+            clientName={clientName}
+            onSubmitted={({ batchId, etaLabel }) => {
+              refreshBatches()
+              void refreshProcessingJobs()
+              setOptimisticProcessingIds((prev) => new Set(prev).add(batchId))
+              setActiveTab('view')
+              setSelectedBatch(batchId)
+              showToast(
+                `Thank you — invoices are being created (${etaLabel}). We’ll notify you to review.`,
+                'success'
+              )
+            }}
+          />
         ) : activeTab === 'create' ? (
           <ClientSubmitDocsView
             mode={createSubMode}
@@ -1523,10 +1653,15 @@ export default function ClientBatches() {
                   setAiDraftRestored(null)
                   setAiDraftReady(false)
                   void clearClientDraftStorage(batchId)
+                  setOptimisticProcessingIds((prev) => new Set(prev).add(batchId))
                   refreshBatches()
+                  void refreshProcessingJobs()
                   setActiveTab('view')
                   setSelectedBatch(batchId)
-                  showToast('Batch sent to verification.', 'success')
+                  showToast(
+                    'Thank you for submitting. Invoices are being checked — we’ll notify you when they’re ready to review.',
+                    'success'
+                  )
                 }}
               />
             )}
@@ -1555,12 +1690,14 @@ export default function ClientBatches() {
           <ClientBatchDetailView
             batch={selectedBatchData}
             invoices={batchDetailInvoices}
+            aiProgress={aiProgressByBatchId[selectedBatchData.id] ?? null}
             onBack={() => setSelectedBatch(null)}
             onViewInvoice={handleViewInvoiceDetail}
           />
         ) : (
           <ClientBatchesListView
             batches={batches}
+            aiProgressByBatchId={aiProgressByBatchId}
             highlightedBatchId={highlightedBatchId}
             onSelectBatch={handleSelectBatch}
             onCreateBatch={capabilities.canCreateBatch ? handleOpenCreateBatch : undefined}

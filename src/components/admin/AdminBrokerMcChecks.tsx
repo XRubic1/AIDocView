@@ -120,7 +120,11 @@ export default function AdminBrokerMcChecks({
                 <span>
                   {formatDate(ev.created_at)}
                   {ev.from_cache ? ' · cache' : ' · live Snapshot'}
-                  {ev.insurance_verdict ? ` · insurance ${ev.insurance_verdict}` : ''}
+                  {ev.status_label
+                    ? ` · ${ev.status_label}`
+                    : ev.insurance_verdict
+                      ? ` · insurance ${ev.insurance_verdict}`
+                      : ''}
                 </span>
               </li>
             ))}

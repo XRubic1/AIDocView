@@ -11,6 +11,8 @@ import AdminInvoiceDetailView from './AdminInvoiceDetailView'
 import AccountingModal from './AccountingModal'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 import { processVerifiedBatch } from '../../services/credyx/processBatch'
+import { deleteUnsubmittedBatch } from '../../services/credyx/deleteBatch'
+import { useAdminCapabilities } from '../../hooks/useAdminCapabilities'
 import { useToast } from '../ui/ToastProvider'
 import Spinner from '../ui/Spinner'
 
@@ -31,15 +33,17 @@ export default function VerificationTab({
 }: VerificationTabProps) {
   const { resolved, session } = useAuth()
   const { showToast } = useToast()
+  const { capabilities } = useAdminCapabilities()
+  const canDeleteBatches = capabilities.canDeleteBatches
   const authUser = resolved.user ?? session?.user ?? null
   const adminUserId = authUser?.id ?? 'unknown'
   const adminUserName = getAdminUserDisplayName(authUser?.email ?? null)
 
-  const [batches] = useState(() => {
-    const allBatches = getAllBatches()
-    // Legacy "approval" batches are treated as verification after pipeline reshape.
-    return allBatches.filter((b) => b.status === 'verification' || b.status === 'approval')
-  })
+  const [listVersion, setListVersion] = useState(0)
+  const batches = getAllBatches().filter(
+    (b) => b.status === 'verification' || b.status === 'approval'
+  )
+  void listVersion
   const [selectedInvoices, setSelectedInvoices] = useState<Set<string>>(new Set())
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [verificationNotes, setVerificationNotes] = useState('')
@@ -70,6 +74,36 @@ export default function VerificationTab({
           e.stopPropagation()
           onBatchSelect(item.id)
         }}
+        onDeleteBatch={
+          canDeleteBatches
+            ? async (item, e) => {
+                e.stopPropagation()
+                const full = getAllBatches().find((b) => b.id === item.id)
+                if (!full) return
+                const invoiceNote =
+                  full.total_invoices > 0
+                    ? ` This removes ${full.total_invoices} invoice${full.total_invoices === 1 ? '' : 's'} and their documents.`
+                    : ''
+                if (
+                  !window.confirm(
+                    `Delete batch ${full.batch_number}?${invoiceNote} This cannot be undone.`
+                  )
+                ) {
+                  return
+                }
+                try {
+                  await deleteUnsubmittedBatch(full.id)
+                  setListVersion((v) => v + 1)
+                  showToast(`Deleted batch ${full.batch_number}`, 'success')
+                } catch (err) {
+                  showToast(
+                    err instanceof Error ? err.message : 'Could not delete batch',
+                    'error'
+                  )
+                }
+              }
+            : undefined
+        }
         emptyTitle="No batches in verification"
         emptyHint="Batches move here after ready-to-post is complete"
       />

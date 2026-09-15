@@ -45,6 +45,37 @@ describe('docSortSnapshot', () => {
     expect(catalog.get('bol1')?.kind).toBe('bill_of_lading')
   })
 
+  it('persists per-doc extract JSON for matching and verification', () => {
+    const sort: DocSortResult = {
+      sortedAt: '2026-09-14T00:00:00.000Z',
+      groups: [],
+      unmatchedRateCons: [
+        fp({
+          docId: 'rc1',
+          kind: 'rate_confirmation',
+          loadNumbers: ['91111978568'],
+          broker: 'TQL',
+          rateAmount: 390,
+          extract: {
+            documentType: 'rate_confirmation',
+            hasSignature: false,
+            confidence: 0.9,
+            fieldsFound: ['load_number'],
+            loadNumber: '91111978568',
+            rate: 390,
+            rateConParse: { load_number: '91111978568', rate_total: 390, broker_name: 'TQL' },
+          },
+        }),
+      ],
+      unmatchedBols: [],
+      otherDocuments: [],
+      totalDocuments: 1,
+    }
+    const catalog = parseFingerprintCatalog(buildDocSortSnapshot(sort))
+    expect(catalog.get('rc1')?.extract?.rateConParse?.load_number).toBe('91111978568')
+    expect(catalog.get('rc1')?.rateAmount).toBe(390)
+  })
+
   it('returns an empty catalog for legacy snapshots without fingerprints', () => {
     const legacy = JSON.stringify({
       sortedAt: '2026-09-14T00:00:00.000Z',

@@ -371,6 +371,63 @@ function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, '')}`
 }
 
+function isActiveAuthority(value: unknown): boolean {
+  return String(value ?? '').trim().toLowerCase() === 'active'
+}
+
+/** Compact status frozen on the lookup row (keep in sync with formatMcLookupStatusLabel). */
+function lookupStatusFields(
+  summary: Record<string, unknown> | null,
+  found: boolean
+): {
+  found: boolean
+  operating_status: string | null
+  broker_authority: string | null
+  status_label: string
+} {
+  if (!found || !summary) {
+    return {
+      found: false,
+      operating_status: null,
+      broker_authority: null,
+      status_label: 'No company found',
+    }
+  }
+
+  const operating = String(summary.operatingStatus ?? '').trim() || null
+  const brokerAuth = String(summary.brokerAuthority ?? '').trim() || null
+  const hasAuth =
+    isActiveAuthority(summary.brokerAuthority) ||
+    isActiveAuthority(summary.commonAuthority) ||
+    isActiveAuthority(summary.contractAuthority)
+
+  const verdict = String(summary.insuranceVerdict ?? '').trim().toLowerCase()
+  const insurance =
+    verdict === 'ok'
+      ? 'Insurance OK'
+      : verdict === 'cancelled'
+        ? 'Insurance cancelled'
+        : verdict === 'missing'
+          ? 'Insurance missing'
+          : verdict === 'warning'
+            ? 'Insurance warning'
+            : null
+
+  let core: string
+  if (!hasAuth) {
+    core = `${operating ?? 'No active authority'} — do not use`
+  } else {
+    core = brokerAuth ? `Broker ${brokerAuth}` : operating ?? 'Looked up'
+  }
+
+  return {
+    found: true,
+    operating_status: operating,
+    broker_authority: brokerAuth,
+    status_label: insurance ? `${core} · ${insurance}` : core,
+  }
+}
+
 /** Record who looked up this MC (carriers). Never fail the lookup if logging fails. */
 async function logLookupEvent(
   admin: ReturnType<typeof adminClient>,
@@ -382,8 +439,11 @@ async function logLookupEvent(
     fromCache: boolean
     insuranceVerdict: string | null
     legalName: string | null
+    found: boolean
+    summary: Record<string, unknown> | null
   }
 ): Promise<void> {
+  const status = lookupStatusFields(args.summary, args.found)
   try {
     await admin.from('broker_snapshot_lookup_events').insert({
       id: newId('bslu'),
@@ -394,6 +454,10 @@ async function logLookupEvent(
       from_cache: args.fromCache,
       insurance_verdict: args.insuranceVerdict,
       legal_name: args.legalName,
+      found: status.found,
+      operating_status: status.operating_status,
+      broker_authority: status.broker_authority,
+      status_label: status.status_label,
     })
   } catch (err) {
     console.error('lookup event log failed', err)
@@ -746,6 +810,8 @@ Deno.serve(async (req) => {
               : null,
           legalName:
             cachedPayload.name != null ? String(cachedPayload.name) : null,
+          found: cachedPayload.found === true,
+          summary: cachedPayload,
         })
 
         return jsonResponse({
@@ -772,6 +838,8 @@ Deno.serve(async (req) => {
           fromCache: false,
           insuranceVerdict: null,
           legalName: null,
+          found: false,
+          summary: null,
         })
         return jsonResponse({
           Success: true,
@@ -796,6 +864,8 @@ Deno.serve(async (req) => {
           insuranceVerdict:
             summary.insuranceVerdict != null ? String(summary.insuranceVerdict) : null,
           legalName: summary.name != null ? String(summary.name) : null,
+          found: true,
+          summary,
         })
         const { data: snapAfter } = await admin
           .from('broker_external_snapshots')

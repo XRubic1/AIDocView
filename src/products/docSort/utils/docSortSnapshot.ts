@@ -1,13 +1,22 @@
 import type { DocSortFingerprint, DocSortKind, DocSortResult } from '../types'
 import type { CredyxInvoiceDraft } from '../../../types/credyxBatch'
 
-/** Compact fingerprint stored on the batch so Packets rework can restore RC/BOL kinds. */
+/** Fingerprint + extract JSON stored on the batch for matching and AI verification. */
 export interface PersistedDocFingerprint {
   docId: string
   fileName: string
   kind: DocSortKind
   loadNumbers: string[]
   broker?: string
+  carrier?: string
+  pickup?: string
+  delivery?: string
+  pickupDate?: string
+  deliveryDate?: string
+  rateAmount?: number
+  rateCurrency?: string
+  invoiceNumber?: string
+  extract?: DocSortFingerprint['extract']
 }
 
 function compactFp(fp: DocSortFingerprint): PersistedDocFingerprint {
@@ -17,6 +26,15 @@ function compactFp(fp: DocSortFingerprint): PersistedDocFingerprint {
     kind: fp.kind,
     loadNumbers: [...fp.loadNumbers],
     broker: fp.broker,
+    carrier: fp.carrier,
+    pickup: fp.pickup,
+    delivery: fp.delivery,
+    pickupDate: fp.pickupDate,
+    deliveryDate: fp.deliveryDate,
+    rateAmount: fp.rateAmount,
+    rateCurrency: fp.rateCurrency,
+    invoiceNumber: fp.invoiceNumber,
+    extract: fp.extract,
   }
 }
 

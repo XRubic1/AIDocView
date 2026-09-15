@@ -30,7 +30,7 @@ async function runWithConcurrency<T, R>(
 }
 
 /**
- * Scan all uploads, then match rate cons ↔ BOLs (no AIDocView review pipeline).
+ * Scan each upload with the full extract (RC / BOL / invoice / lumper JSON), then match.
  * Respects Settings → docs/min and DocSort parallel so OpenAI TPM is not blown.
  */
 export async function runDocSort(
@@ -51,7 +51,7 @@ export async function runDocSort(
     phase: 'scanning',
     completed: 0,
     total,
-    message: `Scanning documents (max ${docsPerMinute}/min, ${parallel} at a time)…`,
+        message: `Extracting documents (max ${docsPerMinute}/min, ${parallel} at a time)…`,
   })
 
   let completed = 0
@@ -65,7 +65,7 @@ export async function runDocSort(
         phase: 'scanning',
         completed,
         total,
-        message: `Scanned ${completed} of ${total}…`,
+        message: `Extracted ${completed} of ${total}…`,
       })
       return fp
     } catch (err) {

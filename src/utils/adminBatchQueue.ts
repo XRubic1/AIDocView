@@ -1,4 +1,5 @@
 import type { PendingBatch } from '../types/admin'
+import { getInvoicesByBatchId } from '../data/mockInvoices'
 
 /** Toggle chips for the admin Batches list (invoice-style on/off filters). */
 export const ADMIN_BATCH_CHIP_FILTERS = [
@@ -18,6 +19,7 @@ export type AdminBatchDisplayFlags = Record<AdminBatchChipFilter, boolean>
 /** True when the batch still needs AI / DocSort attention. */
 export function batchNeedsAiAttention(batch: PendingBatch): boolean {
   return (
+    batch.status === 'creating' ||
     batch.sort_status === 'sorting' ||
     batch.sort_status === 'failed' ||
     Boolean(batch.unmatched_doc_ids && batch.unmatched_doc_ids.length > 0)
@@ -59,7 +61,7 @@ export function batchPassesDateRange(
 export function getAdminBatchDisplayBucket(
   batch: PendingBatch
 ): AdminBatchChipFilter | 'other' {
-  if (batchNeedsAiAttention(batch)) return 'ai'
+  if (batchNeedsAiAttention(batch) || batch.status === 'creating') return 'ai'
 
   const status = batch.status === 'approval' ? 'verification' : batch.status
   switch (status) {
@@ -72,7 +74,7 @@ export function getAdminBatchDisplayBucket(
       return status
     default:
       // AI-uploaded batches without urgent sort issues still surface under AI.
-      if (batch.upload_mode === 'ai') return 'ai'
+      if (batch.upload_mode === 'ai' || batch.upload_mode === 'handoff') return 'ai'
       return 'other'
   }
 }
@@ -153,7 +155,7 @@ export type AdminBatchWorkflowStage = 'ready_to_post' | 'verification' | 'ai'
 export function resolveAdminBatchWorkflowStage(
   batch: PendingBatch
 ): AdminBatchWorkflowStage {
-  if (batchNeedsAiAttention(batch) || batch.upload_mode === 'ai') {
+  if (batchNeedsAiAttention(batch) || batch.upload_mode === 'ai' || batch.status === 'creating') {
     // Prefer status workflow when the batch is clearly in Ready / Verification.
     if (batch.status === 'ready_to_post') return 'ready_to_post'
     if (batch.status === 'verification' || batch.status === 'approval') return 'verification'
@@ -162,4 +164,47 @@ export function resolveAdminBatchWorkflowStage(
   if (batch.status === 'ready_to_post') return 'ready_to_post'
   if (batch.status === 'verification' || batch.status === 'approval') return 'verification'
   return 'ready_to_post'
+}
+
+/** Invoice AI review progress for admin list / AI chip (e.g. 4 of 6). */
+export function getAdminBatchAiReviewProgress(batchId: string): {
+  completed: number
+  total: number
+  running: boolean
+  label: string | null
+} {
+  const invoices = getInvoicesByBatchId(batchId)
+  const total = invoices.length
+  if (total === 0) {
+    return { completed: 0, total: 0, running: false, label: null }
+  }
+  const completed = invoices.filter(
+    (inv) => inv.ai_review_status === 'ready' || inv.ai_review_status === 'needs_work'
+  ).length
+  const running = invoices.some((inv) => inv.ai_review_status === 'running')
+  return {
+    completed,
+    total,
+    running,
+    label: `${completed} of ${total} docs reviewed`,
+  }
+}
+
+/**
+ * Packet rework is available after intake finished creating invoices
+ * and AI is not mid-sort / mid-review.
+ */
+export function canOpenPacketRework(batch: PendingBatch): boolean {
+  if (batch.status === 'draft' || batch.status === 'creating') return false
+  if (batch.sort_status === 'sorting') return false
+
+  const invoices = getInvoicesByBatchId(batch.id)
+  if (invoices.length === 0) return false
+  if (invoices.some((inv) => inv.ai_review_status === 'running')) return false
+
+  const aiPath = batch.upload_mode === 'ai' || batch.upload_mode === 'handoff'
+  if (aiPath && batch.sort_status && batch.sort_status !== 'ready' && batch.sort_status !== 'failed') {
+    return false
+  }
+  return true
 }

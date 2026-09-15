@@ -7,21 +7,7 @@ import {
   setReviewImageRasterizer,
 } from '../platform/reviewImageRasterizer'
 import { ReviewImageInfo } from '../types/documentReview'
-
-type PdfJsModule = typeof import('pdfjs-dist')
-
-let pdfjsLib: PdfJsModule | undefined
-
-async function getPdfJs(): Promise<PdfJsModule> {
-  if (!pdfjsLib) {
-    pdfjsLib = await import('pdfjs-dist')
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url
-    ).toString()
-  }
-  return pdfjsLib
-}
+import { getPdfJs } from './getPdfJs'
 
 /** PDF render scale so page raster is sharp up to MAX_IMAGE_WIDTH (letter ~612pt wide). */
 function pdfRenderScale(maxWidth: number): number {

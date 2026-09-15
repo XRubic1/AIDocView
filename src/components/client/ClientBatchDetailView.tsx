@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Eye, FileText } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, FileText, Loader2 } from 'lucide-react'
 import { Invoice } from '../../types/invoice'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
@@ -12,12 +12,14 @@ import {
   PAGE_SIZE_OPTIONS,
   type SortDir,
 } from '../../utils/clientListPage'
+import type { ClientBatchAiProgress } from '../../utils/clientBatchAiProgress'
 
 interface ClientBatchDetailViewProps {
   batch: ClientBatchListItem
   invoices: Invoice[]
   onBack: () => void
   onViewInvoice: (invoice: Invoice) => void
+  aiProgress?: ClientBatchAiProgress | null
 }
 
 type InvoiceSortField =
@@ -63,12 +65,33 @@ export default function ClientBatchDetailView({
   invoices,
   onBack,
   onViewInvoice,
+  aiProgress,
 }: ClientBatchDetailViewProps) {
   const c = useClientTheme()
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<InvoiceSortField>('invoice_number')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  /** Keep a short “Paperwork checked” confirmation after processing finishes. */
+  const [showDoneBanner, setShowDoneBanner] = useState(false)
+
+  useEffect(() => {
+    if (aiProgress?.phase === 'done') {
+      setShowDoneBanner(true)
+      const timer = window.setTimeout(() => setShowDoneBanner(false), 6000)
+      return () => window.clearTimeout(timer)
+    }
+    if (aiProgress?.phase === 'processing' || aiProgress?.phase === 'failed') {
+      setShowDoneBanner(false)
+    }
+    return undefined
+  }, [aiProgress?.phase, batch.id])
+
+  const showAiBanner =
+    aiProgress?.show &&
+    (aiProgress.phase === 'processing' ||
+      aiProgress.phase === 'failed' ||
+      (aiProgress.phase === 'done' && showDoneBanner))
 
   const sortedInvoices = useMemo(() => {
     const sorted = [...invoices]
@@ -139,6 +162,46 @@ export default function ClientBatchDetailView({
           All batches
         </button>
       </div>
+
+      {showAiBanner && aiProgress && (
+        <div
+          className={`client-batch-ai-progress shrink-0${
+            aiProgress.phase === 'failed' ? ' client-batch-ai-progress--failed' : ''
+          }${aiProgress.phase === 'done' ? ' client-batch-ai-progress--done' : ''}`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="client-batch-ai-progress__row">
+            {aiProgress.phase === 'processing' ? (
+              <Loader2 className="client-batch-ai-progress__spinner w-4 h-4 shrink-0" />
+            ) : null}
+            <div className="min-w-0 flex-1">
+              <p className="client-batch-ai-progress__label">{aiProgress.label}</p>
+              {aiProgress.detail ? (
+                <p className="client-batch-ai-progress__detail">{aiProgress.detail}</p>
+              ) : null}
+              {aiProgress.phase === 'processing' && aiProgress.etaLabel ? (
+                <p className="client-batch-ai-progress__detail">
+                  Estimated time left: {aiProgress.etaLabel}
+                </p>
+              ) : null}
+            </div>
+            {aiProgress.total > 0 ? (
+              <span className="client-batch-ai-progress__pct tabular-nums">
+                {aiProgress.percent}%
+              </span>
+            ) : null}
+          </div>
+          {aiProgress.total > 0 && aiProgress.phase === 'processing' ? (
+            <div className="client-batch-ai-progress__track">
+              <div
+                className="client-batch-ai-progress__bar"
+                style={{ width: `${aiProgress.percent}%` }}
+              />
+            </div>
+          ) : null}
+        </div>
+      )}
 
       <section
         className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 border-b shrink-0"

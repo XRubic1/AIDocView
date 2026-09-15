@@ -142,7 +142,7 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
         status: 'ready_to_post',
         submitted_at: new Date().toISOString(),
         upload_mode: 'manual',
-        sort_status: 'ready',
+        sort_status: 'sorting',
         fee_calculation: feeCalculation,
       })!
     : addBatch({
@@ -154,7 +154,7 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
         status: 'ready_to_post',
         submitted_at: new Date().toISOString(),
         upload_mode: 'manual',
-        sort_status: 'ready',
+        sort_status: 'sorting',
         fee_calculation: feeCalculation,
       })
 
@@ -272,6 +272,17 @@ export async function submitManualBatch(input: SubmitManualBatchInput) {
   }
 
   clearClientTenantCache(clientId)
+
+  try {
+    const { enqueueBatchProcessing } = await import('./batchProcessingJobs')
+    void enqueueBatchProcessing({
+      batchId: batch.id,
+      clientId,
+      kind: 'sort_and_verify',
+    })
+  } catch (err) {
+    console.warn('[submitManualBatch] enqueue background processing failed', err)
+  }
 
   return { batch, invoices: created }
 }

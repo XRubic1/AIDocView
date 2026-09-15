@@ -194,7 +194,10 @@ async function restoreDraftRecords(
       client_id: record.clientId,
       total_invoices: invoiceCount,
       total_amount: totalAmount,
-      status: 'draft',
+      status:
+        record.mode === 'ai' && record.ai?.step === 'processing'
+          ? 'creating'
+          : 'draft',
       submitted_at: record.updatedAt,
       upload_mode: record.mode,
       sort_status: sortStatus,
@@ -206,11 +209,17 @@ async function restoreDraftRecords(
 export function ensureClientDraftBatch(
   clientId: string,
   clientName: string,
-  mode: ClientBatchDraftMode
+  mode: ClientBatchDraftMode,
+  opts?: { status?: 'draft' | 'creating' }
 ): Batch {
   const existing = getClientDraftBatch(clientId, mode)
-  if (existing) return existing
-  return createDraftBatch(clientId, clientName, mode)
+  if (existing) {
+    if (opts?.status && existing.status !== opts.status) {
+      return updateBatch(existing.id, { status: opts.status }) ?? existing
+    }
+    return existing
+  }
+  return createDraftBatch(clientId, clientName, mode, { status: opts?.status ?? 'draft' })
 }
 
 export async function saveAiDraftSnapshot(
@@ -218,7 +227,8 @@ export async function saveAiDraftSnapshot(
   clientId: string,
   snapshot: AiDraftSnapshot,
   intake: BatchIntakeDraft | null,
-  uploadFiles: File[]
+  uploadFiles: File[],
+  opts?: { batchStatus?: 'draft' | 'creating' }
 ): Promise<'saved' | 'cleared' | 'skipped'> {
   if (isAiDraftEmpty(uploadFiles, intake)) {
     await purgeEmptyDraftRecord(batchId)
@@ -261,10 +271,14 @@ export async function saveAiDraftSnapshot(
 
   const invoiceCount = intake?.invoices.length ?? 0
   const totalAmount = intake?.invoices.reduce((sum, inv) => sum + (inv.amount || 0), 0) ?? 0
+  const sorting = snapshot.step === 'processing'
+  const nextStatus =
+    opts?.batchStatus ?? (sorting ? 'creating' : 'draft')
   updateBatch(batchId, {
     total_invoices: invoiceCount,
     total_amount: totalAmount,
-    sort_status: snapshot.step === 'confirm' ? 'ready' : snapshot.step === 'processing' ? 'sorting' : 'pending',
+    sort_status: snapshot.step === 'confirm' ? 'ready' : sorting ? 'sorting' : 'pending',
+    status: nextStatus,
   })
   return 'saved'
 }
@@ -276,7 +290,8 @@ export async function persistAiDraftIfNeeded(
   batchId: string | null,
   snapshot: Pick<AiDraftSnapshot, 'step'>,
   intake: BatchIntakeDraft | null,
-  uploadFiles: File[]
+  uploadFiles: File[],
+  opts?: { batchStatus?: 'draft' | 'creating' }
 ): Promise<{ batchId: string | null; result: 'saved' | 'cleared' | 'skipped' }> {
   if (isAiDraftEmpty(uploadFiles, intake)) {
     if (batchId) {
@@ -287,13 +302,17 @@ export async function persistAiDraftIfNeeded(
   }
 
   const targetBatchId =
-    batchId ?? ensureClientDraftBatch(clientId, clientName, 'ai').id
+    batchId ??
+    ensureClientDraftBatch(clientId, clientName, 'ai', {
+      status: opts?.batchStatus ?? 'draft',
+    }).id
   await saveAiDraftSnapshot(
     targetBatchId,
     clientId,
     { step: snapshot.step as AiDraftStep, uploadFiles: [], intake: null },
     intake,
-    uploadFiles
+    uploadFiles,
+    opts
   )
   return { batchId: targetBatchId, result: 'saved' }
 }

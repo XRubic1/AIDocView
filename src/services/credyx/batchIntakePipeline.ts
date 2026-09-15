@@ -97,6 +97,7 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
     confirmedBy,
     existingBatchId,
     skipSetupGate,
+    uploadMode = 'ai',
   } = input
 
   const allConfirmed = drafts.every((d) => d.confirmed)
@@ -143,7 +144,7 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
         total_amount: totalAmount,
         status: 'ready_to_post',
         submitted_at: new Date().toISOString(),
-        upload_mode: 'ai',
+        upload_mode: uploadMode,
         sort_status: 'ready',
         doc_sort_snapshot: buildDocSortSnapshot(sortResult, drafts),
         unmatched_doc_ids: unmatchedIds,
@@ -157,7 +158,7 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
         total_amount: totalAmount,
         status: 'ready_to_post',
         submitted_at: new Date().toISOString(),
-        upload_mode: 'ai',
+        upload_mode: uploadMode,
         sort_status: 'ready',
         doc_sort_snapshot: buildDocSortSnapshot(sortResult, drafts),
         unmatched_doc_ids: unmatchedIds,
@@ -235,6 +236,18 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
   }
 
   clearClientTenantCache(clientId)
+
+  // Kick automated AI verification (edge + in-browser). Does not block submit.
+  try {
+    const { enqueueBatchProcessing } = await import('./batchProcessingJobs')
+    void enqueueBatchProcessing({
+      batchId: batch.id,
+      clientId,
+      kind: 'verify_only',
+    })
+  } catch (err) {
+    console.warn('[submitAiBatch] enqueue background processing failed', err)
+  }
 
   // Optional happy path: clean intake → PPW → verification (Credyx can override anytime).
   let happyPath:

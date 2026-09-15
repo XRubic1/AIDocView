@@ -1,6 +1,16 @@
-/** Standalone DocSort product types — not used by AIDocView review engine. */
+/** DocSort types plus the full extract JSON used to match and verify packets. */
 
-export type DocSortKind = 'rate_confirmation' | 'bill_of_lading' | 'other'
+export type DocSortKind =
+  | 'rate_confirmation'
+  | 'bill_of_lading'
+  | 'invoice'
+  | 'lumper'
+  | 'other'
+
+/** Invoice / lumper / unclassified support docs attach to a load packet. */
+export function isSupportDocKind(kind: DocSortKind): boolean {
+  return kind === 'invoice' || kind === 'lumper' || kind === 'other'
+}
 
 export type DocSortStatus = 'pending' | 'scanning' | 'done' | 'error'
 
@@ -32,6 +42,11 @@ export interface DocSortFingerprint {
   rateAmount?: number
   rateCurrency?: string
   notes?: string
+  /** Full per-doc extract (RC / BOL / invoice / lumper) — used to match and verify. */
+  extract?: import('../../types/documentReview').ExtractedDocumentData
+  invoiceNumber?: string
+  lumperAmount?: number
+  lumperVendor?: string
 }
 
 /** Rate con grouped with its matched BOL(s). */

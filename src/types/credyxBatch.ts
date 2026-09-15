@@ -38,7 +38,7 @@ export interface BatchIntakeDraft {
   storagePathsByDocId?: Record<string, string>
 }
 
-export type BatchUploadMode = 'ai' | 'manual'
+export type BatchUploadMode = 'ai' | 'manual' | 'handoff'
 
 export interface SubmitAiBatchInput {
   clientId: string
@@ -51,6 +51,8 @@ export interface SubmitAiBatchInput {
   existingBatchId?: string
   /** Admin create-batch paths skip the vault setup gate. */
   skipSetupGate?: boolean
+  /** Defaults to `ai`. Managed Send docs keeps `handoff`. */
+  uploadMode?: 'ai' | 'handoff'
 }
 
 export interface SubmitAiBatchResult {

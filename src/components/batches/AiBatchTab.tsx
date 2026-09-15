@@ -24,6 +24,11 @@ import { hasPpwBeenSent } from '../../utils/ppwSent'
 import BatchAiReviewPanel, { InvoiceAiReviewBadge } from './BatchAiReviewPanel'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 import { formatCurrency } from '../../utils/format'
+import {
+  canOpenPacketRework,
+  getAdminBatchAiReviewProgress,
+} from '../../utils/adminBatchQueue'
+import { getAdminBatchStatusBadge } from './adminBatchStatus'
 
 interface AiBatchTabProps {
   batchId: string | null
@@ -86,6 +91,15 @@ export default function AiBatchTab({
   const [sendingPpw, setSendingPpw] = useState(false)
 
   const openBatchPreview = (targetBatchId: string) => {
+    const full = getAllBatches().find((b) => b.id === targetBatchId)
+    if (full && !canOpenPacketRework(full)) {
+      showToast(
+        'Packet rework unlocks when invoices are created and AI review finishes.',
+        'info'
+      )
+      onBatchSelect(targetBatchId)
+      return
+    }
     onOpenPacketRework?.(targetBatchId)
   }
 
@@ -93,7 +107,9 @@ export default function AiBatchTab({
     return getAllBatches().filter(
       (b) =>
         b.status !== 'draft' &&
-        (b.upload_mode === 'ai' ||
+        (b.status === 'creating' ||
+          b.upload_mode === 'ai' ||
+          b.upload_mode === 'handoff' ||
           b.sort_status === 'sorting' ||
           b.sort_status === 'failed' ||
           b.sort_status === 'ready' ||
@@ -111,16 +127,24 @@ export default function AiBatchTab({
   const batch = batchId ? allBatches.find((b) => b.id === batchId) : null
 
   if (!batchId || !batch) {
-    const listItems: AdminBatchListItem[] = aiBatches.map((b) => ({
-      id: b.id,
-      batch_number: b.batch_number,
-      client_name: b.client_name,
-      total_invoices: b.total_invoices,
-      total_amount: b.total_amount,
-      submitted_at: b.submitted_at,
-      status: b.status,
-      upload_mode: b.upload_mode,
-    }))
+    const listItems: AdminBatchListItem[] = aiBatches.map((b) => {
+      const aiProgress = getAdminBatchAiReviewProgress(b.id)
+      return {
+        id: b.id,
+        batch_number: b.batch_number,
+        client_name: b.client_name,
+        total_invoices: b.total_invoices,
+        total_amount: b.total_amount,
+        submitted_at: b.submitted_at,
+        status: b.status,
+        upload_mode: b.upload_mode,
+        sort_status: b.sort_status,
+        ai_review_label: aiProgress.label,
+        ai_review_completed: aiProgress.completed,
+        ai_review_total: aiProgress.total,
+        packet_rework_ready: canOpenPacketRework(b),
+      }
+    })
 
     return (
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
@@ -162,6 +186,8 @@ export default function AiBatchTab({
   const reviewOk = batchInvoices.filter((inv) => inv.ai_review_status === 'ready')
   const ppwSentCount = batchInvoices.filter(hasPpwBeenSent).length
   const missingBroker = batchInvoices.filter((inv) => !inv.broker_id)
+  const aiProgress = getAdminBatchAiReviewProgress(batchId)
+  const packetsReady = canOpenPacketRework(batch)
 
   const toneColor = (tone: 'ok' | 'warn' | 'err' | 'muted') => {
     if (tone === 'ok') return c.success
@@ -212,9 +238,17 @@ export default function AiBatchTab({
             Back
           </button>
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold truncate" style={{ color: c.primary }}>
-              {batch.batch_number}
-            </h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-lg font-semibold truncate" style={{ color: c.primary }}>
+                {batch.batch_number}
+              </h2>
+              {getAdminBatchStatusBadge(batch.status)}
+              {aiProgress.label ? (
+                <span className="text-xs tabular-nums" style={{ color: c.secondary }}>
+                  {aiProgress.label}
+                </span>
+              ) : null}
+            </div>
             <p className="text-sm truncate" style={{ color: c.secondary }}>
               {batch.client_name} · AI workspace
             </p>
@@ -224,8 +258,14 @@ export default function AiBatchTab({
           <button
             type="button"
             onClick={() => openBatchPreview(batchId)}
-            className="dashboard-btn-secondary inline-flex items-center gap-1.5"
-            title="Open Packets rework workspace"
+            className={`dashboard-btn-secondary inline-flex items-center gap-1.5${
+              packetsReady ? '' : ' opacity-50'
+            }`}
+            title={
+              packetsReady
+                ? 'Open Packets rework workspace'
+                : 'Packet rework unlocks when invoices are ready'
+            }
           >
             <ExternalLink className="w-4 h-4" />
             Packets
@@ -279,8 +319,10 @@ export default function AiBatchTab({
           },
           {
             label: 'AI review OK',
-            value: `${reviewOk.length}/${batchInvoices.length}`,
-            color: toneColor(reviewOk.length === batchInvoices.length && batchInvoices.length > 0 ? 'ok' : 'muted'),
+            value: aiProgress.label ?? `${reviewOk.length}/${batchInvoices.length}`,
+            color: toneColor(
+              reviewOk.length === batchInvoices.length && batchInvoices.length > 0 ? 'ok' : 'muted'
+            ),
           },
           {
             label: 'PPW sent',
@@ -410,12 +452,7 @@ export default function AiBatchTab({
                 {batchInvoices.map((inv) => {
                   const rev = reviewStatusLabel(inv.ai_review_status)
                   return (
-                    <tr
-                      key={inv.id}
-                      className="cursor-pointer dashboard-card-interactive"
-                      onClick={() => openBatchPreview(batchId)}
-                      title="Open Packets rework"
-                    >
+                    <tr key={inv.id}>
                       <td className="font-medium" style={{ color: c.primary }}>
                         {inv.invoice_number}
                       </td>
@@ -426,7 +463,7 @@ export default function AiBatchTab({
                         )}
                       </td>
                       <td className="text-right tabular-nums">{formatCurrency(inv.amount)}</td>
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td>
                         <InvoiceAiReviewBadge invoice={inv} status={inv.ai_review_status} />
                       </td>
                       <td>

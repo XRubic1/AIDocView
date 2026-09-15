@@ -1,4 +1,4 @@
-import type { DocSortFingerprint, DocSortLoadGroup, DocSortResult } from '../types'
+import { isSupportDocKind, type DocSortFingerprint, type DocSortLoadGroup, type DocSortResult } from '../types'
 import {
   allLoadKeys,
   clusterFingerprints,
@@ -6,6 +6,7 @@ import {
   loadsOverlap,
   primaryLoadLabel,
 } from './matchKeys'
+import { bolBelongsWithRateCon } from './bolRateConMatch'
 
 export { loadsOverlap }
 
@@ -13,13 +14,23 @@ function groupMembers(group: DocSortLoadGroup): DocSortFingerprint[] {
   return [...group.rateCons, ...group.bols, ...(group.others ?? [])]
 }
 
+function pairBelongsTogether(left: DocSortFingerprint, right: DocSortFingerprint): boolean {
+  if (left.kind === 'bill_of_lading' && right.kind === 'rate_confirmation') {
+    return bolBelongsWithRateCon(left, right)
+  }
+  if (right.kind === 'bill_of_lading' && left.kind === 'rate_confirmation') {
+    return bolBelongsWithRateCon(right, left)
+  }
+  return fingerprintsBelongTogether(left, right)
+}
+
 function fingerprintOverlapsGroup(fp: DocSortFingerprint, group: DocSortLoadGroup): boolean {
-  return groupMembers(group).some((member) => fingerprintsBelongTogether(fp, member))
+  return groupMembers(group).some((member) => pairBelongsTogether(fp, member))
 }
 
 function groupsBelongTogether(a: DocSortLoadGroup, b: DocSortLoadGroup): boolean {
   return groupMembers(a).some((left) =>
-    groupMembers(b).some((right) => fingerprintsBelongTogether(left, right))
+    groupMembers(b).some((right) => pairBelongsTogether(left, right))
   )
 }
 
@@ -99,7 +110,7 @@ export function toInvoiceLoadGroup(
 ): DocSortLoadGroup {
   const rateCons = fps.filter((f) => f.kind === 'rate_confirmation')
   const bols = fps.filter((f) => f.kind === 'bill_of_lading')
-  const others = fps.filter((f) => f.kind === 'other')
+  const others = fps.filter((f) => isSupportDocKind(f.kind))
   const anchor = rateCons[0] ?? bols[0] ?? others[0]
   return {
     groupId,
@@ -165,6 +176,33 @@ export function invoiceDraftGroupsFromSort(sort: DocSortResult): {
     )
   }
 
+  const leftoverBols: DocSortFingerprint[] = []
+  for (const bol of sort.unmatchedBols) {
+    const host = groups.find((group) => fingerprintOverlapsGroup(bol, group))
+    if (host) {
+      host.bols.push(bol)
+    } else {
+      leftoverBols.push(bol)
+    }
+  }
+
+  const unmatchedBols: DocSortFingerprint[] = []
+  for (const cluster of clusterFingerprints(leftoverBols)) {
+    const seed = toInvoiceLoadGroup(
+      `solo-bol-${cluster[0].docId}`,
+      cluster,
+      cluster.length > 1 ? 'matched from extract JSON' : 'bill of lading'
+    )
+    seed.label = bestPacketLabel(cluster, seed.label)
+    const { taken, rest } = takeMatching(others, seed)
+    if (taken.length === 0) {
+      unmatchedBols.push(...cluster)
+      continue
+    }
+    others = rest
+    groups.push({ ...seed, others: [...(seed.others ?? []), ...taken] })
+  }
+
   const leftoverOthers: DocSortFingerprint[] = []
   for (const fp of others) {
     const host = groups.find((group) => fingerprintOverlapsGroup(fp, group))
@@ -185,7 +223,7 @@ export function invoiceDraftGroupsFromSort(sort: DocSortResult): {
     groups: clusterLoadGroups(groups),
     unmatched: {
       rateCons: [],
-      bols: [...sort.unmatchedBols],
+      bols: unmatchedBols,
       other: leftoverOthers,
     },
   }

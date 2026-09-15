@@ -467,7 +467,7 @@ export default function BatchPacketReworkWorkspace({
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-hidden flex flex-col client-portal">
+    <div className="batch-packet-workspace flex-1 min-h-0 overflow-hidden flex flex-col">
       <div
         className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b"
         style={{ borderColor: c.border, backgroundColor: c.card }}

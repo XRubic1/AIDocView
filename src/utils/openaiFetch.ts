@@ -97,6 +97,7 @@ async function readInvokeFailure(
 
 /**
  * POST to OpenAI chat/completions via Supabase Edge Function proxy.
+ * Always attach the signed-in user JWT — gateway/proxy both require Bearer auth.
  */
 export async function postOpenAIChatCompletions(
   body: Record<string, unknown>
@@ -110,8 +111,31 @@ export async function postOpenAIChatCompletions(
   let lastErrorBody = ''
   let lastStatus = 502
 
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  let accessToken = session?.access_token
+  if (!accessToken) {
+    const { data: refreshed } = await supabase.auth.refreshSession()
+    accessToken = refreshed.session?.access_token
+  }
+  if (!accessToken) {
+    return new Response(
+      JSON.stringify({
+        error: 'Unauthorized',
+        detail: 'Sign in again — AI calls need a valid session Bearer token.',
+      }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
+  const invokeHeaders = { Authorization: `Bearer ${accessToken}` }
+
   for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt += 1) {
-    const { data, error } = await supabase.functions.invoke('openai-proxy', { body })
+    const { data, error } = await supabase.functions.invoke('openai-proxy', {
+      body,
+      headers: invokeHeaders,
+    })
 
     if (error) {
       const failure = await readInvokeFailure(error, data)

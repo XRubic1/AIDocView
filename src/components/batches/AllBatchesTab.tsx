@@ -4,10 +4,15 @@ import { PendingBatch } from '../../types/admin'
 import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
 import { useClientTheme, useTheme } from '../../theme/ThemeContext'
 import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
+import { useAdminCapabilities } from '../../hooks/useAdminCapabilities'
 import {
+  canOpenPacketRework,
+  getAdminBatchAiReviewProgress,
   resolveAdminBatchWorkflowStage,
   type AdminBatchWorkflowStage,
 } from '../../utils/adminBatchQueue'
+import { deleteUnsubmittedBatch } from '../../services/credyx/deleteBatch'
+import { useToast } from '../ui/ToastProvider'
 
 interface AllBatchesTabProps {
   /** Pre-filtered batches from page-level display chips. */
@@ -15,6 +20,8 @@ interface AllBatchesTabProps {
   onBatchSelect: (batchId: string, stage?: AdminBatchWorkflowStage) => void
   /** Open the Packets rework workspace (same UI as AI upload confirm). */
   onPacketRework: (batchId: string) => void
+  /** Parent list refresh after delete / status change. */
+  onBatchesChanged?: () => void
 }
 
 interface Batch extends PendingBatch {
@@ -30,9 +37,13 @@ export default function AllBatchesTab({
   batches: batchesProp,
   onBatchSelect,
   onPacketRework,
+  onBatchesChanged,
 }: AllBatchesTabProps) {
   const c = useClientTheme()
   const { resolvedTheme } = useTheme()
+  const { showToast } = useToast()
+  const { capabilities } = useAdminCapabilities()
+  const canDeleteBatches = capabilities.canDeleteBatches
   const tenantRevision = useTenantDataRevision()
   const [listVersion, setListVersion] = useState(0)
   const allBatches = useMemo(
@@ -43,20 +54,59 @@ export default function AllBatchesTab({
   const [showNavigationModal, setShowNavigationModal] = useState(false)
   const [selectedBatchForNavigation, setSelectedBatchForNavigation] = useState<Batch | null>(null)
 
-  const listItems: AdminBatchListItem[] = batches.map((batch) => ({
-    id: batch.id,
-    batch_number: batch.batch_number,
-    client_name: batch.client_name,
-    total_invoices: batch.total_invoices,
-    total_amount: batch.total_amount,
-    submitted_at: batch.submitted_at,
-    status: batch.status === 'approval' ? 'verification' : batch.status,
-    upload_mode: batch.upload_mode,
-    in_use: batch.in_use,
-    in_use_by: batch.in_use_by,
-    reviewed_at: batch.reviewed_at ?? null,
-    reviewed_by: batch.reviewed_by,
-  }))
+  const listItems: AdminBatchListItem[] = batches.map((batch) => {
+    const aiProgress = getAdminBatchAiReviewProgress(batch.id)
+    return {
+      id: batch.id,
+      batch_number: batch.batch_number,
+      client_name: batch.client_name,
+      total_invoices: batch.total_invoices,
+      total_amount: batch.total_amount,
+      submitted_at: batch.submitted_at,
+      status: batch.status,
+      upload_mode: batch.upload_mode,
+      sort_status: batch.sort_status,
+      in_use: batch.in_use,
+      in_use_by: batch.in_use_by,
+      reviewed_at: batch.reviewed_at ?? null,
+      reviewed_by: batch.reviewed_by,
+      ai_review_label: aiProgress.label,
+      ai_review_completed: aiProgress.completed,
+      ai_review_total: aiProgress.total,
+      packet_rework_ready: canOpenPacketRework(batch),
+    }
+  })
+
+  /** Confirm + delete — admin / super_admin only. */
+  const handleDeleteBatch = async (item: AdminBatchListItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!canDeleteBatches) {
+      showToast('Only admins can delete batches', 'error')
+      return
+    }
+    const full =
+      allBatches.find((b) => b.id === item.id) ?? batches.find((b) => b.id === item.id)
+    if (!full) return
+    const invoiceNote =
+      full.total_invoices > 0
+        ? ` This removes ${full.total_invoices} invoice${full.total_invoices === 1 ? '' : 's'} and their documents.`
+        : ''
+    if (
+      !window.confirm(
+        `Delete batch ${full.batch_number}?${invoiceNote} This cannot be undone.`
+      )
+    ) {
+      return
+    }
+    try {
+      await deleteUnsubmittedBatch(full.id)
+      setListVersion((v) => v + 1)
+      onBatchesChanged?.()
+      showToast(`Deleted batch ${full.batch_number}`, 'success')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not delete batch', 'error')
+    }
+  }
 
   const handleViewClick = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -74,13 +124,27 @@ export default function AllBatchesTab({
 
   const handlePreviewClick = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
+    const full = allBatches.find((b) => b.id === batch.id) ?? batches.find((b) => b.id === batch.id)
+    if (!full) return
+    if (!canOpenPacketRework(full)) {
+      showToast('Packet rework is available once invoices are created and AI review finishes.', 'info')
+      onBatchSelect(full.id, 'ai')
+      return
+    }
     onPacketRework(batch.id)
   }
 
   const handleReturnToVerification = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
     const full = allBatches.find((b) => b.id === batch.id)
-    if (!full || full.status === 'verification' || full.status === 'draft') return
+    if (
+      !full ||
+      full.status === 'verification' ||
+      full.status === 'draft' ||
+      full.status === 'creating'
+    ) {
+      return
+    }
 
     const confirmed = window.confirm(
       `Return batch ${full.batch_number} to Verification? It will reappear under the Verification filter.`
@@ -92,7 +156,10 @@ export default function AllBatchesTab({
   }
 
   const canReturnToVerification = (status: string) =>
-    status !== 'verification' && status !== 'draft' && status !== 'ready_to_post'
+    status !== 'verification' &&
+    status !== 'draft' &&
+    status !== 'creating' &&
+    status !== 'ready_to_post'
 
   const handleNavigateToStage = (stage: AdminBatchWorkflowStage) => {
     if (selectedBatchForNavigation) {
@@ -125,6 +192,7 @@ export default function AllBatchesTab({
         onPreviewClick={handlePreviewClick}
         onReturnToApproval={handleReturnToVerification}
         canReturnToApproval={canReturnToVerification}
+        onDeleteBatch={canDeleteBatches ? handleDeleteBatch : undefined}
         actionLabel="View"
         emptyTitle="No batches found"
         emptyHint="Try adjusting your search or filters"

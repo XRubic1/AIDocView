@@ -53,14 +53,18 @@ export const getClientDraftBatch = (
   uploadMode: 'ai' | 'manual'
 ): Batch | undefined => {
   return batchesData.find(
-    (b) => b.client_id === clientId && b.status === 'draft' && b.upload_mode === uploadMode
+    (b) =>
+      b.client_id === clientId &&
+      (b.status === 'draft' || b.status === 'creating') &&
+      b.upload_mode === uploadMode
   )
 }
 
 export const createDraftBatch = (
   clientId: string,
   clientName: string,
-  uploadMode: 'ai' | 'manual'
+  uploadMode: 'ai' | 'manual',
+  opts?: { status?: 'draft' | 'creating' }
 ): Batch => {
   return addBatch({
     batch_number: generateBatchNumber(clientId),
@@ -68,7 +72,7 @@ export const createDraftBatch = (
     client_id: clientId,
     total_invoices: 0,
     total_amount: 0,
-    status: 'draft',
+    status: opts?.status ?? 'draft',
     submitted_at: new Date().toISOString(),
     upload_mode: uploadMode,
     sort_status: 'pending',

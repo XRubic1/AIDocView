@@ -25,6 +25,8 @@ export function guessDocSortKindFromFileName(
   if (/\bbol\b|bill\s*of\s*lad|pod\b|proof\s*of\s*deliv/.test(lower)) {
     return 'bill_of_lading'
   }
+  if (/\binvoice\b/.test(lower)) return 'invoice'
+  if (/lumper/.test(lower)) return 'lumper'
   return 'other'
 }
 

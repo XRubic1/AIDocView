@@ -158,4 +158,86 @@ describe('invoiceDraftGroupsFromSort', () => {
     })
     expect(unmatched.other).toHaveLength(0)
   })
+
+  it('groups an unmatched BOL with an invoice using extract load numbers', () => {
+    const bol = fp({
+      docId: 'bol1',
+      kind: 'bill_of_lading',
+      loadNumbers: ['91111978568'],
+      delivery: 'Salem, VA',
+    })
+    const invoice = fp({
+      docId: 'inv1',
+      kind: 'invoice',
+      loadNumbers: ['91111978568'],
+      rateAmount: 390,
+      broker: 'TQL',
+    })
+    const sort: DocSortResult = {
+      sortedAt: '2026-09-14T00:00:00.000Z',
+      groups: [],
+      unmatchedRateCons: [],
+      unmatchedBols: [bol],
+      otherDocuments: [invoice],
+      totalDocuments: 2,
+    }
+    const { groups, unmatched } = invoiceDraftGroupsFromSort(sort)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].bols).toHaveLength(1)
+    expect(groups[0].others?.map((item) => item.docId)).toEqual(['inv1'])
+    expect(unmatched.bols).toHaveLength(0)
+    expect(unmatched.other).toHaveLength(0)
+  })
+
+  it('attaches an unmatched BOL to a rate con by destination when load numbers differ', () => {
+    const rc = fp({
+      docId: 'rc1',
+      kind: 'rate_confirmation',
+      loadNumbers: ['91111978568'],
+      broker: 'TQL',
+      rateAmount: 390,
+      extract: {
+        documentType: 'rate_confirmation',
+        hasSignature: false,
+        confidence: 0.9,
+        fieldsFound: [],
+        rateConParse: {
+          load_number: '91111978568',
+          destinations: [{ city: 'Salem', state: 'VA' }],
+        },
+      },
+    })
+    const bol = fp({
+      docId: 'bol1',
+      kind: 'bill_of_lading',
+      loadNumbers: [],
+      extract: {
+        documentType: 'bill_of_lading',
+        hasSignature: true,
+        confidence: 0.9,
+        fieldsFound: [],
+        bolAudit: {
+          destination_match: 'UNKNOWN',
+          legibility: 'PASS',
+          page_count: 'PASS',
+          signatures: { carrier: 'PRESENT', shipper: 'PRESENT', receiver: 'PRESENT', receiver_date: 'PRESENT' },
+          ship_to: 'Salem, VA 24153',
+          overall: 'APPROVED',
+          flags: [],
+        },
+      },
+    })
+    const sort: DocSortResult = {
+      sortedAt: '2026-09-14T00:00:00.000Z',
+      groups: [],
+      unmatchedRateCons: [rc],
+      unmatchedBols: [bol],
+      otherDocuments: [],
+      totalDocuments: 2,
+    }
+    const { groups, unmatched } = invoiceDraftGroupsFromSort(sort)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].bols.map((item) => item.docId)).toEqual(['bol1'])
+    expect(unmatched.bols).toHaveLength(0)
+  })
 })

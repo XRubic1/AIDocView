@@ -1,57 +1,18 @@
-import type { DocSortFingerprint, DocSortLoadGroup, DocSortResult } from '../types'
+import { isSupportDocKind, type DocSortFingerprint, type DocSortLoadGroup, type DocSortResult } from '../types'
 import {
   allLoadKeys,
   clusterFingerprints,
-  explainFingerprintsLink,
-  lanesOverlap,
   primaryLoadLabel,
 } from '../utils/matchKeys'
-
-function scoreBolToRateCon(bol: DocSortFingerprint, rateCon: DocSortFingerprint): {
-  score: number
-  reason: string
-} {
-  const link = explainFingerprintsLink(bol, rateCon)
-  const hardBlock = link.blockers.filter(
-    (item) => item.startsWith('different brokers') || item.startsWith('different dates')
-  )
-  if (hardBlock.length > 0) {
-    return { score: 0, reason: hardBlock.join(' + ') }
-  }
-  if (link.linked) {
-    return { score: 80, reason: link.reasons.join(' + ') }
-  }
-
-  let score = 0
-  const reasons: string[] = []
-  const pickupHit = lanesOverlap(bol.pickup, rateCon.pickup)
-  const deliveryHit = lanesOverlap(bol.delivery, rateCon.delivery)
-  if (pickupHit) {
-    score += 20
-    reasons.push('pickup')
-  }
-  if (deliveryHit) {
-    score += 20
-    reasons.push('delivery')
-  }
-
-  if (pickupHit && deliveryHit) {
-    score = Math.max(score, 55)
-  }
-
-  return {
-    score,
-    reason: reasons.length > 0 ? reasons.join(' + ') : 'weak match',
-  }
-}
+import { BOL_RC_MATCH_THRESHOLD, scoreBolToRateCon } from '../utils/bolRateConMatch'
 
 /**
- * Group rate cons with BOLs by load # and lane hints — no verification checks.
+ * Group rate cons with BOLs by RC destinations and reference numbers.
  */
 export function matchSortedDocuments(fingerprints: DocSortFingerprint[]): DocSortResult {
   const rateCons = fingerprints.filter((f) => f.kind === 'rate_confirmation')
   const bols = fingerprints.filter((f) => f.kind === 'bill_of_lading')
-  const otherDocuments = fingerprints.filter((f) => f.kind === 'other')
+  const otherDocuments = fingerprints.filter((f) => isSupportDocKind(f.kind))
 
   const groups: DocSortLoadGroup[] = []
 
@@ -73,25 +34,29 @@ export function matchSortedDocuments(fingerprints: DocSortFingerprint[]): DocSor
   })
 
   const unmatchedBols: DocSortFingerprint[] = []
-  const MATCH_THRESHOLD = 50
 
   for (const bol of bols) {
     let bestGroup: DocSortLoadGroup | undefined
     let bestScore = 0
     let bestReason = ''
+    let secondScore = 0
 
     for (const group of groups) {
       for (const anchor of group.rateCons) {
         const { score, reason } = scoreBolToRateCon(bol, anchor)
         if (score > bestScore) {
+          secondScore = bestScore
           bestScore = score
           bestGroup = group
           bestReason = reason
+        } else if (score > secondScore) {
+          secondScore = score
         }
       }
     }
 
-    if (bestGroup && bestScore >= MATCH_THRESHOLD) {
+    const uniqueWinner = bestScore > secondScore
+    if (bestGroup && bestScore >= BOL_RC_MATCH_THRESHOLD && uniqueWinner) {
       bestGroup.bols.push(bol)
       bestGroup.matchScore = Math.min(bestGroup.matchScore, bestScore)
       if (bestReason !== 'rate confirmation anchor') {

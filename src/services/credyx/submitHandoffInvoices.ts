@@ -186,10 +186,22 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
     status: 'ready_to_post',
     submitted_at: existingBatch.submitted_at,
     upload_mode: 'manual',
-    sort_status: 'ready',
+    sort_status: 'sorting',
     fee_calculation: feeCalculation,
   })!
 
   clearClientTenantCache(clientId)
+
+  try {
+    const { enqueueBatchProcessing } = await import('./batchProcessingJobs')
+    void enqueueBatchProcessing({
+      batchId,
+      clientId,
+      kind: 'sort_and_verify',
+    })
+  } catch (err) {
+    console.warn('[submitHandoffInvoices] enqueue background processing failed', err)
+  }
+
   return { batch, invoices: created }
 }

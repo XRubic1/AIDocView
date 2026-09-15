@@ -22,6 +22,7 @@ export const PACKET_CATEGORY_LABEL: Record<PacketDocCategory, string> = {
 }
 
 const OTHER_HINTS: { category: PacketDocCategory; pattern: RegExp }[] = [
+  { category: 'invoice', pattern: /\binvoice\b/i },
   { category: 'lumper', pattern: /lumper/i },
   { category: 'scale', pattern: /scale\s*tick|scale.?ticket|weight.?ticket/i },
   { category: 'pod', pattern: /\bpod\b|proof\s*of\s*deliv|delivery\s*receipt/i },
@@ -36,9 +37,12 @@ export function classifyPacketDoc(input: {
   notes?: string
   isGeneratedInvoice?: boolean
 }): PacketDocCategory {
-  if (input.isGeneratedInvoice || input.kind === 'Generated invoice') return 'invoice'
+  if (input.isGeneratedInvoice || input.kind === 'Generated invoice' || input.kind === 'invoice') {
+    return 'invoice'
+  }
   if (input.kind === 'rate_confirmation' || input.kind === 'Rate con') return 'rate_confirmation'
   if (input.kind === 'bill_of_lading' || input.kind === 'BOL') return 'bol'
+  if (input.kind === 'lumper') return 'lumper'
 
   const haystack = `${input.fileName ?? ''} ${input.notes ?? ''}`
   for (const hint of OTHER_HINTS) {

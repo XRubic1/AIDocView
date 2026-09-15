@@ -1,25 +1,30 @@
 import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Upload, FileText, CheckCircle, Loader2, AlertCircle, Trash2, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { addBatch, generateBatchNumber } from '../../data/mockBatches'
-import { HANDOFF_PLACEHOLDER_INVOICE_ID, setBatchFiles } from '../../data/batchFileStore'
-import { isSupabaseConfigured } from '../../lib/supabase'
-import { notifyAdminDocHandoff } from '../../services/adminNotificationService'
-import { uploadBatchInvoiceDocuments } from '../../services/supabase/tenantPersist'
 import { getClientById } from '../../services/clientRegistry'
 import { useToast } from '../ui/ToastProvider'
 import { useClientTheme } from '../../theme/ThemeContext'
 import {
-  assertClientSetupComplete,
   ClientSetupIncompleteError,
   getSetupChecklist,
   isClientSetupComplete,
 } from '../../utils/clientSetupDocuments'
+import {
+  submitManagedDocHandoff,
+  type ManagedHandoffProgress,
+} from '../../services/credyx/submitManagedDocHandoff'
+import { isAIReviewEnabled } from '../../config/aiReview'
+import { rememberBatchFileCount } from '../../utils/batchProcessingEta'
 
 interface ManagedDocHandoffViewProps {
   clientId: string
   clientName: string
-  onSubmitted?: () => void
+  onSubmitted?: (result: {
+    batchId: string
+    invoiceCount: number
+    fileCount: number
+    etaLabel: string
+  }) => void
 }
 
 function formatFileSize(bytes: number) {
@@ -28,7 +33,7 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** Simplified upload for managed-tier clients — Credyx ops processes files. */
+/** Simplified upload for managed-tier clients — AI drafts invoices in the background. */
 export default function ManagedDocHandoffView({
   clientId,
   clientName,
@@ -40,7 +45,13 @@ export default function ManagedDocHandoffView({
   const [notes, setNotes] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
+  const [progress, setProgress] = useState<ManagedHandoffProgress | null>(null)
+  const [submitted, setSubmitted] = useState<{
+    batchNumber: string
+    fileCount: number
+    etaLabel: string
+    docsOnly: boolean
+  } | null>(null)
   const dragDepthRef = useRef(0)
 
   const client = useMemo(() => getClientById(clientId), [clientId])
@@ -52,6 +63,7 @@ export default function ManagedDocHandoffView({
     () => getSetupChecklist(clientId, client),
     [clientId, client]
   )
+  const aiEnabled = isAIReviewEnabled()
 
   const addFiles = useCallback((incoming: FileList | File[]) => {
     const next = Array.from(incoming).filter((f) => f.size > 0)
@@ -80,7 +92,6 @@ export default function ManagedDocHandoffView({
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    // Required so the browser shows a “copy” drop cursor.
     e.dataTransfer.dropEffect = 'copy'
   }
 
@@ -101,50 +112,29 @@ export default function ManagedDocHandoffView({
   const handleSubmit = async () => {
     if (files.length === 0 || isSubmitting) return
     setIsSubmitting(true)
+    setProgress({ phase: 'uploading', message: 'Saving your documents…' })
     try {
-      assertClientSetupComplete(clientId, client)
-
-      const batchNumber = generateBatchNumber(clientId)
-      const submittedAt = new Date().toISOString()
-      const batch = addBatch({
-        batch_number: batchNumber,
-        client_name: clientName,
-        client_id: clientId,
-        total_invoices: 0,
-        total_amount: 0,
-        status: 'ready_to_post',
-        submitted_at: submittedAt,
-        upload_mode: 'handoff',
-      })
-
-      const fileMap = new Map<string, File>()
-      files.forEach((file, index) => {
-        const docId = `handoff-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`
-        fileMap.set(docId, file)
-      })
-      setBatchFiles(batch.id, fileMap)
-
-      if (isSupabaseConfigured()) {
-        await uploadBatchInvoiceDocuments(
-          clientId,
-          batch.id,
-          HANDOFF_PLACEHOLDER_INVOICE_ID,
-          fileMap
-        )
-      }
-
-      notifyAdminDocHandoff({
+      const result = await submitManagedDocHandoff({
         clientId,
         clientName,
-        batchId: batch.id,
-        batchNumber: batch.batch_number,
-        fileCount: files.length,
-        fileNames: files.map((f) => f.name),
-        notes: notes.trim() || undefined,
+        files,
+        notes,
+        onProgress: setProgress,
       })
 
-      setSubmitted(true)
-      onSubmitted?.()
+      rememberBatchFileCount(result.batchId, result.fileCount)
+      setSubmitted({
+        batchNumber: result.batchNumber,
+        fileCount: result.fileCount,
+        etaLabel: result.etaLabel,
+        docsOnly: result.docsOnly,
+      })
+      onSubmitted?.({
+        batchId: result.batchId,
+        invoiceCount: 0,
+        fileCount: result.fileCount,
+        etaLabel: result.etaLabel,
+      })
     } catch (err) {
       const message =
         err instanceof ClientSetupIncompleteError
@@ -153,6 +143,7 @@ export default function ManagedDocHandoffView({
             ? err.message
             : 'Could not send documents to Credyx'
       showToast(message, 'error')
+      setProgress(null)
     } finally {
       setIsSubmitting(false)
     }
@@ -164,10 +155,42 @@ export default function ManagedDocHandoffView({
         <div className="managed-handoff__success">
           <CheckCircle className="w-10 h-10 mb-3" style={{ color: c.success }} aria-hidden />
           <h3 className="managed-handoff__success-title" style={{ color: c.primary }}>
-            Documents sent
+            Thank you for submitting
           </h3>
           <p className="managed-handoff__success-copy" style={{ color: c.secondary }}>
-            Credyx will process these files and update your batches shortly.
+            {submitted.docsOnly
+              ? 'Credyx received your paperwork and will create the invoices. You’ll be notified when they’re ready to review.'
+              : 'Invoices will be created automatically from your paperwork. You’ll be notified once they’re ready to review.'}
+          </p>
+          <p className="managed-handoff__success-copy mt-3" style={{ color: c.primary }}>
+            This usually takes {submitted.etaLabel}
+            {submitted.fileCount > 0
+              ? ` for ${submitted.fileCount} file${submitted.fileCount === 1 ? '' : 's'}`
+              : ''}
+            .
+          </p>
+          <p className="text-xs mt-4" style={{ color: c.muted }}>
+            Batch {submitted.batchNumber} · Track progress anytime under Batches
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (isSubmitting && progress) {
+    return (
+      <div className="managed-handoff managed-handoff--success" data-onboard-target="submitPanel">
+        <div className="managed-handoff__success">
+          <Loader2
+            className="w-10 h-10 mb-3 animate-spin"
+            style={{ color: c.info }}
+            aria-hidden
+          />
+          <h3 className="managed-handoff__success-title" style={{ color: c.primary }}>
+            Sending documents
+          </h3>
+          <p className="managed-handoff__success-copy" style={{ color: c.secondary }}>
+            {progress.message}
           </p>
         </div>
       </div>
@@ -206,7 +229,7 @@ export default function ManagedDocHandoffView({
               </li>
             ))}
           </ul>
-          <Link to="/client/documents" className="dashboard-btn-primary inline-flex">
+          <Link to="/client/documents" className="dashboard-btn-primary inline-flex text-sm">
             Open Document Vault
           </Link>
         </div>
@@ -246,7 +269,9 @@ export default function ManagedDocHandoffView({
                 </div>
                 <p className="managed-handoff-dropzone__title">Drop files here</p>
                 <p className="managed-handoff-dropzone__text">
-                  Drag paperwork onto this area, or
+                  {aiEnabled
+                    ? 'We create invoices automatically from your paperwork. You’ll be notified when they’re ready to review.'
+                    : 'Drag paperwork onto this area, or'}
                 </p>
                 <label className="managed-handoff-dropzone__browse">
                   Browse files
@@ -310,40 +335,24 @@ export default function ManagedDocHandoffView({
                   </li>
                 ))}
               </ul>
-            </div>
 
-            <div className="managed-handoff__notes">
-              <label className="managed-handoff__notes-label" htmlFor="managed-handoff-notes">
-                Notes (optional)
+              <label className="managed-handoff__notes">
+                <span>Notes for Credyx (optional)</span>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Anything we should know about these loads?"
+                />
               </label>
-              <textarea
-                id="managed-handoff-notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={3}
-                className="managed-handoff__notes-input client-input"
-                placeholder="Broker names, load numbers, or special instructions…"
-              />
-            </div>
 
-            <div className="managed-handoff__footer">
               <button
                 type="button"
+                onClick={() => void handleSubmit()}
                 disabled={isSubmitting}
-                onClick={handleSubmit}
                 className="dashboard-btn-primary managed-handoff__submit"
               >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Sending…
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4" />
-                    Send {files.length} to Credyx
-                  </>
-                )}
+                Send paperwork
               </button>
             </div>
           </aside>

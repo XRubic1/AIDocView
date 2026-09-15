@@ -84,3 +84,17 @@ export type BrokerSnapshotLookupState =
   | { status: 'found'; data: BrokerSnapshotSummary }
   | { status: 'not_found'; mcNumber: string }
   | { status: 'error'; message: string }
+
+/** One carrier MC Lookup, with broker status frozen at review time. */
+export type BrokerSnapshotLookupLogRow = {
+  id: string
+  mc_number: string | null
+  mc_digits: string
+  legal_name: string | null
+  insurance_verdict: string | null
+  found: boolean | null
+  operating_status: string | null
+  broker_authority: string | null
+  status_label: string | null
+  created_at: string
+}

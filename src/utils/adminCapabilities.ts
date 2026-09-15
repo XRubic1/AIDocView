@@ -12,6 +12,8 @@ export interface AdminCapabilities {
   canForceConfirmPayment: boolean
   /** Create / list / update backoffice users. */
   canManageUsers: boolean
+  /** Permanently delete unsubmitted batches from the admin Batches queue. */
+  canDeleteBatches: boolean
   canAccessPaymentPosting: boolean
   canAccessBilling: boolean
   canAccessClients: boolean
@@ -23,6 +25,7 @@ const DEFAULT_CAPABILITIES: AdminCapabilities = {
   staffRole: 'admin',
   canForceConfirmPayment: false,
   canManageUsers: false,
+  canDeleteBatches: false,
   canAccessPaymentPosting: false,
   canAccessBilling: false,
   canAccessClients: false,
@@ -50,6 +53,7 @@ export function getAdminCapabilities(user: User | null | undefined): AdminCapabi
       tier === 'dedicated' ||
       explicitFlag,
     canManageUsers: canManageAdminUsers(staffRole),
+    canDeleteBatches: fullOps,
     canAccessPaymentPosting: fullOps || staffRole === 'payment_posting',
     canAccessBilling: fullOps || staffRole === 'billing',
     canAccessClients: fullOps || staffRole === 'billing',

@@ -30,6 +30,10 @@ export type BrokerSnapshotLookupEvent = {
   from_cache: boolean
   insurance_verdict: string | null
   legal_name: string | null
+  found: boolean | null
+  operating_status: string | null
+  broker_authority: string | null
+  status_label: string | null
   created_at: string
 }
 
@@ -78,7 +82,7 @@ export async function listBrokerSnapshotLookups(
   const { data, error } = await supabase
     .from('broker_snapshot_lookup_events')
     .select(
-      'id, snapshot_id, mc_number, mc_digits, client_id, from_cache, insurance_verdict, legal_name, created_at'
+      'id, snapshot_id, mc_number, mc_digits, client_id, from_cache, insurance_verdict, legal_name, found, operating_status, broker_authority, status_label, created_at'
     )
     .eq('mc_digits', digits)
     .order('created_at', { ascending: false })

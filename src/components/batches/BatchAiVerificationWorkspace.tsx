@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { AlertCircle, ArrowLeft, Check, Loader2, Sparkles } from 'lucide-react'
 import CompactPacketDocPane, { type CompactDocItem } from '../client/CompactPacketDocPane'
 import InvoiceAiReviewOutcomePanel from './InvoiceAiReviewOutcomePanel'
+import { getAdminBatchStatusBadge } from './adminBatchStatus'
 import { getBatchById, updateBatchStatus } from '../../data/mockBatches'
 import { getInvoicesByBatchId, updateInvoice } from '../../data/mockInvoices'
 import { mergeBatchFiles } from '../../data/batchFileStore'
@@ -33,6 +34,11 @@ import {
   ensureStoredBatchFile,
   prefetchStoredBatchFiles,
 } from '../../utils/resolveHandoffDocuments'
+import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
+import {
+  canOpenPacketRework,
+  getAdminBatchAiReviewProgress,
+} from '../../utils/adminBatchQueue'
 
 interface BatchAiVerificationWorkspaceProps {
   batchId: string
@@ -84,6 +90,7 @@ export default function BatchAiVerificationWorkspace({
   const authUser = resolved.user ?? session?.user ?? null
   const adminUserName = getAdminUserDisplayName(authUser?.email ?? null)
   const adminUserId = authUser?.id ?? 'unknown'
+  const tenantRevision = useTenantDataRevision()
 
   const batch = getBatchById(batchId)
   const [draft, setDraft] = useState<BatchIntakeDraft | null>(null)
@@ -111,33 +118,44 @@ export default function BatchAiVerificationWorkspace({
     setInvoices((prev) => prev.map((inv) => (inv.id === updated.id ? { ...updated } : inv)))
   }
 
+  // Live sync: invoices appear as AI intake finishes.
+  useEffect(() => {
+    refreshInvoices()
+  }, [tenantRevision, refreshInvoices])
+
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    setError(null)
+    const isFirstLoad = !draftRef.current
+    if (isFirstLoad) {
+      setLoading(true)
+      setError(null)
+    }
     void hydrateIntakeDraftFromBatch(batchId)
       .then((next) => {
         if (cancelled) return
         if (!next) {
-          setError('Could not load this batch for AI verification.')
-          setDraft(null)
+          if (isFirstLoad) {
+            setError('Could not load this batch for AI verification.')
+            setDraft(null)
+          }
           return
         }
         setDraft(next)
         mergeBatchFiles(batchId, next.fileById)
+        refreshInvoices()
       })
       .catch((err) => {
-        if (!cancelled) {
+        if (!cancelled && isFirstLoad) {
           setError(err instanceof Error ? err.message : 'Failed to load packet documents')
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && isFirstLoad) setLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [batchId])
+  }, [batchId, tenantRevision, refreshInvoices])
 
   const storagePathsKey = draft?.storagePathsByDocId
     ? Object.keys(draft.storagePathsByDocId).sort().join('\0')
@@ -203,6 +221,8 @@ export default function BatchAiVerificationWorkspace({
 
   useEffect(() => {
     if (loading || !draft || autoReviewStarted.current) return
+    if (batch?.status === 'creating' || batch?.sort_status === 'sorting') return
+    if (invoices.length === 0) return
     const needsRun = invoices.some(
       (inv) => !inv.ai_review_status || inv.ai_review_status === 'not_run'
     )
@@ -336,6 +356,13 @@ export default function BatchAiVerificationWorkspace({
     const ui = invoiceAiVerifyUi(inv)
     return ui.status === 'needs_review' && !ui.onHold
   }).length
+  const aiProgress = getAdminBatchAiReviewProgress(batchId)
+  const packetsReady = batch ? canOpenPacketRework(batch) : false
+  const stillCreating =
+    batch?.status === 'creating' ||
+    batch?.sort_status === 'sorting' ||
+    (invoices.length === 0 &&
+      (batch?.upload_mode === 'ai' || batch?.upload_mode === 'handoff'))
 
   const handleProcess = async () => {
     if (!batch || processing) return
@@ -402,9 +429,10 @@ export default function BatchAiVerificationWorkspace({
 
   const snapshot = selected ? invoiceAiReviewSnapshotFor(selected) : null
   const selectedUi = selected ? invoiceAiVerifyUi(selected) : null
+  const extracted = snapshot?.paperwork
 
   return (
-    <div className="flex-1 min-h-0 overflow-hidden flex flex-col client-portal">
+    <div className="batch-packet-workspace flex-1 min-h-0 overflow-hidden flex flex-col">
       <div
         className="shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b"
         style={{ borderColor: c.border, backgroundColor: c.card }}
@@ -413,16 +441,38 @@ export default function BatchAiVerificationWorkspace({
           <p className="text-xs font-medium uppercase tracking-wide" style={{ color: c.secondary }}>
             AI verification
           </p>
-          <p className="text-sm font-semibold truncate" style={{ color: c.primary }}>
-            {draft.batchNumber} · {batch.client_name}
-          </p>
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <p className="text-sm font-semibold truncate" style={{ color: c.primary }}>
+              {draft.batchNumber} · {batch.client_name}
+            </p>
+            {getAdminBatchStatusBadge(batch.status)}
+            {aiProgress.label ? (
+              <span className="text-xs tabular-nums" style={{ color: c.secondary }}>
+                {aiProgress.label}
+              </span>
+            ) : null}
+          </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {onOpenPackets && (
             <button
               type="button"
-              className="dashboard-btn-secondary !h-8"
-              onClick={() => onOpenPackets(batchId)}
+              className={`dashboard-btn-secondary !h-8${packetsReady ? '' : ' opacity-50'}`}
+              title={
+                packetsReady
+                  ? 'Open Packets rework workspace'
+                  : 'Packet rework unlocks when invoices are ready'
+              }
+              onClick={() => {
+                if (!packetsReady) {
+                  showToast(
+                    'Packet rework unlocks when invoices are created and AI is not still running.',
+                    'info'
+                  )
+                  return
+                }
+                onOpenPackets(batchId)
+              }}
             >
               Packets
             </button>
@@ -430,7 +480,7 @@ export default function BatchAiVerificationWorkspace({
           <button
             type="button"
             className="dashboard-btn-secondary !h-8"
-            disabled={reviewing}
+            disabled={reviewing || invoices.length === 0 || stillCreating}
             onClick={() => void runAiReview()}
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -451,6 +501,18 @@ export default function BatchAiVerificationWorkspace({
         </div>
       </div>
 
+      {stillCreating && invoices.length === 0 ? (
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 p-8">
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: c.secondary }} />
+          <p className="text-sm font-medium" style={{ color: c.primary }}>
+            {batch.status === 'creating' ? 'Creating invoices from documents…' : 'Sorting documents…'}
+          </p>
+          <p className="text-xs text-center max-w-md" style={{ color: c.secondary }}>
+            This page updates live. When invoices appear you can review extracted fields and AI
+            checks. Packet rework unlocks when the batch is ready.
+          </p>
+        </div>
+      ) : (
       <div className="flex-1 min-h-0 overflow-hidden client-ai-upload">
         <div className="client-ai-review client-ai-review--packets">
           <div className="client-ai-review__toolbar">
@@ -461,6 +523,7 @@ export default function BatchAiVerificationWorkspace({
               <span>· {needsCount} needs review</span>
               <span>· {holdCount} hold</span>
               <span>· {verifiedCount}/{invoices.length} ready to process</span>
+              {aiProgress.label && <span>· {aiProgress.label}</span>}
               {reviewProgress && <span>· {reviewProgress}</span>}
             </div>
           </div>
@@ -528,25 +591,77 @@ export default function BatchAiVerificationWorkspace({
                   </div>
                   <div>
                     <dt>Load #</dt>
-                    <dd>{selected.load_number || '—'}</dd>
+                    <dd>{selected.load_number || extracted?.loadNumber || '—'}</dd>
                   </div>
                   <div>
                     <dt>Carrier</dt>
-                    <dd>{selected.client_name}</dd>
+                    <dd>{selected.client_name || extracted?.carrierName || '—'}</dd>
                   </div>
                   <div>
                     <dt>Amount</dt>
-                    <dd>{formatCurrency(selected.amount)}</dd>
+                    <dd>
+                      {formatCurrency(
+                        extracted?.amount != null && Number.isFinite(extracted.amount)
+                          ? extracted.amount
+                          : selected.amount
+                      )}
+                    </dd>
                   </div>
                   <div>
                     <dt>Broker</dt>
-                    <dd>{selected.broker_name || '—'}</dd>
+                    <dd>{selected.broker_name || extracted?.brokerName || '—'}</dd>
                   </div>
                   <div>
                     <dt>Date</dt>
                     <dd>{selected.invoice_date?.slice(0, 10) || '—'}</dd>
                   </div>
                 </dl>
+
+                {extracted &&
+                  (extracted.loadNumber ||
+                    extracted.amount != null ||
+                    extracted.brokerName ||
+                    extracted.carrierName) && (
+                    <section className="client-ai-verify__outcome" style={{ marginBottom: 8 }}>
+                      <div className="client-ai-verify__outcome-head">
+                        <h4 className="client-ai-verify__outcome-title">Extracted from paperwork</h4>
+                      </div>
+                      <ul className="client-ai-verify__checks">
+                        {extracted.loadNumber ? (
+                          <li className="client-ai-verify__check is-ok">
+                            <Check className="w-3 h-3 shrink-0" />
+                            <span className="client-ai-verify__check-label">
+                              Load {extracted.loadNumber}
+                            </span>
+                          </li>
+                        ) : null}
+                        {extracted.amount != null && Number.isFinite(extracted.amount) ? (
+                          <li className="client-ai-verify__check is-ok">
+                            <Check className="w-3 h-3 shrink-0" />
+                            <span className="client-ai-verify__check-label">
+                              Amount {formatCurrency(extracted.amount)}
+                            </span>
+                          </li>
+                        ) : null}
+                        {extracted.brokerName ? (
+                          <li className="client-ai-verify__check is-ok">
+                            <Check className="w-3 h-3 shrink-0" />
+                            <span className="client-ai-verify__check-label">
+                              Broker {extracted.brokerName}
+                            </span>
+                          </li>
+                        ) : null}
+                        {extracted.carrierName ? (
+                          <li className="client-ai-verify__check is-ok">
+                            <Check className="w-3 h-3 shrink-0" />
+                            <span className="client-ai-verify__check-label">
+                              Carrier {extracted.carrierName}
+                            </span>
+                          </li>
+                        ) : null}
+                      </ul>
+                    </section>
+                  )}
 
                 <InvoiceAiReviewOutcomePanel
                   invoice={selected}
@@ -621,6 +736,7 @@ export default function BatchAiVerificationWorkspace({
           </div>
         </div>
       </div>
+      )}
     </div>
   )
 }

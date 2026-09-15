@@ -36,18 +36,40 @@ function emptySortResult(totalDocuments: number): DocSortResult {
 function kindFromFileName(fileName: string): DocSortKind {
   const category = classifyPacketDoc({ fileName })
   if (category === 'rate_confirmation') return 'rate_confirmation'
-  if (category === 'bol') return 'bill_of_lading'
+  if (category === 'bol' || category === 'pod') return 'bill_of_lading'
+  if (category === 'invoice') return 'invoice'
+  if (category === 'lumper') return 'lumper'
   return 'other'
 }
 
-function kindFromPersisted(
+function fingerprintFromPersisted(
   docId: string,
   fileName: string,
-  catalog: Map<string, PersistedDocFingerprint>
-): DocSortKind {
-  const saved = catalog.get(docId)
-  if (saved?.kind) return saved.kind
-  return kindFromFileName(fileName)
+  saved: PersistedDocFingerprint | undefined,
+  context?: { loadNumber?: string; broker?: string },
+  confidence = 0.5
+): DocSortFingerprint {
+  return {
+    docId,
+    fileName: saved?.fileName || fileName,
+    kind: saved?.kind || kindFromFileName(fileName),
+    confidence: saved?.kind ? 0.9 : confidence,
+    loadNumbers: saved?.loadNumbers?.length
+      ? saved.loadNumbers
+      : context?.loadNumber
+        ? [context.loadNumber]
+        : [],
+    broker: saved?.broker || context?.broker || undefined,
+    carrier: saved?.carrier,
+    pickup: saved?.pickup,
+    delivery: saved?.delivery,
+    pickupDate: saved?.pickupDate,
+    deliveryDate: saved?.deliveryDate,
+    rateAmount: saved?.rateAmount,
+    rateCurrency: saved?.rateCurrency,
+    invoiceNumber: saved?.invoiceNumber,
+    extract: saved?.extract,
+  }
 }
 
 function fingerprintFromFile(
@@ -57,18 +79,13 @@ function fingerprintFromFile(
   catalog?: Map<string, PersistedDocFingerprint>
 ): DocSortFingerprint {
   const saved = catalog?.get(docId)
-  return {
+  return fingerprintFromPersisted(
     docId,
-    fileName: file.name || saved?.fileName || docId,
-    kind: kindFromPersisted(docId, file.name, catalog ?? new Map()),
-    confidence: saved?.kind ? 0.9 : 0.5,
-    loadNumbers: saved?.loadNumbers?.length
-      ? saved.loadNumbers
-      : context?.loadNumber
-        ? [context.loadNumber]
-        : [],
-    broker: saved?.broker || context?.broker || undefined,
-  }
+    file.name || saved?.fileName || docId,
+    saved,
+    context,
+    0.5
+  )
 }
 
 function fingerprintStub(
@@ -78,19 +95,7 @@ function fingerprintStub(
   catalog?: Map<string, PersistedDocFingerprint>
 ): DocSortFingerprint {
   const saved = catalog?.get(docId)
-  const name = saved?.fileName || fileName
-  return {
-    docId,
-    fileName: name,
-    kind: kindFromPersisted(docId, name, catalog ?? new Map()),
-    confidence: saved?.kind ? 0.9 : 0.3,
-    loadNumbers: saved?.loadNumbers?.length
-      ? saved.loadNumbers
-      : context?.loadNumber
-        ? [context.loadNumber]
-        : [],
-    broker: saved?.broker || context?.broker || undefined,
-  }
+  return fingerprintFromPersisted(docId, saved?.fileName || fileName, saved, context, 0.3)
 }
 
 /** Document ids attached to an invoice, including storage-path fallbacks. */

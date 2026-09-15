@@ -88,6 +88,18 @@ export function allLoadKeys(fp: DocSortFingerprint): string[] {
     const k = normalizeLoadKey(n)
     if (isStrongLoadKey(k)) keys.add(k)
   })
+  const extractLoads = [
+    fp.extract?.loadNumber,
+    fp.extract?.rateConParse?.load_number,
+    fp.extract?.bolAudit?.load_number,
+    fp.extract?.primaryInvoice?.load_number,
+    ...(fp.extract?.rateConParse?.bol_reference_numbers ?? []),
+    ...(fp.extract?.bolAudit?.reference_numbers ?? []),
+  ]
+  extractLoads.forEach((n) => {
+    const k = normalizeLoadKey(n)
+    if (isStrongLoadKey(k)) keys.add(k)
+  })
   loadNumbersFromFileName(fp.fileName).forEach((n) => {
     const k = normalizeLoadKey(n)
     if (isStrongLoadKey(k)) keys.add(k)

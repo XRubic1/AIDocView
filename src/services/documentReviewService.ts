@@ -1872,6 +1872,14 @@ export async function reviewUploadedDocuments(
     )
   }
 
+  return assembleBatchReviewFromDocuments(reviewResults, options)
+}
+
+/** Cross-check already-extracted documents (DocSort JSON) without another vision pass. */
+export function assembleBatchReviewFromDocuments(
+  reviewResults: DocumentReviewResult[],
+  options?: ReviewUploadOptions
+): BatchDocumentReviewResult {
   const { rateConDoc, bolData, rateConParse } = extractBatchContext(reviewResults)
   const rateConPresent = Boolean(rateConDoc)
   const bolAudit =

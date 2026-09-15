@@ -125,6 +125,35 @@ export default function InvoiceAiReviewDetailModal({
               </div>
               <p style={{ color: '#819291' }}>{snapshot.detail}</p>
 
+              {snapshot.paperwork &&
+                (snapshot.paperwork.loadNumber ||
+                  snapshot.paperwork.amount != null ||
+                  snapshot.paperwork.brokerName ||
+                  snapshot.paperwork.carrierName) && (
+                  <div
+                    className="rounded border px-3 py-2 space-y-1"
+                    style={{ borderColor: '#819291', backgroundColor: '#f8f9fa' }}
+                  >
+                    <div className="font-semibold" style={{ color: '#113543' }}>
+                      Extracted from paperwork
+                    </div>
+                    {snapshot.paperwork.loadNumber && (
+                      <div style={{ color: '#819291' }}>Load: {snapshot.paperwork.loadNumber}</div>
+                    )}
+                    {snapshot.paperwork.amount != null && Number.isFinite(snapshot.paperwork.amount) && (
+                      <div style={{ color: '#819291' }}>
+                        Amount: ${snapshot.paperwork.amount.toLocaleString()}
+                      </div>
+                    )}
+                    {snapshot.paperwork.brokerName && (
+                      <div style={{ color: '#819291' }}>Broker: {snapshot.paperwork.brokerName}</div>
+                    )}
+                    {snapshot.paperwork.carrierName && (
+                      <div style={{ color: '#819291' }}>Carrier: {snapshot.paperwork.carrierName}</div>
+                    )}
+                  </div>
+                )}
+
               {batchResult && <LoadAuditSummaryPanel result={batchResult} />}
 
               {snapshot.issues.length > 0 && (

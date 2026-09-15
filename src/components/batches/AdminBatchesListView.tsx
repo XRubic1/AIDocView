@@ -1,5 +1,16 @@
-import { useMemo, useState, useEffect, useCallback, type ReactNode } from 'react'
-import { Boxes, ChevronLeft, ChevronRight, RotateCcw, Search } from 'lucide-react'
+import {
+  useMemo,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
+import { createPortal } from 'react-dom'
+import { Boxes, ChevronLeft, ChevronRight, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { canDeleteBatch } from '../../services/credyx/deleteBatch'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { mockInvoices } from '../../data/mockInvoices'
 import { useClientTheme } from '../../theme/ThemeContext'
@@ -21,10 +32,23 @@ export interface AdminBatchListItem {
   submitted_at: string
   status: string
   upload_mode?: string
+  sort_status?: string
   in_use?: boolean
   in_use_by?: string
   reviewed_at?: string | null
   reviewed_by?: string
+  /** AI review progress, e.g. "4 of 6 docs reviewed" */
+  ai_review_label?: string | null
+  ai_review_completed?: number
+  ai_review_total?: number
+  /** Packet rework is unlocked only after intake / AI settle. */
+  packet_rework_ready?: boolean
+}
+
+type BatchContextMenuState = {
+  x: number
+  y: number
+  batch: AdminBatchListItem
 }
 
 export type AdminBatchListVariant = 'ready_to_post' | 'verification' | 'approval' | 'all'
@@ -51,6 +75,8 @@ interface AdminBatchesListViewProps {
   onPreviewClick?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   onReturnToApproval?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   canReturnToApproval?: (status: string) => boolean
+  /** Delete draft / intake batches — blocked once submitted/processed. */
+  onDeleteBatch?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
 }
 
 function getReadyToPostProgress(batchId: string): number {
@@ -86,6 +112,7 @@ export default function AdminBatchesListView({
   onPreviewClick,
   onReturnToApproval,
   canReturnToApproval,
+  onDeleteBatch,
 }: AdminBatchesListViewProps) {
   const c = useClientTheme()
   const [searchTerm, setSearchTerm] = useState('')
@@ -95,6 +122,56 @@ export default function AdminBatchesListView({
     variant === 'all' ? 'submitted_at' : 'client_name'
   )
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [contextMenu, setContextMenu] = useState<BatchContextMenuState | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement | null>(null)
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
+
+  /** Right-click a row for delete (or an explanation when locked). */
+  const openBatchContextMenu = useCallback(
+    (event: ReactMouseEvent, batch: AdminBatchListItem) => {
+      if (!onDeleteBatch) return
+      event.preventDefault()
+      event.stopPropagation()
+      setContextMenu({ x: event.clientX, y: event.clientY, batch })
+    },
+    [onDeleteBatch]
+  )
+
+  useLayoutEffect(() => {
+    if (!contextMenu || !contextMenuRef.current) return
+    const el = contextMenuRef.current
+    const pad = 8
+    const rect = el.getBoundingClientRect()
+    let x = contextMenu.x
+    let y = contextMenu.y
+    if (x + rect.width > window.innerWidth - pad) {
+      x = Math.max(pad, window.innerWidth - rect.width - pad)
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      y = Math.max(pad, window.innerHeight - rect.height - pad)
+    }
+    if (x !== contextMenu.x || y !== contextMenu.y) {
+      setContextMenu((prev) => (prev ? { ...prev, x, y } : prev))
+    }
+  }, [contextMenu])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeContextMenu()
+    }
+    const onPointer = (e: PointerEvent) => {
+      if (contextMenuRef.current?.contains(e.target as Node)) return
+      closeContextMenu()
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onPointer, true)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onPointer, true)
+    }
+  }, [contextMenu, closeContextMenu])
 
   // Status chips live on the Batches page; this list only applies search.
   const filteredBatches = useMemo(() => {
@@ -233,9 +310,29 @@ export default function AdminBatchesListView({
       )
     }
     if (variant === 'all') {
+      const showAiProgress =
+        Boolean(batch.ai_review_label) &&
+        (batch.status === 'creating' ||
+          batch.sort_status === 'sorting' ||
+          (batch.ai_review_total != null && batch.ai_review_total > 0))
+
       return (
         <>
-          <ClientListTd variant="status">{getAdminBatchStatusBadge(batch.status)}</ClientListTd>
+          <ClientListTd variant="status">
+            <div className="flex flex-col items-start gap-1">
+              {getAdminBatchStatusBadge(batch.status)}
+              {showAiProgress && batch.ai_review_label ? (
+                <span className="text-xs tabular-nums" style={{ color: c.secondary }}>
+                  {batch.ai_review_label}
+                </span>
+              ) : null}
+              {!showAiProgress && batch.status === 'creating' ? (
+                <span className="text-xs" style={{ color: c.secondary }}>
+                  Creating invoices…
+                </span>
+              ) : null}
+            </div>
+          </ClientListTd>
           <ClientListTd variant="desktop" label="In use" style={{ color: c.secondary }}>
             {batch.in_use ? (
               <span>
@@ -249,7 +346,11 @@ export default function AdminBatchesListView({
             )}
           </ClientListTd>
           <ClientListTd variant="desktop" label="Reviewed" style={{ color: c.secondary }}>
-            {batch.reviewed_at ? (
+            {showAiProgress && batch.ai_review_total != null && batch.ai_review_total > 0 ? (
+              <span className="tabular-nums">
+                {batch.ai_review_completed ?? 0} / {batch.ai_review_total}
+              </span>
+            ) : batch.reviewed_at ? (
               <span>
                 <span className="block">{formatDate(batch.reviewed_at)}</span>
                 {batch.reviewed_by && (
@@ -431,6 +532,7 @@ export default function AdminBatchesListView({
                     key={batch.id}
                     className="cursor-pointer transition-colors"
                     onClick={() => onSelectBatch(batch.id)}
+                    onContextMenu={(e) => openBatchContextMenu(e, batch)}
                   >
                     <ClientListTd variant="primary" className="font-semibold">
                       {batch.client_name}
@@ -474,8 +576,14 @@ export default function AdminBatchesListView({
                           <button
                             type="button"
                             onClick={(e) => onPreviewClick(batch, e)}
-                            className="dashboard-btn-secondary !h-7 !px-2.5 !text-xs"
-                            title="Open Packets rework workspace"
+                            className={`dashboard-btn-secondary !h-7 !px-2.5 !text-xs${
+                              batch.packet_rework_ready === false ? ' opacity-50' : ''
+                            }`}
+                            title={
+                              batch.packet_rework_ready === false
+                                ? 'Packet rework unlocks when invoices are ready'
+                                : 'Open Packets rework workspace'
+                            }
                           >
                             Packets
                           </button>
@@ -495,6 +603,18 @@ export default function AdminBatchesListView({
                         >
                           {actionLabel}
                         </button>
+                        {onDeleteBatch && canDeleteBatch(batch.status) && (
+                          <button
+                            type="button"
+                            onClick={(e) => onDeleteBatch(batch, e)}
+                            className="dashboard-btn-secondary !h-7 !px-2 !text-xs inline-flex items-center gap-1"
+                            title="Delete batch"
+                            aria-label={`Delete batch ${batch.batch_number}`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </ClientListTd>
                   </tr>
@@ -560,6 +680,43 @@ export default function AdminBatchesListView({
           </div>
         </>
       )}
+
+      {contextMenu &&
+        createPortal(
+          <div
+            ref={contextMenuRef}
+            className="client-ai-doc-menu admin-batch-context-menu"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            role="menu"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <p className="client-ai-doc-menu__label">
+              {contextMenu.batch.batch_number}
+            </p>
+            {canDeleteBatch(contextMenu.batch.status) ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="client-ai-doc-menu__item client-ai-doc-menu__item--danger"
+                onClick={(e) => {
+                  const batch = contextMenu.batch
+                  closeContextMenu()
+                  onDeleteBatch?.(batch, e)
+                }}
+              >
+                <Trash2 className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                Delete batch
+              </button>
+            ) : (
+              <p className="client-ai-doc-menu__empty" role="menuitem" aria-disabled="true">
+                Submitted batches can’t be deleted
+              </p>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }
