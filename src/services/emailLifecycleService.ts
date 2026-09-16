@@ -353,7 +353,7 @@ async function sendTrackAsk(
   broker: Broker | undefined,
   track: EmailLifecycleTrack,
   step: 'first' | 'second'
-): Promise<void> {
+): Promise<{ ok: boolean; error?: string }> {
   const accept = brokerEmailAccept(broker)
   const allowEmail = track === 'paperwork' ? accept.paperworkStatus : accept.paymentStatus
   const ruleId =
@@ -364,11 +364,14 @@ async function sendTrackAsk(
       : step === 'first'
         ? 'broker_payment_status_inquiry'
         : 'broker_payment_status_followup'
-  if (!isEmailLifecycleRuleEnabled(ruleId)) return
+  if (!isEmailLifecycleRuleEnabled(ruleId)) {
+    return { ok: false, error: 'This chase email rule is disabled' }
+  }
 
   const now = new Date().toISOString()
   const lifecycle = ensureLifecycle(invoice)
   const trackState = { ...(track === 'paperwork' ? lifecycle.paperwork : lifecycle.payment) }
+  let emailed = false
 
   if (!allowEmail) {
     createReview({
@@ -385,42 +388,45 @@ async function sendTrackAsk(
     trackState.lastAskChannel = 'phone'
   } else {
     const to = resolveBrokerPaperworkEmail(broker)
-    if (to) {
-      const template =
-        track === 'paperwork'
-          ? step === 'first'
-            ? 'broker_paperwork_status_inquiry'
-            : 'broker_paperwork_status_followup'
-          : step === 'first'
-            ? 'broker_payment_status_inquiry'
-            : 'broker_payment_status_followup'
-      const sendResult = await sendTransactionalEmail(template, to, {
-        brokerName: broker?.name || invoice.broker_name,
-        invoiceNumber: invoice.invoice_number,
-        loadNumber: invoice.load_number || 'N/A',
-        clientName: invoice.client_name,
-        amount: formatCurrency(invoice.amount),
-      })
-      if (sendResult.ok) {
-        const label =
-          track === 'paperwork'
-            ? step === 'first'
-              ? 'Paperwork status'
-              : 'Paperwork follow-up'
-            : step === 'first'
-              ? 'Payment status'
-              : 'Payment follow-up'
-        recordOutboundMessage({
-          invoice,
-          to,
-          subject: `${label} — Invoice ${invoice.invoice_number}`,
-          body: `${label} ask for load ${invoice.load_number || '—'} · ${invoice.client_name}.`,
-          templateId: template,
-          messageId: sendResult.id,
-        })
-      }
-      trackState.lastAskChannel = 'email'
+    if (!to) {
+      return { ok: false, error: 'No broker email on file' }
     }
+    const template =
+      track === 'paperwork'
+        ? step === 'first'
+          ? 'broker_paperwork_status_inquiry'
+          : 'broker_paperwork_status_followup'
+        : step === 'first'
+          ? 'broker_payment_status_inquiry'
+          : 'broker_payment_status_followup'
+    const sendResult = await sendTransactionalEmail(template, to, {
+      brokerName: broker?.name || invoice.broker_name,
+      invoiceNumber: invoice.invoice_number,
+      loadNumber: invoice.load_number || 'N/A',
+      clientName: invoice.client_name,
+      amount: formatCurrency(invoice.amount),
+    })
+    if (!sendResult.ok) {
+      return { ok: false, error: sendResult.error || 'Send failed' }
+    }
+    const label =
+      track === 'paperwork'
+        ? step === 'first'
+          ? 'Paperwork status'
+          : 'Paperwork follow-up'
+        : step === 'first'
+          ? 'Payment status'
+          : 'Payment follow-up'
+    recordOutboundMessage({
+      invoice,
+      to,
+      subject: `${label} — Invoice ${invoice.invoice_number}`,
+      body: `${label} ask for load ${invoice.load_number || '—'} · ${invoice.client_name}.`,
+      templateId: template,
+      messageId: sendResult.id,
+    })
+    trackState.lastAskChannel = 'email'
+    emailed = true
   }
 
   if (step === 'first') trackState.firstAskedAt = now
@@ -435,6 +441,36 @@ async function sendTrackAsk(
     collections_last_inquiry_at: track === 'payment' && step === 'first' ? now : invoice.collections_last_inquiry_at,
     collections_followup_at: track === 'payment' && step === 'second' ? now : invoice.collections_followup_at,
   })
+
+  return {
+    ok: true,
+    error: emailed ? undefined : 'Broker does not accept email — staff call opened instead',
+  }
+}
+
+/**
+ * Manual PPW / payment chase from Collections (right-click).
+ * Picks first vs follow-up from the invoice lifecycle when step is omitted.
+ */
+export async function sendManualBrokerChaseEmail(
+  invoice: Invoice,
+  broker: Broker | undefined,
+  opts: { track: EmailLifecycleTrack; step?: 'first' | 'second' }
+): Promise<{ ok: boolean; error?: string }> {
+  const latest = getInvoiceById(invoice.id) ?? invoice
+  const lifecycle = ensureLifecycle(latest)
+  const trackState = opts.track === 'paperwork' ? lifecycle.paperwork : lifecycle.payment
+  const step =
+    opts.step ?? (trackState?.firstAskedAt && !trackState?.secondAskedAt ? 'second' : 'first')
+
+  if (opts.track === 'paperwork') {
+    const ppwAt = getPpwSentAt(latest) || lifecycle.paperwork?.startedAt
+    if (!ppwAt) {
+      return { ok: false, error: 'PPW has not been sent yet — send paperwork first' }
+    }
+  }
+
+  return sendTrackAsk(latest, broker, opts.track, step)
 }
 
 function maybeStaffAction(
@@ -498,8 +534,8 @@ export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
       const inbound = lifecycle.paperwork?.lastInboundAt
 
       if (!firstAt && daysSinceStart >= clock.firstAskDays) {
-        await sendTrackAsk(invoice, broker, 'paperwork', 'first')
-        sent += 1
+        const result = await sendTrackAsk(invoice, broker, 'paperwork', 'first')
+        if (result.ok) sent += 1
         continue
       }
       if (firstAt && !inbound) {
@@ -517,8 +553,8 @@ export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
           })
         }
         if (!secondAt && clock.secondFollowupDays > 0 && daysSinceFirst >= clock.secondFollowupDays) {
-          await sendTrackAsk(invoice, broker, 'paperwork', 'second')
-          sent += 1
+          const result = await sendTrackAsk(invoice, broker, 'paperwork', 'second')
+          if (result.ok) sent += 1
           continue
         }
         const afterSecond = secondAt ? daysBetween(secondAt, nowMs) : null
@@ -565,8 +601,8 @@ export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
     const payIn = life.payment?.lastInboundAt
 
     if (!payFirst && daysPay >= payClock.firstAskDays) {
-      await sendTrackAsk(latest, broker, 'payment', 'first')
-      sent += 1
+      const result = await sendTrackAsk(latest, broker, 'payment', 'first')
+      if (result.ok) sent += 1
       continue
     }
     if (payFirst && !payIn) {
@@ -584,8 +620,8 @@ export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
         })
       }
       if (!paySecond && payClock.secondFollowupDays > 0 && daysSinceFirst >= payClock.secondFollowupDays) {
-        await sendTrackAsk(latest, broker, 'payment', 'second')
-        sent += 1
+        const result = await sendTrackAsk(latest, broker, 'payment', 'second')
+        if (result.ok) sent += 1
         continue
       }
       const afterSecond = paySecond ? daysBetween(paySecond, nowMs) : null

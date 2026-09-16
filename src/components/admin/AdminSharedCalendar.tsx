@@ -32,7 +32,7 @@ const FILTERS: { id: AdminCalFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'chase', label: 'My tasks' },
   { id: 'meeting', label: 'Meetings' },
-  { id: 'docs', label: 'Docs' },
+  { id: 'docs', label: 'PPW chase' },
   { id: 'expected', label: 'Expected $' },
   { id: 'reminder', label: 'Reminders' },
 ]
@@ -66,11 +66,14 @@ function parseDateKey(key: string): Date {
 }
 
 function typeShortLabel(evt: SharedCalendarEvent): string {
+  if (/payment chase follow-up/i.test(evt.title)) return 'Pay follow-up'
+  if (/ppw chase email/i.test(evt.title)) return 'PPW email'
+  if (/payment chase email/i.test(evt.title)) return 'Pay email'
   if (/broker follow-up/i.test(evt.title)) return 'Follow-up'
   if (/paperwork check/i.test(evt.title)) return 'PPW check'
   switch (evt.type) {
     case 'paperwork_check':
-      return 'Docs'
+      return 'PPW email'
     case 'reminder':
       return 'Remind'
     case 'expected_payment':
@@ -80,7 +83,7 @@ function typeShortLabel(evt: SharedCalendarEvent): string {
     case 'meeting':
       return 'Meet'
     case 'payment_status_check':
-      return 'Check'
+      return 'Pay email'
     case 'escalate':
       return 'Escalate'
     case 'call':
@@ -93,7 +96,7 @@ function typeShortLabel(evt: SharedCalendarEvent): string {
 function typeLabel(type: SharedCalendarEvent['type']): string {
   switch (type) {
     case 'paperwork_check':
-      return 'Missing docs'
+      return 'PPW chase email'
     case 'expected_payment':
       return 'Expected pay'
     case 'payment_posted':
@@ -103,7 +106,7 @@ function typeLabel(type: SharedCalendarEvent['type']): string {
     case 'reminder':
       return 'Reminder'
     case 'payment_status_check':
-      return 'Payment check'
+      return 'Payment chase email'
     case 'escalate':
       return 'Escalate'
     case 'call':
@@ -477,16 +480,16 @@ export default function AdminSharedCalendar({
             </div>
             <div className="assistant-cal__legend" aria-hidden>
               <span>
+                <i className="assistant-cal__dot assistant-cal__dot--paperwork_check" />
+                PPW chase
+              </span>
+              <span>
                 <i className="assistant-cal__dot assistant-cal__dot--payment_status_check" />
-                Check
+                Pay chase
               </span>
               <span>
                 <i className="assistant-cal__dot assistant-cal__dot--meeting" />
                 Meet
-              </span>
-              <span>
-                <i className="assistant-cal__dot assistant-cal__dot--paperwork_check" />
-                Docs
               </span>
               <span>
                 <i className="assistant-cal__dot assistant-cal__dot--expected_payment" />

@@ -62,6 +62,8 @@ export type AdminCollectionsRow = {
   trackStage: CollectionsTrackStage
   chaseStatus: ChaseQueueStatus
   lastContact: string | null
+  /** Most recent chase / follow-up email or call with a short label. */
+  lastFollowup: { at: string; label: string } | null
   brokerRiskLevel: BrokerRiskLevel
   isUrgent: boolean
   /** Past-due verify window or PPW never sent — distinct queue styling. */
@@ -116,16 +118,47 @@ export function isBrokerContactActivityNote(text: string | undefined): boolean {
  * Ignores silent `last_broker_contact` stamps and PPW send times.
  */
 export function resolveLastBrokerContact(invoice: Invoice): string | null {
-  const candidates: string[] = []
-  if (invoice.collections_last_inquiry_at) candidates.push(invoice.collections_last_inquiry_at)
-  if (invoice.collections_followup_at) candidates.push(invoice.collections_followup_at)
+  return resolveLastChaseFollowup(invoice)?.at ?? null
+}
+
+/** Latest chase / follow-up activity with a readable label for the queue. */
+export function resolveLastChaseFollowup(
+  invoice: Invoice
+): { at: string; label: string } | null {
+  const candidates: { at: string; label: string }[] = []
+  const life = invoice.email_lifecycle
+
+  if (life?.paperwork?.secondAskedAt) {
+    candidates.push({ at: life.paperwork.secondAskedAt, label: 'PPW chase follow-up' })
+  }
+  if (life?.paperwork?.firstAskedAt) {
+    candidates.push({ at: life.paperwork.firstAskedAt, label: 'PPW chase email' })
+  }
+  if (life?.payment?.secondAskedAt) {
+    candidates.push({ at: life.payment.secondAskedAt, label: 'Payment chase follow-up' })
+  }
+  if (life?.payment?.firstAskedAt) {
+    candidates.push({ at: life.payment.firstAskedAt, label: 'Payment chase email' })
+  }
+  if (invoice.collections_followup_at) {
+    candidates.push({ at: invoice.collections_followup_at, label: 'Payment chase follow-up' })
+  }
+  if (invoice.collections_last_inquiry_at) {
+    candidates.push({ at: invoice.collections_last_inquiry_at, label: 'Payment chase email' })
+  }
   for (const note of invoice.notes_history ?? []) {
     if (isBrokerContactActivityNote(note.note) && note.created_at) {
-      candidates.push(note.created_at)
+      const text = note.note.toLowerCase()
+      let label = 'Broker follow-up'
+      if (/paperwork/.test(text)) label = 'PPW chase'
+      else if (/follow-?up/.test(text)) label = 'Payment chase follow-up'
+      else if (/inquiry|payment.?status/.test(text)) label = 'Payment chase email'
+      else if (/call|voicemail|spoke|contacted/.test(text)) label = 'Broker call'
+      candidates.push({ at: note.created_at, label })
     }
   }
   if (candidates.length === 0) return null
-  return candidates.reduce((latest, iso) => (iso > latest ? iso : latest))
+  return candidates.reduce((latest, item) => (item.at > latest.at ? item : latest))
 }
 
 function resolveBrokerRisk(invoice: Invoice): {
@@ -154,7 +187,8 @@ export function buildAdminCollectionsRow(
     : null
   const amount = getInvoiceOpenArBalance(invoice, payments)
   const risk = resolveBrokerRisk(invoice)
-  const lastContact = resolveLastBrokerContact(invoice)
+  const lastFollowup = resolveLastChaseFollowup(invoice)
+  const lastContact = lastFollowup?.at ?? null
   const ppwSentAt = getPpwSentAt(invoice)
   const trackStage = getCollectionsTrackStage({ invoice, broker })
   const chaseStatus = getChaseStatus(invoice, broker)
@@ -196,6 +230,7 @@ export function buildAdminCollectionsRow(
     trackStage,
     chaseStatus,
     lastContact,
+    lastFollowup,
     brokerRiskLevel: risk.level,
     isUrgent: urgentReasons.length > 0,
     isUrgentCollection: isUrgentCollectionStage(trackStage) || urgentReasons.includes('no_ppw'),
@@ -290,14 +325,35 @@ export function reviewReasonPillClass(reason: CollectionsUrgentReason): string {
 }
 
 /** Short Review pill text. */
-export function reviewReasonPillLabel(reason: CollectionsUrgentReason): string {
+export function reviewReasonPillLabel(
+  reason: CollectionsUrgentReason,
+  brokerRiskLevel?: BrokerRiskLevel
+): string {
   if (reason === 'callback_missed') return 'Call back due'
-  if (reason === 'risky_broker') return 'Risky broker'
+  if (reason === 'risky_broker') {
+    if (brokerRiskLevel === 'high' || brokerRiskLevel === 'medium') {
+      return `Risky broker · ${brokerRiskLevel}`
+    }
+    return 'Risky broker'
+  }
   if (reason === 'overdue') return 'Urgent collection'
   if (reason === 'no_ppw') return 'PPW not sent'
   if (reason === 'ppw_check_due') return 'PPW check'
   if (reason === 'payment_verify') return 'Verify pay'
   return collectionsUrgentLabel(reason)
+}
+
+/** Broker risk pill for medium/high only — null when not notable. */
+export function brokerRiskPillClass(level: BrokerRiskLevel): string | null {
+  if (level === 'high') return 'status-pill status-pill--dark-red'
+  if (level === 'medium') return 'status-pill status-pill--warn'
+  return null
+}
+
+export function brokerRiskPillLabel(level: BrokerRiskLevel): string | null {
+  if (level === 'high') return 'High risk'
+  if (level === 'medium') return 'Medium risk'
+  return null
 }
 
 export function chaseStatusLabel(status: ChaseQueueStatus): string {

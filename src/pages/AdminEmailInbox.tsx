@@ -3,7 +3,7 @@
  * Layout matches Collections / Work Queue (toolbar, page tabs, compact table).
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Inbox, RefreshCw, Search, Upload } from 'lucide-react'
+import { Inbox, RefreshCw, Search, Send, Upload } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useToast } from '../components/ui/ToastProvider'
@@ -30,6 +30,7 @@ import {
   listOutboundInboxRows,
   type OutboundInboxKind,
 } from '../utils/outboundInboxRows'
+import { resendOutboundInboxEmail } from '../utils/resendOutboundInboxEmail'
 
 const CLASS_LABEL: Record<InboundClassification, string> = {
   paperwork_ok: 'Paperwork good',
@@ -98,6 +99,8 @@ export default function AdminEmailInbox() {
   const [brokerFilter, setBrokerFilter] = useState('')
   const [sentQuery, setSentQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [resendTo, setResendTo] = useState('')
+  const [resending, setResending] = useState(false)
 
   const [pasteInvoiceId, setPasteInvoiceId] = useState('')
   const [pasteFrom, setPasteFrom] = useState('')
@@ -166,7 +169,32 @@ export default function AdminEmailInbox() {
     [sentRows, selectedId]
   )
 
+  useEffect(() => {
+    if (selected) setResendTo(selected.to)
+  }, [selected?.id, selected?.to])
+
   const inputStyle = { backgroundColor: c.card, color: c.primary, borderColor: c.border }
+
+  const handleResend = async () => {
+    if (!selected) return
+    setResending(true)
+    try {
+      const result = await resendOutboundInboxEmail({
+        row: selected,
+        to: resendTo,
+        sentBy: actor,
+        userId: resolved.user?.email ?? undefined,
+      })
+      if (!result.ok) {
+        showToast(result.error ?? 'Resend failed', 'error')
+        return
+      }
+      showToast(`Resent to ${resendTo.trim()}`, 'success')
+      setTick((n) => n + 1)
+    } finally {
+      setResending(false)
+    }
+  }
 
   const queueParsed = async (
     fromAddress: string,
@@ -402,96 +430,103 @@ export default function AdminEmailInbox() {
           </div>
 
           <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
-            <div className="client-table-scroll flex-1 min-h-0 overflow-y-auto min-w-0">
-              {sentRows.length === 0 ? (
-                <div className="flex items-center justify-center p-8 h-full">
-                  <EmptyState
-                    title="No emails in this view"
-                    hint="Try clearing filters. PPW and chase sends appear here after they go out."
-                  />
-                </div>
-              ) : (
-                <table className="dashboard-table dashboard-table--compact">
-                  <thead>
-                    <tr>
-                      <th>When</th>
-                      <th>Type</th>
-                      <th>Invoice</th>
-                      <th>Carrier</th>
-                      <th>Broker</th>
-                      <th>To</th>
-                      <th>Subject</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sentRows.map((row) => {
-                      const active = row.id === selectedId
-                      return (
-                        <tr
-                          key={row.id}
-                          className={`dashboard-table-row--clickable${
-                            active ? ' is-selected' : ''
-                          }`}
-                          style={
-                            active
-                              ? { backgroundColor: 'rgba(22, 132, 254, 0.08)' }
-                              : undefined
-                          }
-                          onClick={() => setSelectedId(row.id === selectedId ? null : row.id)}
-                        >
-                          <td className="tabular-nums whitespace-nowrap text-xs" style={{ color: c.secondary }}>
-                            {formatWhen(row.sentAt)}
-                          </td>
-                          <td>
-                            <span className={kindPillClass(row.kind)}>{kindLabel(row.kind)}</span>
-                          </td>
-                          <td>
-                            {row.invoiceId ? (
-                              <Link
-                                to={`/collections/invoice/${row.invoiceId}`}
-                                className="font-medium text-[#1684FE] hover:underline"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {row.invoiceNumber}
-                              </Link>
-                            ) : (
-                              <span style={{ color: c.primary }}>{row.invoiceNumber}</span>
-                            )}
-                            {row.loadNumber ? (
-                              <div className="text-[11px]" style={{ color: c.secondary }}>
-                                Load {row.loadNumber}
-                              </div>
-                            ) : null}
-                          </td>
-                          <td className="max-w-[140px] truncate" title={row.clientName}>
-                            {row.clientName}
-                          </td>
-                          <td className="max-w-[140px] truncate" title={row.brokerName}>
-                            {row.brokerName}
-                          </td>
-                          <td className="max-w-[160px] truncate text-xs" title={row.to}>
-                            {row.to}
-                          </td>
-                          <td className="max-w-[220px] truncate" title={row.subject}>
-                            {row.subject}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              )}
+            {/* Column wrapper required: client-table-scroll uses height:0 and needs a flex-col parent */}
+            <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
+              <div className="client-table-scroll">
+                {sentRows.length === 0 ? (
+                  <div className="flex items-center justify-center p-8 min-h-[200px]">
+                    <EmptyState
+                      title="No emails in this view"
+                      hint="Try clearing filters. PPW and chase sends appear here after they go out."
+                    />
+                  </div>
+                ) : (
+                  <table className="dashboard-table dashboard-table--compact">
+                    <thead>
+                      <tr>
+                        <th>When</th>
+                        <th>Type</th>
+                        <th>Invoice</th>
+                        <th>Carrier</th>
+                        <th>Broker</th>
+                        <th>To</th>
+                        <th>Subject</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sentRows.map((row) => {
+                        const active = row.id === selectedId
+                        return (
+                          <tr
+                            key={row.id}
+                            className="dashboard-table-row--clickable cursor-pointer"
+                            style={
+                              active
+                                ? { backgroundColor: 'rgba(22, 132, 254, 0.08)' }
+                                : undefined
+                            }
+                            onClick={() => setSelectedId(row.id)}
+                          >
+                            <td
+                              className="tabular-nums whitespace-nowrap text-xs"
+                              style={{ color: c.secondary }}
+                            >
+                              {formatWhen(row.sentAt)}
+                            </td>
+                            <td>
+                              <span className={kindPillClass(row.kind)}>{kindLabel(row.kind)}</span>
+                            </td>
+                            <td>
+                              {row.invoiceId ? (
+                                <Link
+                                  to={`/collections/invoice/${row.invoiceId}`}
+                                  className="font-medium text-[#1684FE] hover:underline"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {row.invoiceNumber}
+                                </Link>
+                              ) : (
+                                <span style={{ color: c.primary }}>{row.invoiceNumber}</span>
+                              )}
+                              {row.loadNumber ? (
+                                <div className="text-[11px]" style={{ color: c.secondary }}>
+                                  Load {row.loadNumber}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="max-w-[140px] truncate" title={row.clientName}>
+                              {row.clientName}
+                            </td>
+                            <td className="max-w-[140px] truncate" title={row.brokerName}>
+                              {row.brokerName}
+                            </td>
+                            <td className="max-w-[160px] truncate text-xs" title={row.to}>
+                              {row.to}
+                            </td>
+                            <td className="max-w-[220px] truncate" title={row.subject}>
+                              {row.subject}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
 
             {selected ? (
               <aside
-                className="shrink-0 lg:w-[340px] border-t lg:border-t-0 lg:border-l overflow-y-auto p-4 space-y-3"
+                className="shrink-0 max-h-[45vh] lg:max-h-none lg:w-[360px] border-t lg:border-t-0 lg:border-l overflow-y-auto p-4 space-y-3"
                 style={{ borderColor: c.border, backgroundColor: c.card }}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <span className={kindPillClass(selected.kind)}>{kindLabel(selected.kind)}</span>
-                    <h2 className="text-sm font-semibold mt-1.5 leading-snug" style={{ color: c.primary }}>
+                    <h2
+                      className="text-sm font-semibold mt-1.5 leading-snug"
+                      style={{ color: c.primary }}
+                    >
                       {selected.subject}
                     </h2>
                     <p className="text-xs mt-1 tabular-nums" style={{ color: c.secondary }}>
@@ -500,7 +535,8 @@ export default function AdminEmailInbox() {
                   </div>
                   <button
                     type="button"
-                    className="text-xs font-medium text-slate-500 hover:text-slate-800"
+                    className="text-xs font-medium shrink-0"
+                    style={{ color: c.secondary }}
                     onClick={() => setSelectedId(null)}
                   >
                     Close
@@ -532,7 +568,7 @@ export default function AdminEmailInbox() {
                 </dl>
                 {selected.body ? (
                   <pre
-                    className="text-xs whitespace-pre-wrap rounded-md p-2.5 max-h-64 overflow-auto border"
+                    className="text-xs whitespace-pre-wrap rounded-md p-2.5 max-h-40 overflow-auto border"
                     style={{
                       color: c.primary,
                       backgroundColor: c.background,
@@ -542,6 +578,48 @@ export default function AdminEmailInbox() {
                     {selected.body}
                   </pre>
                 ) : null}
+
+                <div
+                  className="rounded-md border p-3 space-y-2"
+                  style={{ borderColor: c.border, backgroundColor: c.background }}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
+                    Resend
+                  </p>
+                  <label className="block text-xs" style={{ color: c.secondary }}>
+                    Recipient email
+                    <input
+                      type="email"
+                      className="client-input w-full text-sm mt-1"
+                      value={resendTo}
+                      onChange={(e) => setResendTo(e.target.value)}
+                      style={inputStyle}
+                      placeholder="broker@example.com"
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-[#1684FE]"
+                      onClick={() => setResendTo(selected.to)}
+                    >
+                      Use original
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="dashboard-btn-primary !h-8 w-full inline-flex items-center justify-center gap-1.5 text-sm"
+                    disabled={resending || !resendTo.trim() || !selected.invoiceId}
+                    onClick={() => void handleResend()}
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    {resending ? 'Sending…' : 'Resend email'}
+                  </button>
+                  <p className="text-[11px] leading-snug" style={{ color: c.secondary }}>
+                    Resend is logged on the invoice
+                    {selected.kind === 'ppw' ? ' (PPW send history + note)' : ' (inbox + note)'}.
+                  </p>
+                </div>
               </aside>
             ) : null}
           </div>

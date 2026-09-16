@@ -3,29 +3,45 @@
  * Due dates = invoice_date + broker Net; overdue = 15+ days past due;
  * Will Pay (confirmed pay date) is separate from due date; inquiry days ≠ due.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Search } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  Fragment,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
+import { createPortal } from 'react-dom'
+import { ChevronDown, ChevronRight, Mail, Search } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { openCollectionsInvoiceWindow } from '../utils/openCollectionsInvoiceWindow'
 import ClientListTd from '../components/client/ClientListTd'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import EmptyState from '../components/ui/EmptyState'
+import { useToast } from '../components/ui/ToastProvider'
 import { mockBrokers } from '../data/mockBrokers'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
+import { sendManualBrokerChaseEmail } from '../services/emailLifecycleService'
 import { useClientTheme } from '../theme/ThemeContext'
 import { getAllClients } from '../services/clientRegistry'
 import type { Invoice } from '../types/invoice'
 import {
   buildAdminCollectionsRows,
+  brokerRiskPillClass,
+  brokerRiskPillLabel,
   chaseStatusLabel,
   chaseStatusPillClass,
   collectionsFocusLabel,
+  collectionsUrgentLabel,
   formatBrokerNetDays,
   matchesCollectionsFocus,
   reviewReasonPillClass,
   reviewReasonPillLabel,
+  type AdminCollectionsRow,
   type CollectionsFocus,
 } from '../utils/adminCollections'
 import { collectionsTrackLabel } from '../utils/collectionsTrack'
@@ -43,7 +59,6 @@ import { compareByClientName } from '../utils/compareByClientName'
 
 type SortField =
   | 'invoice_number'
-  | 'client_name'
   | 'broker_name'
   | 'amount'
   | 'age'
@@ -54,6 +69,28 @@ type SortField =
   | 'last_contact'
   | 'next_followup'
   | 'urgent'
+
+type CollectionsContextMenuState = {
+  x: number
+  y: number
+  row: AdminCollectionsRow
+}
+
+type ClientCollectionsGroup = {
+  clientId: string
+  clientName: string
+  rows: AdminCollectionsRow[]
+  amount: number
+  urgentCount: number
+  overdueCount: number
+  chaseCount: number
+}
+
+/** Table columns under each client (client name lives on the parent row). */
+const INVOICE_COL_COUNT = 11
+
+/** Expand every carrier when the filtered list is this size or smaller. */
+const AUTO_EXPAND_CLIENT_MAX = 12
 
 const FOCUS_TABS: CollectionsFocus[] = [
   'all',
@@ -81,6 +118,7 @@ const CHASE_RANK: Record<string, number> = {
 
 export default function Collections() {
   const c = useClientTheme()
+  const { showToast } = useToast()
   const tenantRevision = useTenantDataRevision()
   const [searchParams, setSearchParams] = useSearchParams()
   const [searchTerm, setSearchTerm] = useState('')
@@ -92,7 +130,88 @@ export default function Collections() {
   const [sortField, setSortField] = useState<SortField>('urgent')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [policyTick, setPolicyTick] = useState(0)
+  const [chaseBusy, setChaseBusy] = useState(false)
+  const [contextMenu, setContextMenu] = useState<CollectionsContextMenuState | null>(null)
+  const [expandedClientIds, setExpandedClientIds] = useState<Set<string>>(() => new Set())
+  const contextMenuRef = useRef<HTMLDivElement | null>(null)
   const openedInvoiceParam = useRef<string | null>(null)
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
+
+  /** Right-click a row to send PPW / payment chase emails manually. */
+  const openRowContextMenu = useCallback((event: ReactMouseEvent, row: AdminCollectionsRow) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setSelectedInvoice(row.invoice)
+    setContextMenu({ x: event.clientX, y: event.clientY, row })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!contextMenu || !contextMenuRef.current) return
+    const el = contextMenuRef.current
+    const pad = 8
+    const rect = el.getBoundingClientRect()
+    let x = contextMenu.x
+    let y = contextMenu.y
+    if (x + rect.width > window.innerWidth - pad) {
+      x = Math.max(pad, window.innerWidth - rect.width - pad)
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      y = Math.max(pad, window.innerHeight - rect.height - pad)
+    }
+    if (x !== contextMenu.x || y !== contextMenu.y) {
+      setContextMenu((prev) => (prev ? { ...prev, x, y } : prev))
+    }
+  }, [contextMenu])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeContextMenu()
+    }
+    const onPointer = (e: PointerEvent) => {
+      if (contextMenuRef.current?.contains(e.target as Node)) return
+      closeContextMenu()
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onPointer, true)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onPointer, true)
+    }
+  }, [contextMenu, closeContextMenu])
+
+  const sendChaseFromMenu = useCallback(
+    async (track: 'paperwork' | 'payment', step: 'first' | 'second') => {
+      const row = contextMenu?.row
+      closeContextMenu()
+      if (!row) return
+      if (!row.broker) {
+        showToast('Broker not found on this invoice', 'error')
+        return
+      }
+      setChaseBusy(true)
+      try {
+        const result = await sendManualBrokerChaseEmail(row.invoice, row.broker, { track, step })
+        if (result.ok) {
+          const label =
+            track === 'paperwork'
+              ? step === 'first'
+                ? 'PPW chase email sent'
+                : 'PPW chase follow-up sent'
+              : step === 'first'
+                ? 'Payment chase email sent'
+                : 'Payment chase follow-up sent'
+          showToast(result.error ? `${label} — ${result.error}` : label, result.error ? 'info' : 'success')
+        } else {
+          showToast(result.error ?? 'Send failed', 'error')
+        }
+      } finally {
+        setChaseBusy(false)
+      }
+    },
+    [closeContextMenu, contextMenu?.row, showToast]
+  )
 
   const clients = useMemo(
     () =>
@@ -176,13 +295,11 @@ export default function Collections() {
     })
   }, [rows, focus, searchTerm])
 
-  const sorted = useMemo(() => {
-    const next = [...filtered]
-    next.sort((a, b) => {
+  /** Sort invoices within a client group. */
+  const compareInvoiceRows = useCallback(
+    (a: AdminCollectionsRow, b: AdminCollectionsRow) => {
       let cmp = 0
-      if (sortField === 'client_name') {
-        cmp = compareByClientName(a.invoice.client_name, b.invoice.client_name, 'asc')
-      } else if (sortField === 'broker_name') {
+      if (sortField === 'broker_name') {
         cmp = (a.broker?.name || a.invoice.broker_name).localeCompare(
           b.broker?.name || b.invoice.broker_name
         )
@@ -212,11 +329,59 @@ export default function Collections() {
         if (cmp === 0) cmp = b.ageDays - a.ageDays
       }
       return sortDir === 'asc' ? cmp : -cmp
-    })
-    return next
-  }, [filtered, sortField, sortDir])
+    },
+    [sortField, sortDir]
+  )
 
-  const queueInvoiceIds = useMemo(() => sorted.map((row) => row.invoice.id), [sorted])
+  /** Carriers as parents; invoices nested under each client. */
+  const clientGroups = useMemo(() => {
+    const byClient = new Map<string, ClientCollectionsGroup>()
+    for (const row of filtered) {
+      const clientId = row.invoice.client_id || row.invoice.client_name
+      let group = byClient.get(clientId)
+      if (!group) {
+        group = {
+          clientId,
+          clientName: row.invoice.client_name,
+          rows: [],
+          amount: 0,
+          urgentCount: 0,
+          overdueCount: 0,
+          chaseCount: 0,
+        }
+        byClient.set(clientId, group)
+      }
+      group.rows.push(row)
+      group.amount += row.amount
+      if (row.isUrgentCollection || row.isUrgent) group.urgentCount += 1
+      if (row.isOverdue) group.overdueCount += 1
+      if (matchesCollectionsFocus(row, 'chase')) group.chaseCount += 1
+    }
+
+    const groups = [...byClient.values()]
+    for (const group of groups) {
+      group.rows.sort(compareInvoiceRows)
+    }
+
+    groups.sort((a, b) => {
+      // Urgent carriers first, then highest open A/R, then name.
+      const urgentCmp = Number(b.urgentCount > 0) - Number(a.urgentCount > 0)
+      if (urgentCmp !== 0) return urgentCmp
+      const overdueCmp = Number(b.overdueCount > 0) - Number(a.overdueCount > 0)
+      if (overdueCmp !== 0) return overdueCmp
+      if (sortField === 'amount') {
+        const cmp = a.amount - b.amount
+        return sortDir === 'asc' ? cmp : -cmp
+      }
+      return compareByClientName(a.clientName, b.clientName, 'asc')
+    })
+    return groups
+  }, [filtered, compareInvoiceRows, sortField, sortDir])
+
+  const queueInvoiceIds = useMemo(
+    () => clientGroups.flatMap((group) => group.rows.map((row) => row.invoice.id)),
+    [clientGroups]
+  )
 
   const openQueueInvoice = (invoiceId: string) => {
     openCollectionsInvoiceWindow(invoiceId, queueInvoiceIds)
@@ -232,8 +397,24 @@ export default function Collections() {
     openCollectionsInvoiceWindow(inv.id, queueInvoiceIds)
   }, [searchParams, queueInvoiceIds])
 
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
-  const pageRows = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  useEffect(() => {
+    setExpandedClientIds((prev) => {
+      const ids = clientGroups.map((g) => g.clientId)
+      const expandAll =
+        Boolean(clientFilter) ||
+        Boolean(searchTerm.trim()) ||
+        clientGroups.length <= AUTO_EXPAND_CLIENT_MAX
+      if (expandAll) return new Set(ids)
+      const next = new Set<string>()
+      for (const group of clientGroups) {
+        if (prev.has(group.clientId) || group.urgentCount > 0) next.add(group.clientId)
+      }
+      return next
+    })
+  }, [clientGroups, clientFilter, searchTerm])
+
+  const totalPages = Math.max(1, Math.ceil(clientGroups.length / pageSize))
+  const pageGroups = clientGroups.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   useEffect(() => {
     setCurrentPage(1)
@@ -245,7 +426,28 @@ export default function Collections() {
       return
     }
     setSortField(field)
-    setSortDir(field === 'client_name' || field === 'broker_name' || field === 'invoice_number' ? 'asc' : 'desc')
+    setSortDir(field === 'broker_name' || field === 'invoice_number' ? 'asc' : 'desc')
+  }
+
+  const toggleClientExpanded = (clientId: string) => {
+    setExpandedClientIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(clientId)) next.delete(clientId)
+      else next.add(clientId)
+      return next
+    })
+  }
+
+  const expandAllVisible = () => {
+    setExpandedClientIds(new Set(pageGroups.map((g) => g.clientId)))
+  }
+
+  const collapseAllVisible = () => {
+    setExpandedClientIds((prev) => {
+      const next = new Set(prev)
+      for (const group of pageGroups) next.delete(group.clientId)
+      return next
+    })
   }
 
   const updateClientFilter = (nextClient: string) => {
@@ -412,40 +614,64 @@ export default function Collections() {
                   ))}
                 </select>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {FOCUS_TABS.map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setFocus(key)}
-                    className={`page-tab !py-1 !px-2 !text-xs ${focus === key ? 'page-tab--active' : ''}${
-                      key === 'urgent' ? ' collections-urgent-tab' : ''
-                    }`}
-                  >
-                    {collectionsFocusLabel(key)}
-                    {key === 'chase'
-                      ? ` (${counts.chase})`
-                      : key === 'overdue'
-                        ? ` (${counts.overdue})`
-                        : key === 'will_pay'
-                          ? ` (${counts.willPay})`
-                          : key === 'urgent'
-                            ? ` (${counts.urgent})`
-                            : key === 'ppw_check'
-                              ? ` (${counts.ppwCheck})`
-                              : key === 'payment_verify'
-                                ? ` (${counts.paymentVerify})`
-                                : key === 'no_ppw'
-                                  ? ` (${counts.noPpw})`
-                                  : key === 'all'
-                                    ? ` (${counts.open})`
-                                    : ''}
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {FOCUS_TABS.map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setFocus(key)}
+                      className={`page-tab !py-1 !px-2 !text-xs ${focus === key ? 'page-tab--active' : ''}${
+                        key === 'urgent' ? ' collections-urgent-tab' : ''
+                      }`}
+                    >
+                      {collectionsFocusLabel(key)}
+                      {key === 'chase'
+                        ? ` (${counts.chase})`
+                        : key === 'overdue'
+                          ? ` (${counts.overdue})`
+                          : key === 'will_pay'
+                            ? ` (${counts.willPay})`
+                            : key === 'urgent'
+                              ? ` (${counts.urgent})`
+                              : key === 'ppw_check'
+                                ? ` (${counts.ppwCheck})`
+                                : key === 'payment_verify'
+                                  ? ` (${counts.paymentVerify})`
+                                  : key === 'no_ppw'
+                                    ? ` (${counts.noPpw})`
+                                    : key === 'all'
+                                      ? ` (${counts.open})`
+                                      : ''}
+                    </button>
+                  ))}
+                </div>
+                {clientGroups.length > 0 ? (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      className="text-[11px] font-medium text-[#1684FE]"
+                      onClick={expandAllVisible}
+                    >
+                      Expand
+                    </button>
+                    <span className="text-[11px]" style={{ color: c.muted }}>
+                      ·
+                    </span>
+                    <button
+                      type="button"
+                      className="text-[11px] font-medium"
+                      style={{ color: c.secondary }}
+                      onClick={collapseAllVisible}
+                    >
+                      Collapse
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
 
-            {sorted.length === 0 ? (
+            {clientGroups.length === 0 ? (
               <div className="flex-1 min-h-0 flex items-center justify-center p-6">
                 <EmptyState
                   title="Nothing in this queue"
@@ -460,13 +686,6 @@ export default function Collections() {
                       <ClientSortableHeader
                         field="invoice_number"
                         label="Invoice"
-                        sortField={sortField}
-                        sortDir={sortDir}
-                        onSort={onSort}
-                      />
-                      <ClientSortableHeader
-                        field="client_name"
-                        label="Client"
                         sortField={sortField}
                         sortDir={sortDir}
                         onSort={onSort}
@@ -516,19 +735,19 @@ export default function Collections() {
                       />
                       <ClientSortableHeader
                         field="last_contact"
-                        label="Contacted"
+                        label="Last follow-up"
                         sortField={sortField}
                         sortDir={sortDir}
                         onSort={onSort}
-                        title="Last payment-status call or inquiry — not PPW send"
+                        title="Last PPW / payment chase email or broker call"
                       />
                       <ClientSortableHeader
                         field="next_followup"
-                        label="Next follow-up"
+                        label="Chase goes out"
                         sortField={sortField}
                         sortDir={sortDir}
                         onSort={onSort}
-                        title="Next scheduled broker follow-up"
+                        title="When the next PPW or payment chase email is scheduled"
                       />
                       <ClientSortableHeader
                         field="chase"
@@ -539,173 +758,275 @@ export default function Collections() {
                       />
                       <ClientSortableHeader
                         field="urgent"
-                        label="Review"
+                        label="Urgent"
                         sortField={sortField}
                         sortDir={sortDir}
                         onSort={onSort}
+                        title="Why this invoice needs attention — including risky brokers"
                       />
                     </tr>
                   </thead>
                   <tbody>
-                    {pageRows.map((row) => {
-                      const selected = selectedInvoice?.id === row.invoice.id
+                    {pageGroups.map((group) => {
+                      const expanded = expandedClientIds.has(group.clientId)
                       return (
-                        <tr
-                          key={row.invoice.id}
-                          className={`cursor-pointer ${selected ? 'invoice-row--selected' : ''} ${
-                            row.isUrgentCollection
-                              ? 'invoice-row--urgent-collection'
-                              : row.isOverdue
-                                ? 'invoice-row--overdue'
-                                : ''
-                          }`}
-                          onClick={() => {
-                            setSelectedInvoice(row.invoice)
-                            openQueueInvoice(row.invoice.id)
-                          }}
-                        >
-                          <ClientListTd variant="primary">
-                            <div className="font-medium" style={{ color: c.primary }}>
-                              {row.invoice.invoice_number}
-                            </div>
-                            <div className="text-[11px]" style={{ color: c.secondary }}>
-                              {row.invoice.load_number ? `Load ${row.invoice.load_number}` : '—'}
-                            </div>
-                          </ClientListTd>
-                          <ClientListTd>{row.invoice.client_name}</ClientListTd>
-                          <ClientListTd>
-                            <div>{row.broker?.name || row.invoice.broker_name}</div>
-                            <div className="text-[11px]" style={{ color: c.secondary }}>
-                              {formatBrokerNetDays(row.dueDays)}
-                              {` · PPW check ${row.paperworkCheckDays}d`}
-                            </div>
-                          </ClientListTd>
-                          <ClientListTd variant="amount" className="tabular-nums">
-                            {formatCurrency(row.amount)}
-                          </ClientListTd>
-                          <ClientListTd className="tabular-nums">{row.ageDays}d</ClientListTd>
-                          <ClientListTd>
-                            <div className="tabular-nums">
-                              {row.dueDate ? formatDate(row.dueDate) : '—'}
-                            </div>
-                            {row.isOverdue ? (
-                              <span className="status-pill status-pill--overdue">
-                                {row.daysPastDue}d past due
-                              </span>
-                            ) : null}
-                          </ClientListTd>
-                          <ClientListTd>
-                            {row.confirmedPayDate ? (
-                              <>
-                                <div className="tabular-nums">{formatDate(row.confirmedPayDate)}</div>
-                                <span className="status-pill status-pill--approved">Will Pay</span>
-                              </>
-                            ) : row.collectionStatus === 'C/B' ? (
-                              <>
-                                {row.invoice.collection_date ? (
-                                  <div className="tabular-nums">
-                                    {formatDate(row.invoice.collection_date)}
-                                  </div>
-                                ) : null}
-                                <span
-                                  className={`status-pill ${
-                                    row.isCallbackDue
-                                      ? 'status-pill--overdue'
-                                      : 'status-pill--pending'
-                                  }`}
-                                >
-                                  Call back
-                                </span>
-                              </>
-                            ) : (
-                              <span style={{ color: c.secondary }}>—</span>
-                            )}
-                          </ClientListTd>
-                          <ClientListTd>
-                            {row.ppwSentAt ? (
-                              <>
-                                <div className="tabular-nums">{formatDate(row.ppwSentAt)}</div>
-                                <div className="text-[11px]" style={{ color: c.secondary }}>
-                                  {row.daysSincePpw}d ago
-                                </div>
-                                {row.invoice.email_lifecycle?.paperwork_status === 'good' ? (
-                                  <span className="status-pill status-pill--approved">
-                                    Broker confirmed
-                                  </span>
-                                ) : row.trackStage === 'ppw_check' ? (
-                                  <span className="status-pill status-pill--pending">
-                                    PPW check
-                                  </span>
+                        <Fragment key={group.clientId}>
+                          <tr
+                            className="collections-client-row cursor-pointer"
+                            onClick={() => toggleClientExpanded(group.clientId)}
+                          >
+                            <td colSpan={INVOICE_COL_COUNT} className="!py-2.5">
+                              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                {expanded ? (
+                                  <ChevronDown
+                                    className="w-4 h-4 shrink-0"
+                                    style={{ color: c.secondary }}
+                                  />
                                 ) : (
-                                  <span className="status-pill status-pill--hold">Waiting</span>
+                                  <ChevronRight
+                                    className="w-4 h-4 shrink-0"
+                                    style={{ color: c.secondary }}
+                                  />
                                 )}
-                              </>
-                            ) : (
-                              <span className="status-pill status-pill--urgent-collection">
-                                PPW not sent
-                              </span>
-                            )}
-                          </ClientListTd>
-                          <ClientListTd>
-                            {row.lastContact ? (
-                              <>
-                                <div className="tabular-nums">{formatDate(row.lastContact)}</div>
-                                <div className="text-[11px]" style={{ color: c.secondary }}>
-                                  {formatRelativeTime(row.lastContact)}
-                                </div>
-                              </>
-                            ) : (
-                              <span style={{ color: c.secondary }}>Never</span>
-                            )}
-                          </ClientListTd>
-                          <ClientListTd>
-                            {row.nextFollowup ? (
-                              <>
-                                <div className="tabular-nums">
-                                  {formatDate(row.nextFollowup.date)}
-                                </div>
-                                <div className="text-[11px]" style={{ color: c.secondary }}>
-                                  {row.nextFollowup.due
-                                    ? `${row.nextFollowup.label} · due now`
-                                    : row.nextFollowup.label}
-                                </div>
-                              </>
-                            ) : (
-                              <span style={{ color: c.secondary }}>—</span>
-                            )}
-                          </ClientListTd>
-                          <ClientListTd variant="status">
-                            <span className={chaseStatusPillClass(row.chaseStatus)}>
-                              {row.chaseStatus === 'not_due'
-                                ? collectionsTrackLabel(row.trackStage)
-                                : chaseStatusLabel(row.chaseStatus)}
-                            </span>
-                          </ClientListTd>
-                          <ClientListTd>
-                            {row.isUrgentCollection ? (
-                              <div className="flex flex-col items-start gap-0.5">
-                                <span className="status-pill status-pill--urgent-collection">
-                                  Urgent collection
+                                <span
+                                  className="font-semibold text-sm truncate"
+                                  style={{ color: c.primary }}
+                                >
+                                  {group.clientName}
                                 </span>
-                                {row.urgentReasons.map((reason) => (
-                                  <span key={reason} className={reviewReasonPillClass(reason)}>
-                                    {reviewReasonPillLabel(reason)}
+                                <span
+                                  className="text-[11px] tabular-nums shrink-0"
+                                  style={{ color: c.secondary }}
+                                >
+                                  {group.rows.length} invoice
+                                  {group.rows.length === 1 ? '' : 's'}
+                                </span>
+                                <span
+                                  className="text-sm font-semibold tabular-nums shrink-0"
+                                  style={{ color: c.primary }}
+                                >
+                                  {formatCurrency(group.amount)}
+                                </span>
+                                {group.urgentCount > 0 ? (
+                                  <span className="status-pill status-pill--urgent-collection">
+                                    {group.urgentCount} urgent
                                   </span>
-                                ))}
-                              </div>
-                            ) : row.isUrgent ? (
-                              <div className="flex flex-col items-start gap-0.5">
-                                {row.urgentReasons.map((reason) => (
-                                  <span key={reason} className={reviewReasonPillClass(reason)}>
-                                    {reviewReasonPillLabel(reason)}
+                                ) : null}
+                                {group.overdueCount > 0 ? (
+                                  <span className="status-pill status-pill--overdue">
+                                    {group.overdueCount} overdue
                                   </span>
-                                ))}
+                                ) : null}
+                                {group.chaseCount > 0 ? (
+                                  <span className="status-pill status-pill--pending">
+                                    {group.chaseCount} chase
+                                  </span>
+                                ) : null}
                               </div>
-                            ) : (
-                              <span style={{ color: c.secondary }}>—</span>
-                            )}
-                          </ClientListTd>
-                        </tr>
+                            </td>
+                          </tr>
+                          {expanded
+                            ? group.rows.map((row) => {
+                                const selected = selectedInvoice?.id === row.invoice.id
+                                return (
+                                  <tr
+                                    key={row.invoice.id}
+                                    className={`cursor-pointer collections-invoice-row ${
+                                      selected ? 'invoice-row--selected' : ''
+                                    } ${
+                                      row.isUrgentCollection
+                                        ? 'invoice-row--urgent-collection'
+                                        : row.isOverdue
+                                          ? 'invoice-row--overdue'
+                                          : ''
+                                    }`}
+                                    onClick={() => {
+                                      setSelectedInvoice(row.invoice)
+                                      openQueueInvoice(row.invoice.id)
+                                    }}
+                                    onContextMenu={(e) => openRowContextMenu(e, row)}
+                                  >
+                                    <ClientListTd variant="primary">
+                                      <div className="pl-5">
+                                        <div className="font-medium" style={{ color: c.primary }}>
+                                          {row.invoice.invoice_number}
+                                        </div>
+                                        <div className="text-[11px]" style={{ color: c.secondary }}>
+                                          {row.invoice.load_number
+                                            ? `Load ${row.invoice.load_number}`
+                                            : '—'}
+                                        </div>
+                                      </div>
+                                    </ClientListTd>
+                                    <ClientListTd>
+                                      <div>{row.broker?.name || row.invoice.broker_name}</div>
+                                      <div className="text-[11px]" style={{ color: c.secondary }}>
+                                        {formatBrokerNetDays(row.dueDays)}
+                                        {` · PPW check ${row.paperworkCheckDays}d`}
+                                      </div>
+                                      {brokerRiskPillClass(row.brokerRiskLevel) ? (
+                                        <span className={brokerRiskPillClass(row.brokerRiskLevel)!}>
+                                          {brokerRiskPillLabel(row.brokerRiskLevel)}
+                                        </span>
+                                      ) : null}
+                                    </ClientListTd>
+                                    <ClientListTd variant="amount" className="tabular-nums">
+                                      {formatCurrency(row.amount)}
+                                    </ClientListTd>
+                                    <ClientListTd className="tabular-nums">{row.ageDays}d</ClientListTd>
+                                    <ClientListTd>
+                                      <div className="tabular-nums">
+                                        {row.dueDate ? formatDate(row.dueDate) : '—'}
+                                      </div>
+                                      {row.isOverdue ? (
+                                        <span className="status-pill status-pill--overdue">
+                                          {row.daysPastDue}d past due
+                                        </span>
+                                      ) : null}
+                                    </ClientListTd>
+                                    <ClientListTd>
+                                      {row.confirmedPayDate ? (
+                                        <>
+                                          <div className="tabular-nums">
+                                            {formatDate(row.confirmedPayDate)}
+                                          </div>
+                                          <span className="status-pill status-pill--approved">
+                                            Will Pay
+                                          </span>
+                                        </>
+                                      ) : row.collectionStatus === 'C/B' ? (
+                                        <>
+                                          {row.invoice.collection_date ? (
+                                            <div className="tabular-nums">
+                                              {formatDate(row.invoice.collection_date)}
+                                            </div>
+                                          ) : null}
+                                          <span
+                                            className={`status-pill ${
+                                              row.isCallbackDue
+                                                ? 'status-pill--overdue'
+                                                : 'status-pill--pending'
+                                            }`}
+                                          >
+                                            Call back
+                                          </span>
+                                        </>
+                                      ) : (
+                                        <span style={{ color: c.secondary }}>—</span>
+                                      )}
+                                    </ClientListTd>
+                                    <ClientListTd>
+                                      {row.ppwSentAt ? (
+                                        <>
+                                          <div className="tabular-nums">
+                                            {formatDate(row.ppwSentAt)}
+                                          </div>
+                                          <div className="text-[11px]" style={{ color: c.secondary }}>
+                                            {row.daysSincePpw}d ago
+                                          </div>
+                                          {row.invoice.email_lifecycle?.paperwork_status ===
+                                          'good' ? (
+                                            <span className="status-pill status-pill--approved">
+                                              Broker confirmed
+                                            </span>
+                                          ) : row.trackStage === 'ppw_check' ? (
+                                            <span className="status-pill status-pill--pending">
+                                              PPW check
+                                            </span>
+                                          ) : (
+                                            <span className="status-pill status-pill--hold">
+                                              Waiting
+                                            </span>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <span className="status-pill status-pill--urgent-collection">
+                                          PPW not sent
+                                        </span>
+                                      )}
+                                    </ClientListTd>
+                                    <ClientListTd>
+                                      {row.lastFollowup ? (
+                                        <>
+                                          <div className="tabular-nums font-medium">
+                                            {formatDate(row.lastFollowup.at)}
+                                          </div>
+                                          <div className="text-[11px]" style={{ color: c.secondary }}>
+                                            {row.lastFollowup.label}
+                                          </div>
+                                          <div className="text-[11px]" style={{ color: c.secondary }}>
+                                            {formatRelativeTime(row.lastFollowup.at)}
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <span style={{ color: c.secondary }}>Never</span>
+                                      )}
+                                    </ClientListTd>
+                                    <ClientListTd>
+                                      {row.nextFollowup ? (
+                                        <>
+                                          <div
+                                            className={`tabular-nums font-medium ${
+                                              row.nextFollowup.due ? 'text-red-600' : ''
+                                            }`}
+                                          >
+                                            {formatDate(row.nextFollowup.date)}
+                                          </div>
+                                          <div className="text-[11px]" style={{ color: c.secondary }}>
+                                            {row.nextFollowup.label}
+                                          </div>
+                                          {row.nextFollowup.due ? (
+                                            <span className="status-pill status-pill--overdue">
+                                              Due now
+                                            </span>
+                                          ) : (
+                                            <div className="text-[11px]" style={{ color: c.secondary }}>
+                                              Scheduled
+                                            </div>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <span style={{ color: c.secondary }}>—</span>
+                                      )}
+                                    </ClientListTd>
+                                    <ClientListTd variant="status">
+                                      <span className={chaseStatusPillClass(row.chaseStatus)}>
+                                        {row.chaseStatus === 'not_due'
+                                          ? collectionsTrackLabel(row.trackStage)
+                                          : chaseStatusLabel(row.chaseStatus)}
+                                      </span>
+                                    </ClientListTd>
+                                    <ClientListTd>
+                                      {row.isUrgent || row.isUrgentCollection ? (
+                                        <div className="flex flex-col items-start gap-0.5 max-w-[11rem]">
+                                          {row.isUrgentCollection ? (
+                                            <span className="status-pill status-pill--urgent-collection">
+                                              Urgent
+                                            </span>
+                                          ) : (
+                                            <span className="status-pill status-pill--overdue">
+                                              Urgent
+                                            </span>
+                                          )}
+                                          {row.urgentReasons.map((reason) => (
+                                            <span
+                                              key={reason}
+                                              className={reviewReasonPillClass(reason)}
+                                              title={collectionsUrgentLabel(reason)}
+                                            >
+                                              {reviewReasonPillLabel(reason, row.brokerRiskLevel)}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <span style={{ color: c.secondary }}>No</span>
+                                      )}
+                                    </ClientListTd>
+                                  </tr>
+                                )
+                              })
+                            : null}
+                        </Fragment>
                       )
                     })}
                   </tbody>
@@ -713,24 +1034,26 @@ export default function Collections() {
               </div>
             )}
 
-            {sorted.length > 0 ? (
+            {clientGroups.length > 0 ? (
               <div
                 className="client-page-footer flex items-center justify-between gap-2 px-3 py-2 border-t shrink-0"
                 style={{ borderColor: c.border }}
               >
                 <div className="flex items-center gap-2 text-xs" style={{ color: c.secondary }}>
                   <span>
-                    {sorted.length} invoice{sorted.length === 1 ? '' : 's'}
+                    {clientGroups.length} client{clientGroups.length === 1 ? '' : 's'} ·{' '}
+                    {filtered.length} invoice{filtered.length === 1 ? '' : 's'}
                   </span>
                   <select
                     value={pageSize}
                     onChange={(e) => setPageSize(Number(e.target.value))}
                     className="client-input !h-7 !py-0 !text-xs"
                     style={{ backgroundColor: c.card }}
+                    aria-label="Clients per page"
                   >
                     {PAGE_SIZE_OPTIONS.map((n) => (
                       <option key={n} value={n}>
-                        {n}/page
+                        {n} clients/page
                       </option>
                     ))}
                   </select>
@@ -763,6 +1086,68 @@ export default function Collections() {
         </div>
 
       </div>
+
+      {contextMenu &&
+        createPortal(
+          <div
+            ref={contextMenuRef}
+            className="client-ai-doc-menu admin-batch-context-menu"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            role="menu"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <p className="client-ai-doc-menu__label">
+              {contextMenu.row.invoice.invoice_number}
+              {contextMenu.row.invoice.broker_name
+                ? ` · ${contextMenu.row.invoice.broker_name}`
+                : ''}
+            </p>
+            <button
+              type="button"
+              role="menuitem"
+              className="client-ai-doc-menu__item"
+              disabled={chaseBusy}
+              onClick={() => void sendChaseFromMenu('paperwork', 'first')}
+            >
+              <Mail className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              Send PPW chase email
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="client-ai-doc-menu__item"
+              disabled={chaseBusy}
+              onClick={() => void sendChaseFromMenu('paperwork', 'second')}
+            >
+              <Mail className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              Send PPW chase follow-up
+            </button>
+            <div className="client-ai-doc-menu__sep" role="separator" />
+            <button
+              type="button"
+              role="menuitem"
+              className="client-ai-doc-menu__item"
+              disabled={chaseBusy}
+              onClick={() => void sendChaseFromMenu('payment', 'first')}
+            >
+              <Mail className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              Send payment chase email
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="client-ai-doc-menu__item"
+              disabled={chaseBusy}
+              onClick={() => void sendChaseFromMenu('payment', 'second')}
+            >
+              <Mail className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              Send payment chase follow-up
+            </button>
+          </div>,
+          document.body
+        )}
     </>
   )
 }

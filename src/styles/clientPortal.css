@@ -4341,6 +4341,21 @@
   border-color: #7f1d1d;
 }
 
+/* Collections — client parent rows with nested invoices */
+.client-portal .collections-client-row td {
+  background: var(--cp-surface, #f8fafc);
+  border-top: 1px solid var(--cp-border);
+  border-bottom: 1px solid var(--cp-border);
+}
+
+.client-portal .collections-client-row:hover td {
+  background: color-mix(in srgb, var(--cp-surface, #f8fafc) 70%, #1684FE 8%);
+}
+
+.client-portal .collections-invoice-row td:first-child {
+  box-shadow: inset 3px 0 0 transparent;
+}
+
 .client-portal .invoice-row--overdue {
   background: #fffbfb;
 }

@@ -67,7 +67,7 @@ function followupAfterInquiry(
   return {
     date: next,
     kind: 'payment_followup',
-    label: 'Broker follow-up',
+    label: 'Payment chase follow-up',
     due: isDueOn(next, asOf),
   }
 }
@@ -120,7 +120,7 @@ export function getNextBrokerFollowup(input: {
     return {
       date,
       kind: 'paperwork_check',
-      label: 'Paperwork check',
+      label: 'PPW chase email',
       due: isDueOn(date, asOf),
     }
   }
@@ -132,7 +132,7 @@ export function getNextBrokerFollowup(input: {
       {
         date: scheduled,
         kind: 'paperwork_check',
-        label: 'Paperwork check',
+        label: 'PPW chase email',
         due: isDueOn(scheduled, asOf),
       },
       asOf
@@ -144,7 +144,7 @@ export function getNextBrokerFollowup(input: {
       return {
         date: dueDate.slice(0, 10),
         kind: 'payment_due',
-        label: 'Payment check',
+        label: 'Payment chase email',
         due: isDueOn(dueDate, asOf),
       }
     }
@@ -152,7 +152,7 @@ export function getNextBrokerFollowup(input: {
     return {
       date,
       kind: 'payment_inquiry',
-      label: 'Payment check',
+      label: 'Payment chase email',
       due: isDueOn(date, asOf),
     }
   }
@@ -163,7 +163,7 @@ export function getNextBrokerFollowup(input: {
     {
       date: fallbackDate,
       kind: 'payment_inquiry',
-      label: 'Payment check',
+      label: 'Payment chase email',
       due: isDueOn(fallbackDate, asOf),
     },
     asOf
@@ -218,15 +218,17 @@ export function toBrokerFollowupCalendarEvent(opts: {
 
   const title =
     followup.kind === 'paperwork_check'
-      ? 'Broker paperwork check'
+      ? 'PPW chase email'
       : followup.kind === 'payment_followup'
-        ? 'Broker follow-up'
-        : 'Broker payment check'
+        ? 'Payment chase follow-up'
+        : 'Payment chase email'
 
   const detail =
     followup.kind === 'paperwork_check'
-      ? `Credyx checks that ${brokerLabel} received the paperwork for invoice #${invoice.invoice_number}.`
-      : `Credyx follows up with ${brokerLabel} on invoice #${invoice.invoice_number}.`
+      ? `Scheduled paperwork-status email to ${brokerLabel} for invoice #${invoice.invoice_number}. Sends when chase runs (Inbox “Run chase” or the email-lifecycle-chase cron).`
+      : followup.kind === 'payment_followup'
+        ? `Scheduled payment follow-up email to ${brokerLabel} for invoice #${invoice.invoice_number}.`
+        : `Scheduled payment-status email to ${brokerLabel} for invoice #${invoice.invoice_number}. Sends when chase runs after paperwork is marked good.`
 
   return {
     id: `live-broker-followup-${invoice.id}`,

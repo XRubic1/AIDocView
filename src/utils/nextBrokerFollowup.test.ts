@@ -34,7 +34,7 @@ describe('getNextBrokerFollowup', () => {
     expect(next).toEqual({
       date: '2026-09-17',
       kind: 'paperwork_check',
-      label: 'Paperwork check',
+      label: 'PPW chase email',
       due: false,
     })
   })
@@ -83,7 +83,7 @@ describe('getNextBrokerFollowup', () => {
     expect(next).toEqual({
       date: '2026-09-30',
       kind: 'payment_due',
-      label: 'Payment check',
+      label: 'Payment chase email',
       due: false,
     })
   })
@@ -120,7 +120,7 @@ describe('toBrokerFollowupCalendarEvent', () => {
     })
     expect(evt?.id).toBe('live-broker-followup-inv-1')
     expect(evt?.dueDate).toBe('2026-09-17')
-    expect(evt?.title).toBe('Broker paperwork check')
+    expect(evt?.title).toBe('PPW chase email')
     expect(evt?.owner).toBe('credyx_staff')
   })
 

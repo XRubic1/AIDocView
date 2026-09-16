@@ -27,6 +27,7 @@ function row(partial: Partial<AdminCollectionsRow>): AdminCollectionsRow {
     trackStage: 'payment_verify',
     chaseStatus: 'not_due',
     lastContact: null,
+    lastFollowup: null,
     brokerRiskLevel: 'unrated',
     isUrgent: false,
     isUrgentCollection: false,

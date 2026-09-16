@@ -365,6 +365,14 @@ export async function sendBrokerPacketForInvoice(
     console.warn('[paperworkSender] inbox log failed', err)
   }
 
+  // Start paperwork chase clock so calendar + auto-chase know when the first ask is due.
+  try {
+    const { startPaperworkTrack } = await import('../services/emailLifecycleTrack')
+    await startPaperworkTrack(invoice.id, new Date().toISOString())
+  } catch (err) {
+    console.warn('[paperworkSender] paperwork track start failed', err)
+  }
+
   logAuditEvent(
     'document_sent',
     'invoice',
