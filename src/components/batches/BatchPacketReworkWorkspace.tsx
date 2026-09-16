@@ -17,6 +17,7 @@ import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
 import { useToast } from '../ui/ToastProvider'
 import { hydrateIntakeDraftFromBatch } from '../../utils/buildIntakeDraftFromBatch'
 import { buildDocSortSnapshot } from '../../products/docSort/utils/docSortSnapshot'
+import { emailDomainFromFingerprints } from '../../products/docSort/utils/formatRate'
 import {
   addDocToInvoice,
   assignUnmatchedDocument,
@@ -24,6 +25,8 @@ import {
   deleteDraftDocument,
   moveDraftDocument,
   placeDraftDocument,
+  pruneUnmatchedAgainstAssigned,
+  withPrunedUnmatched,
   removeInvoiceFromDraft,
 } from '../../utils/aiDraftDocOps'
 import { notifyTenantDataUpdated } from '../../services/supabase/tenantDataLiveSync'
@@ -36,6 +39,20 @@ import {
   ensureStoredBatchFile,
   prefetchStoredBatchFiles,
 } from '../../utils/resolveHandoffDocuments'
+import { isAIReviewEnabled } from '../../config/aiReview'
+import { rerunInvoiceAiReview } from '../../services/credyx/batchAiReviewService'
+import type {
+  AiReviewLiveCheck,
+  AiReviewLiveExtract,
+  BatchAiReviewProgress,
+} from '../../services/credyx/batchAiReviewService'
+import {
+  ensureUniqueClientInvoiceNumber,
+  formatClientInvoiceNumber,
+  getMaxInvoiceSequence,
+  loadClientInvoiceNumbers,
+} from '../../utils/clientInvoiceNumbers'
+import { isInvoiceNumberTakenExcluding } from '../../utils/invoiceDuplicateChecks'
 
 interface BatchPacketReworkWorkspaceProps {
   batchId: string
@@ -83,6 +100,13 @@ export default function BatchPacketReworkWorkspace({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [addingInvoice, setAddingInvoice] = useState(false)
+  const [rerunningAiCheck, setRerunningAiCheck] = useState(false)
+  const [aiLiveProgress, setAiLiveProgress] = useState<{
+    draftId: string
+    extract: AiReviewLiveExtract | null
+    checks: AiReviewLiveCheck[] | null
+    phase: BatchAiReviewProgress['phase']
+  } | null>(null)
   /** Skip automatic re-hydrate after the admin edits packets locally. */
   const [dirty, setDirty] = useState(false)
   const dirtyRef = useRef(false)
@@ -153,7 +177,10 @@ export default function BatchPacketReworkWorkspace({
         }
         // Keep local edits when a late tenant sync fires with less data.
         if (dirtyRef.current && draft && draft.invoices.length > next.invoices.length) return
-        setDraft(next)
+        setDraft({
+          ...next,
+          unmatched: pruneUnmatchedAgainstAssigned(next.unmatched, next.invoices),
+        })
         setError(null)
       })
       .catch((err) => {
@@ -227,6 +254,86 @@ export default function BatchPacketReworkWorkspace({
     [batchId, draft]
   )
 
+  /** Right-click invoice → re-run AI verification for that packet only. */
+  const handleRerunAiCheck = useCallback(
+    async (draftId: string, invoiceNumber: string) => {
+      if (!isAIReviewEnabled()) {
+        showToast('Configure the openai-proxy Edge Function to enable AI review.', 'error')
+        return
+      }
+      if (rerunningAiCheck) {
+        showToast('Wait for the current AI check to finish.', 'info')
+        return
+      }
+      const invoice = getInvoiceById(draftId)
+      if (!invoice) {
+        showToast('Save this packet first, then re-run the AI check.', 'info')
+        return
+      }
+      setRerunningAiCheck(true)
+      setAiLiveProgress({
+        draftId,
+        extract: {},
+        checks: null,
+        phase: 'starting',
+      })
+      try {
+        const current = draftRef.current
+        if (current && current.fileById.size > 0) {
+          mergeBatchFiles(batchId, current.fileById)
+        }
+        await rerunInvoiceAiReview(
+          batchId,
+          draftId,
+          (p) => {
+            setAiLiveProgress({
+              draftId,
+              extract: p.liveExtract ?? {},
+              checks: p.liveChecks ?? null,
+              phase: p.phase,
+            })
+            // Fill packet fields as extract values arrive (carrier stays on-file).
+            if (p.liveExtract) {
+              const patch: Partial<CredyxInvoiceDraft> = {}
+              if (p.liveExtract.loadNumber) patch.load_number = p.liveExtract.loadNumber
+              if (p.liveExtract.brokerName) patch.broker_name = p.liveExtract.brokerName
+              if (p.liveExtract.amount != null && Number.isFinite(p.liveExtract.amount)) {
+                patch.amount = p.liveExtract.amount
+                patch.rate_missing = false
+              }
+              if (Object.keys(patch).length > 0) {
+                setDraft((prev) => {
+                  if (!prev) return prev
+                  return {
+                    ...prev,
+                    invoices: prev.invoices.map((inv) =>
+                      inv.draftId === draftId
+                        ? {
+                            ...inv,
+                            ...patch,
+                            carrier_name: batch?.client_name ?? inv.carrier_name,
+                          }
+                        : inv
+                    ),
+                  }
+                })
+              }
+            }
+          },
+          { allowVision: true }
+        )
+        scheduleInvoicePdfRegen(draftId)
+        showToast(`AI check re-run for #${invoiceNumber}`, 'success')
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'AI re-check failed', 'error')
+      } finally {
+        setRerunningAiCheck(false)
+        setAiLiveProgress(null)
+      }
+    },
+    [batchId, showToast, rerunningAiCheck, batch?.client_name, scheduleInvoicePdfRegen]
+  )
+
   const updateDraft = useCallback((draftId: string, patch: Partial<CredyxInvoiceDraft>) => {
     setDirty(true)
     let nextPatch = patch
@@ -238,7 +345,13 @@ export default function BatchPacketReworkWorkspace({
           broker_name: patch.broker_name ?? '',
         }
       } else if (patch.broker_name !== undefined) {
-        const broker = matchBrokerByName(patch.broker_name)
+        const inv = draftRef.current?.invoices.find((i) => i.draftId === draftId)
+        const domain = emailDomainFromFingerprints([
+          ...(inv?.fingerprints.rateCons ?? []),
+          ...(inv?.fingerprints.bols ?? []),
+          ...(inv?.fingerprints.other ?? []),
+        ])
+        const broker = matchBrokerByName(patch.broker_name, domain)
         nextPatch = {
           ...patch,
           broker_id: broker.broker_id,
@@ -339,7 +452,7 @@ export default function BatchPacketReworkWorkspace({
           inv.draftId === draftId ? addDocToInvoice(inv, fingerprint) : inv
         )
       })
-      return { ...prev, fileById: nextFileById, invoices }
+      return withPrunedUnmatched({ ...prev, fileById: nextFileById, invoices })
     })
   }
 
@@ -362,11 +475,64 @@ export default function BatchPacketReworkWorkspace({
         (inv) => !(isManualCredyxDraft(inv) && !getInvoiceById(inv.draftId))
       )
 
+      // Resolve numbers against live DB so saves never hit invoices_client_number_uidx.
+      const existingNumbers = await loadClientInvoiceNumbers(batch.client_id)
+      const reserved: string[] = [...existingNumbers]
+      const uniqueForDraft = (preferred: string, excludeInvoiceId?: string) => {
+        const exclude = excludeInvoiceId ? [excludeInvoiceId] : []
+        const selfNum = excludeInvoiceId
+          ? getInvoiceById(excludeInvoiceId)?.invoice_number?.trim()
+          : undefined
+        // Don't treat this invoice's current number as taken while validating a keep/edit.
+        const reservedForCheck = selfNum
+          ? reserved.filter((n) => n.trim().toLowerCase() !== selfNum.toLowerCase())
+          : reserved
+        const preferredTrim = preferred.trim()
+        if (
+          preferredTrim &&
+          !isInvoiceNumberTakenExcluding(
+            batch.client_id,
+            preferredTrim,
+            reservedForCheck,
+            exclude
+          )
+        ) {
+          reserved.push(preferredTrim)
+          return preferredTrim
+        }
+        let seq = getMaxInvoiceSequence(batch.client_id, reservedForCheck)
+        for (let i = 0; i < 10_000; i++) {
+          seq += 1
+          const candidate = formatClientInvoiceNumber(seq)
+          if (
+            !isInvoiceNumberTakenExcluding(
+              batch.client_id,
+              candidate,
+              reservedForCheck,
+              exclude
+            )
+          ) {
+            reserved.push(candidate)
+            return candidate
+          }
+        }
+        return ensureUniqueClientInvoiceNumber(
+          batch.client_id,
+          preferredTrim || '001',
+          reservedForCheck
+        )
+      }
+
       // Create brand-new packets added in rework (previously skipped on save).
       if (newDrafts.length > 0) {
-        const fields = newDrafts.map((inv) =>
-          draftToInvoiceFields(inv, batch.client_id, batch.client_name)
-        )
+        const fields = newDrafts.map((inv) => {
+          const invoice_number = uniqueForDraft(inv.invoice_number?.trim() || '')
+          return draftToInvoiceFields(
+            { ...inv, invoice_number },
+            batch.client_id,
+            batch.client_name
+          )
+        })
         const created = addInvoicesForBatch(batchId, batch.batch_number, fields)
 
         for (let i = 0; i < created.length; i++) {
@@ -389,7 +555,7 @@ export default function BatchPacketReworkWorkspace({
               invoice.id,
               docFiles
             )
-            updateInvoice(invoice.id, { document_storage_paths: storagePaths })
+            updateInvoice(invoice.id, { document_storage_paths: storagePaths }, { deferPersist: true })
           }
 
           if (isSupabaseConfigured()) {
@@ -400,33 +566,47 @@ export default function BatchPacketReworkWorkspace({
       }
 
       for (const inv of existingDrafts) {
-        const updated = updateInvoice(inv.draftId, {
-          invoice_number: inv.invoice_number,
-          load_number: inv.load_number,
-          broker_id: inv.broker_id,
-          broker_name: inv.broker_name,
-          amount: inv.amount,
-          invoice_date: inv.invoice_date,
-          client_name: batch.client_name,
-          document_doc_ids: inv.document_doc_ids,
-          documents_count: inv.document_doc_ids.length + (inv.invoice_pdf ? 1 : 0),
-          doc_sort_group_id: inv.groupId,
-        })
+        const invoice_number = uniqueForDraft(inv.invoice_number?.trim() || '', inv.draftId)
+        const updated = updateInvoice(
+          inv.draftId,
+          {
+            invoice_number,
+            load_number: inv.load_number,
+            broker_id: inv.broker_id,
+            broker_name: inv.broker_name,
+            amount: inv.amount,
+            invoice_date: inv.invoice_date,
+            client_name: batch.client_name,
+            document_doc_ids: inv.document_doc_ids,
+            documents_count: inv.document_doc_ids.length + (inv.invoice_pdf ? 1 : 0),
+            doc_sort_group_id: inv.groupId,
+          },
+          { deferPersist: true }
+        )
         if (updated && isSupabaseConfigured()) {
           await persistInvoice(updated)
         }
       }
 
+      const unmatched = pruneUnmatchedAgainstAssigned(draft.unmatched, draft.invoices)
       const unmatchedIds = [
-        ...draft.unmatched.rateCons,
-        ...draft.unmatched.bols,
-        ...draft.unmatched.other,
+        ...unmatched.rateCons,
+        ...unmatched.bols,
+        ...unmatched.other,
       ].map((fp) => fp.docId)
 
       updateBatchTotals(batchId)
       updateBatch(batchId, {
         unmatched_doc_ids: unmatchedIds,
-        doc_sort_snapshot: buildDocSortSnapshot(draft.sortResult, draft.invoices),
+        doc_sort_snapshot: buildDocSortSnapshot(
+          {
+            ...draft.sortResult,
+            unmatchedRateCons: unmatched.rateCons,
+            unmatchedBols: unmatched.bols,
+            otherDocuments: unmatched.other,
+          },
+          draft.invoices
+        ),
       })
 
       notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
@@ -534,6 +714,9 @@ export default function BatchPacketReworkWorkspace({
           onSubmitBatch={() => void persistDraft()}
           submitting={saving}
           onCancel={onClose}
+          onRerunAiCheck={handleRerunAiCheck}
+          rerunningAiCheck={rerunningAiCheck}
+          aiLiveProgress={aiLiveProgress}
         />
       </div>
     </div>

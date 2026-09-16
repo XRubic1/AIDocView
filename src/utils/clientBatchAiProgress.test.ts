@@ -95,6 +95,43 @@ describe('getClientBatchAiProgress', () => {
     expect(result.phase).toBe('processing')
     expect(result.show).toBe(true)
   })
+
+  it('shows done when every invoice finished even if job still pending', () => {
+    const result = getClientBatchAiProgress({
+      uploadMode: 'ai',
+      sortStatus: 'sorting',
+      invoices: [
+        { ai_review_status: 'ready' },
+        { ai_review_status: 'needs_work' },
+        { ai_review_status: 'needs_work' },
+      ],
+      job: {
+        id: 'j1',
+        batch_id: 'b1',
+        status: 'pending',
+      },
+    })
+    expect(result.phase).toBe('done')
+    expect(result.percent).toBe(100)
+    expect(result.show).toBe(true)
+  })
+
+  it('shows done when job succeeded even with stale sorting flag', () => {
+    const result = getClientBatchAiProgress({
+      uploadMode: 'ai',
+      sortStatus: 'sorting',
+      invoices: [
+        { ai_review_status: 'ready' },
+        { ai_review_status: 'running' },
+      ],
+      job: {
+        id: 'j1',
+        batch_id: 'b1',
+        status: 'succeeded',
+      },
+    })
+    expect(result.phase).toBe('done')
+  })
 })
 
 describe('estimateBatchProcessingEta', () => {
@@ -110,7 +147,8 @@ describe('estimateBatchProcessingEta', () => {
       startedAt: new Date().toISOString(),
     })
     expect(eta).not.toBeNull()
-    expect(eta!.remainingSeconds).toBeGreaterThan(60)
+    expect(eta!.remainingSeconds).toBeGreaterThan(40)
+    expect(eta!.remainingSeconds).toBeLessThan(10 * 60)
     expect(eta!.shortLabel).toMatch(/min left/)
   })
 })

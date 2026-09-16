@@ -1,6 +1,7 @@
 import { getSupabase, isSupabaseConfigured } from '../../lib/supabase'
 import { notifyTenantDataUpdated } from '../supabase/tenantDataLiveSync'
 import type { BatchProcessingJobSnapshot } from '../../utils/clientBatchAiProgress'
+import { withOpenAiJobAuth } from '../../utils/openaiAuthContext'
 
 export type BatchProcessingJobKind = 'verify_only' | 'sort_and_verify'
 
@@ -96,13 +97,13 @@ export async function enqueueBatchProcessing(opts: {
 
   if (!isSupabaseConfigured()) {
     // Local / mock mode — still run the in-browser pipeline.
-    void kickBatchProcessingLocal(opts.batchId, kind)
+    void kickBatchProcessingLocal(opts.batchId, kind, null)
     return { jobId: null }
   }
 
   const supabase = getSupabase()
   if (!supabase) {
-    void kickBatchProcessingLocal(opts.batchId, kind)
+    void kickBatchProcessingLocal(opts.batchId, kind, null)
     return { jobId: null }
   }
 
@@ -121,7 +122,7 @@ export async function enqueueBatchProcessing(opts: {
 
   // Fire-and-forget: edge worker (survives tab close) + local pipeline (full DocSort).
   void kickBatchProcessingEdge(opts.batchId)
-  void kickBatchProcessingLocal(opts.batchId, kind)
+  void kickBatchProcessingLocal(opts.batchId, kind, jobId)
 
   return { jobId }
 }
@@ -148,11 +149,15 @@ async function kickBatchProcessingEdge(batchId: string): Promise<void> {
  */
 async function kickBatchProcessingLocal(
   batchId: string,
-  kind: BatchProcessingJobKind
+  kind: BatchProcessingJobKind,
+  jobId: string | null
 ): Promise<void> {
   try {
     const { runBatchBackgroundPipeline } = await import('./batchBackgroundPipeline')
-    await runBatchBackgroundPipeline({ batchId, kind })
+    await withOpenAiJobAuth(
+      jobId ? { batchId, jobId } : null,
+      () => runBatchBackgroundPipeline({ batchId, kind })
+    )
     notifyTenantDataUpdated(['batches', 'invoices'])
   } catch (err) {
     console.warn('[kickBatchProcessingLocal]', err)
@@ -177,9 +182,10 @@ export async function drainPendingBatchProcessingJobs(limit = 3): Promise<number
   let done = 0
   for (const row of data) {
     const batchId = String(row.batch_id)
+    const jobId = String(row.id)
     const kind = (row.kind === 'sort_and_verify' ? 'sort_and_verify' : 'verify_only') as BatchProcessingJobKind
     try {
-      await kickBatchProcessingLocal(batchId, kind)
+      await kickBatchProcessingLocal(batchId, kind, jobId)
       void kickBatchProcessingEdge(batchId)
       done += 1
     } catch (err) {

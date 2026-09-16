@@ -28,6 +28,11 @@ import { snapshotFeeTermsFromClient } from '../../utils/feeTermsLock'
 import { getClientById } from '../clientRegistry'
 import { assertClientSetupComplete } from '../../utils/clientSetupDocuments'
 import { notifyAdminBrokerRequested } from '../adminNotificationService'
+import {
+  ensureUniqueClientInvoiceNumber,
+  getNextClientInvoiceNumber,
+  loadClientInvoiceNumbers,
+} from '../../utils/clientInvoiceNumbers'
 
 function filesToUploads(files: File[]): DocSortUpload[] {
   return files.map((file) => ({
@@ -62,10 +67,18 @@ export async function runBatchIntakePipeline(
   uploads.forEach((u) => fileById.set(u.id, u.file))
 
   const drafted = invoiceDraftGroupsFromSort(sortResult)
+  // Check DB + memory so we never reuse an existing carrier invoice #.
+  const existingNumbers = await loadClientInvoiceNumbers(clientId)
+  const usedInvoiceNumbers: string[] = [...existingNumbers]
+  const clientName = getClientById(clientId)?.name ?? ''
   const invoices: BatchIntakeDraft['invoices'] = []
-  const usedInvoiceNumbers: string[] = []
   for (const group of drafted.groups) {
-    const draft = await buildCredyxDraftFromGroup(group, clientId, usedInvoiceNumbers)
+    const draft = await buildCredyxDraftFromGroup(
+      group,
+      clientId,
+      usedInvoiceNumbers,
+      clientName
+    )
     usedInvoiceNumbers.push(draft.invoice_number)
     invoices.push(draft)
   }
@@ -113,40 +126,55 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
     assertClientSetupComplete(clientId, client)
   }
 
-  // Hard-block duplicate invoice numbers (no silent renumbering).
+  // Re-check live invoice numbers (DB + memory) before insert — avoids
+  // invoices_client_number_uidx when memory was stale after account switch.
+  const existingNumbers = await loadClientInvoiceNumbers(clientId)
+  const reservedNumbers: string[] = [...existingNumbers]
+  const resolvedDrafts = drafts.map((draft) => {
+    const preferred = draft.invoice_number?.trim() || ''
+    const invoice_number = preferred
+      ? ensureUniqueClientInvoiceNumber(clientId, preferred, reservedNumbers)
+      : getNextClientInvoiceNumber(clientId, reservedNumbers)
+    reservedNumbers.push(invoice_number)
+    return { ...draft, invoice_number }
+  })
+
   const numberIssues = validateBatchInvoiceNumbers(
     clientId,
-    drafts.map((d) => d.invoice_number?.trim() || '')
+    resolvedDrafts.map((d) => d.invoice_number),
+    { knownNumbers: existingNumbers }
   )
   if (numberIssues.length > 0) {
     throw new Error(numberIssues[0].message)
   }
 
-  const totalAmount = drafts.reduce((s, d) => s + d.amount, 0)
+  const totalAmount = resolvedDrafts.reduce((s, d) => s + d.amount, 0)
+  const assignedDocIds = new Set(resolvedDrafts.flatMap((d) => d.document_doc_ids))
+  // Prefer live unmatched lists; drop anything already attached to a packet.
   const unmatchedIds = [
     ...fingerprintDocIds(sortResult.unmatchedRateCons),
     ...fingerprintDocIds(sortResult.unmatchedBols),
     ...fingerprintDocIds(sortResult.otherDocuments),
-  ]
+  ].filter((id) => !assignedDocIds.has(id))
 
   const existing = existingBatchId ? updateBatch(existingBatchId, {}) : undefined
   // Fee calc pulls live from the carrier account (trial/active included).
   const feeTerms = snapshotFeeTermsFromClient(client) ?? client?.fee_terms
   const feeCalculation = calculateBatchFeeCalculation(
-    drafts.map((d) => ({ amount: d.amount, status: 'pending' as const })),
+    resolvedDrafts.map((d) => ({ amount: d.amount, status: 'pending' as const })),
     feeTerms
   )
   const batchNumber = existing?.batch_number ?? generateBatchNumber(clientId)
 
   const batch = existing
     ? updateBatch(existingBatchId!, {
-        total_invoices: drafts.length,
+        total_invoices: resolvedDrafts.length,
         total_amount: totalAmount,
         status: 'ready_to_post',
         submitted_at: new Date().toISOString(),
         upload_mode: uploadMode,
         sort_status: 'ready',
-        doc_sort_snapshot: buildDocSortSnapshot(sortResult, drafts),
+        doc_sort_snapshot: buildDocSortSnapshot(sortResult, resolvedDrafts),
         unmatched_doc_ids: unmatchedIds,
         fee_calculation: feeCalculation,
       })!
@@ -154,18 +182,18 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
         batch_number: batchNumber,
         client_name: clientName,
         client_id: clientId,
-        total_invoices: drafts.length,
+        total_invoices: resolvedDrafts.length,
         total_amount: totalAmount,
         status: 'ready_to_post',
         submitted_at: new Date().toISOString(),
         upload_mode: uploadMode,
         sort_status: 'ready',
-        doc_sort_snapshot: buildDocSortSnapshot(sortResult, drafts),
+        doc_sort_snapshot: buildDocSortSnapshot(sortResult, resolvedDrafts),
         unmatched_doc_ids: unmatchedIds,
         fee_calculation: feeCalculation,
       })
 
-  const invoiceFields = drafts.map((draft) => {
+  const invoiceFields = resolvedDrafts.map((draft) => {
     const fields = draftToInvoiceFields(draft, clientId, clientName)
     fields.ai_confirmed_by = confirmedBy
     return fields
@@ -175,7 +203,7 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
 
   const pendingBrokerNames = [
     ...new Set(
-      drafts
+      resolvedDrafts
         .filter((d) => d.broker_name.trim() && !d.broker_id)
         .map((d) => d.broker_name.trim())
     ),
@@ -191,7 +219,7 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
   }
 
   const storeMap = new Map(fileById)
-  drafts.forEach((draft) => {
+  resolvedDrafts.forEach((draft) => {
     if (draft.invoice_pdf) {
       storeMap.set(`invoice-pdf-${draft.groupId}`, draft.invoice_pdf)
     }
@@ -201,7 +229,7 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
   if (isSupabaseConfigured()) {
     for (let i = 0; i < invoices.length; i++) {
       const invoice = invoices[i]
-      const draft = drafts[i]
+      const draft = resolvedDrafts[i]
       const docFiles = new Map<string, File>()
 
       for (const docId of draft.document_doc_ids) {
@@ -222,7 +250,7 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
           invoice.id,
           docFiles
         )
-        updateInvoice(invoice.id, { document_storage_paths: storagePaths })
+        updateInvoice(invoice.id, { document_storage_paths: storagePaths }, { deferPersist: true })
         Object.assign(invoice, { document_storage_paths: storagePaths })
       }
 

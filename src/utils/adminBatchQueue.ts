@@ -1,5 +1,7 @@
 import type { PendingBatch } from '../types/admin'
+import { getBatchById } from '../data/mockBatches'
 import { getInvoicesByBatchId } from '../data/mockInvoices'
+import { settleBatchAiGate } from '../services/credyx/batchAiReviewService'
 
 /** Toggle chips for the admin Batches list (invoice-style on/off filters). */
 export const ADMIN_BATCH_CHIP_FILTERS = [
@@ -195,15 +197,29 @@ export function getAdminBatchAiReviewProgress(batchId: string): {
  * and AI is not mid-sort / mid-review.
  */
 export function canOpenPacketRework(batch: PendingBatch): boolean {
-  if (batch.status === 'draft' || batch.status === 'creating') return false
-  if (batch.sort_status === 'sorting') return false
+  if (batch.status === 'draft') return false
 
-  const invoices = getInvoicesByBatchId(batch.id)
-  if (invoices.length === 0) return false
+  // Clear interrupted reviews + stuck sorting so Packets cannot lock forever.
+  settleBatchAiGate(batch.id)
+  const live = getBatchById(batch.id) ?? batch
+
+  if (live.status === 'creating') return false
+  // Only block on active sort when there are still no invoices to rework.
+  const invoices = getInvoicesByBatchId(live.id)
+  if (invoices.length === 0) {
+    if (live.sort_status === 'sorting') return false
+    return false
+  }
   if (invoices.some((inv) => inv.ai_review_status === 'running')) return false
 
-  const aiPath = batch.upload_mode === 'ai' || batch.upload_mode === 'handoff'
-  if (aiPath && batch.sort_status && batch.sort_status !== 'ready' && batch.sort_status !== 'failed') {
+  const aiPath = live.upload_mode === 'ai' || live.upload_mode === 'handoff'
+  if (
+    aiPath &&
+    live.sort_status &&
+    live.sort_status !== 'ready' &&
+    live.sort_status !== 'failed' &&
+    live.sort_status !== 'sorting'
+  ) {
     return false
   }
   return true

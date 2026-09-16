@@ -110,7 +110,13 @@ export function evaluateRequiredDocuments(input: RequiredDocumentInput): Require
       const docRate = doc.extraction.rateConParse
       const docHasRateCon = Boolean(docRate?.load_number || docRate?.carrier_name)
       if (!docHasRateCon) return
-      const docHasBol = documentHasBolEvidence(doc.extraction)
+      // Sibling BOL attachments on the same upload satisfy the rate-con PDF.
+      const docHasBol =
+        documentHasBolEvidence(doc.extraction) ||
+        reviewDocs.some(
+          (sibling) =>
+            sibling.documentId !== doc.documentId && documentHasBolEvidence(sibling.extraction)
+        )
       const docTonu = isTonuLoad(docRate)
       if (!docHasBol && !docTonu) {
         flags.push({

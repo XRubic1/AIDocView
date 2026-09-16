@@ -56,13 +56,17 @@ describe('clientInvoiceView', () => {
     expect('write_off_request' in visible).toBe(false)
   })
 
+  it('masks review as pending for clients', () => {
+    expect(toClientVisibleStatus('review')).toBe('pending')
+  })
+
   it('filters internal notes from client view', () => {
     const notes: InvoiceNote[] = baseInvoice.notes_history ?? []
     expect(clientVisibleNotes(notes)).toHaveLength(1)
     expect(clientVisibleNotes(notes)[0].note).toBe('Client note')
   })
 
-  it('keeps invoices Open and hides admin notes while batch is in verification', () => {
+  it('keeps invoices Pending and hides admin notes while batch is still open', () => {
     hydrateBatches([
       {
         id: 'batch-1',
@@ -71,7 +75,7 @@ describe('clientInvoiceView', () => {
         client_name: 'Test Carrier',
         total_invoices: 1,
         total_amount: 1000,
-        status: 'verification',
+        status: 'ready_to_post',
         submitted_at: '2026-01-01T00:00:00Z',
       },
     ])
@@ -98,11 +102,37 @@ describe('clientInvoiceView', () => {
     expect(isClientVisibleHold(heldDuringVerify)).toBe(false)
 
     const visible = toClientVisibleInvoice(heldDuringVerify)
-    expect(visible.status).toBe('approved')
+    expect(visible.status).toBe('pending')
     expect(visible.hold_reason).toBeUndefined()
     expect(visible.notes).toBeUndefined()
     expect(visible.notes_history).toHaveLength(1)
     expect(visible.notes_history?.[0].type).toBe('client_note')
+  })
+
+  it('also masks holds while batch is in verification', () => {
+    hydrateBatches([
+      {
+        id: 'batch-1',
+        batch_number: 'B-1',
+        client_id: 'c1',
+        client_name: 'Test Carrier',
+        total_invoices: 1,
+        total_amount: 1000,
+        status: 'verification',
+        submitted_at: '2026-01-01T00:00:00Z',
+      },
+    ])
+
+    const held: Invoice = {
+      ...baseInvoice,
+      status: 'hold',
+      batch_id: 'batch-1',
+      hold_reason: 'Carrier mismatch',
+    }
+
+    const visible = toClientVisibleInvoice(held)
+    expect(visible.status).toBe('pending')
+    expect(visible.hold_reason).toBeUndefined()
   })
 
   it('reveals hold status and verification notes after batch is processed', () => {

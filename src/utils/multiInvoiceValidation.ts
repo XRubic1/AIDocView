@@ -156,6 +156,22 @@ export function buildRateConsFromBatch(documents: DocumentReviewResult[]): RateC
   for (const doc of documents) {
     const parse = doc.extraction.rateConParse
     if (!parse) continue
+    // Skip BOL / delivery-proof attachments that may hallucinate a rate-con parse.
+    const isBol =
+      doc.extraction.documentType === 'bill_of_lading' ||
+      (doc.extraction.pageClassifications ?? []).some(
+        (p) =>
+          p.pageType === 'bill_of_lading' ||
+          p.pageType === 'proof_of_delivery' ||
+          p.pageType === 'delivery_confirmation'
+      )
+    const looksLikeRateCon =
+      doc.extraction.documentType === 'rate_confirmation' ||
+      Boolean(doc.extraction.rateConFields) ||
+      (doc.extraction.pageClassifications ?? []).some((p) => p.pageType === 'rate_confirmation') ||
+      /rate|confirmation|\brc\b/i.test(doc.fileName)
+    if (isBol && !looksLikeRateCon) continue
+    if (!looksLikeRateCon && !parse.load_number) continue
     if (parse.load_number || parse.rate_total != null || parse.broker_name) {
       refs.push({
         documentId: doc.documentId,

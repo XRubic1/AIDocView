@@ -49,6 +49,13 @@ type BrokerSortField =
   | 'open_ar'
   | 'collection_rate'
 
+type BrokersPageTab = 'brokers' | 'mc-check' | 'mc-logs'
+
+function parseBrokersTab(raw: string | null): BrokersPageTab {
+  if (raw === 'mc-check' || raw === 'mc-logs') return raw
+  return 'brokers'
+}
+
 const RATING_ORDER: Record<BrokerPayRating, number> = { red: 0, yellow: 1, green: 2 }
 const RISK_ORDER: Record<string, number> = { high: 0, medium: 1, unrated: 2, low: 3 }
 
@@ -63,7 +70,7 @@ function buildClientPayments(clientId: string, clientName: string): Payment[] {
 export default function ClientBrokers() {
   const c = useClientTheme()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { clientId, clientName } = useClientSession()
   const tenantRevision = useTenantDataRevision()
   const [notesRefreshKey, setNotesRefreshKey] = useState(0)
@@ -74,11 +81,8 @@ export default function ClientBrokers() {
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<BrokerSortField>('rating')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
-  const [mcLookupOpen, setMcLookupOpen] = useState(false)
-  const [mcLookupInitial, setMcLookupInitial] = useState('')
-  const [mcLookupAuto, setMcLookupAuto] = useState(false)
-  const [reviewLogOpen, setReviewLogOpen] = useState(false)
-  const [reviewLogRefresh, setReviewLogRefresh] = useState(0)
+  const pageTab = parseBrokersTab(searchParams.get('tab'))
+  const mcPrefill = searchParams.get('mc')?.trim() ?? ''
 
   /** Open Aging A/R filtered to this broker. */
   const goToAgingForBroker = useCallback(
@@ -118,15 +122,39 @@ export default function ClientBrokers() {
       (mcLookup != null && (mcLookup.is_new || !mcLookup.has_worked_with_client)) ||
       (catalogBroker != null && mcLookup == null))
 
-  const openMcLookup = useCallback(
-    (prefill?: string, auto = false) => {
+  const openMcCheck = useCallback(
+    (prefill?: string) => {
       const fromArg = prefill?.trim()
       const fromSearch = mcQuery.replace(/\D/g, '').length >= 4 ? mcQuery : ''
-      setMcLookupInitial(fromArg || fromSearch)
-      setMcLookupAuto(auto)
-      setMcLookupOpen(true)
+      const mc = fromArg || fromSearch
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.set('tab', 'mc-check')
+          if (mc) next.set('mc', mc)
+          else next.delete('mc')
+          return next
+        },
+        { replace: true }
+      )
     },
-    [mcQuery]
+    [mcQuery, setSearchParams]
+  )
+
+  const setPageTab = useCallback(
+    (tab: BrokersPageTab) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          if (tab === 'brokers') next.delete('tab')
+          else next.set('tab', tab)
+          if (tab !== 'mc-check') next.delete('mc')
+          return next
+        },
+        { replace: true }
+      )
+    },
+    [setSearchParams]
   )
 
   const ratingCounts = useMemo(() => {
@@ -246,6 +274,67 @@ export default function ClientBrokers() {
   return (
     <>
       <div className="client-brokers-page overflow-hidden flex flex-col min-h-0">
+        <div
+          className="client-page-tabs-bar shrink-0 px-4 py-2 border-b"
+          style={{ borderColor: c.border, backgroundColor: c.card }}
+        >
+          <div className="page-tabs flex flex-wrap gap-1">
+            <button
+              type="button"
+              className={`page-tab ${pageTab === 'brokers' ? 'page-tab--active' : ''}`}
+              onClick={() => setPageTab('brokers')}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              Brokers
+            </button>
+            <button
+              type="button"
+              className={`page-tab ${pageTab === 'mc-check' ? 'page-tab--active' : ''}`}
+              onClick={() => setPageTab('mc-check')}
+            >
+              <Shield className="w-3.5 h-3.5" />
+              MC Check
+            </button>
+            <button
+              type="button"
+              className={`page-tab ${pageTab === 'mc-logs' ? 'page-tab--active' : ''}`}
+              onClick={() => setPageTab('mc-logs')}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              MC Logs
+            </button>
+          </div>
+        </div>
+
+        {pageTab === 'mc-check' && (
+          <McLookupModal
+            key={mcPrefill || 'mc-check'}
+            variant="page"
+            open
+            initialMc={mcPrefill}
+            autoLookup={Boolean(mcPrefill)}
+            onOpenLogs={() => setPageTab('mc-logs')}
+          />
+        )}
+
+        {pageTab === 'mc-logs' && (
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+            <p className="text-sm font-bold" style={{ color: c.primary }}>
+              MC Logs
+            </p>
+            <p className="text-xs mt-1 mb-3 leading-relaxed" style={{ color: c.secondary }}>
+              Brokers you checked, when you checked them, and their status at that time — not
+              today’s Snapshot.
+            </p>
+            <McLookupReviewLog
+              clientId={clientId}
+              onSelectMc={(mc) => openMcCheck(mc)}
+            />
+          </div>
+        )}
+
+        {pageTab === 'brokers' && (
+        <>
         <section
           className="client-stat-strip grid grid-cols-2 lg:grid-cols-4 border-b shrink-0"
           style={{ borderColor: c.border }}
@@ -333,23 +422,6 @@ export default function ClientBrokers() {
                 style={inputCompactStyle}
               />
             </div>
-            <button
-              type="button"
-              onClick={() => openMcLookup()}
-              className="dashboard-btn-secondary text-xs py-1.5 px-3 shrink-0 inline-flex items-center justify-center gap-1.5"
-            >
-              <Shield className="w-3.5 h-3.5" />
-              MC Lookup
-            </button>
-            <button
-              type="button"
-              onClick={() => setReviewLogOpen((open) => !open)}
-              className="dashboard-btn-secondary text-xs py-1.5 px-3 shrink-0 inline-flex items-center justify-center gap-1.5"
-              aria-pressed={reviewLogOpen}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              Review log
-            </button>
             {ratingFilter !== 'all' && (
               <button
                 type="button"
@@ -386,7 +458,7 @@ export default function ClientBrokers() {
               {(mcLookup.is_new || !mcLookup.has_worked_with_client) && mcLookup.mc_number && (
                 <button
                   type="button"
-                  onClick={() => openMcLookup(mcLookup.mc_number ?? undefined)}
+                  onClick={() => openMcCheck(mcLookup.mc_number ?? undefined)}
                   className="dashboard-btn-secondary text-xs py-1.5 px-3 shrink-0 inline-flex items-center gap-1"
                 >
                   <Shield className="w-3.5 h-3.5" />
@@ -400,29 +472,6 @@ export default function ClientBrokers() {
               >
                 View profile
               </button>
-            </div>
-          )}
-
-          {reviewLogOpen && (
-            <div
-              className="mc-review-log-panel mt-2 rounded-lg border px-3 py-2 max-h-56 overflow-y-auto"
-              style={{ borderColor: c.border, backgroundColor: c.stat.slate }}
-            >
-              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
-                Brokers you reviewed
-              </p>
-              <p className="text-[11px] mt-0.5 mb-1 leading-relaxed" style={{ color: c.secondary }}>
-                Each MC Lookup is saved with the broker’s status at that time — not today’s Snapshot.
-              </p>
-              <McLookupReviewLog
-                clientId={clientId}
-                refreshKey={reviewLogRefresh}
-                compact
-                onSelectMc={(mc) => {
-                  setReviewLogOpen(false)
-                  openMcLookup(mc, true)
-                }}
-              />
             </div>
           )}
 
@@ -441,18 +490,18 @@ export default function ClientBrokers() {
                     : `MC ${normalizeMcQuery(catalogBroker?.mc_number ?? mcQuery)} — limited Credyx history`}
                 </p>
                 <p className="text-xs mt-1" style={{ color: c.secondary }}>
-                  Open MC Lookup for full authority, fleet, and insurance details from BrokerSnapshot.
+                  Open MC Check for full authority, fleet, and insurance details from BrokerSnapshot.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() =>
-                  openMcLookup(catalogBroker?.mc_number ?? mcQuery)
+                  openMcCheck(catalogBroker?.mc_number ?? mcQuery)
                 }
                 className="dashboard-btn-primary text-xs py-1.5 px-3 shrink-0 inline-flex items-center gap-1.5"
               >
                 <Shield className="w-3.5 h-3.5" />
-                MC Lookup
+                MC Check
               </button>
             </div>
           )}
@@ -744,18 +793,9 @@ export default function ClientBrokers() {
             />
           )}
         </div>
+        </>
+        )}
       </div>
-
-      <McLookupModal
-        open={mcLookupOpen}
-        initialMc={mcLookupInitial}
-        autoLookup={mcLookupAuto}
-        onClose={() => {
-          setMcLookupOpen(false)
-          setMcLookupAuto(false)
-          setReviewLogRefresh((n) => n + 1)
-        }}
-      />
     </>
   )
 }

@@ -19,10 +19,21 @@ export interface PaperworkFields {
   loadNumber?: string
   amount?: number
   brokerName?: string
+  /** Email domain read from rate con / invoice paperwork. */
+  brokerDomain?: string
   carrierName?: string
+  /** Compact pickup / origin line(s) from the rate con. */
+  pickup?: string
+  /** Compact delivery destination line(s) from the rate con. */
+  destinations?: string
 }
 
 const RESOLVE_IDS = new Set(['req_load', 'req_broker', 'req_amount'])
+
+/** True when Resolve issues can copy this check's paperwork value onto the packet. */
+export function isResolvablePacketCheck(row: Pick<LoadCheckRow, 'id' | 'status'>): boolean {
+  return RESOLVE_IDS.has(row.id) && row.status !== 'ok'
+}
 
 function digits(value?: string): string {
   return (value ?? '').replace(/\D/g, '').replace(/^0+/, '')
@@ -115,10 +126,35 @@ function loadRow(packet: PacketOnFileContext, paperwork: PaperworkFields): LoadC
 function brokerRow(packet: PacketOnFileContext, paperwork: PaperworkFields): LoadCheckRow {
   const onFile = packet.brokerName?.trim()
   const paper = paperwork.brokerName?.trim()
-  if (paper && onFile && namesAlign(onFile, paper)) {
-    return checkRow('req_broker', CHECK_LABELS.broker, 'ok', 'Broker name matches the packet on file.', onFile, paper)
-  }
+  const resolvedPaper = matchBrokerByName(paper || '', paperwork.brokerDomain)
+
   if (paper && onFile) {
+    if (namesAlign(onFile, paper)) {
+      return checkRow(
+        'req_broker',
+        CHECK_LABELS.broker,
+        'ok',
+        'Broker name matches the packet on file.',
+        onFile,
+        paper
+      )
+    }
+    // Division name on paperwork + directory debtor via email domain / brand token.
+    if (
+      resolvedPaper.broker_id &&
+      namesAlign(onFile, resolvedPaper.broker_name)
+    ) {
+      return checkRow(
+        'req_broker',
+        CHECK_LABELS.broker,
+        'ok',
+        paperwork.brokerDomain
+          ? `Broker linked via ${paperwork.brokerDomain}.`
+          : 'Broker matches the directory debtor on file.',
+        onFile,
+        paper
+      )
+    }
     return checkRow(
       'req_broker',
       CHECK_LABELS.broker,
@@ -199,7 +235,27 @@ function carrierRow(packet: PacketOnFileContext, paperwork: PaperworkFields): Lo
       'req_carrier',
       CHECK_LABELS.carrier,
       'ok',
-      'Paperwork carrier matches the submitting account.',
+      'Paperwork carrier matches the account on file.',
+      onFile,
+      paper
+    )
+  }
+  if (paper && onFile) {
+    return checkRow(
+      'req_carrier',
+      CHECK_LABELS.carrier,
+      'issue',
+      `Carrier on file (${onFile}) does not match paperwork (${paper}).`,
+      onFile,
+      paper
+    )
+  }
+  if (paper && !onFile) {
+    return checkRow(
+      'req_carrier',
+      CHECK_LABELS.carrier,
+      'issue',
+      `No carrier on file. Paperwork shows ${paper}.`,
       onFile,
       paper
     )
@@ -207,13 +263,29 @@ function carrierRow(packet: PacketOnFileContext, paperwork: PaperworkFields): Lo
   return checkRow(
     'req_carrier',
     CHECK_LABELS.carrier,
-    'ok',
+    onFile ? 'ok' : 'warning',
     onFile
-      ? `Packet carrier is the submitting account (${onFile})${paper ? `; paperwork shows ${paper}` : ''}.`
-      : 'Carrier is the submitting account.',
+      ? `Carrier on file (${onFile}); none found on paperwork.`
+      : 'Carrier was not found on the paperwork.',
     onFile,
     paper
   )
+}
+
+/** True when the paperwork carrier does not match the submitting account. */
+export function isCarrierMismatchIssue(snapshot: InvoiceAiReviewSnapshot | null | undefined): boolean {
+  if (!snapshot) return false
+  return (snapshot.requiredFailed ?? []).some((row) => row.id === 'req_carrier')
+}
+
+/** Carrier-visible hold reason when paperwork carrier ≠ account on file. */
+export function carrierMismatchHoldReason(
+  onFile?: string | null,
+  paperwork?: string | null
+): string {
+  const left = onFile?.trim() || 'account on file'
+  const right = paperwork?.trim() || 'paperwork carrier'
+  return `Carrier name mismatch — on file: ${left}; paperwork: ${right}.`
 }
 
 /**
@@ -248,9 +320,7 @@ export function snapshotHasResolvablePacketIssues(snapshot: InvoiceAiReviewSnaps
   if (!snapshot?.paperwork) return false
   const paper = snapshot.paperwork
   if (!paper.loadNumber && paper.amount == null && !paper.brokerName) return false
-  return (snapshot.requiredAll ?? []).some(
-    (row) => RESOLVE_IDS.has(row.id) && row.status !== 'ok'
-  )
+  return (snapshot.requiredAll ?? []).some((row) => isResolvablePacketCheck(row))
 }
 
 /** Invoice fields copied from paperwork. Never includes client_name. */
@@ -258,9 +328,13 @@ export function invoicePatchFromPaperwork(paperwork: PaperworkFields): Partial<I
   const patch: Partial<Invoice> = {}
   if (paperwork.loadNumber?.trim()) patch.load_number = paperwork.loadNumber.trim()
   if (paperwork.amount != null && paperwork.amount > 0) patch.amount = paperwork.amount
-  if (paperwork.brokerName?.trim()) {
-    const broker = matchBrokerByName(paperwork.brokerName)
-    patch.broker_name = broker.broker_name || paperwork.brokerName.trim()
+  if (paperwork.brokerName?.trim() || paperwork.brokerDomain?.trim()) {
+    const broker = matchBrokerByName(
+      paperwork.brokerName?.trim() || '',
+      paperwork.brokerDomain
+    )
+    patch.broker_name =
+      broker.broker_name || paperwork.brokerName?.trim() || patch.broker_name
     if (broker.broker_id) patch.broker_id = broker.broker_id
   }
   return patch

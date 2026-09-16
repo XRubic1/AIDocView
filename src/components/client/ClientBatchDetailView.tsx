@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Eye, FileText, Loader2 } from 'lucide-react'
 import { Invoice } from '../../types/invoice'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
-import { toClientVisibleStatus } from '../../utils/clientInvoiceView'
+import { toClientVisibleInvoiceStatus } from '../../utils/clientInvoiceView'
 import { ClientBatchListItem, getBatchStatusBadge } from './ClientBatchesListView'
 import ClientSortableHeader from './ClientSortableHeader'
 import ClientListTd from './ClientListTd'
@@ -31,8 +31,8 @@ type InvoiceSortField =
   | 'status'
 
 /** Client-facing status for invoices inside a batch review. */
-function getBatchInvoiceStatusBadge(status: string) {
-  const visibleStatus = toClientVisibleStatus(status as Invoice['status'])
+function getBatchInvoiceStatusBadge(invoice: Invoice) {
+  const visibleStatus = toClientVisibleInvoiceStatus(invoice)
   const classMap: Record<string, string> = {
     approved: 'status-pill status-pill--open',
     paid: 'status-pill status-pill--approved',
@@ -387,7 +387,7 @@ export default function ClientBatchDetailView({
                       <ClientListTd variant="desktop" label="Invoice Date" style={{ color: c.secondary }}>
                         {invoice.invoice_date ? formatDate(invoice.invoice_date) : '—'}
                       </ClientListTd>
-                      <ClientListTd variant="status">{getBatchInvoiceStatusBadge(invoice.status)}</ClientListTd>
+                      <ClientListTd variant="status">{getBatchInvoiceStatusBadge(invoice)}</ClientListTd>
                       <ClientListTd variant="actions" className="text-center">
                         <button
                           type="button"

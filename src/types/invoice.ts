@@ -41,7 +41,7 @@ export interface Invoice {
   due_date?: string
   /** Typically mirrors due_date when broker Due by is set. */
   expected_payment_date?: string
-  status: 'pending' | 'approved' | 'rejected' | 'hold' | 'paid' | 'force_closed' | 'written_off' | 'write_off_pending'
+  status: 'pending' | 'review' | 'approved' | 'rejected' | 'hold' | 'paid' | 'force_closed' | 'written_off' | 'write_off_pending'
   load_number?: string
   batch_id?: string
   batch_number?: string

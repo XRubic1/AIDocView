@@ -3,6 +3,7 @@ import {
   applyEmailDomain,
   canSuggestEmailDomain,
   extractEmailDomain,
+  normalizeEmailDomain,
 } from './emailDomain'
 
 describe('extractEmailDomain', () => {
@@ -10,11 +11,22 @@ describe('extractEmailDomain', () => {
     expect(extractEmailDomain('ap@Broker.com')).toBe('broker.com')
   })
 
+  it('strips www from domains', () => {
+    expect(extractEmailDomain('ap@www.Broker.com')).toBe('broker.com')
+  })
+
   it('returns null without a domain', () => {
     expect(extractEmailDomain('')).toBeNull()
     expect(extractEmailDomain('no-at')).toBeNull()
     expect(extractEmailDomain('missing@')).toBeNull()
     expect(extractEmailDomain('local@nodot')).toBeNull()
+  })
+})
+
+describe('normalizeEmailDomain', () => {
+  it('normalizes host strings', () => {
+    expect(normalizeEmailDomain('HTTPS://WWW.Example.COM/path')).toBe('example.com')
+    expect(normalizeEmailDomain('nodot')).toBeNull()
   })
 })
 

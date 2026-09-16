@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { submitManualBatch } from '../../services/credyx/submitManualBatch'
 import { formatCurrency } from '../../utils/format'
 import {
   getNextClientInvoiceNumber,
   isInvoiceNumberTaken,
+  loadClientInvoiceNumbers,
 } from '../../utils/clientInvoiceNumbers'
 import {
   formatLoadNumberWarning,
@@ -49,11 +50,15 @@ const emptyForm = (): ManualInvoiceRow => ({
   documents: [],
 })
 
-function nextFormInvoiceNumber(clientId: string, existing: ManualInvoiceRow[]): string {
-  return getNextClientInvoiceNumber(
-    clientId,
-    existing.map((inv) => inv.invoice_number)
-  )
+function nextFormInvoiceNumber(
+  clientId: string,
+  existing: ManualInvoiceRow[],
+  knownNumbers: string[] = []
+): string {
+  return getNextClientInvoiceNumber(clientId, [
+    ...knownNumbers,
+    ...existing.map((inv) => inv.invoice_number),
+  ])
 }
 
 interface ManualBatchBuilderProps {
@@ -73,12 +78,34 @@ export default function ManualBatchBuilder({
   const { showToast } = useToast()
   const [invoices, setInvoices] = useState<ManualInvoiceRow[]>([])
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  /** Live invoice numbers from DB — checked before suggesting the next #. */
+  const [knownInvoiceNumbers, setKnownInvoiceNumbers] = useState<string[]>([])
   const [form, setForm] = useState<ManualInvoiceRow>(() => ({
     ...emptyForm(),
     invoice_number: nextFormInvoiceNumber(clientId, []),
   }))
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
+
+  // Pull existing carrier invoice numbers from Supabase before auto-assigning.
+  useEffect(() => {
+    let cancelled = false
+    void loadClientInvoiceNumbers(clientId).then((nums) => {
+      if (cancelled) return
+      setKnownInvoiceNumbers(nums)
+      setForm((prev) => {
+        // Only rewrite the suggestion when the field still looks auto-filled / empty.
+        if (prev.invoice_number && invoices.length > 0) return prev
+        return {
+          ...prev,
+          invoice_number: nextFormInvoiceNumber(clientId, invoices, nums),
+        }
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [clientId])
 
   const totalAmount = useMemo(
     () => invoices.reduce((s, inv) => s + parseFloat(inv.amount || '0'), 0),
@@ -88,14 +115,15 @@ export default function ManualBatchBuilder({
   const invoiceNumberError = useMemo(() => {
     const num = form.invoice_number.trim()
     if (!num) return null
-    const reserved = invoices
-      .filter((_, i) => i !== editingIndex)
-      .map((inv) => inv.invoice_number)
+    const reserved = [
+      ...knownInvoiceNumbers,
+      ...invoices.filter((_, i) => i !== editingIndex).map((inv) => inv.invoice_number),
+    ]
     if (isInvoiceNumberTaken(clientId, num, reserved)) {
       return `Invoice number ${num} is already used for this carrier`
     }
     return null
-  }, [clientId, form.invoice_number, invoices, editingIndex])
+  }, [clientId, form.invoice_number, invoices, editingIndex, knownInvoiceNumbers])
 
   const loadNumberWarning = useMemo(() => {
     const warnings = getLoadNumberWarnings(form.load_number, {
@@ -141,11 +169,12 @@ export default function ManualBatchBuilder({
       showToast('Select a broker (with address) and enter an amount.', 'error')
       return
     }
-    const reserved = invoices
-      .filter((_, i) => i !== editingIndex)
-      .map((inv) => inv.invoice_number)
+    const reserved = [
+      ...knownInvoiceNumbers,
+      ...invoices.filter((_, i) => i !== editingIndex).map((inv) => inv.invoice_number),
+    ]
     const invoiceNumber =
-      form.invoice_number.trim() || nextFormInvoiceNumber(clientId, invoices)
+      form.invoice_number.trim() || nextFormInvoiceNumber(clientId, invoices, knownInvoiceNumbers)
 
     // Keep the user's exact custom number — do not rewrite to the next system #.
     if (isInvoiceNumberTaken(clientId, invoiceNumber, reserved)) {
@@ -166,7 +195,7 @@ export default function ManualBatchBuilder({
     setEditingIndex(null)
     setForm({
       ...emptyForm(),
-      invoice_number: nextFormInvoiceNumber(clientId, nextInvoices),
+      invoice_number: nextFormInvoiceNumber(clientId, nextInvoices, knownInvoiceNumbers),
     })
   }
 
@@ -181,7 +210,7 @@ export default function ManualBatchBuilder({
     setEditingIndex(null)
     setForm({
       ...emptyForm(),
-      invoice_number: nextFormInvoiceNumber(clientId, invoices),
+      invoice_number: nextFormInvoiceNumber(clientId, invoices, knownInvoiceNumbers),
     })
   }
 
@@ -194,7 +223,8 @@ export default function ManualBatchBuilder({
 
     const numberIssues = validateBatchInvoiceNumbers(
       clientId,
-      invoices.map((inv) => inv.invoice_number)
+      invoices.map((inv) => inv.invoice_number),
+      { knownNumbers: knownInvoiceNumbers }
     )
     if (numberIssues.length > 0) {
       showToast(numberIssues[0].message, 'error')

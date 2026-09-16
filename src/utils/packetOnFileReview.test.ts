@@ -16,7 +16,7 @@ function row(partial: Partial<LoadCheckRow> & Pick<LoadCheckRow, 'id' | 'label' 
 }
 
 describe('packetOnFileReview', () => {
-  it('flags load and amount when paperwork disagrees with the packet on file', () => {
+  it('flags load, amount, and carrier when paperwork disagrees with the packet on file', () => {
     const checks = overlayPacketOnFileChecks(
       [
         row({ id: 'req_bol', label: 'BOL', status: 'ok' }),
@@ -38,8 +38,17 @@ describe('packetOnFileReview', () => {
     expect(checks.find((c) => c.id === 'req_load')?.status).toBe('issue')
     expect(checks.find((c) => c.id === 'req_amount')?.status).toBe('issue')
     expect(checks.find((c) => c.id === 'req_broker')?.status).toBe('ok')
+    expect(checks.find((c) => c.id === 'req_carrier')?.status).toBe('issue')
+    expect(checks.find((c) => c.id === 'req_carrier')?.summary).toMatch(/does not match/i)
+  })
+
+  it('passes carrier when paperwork matches the account on file', () => {
+    const checks = overlayPacketOnFileChecks(
+      [],
+      { carrierName: 'Demo Carrier LLC' },
+      { carrierName: 'Demo Carrier LLC' }
+    )
     expect(checks.find((c) => c.id === 'req_carrier')?.status).toBe('ok')
-    expect(checks.find((c) => c.id === 'req_carrier')?.summary).toMatch(/submitting account/i)
   })
 
   it('copies paperwork load, amount, and broker but never the carrier', () => {
@@ -55,7 +64,7 @@ describe('packetOnFileReview', () => {
     expect(patch).not.toHaveProperty('client_name')
   })
 
-  it('re-scores snapshot after resolve and keeps the submitting carrier', () => {
+  it('re-scores snapshot after resolve and keeps carrier mismatch until names align', () => {
     const snapshot: InvoiceAiReviewSnapshot = {
       headline: 'Needs additional work',
       detail: 'fail',
@@ -94,6 +103,7 @@ describe('packetOnFileReview', () => {
     })
     expect(next.requiredAll.find((c) => c.id === 'req_load')?.status).toBe('ok')
     expect(next.requiredAll.find((c) => c.id === 'req_amount')?.status).toBe('ok')
-    expect(next.requiredAll.find((c) => c.id === 'req_carrier')?.status).toBe('ok')
+    // Carrier on file still differs from paperwork — stays failed.
+    expect(next.requiredAll.find((c) => c.id === 'req_carrier')?.status).toBe('issue')
   })
 })

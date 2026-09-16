@@ -22,6 +22,12 @@ export interface InvoiceAiReviewSnapshot {
     loadNumber?: string
     amount?: number
     brokerName?: string
+    /** Email domain read from rate con / invoice paperwork. */
+    brokerDomain?: string
     carrierName?: string
+    /** Compact pickup / origin line(s) from the rate con. */
+    pickup?: string
+    /** Compact delivery destination(s) from the rate con. */
+    destinations?: string
   }
 }

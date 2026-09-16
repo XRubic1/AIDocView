@@ -8,7 +8,7 @@ import { getInvoicesByBatchId, updateInvoice } from '../../data/mockInvoices'
 import { downloadBatchDocument } from '../supabase/tenantPersist'
 import { isSupabaseConfigured, getSupabase } from '../../lib/supabase'
 import { isAIReviewEnabled } from '../../config/aiReview'
-import { runBatchAiReview } from './batchAiReviewService'
+import { runBatchAiReview, settleBatchAiGate } from './batchAiReviewService'
 import { runHappyPathAfterAiReview } from './batchHappyPath'
 import type { BatchProcessingJobKind } from './batchProcessingJobs'
 import { listHandoffDocumentMeta } from '../../utils/resolveHandoffDocuments'
@@ -123,6 +123,30 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
   const batch = getBatchById(batchId)
   if (!batch) return false
 
+  // Memory empty after refresh, but DB may already have invoices for this batch.
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = getSupabase()
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('invoices')
+          .select('*')
+          .eq('batch_id', batchId)
+        if (!error && data && data.length > 0) {
+          const { invoiceRowToInvoice } = await import('../supabase/tenantMappers')
+          const { mergeInvoice } = await import('../../data/mockInvoices')
+          for (const row of data) {
+            mergeInvoice(invoiceRowToInvoice(row as Parameters<typeof invoiceRowToInvoice>[0]))
+          }
+          notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
+          return true
+        }
+      }
+    } catch (err) {
+      console.warn('[createInvoicesFromHandoffDocs] db invoice check failed', err)
+    }
+  }
+
   const files = await hydrateHandoffFiles(batchId, batch.client_id)
   if (files.length === 0) return false
 
@@ -218,7 +242,8 @@ export async function runBatchBackgroundPipeline(opts: {
       updateInvoice(inv.id, { ai_review_status: 'not_run' })
     }
 
-    const outcomes = await runBatchAiReview(batchId)
+    const outcomes = await runBatchAiReview(batchId, undefined, { allowVision: false })
+    settleBatchAiGate(batchId)
     updateBatch(batchId, { sort_status: 'ready', status: 'ready_to_post' })
 
     try {
@@ -232,6 +257,7 @@ export async function runBatchBackgroundPipeline(opts: {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Background processing failed'
     console.error('[runBatchBackgroundPipeline]', batchId, message)
+    settleBatchAiGate(batchId)
     updateBatch(batchId, { sort_status: 'failed' })
     await markJob(batchId, 'failed', message)
     throw err

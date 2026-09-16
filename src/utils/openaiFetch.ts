@@ -1,6 +1,11 @@
 import { AI_REVIEW_CONFIG } from '../config/aiReview'
 import { getOpenAIChatCompletionsHandler } from '../platform/openaiTransport'
-import { requireSupabase } from '../lib/supabase'
+import { getSupabase, requireSupabase } from '../lib/supabase'
+import {
+  getCachedOpenAiAccessToken,
+  getOpenAiJobAuth,
+  rememberOpenAiAccessToken,
+} from './openaiAuthContext'
 
 const MAX_429_RETRIES = 8
 
@@ -74,7 +79,6 @@ async function readInvokeFailure(
     const response = ctx as Response
     if (typeof response.text === 'function') {
       try {
-        // Clone if possible — some runtimes only allow one body read.
         const text =
           typeof (response as Response & { clone?: () => Response }).clone === 'function'
             ? await response.clone().text()
@@ -95,9 +99,32 @@ async function readInvokeFailure(
   return { status: 502, body: JSON.stringify({ error: fallback }) }
 }
 
+/** Resolve a user JWT when available; otherwise rely on batch job auth on the proxy. */
+async function resolveAccessToken(): Promise<string | null> {
+  const supabase = getSupabase()
+  if (!supabase) return getCachedOpenAiAccessToken()
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  if (session?.access_token) {
+    rememberOpenAiAccessToken(session.access_token)
+    return session.access_token
+  }
+
+  const { data: refreshed } = await supabase.auth.refreshSession()
+  if (refreshed.session?.access_token) {
+    rememberOpenAiAccessToken(refreshed.session.access_token)
+    return refreshed.session.access_token
+  }
+
+  return getCachedOpenAiAccessToken()
+}
+
 /**
  * POST to OpenAI chat/completions via Supabase Edge Function proxy.
- * Always attach the signed-in user JWT — gateway/proxy both require Bearer auth.
+ * Uses user JWT when signed in; otherwise attaches active batch job auth
+ * so intake / integrations can run without a human session.
  */
 export async function postOpenAIChatCompletions(
   body: Record<string, unknown>
@@ -111,29 +138,36 @@ export async function postOpenAIChatCompletions(
   let lastErrorBody = ''
   let lastStatus = 502
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  let accessToken = session?.access_token
-  if (!accessToken) {
-    const { data: refreshed } = await supabase.auth.refreshSession()
-    accessToken = refreshed.session?.access_token
-  }
-  if (!accessToken) {
+  const accessToken = await resolveAccessToken()
+  const jobAuth = getOpenAiJobAuth()
+
+  if (!accessToken && !jobAuth) {
     return new Response(
       JSON.stringify({
         error: 'Unauthorized',
-        detail: 'Sign in again — AI calls need a valid session Bearer token.',
+        detail:
+          'AI is waiting on an active batch job or a signed-in session. Re-submit the batch or stay on this page while processing runs.',
       }),
       { status: 401, headers: { 'Content-Type': 'application/json' } }
     )
   }
 
-  const invokeHeaders = { Authorization: `Bearer ${accessToken}` }
+  const invokeHeaders: Record<string, string> = {}
+  if (accessToken) {
+    invokeHeaders.Authorization = `Bearer ${accessToken}`
+  }
+
+  const payloadBody =
+    jobAuth != null
+      ? {
+          ...body,
+          _credyx: { batchId: jobAuth.batchId, jobId: jobAuth.jobId },
+        }
+      : body
 
   for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt += 1) {
     const { data, error } = await supabase.functions.invoke('openai-proxy', {
-      body,
+      body: payloadBody,
       headers: invokeHeaders,
     })
 
@@ -142,7 +176,6 @@ export async function postOpenAIChatCompletions(
       lastErrorBody = failure.body
       lastStatus = failure.status
 
-      // Auth / config mistakes should not burn retries.
       if (failure.status === 401 || failure.status === 403 || failure.status === 400) {
         const message = extractErrorMessage(failure.body, error.message)
         return new Response(JSON.stringify({ error: message, detail: failure.body }), {
@@ -160,15 +193,12 @@ export async function postOpenAIChatCompletions(
       }
 
       const retrySeconds = parseOpenAIRetrySeconds(failure.body) ?? attempt + 1
-      // OpenAI TPM windows need a little headroom beyond the suggested wait.
       await sleep(Math.ceil(retrySeconds * 1000) + 750 + 250 * attempt)
       continue
     }
 
     const payload = typeof data === 'string' ? data : data
     const payloadText = summarizePayload(payload)
-    // OpenAI error objects can arrive as 200 invoke + error JSON when the proxy
-    // mishandles status; treat explicit rate-limit payloads as 429.
     const looksLikeRateLimit = isRateLimitPayload(payload, 200)
     const status = looksLikeRateLimit ? 429 : 200
 
@@ -180,7 +210,6 @@ export async function postOpenAIChatCompletions(
       continue
     }
 
-    // If the proxy somehow returned an OpenAI error object on HTTP 200, surface it.
     if (
       payload &&
       typeof payload === 'object' &&

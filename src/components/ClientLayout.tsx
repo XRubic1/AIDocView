@@ -4,6 +4,7 @@ import {
   ChevronDown,
   LogOut,
   Menu,
+  Shield,
   Upload,
   X,
   PanelLeftClose,
@@ -863,6 +864,21 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                   />
                 </div>
               ) : null}
+              <button
+                type="button"
+                onClick={() => navigate('/client/brokers?tab=mc-check')}
+                className="client-topbar__mc-btn client-topbar__onboard-reveal inline-flex items-center gap-1.5 rounded-lg text-xs font-semibold transition-colors dashboard-btn-secondary shrink-0"
+                aria-label="MC Check"
+                aria-current={
+                  location.pathname === '/client/brokers' &&
+                  searchParams.get('tab') === 'mc-check'
+                    ? 'page'
+                    : undefined
+                }
+              >
+                <Shield className="w-4 h-4" />
+                MC Check
+              </button>
               {showUpload &&
               (capabilities.canCreateBatch || capabilities.canSubmitDocHandoff) ? (
                 <button

@@ -1,4 +1,5 @@
 import { mockInvoices } from '../data/mockInvoices'
+import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 
 /** Parse the numeric sequence from invoice numbers like `001`, `4401`, or legacy `INV-2026-003`. */
 export function parseInvoiceNumberSequence(invoiceNumber: string): number | null {
@@ -75,12 +76,82 @@ export function getMaxInvoiceSequence(clientId: string, additionalNumbers: strin
   return max
 }
 
-/** Next invoice number for a client (`001`, `002`, …). */
+/** Next invoice number for a client (`001`, `002`, …) from known in-memory + reserved lists. */
 export function getNextClientInvoiceNumber(
   clientId: string,
   additionalNumbers: string[] = []
 ): string {
   return formatClientInvoiceNumber(getMaxInvoiceSequence(clientId, additionalNumbers) + 1)
+}
+
+/**
+ * Load every invoice number for a carrier from memory + Supabase so auto-assign
+ * does not collide with DB unique (client_id, invoice_number).
+ */
+export async function loadClientInvoiceNumbers(clientId: string): Promise<string[]> {
+  const fromMemory = mockInvoices
+    .filter((inv) => inv.client_id === clientId)
+    .map((inv) => inv.invoice_number.trim())
+    .filter(Boolean)
+
+  if (!isSupabaseConfigured()) {
+    return [...new Set(fromMemory)]
+  }
+
+  const supabase = getSupabase()
+  if (!supabase) return [...new Set(fromMemory)]
+
+  try {
+    const { data, error } = await supabase
+      .from('invoices')
+      .select('invoice_number')
+      .eq('client_id', clientId)
+      .limit(5000)
+
+    if (error) {
+      console.warn('[loadClientInvoiceNumbers]', error.message)
+      return [...new Set(fromMemory)]
+    }
+
+    const fromDb = (data ?? [])
+      .map((row) => String((row as { invoice_number?: string }).invoice_number ?? '').trim())
+      .filter(Boolean)
+
+    return [...new Set([...fromMemory, ...fromDb])]
+  } catch (err) {
+    console.warn('[loadClientInvoiceNumbers]', err)
+    return [...new Set(fromMemory)]
+  }
+}
+
+/**
+ * Next invoice number after checking live DB + memory.
+ * Pass `reserved` for numbers already claimed in this batch draft.
+ */
+export async function getNextClientInvoiceNumberAsync(
+  clientId: string,
+  reserved: string[] = []
+): Promise<string> {
+  const existing = await loadClientInvoiceNumbers(clientId)
+  return getNextClientInvoiceNumber(clientId, [...existing, ...reserved])
+}
+
+/**
+ * Allocate `count` unique invoice numbers for a carrier, checking DB first.
+ */
+export async function allocateClientInvoiceNumbers(
+  clientId: string,
+  count: number,
+  alreadyReserved: string[] = []
+): Promise<string[]> {
+  const existing = await loadClientInvoiceNumbers(clientId)
+  const reserved = [...existing, ...alreadyReserved]
+  const allocated: string[] = []
+  for (let i = 0; i < count; i++) {
+    const next = getNextClientInvoiceNumber(clientId, [...reserved, ...allocated])
+    allocated.push(next)
+  }
+  return allocated
 }
 
 /** Return `preferred` if unused; otherwise bump until free for this client. */
@@ -106,4 +177,16 @@ export function ensureUniqueClientInvoiceNumber(
   }
 
   return formatClientInvoiceNumber(Date.now() % 1_000_000)
+}
+
+/**
+ * Async unique check that includes Supabase rows (avoids invoices_client_number_uidx).
+ */
+export async function ensureUniqueClientInvoiceNumberAsync(
+  clientId: string,
+  preferred: string,
+  reserved: string[] = []
+): Promise<string> {
+  const existing = await loadClientInvoiceNumbers(clientId)
+  return ensureUniqueClientInvoiceNumber(clientId, preferred, [...existing, ...reserved])
 }

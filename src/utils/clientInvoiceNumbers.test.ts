@@ -44,6 +44,8 @@ describe('clientInvoiceNumbers', () => {
     expect(isInvoiceNumberTaken('client-a', '003')).toBe(true)
     expect(ensureUniqueClientInvoiceNumber('client-a', '003')).toBe('004')
     expect(ensureUniqueClientInvoiceNumber('client-a', '4401')).toBe('4401')
+    // Extra reserved list (e.g. from DB) skips ahead of collisions.
+    expect(getNextClientInvoiceNumber('client-a', ['004', '005'])).toBe('006')
     hydrateInvoices([])
   })
 })

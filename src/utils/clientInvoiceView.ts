@@ -1,8 +1,15 @@
 import type { Invoice, InvoiceNote } from '../types/invoice'
 import { getBatchById, type Batch } from '../data/mockBatches'
 
-/** Batch statuses where Credyx is still verifying — hide status/notes from the client. */
+/**
+ * Batch still open at Credyx — client sees Pending only (no hold / verify notes yet).
+ * Reveal real status after Process (submitted / processing).
+ */
 const BATCH_STATUSES_PENDING_CLIENT_REVEAL = new Set<Batch['status']>([
+  'draft',
+  'creating',
+  'ready_to_post',
+  'documents_uploaded',
   'verification',
   'approval',
 ])
@@ -14,28 +21,32 @@ export function isBatchProcessedForClient(batchStatus?: Batch['status'] | null):
 }
 
 /**
- * True while Credyx is verifying the invoice's batch — client should still see Open
+ * True while the invoice's batch is still open — client should see Pending
  * and must not see verification notes / hold / reject yet.
  */
 export function isInvoicePendingClientReveal(invoice: Pick<Invoice, 'batch_id'>): boolean {
   if (!invoice.batch_id) return false
   const batch = getBatchById(invoice.batch_id)
   if (!batch) return false
+  if (isBatchProcessedForClient(batch.status)) return false
   return BATCH_STATUSES_PENDING_CLIENT_REVEAL.has(batch.status)
 }
 
-/** Map internal statuses to what the client portal displays (write-off mask only). */
+/** Map internal statuses to what the client portal displays (write-off + review mask). */
 export function toClientVisibleStatus(status: Invoice['status']): Invoice['status'] {
-  return status === 'write_off_pending' ? 'written_off' : status
+  if (status === 'write_off_pending') return 'written_off'
+  // Review is Credyx-only — carriers keep seeing Pending until Process / real Hold.
+  if (status === 'review') return 'pending'
+  return status
 }
 
 /**
- * Status shown in the client portal, including verify-stage gating.
- * While the batch is in verification/approval, force Open (`approved`).
+ * Status shown in the client portal, including open-batch gating.
+ * While the batch is still open, force Pending — holds/notes appear after Process.
  */
 export function toClientVisibleInvoiceStatus(invoice: Invoice): Invoice['status'] {
   if (isInvoicePendingClientReveal(invoice)) {
-    return 'approved'
+    return 'pending'
   }
   return toClientVisibleStatus(invoice.status)
 }
@@ -47,14 +58,14 @@ export function clientVisibleNotes(notes?: InvoiceNote[]): InvoiceNote[] {
 
 /**
  * Notes the client may see right now.
- * During verify, only carrier-authored notes; admin/verification notes appear after process.
+ * While the batch is open, only carrier-authored notes; admin/verification notes appear after Process.
  */
 export function clientVisibleNotesForInvoice(
   invoice: Pick<Invoice, 'batch_id' | 'notes_history'>
 ): InvoiceNote[] {
   const notes = clientVisibleNotes(invoice.notes_history)
   if (!isInvoicePendingClientReveal(invoice)) return notes
-  // During verify, only carrier-authored notes — admin/verification notes wait for Process.
+  // During open batch, only carrier-authored notes — admin/verification notes wait for Process.
   return notes.filter((n) => n.type === 'client_note')
 }
 

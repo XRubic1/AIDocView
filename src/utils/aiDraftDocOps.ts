@@ -48,6 +48,89 @@ function cloneUnmatched(unmatched: BatchIntakeDraft['unmatched']) {
   }
 }
 
+/** Lowercase basename; strip path + extension so UUID.pdf ≈ UUID ≈ path/UUID.png. */
+function packetNameKeys(raw: string): string[] {
+  const trimmed = raw.trim().toLowerCase()
+  if (!trimmed) return []
+  const base = trimmed.split(/[/\\]/).pop() || trimmed
+  const noExt = base.replace(/\.[a-z0-9]{1,8}$/i, '')
+  return [...new Set([trimmed, base, noExt].filter(Boolean))]
+}
+
+function addPacketNameKeys(target: Set<string>, raw: string) {
+  for (const key of packetNameKeys(raw)) target.add(key)
+}
+
+/** Collect every doc id currently sitting on invoice packets. */
+export function assignedPacketDocIds(invoices: CredyxInvoiceDraft[]): Set<string> {
+  const ids = new Set<string>()
+  for (const inv of invoices) {
+    for (const id of inv.document_doc_ids) ids.add(id)
+    for (const fp of inv.fingerprints.rateCons) ids.add(fp.docId)
+    for (const fp of inv.fingerprints.bols) ids.add(fp.docId)
+    for (const fp of inv.fingerprints.other ?? []) ids.add(fp.docId)
+    if (inv.invoice_pdf) {
+      ids.add(`invoice-pdf-${inv.groupId}`)
+      ids.add(`invoice-pdf-${inv.draftId}`)
+    }
+  }
+  return ids
+}
+
+/** File-name keys already used on invoice packets (path/ext insensitive). */
+export function assignedPacketFileNames(invoices: CredyxInvoiceDraft[]): Set<string> {
+  const names = new Set<string>()
+  for (const inv of invoices) {
+    for (const fp of [
+      ...inv.fingerprints.rateCons,
+      ...inv.fingerprints.bols,
+      ...(inv.fingerprints.other ?? []),
+    ]) {
+      addPacketNameKeys(names, fp.fileName)
+      // Storage often uses the UUID as the object key / display name interchangeably.
+      addPacketNameKeys(names, fp.docId)
+    }
+    for (const id of inv.document_doc_ids) addPacketNameKeys(names, id)
+  }
+  return names
+}
+
+/**
+ * Drop unmatched pool entries that are already on a packet (by doc id or file name).
+ * Fixes stale unmatched_doc_ids and duplicate intake copies showing as "Unassigned".
+ */
+export function pruneUnmatchedAgainstAssigned(
+  unmatched: BatchIntakeDraft['unmatched'],
+  invoices: CredyxInvoiceDraft[]
+): BatchIntakeDraft['unmatched'] {
+  const assignedIds = assignedPacketDocIds(invoices)
+  const assignedNames = assignedPacketFileNames(invoices)
+  const keep = (fp: DocSortFingerprint) => {
+    if (assignedIds.has(fp.docId) || fp.docId.startsWith('invoice-pdf-')) return false
+    // Same file under a different doc id (common after re-upload / page-split).
+    for (const key of packetNameKeys(fp.fileName)) {
+      if (assignedNames.has(key)) return false
+    }
+    for (const key of packetNameKeys(fp.docId)) {
+      if (assignedNames.has(key)) return false
+    }
+    return true
+  }
+  return {
+    rateCons: unmatched.rateCons.filter(keep),
+    bols: unmatched.bols.filter(keep),
+    other: unmatched.other.filter(keep),
+  }
+}
+
+/** Keep draft.unmatched in sync after any assign / place / hydrate. */
+export function withPrunedUnmatched(draft: BatchIntakeDraft): BatchIntakeDraft {
+  return {
+    ...draft,
+    unmatched: pruneUnmatchedAgainstAssigned(draft.unmatched, draft.invoices),
+  }
+}
+
 function otherFps(invoice: CredyxInvoiceDraft): DocSortFingerprint[] {
   return invoice.fingerprints.other ?? []
 }
@@ -202,7 +285,7 @@ export function moveDraftDocument(
     )
   }
 
-  return { ...draft, invoices, unmatched }
+  return withPrunedUnmatched({ ...draft, invoices, unmatched })
 }
 
 /** Assign an unmatched doc to an invoice. */
@@ -218,7 +301,7 @@ export function assignUnmatchedDocument(
     inv.draftId === toDraftId ? addDocToInvoice(inv, fingerprint) : inv
   )
 
-  return { ...draft, unmatched, invoices }
+  return withPrunedUnmatched({ ...draft, unmatched, invoices })
 }
 
 /** Remove an invoice and return its supporting docs to unmatched. */
@@ -355,5 +438,5 @@ export function placeDraftDocument(
   const invoices = extracted.draft.invoices.map((inv) =>
     inv.draftId === toDraftId ? addDocToInvoice(inv, fingerprint) : inv
   )
-  return { ...extracted.draft, invoices }
+  return withPrunedUnmatched({ ...extracted.draft, invoices })
 }

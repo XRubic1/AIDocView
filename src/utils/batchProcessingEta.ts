@@ -3,10 +3,13 @@
  * Uses file count (early) or remaining invoice reviews (later).
  */
 
-const SECONDS_PER_FILE = 90
-const SECONDS_PER_INVOICE_REVIEW = 50
-const MIN_SECONDS = 120
-const MAX_SECONDS = 45 * 60
+/** Effective seconds per file wave with ~4-way parallel DocSort. */
+const SECONDS_PER_FILE = 28
+/** Assemble / finalize per invoice after extracts exist. */
+const SECONDS_PER_INVOICE_REVIEW = 10
+const MIN_SECONDS = 45
+const MAX_SECONDS = 20 * 60
+const PARALLEL_WORKERS = 4
 
 export type BatchEtaInput = {
   fileCount?: number | null
@@ -62,12 +65,14 @@ export function estimateBatchProcessingEta(input: BatchEtaInput): BatchEta | nul
   let totalSeconds: number
   if (invoiceTotal > 0) {
     totalSeconds = clamp(
-      invoiceTotal * SECONDS_PER_INVOICE_REVIEW + 60,
+      invoiceTotal * SECONDS_PER_INVOICE_REVIEW + Math.max(45, fileCount * 8),
       MIN_SECONDS,
       MAX_SECONDS
     )
   } else if (fileCount > 0) {
-    totalSeconds = clamp(fileCount * SECONDS_PER_FILE, MIN_SECONDS, MAX_SECONDS)
+    // Parallel DocSort: wall time ≈ ceil(files / workers) * per-wave work.
+    const waves = Math.ceil(fileCount / PARALLEL_WORKERS)
+    totalSeconds = clamp(waves * SECONDS_PER_FILE + 25, MIN_SECONDS, MAX_SECONDS)
   } else {
     totalSeconds = MIN_SECONDS * 2
   }
@@ -76,8 +81,8 @@ export function estimateBatchProcessingEta(input: BatchEtaInput): BatchEta | nul
   if (invoiceTotal > 0) {
     const remainingInvoices = Math.max(0, invoiceTotal - invoiceCompleted)
     remainingSeconds = clamp(
-      remainingInvoices * SECONDS_PER_INVOICE_REVIEW + (remainingInvoices > 0 ? 30 : 0),
-      remainingInvoices === 0 ? 0 : 30,
+      remainingInvoices * SECONDS_PER_INVOICE_REVIEW + (remainingInvoices > 0 ? 20 : 0),
+      remainingInvoices === 0 ? 0 : 20,
       MAX_SECONDS
     )
   } else {
@@ -91,9 +96,15 @@ export function estimateBatchProcessingEta(input: BatchEtaInput): BatchEta | nul
       const elapsedSec = Math.max(0, (Date.now() - started) / 1000)
       const byElapsed = Math.max(0, totalSeconds - elapsedSec)
       remainingSeconds = Math.min(remainingSeconds, byElapsed)
-      // Keep a small floor while still processing so we don't flip to "done" early.
-      if (remainingSeconds < 30 && (invoiceTotal === 0 || invoiceCompleted < invoiceTotal)) {
-        remainingSeconds = 30
+
+      // Still processing: keep a small floor, but don't stick at the initial 11-min estimate.
+      const stillWorking = invoiceTotal === 0 || invoiceCompleted < invoiceTotal
+      if (stillWorking && remainingSeconds < 20) {
+        remainingSeconds = 20
+      }
+      // If we've already burned most of the estimate, show a tighter remaining window.
+      if (stillWorking && elapsedSec > totalSeconds * 0.6) {
+        remainingSeconds = Math.min(remainingSeconds, Math.max(20, totalSeconds * 0.25))
       }
     }
   }

@@ -20,6 +20,7 @@ import { isBuiltInRuleEnabled } from '../utils/reviewRulesStore'
 import { evaluateBolIdentityRiskFlags } from '../utils/bolIdentityRiskChecks'
 import { brokersFuzzyMatch } from '../utils/brokerFuzzyMatch'
 import { destinationsMatch, formatRateConStop } from '../utils/locationMatch'
+import { documentHasBolEvidence } from '../utils/requiredDocuments'
 import {
   collectBolLoadReferences,
   hasInvoicePages,
@@ -489,17 +490,23 @@ export function extractBatchContext(documents: DocumentReviewResult[]): {
 } {
   let rateConDoc = documents.find((doc) => doc.extraction.documentType === 'rate_confirmation')
   if (!rateConDoc) {
-    rateConDoc = documents.find((doc) => doc.extraction.rateConFields)
+    rateConDoc = documents.find((doc) => doc.extraction.rateConFields || doc.extraction.rateConParse)
   }
 
-  let bolDoc = documents.find((doc) => doc.extraction.documentType === 'bill_of_lading')
-  const combinedBol = documents.find(
-    (doc) =>
-      doc.extraction.pageClassifications?.some((page) => page.pageType === 'bill_of_lading') &&
-      (doc.extraction.shipTo || doc.extraction.bolAudit)
-  )
+  // Prefer explicit BOL docs; fall back to any sibling with BOL / delivery-proof evidence.
+  let bolDoc =
+    documents.find((doc) => doc.extraction.documentType === 'bill_of_lading') ??
+    documents.find((doc) =>
+      doc.extraction.pageClassifications?.some(
+        (page) =>
+          page.pageType === 'bill_of_lading' ||
+          page.pageType === 'proof_of_delivery' ||
+          page.pageType === 'delivery_confirmation'
+      )
+    ) ??
+    documents.find((doc) => documentHasBolEvidence(doc.extraction))
 
-  const bolSource = bolDoc ?? combinedBol
+  const bolSource = bolDoc
   const pipeline = bolSource?.extraction.pipeline ?? rateConDoc?.extraction.pipeline
 
   return {
@@ -510,13 +517,7 @@ export function extractBatchContext(documents: DocumentReviewResult[]): {
           audit: bolSource.extraction.bolAudit,
           fileName: bolSource.fileName,
         }
-      : combinedBol
-        ? {
-            shipTo: combinedBol.extraction.shipTo,
-            audit: combinedBol.extraction.bolAudit,
-            fileName: combinedBol.fileName,
-          }
-        : undefined,
+      : undefined,
     rateConParse: rateConDoc?.extraction.rateConParse ?? pipeline?.rateConParse,
   }
 }

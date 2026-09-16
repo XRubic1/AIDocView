@@ -78,12 +78,12 @@ function getBatchStatusBadge(status: string) {
   return <span className={`inline-flex items-center status-pill ${config.className}`}>{config.label}</span>
 }
 
-/** Compact AI paperwork pill next to workflow status. */
+/** Compact AI paperwork status — replaces workflow badge while processing. */
 function getAiProgressBadge(progress?: ClientBatchAiProgress | null) {
   if (!progress?.show) return null
   if (progress.phase === 'processing') {
     return (
-      <span className="inline-flex items-center gap-1 status-pill status-pill--compact status-pill--review">
+      <span className="inline-flex items-center gap-1 status-pill status-pill--review">
         Creating…
         {progress.etaShortLabel ? (
           <span className="opacity-80 font-normal">{progress.etaShortLabel}</span>
@@ -93,19 +93,36 @@ function getAiProgressBadge(progress?: ClientBatchAiProgress | null) {
   }
   if (progress.phase === 'failed') {
     return (
-      <span className="inline-flex items-center status-pill status-pill--compact status-pill--overdue">
+      <span className="inline-flex items-center status-pill status-pill--overdue">
         Check failed
       </span>
     )
   }
   if (progress.phase === 'done') {
     return (
-      <span className="inline-flex items-center status-pill status-pill--compact status-pill--approved">
+      <span className="inline-flex items-center status-pill status-pill--approved">
         Ready to review
       </span>
     )
   }
   return null
+}
+
+function renderBatchStatus(
+  status: string,
+  progress?: ClientBatchAiProgress | null
+) {
+  // While AI is creating/checking, show that as the Status — not beside Queued.
+  const aiBadge = getAiProgressBadge(progress)
+  if (aiBadge && (progress?.phase === 'processing' || progress?.phase === 'failed')) {
+    return aiBadge
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {getBatchStatusBadge(status)}
+      {aiBadge}
+    </div>
+  )
 }
 
 /** Polished batch list for the client portal View Batches tab. */
@@ -443,10 +460,7 @@ export default function ClientBatchesListView({
                         {formatCurrency(batch.total_amount)}
                       </ClientListTd>
                       <ClientListTd variant="status">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {getBatchStatusBadge(batch.status)}
-                          {getAiProgressBadge(aiProgressByBatchId?.[batch.id])}
-                        </div>
+                        {renderBatchStatus(batch.status, aiProgressByBatchId?.[batch.id])}
                       </ClientListTd>
                       <ClientListTd
                         variant="meta"

@@ -18,6 +18,7 @@ import {
   type PacketOnFileContext,
   type PaperworkFields,
 } from './packetOnFileReview'
+import { extractBatchContext } from '../services/crossValidationService'
 
 export type LoadCheckStatus = 'ok' | 'issue' | 'warning' | 'info' | 'missing'
 
@@ -154,11 +155,18 @@ export function buildStructuredLoadReview(
   const excel = resolveExcelMatch(doc, batch)
   const hasExcel = Boolean(excel?.row)
   const rate = doc.extraction.rateConParse
-  const bol = doc.extraction.bolAudit
+  const multiLoad = batch.multiInvoice?.multiLoadUpload === true
+  const packetContext = extractBatchContext(batch.documents)
+  // Credyx packets often keep BOL as a sibling file — never require it inside the RC PDF.
+  const bol =
+    doc.extraction.bolAudit ??
+    (!multiLoad ? packetContext.bolData?.audit : undefined)
+  const bolDetected = multiLoad
+    ? documentHasBolEvidence(doc.extraction)
+    : batch.documents.some((d) => documentHasBolEvidence(d.extraction)) || Boolean(bol)
   const inv =
     batch.multiInvoice?.verifications.find((v) => v.unit.fileName === doc.fileName)?.unit.invoice ??
     doc.extraction.primaryInvoice
-  const bolDetected = documentHasBolEvidence(doc.extraction)
   const bolOk = bolAuditMeetsDeliveryRequirements(bol, rate)
 
   const rateLoad = rate?.load_number?.trim() || undefined
@@ -304,23 +312,37 @@ export function buildStructuredLoadReview(
   }
 
   // 4. Bill of lading
-  let bolSummary = 'No bill of lading found in this PDF.'
+  let bolSummary = multiLoad
+    ? 'No bill of lading found in this PDF.'
+    : 'No bill of lading found on this packet.'
   if (bolDetected && bol) {
     const receiverOk =
       bol.signatures.receiver === 'PRESENT' || bol.signatures.receiver === 'PASS_BY_RULE'
     if (bolOk) {
-      bolSummary = 'Signed and delivery address matches rate confirmation.'
+      bolSummary = multiLoad
+        ? 'Signed and delivery address matches rate confirmation.'
+        : packetContext.bolData?.fileName && packetContext.bolData.fileName !== doc.fileName
+          ? `Signed BOL on ${packetContext.bolData.fileName}; delivery address matches rate confirmation.`
+          : 'Signed and delivery address matches rate confirmation.'
     } else if (!receiverOk) {
       bolSummary = 'Receiver signature is missing or unclear.'
     } else {
       bolSummary = 'Delivery address does not match the rate confirmation.'
     }
   } else if (bolDetected) {
-    bolSummary = 'BOL pages detected — audit incomplete.'
+    bolSummary = multiLoad
+      ? 'BOL pages detected — audit incomplete.'
+      : packetContext.bolData?.fileName && packetContext.bolData.fileName !== doc.fileName
+        ? `BOL found on ${packetContext.bolData.fileName} — audit incomplete.`
+        : 'BOL pages detected — audit incomplete.'
   }
   required.push(
     row('req_bol', CHECK_LABELS.bol, !bolDetected ? 'missing' : bolOk ? 'ok' : 'issue', bolSummary, {
-      documentValue: bolDetected ? 'Present' : 'Not found',
+      documentValue: bolDetected
+        ? packetContext.bolData?.fileName && packetContext.bolData.fileName !== doc.fileName
+          ? `Present (${packetContext.bolData.fileName})`
+          : 'Present'
+        : 'Not found',
     })
   )
 
@@ -347,7 +369,9 @@ export function buildStructuredLoadReview(
         'req_stops',
         CHECK_LABELS.multiStop,
         'missing',
-        'No BOL. Delivery stop cannot be verified.',
+        multiLoad
+          ? 'No BOL. Delivery stop cannot be verified.'
+          : 'No BOL on this packet. Delivery stop cannot be verified.',
         { documentValue: stopsDisplay }
       )
     )
@@ -384,11 +408,35 @@ export function buildStructuredLoadReview(
     )
   }
 
+  const deliveryCompact = formatLocationsCompactLine(rate?.destinations, deliveryFallback)
+
+  const bolShipFrom = [
+    ...(doc.extraction.bolPageAudits?.map((e) => e.audit.ship_from).filter(Boolean) ?? []),
+    doc.extraction.bolAudit?.ship_from,
+  ].filter((s): s is string => Boolean(s))
+  const pickupFallbackMerged =
+    bolShipFrom.length > 0
+      ? [pickupFallback, ...bolShipFrom].filter(Boolean).join('; ')
+      : pickupFallback
+
+  const pickupCompact = formatLocationsCompactLine(
+    rate?.origin ? [rate.origin] : undefined,
+    pickupFallbackMerged
+  )
+
+  const extractedDomain = String(fields?.emailDomain?.value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, '')
+
   const paperwork: PaperworkFields = {
     loadNumber: docLoad,
     amount: rateAmount ?? docAmount ?? invAmount,
     brokerName: docBroker,
+    brokerDomain: extractedDomain.includes('.') ? extractedDomain : undefined,
     carrierName: docCarrier,
+    pickup: pickupCompact || undefined,
+    destinations: deliveryCompact || undefined,
   }
 
   const scored = options?.packet
@@ -424,21 +472,6 @@ export function buildStructuredLoadReview(
         })
       )
     })
-
-  const bolShipFrom = [
-    ...(doc.extraction.bolPageAudits?.map((e) => e.audit.ship_from).filter(Boolean) ?? []),
-    doc.extraction.bolAudit?.ship_from,
-  ].filter((s): s is string => Boolean(s))
-  const pickupFallbackMerged =
-    bolShipFrom.length > 0
-      ? [pickupFallback, ...bolShipFrom].filter(Boolean).join('; ')
-      : pickupFallback
-
-  const pickupCompact = formatLocationsCompactLine(
-    rate?.origin ? [rate.origin] : undefined,
-    pickupFallbackMerged
-  )
-  const deliveryCompact = formatLocationsCompactLine(rate?.destinations, deliveryFallback)
 
   if (pickupCompact) {
     additional.push(row('add_pickup', 'Pickup (paperwork)', 'info', pickupCompact))

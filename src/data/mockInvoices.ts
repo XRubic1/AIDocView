@@ -64,12 +64,18 @@ export function addInvoice(
   return invoice
 }
 
-export function updateInvoice(invoiceId: string, patch: Partial<Invoice>): Invoice | undefined {
+export function updateInvoice(
+  invoiceId: string,
+  patch: Partial<Invoice>,
+  options?: { deferPersist?: boolean }
+): Invoice | undefined {
   const inv = mockInvoices.find((i) => i.id === invoiceId)
   if (!inv) return undefined
   const batchId = inv.batch_id
   Object.assign(inv, patch, { updated_at: new Date().toISOString() })
-  void persistWithFeedback('Invoice save', () => persistInvoice(inv))
+  if (!options?.deferPersist) {
+    void persistWithFeedback('Invoice save', () => persistInvoice(inv))
+  }
   if (batchId && patch.status !== undefined) {
     syncBatchFees(batchId)
   }

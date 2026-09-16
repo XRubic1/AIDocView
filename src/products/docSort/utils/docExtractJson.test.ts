@@ -38,6 +38,25 @@ describe('docExtractJson', () => {
     expect(fp.extract?.rateConParse?.load_number).toBe('91111978568')
   })
 
+  it('surfaces broker emailDomain from rate con fields', () => {
+    const fp = fingerprintFromExtraction(
+      'rc2',
+      'werner.pdf',
+      extraction({
+        documentType: 'rate_confirmation',
+        rateConParse: {
+          load_number: '2004515639',
+          broker_name: 'Werner Logistics',
+        },
+        rateConFields: {
+          broker: { value: 'Werner Logistics', confidence: 0.9 },
+          emailDomain: { value: 'werner.com', confidence: 0.9 },
+        },
+      })
+    )
+    expect(fp.emailDomain).toBe('werner.com')
+  })
+
   it('classifies invoice pages and keeps billed amount', () => {
     const fp = fingerprintFromExtraction(
       'inv1',

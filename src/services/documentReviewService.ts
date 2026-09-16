@@ -611,7 +611,8 @@ async function auditBolPages(
   pages: ReviewImageInfo[],
   rateConParse?: RateConParse,
   bolContext?: BolAuditContext,
-  budget?: ReviewCostBudget
+  budget?: ReviewCostBudget,
+  signatureConsensusRuns?: number
 ): Promise<{ audit?: BolAudit; attempts: DocumentReviewAttempt[] }> {
   const context =
     bolContext ??
@@ -630,7 +631,10 @@ async function auditBolPages(
     context
   )
 
-  const consensusRuns = AI_REVIEW_CONFIG.SIGNATURE_CONSENSUS_RUNS
+  const consensusRuns = Math.max(
+    1,
+    Math.min(3, signatureConsensusRuns ?? AI_REVIEW_CONFIG.SIGNATURE_CONSENSUS_RUNS)
+  )
   const attempts: DocumentReviewAttempt[] = []
   const receiverPasses: Array<{ receiver: BolAudit['signatures']['receiver']; cropVerified: boolean; localizationTrusted?: boolean }> =
     []
@@ -977,7 +981,8 @@ async function classifyAllPages(
 async function reviewBolDocument(
   pages: ReviewImageInfo[],
   rateConParse?: RateConParse,
-  budget?: ReviewCostBudget
+  budget?: ReviewCostBudget,
+  signatureConsensusRuns?: number
 ) {
   const deliveryStops = rateConParse?.destinations?.length ?? 0
   const auditPerPage = deliveryStops > 1 && pages.length > 0
@@ -993,7 +998,8 @@ async function reviewBolDocument(
         [page],
         rateConParse,
         buildBolAuditContext([page], allBolPacketPageNumbers),
-        budget
+        budget,
+        signatureConsensusRuns
       )
       if (audit) {
         bolPageAudits.push({
@@ -1033,7 +1039,8 @@ async function reviewBolDocument(
     pages,
     rateConParse,
     buildBolAuditContext(pages, allBolPacketPageNumbers),
-    budget
+    budget,
+    signatureConsensusRuns
   )
 
   let extraction: ExtractedDocumentData = {
@@ -1366,6 +1373,11 @@ export interface ReviewDocumentFileOptions {
   batchRateConParse?: RateConParse
   /** Skip BOL audit until batch rate con is merged (phase-1 batch review). */
   deferBolAudit?: boolean
+  /**
+   * Override signature consensus passes (DocSort defaults to 1 for speed;
+   * interactive review keeps AI_REVIEW_CONFIG.SIGNATURE_CONSENSUS_RUNS).
+   */
+  signatureConsensusRuns?: number
 }
 
 /** Pick the richest rate con parse from a batch (prefer multi-stop destinations). */
@@ -1549,7 +1561,12 @@ export async function reviewDocumentFile(
     }
 
     if (deliveryProofPages.length > 0 && !budget?.isAtOrOverLimit() && !options?.deferBolAudit) {
-      const bolResult = await reviewBolDocument(deliveryProofPages, rateConParse, budget)
+      const bolResult = await reviewBolDocument(
+        deliveryProofPages,
+        rateConParse,
+        budget,
+        options?.signatureConsensusRuns
+      )
       if (rateConPages.length === 0) {
         extraction = { ...bolResult.extraction, pageClassifications }
         modelUsed = bolResult.modelUsed
@@ -1708,6 +1725,11 @@ export type ReviewUploadOptions = {
   excelFileName?: string
   /** Column detection from parsed Excel upload. */
   excelDetectedColumns?: import('../types/loadSheet').ExcelDetectedColumn[]
+  /**
+   * Credyx packet mode: one invoice's RC + BOL + invoice attachments.
+   * Never treat sibling docs as independent multi-load uploads.
+   */
+  singlePacket?: boolean
   /** Per-PDF progress for FactorFox-style invoice cards. */
   onDocumentProgress?: (event: {
     docId: string
@@ -1973,6 +1995,12 @@ export function assembleBatchReviewFromDocuments(
       reviewDocuments: reviewResults,
     }
   )
+
+  // Credyx packet: RC + separate BOL + invoice are one load — never split into multi-load.
+  if (options?.singlePacket && multiInvoice.multiLoadUpload) {
+    multiInvoice.multiLoadUpload = false
+    multiInvoice.flags = multiInvoice.flags.filter((f) => f.field !== 'multi_load_upload')
+  }
 
   const primaryExcelFromInvoice = multiInvoice.verifications.find((v) => v.excelMatch)?.excelMatch
   const effectiveExcelMatch = primaryExcelFromInvoice ?? excelMatch

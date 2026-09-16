@@ -122,11 +122,16 @@ export interface BatchInvoiceNumberIssue {
 export function validateBatchInvoiceNumbers(
   clientId: string,
   numbers: string[],
-  options?: { excludeInvoiceIds?: string[] }
+  options?: {
+    excludeInvoiceIds?: string[]
+    /** Extra numbers already used (e.g. live DB rows) beyond in-memory store. */
+    knownNumbers?: string[]
+  }
 ): BatchInvoiceNumberIssue[] {
   const issues: BatchInvoiceNumberIssue[] = []
   const seenExact = new Map<string, number>()
   const seenSeq = new Map<number, number>()
+  const knownNumbers = options?.knownNumbers ?? []
 
   for (let index = 0; index < numbers.length; index++) {
     const raw = numbers[index]?.trim() ?? ''
@@ -169,7 +174,15 @@ export function validateBatchInvoiceNumbers(
       }
     }
 
-    if (isInvoiceNumberTakenExcluding(clientId, raw, [], options?.excludeInvoiceIds)) {
+    // Memory store + optional live DB numbers (knownNumbers).
+    if (
+      isInvoiceNumberTakenExcluding(
+        clientId,
+        raw,
+        knownNumbers,
+        options?.excludeInvoiceIds
+      )
+    ) {
       issues.push({
         index,
         invoiceNumber: raw,

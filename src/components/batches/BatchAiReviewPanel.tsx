@@ -31,7 +31,7 @@ export default function BatchAiReviewPanel({ batchId, onComplete }: BatchAiRevie
     setError(null)
     setOutcomes(null)
     try {
-      const results = await runBatchAiReview(batchId, setProgress)
+      const results = await runBatchAiReview(batchId, setProgress, { allowVision: true })
       setOutcomes(results)
       // Optional happy path: all clean → auto-approve + process (Credyx can still override before this runs by not clicking AI Review).
       try {

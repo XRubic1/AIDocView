@@ -49,13 +49,22 @@ function applyBrokerPatch(brokerId: string, patch: Partial<Broker>): Broker | un
   return broker
 }
 
+/** New catalog names are stored in ALL CAPS. */
+export function formatNewBrokerName(name: string): string {
+  return name.trim().toUpperCase()
+}
+
 /** Add broker to store and persist to Supabase when configured. */
 export function addBroker(broker: Broker): Broker {
-  mockBrokers.push(broker)
-  void persistBroker(broker)
+  const created: Broker = {
+    ...broker,
+    name: formatNewBrokerName(broker.name),
+  }
+  mockBrokers.push(created)
+  void persistBroker(created)
     .then(() => emitBrokersUpdated())
     .catch(console.error)
-  return broker
+  return created
 }
 
 export function updateBroker(brokerId: string, patch: Partial<Broker>): Broker | undefined {

@@ -39,6 +39,13 @@ describe('invoiceAiVerifyUi', () => {
     expect(ui.onHold).toBe(false)
   })
 
+  it('shows Review for the Credyx review status (not Hold)', () => {
+    const ui = invoiceAiVerifyUi(stub({ status: 'review', ai_review_status: 'needs_work' }))
+    expect(ui.status).toBe('review')
+    expect(ui.label).toBe('Review')
+    expect(ui.onHold).toBe(false)
+  })
+
   it('keeps hold as the list label', () => {
     const ui = invoiceAiVerifyUi(stub({ status: 'hold', ai_review_status: 'needs_work' }))
     expect(ui.onHold).toBe(true)

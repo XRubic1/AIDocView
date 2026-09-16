@@ -12,8 +12,9 @@ export interface AiReviewUserSettings {
 }
 
 const ENV_DEFAULT_TPM_LIMIT = 30_000
-const ENV_DEFAULT_DOCS_PER_MINUTE = 6
-const ENV_DEFAULT_DOCSORT_PARALLEL = 1
+/** Higher defaults — sequential 1× + low docs/min made 7 files take ~10+ minutes. */
+const ENV_DEFAULT_DOCS_PER_MINUTE = 20
+const ENV_DEFAULT_DOCSORT_PARALLEL = 4
 
 function readSettings(): AiReviewUserSettings {
   if (typeof localStorage === 'undefined') return {}

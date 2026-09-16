@@ -10,7 +10,10 @@ import { isSupabaseConfigured } from '../../lib/supabase'
 import { persistBroker, persistInvoice } from '../../services/supabase/tenantPersist'
 import { mockBrokers } from '../../data/mockBrokers'
 import { clearClientTenantCache } from '../../data/clientDemoData'
-import { getNextClientInvoiceNumber } from '../../utils/clientInvoiceNumbers'
+import {
+  getNextClientInvoiceNumber,
+  loadClientInvoiceNumbers,
+} from '../../utils/clientInvoiceNumbers'
 import {
   assertInvoiceNumberAvailable,
   validateBatchInvoiceNumbers,
@@ -98,8 +101,9 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
   }))
   const feeCalculation = calculateBatchFeeCalculation(draftForCalc, feeTerms)
 
-  // Resolve invoice numbers (auto-fill blanks), then hard-block duplicates.
-  const reservedForNext: string[] = []
+  // Resolve invoice numbers against DB + memory (auto-fill blanks), then hard-block duplicates.
+  const existingNumbers = await loadClientInvoiceNumbers(clientId)
+  const reservedForNext: string[] = [...existingNumbers]
   const resolvedNumbers: string[] = invoices.map((inv) => {
     const preferred = inv.invoice_number?.trim()
     if (preferred) {
@@ -110,12 +114,14 @@ export async function submitHandoffInvoices(input: SubmitHandoffInvoicesInput) {
     reservedForNext.push(next)
     return next
   })
-  const numberIssues = validateBatchInvoiceNumbers(clientId, resolvedNumbers)
+  const numberIssues = validateBatchInvoiceNumbers(clientId, resolvedNumbers, {
+    knownNumbers: existingNumbers,
+  })
   if (numberIssues.length > 0) {
     throw new Error(numberIssues[0].message)
   }
 
-  const reservedNumbers: string[] = []
+  const reservedNumbers: string[] = [...existingNumbers]
   const invoiceFields = []
 
   for (let index = 0; index < invoices.length; index++) {

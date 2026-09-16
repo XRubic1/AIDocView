@@ -6,7 +6,7 @@ import type { Invoice, InvoiceNote } from '../types/invoice'
 
 const DEFAULT_ADMIN = 'Admin User'
 
-const TERMINAL_HOLD_BLOCKED = new Set<Invoice['status']>([
+const TERMINAL_STATUS = new Set<Invoice['status']>([
   'paid',
   'rejected',
   'written_off',
@@ -14,21 +14,34 @@ const TERMINAL_HOLD_BLOCKED = new Set<Invoice['status']>([
   'force_closed',
 ])
 
-/** True when Credyx can place this invoice on hold (open A/R or still pending). */
+/** True when Credyx can place this invoice on hold (open A/R, pending, or in review). */
 export function canPlaceInvoiceOnHold(status: Invoice['status']): boolean {
-  return status === 'pending' || status === 'approved'
+  return status === 'pending' || status === 'review' || status === 'approved'
 }
 
-/** Approve an invoice from the admin ops workflow and persist to Supabase. */
+/**
+ * Mark OK — approve the invoice and clear any hold / review reason.
+ * This is the only “release hold” path in verification (no separate Clear hold).
+ */
 export function approveAdminInvoice(
   invoiceId: string,
   approvedBy = DEFAULT_ADMIN
 ): Invoice | undefined {
-  return updateInvoice(invoiceId, {
+  const existing = getInvoiceById(invoiceId)
+  if (!existing) return undefined
+  if (TERMINAL_STATUS.has(existing.status)) return existing
+
+  const updated = updateInvoice(invoiceId, {
     status: 'approved',
     approved_by: approvedBy,
     approved_at: new Date().toISOString(),
+    hold_reason: undefined,
   })
+  // Object.assign leaves undefined; drop the key so persist sends null and UI stays clean.
+  if (updated && 'hold_reason' in updated) {
+    delete updated.hold_reason
+  }
+  return updated
 }
 
 /**
@@ -42,7 +55,8 @@ export function holdAdminInvoice(
 ): Invoice | undefined {
   const existing = getInvoiceById(invoiceId)
   if (!existing) return undefined
-  if (TERMINAL_HOLD_BLOCKED.has(existing.status)) return existing
+  if (TERMINAL_STATUS.has(existing.status)) return existing
+  if (!canPlaceInvoiceOnHold(existing.status) && existing.status !== 'hold') return existing
 
   const alreadyHeld = existing.status === 'hold'
   const reason = holdReason?.trim()
@@ -82,36 +96,56 @@ export function holdAdminInvoice(
   return updated
 }
 
-/** Release hold — return to open A/R and clear the hold reason the carrier sees. */
+const AI_AUTO_NOTE =
+  /^(Carrier name mismatch|Needs additional work)\b/i
+
+/** True when a note was auto-written by AI review (should not fill the admin Notes box). */
+export function isAiAutoReviewNote(note?: string | null): boolean {
+  return AI_AUTO_NOTE.test((note ?? '').trim())
+}
+
+/**
+ * Flag an invoice for Credyx review (AI / paperwork issue).
+ * Not a client hold — carriers still see Pending until Process + real Hold/OK.
+ * Never overwrites an invoice the admin already marked OK or Hold.
+ * Does not write notes — issues stay in AI review outcome only.
+ */
+export function flagInvoiceForReview(
+  invoiceId: string,
+  _reason?: string,
+  _flaggedBy = DEFAULT_ADMIN
+): Invoice | undefined {
+  const existing = getInvoiceById(invoiceId)
+  if (!existing) return undefined
+  if (TERMINAL_STATUS.has(existing.status)) return existing
+  // Human already decided — do not pull them back into Review.
+  if (existing.status === 'approved' || existing.status === 'hold') return existing
+
+  const patch: Partial<Invoice> = { status: 'review' }
+  // Clear leftover auto-notes from older AI hold/review paths.
+  if (isAiAutoReviewNote(existing.notes)) {
+    patch.notes = undefined
+  }
+  if (isAiAutoReviewNote(existing.hold_reason)) {
+    patch.hold_reason = undefined
+  }
+
+  const updated = updateInvoice(invoiceId, patch)
+  if (updated && patch.notes === undefined && 'notes' in updated) delete updated.notes
+  if (updated && patch.hold_reason === undefined && isAiAutoReviewNote(existing.hold_reason)) {
+    delete updated.hold_reason
+  }
+  return updated
+}
+
+/**
+ * @deprecated Prefer approveAdminInvoice (OK) — kept for older admin screens that release hold.
+ */
 export function releaseHoldAdminInvoice(
   invoiceId: string,
   releasedBy = DEFAULT_ADMIN
 ): Invoice | undefined {
-  const inv = getInvoiceById(invoiceId)
-  if (!inv || inv.status !== 'hold') return inv
-
-  const now = new Date().toISOString()
-  const note: InvoiceNote = {
-    id: `note-hold-release-${Date.now()}`,
-    note: 'Hold released — invoice returned to open A/R.',
-    created_by: releasedBy,
-    created_at: now,
-    type: 'status_update',
-    visibility: 'client',
-  }
-  const notes_history = [...(inv.notes_history || []), note]
-  const notes = inv.notes
-    ? `${inv.notes}\n${note.note}`
-    : note.note
-
-  return updateInvoice(invoiceId, {
-    status: 'approved',
-    approved_by: releasedBy,
-    approved_at: now,
-    hold_reason: undefined,
-    notes_history,
-    notes,
-  })
+  return approveAdminInvoice(invoiceId, releasedBy)
 }
 
 /** Reject an invoice from the admin ops workflow. */

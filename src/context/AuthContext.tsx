@@ -15,6 +15,7 @@ import {
   HydrationError,
 } from '../services/supabase/hydrateStores'
 import { onAuthStateChange, resolveSessionWithLinks, type ResolvedSession } from '../services/sessionService'
+import { rememberOpenAiAccessToken } from '../utils/openaiAuthContext'
 
 export type HydrationPhase = 'session' | 'data' | 'ready'
 
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [hydrationError, setHydrationError] = useState<string | null>(null)
 
   const applySession = useCallback(async (next: Session | null) => {
+    rememberOpenAiAccessToken(next?.access_token ?? null)
     setSession(next)
     const r = await resolveSessionWithLinks(next)
     setResolved(r)

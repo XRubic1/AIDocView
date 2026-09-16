@@ -1,4 +1,5 @@
 import type { DocSortFingerprint, DocSortLoadGroup } from '../types'
+import { preferredPacketLoadNumber, primaryLoadLabel } from './matchKeys'
 
 /** Parse rate from vision JSON (number or currency string). */
 export function parseRateAmount(raw: unknown): number | undefined {
@@ -17,12 +18,24 @@ export function primaryRateCon(group: DocSortLoadGroup): DocSortFingerprint | un
   return withRate ?? group.rateCons[0]
 }
 
+/** First usable broker email domain across packet fingerprints. */
+export function emailDomainFromFingerprints(
+  fingerprints: DocSortFingerprint[]
+): string | undefined {
+  for (const fp of fingerprints) {
+    const domain = fp.emailDomain?.trim()
+    if (domain?.includes('.')) return domain.toLowerCase()
+  }
+  return undefined
+}
+
 /** Load #, broker, and payable rate from any fingerprint in a sorted load group. */
 export function invoiceFieldsFromLoadGroup(group: DocSortLoadGroup): {
   loadNumber: string
   brokerName: string
   carrierName: string
   rateAmount: number
+  emailDomain?: string
 } {
   const fingerprints = [...group.rateCons, ...group.bols, ...(group.others ?? [])]
   const rateCon = primaryRateCon(group)
@@ -31,17 +44,23 @@ export function invoiceFieldsFromLoadGroup(group: DocSortLoadGroup): {
     const name = fp.broker?.trim()
     return Boolean(name) && name.toLowerCase() !== 'broker'
   })
-  const loadFromFp = fingerprints.flatMap((fp) => fp.loadNumbers).find((n) => n.trim())
+  // Prefer RC load # — never let a longer BOL PRO / reference become the packet load.
+  const loadNumber =
+    (rateCon ? preferredPacketLoadNumber(rateCon) : undefined) ||
+    (rateCon ? primaryLoadLabel(rateCon) : undefined) ||
+    group.label?.trim() ||
+    ''
   const carrier =
     fingerprints.find((fp) => fp.carrier?.trim())?.carrier?.trim() ||
     rateCon?.carrier?.trim() ||
     'Carrier'
 
   return {
-    loadNumber: group.label?.trim() || loadFromFp?.trim() || '',
+    loadNumber,
     brokerName: withBroker?.broker?.trim() || rateCon?.broker?.trim() || '',
     carrierName: carrier,
     rateAmount: withRate?.rateAmount ?? 0,
+    emailDomain: emailDomainFromFingerprints(fingerprints),
   }
 }
 

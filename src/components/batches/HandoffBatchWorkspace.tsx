@@ -19,6 +19,7 @@ import { formatCurrency } from '../../utils/format'
 import {
   getNextClientInvoiceNumber,
   isInvoiceNumberTaken,
+  loadClientInvoiceNumbers,
 } from '../../utils/clientInvoiceNumbers'
 import {
   formatLoadNumberWarning,
@@ -100,6 +101,8 @@ export default function HandoffBatchWorkspace({
   const [docUrls, setDocUrls] = useState<Record<string, string>>({})
   const docWindowRef = useRef<Window | null>(null)
   const [queue, setQueue] = useState<HandoffInvoiceDraft[]>([])
+  /** Live invoice numbers from DB — checked before suggesting the next #. */
+  const [knownInvoiceNumbers, setKnownInvoiceNumbers] = useState<string[]>([])
   const [form, setForm] = useState<HandoffInvoiceDraft>(() => emptyDraft(clientId, []))
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
@@ -109,6 +112,22 @@ export default function HandoffBatchWorkspace({
   /** Index of a queued (not yet saved) invoice being edited. */
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
+
+  // Pull existing carrier invoice numbers from Supabase before auto-assigning.
+  useEffect(() => {
+    let cancelled = false
+    void loadClientInvoiceNumbers(clientId).then((nums) => {
+      if (cancelled) return
+      setKnownInvoiceNumbers(nums)
+      setForm((prev) => {
+        if (queue.length > 0 || editingInvoiceId || editingQueueIndex != null) return prev
+        return emptyDraft(clientId, [...nums, ...queue.map((inv) => inv.invoice_number)])
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [clientId])
 
   const loadDocuments = useCallback(async () => {
     setLoadingDocs(true)
@@ -324,9 +343,10 @@ export default function HandoffBatchWorkspace({
   const invoiceNumberError = useMemo(() => {
     const num = form.invoice_number.trim()
     if (!num) return null
-    const reserved = queue
-      .filter((_, i) => i !== editingQueueIndex)
-      .map((inv) => inv.invoice_number)
+    const reserved = [
+      ...knownInvoiceNumbers,
+      ...queue.filter((_, i) => i !== editingQueueIndex).map((inv) => inv.invoice_number),
+    ]
     if (editingInvoiceId) {
       if (isInvoiceNumberTakenExcluding(clientId, num, reserved, [editingInvoiceId])) {
         return `Invoice number ${num} is already used for this carrier`
@@ -337,7 +357,14 @@ export default function HandoffBatchWorkspace({
       return `Invoice number ${num} is already used for this carrier`
     }
     return null
-  }, [clientId, form.invoice_number, queue, editingInvoiceId, editingQueueIndex])
+  }, [
+    clientId,
+    form.invoice_number,
+    queue,
+    editingInvoiceId,
+    editingQueueIndex,
+    knownInvoiceNumbers,
+  ])
 
   const loadNumberWarning = useMemo(() => {
     const warnings = getLoadNumberWarnings(form.load_number, {
@@ -371,9 +398,14 @@ export default function HandoffBatchWorkspace({
   const resetForm = useCallback(() => {
     setEditingInvoiceId(null)
     setEditingQueueIndex(null)
-    setForm(emptyDraft(clientId, queue.map((inv) => inv.invoice_number)))
+    setForm(
+      emptyDraft(clientId, [
+        ...knownInvoiceNumbers,
+        ...queue.map((inv) => inv.invoice_number),
+      ])
+    )
     selectNextUnassignedDocument(queuedDocIds)
-  }, [clientId, queue, queuedDocIds, selectNextUnassignedDocument])
+  }, [clientId, queue, queuedDocIds, selectNextUnassignedDocument, knownInvoiceNumbers])
 
   /** Load an existing invoice into the form for inline editing. */
   const startEditInvoice = (invoice: Invoice) => {
@@ -412,9 +444,10 @@ export default function HandoffBatchWorkspace({
       return
     }
 
-    const reserved = queue
-      .filter((_, i) => i !== editingQueueIndex)
-      .map((inv) => inv.invoice_number)
+    const reserved = [
+      ...knownInvoiceNumbers,
+      ...queue.filter((_, i) => i !== editingQueueIndex).map((inv) => inv.invoice_number),
+    ]
     const invoiceNumber =
       form.invoice_number.trim() || getNextClientInvoiceNumber(clientId, reserved)
 
@@ -452,7 +485,12 @@ export default function HandoffBatchWorkspace({
       for (const docId of inv.document_doc_ids ?? []) occupied.add(docId)
     }
 
-    setForm(emptyDraft(clientId, nextQueue.map((inv) => inv.invoice_number)))
+    setForm(
+      emptyDraft(clientId, [
+        ...knownInvoiceNumbers,
+        ...nextQueue.map((inv) => inv.invoice_number),
+      ])
+    )
     selectNextUnassignedDocument(occupied)
   }
 
@@ -468,7 +506,7 @@ export default function HandoffBatchWorkspace({
       isInvoiceNumberTakenExcluding(
         clientId,
         form.invoice_number,
-        queue.map((inv) => inv.invoice_number),
+        [...knownInvoiceNumbers, ...queue.map((inv) => inv.invoice_number)],
         [editingInvoiceId]
       )
     ) {
@@ -539,7 +577,8 @@ export default function HandoffBatchWorkspace({
 
     const numberIssues = validateBatchInvoiceNumbers(
       clientId,
-      queue.map((inv) => inv.invoice_number)
+      queue.map((inv) => inv.invoice_number),
+      { knownNumbers: knownInvoiceNumbers }
     )
     if (numberIssues.length > 0) {
       showToast(numberIssues[0].message, 'error')
@@ -574,7 +613,7 @@ export default function HandoffBatchWorkspace({
       // Clear queue immediately so remount/refresh cannot double-render the same invoices.
       setQueue([])
       setEditingQueueIndex(null)
-      setForm(emptyDraft(clientId, []))
+      setForm(emptyDraft(clientId, knownInvoiceNumbers))
       setSelectedDocIds([])
       showToast(
         `${queuedSnapshot.length} invoice${queuedSnapshot.length !== 1 ? 's' : ''} created for ${clientName}`,

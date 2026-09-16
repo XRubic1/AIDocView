@@ -20,6 +20,12 @@ import {
   clientDocumentToRow,
   notificationToRow,
 } from './platformMappers'
+import {
+  ensureUniqueClientInvoiceNumber,
+  formatClientInvoiceNumber,
+  isSystemStyleInvoiceNumber,
+  parseInvoiceNumberSequence,
+} from '../../utils/clientInvoiceNumbers'
 
 function invalidateTenant(clientId?: string): void {
   if (clientId) clearClientTenantCache(clientId)
@@ -49,14 +55,101 @@ async function remove(table: string, id: string): Promise<void> {
   }
 }
 
+function isInvoiceNumberUniqueViolation(message: string): boolean {
+  return /invoices_client_number_uidx|duplicate key.*invoice_number/i.test(message)
+}
+
+/**
+ * Next free system number among peer DB rows only (ignores this invoice's own row / memory).
+ */
+function nextNumberAmongPeers(preferred: string, peerNumbers: string[]): string {
+  const preferredTrim = preferred.trim()
+  const peerTaken = (candidate: string) => {
+    const c = candidate.trim().toLowerCase()
+    if (!c) return false
+    if (peerNumbers.some((n) => n.trim().toLowerCase() === c)) return true
+    if (!isSystemStyleInvoiceNumber(candidate)) return false
+    const seq = parseInvoiceNumberSequence(candidate)
+    if (seq == null) return false
+    return peerNumbers.some((n) => {
+      if (!isSystemStyleInvoiceNumber(n)) return false
+      return parseInvoiceNumberSequence(n) === seq
+    })
+  }
+
+  if (preferredTrim && !peerTaken(preferredTrim)) return preferredTrim
+
+  let max = 0
+  for (const num of peerNumbers) {
+    if (!isSystemStyleInvoiceNumber(num)) continue
+    const seq = parseInvoiceNumberSequence(num)
+    if (seq != null && seq > max) max = seq
+  }
+  let seq = max
+  for (let i = 0; i < 10_000; i++) {
+    seq += 1
+    const candidate = formatClientInvoiceNumber(seq)
+    if (!peerTaken(candidate)) return candidate
+  }
+  return formatClientInvoiceNumber(Date.now() % 1_000_000)
+}
+
+/**
+ * Pick a free invoice number for this client, excluding this invoice's id
+ * so an existing row does not treat its own number as taken.
+ */
+async function remapInvoiceNumberAvoidingPeers(invoice: Invoice): Promise<string> {
+  const supabase = getSupabase()
+  if (!supabase) {
+    return ensureUniqueClientInvoiceNumber(invoice.client_id, invoice.invoice_number)
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('invoices')
+      .select('id, invoice_number')
+      .eq('client_id', invoice.client_id)
+      .limit(5000)
+
+    if (error) {
+      console.warn('[persistInvoice] peer number load failed', error.message)
+      return ensureUniqueClientInvoiceNumber(invoice.client_id, invoice.invoice_number)
+    }
+
+    const peerNumbers = (data ?? [])
+      .filter((row) => String((row as { id?: string }).id) !== invoice.id)
+      .map((row) => String((row as { invoice_number?: string }).invoice_number ?? '').trim())
+      .filter(Boolean)
+
+    return nextNumberAmongPeers(invoice.invoice_number, peerNumbers)
+  } catch (err) {
+    console.warn('[persistInvoice] remap failed', err)
+    return ensureUniqueClientInvoiceNumber(invoice.client_id, invoice.invoice_number)
+  }
+}
+
 /** Persist invoice and invalidate tenant cache. */
 export async function persistInvoice(invoice: Invoice): Promise<void> {
   if (!isSupabaseConfigured()) return
   const supabase = getSupabase()
   if (!supabase) return
 
-  const row = invoiceToRow(invoice)
-  const { error } = await supabase.from('invoices').upsert(row, { onConflict: 'id' })
+  const attemptUpsert = async (row: ReturnType<typeof invoiceToRow>) =>
+    supabase.from('invoices').upsert(row, { onConflict: 'id' })
+
+  let row = invoiceToRow(invoice)
+  let { error } = await attemptUpsert(row)
+
+  // Another row already owns this (client_id, invoice_number) — bump and retry once.
+  if (error && isInvoiceNumberUniqueViolation(error.message)) {
+    const remapped = await remapInvoiceNumberAvoidingPeers(invoice)
+    invoice.invoice_number = remapped
+    const mem = getInvoiceById(invoice.id)
+    if (mem) mem.invoice_number = remapped
+    row = invoiceToRow(invoice)
+    ;({ error } = await attemptUpsert(row))
+  }
+
   if (error) {
     console.error('[tenantPersist] invoices upsert failed:', error.message)
     throw new Error(error.message)

@@ -5,7 +5,7 @@ import { fingerprintFromReview } from '../utils/docExtractJson'
 
 /**
  * Full extract per file (RC, BOL, invoice, lumper) — same JSON verification uses.
- * Replaces the thin 4-page classify pass so load / rate / lane are read correctly.
+ * Single signature pass for speed — packet creation is the vision pass.
  */
 export async function fingerprintDocSortFile(
   file: File,
@@ -17,6 +17,6 @@ export async function fingerprintDocSortFile(
     )
   }
 
-  const result = await reviewDocumentFile(file, docId)
+  const result = await reviewDocumentFile(file, docId, { signatureConsensusRuns: 1 })
   return fingerprintFromReview(result)
 }

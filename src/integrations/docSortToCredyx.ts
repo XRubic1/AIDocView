@@ -1,5 +1,5 @@
 import { mockBrokers } from '../data/mockBrokers'
-import { getNextClientInvoiceNumber } from '../utils/clientInvoiceNumbers'
+import { getNextClientInvoiceNumber, loadClientInvoiceNumbers } from '../utils/clientInvoiceNumbers'
 import { resolveDueDatesFromBroker } from '../utils/invoiceDueDate'
 import {
   matchBrokerByName,
@@ -11,6 +11,9 @@ import type { Invoice } from '../types/invoice'
 import { buildInvoiceDraftFromGroup } from '../products/docSort/services/docSortInvoice'
 import { generateInvoicePDFFile, type InvoicePDFInput } from '../utils/generateInvoicePDF'
 import type { DocSortLoadGroup, DocSortFingerprint } from '../products/docSort/types'
+import { invoiceFieldsFromLoadGroup } from '../products/docSort/utils/formatRate'
+import { getClientById } from '../services/clientRegistry'
+import { invoiceFieldsFromLoadGroup } from '../products/docSort/utils/formatRate'
 
 export type { BrokerResolveResult }
 export { matchBrokerByName, resolveOrCreateBroker }
@@ -36,20 +39,34 @@ function collectDocIds(group: DocSortLoadGroup): string[] {
   return [...group.rateCons, ...group.bols, ...(group.others ?? [])].map((fp) => fp.docId)
 }
 
+/** Prefer the Credyx account / batch carrier over AI-extracted paperwork names. */
+function systemCarrierName(clientId: string, clientName?: string | null): string {
+  const fromArg = clientName?.trim()
+  if (fromArg) return fromArg
+  return getClientById(clientId)?.name?.trim() || 'Carrier'
+}
+
 /** Build client-editable draft from a matched DocSort load group. */
 export async function buildCredyxDraftFromGroup(
   group: DocSortLoadGroup,
   clientId: string,
-  usedInvoiceNumbers: string[] = []
+  usedInvoiceNumbers: string[] = [],
+  clientName?: string
 ): Promise<CredyxInvoiceDraft> {
   const pdfInput = buildInvoiceDraftFromGroup(group)
   const invoice_number = getNextClientInvoiceNumber(clientId, usedInvoiceNumbers)
+  const carrier = systemCarrierName(clientId, clientName)
   const invoicePdf = await generateInvoicePDFFile({
     ...pdfInput,
     invoiceNumber: invoice_number,
+    // Always print the submitting account — never the AI paperwork carrier.
+    carrierName: carrier,
+    clientName: carrier,
   })
   // Carrier path: match only — unknown names stay pending for Credyx to link.
-  const broker = matchBrokerByName(pdfInput.brokerName || '')
+  // Prefer email domain from the rate con when the printed name is a division (e.g. Werner Logistics).
+  const fields = invoiceFieldsFromLoadGroup(group)
+  const broker = matchBrokerByName(pdfInput.brokerName || '', fields.emailDomain)
   const amount = pdfInput.invoiceAmount ?? 0
   const load_number = pdfInput.loadNumber?.trim() || group.label
   const brokerName = broker.broker_name || pdfInput.brokerName?.trim() || ''
@@ -64,7 +81,7 @@ export async function buildCredyxDraftFromGroup(
     broker_id: broker.broker_id,
     amount,
     invoice_date: isoDateFromUs(pdfInput.invoiceDate),
-    carrier_name: pdfInput.carrierName,
+    carrier_name: carrier,
     rate_missing: amount <= 0,
     confirmed: fieldsReady,
     document_doc_ids: collectDocIds(group),
@@ -116,12 +133,13 @@ export function isManualCredyxDraft(draft: CredyxInvoiceDraft): boolean {
 
 export function generateNextDraftInvoiceNumber(
   clientId: string,
-  existing: CredyxInvoiceDraft[]
+  existing: CredyxInvoiceDraft[],
+  knownNumbers: string[] = []
 ): string {
-  return getNextClientInvoiceNumber(
-    clientId,
-    existing.map((inv) => inv.invoice_number)
-  )
+  return getNextClientInvoiceNumber(clientId, [
+    ...knownNumbers,
+    ...existing.map((inv) => inv.invoice_number),
+  ])
 }
 
 /** Blank invoice row the client can fill in during AI batch confirm. */
@@ -132,23 +150,25 @@ export async function createManualCredyxDraft(
 ): Promise<CredyxInvoiceDraft> {
   const groupId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
   const invoice_date = new Date().toISOString().split('T')[0]
+  const knownNumbers = await loadClientInvoiceNumbers(clientId)
+  const carrier = systemCarrierName(clientId, clientName)
   const base: CredyxInvoiceDraft = {
     draftId: `draft-${groupId}`,
     groupId,
-    invoice_number: generateNextDraftInvoiceNumber(clientId, existing),
+    invoice_number: generateNextDraftInvoiceNumber(clientId, existing, knownNumbers),
     load_number: '',
     broker_name: '',
     broker_id: '',
     amount: 0,
     invoice_date,
-    carrier_name: clientName || 'Carrier',
+    carrier_name: carrier,
     rate_missing: true,
     confirmed: false,
     document_doc_ids: [],
     fingerprints: { rateCons: [], bols: [], other: [] },
   }
-  const invoice_pdf = await regenerateDraftInvoicePdf(base, clientName)
-  return { ...base, carrier_name: clientName, invoice_pdf }
+  const invoice_pdf = await regenerateDraftInvoicePdf(base, carrier)
+  return { ...base, carrier_name: carrier, invoice_pdf }
 }
 
 function isoToUsDate(iso: string): string {
@@ -164,6 +184,7 @@ export async function regenerateDraftInvoicePdf(
   draft: CredyxInvoiceDraft,
   clientName: string
 ): Promise<File> {
+  const carrier = clientName.trim() || draft.carrier_name || 'Carrier'
   const input: InvoicePDFInput = {
     invoiceNumber: draft.invoice_number,
     invoiceDate: isoToUsDate(draft.invoice_date),
@@ -171,12 +192,39 @@ export async function regenerateDraftInvoicePdf(
     loadNumber: draft.load_number,
     brokerName: draft.broker_name,
     brokerAddress: '',
-    carrierName: draft.carrier_name || 'Carrier',
-    clientName,
+    carrierName: carrier,
+    clientName: carrier,
     clientAddress: '',
     remittanceInfo: '',
   }
   return generateInvoicePDFFile(input)
+}
+
+/** Rebuild the Credyx invoice PDF for a persisted invoice (Verification / Packets sync). */
+export async function regenerateInvoicePdfForInvoice(
+  invoice: Invoice,
+  clientName: string
+): Promise<{ file: File; docId: string }> {
+  const groupId = invoice.doc_sort_group_id || invoice.id
+  const file = await regenerateDraftInvoicePdf(
+    {
+      draftId: invoice.id,
+      groupId,
+      invoice_number: invoice.invoice_number,
+      load_number: invoice.load_number || '',
+      broker_name: invoice.broker_name || '',
+      broker_id: invoice.broker_id || '',
+      amount: invoice.amount,
+      invoice_date: invoice.invoice_date?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+      carrier_name: clientName,
+      rate_missing: false,
+      confirmed: true,
+      document_doc_ids: invoice.document_doc_ids || [],
+      fingerprints: { rateCons: [], bols: [], other: [] },
+    },
+    clientName
+  )
+  return { file, docId: `invoice-pdf-${groupId}` }
 }
 
 export function fingerprintDocIds(fps: DocSortFingerprint[]): string[] {

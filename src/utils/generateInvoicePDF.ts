@@ -100,15 +100,14 @@ function prepareContainerForCapture(iframeDoc: Document, container: HTMLElement)
   }
 }
 
-/** Renders a canvas snapshot onto a single full-bleed A4 PDF page. */
+/** Renders a high-res canvas snapshot onto a single full-bleed A4 PDF page. */
 function canvasToSinglePagePDF(canvas: HTMLCanvasElement): jsPDF {
   const pdf = new jsPDF('p', 'mm', 'a4')
   const pageWidth = pdf.internal.pageSize.getWidth()
   const pageHeight = pdf.internal.pageSize.getHeight()
-  const imgData = canvas.toDataURL('image/png')
-
-  pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight)
-
+  // JPEG at high quality keeps the file PDF-like without PNG bloat blur.
+  const imgData = canvas.toDataURL('image/jpeg', 0.95)
+  pdf.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST')
   return pdf
 }
 
@@ -207,9 +206,11 @@ export async function generateInvoicePDFFile(input: InvoicePDFInput): Promise<Fi
   await new Promise((resolve) => setTimeout(resolve, 150))
 
   const { default: html2canvas } = await import('html2canvas')
+  // ~288 DPI on A4 — sharp when opened in the packet viewer / PDF readers.
+  const captureScale = Math.max(3, Math.round((window.devicePixelRatio || 1) * 2))
 
   const canvas = await html2canvas(container, {
-    scale: 2,
+    scale: captureScale,
     useCORS: true,
     allowTaint: false,
     logging: false,
@@ -218,12 +219,12 @@ export async function generateInvoicePDFFile(input: InvoicePDFInput): Promise<Fi
     height: A4_HEIGHT_PX,
     windowWidth: A4_WIDTH_PX,
     windowHeight: A4_HEIGHT_PX,
+    imageTimeout: 5000,
   })
 
   document.body.removeChild(iframe)
 
   const pdf = canvasToSinglePagePDF(canvas)
-
   const pdfBlob = pdf.output('blob')
   const safeDate = input.invoiceDate.replace(/\//g, '-')
   const fileName = `Invoice_${input.invoiceNumber}_${safeDate}.pdf`

@@ -40,6 +40,7 @@ Carrier vs broker: carrier = motor carrier; broker = who arranged load. Landstar
 Watch OCR on carrier prefix (405 vs 4US). Include source_region (0–1 box) per field in "fields" when confidence < ${FIELD_UNCERTAINTY_THRESHOLD}.
 
 Also: rate_line_items (linehaul/fuel/unloading/detention/other), bol_reference_numbers.
+emailDomain: domain only from a broker contact email on the page (e.g. werner.com from ap@werner.com). Never invent.
 
 {
   "load_number":"","broker_name":"","broker_mc":"","carrier_name":"","carrier_mc":"",

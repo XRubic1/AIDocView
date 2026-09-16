@@ -274,9 +274,25 @@ Deno.serve(async (req) => {
 
         const catalog = parseFingerprints(batch.doc_sort_snapshot as string | null)
         if (catalog.size === 0) {
-          throw new Error(
-            'No DocSort snapshot yet — browser pipeline will sort, or Credyx can open Packets / AI verification'
-          )
+          // Browser / intake still sorting — keep job usable for openai-proxy job auth.
+          await admin
+            .from('batch_processing_jobs')
+            .update({
+              status: 'pending',
+              attempts: Math.max(0, (job.attempts ?? 1) - 1),
+              locked_at: null,
+              locked_by: null,
+              last_error: 'Waiting for DocSort snapshot',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', job.id)
+          results.push({
+            jobId: job.id,
+            batchId: job.batch_id,
+            skipped: true,
+            reason: 'waiting_for_docsort',
+          })
+          continue
         }
 
         const { data: invoices, error: invErr } = await admin
@@ -289,7 +305,24 @@ Deno.serve(async (req) => {
         if (invErr) throw new Error(invErr.message)
         const list = (invoices as InvoiceRow[]) ?? []
         if (list.length === 0) {
-          throw new Error('No invoices on batch yet')
+          await admin
+            .from('batch_processing_jobs')
+            .update({
+              status: 'pending',
+              attempts: Math.max(0, (job.attempts ?? 1) - 1),
+              locked_at: null,
+              locked_by: null,
+              last_error: 'Waiting for invoices',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', job.id)
+          results.push({
+            jobId: job.id,
+            batchId: job.batch_id,
+            skipped: true,
+            reason: 'waiting_for_invoices',
+          })
+          continue
         }
 
         let readyCount = 0

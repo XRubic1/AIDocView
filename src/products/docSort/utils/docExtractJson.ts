@@ -6,9 +6,30 @@ import type {
 import type { InvoiceParse, RateConParse } from '../../../types/documentPipeline'
 import { loadNumberFromFileName } from '../../../utils/extractBatchFields'
 import { formatRateConStop } from '../../../utils/locationMatch'
+import { normalizeEmailDomain } from '../../../utils/emailDomain'
 import type { DocSortFingerprint, DocSortKind } from '../types'
 import { parseRateAmount } from './formatRate'
 import { normalizeDocDate } from './matchKeys'
+
+/** Prefer structured emailDomain field; fall back to first email-looking token in notes. */
+function emailDomainFromExtraction(extraction: ExtractedDocumentData): string | undefined {
+  const fromField = normalizeEmailDomain(
+    String(extraction.rateConFields?.emailDomain?.value ?? '').trim()
+  )
+  if (fromField) return fromField
+  const blob = [
+    extraction.rateConParse?.special_instructions,
+    extraction.notes,
+    extraction.rateConFields?.broker?.reasoning,
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const emailMatch = blob.match(/[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})/i)
+  if (emailMatch?.[1]) {
+    return normalizeEmailDomain(emailMatch[1]) ?? undefined
+  }
+  return undefined
+}
 
 function pushLoad(target: string[], value?: string | null) {
   const trimmed = (value ?? '').trim()
@@ -147,6 +168,7 @@ export function fingerprintFromExtraction(
       invoice?.broker_name?.trim() ||
       extraction.rateConFields?.broker?.value?.trim() ||
       undefined,
+    emailDomain: emailDomainFromExtraction(extraction),
     carrier:
       rateCon?.carrier_name?.trim() ||
       invoice?.carrier_name?.trim() ||
@@ -193,12 +215,19 @@ function stubReviewImage(fileName: string): ReviewImageInfo {
 /** Rebuild a review result from the JSON stored at DocSort time. */
 export function reviewResultFromFingerprint(fp: DocSortFingerprint): DocumentReviewResult | null {
   if (!fp.extract) return null
+  const extraction = { ...fp.extract }
+  // Packet classification wins when extract JSON omitted documentType.
+  if (!extraction.documentType) {
+    if (fp.kind === 'bill_of_lading') extraction.documentType = 'bill_of_lading'
+    else if (fp.kind === 'rate_confirmation') extraction.documentType = 'rate_confirmation'
+    else if (fp.kind === 'invoice') extraction.documentType = 'invoice'
+  }
   return {
     documentId: fp.docId,
     fileName: fp.fileName,
     modelUsed: 'doc-sort-extract',
     upgradedFromMini: false,
-    extraction: fp.extract,
+    extraction,
     debugLog: {
       image: stubReviewImage(fp.fileName),
       attempts: [],

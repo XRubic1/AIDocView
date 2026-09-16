@@ -85,7 +85,17 @@ export function getClientBatchAiProgress(input: {
 
   const total = invoices.length
   const completed = invoices.filter((inv) => isReviewFinished(inv.ai_review_status)).length
-  const anyRunning = invoices.some((inv) => inv.ai_review_status === 'running')
+  const reviewsDone = total > 0 && completed === total
+  const jobSucceeded = job?.status === 'succeeded'
+  const jobFailed = job?.status === 'failed'
+  const sortSettled = sortStatus === 'ready' || sortStatus === 'failed'
+  // Stale `running` after packets exist should not keep ETA forever once job/sort finished
+  // or every invoice already has a finished status.
+  const anyRunning =
+    !reviewsDone &&
+    !jobSucceeded &&
+    !sortSettled &&
+    invoices.some((inv) => inv.ai_review_status === 'running')
   const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0
   const detail =
     total > 0 ? `Checked ${completed} of ${total} load${total === 1 ? '' : 's'}` : null
@@ -113,7 +123,7 @@ export function getClientBatchAiProgress(input: {
     }
   }
 
-  if (sortStatus === 'failed' || job?.status === 'failed') {
+  if (sortStatus === 'failed' || jobFailed) {
     return withEta({
       phase: 'failed',
       label: 'Couldn’t finish checking — Credyx will follow up',
@@ -125,8 +135,25 @@ export function getClientBatchAiProgress(input: {
     })
   }
 
+  // All invoices finished → done even if job/sort flags were left stale.
+  if (reviewsDone) {
+    return withEta({
+      phase: 'done',
+      label: 'Invoices ready to review',
+      detail,
+      completed: total,
+      total,
+      percent: 100,
+      show: true,
+    })
+  }
+
   const jobActive = job?.status === 'pending' || job?.status === 'running'
-  const sorting = sortStatus === 'sorting' || batchStatus === 'creating'
+  // Ignore stale sort/creating flags once the job finished or every invoice is done.
+  const sorting =
+    !jobSucceeded &&
+    !reviewsDone &&
+    (sortStatus === 'sorting' || batchStatus === 'creating')
 
   if (jobActive || sorting || anyRunning || optimisticProcessing) {
     return withEta({
@@ -144,21 +171,19 @@ export function getClientBatchAiProgress(input: {
     })
   }
 
-  const jobSucceeded = job?.status === 'succeeded'
-  const reviewsDone = total > 0 && completed === total
   const hadReviewActivity =
     jobSucceeded ||
     invoices.some((inv) => inv.ai_review_status && inv.ai_review_status !== 'not_run')
 
-  if (hadReviewActivity && (jobSucceeded || reviewsDone) && !jobActive && !anyRunning) {
+  if (hadReviewActivity && (jobSucceeded || sortSettled) && !jobActive && !anyRunning) {
     return withEta({
       phase: 'done',
       label: 'Invoices ready to review',
       detail,
-      completed,
+      completed: Math.max(completed, total > 0 && completed === total ? total : completed),
       total,
       percent: 100,
-      show: jobSucceeded || (Boolean(job) && reviewsDone),
+      show: true,
     })
   }
 

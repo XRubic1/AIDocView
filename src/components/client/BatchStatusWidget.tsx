@@ -3,6 +3,7 @@ import { getAllBatches } from '../../data/mockBatches'
 import { mockInvoices } from '../../data/mockInvoices'
 import { Clock, CheckCircle, AlertCircle, Loader } from 'lucide-react'
 import { useClientTheme } from '../../theme/ThemeContext'
+import { isClientVisibleHold } from '../../utils/clientInvoiceView'
 
 interface BatchStatusWidgetProps {
   clientId?: string
@@ -33,7 +34,7 @@ export default function BatchStatusWidget({ clientId, compact = false }: BatchSt
       ? allInvoices.filter((inv) => inv.client_id === clientId)
       : allInvoices
 
-    const invoicesOnHold = clientInvoices.filter((inv) => inv.status === 'hold').length
+    const invoicesOnHold = clientInvoices.filter((inv) => isClientVisibleHold(inv)).length
 
     const processedInvoices = clientInvoices.filter(
       (inv) => inv.status === 'paid' || inv.status === 'force_closed' || inv.status === 'written_off'

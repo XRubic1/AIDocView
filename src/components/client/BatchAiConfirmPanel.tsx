@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, Bug, ChevronDown, ChevronRight, FolderOpen, Loader2, Plus, Search, Trash2 } from 'lucide-react'
+import { AlertTriangle, Bug, ChevronDown, ChevronRight, FolderOpen, Loader2, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
 import ClientInvoiceDocumentUploadModal, {
   type UploadModalDocument,
 } from './ClientInvoiceDocumentUploadModal'
@@ -11,6 +11,15 @@ import CompactPacketDocPane, {
   readPacketDocDrag,
   writePacketDocDrag,
 } from './CompactPacketDocPane'
+import {
+  AiReviewChecksProgressList,
+  AiReviewExtractProgressList,
+} from '../batches/AiReviewLiveProgress'
+import type {
+  AiReviewLiveCheck,
+  AiReviewLiveExtract,
+  BatchAiReviewProgress,
+} from '../../services/credyx/batchAiReviewService'
 import BatchAiAssignmentDebug from './BatchAiAssignmentDebug'
 import { DOCSORT_AI_DISCLAIMER_SHORT } from '../../products/docSort/constants/aiDisclaimer'
 import { isManualCredyxDraft } from '../../integrations/docSortToCredyx'
@@ -31,6 +40,7 @@ import {
 } from '../../utils/batchPacketDocs'
 import { useDocumentDownloadProgress } from '../ui/DocumentDownloadOverlay'
 import type { DocSortFingerprint } from '../../products/docSort/types'
+import { pruneUnmatchedAgainstAssigned } from '../../utils/aiDraftDocOps'
 
 interface BatchAiConfirmPanelProps {
   draft: BatchIntakeDraft
@@ -63,6 +73,20 @@ interface BatchAiConfirmPanelProps {
   onSubmitBatch: () => void
   submitting: boolean
   onCancel?: () => void
+  /**
+   * Packet rework: right-click an invoice to re-run AI verification for that
+   * invoice only. `draftId` matches the persisted invoice id in rework mode.
+   */
+  onRerunAiCheck?: (draftId: string, invoiceNumber: string) => void | Promise<void>
+  /** Disable re-run while a check is already in flight. */
+  rerunningAiCheck?: boolean
+  /** Live extract/check progress while Rerun AI check is running. */
+  aiLiveProgress?: {
+    draftId: string
+    extract: AiReviewLiveExtract | null
+    checks: AiReviewLiveCheck[] | null
+    phase: BatchAiReviewProgress['phase']
+  } | null
 }
 
 type RailTab = 'invoices' | 'docs' | 'debug'
@@ -119,6 +143,9 @@ export default function BatchAiConfirmPanel({
   onSubmitBatch,
   submitting,
   onCancel,
+  onRerunAiCheck,
+  rerunningAiCheck = false,
+  aiLiveProgress = null,
 }: BatchAiConfirmPanelProps) {
   const c = useClientTheme()
   const unmatchedBootstrap =
@@ -145,6 +172,14 @@ export default function BatchAiConfirmPanel({
     fromDraftId: string | null
   } | null>(null)
   const docMenuRef = useRef<HTMLDivElement>(null)
+  /** Right-click menu on an invoice packet (rework → rerun AI check). */
+  const [invoiceMenu, setInvoiceMenu] = useState<{
+    x: number
+    y: number
+    draftId: string
+    invoiceNumber: string
+  } | null>(null)
+  const invoiceMenuRef = useRef<HTMLDivElement>(null)
   const packetSearchRef = useRef<HTMLInputElement>(null)
   const [packetSearch, setPacketSearch] = useState('')
   const [packetSearchOpen, setPacketSearchOpen] = useState(false)
@@ -227,22 +262,27 @@ export default function BatchAiConfirmPanel({
     [draft.invoices, uploadDraftId]
   )
 
+  const prunedUnmatched = useMemo(
+    () => pruneUnmatchedAgainstAssigned(draft.unmatched, draft.invoices),
+    [draft.unmatched, draft.invoices]
+  )
+
   const unmatchedDocs = useMemo(
     () => [
-      ...draft.unmatched.rateCons,
-      ...draft.unmatched.bols,
-      ...draft.unmatched.other,
+      ...prunedUnmatched.rateCons,
+      ...prunedUnmatched.bols,
+      ...prunedUnmatched.other,
     ],
-    [draft.unmatched]
+    [prunedUnmatched]
   )
 
   /** Bucket unassigned files into RC / BOL / other for dual panes + Docs rail. */
   const unmatchedBuckets = useMemo(() => {
-    const rateCons: DocSortFingerprint[] = [...draft.unmatched.rateCons]
-    const bols: DocSortFingerprint[] = [...draft.unmatched.bols]
+    const rateCons: DocSortFingerprint[] = [...prunedUnmatched.rateCons]
+    const bols: DocSortFingerprint[] = [...prunedUnmatched.bols]
     const other: DocSortFingerprint[] = []
 
-    for (const fp of draft.unmatched.other) {
+    for (const fp of prunedUnmatched.other) {
       const category = classifyPacketDoc({ kind: fp.kind, fileName: fp.fileName })
       if (category === 'rate_confirmation') rateCons.push(fp)
       else if (category === 'bol' || category === 'pod') bols.push(fp)
@@ -250,7 +290,7 @@ export default function BatchAiConfirmPanel({
     }
 
     return { rateCons, bols, other }
-  }, [draft.unmatched])
+  }, [prunedUnmatched])
 
   const unmatchedCount = unmatchedDocs.length
 
@@ -369,12 +409,27 @@ export default function BatchAiConfirmPanel({
     event.stopPropagation()
     setPacketSearch('')
     setPacketSearchOpen(false)
+    setInvoiceMenu(null)
     // Anchor at exact cursor; layout effect clamps after measure.
     setDocMenu({
       x: event.clientX,
       y: event.clientY,
       docId,
       fromDraftId,
+    })
+  }
+
+  const openInvoiceMenu = (event: MouseEvent, inv: CredyxInvoiceDraft) => {
+    if (!onRerunAiCheck) return
+    event.preventDefault()
+    event.stopPropagation()
+    setDocMenu(null)
+    openPacket(inv.draftId)
+    setInvoiceMenu({
+      x: event.clientX,
+      y: event.clientY,
+      draftId: inv.draftId,
+      invoiceNumber: inv.invoice_number?.trim() || '—',
     })
   }
 
@@ -421,6 +476,41 @@ export default function BatchAiConfirmPanel({
       window.removeEventListener('keydown', onKey)
     }
   }, [docMenu])
+
+  useLayoutEffect(() => {
+    if (!invoiceMenu || !invoiceMenuRef.current) return
+    const el = invoiceMenuRef.current
+    const pad = 8
+    const rect = el.getBoundingClientRect()
+    let x = invoiceMenu.x
+    let y = invoiceMenu.y
+    if (x + rect.width > window.innerWidth - pad) {
+      x = Math.max(pad, window.innerWidth - rect.width - pad)
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      y = Math.max(pad, window.innerHeight - rect.height - pad)
+    }
+    el.style.left = `${x}px`
+    el.style.top = `${y}px`
+  }, [invoiceMenu])
+
+  useEffect(() => {
+    if (!invoiceMenu) return
+    const close = () => setInvoiceMenu(null)
+    const onPointerDown = (e: PointerEvent) => {
+      if (invoiceMenuRef.current?.contains(e.target as Node)) return
+      close()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [invoiceMenu])
 
   const runDocMenuAction = (
     action: 'rate_confirmation' | 'bill_of_lading' | 'unassigned' | `packet:${string}`
@@ -550,6 +640,12 @@ export default function BatchAiConfirmPanel({
   const selectedBlocker = selectedInvoice
     ? invoiceDraftBlocker(selectedInvoice, selectedFeedback)
     : null
+  const fieldsExtracting = Boolean(
+    rerunningAiCheck &&
+      aiLiveProgress &&
+      selectedInvoice &&
+      aiLiveProgress.draftId === selectedInvoice.draftId
+  )
   const continueLabel =
     submitLabel ?? (mode === 'rework' ? 'Save packet changes' : 'Continue')
   const continueBusyLabel =
@@ -715,6 +811,7 @@ export default function BatchAiConfirmPanel({
                     }${dropTarget === `inv-${inv.draftId}` ? ' is-drop-target' : ''}`}
                     onDragOver={(e) => allowDrop(e, `inv-${inv.draftId}`)}
                     onDragLeave={() => setDropTarget(null)}
+                    onContextMenu={(e) => openInvoiceMenu(e, inv)}
                     onDrop={(e) => {
                       e.preventDefault()
                       setDropTarget(null)
@@ -848,6 +945,7 @@ export default function BatchAiConfirmPanel({
                   }${dropTarget === `docs-${inv.draftId}` ? ' is-drop-target' : ''}`}
                   onDragOver={(e) => allowDrop(e, `docs-${inv.draftId}`)}
                   onDragLeave={() => setDropTarget(null)}
+                  onContextMenu={(e) => openInvoiceMenu(e, inv)}
                   onDrop={(e) => {
                     e.preventDefault()
                     setDropTarget(null)
@@ -1193,11 +1291,19 @@ export default function BatchAiConfirmPanel({
                 )}
 
                 <div className="client-ai-review__fields client-ai-review__fields--compact">
-                  <label className="client-ai-review__field">
-                    <span>Invoice #</span>
+                  <label className={`client-ai-review__field${fieldsExtracting ? ' is-extracting' : ''}`}>
+                    <span>
+                      Invoice #
+                      {fieldsExtracting ? (
+                        <span className="client-ai-review__field-live">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        </span>
+                      ) : null}
+                    </span>
                     <input
                       type="text"
                       value={selectedInvoice.invoice_number}
+                      disabled={fieldsExtracting}
                       onChange={(e) =>
                         onUpdateDraft(selectedInvoice.draftId, {
                           invoice_number: e.target.value,
@@ -1208,11 +1314,19 @@ export default function BatchAiConfirmPanel({
                       }`}
                     />
                   </label>
-                  <label className="client-ai-review__field">
-                    <span>Load #</span>
+                  <label className={`client-ai-review__field${fieldsExtracting ? ' is-extracting' : ''}`}>
+                    <span>
+                      Load #
+                      {fieldsExtracting && !aiLiveProgress?.extract?.loadNumber ? (
+                        <span className="client-ai-review__field-live">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        </span>
+                      ) : null}
+                    </span>
                     <input
                       type="text"
                       value={selectedInvoice.load_number}
+                      disabled={fieldsExtracting}
                       onChange={(e) =>
                         onUpdateDraft(selectedInvoice.draftId, { load_number: e.target.value })
                       }
@@ -1221,11 +1335,12 @@ export default function BatchAiConfirmPanel({
                       }`}
                     />
                   </label>
-                  <label className="client-ai-review__field">
+                  <label className={`client-ai-review__field${fieldsExtracting ? ' is-extracting' : ''}`}>
                     <span>Invoice date</span>
                     <input
                       type="date"
                       value={selectedInvoice.invoice_date?.slice(0, 10) || ''}
+                      disabled={fieldsExtracting}
                       onChange={(e) =>
                         onUpdateDraft(selectedInvoice.draftId, {
                           invoice_date: e.target.value,
@@ -1244,11 +1359,19 @@ export default function BatchAiConfirmPanel({
                       title="From the batch carrier"
                     />
                   </label>
-                  <div className="client-ai-review__field client-ai-review__field--full">
-                    <span>Broker</span>
+                  <div className={`client-ai-review__field client-ai-review__field--full${fieldsExtracting ? ' is-extracting' : ''}`}>
+                    <span>
+                      Broker
+                      {fieldsExtracting && !aiLiveProgress?.extract?.brokerName ? (
+                        <span className="client-ai-review__field-live">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        </span>
+                      ) : null}
+                    </span>
                     <BrokerPicker
                       mode={brokerPickerMode}
                       compact
+                      disabled={fieldsExtracting}
                       inputClassName="client-ai-confirm__input client-ai-confirm__input--wide"
                       value={{
                         broker_id: selectedInvoice.broker_id,
@@ -1265,13 +1388,21 @@ export default function BatchAiConfirmPanel({
                       }
                     />
                   </div>
-                  <label className="client-ai-review__field">
-                    <span>Rate</span>
+                  <label className={`client-ai-review__field${fieldsExtracting ? ' is-extracting' : ''}`}>
+                    <span>
+                      Rate
+                      {fieldsExtracting && aiLiveProgress?.extract?.amount == null ? (
+                        <span className="client-ai-review__field-live">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        </span>
+                      ) : null}
+                    </span>
                     <input
                       type="number"
                       min={0}
                       step={0.01}
                       value={selectedInvoice.amount || ''}
+                      disabled={fieldsExtracting}
                       onChange={(e) =>
                         onUpdateDraft(selectedInvoice.draftId, {
                           amount: Number.parseFloat(e.target.value) || 0,
@@ -1282,6 +1413,19 @@ export default function BatchAiConfirmPanel({
                     />
                   </label>
                 </div>
+
+                {fieldsExtracting ? (
+                  <div className="client-ai-confirm__live-review" style={{ marginTop: 8 }}>
+                    <AiReviewExtractProgressList
+                      extracting
+                      extract={aiLiveProgress?.extract}
+                    />
+                    <AiReviewChecksProgressList
+                      extracting
+                      checks={aiLiveProgress?.checks}
+                    />
+                  </div>
+                ) : null}
 
                 <div className="client-ai-packet__attached">
                   <div
@@ -1562,6 +1706,36 @@ export default function BatchAiConfirmPanel({
                 </div>
               </>
             )}
+          </div>,
+          document.body
+        )}
+
+      {invoiceMenu &&
+        createPortal(
+          <div
+            ref={invoiceMenuRef}
+            className="client-ai-doc-menu"
+            style={{ left: invoiceMenu.x, top: invoiceMenu.y }}
+            role="menu"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <p className="client-ai-doc-menu__label">#{invoiceMenu.invoiceNumber}</p>
+            <button
+              type="button"
+              role="menuitem"
+              className="client-ai-doc-menu__item"
+              disabled={rerunningAiCheck}
+              onClick={() => {
+                const { draftId, invoiceNumber } = invoiceMenu
+                setInvoiceMenu(null)
+                void onRerunAiCheck?.(draftId, invoiceNumber)
+              }}
+            >
+              <RefreshCw className="w-3.5 h-3.5 shrink-0" aria-hidden />
+              Rerun AI check
+            </button>
           </div>,
           document.body
         )}

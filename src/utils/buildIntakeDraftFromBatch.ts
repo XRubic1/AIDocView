@@ -20,6 +20,7 @@ import {
   parseFingerprintCatalog,
   type PersistedDocFingerprint,
 } from '../products/docSort/utils/docSortSnapshot'
+import { pruneUnmatchedAgainstAssigned } from './aiDraftDocOps'
 
 function emptySortResult(totalDocuments: number): DocSortResult {
   return {
@@ -411,6 +412,9 @@ export async function hydrateIntakeDraftFromBatch(
   const assignedIds = new Set(
     drafts.flatMap((d) => [
       ...d.document_doc_ids,
+      ...d.fingerprints.rateCons.map((fp) => fp.docId),
+      ...d.fingerprints.bols.map((fp) => fp.docId),
+      ...(d.fingerprints.other ?? []).map((fp) => fp.docId),
       ...(d.invoice_pdf ? [`invoice-pdf-${d.groupId}`] : []),
     ])
   )
@@ -424,7 +428,10 @@ export async function hydrateIntakeDraftFromBatch(
       (id) => !assignedIds.has(id) && !id.startsWith('invoice-pdf-')
     ),
   ]
-  const uniqueUnmatched = [...new Set(unmatchedIds)]
+  // Never resurface docs that are already on a packet (stale unmatched_doc_ids).
+  const uniqueUnmatched = [...new Set(unmatchedIds)].filter(
+    (id) => !assignedIds.has(id) && !id.startsWith('invoice-pdf-')
+  )
 
   const unmatchedRateCons: DocSortFingerprint[] = []
   const unmatchedBols: DocSortFingerprint[] = []
@@ -445,13 +452,23 @@ export async function hydrateIntakeDraftFromBatch(
     parseSortSnapshot(batch.doc_sort_snapshot) ??
     emptySortResult(Math.max(fileById.size, fileNameById.size, drafts.length))
 
+  // Also drop duplicate intake copies that share a file name with an assigned packet doc.
+  const unmatched = pruneUnmatchedAgainstAssigned(
+    {
+      rateCons: unmatchedRateCons,
+      bols: unmatchedBols,
+      other: otherDocuments,
+    },
+    drafts
+  )
+
   return {
     batchNumber: batch.batch_number,
     sortResult: {
       ...sortResult,
-      unmatchedRateCons,
-      unmatchedBols,
-      otherDocuments,
+      unmatchedRateCons: unmatched.rateCons,
+      unmatchedBols: unmatched.bols,
+      otherDocuments: unmatched.other,
       totalDocuments: Math.max(
         sortResult.totalDocuments,
         fileById.size,
@@ -459,11 +476,7 @@ export async function hydrateIntakeDraftFromBatch(
       ),
     },
     invoices: drafts,
-    unmatched: {
-      rateCons: unmatchedRateCons,
-      bols: unmatchedBols,
-      other: otherDocuments,
-    },
+    unmatched,
     fileById,
     storagePathsByDocId,
   }

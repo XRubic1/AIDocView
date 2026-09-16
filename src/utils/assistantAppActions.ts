@@ -84,6 +84,22 @@ const CLIENT_CATALOG: AssistantCatalogEntry[] = [
     keywords: ['broker', 'brokers', 'mc', 'mc#', 'risk', 'factor'],
   },
   {
+    id: 'client-mc-check',
+    label: 'Open MC Check',
+    description: 'Look up a broker MC for authority and insurance',
+    path: '/client/brokers?tab=mc-check',
+    mode: 'client',
+    keywords: ['mc check', 'mc lookup', 'authority', 'safer', 'insurance lookup'],
+  },
+  {
+    id: 'client-mc-logs',
+    label: 'Open MC Logs',
+    description: 'Brokers you checked and their status at the time',
+    path: '/client/brokers?tab=mc-logs',
+    mode: 'client',
+    keywords: ['mc log', 'mc logs', 'review log', 'lookup history'],
+  },
+  {
     id: 'client-documents',
     label: 'Open document vault',
     description: 'Stored paperwork and files',

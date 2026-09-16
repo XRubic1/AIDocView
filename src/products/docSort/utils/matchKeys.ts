@@ -107,8 +107,39 @@ export function allLoadKeys(fp: DocSortFingerprint): string[] {
   return [...keys]
 }
 
+/**
+ * Prefer the rate-con / invoice load # for the packet label.
+ * BOL PRO / reference numbers are often longer and must not win just by length
+ * (e.g. RC load 2004515639 vs PRO 50000000016900593).
+ */
+export function preferredPacketLoadNumber(fp: DocSortFingerprint): string | undefined {
+  const preferred = [
+    fp.extract?.rateConParse?.load_number,
+    typeof fp.extract?.rateConFields?.loadNumber?.value === 'string'
+      ? fp.extract.rateConFields.loadNumber.value
+      : fp.extract?.rateConFields?.loadNumber?.value != null
+        ? String(fp.extract.rateConFields.loadNumber.value)
+        : undefined,
+    fp.extract?.loadNumber,
+    fp.extract?.primaryInvoice?.load_number,
+    // Real BOL load field only — not reference_numbers / PRO list.
+    fp.extract?.bolAudit?.load_number,
+  ]
+  for (const raw of preferred) {
+    const display = String(raw ?? '').trim()
+    if (!display) continue
+    if (isStrongLoadKey(normalizeLoadKey(display))) return display
+  }
+  return undefined
+}
+
 export function primaryLoadLabel(fp: DocSortFingerprint): string {
-  const keys = [...allLoadKeys(fp)].sort((a, b) => b.length - a.length)
+  const preferred = preferredPacketLoadNumber(fp)
+  if (preferred) return preferred
+
+  // Fall back to shortest strong key when we only have refs / filename digits —
+  // shorter is usually the broker load #; longer is often a PRO / tracking id.
+  const keys = [...allLoadKeys(fp)].sort((a, b) => a.length - b.length || a.localeCompare(b))
   return keys[0] ?? paperworkFileStem(fp.fileName)
 }
 

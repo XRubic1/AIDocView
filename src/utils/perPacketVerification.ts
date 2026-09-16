@@ -1,10 +1,11 @@
-import { runCrossValidation } from '../services/crossValidationService'
+import { extractBatchContext, runCrossValidation } from '../services/crossValidationService'
 import { BatchDocumentReviewResult } from '../types/documentReview'
 import { CrossValidationFlag, CrossValidationResult } from '../types/documentPipeline'
 import {
   bolAuditMeetsDeliveryRequirements,
   isSingleDeliveryLoad,
 } from './bolAuditSanitizer'
+import { documentHasBolEvidence } from './requiredDocuments'
 import { CHECK_LABELS, humanizeReviewMessage } from './reviewMessages'
 
 export interface VerificationCheckRow {
@@ -23,7 +24,7 @@ function checkOk(status: string): boolean {
   )
 }
 
-/** Cross-validation for a single PDF packet (never mixed with other uploads). */
+/** Cross-validation for one primary PDF; sibling BOL attachments count in single-packet mode. */
 export function getPerPacketCrossValidation(
   fileName: string,
   batchResult: BatchDocumentReviewResult
@@ -40,10 +41,26 @@ export function getPerPacketCrossValidation(
     return batchResult.crossValidation ?? null
   }
 
+  const multiLoad = batchResult.multiInvoice?.multiLoadUpload === true
+  let bolAudit = doc.extraction.bolAudit
+  let reviewDocuments = [doc]
+
+  // Single Credyx packet: RC PDF may not contain the BOL — use sibling attachments.
+  if (!multiLoad && !documentHasBolEvidence(doc.extraction)) {
+    const { bolData } = extractBatchContext(batchResult.documents)
+    if (bolData) {
+      bolAudit = bolData.audit ?? bolAudit
+      const bolDoc = batchResult.documents.find((d) => d.fileName === bolData.fileName)
+      reviewDocuments = bolDoc ? [doc, bolDoc] : [...batchResult.documents]
+    } else if (batchResult.documents.length > 1) {
+      reviewDocuments = [...batchResult.documents]
+    }
+  }
+
   return runCrossValidation({
     rateConParse,
-    bolAudit: doc.extraction.bolAudit,
-    reviewDocuments: [doc],
+    bolAudit,
+    reviewDocuments,
     invoiceAmount: verification?.unit.invoice.amount_total,
     invoiceLoadNumber: verification?.unit.invoice.load_number,
     invoiceBroker: verification?.unit.invoice.broker_name,
@@ -66,10 +83,16 @@ export function buildPerInvoiceVerificationChecks(
     return { rows: [], errors: [] }
   }
 
-  const bol = doc.extraction.bolAudit
+  const multiLoad = batchResult.multiInvoice?.multiLoadUpload === true
+  const packetBol = extractBatchContext(batchResult.documents).bolData
+  const bol = doc.extraction.bolAudit ?? (!multiLoad ? packetBol?.audit : undefined)
   const rateConParse = doc.extraction.rateConParse
   const singleDelivery = isSingleDeliveryLoad(rateConParse)
   const bolOk = bolAuditMeetsDeliveryRequirements(bol, rateConParse)
+  const bolPresent =
+    documentHasBolEvidence(doc.extraction) ||
+    (!multiLoad &&
+      batchResult.documents.some((d) => documentHasBolEvidence(d.extraction)))
 
   const receiverOk =
     bol?.signatures.receiver === 'PRESENT' || bol?.signatures.receiver === 'PASS_BY_RULE'
@@ -87,7 +110,11 @@ export function buildPerInvoiceVerificationChecks(
         ]
           .filter(Boolean)
           .join(' ')
-    : 'No bill of lading found to review.'
+    : bolPresent
+      ? 'BOL present on packet — audit incomplete.'
+      : multiLoad
+        ? 'No bill of lading found in this PDF.'
+        : 'No bill of lading found on this packet.'
 
   const rows: VerificationCheckRow[] = [
     {
@@ -107,7 +134,7 @@ export function buildPerInvoiceVerificationChecks(
     },
     {
       label: CHECK_LABELS.bol,
-      ok: bolOk,
+      ok: bolPresent && bolOk,
       detail: bolDetail,
     },
     {

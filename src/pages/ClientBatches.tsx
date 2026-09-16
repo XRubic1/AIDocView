@@ -52,6 +52,7 @@ import type { BatchIntakeDraft } from '../types/credyxBatch'
 import {
   getNextClientInvoiceNumber,
   isInvoiceNumberTaken,
+  loadClientInvoiceNumbers,
 } from '../utils/clientInvoiceNumbers'
 import {
   formatLoadNumberWarning,
@@ -75,6 +76,7 @@ import {
   type ClientBatchAiProgress,
 } from '../utils/clientBatchAiProgress'
 import { fetchClientBatchProcessingJobs } from '../services/credyx/batchProcessingJobs'
+import { settleBatchAiGate } from '../services/credyx/batchAiReviewService'
 
 type ClientBatchRow = {
   id: string
@@ -187,6 +189,24 @@ export default function ClientBatches() {
     refreshBatches()
   }, [refreshBatches, tenantRevision])
 
+  // Heal stuck AI flags whenever tenant data refreshes (Packets / ETA / holds).
+  useEffect(() => {
+    let changed = false
+    for (const batch of batches) {
+      if (batch.status === 'draft') continue
+      if (
+        batch.upload_mode === 'ai' ||
+        batch.upload_mode === 'handoff' ||
+        batch.sort_status === 'sorting' ||
+        batch.status === 'creating'
+      ) {
+        const result = settleBatchAiGate(batch.id)
+        if (result.settled > 0 || result.held > 0 || result.healedSort) changed = true
+      }
+    }
+    if (changed) refreshBatches()
+  }, [batches, tenantRevision, refreshBatches])
+
   /** Latest AI job per batch — drives client PPW progress UI. */
   const [jobByBatchId, setJobByBatchId] = useState<Record<string, BatchProcessingJobSnapshot>>(
     {}
@@ -234,7 +254,7 @@ export default function ClientBatches() {
 
   useEffect(() => {
     if (!anyAiProcessing) return
-    const id = window.setInterval(() => setEtaTick((n) => n + 1), 15_000)
+    const id = window.setInterval(() => setEtaTick((n) => n + 1), 5_000)
     return () => window.clearInterval(id)
   }, [anyAiProcessing])
 
@@ -242,6 +262,11 @@ export default function ClientBatches() {
   useEffect(() => {
     if (!anyAiProcessing && optimisticProcessingIds.size === 0) return
     const tick = () => {
+      // Unstick invoices left as `running` + heal stuck sorting/job flags.
+      for (const batch of batches) {
+        if (batch.status === 'draft') continue
+        settleBatchAiGate(batch.id)
+      }
       refreshBatches()
       void refreshProcessingJobs()
     }
@@ -252,6 +277,7 @@ export default function ClientBatches() {
     optimisticProcessingIds.size,
     refreshBatches,
     refreshProcessingJobs,
+    batches,
   ])
 
   // Clear optimistic flags once the job row exists, or local review finished without Supabase.
@@ -304,6 +330,8 @@ export default function ClientBatches() {
     return tabParam === 'create' ? 'create' : 'view'
   })
   const [currentBatchInvoices, setCurrentBatchInvoices] = useState<InvoiceFormData[]>([])
+  /** Live invoice numbers from DB + memory — used before auto-assigning the next #. */
+  const [knownInvoiceNumbers, setKnownInvoiceNumbers] = useState<string[]>([])
   const [invoiceFormData, setInvoiceFormData] = useState<InvoiceFormData>({
     invoice_number: '',
     load_number: '',
@@ -316,16 +344,36 @@ export default function ClientBatches() {
     notes: '',
   })
 
+  // Keep next-number allocation in sync with Supabase (not just in-memory store).
+  useEffect(() => {
+    if (!clientId) {
+      setKnownInvoiceNumbers([])
+      return
+    }
+    let cancelled = false
+    void loadClientInvoiceNumbers(clientId).then((nums) => {
+      if (!cancelled) setKnownInvoiceNumbers(nums)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [clientId, tenantRevision])
+
   // Suggest next invoice number for this client (001, 002, …)
   useEffect(() => {
     if (!clientId) return
     if (!invoiceFormData.invoice_number && currentBatchInvoices.length === 0) {
       setInvoiceFormData((prev) => ({
         ...prev,
-        invoice_number: getNextClientInvoiceNumber(clientId),
+        invoice_number: getNextClientInvoiceNumber(clientId, knownInvoiceNumbers),
       }))
     }
-  }, [clientId, currentBatchInvoices.length, invoiceFormData.invoice_number])
+  }, [
+    clientId,
+    currentBatchInvoices.length,
+    invoiceFormData.invoice_number,
+    knownInvoiceNumbers,
+  ])
 
   // Check for highlight parameter from notification / onboarding tour
   useEffect(() => {
@@ -669,8 +717,8 @@ export default function ClientBatches() {
   }
 
   const pendingInvoiceNumbers = useCallback(
-    () => currentBatchInvoices.map((inv) => inv.invoice_number),
-    [currentBatchInvoices]
+    () => [...knownInvoiceNumbers, ...currentBatchInvoices.map((inv) => inv.invoice_number)],
+    [currentBatchInvoices, knownInvoiceNumbers]
   )
 
   // Live field validation while typing (client-scoped only).
@@ -1332,7 +1380,8 @@ export default function ClientBatches() {
   const handleCreateBatch = async () => {
     const numberIssues = validateBatchInvoiceNumbers(
       clientId,
-      currentBatchInvoices.map((inv) => inv.invoice_number)
+      currentBatchInvoices.map((inv) => inv.invoice_number),
+      { knownNumbers: knownInvoiceNumbers }
     )
     if (numberIssues.length > 0) {
       showToast(numberIssues[0].message, 'error')

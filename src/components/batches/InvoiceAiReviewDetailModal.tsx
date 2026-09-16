@@ -129,7 +129,10 @@ export default function InvoiceAiReviewDetailModal({
                 (snapshot.paperwork.loadNumber ||
                   snapshot.paperwork.amount != null ||
                   snapshot.paperwork.brokerName ||
-                  snapshot.paperwork.carrierName) && (
+                  snapshot.paperwork.brokerDomain ||
+                  snapshot.paperwork.carrierName ||
+                  snapshot.paperwork.pickup ||
+                  snapshot.paperwork.destinations) && (
                   <div
                     className="rounded border px-3 py-2 space-y-1"
                     style={{ borderColor: '#819291', backgroundColor: '#f8f9fa' }}
@@ -148,8 +151,21 @@ export default function InvoiceAiReviewDetailModal({
                     {snapshot.paperwork.brokerName && (
                       <div style={{ color: '#819291' }}>Broker: {snapshot.paperwork.brokerName}</div>
                     )}
+                    {snapshot.paperwork.brokerDomain && (
+                      <div style={{ color: '#819291' }}>
+                        Broker domain: {snapshot.paperwork.brokerDomain}
+                      </div>
+                    )}
                     {snapshot.paperwork.carrierName && (
                       <div style={{ color: '#819291' }}>Carrier: {snapshot.paperwork.carrierName}</div>
+                    )}
+                    {snapshot.paperwork.pickup && (
+                      <div style={{ color: '#819291' }}>Pick: {snapshot.paperwork.pickup}</div>
+                    )}
+                    {snapshot.paperwork.destinations && (
+                      <div style={{ color: '#819291' }}>
+                        Del: {snapshot.paperwork.destinations}
+                      </div>
                     )}
                   </div>
                 )}

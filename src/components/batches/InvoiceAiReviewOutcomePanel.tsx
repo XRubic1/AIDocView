@@ -3,6 +3,7 @@ import { Check, X, AlertTriangle } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { InvoiceAiReviewSnapshot } from '../../types/invoiceAiReview'
 import type { LoadCheckRow } from '../../utils/loadReviewSummary'
+import { isResolvablePacketCheck } from '../../utils/packetOnFileReview'
 import InvoiceAiReviewDetailModal from './InvoiceAiReviewDetailModal'
 
 interface InvoiceAiReviewOutcomePanelProps {
@@ -15,6 +16,15 @@ interface InvoiceAiReviewOutcomePanelProps {
 
 function checkPassed(row: LoadCheckRow): boolean {
   return row.status === 'ok'
+}
+
+/** Compact label for failed resolvable rows: value · on file … */
+function resolvableCheckLabel(row: LoadCheckRow): string {
+  const paper = row.documentValue?.trim()
+  const onFile = row.excelValue?.trim() || '—'
+  if (paper) return `${row.label} ${paper} · on file ${onFile}`
+  if (onFile !== '—') return `${row.label} · on file ${onFile}`
+  return row.label
 }
 
 /**
@@ -66,14 +76,27 @@ export default function InvoiceAiReviewOutcomePanel({
           <ul className="client-ai-verify__checks">
             {checks.map((row) => {
               const ok = checkPassed(row)
+              const resolvable = isResolvablePacketCheck(row)
+              const label = resolvable ? resolvableCheckLabel(row) : row.label
               return (
                 <li
                   key={row.id}
-                  className={`client-ai-verify__check${ok ? ' is-ok' : ' is-fail'}`}
+                  className={`client-ai-verify__check${
+                    ok ? ' is-ok' : resolvable ? ' is-warn' : ' is-fail'
+                  }`}
+                  title={resolvable ? row.detail || row.summary : row.summary || undefined}
                 >
-                  {ok ? <Check className="w-3 h-3 shrink-0" /> : <X className="w-3 h-3 shrink-0" />}
-                  <span className="client-ai-verify__check-label">{row.label}</span>
-                  {!ok && row.status === 'warning' && (
+                  {ok ? (
+                    <Check className="w-3 h-3 shrink-0" />
+                  ) : resolvable ? (
+                    <span className="client-ai-verify__broker-warn" aria-hidden>
+                      !
+                    </span>
+                  ) : (
+                    <X className="w-3 h-3 shrink-0" />
+                  )}
+                  <span className="client-ai-verify__check-label">{label}</span>
+                  {!ok && !resolvable && row.status === 'warning' && (
                     <AlertTriangle className="w-3 h-3 shrink-0 opacity-70" />
                   )}
                 </li>

@@ -31,6 +31,8 @@ export interface DocSortFingerprint {
   confidence: number
   loadNumbers: string[]
   broker?: string
+  /** Broker email domain from the rate con (e.g. werner.com), when visible. */
+  emailDomain?: string
   carrier?: string
   pickup?: string
   delivery?: string

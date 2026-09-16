@@ -7,12 +7,15 @@ import {
 } from '../../services/credyx/batchIntakePipeline'
 import type { BatchIntakeDraft, CredyxInvoiceDraft } from '../../types/credyxBatch'
 import type { DocSortProgress } from '../../products/docSort/types'
+import { emailDomainFromFingerprints } from '../../products/docSort/utils/formatRate'
 import BatchAiConfirmPanel from './BatchAiConfirmPanel'
 import {
   createManualCredyxDraft,
   matchBrokerByName,
   regenerateDraftInvoicePdf,
 } from '../../integrations/docSortToCredyx'
+import { rematchPendingDraftBrokers } from '../../utils/brokerResolve'
+import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
 import {
   assignUnmatchedDocument,
   createManualDocFingerprint,
@@ -20,6 +23,7 @@ import {
   deleteDraftDocument,
   moveDraftDocument,
   placeDraftDocument,
+  withPrunedUnmatched,
   removeInvoiceFromDraft,
 } from '../../utils/aiDraftDocOps'
 import type { AiDraftStep } from '../../types/clientBatchDraft'
@@ -31,6 +35,7 @@ import {
   getWithinBatchLoadWarnings,
   validateBatchInvoiceNumbers,
 } from '../../utils/invoiceDuplicateChecks'
+import { loadClientInvoiceNumbers } from '../../utils/clientInvoiceNumbers'
 import { invoiceDraftBlocker } from '../../utils/invoiceDraftReady'
 import {
   BATCH_PAPERWORK_ACCEPT,
@@ -142,6 +147,7 @@ export default function BatchAiUploadFlow({
   skipSetupGate = false,
 }: BatchAiUploadFlowProps) {
   const c = useClientTheme()
+  const tenantRevision = useTenantDataRevision()
   const confirmedByName = confirmedBy ?? clientName
   const hasRestored = Boolean(restoredDraft)
   const [step, setStep] = useState<Step>(restoredDraft?.step ?? 'upload')
@@ -211,10 +217,12 @@ export default function BatchAiUploadFlow({
       const result = await runBatchIntakePipeline(fileList, clientId, (p: DocSortProgress) => {
         setProgress(p.message ?? `${p.phase} ${p.completed}/${p.total}`)
       })
-      setDraft({
-        ...result,
-        batchNumber: draftBatchNumber ?? result.batchNumber,
-      })
+      setDraft(
+        rematchPendingDraftBrokers({
+          ...result,
+          batchNumber: draftBatchNumber ?? result.batchNumber,
+        })
+      )
       setStep('confirm')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Processing failed')
@@ -228,9 +236,15 @@ export default function BatchAiUploadFlow({
     if (!restoredDraft || restoredAppliedRef.current) return
     setStep(restoredDraft.step)
     setFiles(restoredDraft.uploadFiles)
-    setDraft(restoredDraft.intake)
+    setDraft(rematchPendingDraftBrokers(restoredDraft.intake))
     restoredAppliedRef.current = true
   }, [restoredDraft])
+
+  // Relink pending brokers when the directory hydrates after the draft loaded.
+  useEffect(() => {
+    if (!draft?.invoices.some((inv) => inv.broker_name && !inv.broker_id)) return
+    setDraft((prev) => (prev ? rematchPendingDraftBrokers(prev) : prev))
+  }, [tenantRevision])
 
   useEffect(() => {
     if (!onPersistDraft || !draftReady || step === 'processing') return
@@ -360,7 +374,13 @@ export default function BatchAiUploadFlow({
           broker_name: patch.broker_name ?? '',
         }
       } else if (patch.broker_name !== undefined) {
-        const broker = matchBrokerByName(patch.broker_name)
+        const inv = draftRef.current?.invoices.find((i) => i.draftId === draftId)
+        const domain = emailDomainFromFingerprints([
+          ...(inv?.fingerprints.rateCons ?? []),
+          ...(inv?.fingerprints.bols ?? []),
+          ...(inv?.fingerprints.other ?? []),
+        ])
+        const broker = matchBrokerByName(patch.broker_name, domain)
         nextPatch = {
           ...patch,
           broker_id: broker.broker_id,
@@ -453,7 +473,7 @@ export default function BatchAiUploadFlow({
         )
       })
 
-      return { ...prev, fileById: nextFileById, invoices }
+      return withPrunedUnmatched({ ...prev, fileById: nextFileById, invoices })
     })
   }
 
@@ -464,9 +484,11 @@ export default function BatchAiUploadFlow({
   const handleSubmit = async () => {
     if (!draft) return
 
+    const knownNumbers = await loadClientInvoiceNumbers(clientId)
     const numberIssues = validateBatchInvoiceNumbers(
       clientId,
-      draft.invoices.map((inv) => inv.invoice_number?.trim() || '')
+      draft.invoices.map((inv) => inv.invoice_number?.trim() || ''),
+      { knownNumbers }
     )
     if (numberIssues.length > 0) {
       setError(numberIssues[0].message)
@@ -512,7 +534,13 @@ export default function BatchAiUploadFlow({
         clientId,
         clientName,
         drafts: draft.invoices.map((inv) => ({ ...inv, confirmed: true })),
-        sortResult: draft.sortResult,
+        // Keep sortResult unmatched in sync with confirm-time assignments.
+        sortResult: {
+          ...draft.sortResult,
+          unmatchedRateCons: draft.unmatched.rateCons,
+          unmatchedBols: draft.unmatched.bols,
+          otherDocuments: draft.unmatched.other,
+        },
         fileById: draft.fileById,
         confirmedBy: confirmedByName,
         existingBatchId: draftBatchId,

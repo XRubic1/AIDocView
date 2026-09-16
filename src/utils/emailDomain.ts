@@ -7,7 +7,15 @@ export function extractEmailDomain(email: string): string | null {
   const domain = email.slice(at + 1).trim().toLowerCase()
   // Require a real-looking domain (e.g. broker.com)
   if (!domain || !domain.includes('.')) return null
-  return domain
+  return normalizeEmailDomain(domain)
+}
+
+/** Lowercase domain and strip a leading www. */
+export function normalizeEmailDomain(domain: string): string | null {
+  const trimmed = domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+  const host = trimmed.replace(/^www\./, '')
+  if (!host || !host.includes('.')) return null
+  return host
 }
 
 /**

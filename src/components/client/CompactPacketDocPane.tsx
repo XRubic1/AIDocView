@@ -1,14 +1,27 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { ChevronLeft, ChevronRight, FileText, RotateCcw, RotateCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileText, RotateCcw, RotateCw, SlidersHorizontal } from 'lucide-react'
 import DocumentDownloadOverlay from '../ui/DocumentDownloadOverlay'
+import DocQualitySettingsWindow from './DocQualitySettingsWindow'
 import { getPdfJs } from '../../utils/getPdfJs'
+import {
+  DEFAULT_DOC_PAGE_QUALITY,
+  autoCropFromCanvas,
+  docPageCropClipPath,
+  docPageQualityFilter,
+  isDefaultDocPageQuality,
+  type DocPageQuality,
+} from '../../utils/docPageQuality'
 
 export interface CompactDocItem {
   id: string
@@ -63,6 +76,15 @@ interface CompactPacketDocPaneProps {
   dropKind?: 'rate_confirmation' | 'bill_of_lading'
   onDropDocument?: (payload: PacketDocDragPayload) => void
   dragFromDraftId?: string | null
+  /**
+   * Credyx-only: Ctrl+left-drag highlighter on the docs.
+   * Strokes stay in memory only — never saved or shared with carriers/brokers.
+   */
+  allowTempHighlight?: boolean
+  /** When this changes (e.g. selected invoice id), discard all highlights. */
+  highlightResetKey?: string | null
+  /** Credyx-only: open page quality / crop window (temporary view filters). */
+  allowQualityTools?: boolean
 }
 
 type PdfJsModule = typeof import('pdfjs-dist')
@@ -94,28 +116,87 @@ function clampRotation(deg: number): number {
   return n
 }
 
+type HighlightStroke = { points: Array<{ x: number; y: number }> }
+
+const HIGHLIGHT_COLOR = 'rgba(250, 204, 21, 0.45)'
+const HIGHLIGHT_WIDTH = 14
+const VIEW_ZOOM_MIN = 0.5
+const VIEW_ZOOM_MAX = 4
+/** Ignore tiny right-drags so a plain right-click can zoom out. */
+const MARQUEE_MIN_PX = 12
+
+function clampViewZoom(value: number): number {
+  return Math.min(VIEW_ZOOM_MAX, Math.max(VIEW_ZOOM_MIN, value))
+}
+
+type MarqueeRect = { x1: number; y1: number; x2: number; y2: number }
+
+function normalizeMarquee(m: MarqueeRect): { x: number; y: number; w: number; h: number } {
+  const x = Math.min(m.x1, m.x2)
+  const y = Math.min(m.y1, m.y2)
+  return { x, y, w: Math.abs(m.x2 - m.x1), h: Math.abs(m.y2 - m.y1) }
+}
+
+/** Draw stored highlighter strokes onto a canvas (CSS-pixel coords). */
+function paintHighlightStrokes(
+  ctx: CanvasRenderingContext2D,
+  strokes: HighlightStroke[],
+  dpr: number
+): void {
+  ctx.save()
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = HIGHLIGHT_COLOR
+  ctx.lineWidth = HIGHLIGHT_WIDTH
+  for (const stroke of strokes) {
+    if (stroke.points.length === 0) continue
+    ctx.beginPath()
+    ctx.moveTo(stroke.points[0].x, stroke.points[0].y)
+    for (let i = 1; i < stroke.points.length; i += 1) {
+      ctx.lineTo(stroke.points[i].x, stroke.points[i].y)
+    }
+    if (stroke.points.length === 1) {
+      // Single click — still show a blob.
+      ctx.lineTo(stroke.points[0].x + 0.01, stroke.points[0].y)
+    }
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
 /** Renders one PDF page (or image) into the scroll stack. */
 function BundlePageView({
   page,
   pdf,
   imageUrl,
   rotation,
+  quality,
   onVisible,
   onRotate,
+  onCanvasReady,
 }: {
   page: BundlePage
   pdf: PdfDocument | null
   imageUrl?: string | null
   /** Extra clockwise degrees on top of the PDF’s own page rotate. */
   rotation: number
+  quality: DocPageQuality
   onVisible: (bundleIndex: number, docId: string) => void
   onRotate: (pageKey: string, delta: 90 | -90) => void
+  onCanvasReady?: (pageKey: string, canvas: HTMLCanvasElement | null) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const textLayerRef = useRef<HTMLDivElement | null>(null)
   const stackRef = useRef<HTMLDivElement | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const userRotation = clampRotation(rotation)
+  const filterCss = docPageQualityFilter(quality)
+  const clipPath = docPageCropClipPath(quality.crop)
+  const visualStyle: CSSProperties = {
+    filter: filterCss,
+    clipPath,
+  }
 
   useEffect(() => {
     const el = rootRef.current
@@ -158,14 +239,19 @@ function BundlePageView({
         const rotationDeg = clampRotation((pdfPage.rotate || 0) + userRotation)
         const base = pdfPage.getViewport({ scale: 1, rotation: rotationDeg })
         const targetWidth = Math.min(720, canvasRef.current.parentElement?.clientWidth || 520)
-        const scale = Math.max(1, targetWidth / base.width)
+        const dpr = Math.min(2.5, window.devicePixelRatio || 1)
+        // Generated invoice PDFs are raster pages — render sharper so they look like PDFs.
+        const minScale = page.generated ? 1.75 : 1
+        const scale = Math.max(minScale, (targetWidth / base.width) * dpr)
         const viewport = pdfPage.getViewport({ scale, rotation: rotationDeg })
         const canvas = canvasRef.current
-        const ctx = canvas.getContext('2d')
+        const ctx = canvas.getContext('2d', { alpha: false })
         if (!ctx) return
 
         canvas.width = Math.floor(viewport.width)
         canvas.height = Math.floor(viewport.height)
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
         // Avoid a black GPU flash before paint (blank canvases composite as black).
         ctx.save()
         ctx.fillStyle = '#ffffff'
@@ -207,7 +293,12 @@ function BundlePageView({
       resizeObserver?.disconnect()
       textLayerRef.current?.replaceChildren()
     }
-  }, [page.kind, page.pageInDoc, page.key, pdf, userRotation, syncTextLayerScale])
+  }, [page.kind, page.pageInDoc, page.key, page.generated, pdf, userRotation, syncTextLayerScale])
+
+  useEffect(() => {
+    onCanvasReady?.(page.key, canvasRef.current)
+    return () => onCanvasReady?.(page.key, null)
+  }, [page.key, onCanvasReady, pdf, imageUrl])
 
   return (
     <div
@@ -245,11 +336,16 @@ function BundlePageView({
       </div>
       {page.kind === 'pdf' ? (
         <div ref={stackRef} className="client-ai-dual-pane__page-stack">
-          <canvas ref={canvasRef} className="client-ai-dual-pane__page-canvas" />
+          <canvas
+            ref={canvasRef}
+            className="client-ai-dual-pane__page-canvas client-ai-dual-pane__page-visual"
+            style={visualStyle}
+          />
           <div
             ref={textLayerRef}
             className="textLayer client-ai-dual-pane__text-layer"
             aria-hidden={false}
+            style={clipPath ? { clipPath } : undefined}
           />
         </div>
       ) : imageUrl ? (
@@ -263,8 +359,11 @@ function BundlePageView({
           <img
             src={imageUrl}
             alt={page.docName}
-            className="client-ai-dual-pane__page-image"
-            style={{ transform: userRotation ? `rotate(${userRotation}deg)` : undefined }}
+            className="client-ai-dual-pane__page-image client-ai-dual-pane__page-visual"
+            style={{
+              ...visualStyle,
+              transform: userRotation ? `rotate(${userRotation}deg)` : undefined,
+            }}
           />
         </div>
       ) : (
@@ -290,6 +389,9 @@ export default function CompactPacketDocPane({
   dropKind,
   onDropDocument,
   dragFromDraftId: _dragFromDraftId = null,
+  allowTempHighlight = false,
+  highlightResetKey = null,
+  allowQualityTools = false,
 }: CompactPacketDocPaneProps) {
   const [dragOver, setDragOver] = useState(false)
   const [bundlePages, setBundlePages] = useState<BundlePage[]>([])
@@ -299,12 +401,438 @@ export default function CompactPacketDocPane({
   const [building, setBuilding] = useState(false)
   /** Per-page clockwise rotation offsets (degrees). */
   const [pageRotations, setPageRotations] = useState<Record<string, number>>({})
+  /** Ctrl held — enable highlighter pointer capture over docs. */
+  const [ctrlHeld, setCtrlHeld] = useState(false)
+  /** Temporary view zoom; not saved with the packet. */
+  const [viewZoom, setViewZoom] = useState(1)
+  const [marquee, setMarquee] = useState<MarqueeRect | null>(null)
+  /** Unscaled stack size — used to size the scrollable zoom space. */
+  const [stackNatural, setStackNatural] = useState({ w: 0, h: 0 })
+  const [qualityOpen, setQualityOpen] = useState(false)
+  const [pageQuality, setPageQuality] = useState<DocPageQuality>({
+    ...DEFAULT_DOC_PAGE_QUALITY,
+    crop: { ...DEFAULT_DOC_PAGE_QUALITY.crop },
+  })
+  const [autoCropBusy, setAutoCropBusy] = useState(false)
+  const pageCanvasByKeyRef = useRef<Map<string, HTMLCanvasElement>>(new Map())
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const stackRef = useRef<HTMLDivElement | null>(null)
+  const highlightCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const strokesRef = useRef<HighlightStroke[]>([])
+  const drawingRef = useRef(false)
+  const zoomDragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+  } | null>(null)
+  const viewZoomRef = useRef(viewZoom)
+  viewZoomRef.current = viewZoom
+  const marqueeRef = useRef<MarqueeRect | null>(null)
+  marqueeRef.current = marquee
+  const pendingScrollRef = useRef<{ left: number; top: number } | null>(null)
   const pdfCacheRef = useRef<Map<string, PdfDocument>>(new Map())
   const onActiveDocChangeRef = useRef(onActiveDocChange)
   onActiveDocChangeRef.current = onActiveDocChange
   /** Avoid scroll↔highlight feedback loops. */
   const lastDocIdRef = useRef<string | null>(null)
+
+  /** Bust PDF cache when the generated invoice file is replaced under the same doc id. */
+  const pdfRevisionKey = (docId: string, file: File) =>
+    `${docId}::${file.size}::${file.lastModified}::${file.name}`
+
+  const docsFingerprint = useMemo(
+    () =>
+      documents
+        .map((d) =>
+          d.file
+            ? `${d.id}:${d.file.size}:${d.file.lastModified}`
+            : d.id
+        )
+        .join('|'),
+    [documents]
+  )
+
+  /** Redraw highlighter canvas from stroke history (keeps marks across resize). */
+  const redrawHighlights = useCallback(() => {
+    const canvas = highlightCanvasRef.current
+    const stack = stackRef.current
+    if (!canvas || !stack) return
+    // Size to the in-flow stack box only — never scrollHeight (absolute canvas
+    // would inflate scrollHeight and leave blank space below the docs).
+    const w = Math.max(1, stack.clientWidth)
+    const h = Math.max(1, stack.clientHeight)
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const nextW = Math.floor(w * dpr)
+    const nextH = Math.floor(h * dpr)
+    if (canvas.width !== nextW || canvas.height !== nextH) {
+      canvas.width = nextW
+      canvas.height = nextH
+    }
+    // Let CSS inset:0 / width/height 100% own the layout box.
+    canvas.style.width = ''
+    canvas.style.height = ''
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    paintHighlightStrokes(ctx, strokesRef.current, dpr)
+  }, [])
+
+  const clearHighlights = useCallback(() => {
+    strokesRef.current = []
+    drawingRef.current = false
+    const canvas = highlightCanvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
+  }, [])
+
+  // Discard marks + zoom + quality when invoice/docs change — never persisted.
+  useEffect(() => {
+    clearHighlights()
+    setViewZoom(1)
+    setMarquee(null)
+    zoomDragRef.current = null
+    setPageQuality({
+      ...DEFAULT_DOC_PAGE_QUALITY,
+      crop: { ...DEFAULT_DOC_PAGE_QUALITY.crop },
+    })
+    setQualityOpen(false)
+  }, [highlightResetKey, docsFingerprint, clearHighlights])
+
+  const onPageCanvasReady = useCallback((pageKey: string, canvas: HTMLCanvasElement | null) => {
+    if (canvas) pageCanvasByKeyRef.current.set(pageKey, canvas)
+    else pageCanvasByKeyRef.current.delete(pageKey)
+  }, [])
+
+  const runAutoCropVisiblePage = useCallback(() => {
+    const page = bundlePages.find((p) => p.bundleIndex === visibleBundleIndex)
+    if (!page) return
+    setAutoCropBusy(true)
+    try {
+      let canvas = pageCanvasByKeyRef.current.get(page.key) ?? null
+      if (!canvas && page.kind === 'image') {
+        const card = scrollRef.current?.querySelector(
+          `[data-bundle-index="${page.bundleIndex}"] img`
+        ) as HTMLImageElement | null
+        if (card && card.naturalWidth > 0) {
+          const tmp = document.createElement('canvas')
+          tmp.width = card.naturalWidth
+          tmp.height = card.naturalHeight
+          const ctx = tmp.getContext('2d')
+          ctx?.drawImage(card, 0, 0)
+          canvas = tmp
+        }
+      }
+      if (!canvas || canvas.width < 8) return
+      const crop = autoCropFromCanvas(canvas)
+      setPageQuality((prev) => ({ ...prev, crop }))
+    } finally {
+      setAutoCropBusy(false)
+    }
+  }, [bundlePages, visibleBundleIndex])
+
+  // Track Ctrl so the overlay can capture pointer only while highlighting.
+  useEffect(() => {
+    if (!allowTempHighlight) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Control') setCtrlHeld(true)
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Control') {
+        setCtrlHeld(false)
+        drawingRef.current = false
+      }
+    }
+    const onBlur = () => {
+      setCtrlHeld(false)
+      drawingRef.current = false
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [allowTempHighlight])
+
+  // Keep highlight canvas sized to the page stack.
+  useEffect(() => {
+    if (!allowTempHighlight) return
+    const stack = stackRef.current
+    if (!stack) return
+    const ro = new ResizeObserver(() => redrawHighlights())
+    ro.observe(stack)
+    redrawHighlights()
+    return () => ro.disconnect()
+  }, [allowTempHighlight, bundlePages, viewZoom, redrawHighlights])
+
+  const pointFromEvent = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const canvas = highlightCanvasRef.current
+    if (!canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return null
+    // Map through CSS zoom / transform so strokes land on the doc pixels.
+    const cssW = canvas.clientWidth || rect.width
+    const cssH = canvas.clientHeight || rect.height
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * cssW,
+      y: ((e.clientY - rect.top) / rect.height) * cssH,
+    }
+  }
+
+  const onHighlightPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!allowTempHighlight || !e.ctrlKey || e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const pt = pointFromEvent(e)
+    if (!pt) return
+    drawingRef.current = true
+    strokesRef.current = [...strokesRef.current, { points: [pt] }]
+    e.currentTarget.setPointerCapture(e.pointerId)
+    redrawHighlights()
+  }
+
+  const onHighlightPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current || !e.ctrlKey) return
+    e.preventDefault()
+    const pt = pointFromEvent(e)
+    if (!pt) return
+    const strokes = strokesRef.current
+    const current = strokes[strokes.length - 1]
+    if (!current) return
+    current.points.push(pt)
+    redrawHighlights()
+  }
+
+  const onHighlightPointerUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current) return
+    drawingRef.current = false
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    } catch {
+      /* already released */
+    }
+  }
+
+  const clientPointInScroller = (e: { clientX: number; clientY: number }) => {
+    const scroller = scrollRef.current
+    if (!scroller) return null
+    const rect = scroller.getBoundingClientRect()
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      scroller,
+    }
+  }
+
+  // Measure unscaled stack so zoom can size a real scrollable area (incl. sides).
+  useEffect(() => {
+    const stack = stackRef.current
+    const scroller = scrollRef.current
+    if (!stack) return
+    const measure = () => {
+      const w = Math.max(1, scroller?.clientWidth || stack.offsetWidth)
+      const h = Math.max(0, stack.offsetHeight)
+      setStackNatural((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(stack)
+    if (scroller) ro.observe(scroller)
+    return () => ro.disconnect()
+  }, [bundlePages])
+
+  /** Clamp scroll using known content×zoom size — scrollWidth is unreliable mid-layout. */
+  const applyScrollTarget = useCallback(
+    (target: { left: number; top: number }) => {
+      const el = scrollRef.current
+      if (!el) return
+      const z = viewZoomRef.current
+      const contentW = Math.max(stackNatural.w, el.clientWidth, 1)
+      const contentH = Math.max(stackNatural.h, 1)
+      const maxLeft = Math.max(0, contentW * z - el.clientWidth)
+      const maxTop = Math.max(0, contentH * z - el.clientHeight)
+      el.scrollLeft = Math.min(Math.max(0, target.left), maxLeft)
+      el.scrollTop = Math.min(Math.max(0, target.top), maxTop)
+    },
+    [stackNatural.w, stackNatural.h]
+  )
+
+  // Restore scroll before paint; re-apply next frame once zoom layout settles.
+  useLayoutEffect(() => {
+    const pending = pendingScrollRef.current
+    if (!pending) return
+    pendingScrollRef.current = null
+    applyScrollTarget(pending)
+    const saved = { ...pending }
+    const id = requestAnimationFrame(() => applyScrollTarget(saved))
+    return () => cancelAnimationFrame(id)
+  }, [viewZoom, applyScrollTarget])
+
+  const zoomSpaceStyle = useMemo((): CSSProperties => {
+    if (viewZoom <= 1.001 || stackNatural.w <= 0 || stackNatural.h <= 0) {
+      return { width: '100%' }
+    }
+    // Explicit size so left/right edges are actually scrollable when zoomed.
+    return {
+      width: stackNatural.w * viewZoom,
+      height: stackNatural.h * viewZoom,
+    }
+  }, [viewZoom, stackNatural])
+
+  const stackZoomStyle = useMemo((): CSSProperties => {
+    if (viewZoom <= 1.001) {
+      return { width: '100%' }
+    }
+    return {
+      width: stackNatural.w,
+      transform: `scale(${viewZoom})`,
+      transformOrigin: 'top left',
+    }
+  }, [viewZoom, stackNatural.w])
+
+  /**
+   * Zoom while keeping a viewport point (or marquee center) locked to the same content.
+   * Uses content×zoom math so side regions can scroll into view.
+   */
+  const queueZoomAt = (
+    nextZoom: number,
+    viewportX: number,
+    viewportY: number,
+    opts?: { center?: boolean }
+  ) => {
+    const scroller = scrollRef.current
+    const currentZoom = viewZoomRef.current
+    if (!scroller) {
+      setViewZoom(nextZoom)
+      return
+    }
+    const contentX = (scroller.scrollLeft + viewportX) / currentZoom
+    const contentY = (scroller.scrollTop + viewportY) / currentZoom
+    const anchorX = opts?.center ? scroller.clientWidth / 2 : 0
+    const anchorY = opts?.center ? scroller.clientHeight / 2 : 0
+    pendingScrollRef.current = {
+      left: contentX * nextZoom - (opts?.center ? anchorX : viewportX),
+      top: contentY * nextZoom - (opts?.center ? anchorY : viewportY),
+    }
+    setViewZoom(nextZoom)
+  }
+
+  /**
+   * Right-drag draws a marquee box; release zooms that area into view.
+   * Plain right-click (no drag) zooms back out to 100%.
+   */
+  const onZoomPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
+    if (e.button !== 2) return
+    e.preventDefault()
+    const pt = clientPointInScroller(e)
+    if (!pt) return
+    zoomDragRef.current = {
+      pointerId: e.pointerId,
+      startX: pt.x,
+      startY: pt.y,
+    }
+    const next = { x1: pt.x, y1: pt.y, x2: pt.x, y2: pt.y }
+    marqueeRef.current = next
+    setMarquee(next)
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  const onZoomPointerMove = (e: ReactPointerEvent<HTMLElement>) => {
+    const drag = zoomDragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    e.preventDefault()
+    const pt = clientPointInScroller(e)
+    if (!pt) return
+    const next = {
+      x1: drag.startX,
+      y1: drag.startY,
+      x2: pt.x,
+      y2: pt.y,
+    }
+    marqueeRef.current = next
+    setMarquee(next)
+  }
+
+  const onZoomPointerUp = (e: ReactPointerEvent<HTMLElement>) => {
+    const drag = zoomDragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    zoomDragRef.current = null
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    } catch {
+      /* already released */
+    }
+
+    const scroller = scrollRef.current
+    const raw = marqueeRef.current
+    marqueeRef.current = null
+    setMarquee(null)
+    if (!scroller) return
+
+    const box = raw ? normalizeMarquee(raw) : null
+
+    // Click / tiny drag → zoom out when already zoomed.
+    if (!box || box.w < MARQUEE_MIN_PX || box.h < MARQUEE_MIN_PX) {
+      if (viewZoomRef.current > 1.01) {
+        queueZoomAt(1, 0, 0)
+      }
+      return
+    }
+
+    const currentZoom = viewZoomRef.current
+    const scale = Math.min(scroller.clientWidth / box.w, scroller.clientHeight / box.h)
+    const nextZoom = clampViewZoom(currentZoom * scale)
+    if (Math.abs(nextZoom - currentZoom) < 0.02) return
+
+    // Center the selected region so left/right edge zooms land in view.
+    queueZoomAt(nextZoom, box.x + box.w / 2, box.y + box.h / 2, { center: true })
+  }
+
+  const onDocContextMenu = (e: ReactMouseEvent) => {
+    // Block native menu so right-drag marquee zoom works cleanly.
+    e.preventDefault()
+  }
+
+  const onHighlightPointerDownCombined = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (e.button === 2) {
+      onZoomPointerDown(e)
+      return
+    }
+    onHighlightPointerDown(e)
+  }
+
+  const onHighlightPointerMoveCombined = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (zoomDragRef.current) {
+      onZoomPointerMove(e)
+      return
+    }
+    onHighlightPointerMove(e)
+  }
+
+  const onHighlightPointerUpCombined = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (e.button === 2 || zoomDragRef.current) {
+      onZoomPointerUp(e)
+      return
+    }
+    onHighlightPointerUp(e)
+  }
+
+  const marqueeStyle = useMemo((): CSSProperties | undefined => {
+    if (!marquee) return undefined
+    const box = normalizeMarquee(marquee)
+    const scroller = scrollRef.current
+    // Marquee coords are viewport-relative; abspos inside the scroller is content-relative.
+    const ox = scroller?.scrollLeft ?? 0
+    const oy = scroller?.scrollTop ?? 0
+    return {
+      left: box.x + ox,
+      top: box.y + oy,
+      width: box.w,
+      height: box.h,
+    }
+  }, [marquee])
 
   // Prefetch every file in the pane (not only the focused one).
   useEffect(() => {
@@ -339,17 +867,25 @@ export default function CompactPacketDocPane({
         for (const doc of docsWithFiles) {
           const file = doc.file!
           if (isPdfFile(file, doc.name)) {
-            let pdf = pdfCacheRef.current.get(doc.id)
+            const revision = pdfRevisionKey(doc.id, file)
+            let pdf = pdfCacheRef.current.get(revision)
             if (!pdf) {
+              // Drop prior revisions for this doc id so regenerated invoices refresh.
+              for (const key of [...pdfCacheRef.current.keys()]) {
+                if (key === revision || !key.startsWith(`${doc.id}::`)) continue
+                const stale = pdfCacheRef.current.get(key)
+                pdfCacheRef.current.delete(key)
+                void stale?.destroy?.().catch(() => undefined)
+              }
               const data = await file.arrayBuffer()
               pdf = await pdfjs.getDocument({ data }).promise
-              pdfCacheRef.current.set(doc.id, pdf)
+              pdfCacheRef.current.set(revision, pdf)
             }
             pdfMap[doc.id] = pdf
             const count = Math.max(1, pdf.numPages)
             for (let p = 1; p <= count; p += 1) {
               pages.push({
-                key: `${doc.id}-p${p}`,
+                key: `${revision}-p${p}`,
                 docId: doc.id,
                 docName: doc.name,
                 generated: doc.generated,
@@ -401,11 +937,12 @@ export default function CompactPacketDocPane({
     }
   }, [documents])
 
-  // Drop cached PDFs when docs leave the pane.
+  // Drop cached PDFs when docs leave the pane (keys are revision-scoped).
   useEffect(() => {
     const live = new Set(documents.map((d) => d.id))
-    for (const id of [...pdfCacheRef.current.keys()]) {
-      if (!live.has(id)) pdfCacheRef.current.delete(id)
+    for (const key of [...pdfCacheRef.current.keys()]) {
+      const docId = key.split('::')[0] ?? key
+      if (!live.has(docId)) pdfCacheRef.current.delete(key)
     }
   }, [documents])
 
@@ -499,6 +1036,45 @@ export default function CompactPacketDocPane({
       <header className="client-ai-dual-pane__head">
         <span className="client-ai-dual-pane__title">{title}</span>
         <div className="client-ai-dual-pane__nav">
+          {allowTempHighlight ? (
+            <span
+              className="client-ai-dual-pane__hint"
+              title="Ctrl+drag highlight · Right-drag a box to zoom in · Right-click to zoom out"
+            >
+              Ctrl+drag · box zoom
+            </span>
+          ) : (
+            <span
+              className="client-ai-dual-pane__hint"
+              title="Right-drag a box to zoom in · Right-click to zoom out"
+            >
+              Box zoom
+            </span>
+          )}
+          {viewZoom !== 1 ? (
+            <button
+              type="button"
+              className="client-ai-dual-pane__zoom-badge"
+              onClick={() => queueZoomAt(1, 0, 0)}
+              title="Reset zoom"
+            >
+              {Math.round(viewZoom * 100)}%
+            </button>
+          ) : null}
+          {allowQualityTools ? (
+            <button
+              type="button"
+              className={`client-ai-dual-pane__nav-btn${
+                qualityOpen || !isDefaultDocPageQuality(pageQuality) ? ' is-on' : ''
+              }`}
+              disabled={totalPages === 0}
+              onClick={() => setQualityOpen((v) => !v)}
+              aria-label="Page quality and crop"
+              title="Quality & crop"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+            </button>
+          ) : null}
           <button
             type="button"
             className="client-ai-dual-pane__nav-btn"
@@ -544,8 +1120,15 @@ export default function CompactPacketDocPane({
       </header>
 
       <div
-        className="client-ai-dual-pane__body client-ai-dual-pane__scroll relative"
+        className={`client-ai-dual-pane__body client-ai-dual-pane__scroll relative${
+          allowTempHighlight && ctrlHeld ? ' is-highlighting' : ''
+        }${marquee ? ' is-zooming' : ''}`}
         ref={scrollRef}
+        onContextMenu={onDocContextMenu}
+        onPointerDown={onZoomPointerDown}
+        onPointerMove={onZoomPointerMove}
+        onPointerUp={onZoomPointerUp}
+        onPointerCancel={onZoomPointerUp}
       >
         <DocumentDownloadOverlay
           open={
@@ -557,6 +1140,10 @@ export default function CompactPacketDocPane({
           title={building ? 'Building page bundle' : 'Downloading documents'}
           variant="absolute"
         />
+
+        {marqueeStyle ? (
+          <div className="client-ai-dual-pane__marquee" style={marqueeStyle} aria-hidden />
+        ) : null}
 
         {totalPages === 0 ? (
           <div className="client-ai-dual-pane__empty">
@@ -570,18 +1157,39 @@ export default function CompactPacketDocPane({
             </span>
           </div>
         ) : (
-          <div className="client-ai-dual-pane__stack">
-            {bundlePages.map((page) => (
-              <BundlePageView
-                key={page.key}
-                page={page}
-                pdf={pdfByDocId[page.docId] ?? null}
-                imageUrl={imageUrlByDocId[page.docId]}
-                rotation={pageRotations[page.key] || 0}
-                onVisible={handleVisible}
-                onRotate={rotatePage}
-              />
-            ))}
+          <div className="client-ai-dual-pane__zoom-space" style={zoomSpaceStyle}>
+            <div
+              className="client-ai-dual-pane__stack"
+              ref={stackRef}
+              style={stackZoomStyle}
+            >
+              {bundlePages.map((page) => (
+                <BundlePageView
+                  key={page.key}
+                  page={page}
+                  pdf={pdfByDocId[page.docId] ?? null}
+                  imageUrl={imageUrlByDocId[page.docId]}
+                  rotation={pageRotations[page.key] || 0}
+                  quality={pageQuality}
+                  onVisible={handleVisible}
+                  onRotate={rotatePage}
+                  onCanvasReady={allowQualityTools ? onPageCanvasReady : undefined}
+                />
+              ))}
+              {allowTempHighlight ? (
+                <canvas
+                  ref={highlightCanvasRef}
+                  className={`client-ai-dual-pane__highlight${
+                    ctrlHeld ? ' is-active' : ''
+                  }`}
+                  aria-hidden
+                  onPointerDown={onHighlightPointerDownCombined}
+                  onPointerMove={onHighlightPointerMoveCombined}
+                  onPointerUp={onHighlightPointerUpCombined}
+                  onPointerCancel={onHighlightPointerUpCombined}
+                />
+              ) : null}
+            </div>
           </div>
         )}
       </div>
@@ -592,6 +1200,18 @@ export default function CompactPacketDocPane({
           {dragDoc.name}
           {totalPages > 0 ? ` · ${totalPages} pages` : ''}
         </p>
+      ) : null}
+
+      {allowQualityTools ? (
+        <DocQualitySettingsWindow
+          open={qualityOpen}
+          title={`${title} quality`}
+          quality={pageQuality}
+          onChange={setPageQuality}
+          onClose={() => setQualityOpen(false)}
+          onAutoCrop={runAutoCropVisiblePage}
+          autoCropBusy={autoCropBusy}
+        />
       ) : null}
     </section>
   )
