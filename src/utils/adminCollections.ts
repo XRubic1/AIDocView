@@ -19,7 +19,7 @@ import {
 } from './invoiceAging'
 import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from './paymentVariance'
 import { isRoutineLifecycleNote } from './brokerRiskPolicy'
-import { getDaysSincePpwSent, getPpwSentAt } from './ppwSent'
+import { getDaysSincePpwSent, getPpwSentAt, hasPpwBeenSent } from './ppwSent'
 import {
   getCollectionsTrackStage,
   isUrgentCollectionStage,
@@ -27,6 +27,11 @@ import {
   resolvePaymentInquiryDays,
   type CollectionsTrackStage,
 } from './collectionsTrack'
+import { isInvoicePendingClientReveal } from './clientInvoiceView'
+import {
+  getNextBrokerFollowup,
+  type NextBrokerFollowup,
+} from './nextBrokerFollowup'
 
 export type CollectionsFocus =
   | 'all'
@@ -64,6 +69,8 @@ export type AdminCollectionsRow = {
   urgentReasons: CollectionsUrgentReason[]
   /** Call Back date is today or in the past. */
   isCallbackDue: boolean
+  /** Next scheduled broker follow-up (paperwork check, payment check, callback). */
+  nextFollowup: NextBrokerFollowup | null
 }
 
 const CLOSED: ReadonlySet<Invoice['status']> = new Set([
@@ -76,9 +83,14 @@ const CLOSED: ReadonlySet<Invoice['status']> = new Set([
   'write_off_pending',
 ])
 
-/** Open collections work queue — approved A/R only (not holds / paid). */
+/**
+ * Open collections work queue — approved A/R after the batch is processed
+ * (or PPW already sent / no batch). Verification invoices stay out until Process.
+ */
 export function isCollectionsWorkInvoice(invoice: Invoice): boolean {
-  return !CLOSED.has(invoice.status)
+  if (CLOSED.has(invoice.status) || invoice.status !== 'approved') return false
+  if (hasPpwBeenSent(invoice)) return true
+  return !isInvoicePendingClientReveal(invoice)
 }
 
 function inquiryDaysFor(broker: Broker | undefined): number {
@@ -189,6 +201,7 @@ export function buildAdminCollectionsRow(
     isUrgentCollection: isUrgentCollectionStage(trackStage) || urgentReasons.includes('no_ppw'),
     urgentReasons,
     isCallbackDue: urgentReasons.includes('callback_missed'),
+    nextFollowup: getNextBrokerFollowup({ invoice, broker }),
   }
 }
 

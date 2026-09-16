@@ -8,6 +8,7 @@ import {
   resolveDueDateFromBroker,
   resolveDueDatesFromBroker,
   resolveEffectiveDueDate,
+  isPlaceholderPaymentDueDate,
 } from './invoiceDueDate'
 
 describe('resolveDueDateFromBroker', () => {
@@ -175,5 +176,27 @@ describe('formatBrokerDueDays / getInvoiceBrokerDueDays', () => {
 describe('addDaysToYmd', () => {
   it('adds calendar days without UTC shift', () => {
     expect(addDaysToYmd('2026-07-12', 15)).toBe('2026-07-27')
+  })
+})
+
+describe('isPlaceholderPaymentDueDate', () => {
+  it('treats due date on the invoice/purchase day as a placeholder', () => {
+    expect(
+      isPlaceholderPaymentDueDate({
+        invoice_date: '2026-09-16',
+        due_date: '2026-09-16',
+        expected_payment_date: '2026-09-16',
+      })
+    ).toBe(true)
+  })
+
+  it('keeps a real Net-terms due date', () => {
+    expect(
+      isPlaceholderPaymentDueDate({
+        invoice_date: '2026-09-16',
+        due_date: '2026-10-16',
+        expected_payment_date: '2026-10-16',
+      })
+    ).toBe(false)
   })
 })

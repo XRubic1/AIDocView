@@ -277,7 +277,7 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
     console.warn('[submitAiBatch] enqueue background processing failed', err)
   }
 
-  // Optional happy path: clean intake → PPW → verification (Credyx can override anytime).
+  // Optional happy path: clean intake → verification (PPW waits until batch process).
   let happyPath:
     | {
         ppwSent: number

@@ -22176,6 +22176,8 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  width: 100%;
+  min-width: 0;
 }
 
 .client-portal .assistant-cal__toolbar {
@@ -22281,6 +22283,14 @@
 .client-portal .admin-calendar-page {
   height: 100%;
   min-height: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.client-portal .admin-calendar-page .assistant-cal {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
 }
 
 .client-portal .admin-shared-cal__client-select {
@@ -22433,13 +22443,15 @@
 .client-portal .assistant-cal__body {
   flex: 1 1 0;
   min-height: 0;
+  width: 100%;
+  min-width: 0;
   display: flex;
   overflow: hidden;
 }
 
 .client-portal .assistant-cal__main {
   flex: 1 1 0;
-  min-width: 0;
+  min-width: 520px;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -22747,6 +22759,7 @@
 .client-portal .assistant-event-detail {
   flex: 0 0 300px;
   width: 300px;
+  max-width: 300px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -22815,44 +22828,85 @@
   white-space: nowrap;
 }
 
-.client-portal .assistant-event-detail__day-list {
-  flex: 0 0 auto;
-  /* Show up to 4 rows; scroll when there are more. */
-  max-height: calc(4 * 34px + 8px);
+.client-portal .assistant-event-list {
+  flex: 0 0 240px;
+  width: 240px;
+  max-width: 240px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--cp-border);
+  background: var(--cp-card);
+}
+
+.client-portal .assistant-event-list__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  height: 41px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--cp-border);
+}
+
+.client-portal .assistant-event-list__title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--cp-text);
+  line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-portal .assistant-event-list__sub {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cp-secondary);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.client-portal .assistant-event-list__items {
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px;
-  border-bottom: 1px solid var(--cp-border);
   scrollbar-gutter: stable;
 }
 
-.client-portal .assistant-event-detail__day-list .assistant-cal__row {
+.client-portal .assistant-event-list__items .assistant-cal__row {
   align-items: center;
   gap: 8px;
   box-sizing: border-box;
-  min-height: 34px;
-  padding: 4px 6px;
+  min-height: 40px;
+  padding: 6px 8px;
   border-radius: 6px;
 }
 
-.client-portal .assistant-event-detail__day-list .assistant-cal__dot {
+.client-portal .assistant-event-list__items .assistant-cal__dot {
   margin-top: 0;
   width: 6px;
   height: 6px;
 }
 
-.client-portal .assistant-event-detail__day-list .assistant-cal__row-main {
+.client-portal .assistant-event-list__items .assistant-cal__row-main {
   gap: 0;
 }
 
-.client-portal .assistant-event-detail__day-list .assistant-cal__row-title {
+.client-portal .assistant-event-list__items .assistant-cal__row-title {
   font-size: 11px;
   font-weight: 650;
   line-height: 1.25;
 }
 
-.client-portal .assistant-event-detail__day-list .assistant-cal__row-sub {
+.client-portal .assistant-event-list__items .assistant-cal__row-sub {
   font-size: 10px;
   line-height: 1.25;
 }
@@ -22864,18 +22918,20 @@
   line-height: 1.35;
 }
 
-.client-portal .assistant-event-detail__body {
+.client-portal .assistant-event-detail__scroll {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.client-portal .assistant-event-detail__body {
+  flex: 0 0 auto;
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
-}
-
-.client-portal .assistant-event-detail__body .assistant-event-detail__empty {
-  margin-top: auto;
+  justify-content: flex-start;
 }
 
 .client-portal .assistant-event-detail__body .assistant-event-detail__eyebrow {
@@ -22919,6 +22975,57 @@
   color: var(--cp-secondary);
 }
 
+.client-portal .assistant-event-detail__invoice {
+  margin-top: 8px;
+}
+
+.client-portal .assistant-event-detail__invoice .assistant-event-detail__grid {
+  margin-top: 6px;
+}
+
+.client-portal .assistant-event-detail__notes {
+  margin: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.client-portal .assistant-event-detail__notes-label {
+  margin: 0;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cp-secondary);
+}
+
+.client-portal .assistant-event-detail__note {
+  padding: 6px 7px;
+  border-radius: 6px;
+  background: var(--cp-surface);
+}
+
+.client-portal .assistant-event-detail__note-text {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--cp-text);
+  overflow-wrap: anywhere;
+}
+
+.client-portal .assistant-event-detail__note-meta {
+  margin: 3px 0 0;
+  font-size: 10px;
+  color: var(--cp-secondary);
+  line-height: 1.3;
+}
+
+.client-portal .assistant-event-detail__notes-empty {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--cp-secondary);
+}
+
 .client-portal .assistant-event-detail__meet-link {
   display: inline-flex;
   margin-top: 8px;
@@ -22955,19 +23062,26 @@
 
   .client-portal .assistant-cal__main {
     flex: 1 1 0;
+    min-width: 0;
     min-height: 0;
   }
 
   .client-portal .assistant-event-detail {
     flex: 0 0 240px;
     width: 100%;
-    max-height: 240px;
+    max-width: none;
+    max-height: 280px;
     border-left: none;
     border-top: 1px solid var(--cp-border);
   }
 
-  .client-portal .assistant-event-detail__day-list {
-    max-height: calc(4 * 34px + 8px);
+  .client-portal .assistant-event-list {
+    flex: 0 0 220px;
+    width: 100%;
+    max-width: none;
+    max-height: 240px;
+    border-left: none;
+    border-top: 1px solid var(--cp-border);
   }
 }
 

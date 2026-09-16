@@ -9,6 +9,7 @@ import type { SharedCalendarEvent } from '../../../data/sharedCalendarEvents'
 import { filterMockCalendarEvents } from '../../../data/mockAssistantData'
 import AssistantEventDetail from './AssistantEventDetail'
 import AssistantAddEventModal from './AssistantAddEventModal'
+import CalendarDayEventList from '../../calendar/CalendarDayEventList'
 
 interface AssistantCalendarProps {
   events: AssistantCalendarEvent[]
@@ -55,6 +56,8 @@ function typeShortLabel(evt: AssistantCalendarEvent): string {
   if (evt.type === 'expected_payment' && /^will pay$/i.test(evt.title)) {
     return 'Will Pay'
   }
+  if (/broker follow-up/i.test(evt.title)) return 'Follow-up'
+  if (/paperwork check/i.test(evt.title)) return 'PPW check'
   switch (evt.type) {
     case 'paperwork_check':
       return 'Docs'
@@ -348,8 +351,19 @@ export default function AssistantCalendar({
           dayLabel={selectedDayLabel}
           dayEvents={dayEvents}
           selectedId={effectiveSelectedId}
-          onSelectEvent={setSelectedId}
           onAddEvent={() => setAddOpen(true)}
+          invoices={invoices}
+        />
+        <CalendarDayEventList
+          dayLabel={selectedDayLabel}
+          events={dayEvents}
+          selectedId={effectiveSelectedId}
+          onSelect={setSelectedId}
+          subtitle={(evt) =>
+            `#${evt.invoiceNumber} · ${evt.brokerName}${
+              evt.amountLabel ? ` · ${evt.amountLabel}` : ''
+            }`
+          }
         />
       </div>
 

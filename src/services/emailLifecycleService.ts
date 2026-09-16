@@ -61,7 +61,7 @@ export function getOrCreateThread(invoice: Invoice): EmailThread {
   const existing = findThreadForInvoice(invoice.id)
   if (existing) return existing
   const now = new Date().toISOString()
-  return upsertEmailThread({
+  const thread = upsertEmailThread({
     id: newId('thread'),
     invoice_id: invoice.id,
     broker_id: invoice.broker_id,
@@ -70,27 +70,49 @@ export function getOrCreateThread(invoice: Invoice): EmailThread {
     created_at: now,
     updated_at: now,
   })
+  void import('./supabase/tenantPersist')
+    .then(({ persistEmailThread }) => persistEmailThread(thread))
+    .catch((err) => console.warn('[emailLifecycle] persist thread failed', err))
+  return thread
 }
 
+/**
+ * Log an outbound Credyx email on the invoice thread (memory + Supabase).
+ * Call after a successful send so Inbox shows invoice / client / broker context.
+ */
 export function recordOutboundMessage(opts: {
   invoice: Invoice
   to: string
   subject: string
   body: string
   templateId?: string
+  /** Resend / provider message id when available. */
+  messageId?: string
+  fromAddress?: string
 }): EmailMessage {
   const thread = getOrCreateThread(opts.invoice)
-  return addEmailMessage({
+  const message = addEmailMessage({
     id: newId('msg'),
     thread_id: thread.id,
     direction: 'outbound',
-    from_address: 'ops@credyx.net',
+    from_address: opts.fromAddress || 'ops@credyx.net',
     to_address: opts.to,
     subject: opts.subject,
     body_text: opts.body,
     sent_at: new Date().toISOString(),
     template_id: opts.templateId,
   })
+  upsertEmailThread({ ...thread, updated_at: message.sent_at })
+  void import('./supabase/tenantPersist')
+    .then(async ({ persistEmailThread, persistEmailMessage }) => {
+      await persistEmailThread({ ...thread, updated_at: message.sent_at })
+      await persistEmailMessage({
+        ...message,
+        message_id: opts.messageId,
+      })
+    })
+    .catch((err) => console.warn('[emailLifecycle] persist outbound failed', err))
+  return message
 }
 
 function createReview(partial: Omit<EmailReviewItem, 'id' | 'created_at' | 'status'> & {
@@ -372,20 +394,31 @@ async function sendTrackAsk(
           : step === 'first'
             ? 'broker_payment_status_inquiry'
             : 'broker_payment_status_followup'
-      await sendTransactionalEmail(template, to, {
+      const sendResult = await sendTransactionalEmail(template, to, {
         brokerName: broker?.name || invoice.broker_name,
         invoiceNumber: invoice.invoice_number,
         loadNumber: invoice.load_number || 'N/A',
         clientName: invoice.client_name,
         amount: formatCurrency(invoice.amount),
       })
-      recordOutboundMessage({
-        invoice,
-        to,
-        subject: `${track} status ${step}`,
-        body: `${track} ${step} ask`,
-        templateId: template,
-      })
+      if (sendResult.ok) {
+        const label =
+          track === 'paperwork'
+            ? step === 'first'
+              ? 'Paperwork status'
+              : 'Paperwork follow-up'
+            : step === 'first'
+              ? 'Payment status'
+              : 'Payment follow-up'
+        recordOutboundMessage({
+          invoice,
+          to,
+          subject: `${label} — Invoice ${invoice.invoice_number}`,
+          body: `${label} ask for load ${invoice.load_number || '—'} · ${invoice.client_name}.`,
+          templateId: template,
+          messageId: sendResult.id,
+        })
+      }
       trackState.lastAskChannel = 'email'
     }
   }

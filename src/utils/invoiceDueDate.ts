@@ -197,9 +197,19 @@ export function getInvoiceBrokerDueDays(
 }
 
 /**
- * Effective due date for open invoices: invoice_date + broker Net days.
- * Closed invoices keep the stored due date.
+ * True when due/expected is the invoice or create day — a DB placeholder
+ * used when the broker has no Net terms, not a real payment-due date.
  */
+export function isPlaceholderPaymentDueDate(
+  invoice: Pick<Invoice, 'invoice_date' | 'created_at' | 'due_date' | 'expected_payment_date'>,
+  dueYmd?: string | null
+): boolean {
+  const due = (dueYmd || invoice.due_date || invoice.expected_payment_date || '').trim().slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return true
+  const origin = (invoice.invoice_date || invoice.created_at || '').trim().slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(origin)) return false
+  return due <= origin
+}
 export function resolveEffectiveDueDate(
   invoice: Pick<Invoice, 'status' | 'invoice_date' | 'created_at' | 'due_date' | 'expected_payment_date'>,
   dueByDays?: number | null

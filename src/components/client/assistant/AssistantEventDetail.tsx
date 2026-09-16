@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import type { AssistantCalendarEvent } from '../../../types/assistant'
+import type { Invoice } from '../../../types/invoice'
 import { useClientSession } from '../../../hooks/useClientSession'
 import {
   clientInvoiceDetailPath,
@@ -7,15 +8,20 @@ import {
   resolveClientInvoice,
 } from '../../../utils/openClientInvoice'
 import { stashAssistantPendingUpload } from '../../../utils/assistantTaskStore'
+import {
+  buildCalendarInvoiceFacts,
+  findCalendarInvoice,
+} from '../../../utils/calendarInvoiceDetails'
+import CalendarInvoiceFactsPanel from '../../calendar/CalendarInvoiceFacts'
 
 interface AssistantEventDetailProps {
   /** Selected day label, e.g. "Wed, Jul 24". */
   dayLabel: string | null
   dayEvents: AssistantCalendarEvent[]
   selectedId: string | null
-  onSelectEvent: (eventId: string) => void
   /** Open the add-event modal for the selected day. */
   onAddEvent?: () => void
+  invoices?: Invoice[]
 }
 
 function typeLabel(event: AssistantCalendarEvent): string {
@@ -45,21 +51,36 @@ function typeLabel(event: AssistantCalendarEvent): string {
 }
 
 /**
- * Persistent right rail — day agenda + selected event.
- * Always open; never closes or resizes the month grid.
+ * Persistent detail rail — selected event + invoice facts.
+ * The day’s invoice list lives in a separate rightmost panel.
  */
 export default function AssistantEventDetail({
   dayLabel,
   dayEvents,
   selectedId,
-  onSelectEvent,
   onAddEvent,
+  invoices = [],
 }: AssistantEventDetailProps) {
   const navigate = useNavigate()
   const { clientId, clientName } = useClientSession()
   const event = dayEvents.find((e) => e.id === selectedId) ?? null
   const isMissingDocs =
     event?.type === 'paperwork_check' && event.status === 'pending'
+
+  const invoice =
+    event &&
+    (findCalendarInvoice(invoices, {
+      invoiceId: event.invoiceId,
+      invoiceNumber: event.invoiceNumber,
+      clientId,
+    }) ||
+      resolveClientInvoice(clientId, clientName, {
+        invoiceId: event.invoiceId,
+        invoiceNumber: event.invoiceNumber,
+      }))
+  const invoiceFacts = invoice
+    ? buildCalendarInvoiceFacts(invoice, { includeInternal: false })
+    : null
 
   const resolveInvoiceId = (): string | null => {
     if (!event) return null
@@ -88,51 +109,23 @@ export default function AssistantEventDetail({
   }
 
   return (
-    <aside className="assistant-event-detail" aria-label="Day details">
+    <aside className="assistant-event-detail" aria-label="Invoice details">
       <header className="assistant-event-detail__header">
         <h2 className="assistant-event-detail__title">
-          {dayLabel ?? 'Pick a day'}
+          {event
+            ? event.invoiceNumber && event.invoiceNumber !== '—'
+              ? `Invoice #${event.invoiceNumber}`
+              : event.title
+            : dayLabel ?? 'Details'}
         </h2>
-        <p className="assistant-event-detail__sub">
-          {dayEvents.length} item{dayEvents.length === 1 ? '' : 's'}
-        </p>
       </header>
 
-      <div className="assistant-event-detail__day-list" role="list">
-        {dayEvents.length === 0 ? (
-          <p className="assistant-event-detail__empty">No events this day.</p>
-        ) : (
-          dayEvents.map((evt) => (
-            <button
-              key={evt.id}
-              type="button"
-              role="listitem"
-              className={`assistant-cal__row${
-                selectedId === evt.id ? ' assistant-cal__row--active' : ''
-              }${evt.status !== 'pending' ? ' assistant-cal__row--muted' : ''}`}
-              onClick={() => onSelectEvent(evt.id)}
-            >
-              <span
-                className={`assistant-cal__dot assistant-cal__dot--${evt.type}`}
-                aria-hidden
-              />
-              <span className="assistant-cal__row-main">
-                <span className="assistant-cal__row-title">{evt.title}</span>
-                <span className="assistant-cal__row-sub">
-                  #{evt.invoiceNumber} · {evt.brokerName}
-                  {evt.amountLabel ? ` · ${evt.amountLabel}` : ''}
-                </span>
-              </span>
-            </button>
-          ))
-        )}
-      </div>
-
+      <div className="assistant-event-detail__scroll">
       <div className="assistant-event-detail__body">
         {!event ? (
           <p className="assistant-event-detail__empty">
             {dayEvents.length > 0
-              ? 'Select an item above for details.'
+              ? 'Select an invoice from the list.'
               : 'Click a day on the calendar.'}
           </p>
         ) : (
@@ -171,6 +164,7 @@ export default function AssistantEventDetail({
               </div>
             </dl>
             <p className="assistant-event-detail__detail">{event.detail}</p>
+            {invoiceFacts ? <CalendarInvoiceFactsPanel facts={invoiceFacts} /> : null}
             {event.meetingUrl && (
               <a
                 className="assistant-event-detail__meet-link"
@@ -229,6 +223,7 @@ export default function AssistantEventDetail({
           </button>
         )}
       </footer>
+      </div>
     </aside>
   )
 }

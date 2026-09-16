@@ -9,9 +9,15 @@ import type { SharedCalendarEvent } from '../data/sharedCalendarEvents'
 import { formatCurrency } from './format'
 import { buildCollectionsChaseQueue, type ChaseQueueItem } from './collectionsChase'
 import { COLLECTIONS_POLICY, daysPastYmd } from './collectionsPolicy'
-import { enrichInvoice, isOpenArInvoice } from './invoiceAging'
+import { enrichInvoice, getEffectiveInvoiceDueDate, isOpenArInvoice } from './invoiceAging'
 import { getPpwSentAt, hasPpwBeenSent } from './ppwSent'
 import { applyAssistantCompletions } from './assistantTaskStore'
+import { isCollectionsWorkInvoice } from './adminCollections'
+import { isPlaceholderPaymentDueDate } from './invoiceDueDate'
+import {
+  getNextBrokerFollowup,
+  toBrokerFollowupCalendarEvent,
+} from './nextBrokerFollowup'
 
 function toDateKey(d: Date): string {
   const y = d.getFullYear()
@@ -182,12 +188,18 @@ function mapWillPayEvent(inv: Invoice): AssistantCalendarEvent | null {
 }
 
 /**
- * Invoice Net / due date — staff cue when the invoice becomes due.
- * Skipped when Will Pay is already scheduled for the same day (W/P is the action that day).
+ * Invoice Net / due date — staff cue when payment terms actually come due.
+ * Skipped for just-purchased invoices whose stored due date is the invoice day
+ * (DB placeholder when the broker has no Net terms).
+ * Skipped when Will Pay is already scheduled for the same day.
  */
 function mapInvoiceDueEvent(inv: Invoice): AssistantCalendarEvent | null {
-  if (!isOpenArInvoice(inv)) return null
-  const dueDate = normalizeDateKey(inv.due_date)
+  if (!isCollectionsWorkInvoice(inv)) return null
+  const stored = normalizeDateKey(inv.due_date)
+  const effective = normalizeDateKey(getEffectiveInvoiceDueDate(inv))
+  const dueDate =
+    (stored && !isPlaceholderPaymentDueDate(inv, stored) ? stored : null) ||
+    (effective && !isPlaceholderPaymentDueDate(inv, effective) ? effective : null)
   if (!dueDate) return null
 
   if (
@@ -269,7 +281,7 @@ function mapHoldStaffEvent(inv: Invoice, asOf: Date): AssistantCalendarEvent | n
 
 /** Approved open A/R with no PPW past policy threshold — send paperwork. */
 function mapNoPpwEvent(inv: Invoice, asOf: Date): AssistantCalendarEvent | null {
-  if (!isOpenArInvoice(inv)) return null
+  if (!isCollectionsWorkInvoice(inv)) return null
   if (inv.status !== 'approved') return null
   if (hasPpwBeenSent(inv)) return null
 
@@ -352,8 +364,30 @@ export function deriveAdminCalendarEvents(
   const events: AssistantCalendarEvent[] = []
   const chase = buildCollectionsChaseQueue(invoices, brokers, asOf.getTime())
   const chasedIds = new Set(chase.map((c) => c.invoice.id))
+  const brokerById = new Map(brokers.map((b) => [b.id, b]))
+
+  for (const inv of invoices) {
+    if (!isCollectionsWorkInvoice(inv)) continue
+    const broker = brokerById.get(inv.broker_id)
+    const followup = getNextBrokerFollowup({ invoice: inv, broker, asOf })
+    if (!followup) continue
+    const evt = toBrokerFollowupCalendarEvent({
+      invoice: inv,
+      followup,
+      asOf,
+      audience: 'admin',
+    })
+    if (evt) events.push(evt)
+  }
 
   for (const item of chase.slice(0, 60)) {
+    // Dated follow-up already on the calendar — keep call/escalate when chase needs attention.
+    if (
+      item.status !== 'needs_attention' &&
+      events.some((e) => e.id === `live-broker-followup-${item.invoice.id}`)
+    ) {
+      continue
+    }
     events.push(mapChaseItem(item, asOf))
   }
 

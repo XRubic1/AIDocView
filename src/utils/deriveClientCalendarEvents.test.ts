@@ -111,6 +111,21 @@ describe('deriveClientCalendarEvents', () => {
     expect(events.some((e) => e.type === 'expected_payment')).toBe(false)
   })
 
+  it('skips Expected payment when due date is the purchase / invoice day', () => {
+    const events = deriveClientCalendarEvents(
+      [
+        baseInvoice({
+          invoice_date: '2026-08-05',
+          due_date: '2026-08-05',
+          expected_payment_date: '2026-08-05',
+        }),
+      ],
+      [],
+      asOf
+    )
+    expect(events.some((e) => e.id === 'live-expect-inv-1')).toBe(false)
+  })
+
   it('does not invent expected pay from a confirmed payment pattern', () => {
     const payments: Payment[] = [
       {
@@ -127,5 +142,24 @@ describe('deriveClientCalendarEvents', () => {
     ]
     const events = deriveClientCalendarEvents([baseInvoice()], payments, asOf)
     expect(events.find((e) => e.id === 'live-expect-inv-1')?.dueDate).toBe('2026-08-20')
+  })
+
+  it('places broker paperwork check on PPW + confirm days after process', () => {
+    const events = deriveClientCalendarEvents(
+      [
+        baseInvoice({
+          document_send_history: [
+            { email_address: 'ap@tql.test', sent_at: '2026-08-01T12:00:00.000Z', status: 'sent' },
+          ],
+        }),
+      ],
+      [],
+      asOf
+    )
+    const followup = events.find((e) => e.id === 'live-broker-followup-inv-1')
+    expect(followup?.title).toBe('Broker paperwork check')
+    expect(followup?.dueDate).toBe('2026-08-08')
+    expect(followup?.type).toBe('reminder')
+    expect(followup?.owner).toBe('system')
   })
 })

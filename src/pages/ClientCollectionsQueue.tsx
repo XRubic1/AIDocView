@@ -48,6 +48,7 @@ type SortField =
   | 'due_date'
   | 'performance'
   | 'progress'
+  | 'next_followup'
 
 const FOCUS_TABS: ClientCollectionsFocus[] = [
   'all',
@@ -189,6 +190,8 @@ export default function ClientCollectionsQueue() {
         cmp = a.ageDays - b.ageDays
       } else if (sortField === 'due_date') {
         cmp = (a.dueDate || '').localeCompare(b.dueDate || '')
+      } else if (sortField === 'next_followup') {
+        cmp = (a.nextFollowup?.date || '').localeCompare(b.nextFollowup?.date || '')
       } else if (sortField === 'progress') {
         const order = { submitted: 0, verified: 1, invoiced: 2, follow_up: 3 }
         cmp = order[a.progressStep] - order[b.progressStep]
@@ -498,7 +501,7 @@ export default function ClientCollectionsQueue() {
                   <div className="flex-1 min-h-0 flex items-center justify-center p-6">
                     <EmptyState
                       title="No invoices in this view"
-                      hint="Try another filter. Open invoices show here with how they’re performing."
+                      hint="Open invoices show here as soon as Credyx processes them, with the next broker follow-up date."
                     />
                   </div>
                 ) : (
@@ -534,6 +537,14 @@ export default function ClientCollectionsQueue() {
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={onSort}
+                          />
+                          <ClientSortableHeader
+                            field="next_followup"
+                            label="Next follow-up"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={onSort}
+                            title="When Credyx next follows up with the broker"
                           />
                           <ClientSortableHeader
                             field="progress"
@@ -604,6 +615,22 @@ export default function ClientCollectionsQueue() {
                                     Pay by {formatDate(row.confirmedPayDate)}
                                   </span>
                                 ) : null}
+                              </ClientListTd>
+                              <ClientListTd>
+                                {row.nextFollowup && row.nextFollowup.kind !== 'send_ppw' ? (
+                                  <>
+                                    <div className="tabular-nums">
+                                      {formatDate(row.nextFollowup.date)}
+                                    </div>
+                                    <div className="text-[11px]" style={{ color: c.secondary }}>
+                                      {row.nextFollowup.due
+                                        ? `${row.nextFollowup.label} · due now`
+                                        : row.nextFollowup.label}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <span style={{ color: c.secondary }}>—</span>
+                                )}
                               </ClientListTd>
                               <ClientListTd variant="status">
                                 <span className={progressStepPillClass(row.progressStep)}>

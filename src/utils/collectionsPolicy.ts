@@ -102,6 +102,26 @@ export function collectionsUrgentLabel(reason: CollectionsUrgentReason): string 
   }
 }
 
+/** Local calendar YYYY-MM-DD. */
+export function toYmd(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/**
+ * Add calendar days to a YYYY-MM-DD (or ISO starting with one).
+ * Uses the date prefix so UTC midnight does not shift the day.
+ */
+export function addCalendarDays(fromIsoOrYmd: string, days: number): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(fromIsoOrYmd.trim())
+  if (!m) return null
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  d.setDate(d.getDate() + days)
+  return toYmd(d)
+}
+
 /** Signed calendar days from a YYYY-MM-DD to asOf (negative = still in the future). */
 export function daysFromYmd(ymd: string, asOf: Date = new Date()): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd.trim())

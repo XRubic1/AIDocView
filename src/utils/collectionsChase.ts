@@ -281,6 +281,19 @@ export async function sendBrokerPaymentStatusInquiry(
 
   if (result.ok) {
     await markBrokerContactedForCollections(invoice.id, { asInquiry: true })
+    try {
+      const { recordOutboundMessage } = await import('../services/emailLifecycleService')
+      recordOutboundMessage({
+        invoice,
+        to: email,
+        subject: `Payment status — Invoice ${invoice.invoice_number}`,
+        body: `Payment status inquiry for load ${invoice.load_number ?? '—'} · ${formatCurrency(invoice.amount)}.`,
+        templateId: 'broker_payment_status_inquiry',
+        messageId: result.id,
+      })
+    } catch (err) {
+      console.warn('[collectionsChase] inbox log failed', err)
+    }
   }
   return result
 }
@@ -303,6 +316,19 @@ export async function sendBrokerPaymentStatusFollowup(
 
   if (result.ok) {
     await markBrokerContactedForCollections(invoice.id, { asFollowup: true })
+    try {
+      const { recordOutboundMessage } = await import('../services/emailLifecycleService')
+      recordOutboundMessage({
+        invoice,
+        to: email,
+        subject: `Payment follow-up — Invoice ${invoice.invoice_number}`,
+        body: `Payment status follow-up for load ${invoice.load_number ?? '—'}.`,
+        templateId: 'broker_payment_status_followup',
+        messageId: result.id,
+      })
+    } catch (err) {
+      console.warn('[collectionsChase] inbox log failed', err)
+    }
   }
   return result
 }

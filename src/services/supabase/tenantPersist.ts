@@ -482,6 +482,48 @@ export async function persistNotification(
   invalidateTenant(clientId)
 }
 
+/** Persist an inbox thread (invoice × broker conversation). */
+export async function persistEmailThread(thread: {
+  id: string
+  invoice_id: string
+  broker_id: string
+  client_id: string
+  subject: string
+  created_at: string
+  updated_at: string
+}): Promise<void> {
+  if (!isSupabaseConfigured()) return
+  await upsert('email_threads', thread)
+}
+
+/** Persist one inbound/outbound email message. */
+export async function persistEmailMessage(message: {
+  id: string
+  thread_id: string
+  direction: 'inbound' | 'outbound'
+  from_address: string
+  to_address: string
+  subject: string
+  body_text: string
+  sent_at: string
+  template_id?: string
+  message_id?: string
+}): Promise<void> {
+  if (!isSupabaseConfigured()) return
+  await upsert('email_messages', {
+    id: message.id,
+    thread_id: message.thread_id,
+    direction: message.direction,
+    from_address: message.from_address,
+    to_address: message.to_address,
+    subject: message.subject,
+    body_text: message.body_text,
+    sent_at: message.sent_at,
+    template_id: message.template_id ?? null,
+    message_id: message.message_id ?? null,
+  })
+}
+
 export async function persistAuditLog(log: AuditLog): Promise<void> {
   if (!isSupabaseConfigured()) return
   await upsert('audit_logs', auditLogToRow(log))

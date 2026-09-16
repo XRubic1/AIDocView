@@ -45,6 +45,7 @@ import {
   Clients,
   Collections,
   CollectionsInvoicePopup,
+  AdminEmailInbox,
   AdminDocs,
   CreateBatch,
   DocSortLandingPage,
@@ -176,6 +177,7 @@ function App() {
                   path="/collections/invoice/:invoiceId"
                   element={withRouteSuspense(CollectionsInvoicePopup)}
                 />
+                <Route path="/admin/inbox" element={withRouteSuspense(AdminEmailInbox)} />
                 <Route path="/docs" element={withRouteSuspense(AdminDocs)} />
                 <Route path="/force-close" element={withRouteSuspense(AdminDocs)} />
                 <Route path="/accounting" element={withRouteSuspense(Accounting)} />

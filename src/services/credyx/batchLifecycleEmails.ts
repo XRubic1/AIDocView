@@ -115,13 +115,37 @@ export async function emailCarrierBatchProcessed(opts: {
 
   const holdList = buildHoldList(opts.heldInvoices)
 
-  return sendTransactionalEmail('carrier_batch_processed', to, {
+  const result = await sendTransactionalEmail('carrier_batch_processed', to, {
     batchNumber: opts.batchNumber,
     invoiceCount: String(opts.invoices.length),
     holdCount: String(opts.heldInvoices.length),
     holdList: holdList || 'None',
     ppwSummary,
   })
+
+  if (result.ok && opts.invoices[0]) {
+    try {
+      const { recordOutboundMessage } = await import('../emailLifecycleService')
+      recordOutboundMessage({
+        invoice: opts.invoices[0],
+        to,
+        subject: `Batch ${opts.batchNumber} processed — carrier notice`,
+        body: [
+          `Carrier notice for batch ${opts.batchNumber} (${opts.invoices.length} invoice(s)).`,
+          ppwSummary,
+          holdList ? `Holds:\n${holdList}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        templateId: 'carrier_batch_processed',
+        messageId: result.id,
+      })
+    } catch (err) {
+      console.warn('[batchLifecycleEmails] inbox log failed', err)
+    }
+  }
+
+  return result
 }
 
 /** @deprecated Prefer emailCarrierBatchProcessed — kept for older call sites. */

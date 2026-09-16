@@ -37,8 +37,21 @@ export function upsertEmailThread(thread: EmailThread): EmailThread {
 }
 
 export function addEmailMessage(message: EmailMessage): EmailMessage {
-  messages.push(message)
+  const i = messages.findIndex((m) => m.id === message.id)
+  if (i >= 0) messages[i] = message
+  else messages.push(message)
   return message
+}
+
+/** All outbound messages, newest first. */
+export function listOutboundEmailMessages(): EmailMessage[] {
+  return messages
+    .filter((m) => m.direction === 'outbound')
+    .sort((a, b) => b.sent_at.localeCompare(a.sent_at))
+}
+
+export function getEmailThreadById(id: string): EmailThread | undefined {
+  return threads.find((t) => t.id === id)
 }
 
 export function upsertEmailReview(item: EmailReviewItem): EmailReviewItem {

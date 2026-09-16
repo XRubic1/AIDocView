@@ -19,6 +19,12 @@ import { markAssistantEventCompleted } from '../../utils/assistantTaskStore'
 import { openAdminInvoiceWorkspace } from '../../utils/openAdminInvoiceWorkspace'
 import { applyAssistantCompletions } from '../../utils/assistantTaskStore'
 import { sendStaffCalendarDigest } from '../../services/staffCalendarDigestService'
+import {
+  buildCalendarInvoiceFacts,
+  findCalendarInvoice,
+} from '../../utils/calendarInvoiceDetails'
+import CalendarInvoiceFactsPanel from '../calendar/CalendarInvoiceFacts'
+import CalendarDayEventList from '../calendar/CalendarDayEventList'
 
 type AdminCalFilter = 'all' | 'chase' | 'meeting' | 'docs' | 'expected' | 'reminder'
 
@@ -59,8 +65,10 @@ function parseDateKey(key: string): Date {
   return new Date(y, m - 1, day)
 }
 
-function typeShortLabel(type: SharedCalendarEvent['type']): string {
-  switch (type) {
+function typeShortLabel(evt: SharedCalendarEvent): string {
+  if (/broker follow-up/i.test(evt.title)) return 'Follow-up'
+  if (/paperwork check/i.test(evt.title)) return 'PPW check'
+  switch (evt.type) {
     case 'paperwork_check':
       return 'Docs'
     case 'reminder':
@@ -290,6 +298,23 @@ export default function AdminSharedCalendar({
 
   const selectedEvent =
     dayEvents.find((e) => e.id === effectiveSelectedId) ?? null
+
+  const selectedInvoice = useMemo(() => {
+    if (!selectedEvent) return undefined
+    return findCalendarInvoice(mockInvoices, {
+      invoiceId: selectedEvent.invoiceId,
+      invoiceNumber: selectedEvent.invoiceNumber,
+      clientId: selectedEvent.clientId,
+    })
+  }, [selectedEvent, tenantRevision])
+
+  const selectedInvoiceFacts = useMemo(
+    () =>
+      selectedInvoice
+        ? buildCalendarInvoiceFacts(selectedInvoice, { includeInternal: true })
+        : null,
+    [selectedInvoice]
+  )
 
   const monthLabel = cursorMonth.toLocaleDateString('en-US', {
     month: 'long',
@@ -538,7 +563,7 @@ export default function AdminSharedCalendar({
                         }}
                       >
                         <span className="assistant-cal__pill-kind">
-                          {typeShortLabel(evt.type)}
+                          {typeShortLabel(evt)}
                         </span>
                       </button>
                     ))}
@@ -552,49 +577,23 @@ export default function AdminSharedCalendar({
           </div>
         </div>
 
-        <aside className="assistant-event-detail" aria-label="Day details">
+        <aside className="assistant-event-detail" aria-label="Invoice details">
           <header className="assistant-event-detail__header">
-            <h2 className="assistant-event-detail__title">{selectedDayLabel}</h2>
-            <p className="assistant-event-detail__sub">
-              {dayEvents.length} item{dayEvents.length === 1 ? '' : 's'}
-            </p>
+            <h2 className="assistant-event-detail__title">
+              {selectedEvent
+                ? selectedEvent.invoiceNumber !== '—'
+                  ? `Invoice #${selectedEvent.invoiceNumber}`
+                  : selectedEvent.title
+                : 'Details'}
+            </h2>
           </header>
 
-          <div className="assistant-event-detail__day-list" role="list">
-            {dayEvents.length === 0 ? (
-              <p className="assistant-event-detail__empty">No events this day.</p>
-            ) : (
-              dayEvents.map((evt) => (
-                <button
-                  key={evt.id}
-                  type="button"
-                  role="listitem"
-                  className={`assistant-cal__row${
-                    effectiveSelectedId === evt.id ? ' assistant-cal__row--active' : ''
-                  }${evt.status !== 'pending' ? ' assistant-cal__row--muted' : ''}`}
-                  onClick={() => setSelectedId(evt.id)}
-                >
-                  <span
-                    className={`assistant-cal__dot assistant-cal__dot--${evt.type}`}
-                    aria-hidden
-                  />
-                  <span className="assistant-cal__row-main">
-                    <span className="assistant-cal__row-title">{evt.title}</span>
-                    <span className="assistant-cal__row-sub">
-                      {evt.clientName}
-                      {evt.invoiceNumber !== '—' ? ` · #${evt.invoiceNumber}` : ''}
-                    </span>
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-
+          <div className="assistant-event-detail__scroll">
           <div className="assistant-event-detail__body">
             {!selectedEvent ? (
               <p className="assistant-event-detail__empty">
                 {dayEvents.length > 0
-                  ? 'Select an item above for details.'
+                  ? 'Select an invoice from the list.'
                   : 'Click a day, or Add an event for a client.'}
               </p>
             ) : (
@@ -632,6 +631,9 @@ export default function AdminSharedCalendar({
                   )}
                 </dl>
                 <p className="assistant-event-detail__detail">{selectedEvent.detail}</p>
+                {selectedInvoiceFacts ? (
+                  <CalendarInvoiceFactsPanel facts={selectedInvoiceFacts} />
+                ) : null}
                 {selectedEvent.meetingUrl && (
                   <a
                     className="assistant-event-detail__meet-link"
@@ -701,7 +703,19 @@ export default function AdminSharedCalendar({
               Add event
             </button>
           </footer>
+          </div>
         </aside>
+        <CalendarDayEventList
+          dayLabel={selectedDayLabel}
+          events={dayEvents}
+          selectedId={effectiveSelectedId}
+          onSelect={setSelectedId}
+          subtitle={(evt) =>
+            `${evt.clientName}${
+              evt.invoiceNumber !== '—' ? ` · #${evt.invoiceNumber}` : ''
+            }`
+          }
+        />
       </div>
 
       {/* Client picker when adding without a filter */}

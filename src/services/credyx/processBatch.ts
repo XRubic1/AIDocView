@@ -1,6 +1,6 @@
 /**
  * Process a verified batch → submitted.
- * PPW is expected earlier; this step skips already-sent invoices and emails the carrier.
+ * Sends PPW for approved invoices that have not been sent yet, then emails the carrier.
  */
 import { updateBatchStatus } from '../../data/mockBatches'
 import { mockInvoices } from '../../data/mockInvoices'

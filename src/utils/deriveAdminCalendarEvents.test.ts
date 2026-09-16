@@ -120,6 +120,23 @@ describe('deriveAdminCalendarEvents — due / hold / missed W/P', () => {
     expect(due?.type).toBe('reminder')
   })
 
+  it('skips Invoice due when the due date is the purchase / invoice day', () => {
+    const events = deriveAdminCalendarEvents(
+      [
+        baseInvoice({
+          id: 'inv-new',
+          invoice_date: '2026-09-16',
+          due_date: '2026-09-16',
+          expected_payment_date: '2026-09-16',
+          created_at: '2026-09-16T12:00:00.000Z',
+        }),
+      ],
+      [],
+      new Date('2026-09-16T12:00:00')
+    )
+    expect(events.some((e) => e.id === 'live-due-inv-new')).toBe(false)
+  })
+
   it('skips Invoice due when Will Pay is on the same day', () => {
     const events = deriveAdminCalendarEvents(
       [
@@ -173,5 +190,25 @@ describe('deriveAdminCalendarEvents — due / hold / missed W/P', () => {
     expect(hold?.type).toBe('paperwork_check')
     expect(hold?.title).toBe('Hold — chase docs')
     expect(hold?.dueDate).toBe('2026-08-05')
+  })
+
+  it('places broker paperwork check on the scheduled day after PPW', () => {
+    const events = deriveAdminCalendarEvents(
+      [
+        baseInvoice({
+          id: 'inv-ppw',
+          document_send_history: [
+            { email_address: 'ap@tql.test', sent_at: '2026-08-01T12:00:00.000Z', status: 'sent' },
+          ],
+        }),
+      ],
+      [],
+      new Date('2026-08-05T12:00:00')
+    )
+    const followup = events.find((e) => e.id === 'live-broker-followup-inv-ppw')
+    expect(followup?.title).toBe('Broker paperwork check')
+    expect(followup?.dueDate).toBe('2026-08-08')
+    expect(followup?.type).toBe('paperwork_check')
+    expect(followup?.owner).toBe('credyx_staff')
   })
 })

@@ -137,6 +137,9 @@ export function describeWhatsHappening(row: AdminCollectionsRow): string {
   if (reasons.includes('no_ppw')) {
     return 'Paperwork has not been sent to the broker yet.'
   }
+  if (row.trackStage === 'ppw_waiting' && row.nextFollowup) {
+    return `Paperwork is with the broker. Credyx checks in on ${formatDate(row.nextFollowup.date)}.`
+  }
 
   return describeChaseForCarrier(row.chaseStatus, row.lastContact)
 }
@@ -180,6 +183,15 @@ export function describeWhatsNext(row: AdminCollectionsRow): string | null {
   }
   if (row.collectionStatus === 'C/B' && row.invoice.collection_date) {
     return `Next broker call: ${formatDate(row.invoice.collection_date)}.`
+  }
+  if (row.nextFollowup) {
+    if (row.nextFollowup.kind === 'send_ppw') {
+      return 'You’ll see progress once Credyx submits the invoice to the broker.'
+    }
+    if (row.nextFollowup.due) {
+      return `${row.nextFollowup.label} due now.`
+    }
+    return `Next broker follow-up ${formatDate(row.nextFollowup.date)} (${row.nextFollowup.label.toLowerCase()}).`
   }
   if (!row.ppwSentAt) {
     return 'You’ll see progress once Credyx submits the invoice to the broker.'

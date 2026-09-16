@@ -1,16 +1,19 @@
 /**
  * Optional happy-path automation after AI intake / verification review.
  * Credyx can always override via Ready to Post / Verification / AI tabs.
+ *
+ * PPW is never sent here — docs go out only when the batch is processed
+ * (`processVerifiedBatch`) or via an explicit Send docs / Ready to Post action.
  */
 import { getAllBatches, updateBatchStatus } from '../../data/mockBatches'
 import { getInvoicesByBatchId, mockInvoices } from '../../data/mockInvoices'
-import { sendPaperworkForBatch } from '../../utils/paperworkSender'
 import { approveAdminInvoice } from '../adminInvoiceActions'
 import { emailCredyxIntakeError, emailCredyxVerificationError } from './batchLifecycleEmails'
 import { processVerifiedBatch } from './processBatch'
 import type { InvoiceAiReviewOutcome } from './batchAiReviewService'
 
 export interface HappyPathIntakeResult {
+  /** Always 0 — PPW is deferred until batch process. Kept for callers/types. */
   ppwSent: number
   ppwFailed: number
   movedToVerification: boolean
@@ -19,7 +22,8 @@ export interface HappyPathIntakeResult {
 
 /**
  * After AI batch submit: if clean (no unmatched docs, all brokers assigned),
- * send PPW and advance to verification. On issues, email Credyx.
+ * advance to verification. Does not send PPW — that waits for batch process.
+ * On issues, email Credyx.
  */
 export async function runHappyPathAfterIntake(opts: {
   batchId: string
@@ -52,27 +56,7 @@ export async function runHappyPathAfterIntake(opts: {
     return result
   }
 
-  const ppw = await sendPaperworkForBatch(
-    invoices,
-    opts.batchNumber,
-    'system',
-    'AI Happy Path',
-    'System',
-    { skipAlreadySent: true }
-  )
-  result.ppwSent = ppw.success
-  result.ppwFailed = ppw.failed
-
-  if (ppw.failed > 0) {
-    await emailCredyxIntakeError({
-      batchNumber: opts.batchNumber,
-      clientName: opts.clientName,
-      issueMessage: `PPW send failed for ${ppw.failed} invoice(s). Credyx can re-send from Ready to Post or AI tab.`,
-    })
-    result.intakeErrorEmailed = true
-    return result
-  }
-
+  // Clean intake: queue for verification. Broker docs wait until Process batch.
   updateBatchStatus(opts.batchId, 'verification')
   result.movedToVerification = true
   return result

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Invoice } from '../types/invoice'
 import {
   isBrokerContactActivityNote,
+  isCollectionsWorkInvoice,
   matchesCollectionsFocus,
   resolveLastBrokerContact,
   type AdminCollectionsRow,
@@ -31,6 +32,7 @@ function row(partial: Partial<AdminCollectionsRow>): AdminCollectionsRow {
     isUrgentCollection: false,
     urgentReasons: [],
     isCallbackDue: false,
+    nextFollowup: null,
     ...partial,
   }
 }
@@ -114,5 +116,41 @@ describe('resolveLastBrokerContact', () => {
   it('recognizes inquiry and PPW notes correctly', () => {
     expect(isBrokerContactActivityNote('PPW sent to AGL GROUP AP')).toBe(false)
     expect(isBrokerContactActivityNote('Payment status inquiry emailed to broker.')).toBe(true)
+  })
+})
+
+describe('isCollectionsWorkInvoice', () => {
+  it('includes approved invoices with no batch (legacy / already processed)', () => {
+    expect(
+      isCollectionsWorkInvoice({
+        id: '1',
+        invoice_number: 'INV-1',
+        status: 'approved',
+      } as Invoice)
+    ).toBe(true)
+  })
+
+  it('excludes review / pending invoices until they are approved', () => {
+    expect(
+      isCollectionsWorkInvoice({
+        id: '1',
+        invoice_number: 'INV-1',
+        status: 'review',
+      } as Invoice)
+    ).toBe(false)
+  })
+
+  it('includes approved invoices once PPW is sent', () => {
+    expect(
+      isCollectionsWorkInvoice({
+        id: '1',
+        invoice_number: 'INV-1',
+        status: 'approved',
+        batch_id: 'batch-still-open',
+        document_send_history: [
+          { email_address: 'ap@b.test', sent_at: '2026-09-10T12:00:00.000Z', status: 'sent' },
+        ],
+      } as Invoice)
+    ).toBe(true)
   })
 })

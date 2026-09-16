@@ -339,6 +339,32 @@ export async function sendBrokerPacketForInvoice(
     remittance_snapshot: fingerprint,
   })
 
+  // Log PPW in Credyx Inbox (invoice / client / broker thread).
+  try {
+    const { recordOutboundMessage } = await import('../services/emailLifecycleService')
+    const docList = newRecords
+      .filter((r) => r.status === 'delivered' || r.status === 'sent')
+      .flatMap((r) => r.documents_sent ?? [])
+    const uniqueDocs = [...new Set(docList)]
+    recordOutboundMessage({
+      invoice,
+      to,
+      subject: `Paperwork packet — Invoice ${invoice.invoice_number}${
+        invoice.load_number ? ` · Load ${invoice.load_number}` : ''
+      }`,
+      body: [
+        `Broker packet sent to ${to}.`,
+        uniqueDocs.length > 0 ? `Documents: ${uniqueDocs.join(', ')}` : null,
+        partTotal > 1 ? `Sent in ${partTotal} parts.` : null,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      templateId: 'broker_packet',
+    })
+  } catch (err) {
+    console.warn('[paperworkSender] inbox log failed', err)
+  }
+
   logAuditEvent(
     'document_sent',
     'invoice',

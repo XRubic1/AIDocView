@@ -52,6 +52,7 @@ type SortField =
   | 'ppw'
   | 'chase'
   | 'last_contact'
+  | 'next_followup'
   | 'urgent'
 
 const FOCUS_TABS: CollectionsFocus[] = [
@@ -199,6 +200,8 @@ export default function Collections() {
         cmp = (a.ppwSentAt || '').localeCompare(b.ppwSentAt || '')
       } else if (sortField === 'last_contact') {
         cmp = (a.lastContact || '').localeCompare(b.lastContact || '')
+      } else if (sortField === 'next_followup') {
+        cmp = (a.nextFollowup?.date || '').localeCompare(b.nextFollowup?.date || '')
       } else if (sortField === 'urgent') {
         cmp = Number(a.isUrgentCollection) - Number(b.isUrgentCollection)
         if (cmp === 0) cmp = Number(a.isUrgent) - Number(b.isUrgent)
@@ -446,7 +449,7 @@ export default function Collections() {
               <div className="flex-1 min-h-0 flex items-center justify-center p-6">
                 <EmptyState
                   title="Nothing in this queue"
-                  hint="Try another filter, or invoices will show here after PPW is sent."
+                  hint="Invoices land here as soon as a batch is processed. Try another filter if this view is empty."
                 />
               </div>
             ) : (
@@ -518,6 +521,14 @@ export default function Collections() {
                         sortDir={sortDir}
                         onSort={onSort}
                         title="Last payment-status call or inquiry — not PPW send"
+                      />
+                      <ClientSortableHeader
+                        field="next_followup"
+                        label="Next follow-up"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={onSort}
+                        title="Next scheduled broker follow-up"
                       />
                       <ClientSortableHeader
                         field="chase"
@@ -645,6 +656,22 @@ export default function Collections() {
                               </>
                             ) : (
                               <span style={{ color: c.secondary }}>Never</span>
+                            )}
+                          </ClientListTd>
+                          <ClientListTd>
+                            {row.nextFollowup ? (
+                              <>
+                                <div className="tabular-nums">
+                                  {formatDate(row.nextFollowup.date)}
+                                </div>
+                                <div className="text-[11px]" style={{ color: c.secondary }}>
+                                  {row.nextFollowup.due
+                                    ? `${row.nextFollowup.label} · due now`
+                                    : row.nextFollowup.label}
+                                </div>
+                              </>
+                            ) : (
+                              <span style={{ color: c.secondary }}>—</span>
                             )}
                           </ClientListTd>
                           <ClientListTd variant="status">

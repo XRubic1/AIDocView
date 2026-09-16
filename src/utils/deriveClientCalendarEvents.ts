@@ -13,6 +13,12 @@ import { deriveHoldExplanation } from './assistantHoldExplanation'
 import { getOpenDisputes } from '../services/clientInvoiceActions'
 import { applyAssistantCompletions } from './assistantTaskStore'
 import { getWillPayScheduledDate, invoiceHasWillPayStatus } from './invoiceWillPay'
+import { isPlaceholderPaymentDueDate } from './invoiceDueDate'
+import {
+  getNextBrokerFollowup,
+  toBrokerFollowupCalendarEvent,
+} from './nextBrokerFollowup'
+import { mockBrokers } from '../data/mockBrokers'
 
 function toDateKey(d: Date): string {
   const y = d.getFullYear()
@@ -66,6 +72,8 @@ export function getClientCalendarInvoicePayDate(
     | 'notes_history'
     | 'expected_payment_date'
     | 'due_date'
+    | 'invoice_date'
+    | 'created_at'
   >
 ): { date: string; kind: 'will_pay' | 'expected' } | null {
   if (invoiceHasWillPayStatus(invoice)) {
@@ -75,6 +83,7 @@ export function getClientCalendarInvoicePayDate(
   const expected =
     normalizeDateKey(invoice.expected_payment_date) || normalizeDateKey(invoice.due_date)
   if (!expected) return null
+  if (isPlaceholderPaymentDueDate(invoice, expected)) return null
   return { date: expected, kind: 'expected' }
 }
 
@@ -150,6 +159,20 @@ export function deriveClientCalendarEvents(
         : `Expected payment date on invoice #${inv.invoice_number}.`,
       amountLabel: formatCurrency(getInvoiceOpenArBalance(inv, payments)),
     })
+  }
+
+  const brokerById = new Map(mockBrokers.map((b) => [b.id, b]))
+  for (const inv of openWithBalance) {
+    const broker = brokerById.get(inv.broker_id)
+    const followup = getNextBrokerFollowup({ invoice: inv, broker, asOf })
+    if (!followup) continue
+    const evt = toBrokerFollowupCalendarEvent({
+      invoice: inv,
+      followup,
+      asOf,
+      audience: 'client',
+    })
+    if (evt) events.push(evt)
   }
 
   const recentCutoff = addDaysKey(today, -14)
