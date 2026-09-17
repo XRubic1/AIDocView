@@ -48,7 +48,10 @@ import {
   applyBrokerRiskPolicy,
   loadEmailLifecycleSettings,
   applyEmailLifecycleSettings,
+  loadEmailMailboxes,
+  applyEmailMailboxes,
 } from '../platformSettingsService'
+import { applyAiPolicy, loadAiPolicy } from '../aiSpendService'
 import { resolveSession } from '../sessionService'
 import {
   ensureTenantDataLiveSync,
@@ -214,6 +217,27 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
     }
 
     try {
+      const mailboxes = await loadEmailMailboxes()
+      applyEmailMailboxes(mailboxes)
+    } catch (err) {
+      errors.push(`email_mailboxes: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      const aiPolicy = await loadAiPolicy()
+      applyAiPolicy(aiPolicy)
+    } catch (err) {
+      errors.push(`ai_policy: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      const { loadAdminCustomRoles } = await import('../adminCustomRoleService')
+      await loadAdminCustomRoles()
+    } catch (err) {
+      errors.push(`admin_custom_roles: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
       const { hydrateEmailInboxFromSupabase } = await import('../emailLifecycleService')
       await hydrateEmailInboxFromSupabase()
     } catch (err) {
@@ -299,6 +323,13 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
       await hydrateBrokerRiskFromSupabase(clientId)
     } catch (err) {
       errors.push(`broker_risk: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      const aiPolicy = await loadAiPolicy()
+      applyAiPolicy(aiPolicy)
+    } catch (err) {
+      errors.push(`ai_policy: ${err instanceof Error ? err.message : String(err)}`)
     }
 
     try {

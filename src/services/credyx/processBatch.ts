@@ -2,14 +2,15 @@
  * Process a verified batch → submitted.
  * Sends PPW for approved invoices that have not been sent yet, then emails the carrier.
  */
-import { updateBatchStatus } from '../../data/mockBatches'
+import { updateBatch, updateBatchStatus } from '../../data/mockBatches'
 import { mockInvoices } from '../../data/mockInvoices'
 import { logAuditEvent } from '../../utils/auditLogger'
 import { sendPaperworkForBatch } from '../../utils/paperworkSender'
 import { hasPpwBeenSent } from '../../utils/ppwSent'
 import { lockBatchFeeTermsFromClient } from '../../utils/feeTermsLock'
 import { getClientById } from '../clientRegistry'
-import { notifyClientHoldsAfterBatchProcess } from '../adminInvoiceActions'
+import { approveAdminInvoice, notifyClientHoldsAfterBatchProcess } from '../adminInvoiceActions'
+import { notifyTenantDataUpdated } from '../supabase/tenantDataLiveSync'
 import { emailCarrierBatchProcessed } from './batchLifecycleEmails'
 
 export interface ProcessBatchResult {
@@ -25,8 +26,9 @@ export interface ProcessBatchResult {
 }
 
 /**
- * Process batch when every invoice is approved or on hold.
- * Held invoices stay on hold; approved invoices are ready for collections.
+ * Process batch when every invoice is approved, on hold, or AI-cleared (ready).
+ * AI-ready invoices are auto-approved at process time. Held invoices stay on hold.
+ * Approved invoices get PPW (when not already sent) and the batch moves to submitted.
  */
 export async function processVerifiedBatch(opts: {
   batchId: string
@@ -47,19 +49,29 @@ export async function processVerifiedBatch(opts: {
     }
   }
 
-  const unsettled = batchInvoices.filter(
+  // AI "OK" (ready) invoices still have status pending until Process — approve them now.
+  for (const inv of batchInvoices) {
+    if (inv.status === 'approved' || inv.status === 'hold') continue
+    if (inv.status === 'review') continue
+    if (inv.ai_review_status === 'ready') {
+      approveAdminInvoice(inv.id, opts.adminUserName)
+    }
+  }
+
+  const liveInvoices = mockInvoices.filter((inv) => inv.batch_id === opts.batchId)
+  const unsettled = liveInvoices.filter(
     (inv) => inv.status !== 'approved' && inv.status !== 'hold'
   )
   if (unsettled.length > 0) {
     return {
       ok: false,
-      error: `All invoices must be approved or on hold (${batchInvoices.length - unsettled.length}/${batchInvoices.length} settled).`,
+      error: `All invoices must be OK, AI-cleared, or on hold (${liveInvoices.length - unsettled.length}/${liveInvoices.length} settled).`,
       paperwork: { success: 0, failed: 0, skipped: 0 },
     }
   }
 
-  const approved = batchInvoices.filter((inv) => inv.status === 'approved')
-  const held = batchInvoices.filter((inv) => inv.status === 'hold')
+  const approved = liveInvoices.filter((inv) => inv.status === 'approved')
+  const held = liveInvoices.filter((inv) => inv.status === 'hold')
 
   // Only send PPW for approved invoices that have not been sent yet (unless force).
   const toSend = opts.forceResendPpw
@@ -78,7 +90,7 @@ export async function processVerifiedBatch(opts: {
     'Admin',
     [{ field: 'status', old_value: 'verification', new_value: 'submitted' }],
     {
-      total_invoices: batchInvoices.length,
+      total_invoices: liveInvoices.length,
       total_amount: opts.totalAmount,
       approved_count: approved.length,
       hold_count: held.length,
@@ -113,7 +125,17 @@ export async function processVerifiedBatch(opts: {
   const ppwDetails = [...preSkippedDetails, ...paperworkResults.details]
   const totalSkipped = alreadySentSkipped + paperworkResults.skipped
 
-  updateBatchStatus(opts.batchId, 'submitted')
+  // Submitted + clear AI/rework attention so the batch leaves the AI Verify queue.
+  const moved = updateBatch(opts.batchId, {
+    status: 'submitted',
+    sort_status: 'ready',
+    unmatched_doc_ids: [],
+  })
+  if (!moved) {
+    updateBatchStatus(opts.batchId, 'submitted')
+  } else {
+    notifyTenantDataUpdated(['batches', 'invoices'], opts.clientId)
+  }
 
   // Freeze fee terms at process time so later client rate changes do not rewrite this batch.
   await lockBatchFeeTermsFromClient(opts.batchId, getClientById(opts.clientId))
@@ -123,11 +145,11 @@ export async function processVerifiedBatch(opts: {
 
   // One carrier email: processed + holds (if any) + broker paperwork summary.
   let carrierEmail: ProcessBatchResult['carrierEmail'] = { ok: true, kind: 'none' }
-  if (batchInvoices.length > 0) {
+  if (liveInvoices.length > 0) {
     const res = await emailCarrierBatchProcessed({
       clientId: opts.clientId,
       batchNumber: opts.batchNumber,
-      invoices: batchInvoices,
+      invoices: liveInvoices,
       heldInvoices: held,
       ppwDetails,
     })

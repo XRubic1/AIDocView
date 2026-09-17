@@ -108,6 +108,7 @@ export const CHECK_LABELS = {
   bol: 'Bill of lading (signed & delivery address)',
   multiStop: 'All delivery stops covered',
   carrier: 'Carrier name',
+  pageCount: 'BOL page count',
 } as const
 
 /** Human-readable load # mismatch across documents. */

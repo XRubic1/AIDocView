@@ -11,6 +11,9 @@ const MIN_SECONDS = 45
 const MAX_SECONDS = 20 * 60
 const PARALLEL_WORKERS = 4
 
+/** Extra wait after the ETA before stuck AI creation → manual rework. */
+export const AI_CREATION_TIMEOUT_GRACE_MS = 10 * 60 * 1000
+
 export type BatchEtaInput = {
   fileCount?: number | null
   invoiceTotal?: number | null
@@ -54,7 +57,7 @@ function formatShortRemaining(remainingSeconds: number): string {
  * Shrinks with invoice progress and elapsed time since start.
  */
 export function estimateBatchProcessingEta(input: BatchEtaInput): BatchEta | null {
-  if (input.phase === 'done' || input.phase === 'failed' || input.phase === 'idle') {
+  if (input.phase === 'done' || input.phase === 'rework' || input.phase === 'failed' || input.phase === 'idle') {
     return null
   }
 
@@ -115,6 +118,49 @@ export function estimateBatchProcessingEta(input: BatchEtaInput): BatchEta | nul
     label: formatDurationMinutes(remainingSeconds),
     shortLabel: formatShortRemaining(remainingSeconds),
   }
+}
+
+/**
+ * Absolute deadline: submitted/start + estimated total + 10 minute grace.
+ * Unknown size uses the max ETA so we don't false-timeout large piles.
+ */
+export function getBatchAiCreationTimeoutAt(input: {
+  startedAt?: string | null
+  fileCount?: number | null
+  invoiceTotal?: number | null
+}): number | null {
+  const startedAt = input.startedAt?.trim()
+  if (!startedAt) return null
+  const started = new Date(startedAt).getTime()
+  if (!Number.isFinite(started)) return null
+
+  const hasSizeHint =
+    (input.fileCount != null && input.fileCount > 0) ||
+    (input.invoiceTotal != null && input.invoiceTotal > 0)
+
+  const eta = estimateBatchProcessingEta({
+    fileCount: input.fileCount,
+    invoiceTotal: input.invoiceTotal,
+    invoiceCompleted: 0,
+    startedAt,
+    phase: 'processing',
+  })
+  const totalSeconds = hasSizeHint ? (eta?.totalSeconds ?? MAX_SECONDS) : MAX_SECONDS
+  return started + totalSeconds * 1000 + AI_CREATION_TIMEOUT_GRACE_MS
+}
+
+/** True when AI creating/sorting has passed ETA + grace. */
+export function isBatchAiCreationTimedOut(
+  input: {
+    startedAt?: string | null
+    fileCount?: number | null
+    invoiceTotal?: number | null
+  },
+  nowMs: number = Date.now()
+): boolean {
+  const deadline = getBatchAiCreationTimeoutAt(input)
+  if (deadline == null) return false
+  return nowMs >= deadline
 }
 
 const ETA_FILE_COUNT_KEY = 'credyx:batch-eta-files'

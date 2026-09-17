@@ -226,11 +226,14 @@ export default function AdminLayout({
               }
         }
       >
-        {navSections.map((section) => (
-          <div key={section.title}>
+        {navSections.map((section, sectionIndex) => (
+          <div
+            key={section.title}
+            className={sectionIndex > 0 ? (isMobile ? 'mt-3' : 'mt-2.5') : undefined}
+          >
             {section.title ? (
               <div
-                className={`${isMobile ? 'mb-1 mt-2 px-4 text-[11px]' : 'mb-0.5 px-3 text-[10px]'} font-semibold tracking-wider uppercase whitespace-nowrap overflow-hidden`}
+                className={`${isMobile ? 'mb-1 px-4 text-[11px]' : 'mb-0.5 px-3 text-[10px]'} font-semibold tracking-wider uppercase whitespace-nowrap overflow-hidden`}
                 style={{
                   color: t.sidebar.muted,
                   height: isMobile ? 'auto' : '0.875rem',

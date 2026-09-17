@@ -269,6 +269,12 @@ export default function ClientBatches() {
       }
       refreshBatches()
       void refreshProcessingJobs()
+      void import('../services/credyx/sweepStuckAiBatches')
+        .then(({ sweepStuckAiBatchCreations }) => sweepStuckAiBatchCreations())
+        .then((moved) => {
+          if (moved.length > 0) refreshBatches()
+        })
+        .catch(() => undefined)
     }
     const id = window.setInterval(tick, 3000)
     return () => window.clearInterval(id)
@@ -301,7 +307,7 @@ export default function ClientBatches() {
         if (
           jobByBatchId[batchId] ||
           settled.phase === 'done' ||
-          settled.phase === 'failed'
+          settled.phase === 'rework'
         ) {
           next.delete(batchId)
           changed = true

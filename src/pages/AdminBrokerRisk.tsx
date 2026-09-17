@@ -483,12 +483,12 @@ export default function AdminBrokerRisk() {
   }
 
   const applyToSelectedBroker = async (
-    fn: (profile: BrokerRiskProfile) => Promise<BrokerRiskProfile | null>
+    fn: (profile: BrokerRiskProfile, audit: boolean) => Promise<BrokerRiskProfile | null>
   ): Promise<boolean> => {
     const profiles = selectedGroup?.profiles ?? []
     if (profiles.length === 0) return false
-    for (const profile of profiles) {
-      const updated = await fn(profile)
+    for (let i = 0; i < profiles.length; i++) {
+      const updated = await fn(profiles[i], i === 0)
       if (!updated) return false
     }
     return true
@@ -512,13 +512,14 @@ export default function AdminBrokerRisk() {
         ? `${finalNote} ${timingLine}`
         : finalNote
     try {
-      const ok = await applyToSelectedBroker((profile) =>
+      const ok = await applyToSelectedBroker((profile, audit) =>
         publishBrokerRisk({
           clientId: profile.client_id,
           brokerId: profile.broker_id,
           riskLevel: level,
           reviewNote: withTiming || undefined,
           reviewedBy: reviewer,
+          skipAuditLog: !audit,
         })
       )
       if (!ok) {
@@ -540,12 +541,13 @@ export default function AdminBrokerRisk() {
       (note ?? reviewNote).trim() ||
       'Cleared after Credyx review — not treated as broker risk.'
     try {
-      const ok = await applyToSelectedBroker((profile) =>
+      const ok = await applyToSelectedBroker((profile, audit) =>
         clearBrokerRisk({
           clientId: profile.client_id,
           brokerId: profile.broker_id,
           reviewNote: finalNote,
           reviewedBy: reviewer,
+          skipAuditLog: !audit,
         })
       )
       if (!ok) {
@@ -586,12 +588,13 @@ export default function AdminBrokerRisk() {
       return
     }
     try {
-      const ok = await applyToSelectedBroker((profile) =>
+      const ok = await applyToSelectedBroker((profile, audit) =>
         saveBrokerRiskReviewNote({
           clientId: profile.client_id,
           brokerId: profile.broker_id,
           reviewNote: note,
           reviewedBy: reviewer,
+          skipAuditLog: !audit,
         })
       )
       if (!ok) {

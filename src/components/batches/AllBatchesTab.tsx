@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react'
 import { getAllBatches, updateBatchStatus } from '../../data/mockBatches'
 import { PendingBatch } from '../../types/admin'
-import AdminBatchesListView, { type AdminBatchListItem } from './AdminBatchesListView'
+import AdminBatchesListView, {
+  type AdminBatchListItem,
+  buildBatchDocumentCountMap,
+} from './AdminBatchesListView'
 import { useClientTheme, useTheme } from '../../theme/ThemeContext'
 import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
 import { useAdminCapabilities } from '../../hooks/useAdminCapabilities'
@@ -12,6 +15,10 @@ import {
   type AdminBatchWorkflowStage,
 } from '../../utils/adminBatchQueue'
 import { deleteUnsubmittedBatch } from '../../services/credyx/deleteBatch'
+import {
+  batchIsStuckCreating,
+  releaseBatchToManualCreation,
+} from '../../services/batchReworkService'
 import { useToast } from '../ui/ToastProvider'
 
 interface AllBatchesTabProps {
@@ -54,13 +61,21 @@ export default function AllBatchesTab({
   const [showNavigationModal, setShowNavigationModal] = useState(false)
   const [selectedBatchForNavigation, setSelectedBatchForNavigation] = useState<Batch | null>(null)
 
+  /** Batch → paperwork document count. */
+  const documentCounts = useMemo(
+    () => buildBatchDocumentCountMap(batches),
+    [listVersion, tenantRevision, batches]
+  )
+
   const listItems: AdminBatchListItem[] = batches.map((batch) => {
     const aiProgress = getAdminBatchAiReviewProgress(batch.id)
     return {
       id: batch.id,
       batch_number: batch.batch_number,
       client_name: batch.client_name,
+      client_id: batch.client_id,
       total_invoices: batch.total_invoices,
+      documents_count: documentCounts.get(batch.id) ?? 0,
       total_amount: batch.total_amount,
       submitted_at: batch.submitted_at,
       status: batch.status,
@@ -134,6 +149,28 @@ export default function AllBatchesTab({
     onPacketRework(batch.id)
   }
 
+  const handleManualCreation = async (item: AdminBatchListItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const full =
+      allBatches.find((b) => b.id === item.id) ?? batches.find((b) => b.id === item.id)
+    if (!full || !batchIsStuckCreating(full)) return
+
+    const confirmed = window.confirm(
+      `Stop AI on ${full.batch_number} and open Packet Rework? All uploaded docs go to Unassigned so you can build packets by hand.`
+    )
+    if (!confirmed) return
+
+    try {
+      await releaseBatchToManualCreation(full.id)
+      setListVersion((v) => v + 1)
+      onBatchesChanged?.()
+      showToast('AI stopped — assign documents in Packet Rework.', 'success')
+      onPacketRework(full.id)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not switch to manual creation', 'error')
+    }
+  }
+
   const handleReturnToVerification = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
     const full = allBatches.find((b) => b.id === batch.id)
@@ -147,12 +184,13 @@ export default function AllBatchesTab({
     }
 
     const confirmed = window.confirm(
-      `Return batch ${full.batch_number} to Verification? It will reappear under the Verification filter.`
+      `Return batch ${full.batch_number} to AI Verification? It will reappear under the Verification filter.`
     )
     if (!confirmed) return
 
     updateBatchStatus(full.id, 'verification')
     setListVersion((v) => v + 1)
+    onBatchSelect(full.id, 'verification')
   }
 
   const canReturnToVerification = (status: string) =>
@@ -193,6 +231,7 @@ export default function AllBatchesTab({
         onReturnToApproval={handleReturnToVerification}
         canReturnToApproval={canReturnToVerification}
         onDeleteBatch={canDeleteBatches ? handleDeleteBatch : undefined}
+        onManualCreation={handleManualCreation}
         actionLabel="View"
         emptyTitle="No batches found"
         emptyHint="Try adjusting your search or filters"
@@ -253,10 +292,10 @@ export default function AllBatchesTab({
                   style={{ borderColor: c.border, backgroundColor: c.card }}
                 >
                   <div className="font-medium text-sm" style={{ color: c.primary }}>
-                    Packets rework
+                    Packet Rework
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
-                    Same Packets window as AI upload — reassign docs and edit invoice packets
+                    Assign docs into packets and edit invoice fields
                   </div>
                 </button>
                 <button
@@ -266,23 +305,10 @@ export default function AllBatchesTab({
                   style={{ borderColor: c.border, backgroundColor: c.card }}
                 >
                   <div className="font-medium text-sm" style={{ color: c.primary }}>
-                    AI verification
+                    AI Verification
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
-                    Packet docs, AI outcome, mark OK / needs review / hold, and process
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleNavigateToStage('ready_to_post')}
-                  className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
-                  style={{ borderColor: c.border, backgroundColor: c.card }}
-                >
-                  <div className="font-medium text-sm" style={{ color: c.primary }}>
-                    Ready to Post
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
-                    Assign paperwork and brokers
+                    Review AI checks, mark OK / Hold, and process the batch
                   </div>
                 </button>
               </div>

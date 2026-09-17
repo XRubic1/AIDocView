@@ -1,6 +1,6 @@
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { Crop, RotateCcw, SlidersHorizontal, X } from 'lucide-react'
+import { Crop, RotateCcw, Save, SlidersHorizontal, X } from 'lucide-react'
 import {
   DEFAULT_DOC_PAGE_QUALITY,
   type DocPageQuality,
@@ -15,6 +15,10 @@ type DocQualitySettingsWindowProps = {
   onClose: () => void
   onAutoCrop: () => void
   autoCropBusy?: boolean
+  /** Persist current settings for this Credyx viewer (local only). */
+  onSave?: (quality: DocPageQuality) => void
+  /** Clear saved preference and reset to defaults. */
+  onResetSaved?: () => void
   /** Optional anchor — defaults to centered floating panel. */
   style?: CSSProperties
 }
@@ -55,8 +59,8 @@ function SliderRow({
 }
 
 /**
- * Floating Credyx-only window for temporary BOL/page quality + crop.
- * Does not persist to packet / broker docs.
+ * Floating Credyx-only window for BOL/page quality + crop.
+ * Optional Save keeps prefs in local storage (never sent to carrier/broker).
  */
 export default function DocQualitySettingsWindow({
   open,
@@ -66,9 +70,12 @@ export default function DocQualitySettingsWindow({
   onClose,
   onAutoCrop,
   autoCropBusy = false,
+  onSave,
+  onResetSaved,
   style,
 }: DocQualitySettingsWindowProps) {
   const panelRef = useRef<HTMLDivElement | null>(null)
+  const [saveFlash, setSaveFlash] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -78,6 +85,10 @@ export default function DocQualitySettingsWindow({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
+
+  useEffect(() => {
+    if (!open) setSaveFlash(false)
+  }, [open])
 
   if (!open) return null
 
@@ -89,6 +100,18 @@ export default function DocQualitySettingsWindow({
       ...quality,
       crop: { ...quality.crop, [key]: value },
     })
+
+  const handleReset = () => {
+    onChange({ ...DEFAULT_DOC_PAGE_QUALITY, crop: { ...DEFAULT_DOC_PAGE_QUALITY.crop } })
+    onResetSaved?.()
+    setSaveFlash(false)
+  }
+
+  const handleSave = () => {
+    onSave?.(quality)
+    setSaveFlash(true)
+    window.setTimeout(() => setSaveFlash(false), 1600)
+  }
 
   return createPortal(
     <div className="doc-quality-win" role="dialog" aria-label={title} style={style}>
@@ -108,7 +131,9 @@ export default function DocQualitySettingsWindow({
       </header>
 
       <p className="doc-quality-win__hint">
-        Temporary view only — not saved or sent to the carrier/broker.
+        {onSave
+          ? 'Credyx view only — Save remembers these filters on this browser. Never sent to carrier/broker.'
+          : 'Temporary view only — not saved or sent to the carrier/broker.'}
       </p>
 
       <div className="doc-quality-win__body">
@@ -191,11 +216,21 @@ export default function DocQualitySettingsWindow({
           type="button"
           className="doc-quality-win__btn doc-quality-win__btn--ghost"
           disabled={isDefaultDocPageQuality(quality)}
-          onClick={() => onChange({ ...DEFAULT_DOC_PAGE_QUALITY, crop: { ...DEFAULT_DOC_PAGE_QUALITY.crop } })}
+          onClick={handleReset}
         >
           <RotateCcw className="w-3 h-3" />
           Reset
         </button>
+        {onSave ? (
+          <button
+            type="button"
+            className={`doc-quality-win__btn${saveFlash ? ' doc-quality-win__btn--saved' : ''}`}
+            onClick={handleSave}
+          >
+            <Save className="w-3 h-3" />
+            {saveFlash ? 'Saved' : 'Save'}
+          </button>
+        ) : null}
         <button type="button" className="doc-quality-win__btn" onClick={onClose}>
           Done
         </button>

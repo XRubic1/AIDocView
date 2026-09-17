@@ -11,6 +11,7 @@ import {
   Lock,
   Phone,
   ShieldAlert,
+  Sparkles,
 } from 'lucide-react'
 import {
   saveArPolicy,
@@ -25,10 +26,16 @@ import {
   loadBrokerRiskPolicy,
   saveBrokerRiskPolicy,
   applyBrokerRiskPolicy,
+  loadEmailMailboxes,
+  saveEmailMailboxes,
+  applyEmailMailboxes,
+  DEFAULT_EMAIL_MAILBOXES,
 } from '../services/platformSettingsService'
 import { useToast } from '../components/ui/ToastProvider'
 import Spinner from '../components/ui/Spinner'
 import EmailTemplatesPanel from '../components/admin/EmailTemplatesPanel'
+import EmailAddressesSettingsPanel from '../components/admin/EmailAddressesSettingsPanel'
+import EmailWorkflowSettingsPanel from '../components/admin/EmailWorkflowSettingsPanel'
 import CollectionsSettingsPanel, {
   type CollectionsSettingsForm,
 } from '../components/admin/CollectionsSettingsPanel'
@@ -36,6 +43,8 @@ import BrokerRiskSettingsPanel, {
   type BrokerRiskSettingsForm,
 } from '../components/admin/BrokerRiskSettingsPanel'
 import AiRateLimitSettingsPanel from '../components/admin/AiRateLimitSettingsPanel'
+import AiSpendSettingsPanel from '../components/admin/AiSpendSettingsPanel'
+import AiStatusCheckPanel from '../components/admin/AiStatusCheckPanel'
 import { useClientTheme } from '../theme/ThemeContext'
 
 type SettingsTab =
@@ -45,7 +54,10 @@ type SettingsTab =
   | 'collections'
   | 'broker-risk'
   | 'email'
+  | 'email-addresses'
+  | 'email-sends'
   | 'security'
+  | 'ai'
   | 'system'
 
 function SettingsTabPanel({
@@ -292,6 +304,8 @@ export default function Settings() {
     needsCallUrgent: true,
   })
 
+  const [emailMailboxes, setEmailMailboxes] = useState({ ...DEFAULT_EMAIL_MAILBOXES })
+
   useEffect(() => {
     void loadArPolicy().then((policy) => {
       setInvoiceSettings((prev) => ({
@@ -361,6 +375,10 @@ export default function Settings() {
         needsCallUrgent: policy.needsCallUrgent,
       })
     })
+    void loadEmailMailboxes().then((mailboxes) => {
+      applyEmailMailboxes(mailboxes)
+      setEmailMailboxes(mailboxes)
+    })
   }, [])
 
   const tabs: Array<{ id: SettingsTab; label: string; icon: typeof User }> = [
@@ -369,8 +387,11 @@ export default function Settings() {
     { id: 'invoices', label: 'Invoices', icon: FileText },
     { id: 'collections', label: 'Collections', icon: Phone },
     { id: 'broker-risk', label: 'Broker Risk', icon: ShieldAlert },
-    { id: 'email', label: 'Email', icon: Mail },
+    { id: 'email-addresses', label: 'Addresses', icon: Mail },
+    { id: 'email-sends', label: 'Email sends', icon: Mail },
+    { id: 'email', label: 'Templates', icon: FileText },
     { id: 'security', label: 'Security', icon: Shield },
+    { id: 'ai', label: 'AI', icon: Sparkles },
     { id: 'system', label: 'System', icon: Database },
   ]
 
@@ -455,6 +476,10 @@ export default function Settings() {
           insuranceWatchTtlDays: String(savedTtl.insuranceWatchTtlDays),
         }))
       }
+      if (activeTab === 'email-addresses') {
+        const saved = await saveEmailMailboxes(emailMailboxes)
+        setEmailMailboxes(saved)
+      }
       setSaved(true)
       showToast('Settings saved', 'success')
       setTimeout(() => setSaved(false), 3000)
@@ -466,7 +491,7 @@ export default function Settings() {
   }
 
   const saveFooter =
-    activeTab !== 'email' ? (
+    activeTab !== 'email' && activeTab !== 'email-sends' ? (
       <div className="client-settings-tab-panel__footer" style={{ borderColor: c.border }}>
         <button
           type="button"
@@ -774,6 +799,21 @@ export default function Settings() {
               </SettingsTabPanel>
             )}
 
+            {activeTab === 'email-addresses' && (
+              <SettingsTabPanel footer={saveFooter}>
+                <EmailAddressesSettingsPanel
+                  settings={emailMailboxes}
+                  onChange={(patch) => setEmailMailboxes((p) => ({ ...p, ...patch }))}
+                />
+              </SettingsTabPanel>
+            )}
+
+            {activeTab === 'email-sends' && (
+              <SettingsTabPanel>
+                <EmailWorkflowSettingsPanel />
+              </SettingsTabPanel>
+            )}
+
             {activeTab === 'email' && (
               <SettingsTabPanel className="admin-email-templates-panel">
                 <EmailTemplatesPanel />
@@ -879,10 +919,16 @@ export default function Settings() {
                   />
                 </div>
 
-                <div className="mt-6">
+              </SettingsTabPanel>
+            )}
+
+            {activeTab === 'ai' && (
+              <SettingsTabPanel>
+                <div className="space-y-6">
+                  <AiStatusCheckPanel />
+                  <AiSpendSettingsPanel />
                   <AiRateLimitSettingsPanel variant="admin" />
                 </div>
-
               </SettingsTabPanel>
             )}
           </div>

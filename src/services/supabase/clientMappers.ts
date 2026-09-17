@@ -1,3 +1,5 @@
+import type { ClientAiSettings } from '../../config/aiPolicy'
+import { normalizeClientAiSettings } from '../../config/aiPolicy'
 import type { Client, ClientBilling, ClientNotificationPreferences, ServiceTier } from '../../types/client'
 
 /** Row shape for public.clients */
@@ -30,6 +32,7 @@ export interface ClientRow {
   billing: ClientBilling | null
   fee_terms: Client['fee_terms'] | null
   notification_prefs: ClientNotificationPreferences | null
+  ai_settings: ClientAiSettings | null
   created_at?: string
   updated_at?: string
 }
@@ -64,6 +67,7 @@ export function clientRowToClient(row: ClientRow): Client {
     billing: row.billing ?? undefined,
     fee_terms: row.fee_terms ?? undefined,
     notification_prefs: row.notification_prefs ?? undefined,
+    ai_settings: normalizeClientAiSettings(row.ai_settings ?? undefined),
   }
 }
 
@@ -97,5 +101,6 @@ export function clientToRow(client: Client): ClientRow {
     billing: client.billing ?? null,
     fee_terms: client.fee_terms ?? null,
     notification_prefs: client.notification_prefs ?? null,
+    ai_settings: normalizeClientAiSettings(client.ai_settings) as ClientAiSettings,
   }
 }

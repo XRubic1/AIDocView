@@ -28,7 +28,7 @@ function resolvableCheckLabel(row: LoadCheckRow): string {
 }
 
 /**
- * Compact 6-check AI list under packet info, with a details modal for the full write-up.
+ * Compact 7-check AI list under packet info, with a details modal for the full write-up.
  */
 export default function InvoiceAiReviewOutcomePanel({
   invoice,
@@ -71,7 +71,7 @@ export default function InvoiceAiReviewOutcomePanel({
       ) : (
         <>
           <p className="client-ai-verify__outcome-headline">
-            {passCount}/{total || 6} checks passed
+            {passCount}/{total || 7} checks passed
           </p>
           <ul className="client-ai-verify__checks">
             {checks.map((row) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Invoice } from '../types/invoice'
-import { invoiceAiVerifyUi } from './invoiceAiVerificationStatus'
+import { invoiceAiVerifyUi, isInvoiceReadyToProcess } from './invoiceAiVerificationStatus'
 
 function stub(partial: Partial<Invoice>): Invoice {
   return {
@@ -50,5 +50,19 @@ describe('invoiceAiVerifyUi', () => {
     const ui = invoiceAiVerifyUi(stub({ status: 'hold', ai_review_status: 'needs_work' }))
     expect(ui.onHold).toBe(true)
     expect(ui.label).toBe('Hold')
+  })
+
+  it('treats AI-ready pending invoices as processable', () => {
+    expect(isInvoiceReadyToProcess(stub({ ai_review_status: 'ready', status: 'pending' }))).toBe(
+      true
+    )
+    expect(isInvoiceReadyToProcess(stub({ ai_review_status: 'needs_work', status: 'pending' }))).toBe(
+      false
+    )
+    expect(isInvoiceReadyToProcess(stub({ status: 'review', ai_review_status: 'ready' }))).toBe(
+      false
+    )
+    expect(isInvoiceReadyToProcess(stub({ status: 'approved' }))).toBe(true)
+    expect(isInvoiceReadyToProcess(stub({ status: 'hold' }))).toBe(true)
   })
 })

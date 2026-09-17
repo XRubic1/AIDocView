@@ -24,6 +24,7 @@ import { getAgingArBucketKey, getInvoiceAgeDays, isOpenArInvoice } from '../util
 import AdminInvoiceDetailView from '../components/batches/AdminInvoiceDetailView'
 import AdminClientVaultPanel from '../components/admin/AdminClientVaultPanel'
 import ClientCalendarPanel from '../components/admin/ClientCalendarPanel'
+import ClientAiSpendPlanPanel from '../components/admin/ClientAiSpendPlanPanel'
 import { useToast } from '../components/ui/ToastProvider'
 import { syncClientBatchFees } from '../services/batchFeeSync'
 import { logAuditEvent } from '../utils/auditLogger'
@@ -1274,6 +1275,15 @@ export default function Clients() {
                       />
                       Factoring client
                     </label>
+
+                    <ClientAiSpendPlanPanel
+                      client={selectedClient}
+                      onUpdated={(updated) => {
+                        setSelectedClient(updated)
+                        refreshClients()
+                      }}
+                      showToast={showToast}
+                    />
                   </div>
 
                   {(() => {

@@ -14,7 +14,7 @@ export interface PendingBatch {
   total_invoices: number
   total_amount: number
   minutes_since_submitted: number
-  status: 'draft' | 'creating' | 'ready_to_post' | 'verification' | 'approval' | 'submitted' | 'processing' | 'documents_uploaded'
+  status: 'draft' | 'creating' | 'ready_to_post' | 'rework' | 'verification' | 'approval' | 'submitted' | 'processing' | 'documents_uploaded'
   submitted_at: string
   in_use?: boolean
   in_use_by?: string

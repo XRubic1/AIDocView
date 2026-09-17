@@ -1,5 +1,7 @@
 // Type definitions for Clients (Carriers)
 
+import type { ClientAiSettings } from '../config/aiPolicy'
+
 export type ServiceTier = 'self_service' | 'managed'
 
 export type SubscriptionStatus = 'active' | 'trial' | 'past_due' | 'cancelled'
@@ -67,6 +69,11 @@ export interface Client {
   }
   /** In-app bell notification toggles (also cached in localStorage). */
   notification_prefs?: ClientNotificationPreferences
+  /**
+   * Per-carrier AI controls (toggle + optional monthly USD cap).
+   * When AI is off / capped, uploads still work — packets/review skip AI.
+   */
+  ai_settings?: ClientAiSettings
 }
 
 

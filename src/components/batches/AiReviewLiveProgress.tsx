@@ -18,8 +18,9 @@ export const PENDING_AI_CHECKS: AiReviewLiveCheck[] = [
   { id: 'req_broker', label: CHECK_LABELS.broker, status: 'pending' },
   { id: 'req_amount', label: CHECK_LABELS.amount, status: 'pending' },
   { id: 'req_bol', label: CHECK_LABELS.bol, status: 'pending' },
-  { id: 'req_multi_stop', label: CHECK_LABELS.multiStop, status: 'pending' },
+  { id: 'req_stops', label: CHECK_LABELS.multiStop, status: 'pending' },
   { id: 'req_carrier', label: CHECK_LABELS.carrier, status: 'pending' },
+  { id: 'req_page_count', label: CHECK_LABELS.pageCount, status: 'pending' },
 ]
 
 function formatExtractValue(key: keyof AiReviewLiveExtract, extract: AiReviewLiveExtract): string {
@@ -107,7 +108,7 @@ export function AiReviewChecksProgressList({
       <p className="client-ai-verify__outcome-headline">
         {extracting && settled.length < rows.length
           ? `Checked ${settled.length}/${rows.length}…`
-          : `${passCount}/${rows.length || 6} checks passed`}
+          : `${passCount}/${rows.length || 7} checks passed`}
       </p>
       <ul className="client-ai-verify__checks">
         {rows.map((row) => {

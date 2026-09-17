@@ -612,6 +612,19 @@ export default function BatchPacketReworkWorkspace({
       notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
       showToast('Packet changes saved', 'success')
       onSaved?.()
+
+      // Finalize AI checks from DocSort JSON when present (no second vision scan).
+      try {
+        const { enqueueBatchProcessing } = await import('../../services/credyx/batchProcessingJobs')
+        void enqueueBatchProcessing({
+          batchId,
+          clientId: batch.client_id,
+          kind: 'verify_only',
+        })
+      } catch (err) {
+        console.warn('[BatchPacketReworkWorkspace] enqueue verify failed', err)
+      }
+
       if (onContinueToAiVerification) onContinueToAiVerification(batchId)
       else onClose()
     } catch (err) {

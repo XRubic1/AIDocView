@@ -98,12 +98,14 @@ export async function enqueueBatchProcessing(opts: {
   if (!isSupabaseConfigured()) {
     // Local / mock mode — still run the in-browser pipeline.
     void kickBatchProcessingLocal(opts.batchId, kind, null)
+    if (kind === 'sort_and_verify') scheduleAiCreationTimeoutWatch(opts.batchId)
     return { jobId: null }
   }
 
   const supabase = getSupabase()
   if (!supabase) {
     void kickBatchProcessingLocal(opts.batchId, kind, null)
+    if (kind === 'sort_and_verify') scheduleAiCreationTimeoutWatch(opts.batchId)
     return { jobId: null }
   }
 
@@ -124,7 +126,45 @@ export async function enqueueBatchProcessing(opts: {
   void kickBatchProcessingEdge(opts.batchId)
   void kickBatchProcessingLocal(opts.batchId, kind, jobId)
 
+  // Packet creation only — schedule ETA + 10m timeout → manual rework + ops email.
+  if (kind === 'sort_and_verify') {
+    scheduleAiCreationTimeoutWatch(opts.batchId)
+  }
+
   return { jobId }
+}
+
+/** Fire timeout watch at ETA + grace (also swept when Batches / Client Batches are open). */
+function scheduleAiCreationTimeoutWatch(batchId: string): void {
+  if (typeof window === 'undefined') return
+  void (async () => {
+    try {
+      const { getBatchById } = await import('../../data/mockBatches')
+      const { getInvoicesByBatchId } = await import('../../data/mockInvoices')
+      const { getRememberedBatchFileCount, getBatchAiCreationTimeoutAt } = await import(
+        '../../utils/batchProcessingEta'
+      )
+      const batch = getBatchById(batchId)
+      if (!batch) return
+      const deadline = getBatchAiCreationTimeoutAt({
+        startedAt: batch.submitted_at,
+        fileCount:
+          getRememberedBatchFileCount(batchId) ??
+          batch.unmatched_doc_ids?.length ??
+          null,
+        invoiceTotal: getInvoicesByBatchId(batchId).length || batch.total_invoices || 0,
+      })
+      if (deadline == null) return
+      const delay = Math.max(15_000, deadline - Date.now())
+      window.setTimeout(() => {
+        void import('./sweepStuckAiBatches').then(({ maybeTimeoutStuckAiBatch }) =>
+          maybeTimeoutStuckAiBatch(batchId)
+        )
+      }, delay)
+    } catch (err) {
+      console.warn('[scheduleAiCreationTimeoutWatch]', err)
+    }
+  })()
 }
 
 /** Invoke the Edge worker; ignores errors so submit UX never blocks. */

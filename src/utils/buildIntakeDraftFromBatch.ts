@@ -443,9 +443,16 @@ export async function hydrateIntakeDraftFromBatch(
     const fp = file
       ? fingerprintFromFile(docId, file, undefined, catalog)
       : fingerprintStub(docId, fileName, undefined, catalog)
-    if (fp.kind === 'rate_confirmation') unmatchedRateCons.push(fp)
-    else if (fp.kind === 'bill_of_lading') unmatchedBols.push(fp)
-    else otherDocuments.push(fp)
+    // Manual / zero-packet rework: keep every doc in Unassigned (other) for hand assignment.
+    if (drafts.length === 0) {
+      otherDocuments.push({ ...fp, kind: 'other' })
+    } else if (fp.kind === 'rate_confirmation') {
+      unmatchedRateCons.push(fp)
+    } else if (fp.kind === 'bill_of_lading') {
+      unmatchedBols.push(fp)
+    } else {
+      otherDocuments.push(fp)
+    }
   }
 
   const sortResult =

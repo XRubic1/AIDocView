@@ -2,10 +2,18 @@
  * Placeholder data for the Settings “Client welcome” email (client_invite).
  */
 import type { Client } from '../types/client'
+import { EMAIL_MAILBOXES } from '../config/emailMailboxes'
 import { defaultPortalLink } from './carrierAttentionLink'
 import { buildCompanyLogoHtml } from './emailCompanyLogo'
 
 export const CREDYX_WEBSITE_URL = 'https://credyx.com'
+
+/** Live contact address from Settings → Addresses (falls back to ops@). */
+export function getCredyxContactEmail(): string {
+  return EMAIL_MAILBOXES.contactEmail || 'ops@credyx.net'
+}
+
+/** Default at build time; runtime prefers getCredyxContactEmail(). */
 export const CREDYX_CONTACT_EMAIL = 'ops@credyx.net'
 
 /** Human-readable collection fee for welcome copy (e.g. 2.5% or $50.00 flat). */
@@ -41,7 +49,7 @@ export function buildClientWelcomeTemplateData(
     feePercentage: pct == null ? '' : String(pct),
     websiteUrl: options?.websiteUrl ?? CREDYX_WEBSITE_URL,
     portalLink,
-    contactEmail: options?.contactEmail ?? CREDYX_CONTACT_EMAIL,
+    contactEmail: options?.contactEmail ?? getCredyxContactEmail(),
     setupLink,
     inviteLink: setupLink,
     ctaLabel: needsSetup ? 'Create your password' : 'Sign in to your portal',

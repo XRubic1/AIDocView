@@ -58,7 +58,8 @@ type BatchSortField =
 
 const STATUS_FILTER_MATCH: Record<StatusFilter, (status: string) => boolean> = {
   all: () => true,
-  pending: (s) => ['draft', 'creating', 'ready_to_post', 'documents_uploaded'].includes(s),
+  pending: (s) =>
+    ['draft', 'creating', 'ready_to_post', 'rework', 'documents_uploaded'].includes(s),
   review: (s) => ['verification', 'approval'].includes(s),
   processed: (s) => ['submitted', 'processing'].includes(s),
 }
@@ -68,6 +69,7 @@ function getBatchStatusBadge(status: string) {
     draft: { label: 'Draft', className: 'status-pill--pending-batch' },
     creating: { label: 'Creating', className: 'status-pill--review' },
     ready_to_post: { label: 'Queued', className: 'status-pill--pending-batch' },
+    rework: { label: 'Rework', className: 'status-pill--review' },
     documents_uploaded: { label: 'Docs received', className: 'status-pill--pending-batch' },
     verification: { label: 'Verifying', className: 'status-pill--review' },
     approval: { label: 'In review', className: 'status-pill--review' },
@@ -91,10 +93,10 @@ function getAiProgressBadge(progress?: ClientBatchAiProgress | null) {
       </span>
     )
   }
-  if (progress.phase === 'failed') {
+  if (progress.phase === 'rework') {
     return (
-      <span className="inline-flex items-center status-pill status-pill--overdue">
-        Check failed
+      <span className="inline-flex items-center status-pill status-pill--review">
+        Rework
       </span>
     )
   }
@@ -112,9 +114,9 @@ function renderBatchStatus(
   status: string,
   progress?: ClientBatchAiProgress | null
 ) {
-  // While AI is creating/checking, show that as the Status — not beside Queued.
+  // While AI is creating/checking or in rework, show that as the Status — not beside Queued.
   const aiBadge = getAiProgressBadge(progress)
-  if (aiBadge && (progress?.phase === 'processing' || progress?.phase === 'failed')) {
+  if (aiBadge && (progress?.phase === 'processing' || progress?.phase === 'rework')) {
     return aiBadge
   }
   return (

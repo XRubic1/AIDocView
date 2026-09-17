@@ -35,7 +35,7 @@ export const BOL_AI_VISION_CHECKS: BolVerificationStep[] = [
     id: 'ai_page_count',
     name: 'BOL printed pagination',
     description:
-      'Uses the BOL footer only (e.g. “Page 1 of 1”) — not the PDF packet index. INCOMPLETE when BOL pages are missing.',
+      'Uses the BOL footer only (e.g. “Page 1 of 4”, “1/2”) — not the PDF packet index. If no page count is printed, assume complete. INCOMPLETE only when the form shows missing pages.',
     outcome: 'reject',
   },
   {

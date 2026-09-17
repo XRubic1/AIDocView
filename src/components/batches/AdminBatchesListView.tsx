@@ -9,8 +9,9 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Boxes, ChevronLeft, ChevronRight, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { Boxes, ChevronLeft, ChevronRight, FileEdit, RotateCcw, Search, Trash2 } from 'lucide-react'
 import { canDeleteBatch } from '../../services/credyx/deleteBatch'
+import { batchIsStuckCreating } from '../../services/batchReworkService'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { mockInvoices } from '../../data/mockInvoices'
 import { useClientTheme } from '../../theme/ThemeContext'
@@ -27,7 +28,11 @@ export interface AdminBatchListItem {
   id: string
   batch_number: string
   client_name: string
+  /** Carrier id. */
+  client_id?: string
   total_invoices: number
+  /** Paperwork docs on this batch (uploaded / attached — not generated invoice PDFs). */
+  documents_count?: number
   total_amount: number
   submitted_at: string
   status: string
@@ -77,6 +82,11 @@ interface AdminBatchesListViewProps {
   canReturnToApproval?: (status: string) => boolean
   /** Delete draft / intake batches — blocked once submitted/processed. */
   onDeleteBatch?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
+  /**
+   * Stop AI “Creating…” and open manual invoice creation (handoff docs still available).
+   * Shown in the row context menu when the batch is stuck creating/sorting.
+   */
+  onManualCreation?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
 }
 
 function getReadyToPostProgress(batchId: string): number {
@@ -86,6 +96,63 @@ function getReadyToPostProgress(batchId: string): number {
   const total = batchInvoices.length
   if (total === 0) return 0
   return Math.round(((paperworkComplete + brokersAssigned) / (total * 2)) * 100)
+}
+
+/** Count paperwork docs on one batch (invoice attachments + unmatched uploads). */
+export function countBatchDocuments(
+  batchId: string,
+  unmatchedDocIds?: string[] | null
+): number {
+  const ids = new Set<string>()
+  for (const inv of mockInvoices) {
+    if (inv.batch_id !== batchId) continue
+    for (const id of inv.document_doc_ids ?? []) {
+      if (id && !id.startsWith('invoice-pdf-')) ids.add(id)
+    }
+    for (const id of Object.keys(inv.document_storage_paths ?? {})) {
+      if (id && !id.startsWith('invoice-pdf-')) ids.add(id)
+    }
+  }
+  for (const id of unmatchedDocIds ?? []) {
+    if (id && !id.startsWith('invoice-pdf-')) ids.add(id)
+  }
+  if (ids.size > 0) return ids.size
+
+  const fromCounts = mockInvoices
+    .filter((inv) => inv.batch_id === batchId)
+    .reduce((sum, inv) => sum + (inv.documents_count ?? 0), 0)
+  return fromCounts + (unmatchedDocIds?.length ?? 0)
+}
+
+/** Build batch_id → document count for a list of batches. */
+export function buildBatchDocumentCountMap(
+  batches: Array<{ id: string; unmatched_doc_ids?: string[] | null }>
+): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const batch of batches) {
+    map.set(batch.id, countBatchDocuments(batch.id, batch.unmatched_doc_ids))
+  }
+  return map
+}
+
+/** @deprecated Prefer buildBatchDocumentCountMap — kept for any stray callers. */
+export function countClientInvoices(clientId: string | null | undefined): number {
+  if (!clientId) return 0
+  return mockInvoices.filter((inv) => inv.client_id === clientId).length
+}
+
+/** @deprecated Prefer buildBatchDocumentCountMap. */
+export function buildClientInvoiceCountMap(
+  clientIds?: Iterable<string>
+): Map<string, number> {
+  const counts = new Map<string, number>()
+  const filter = clientIds ? new Set(clientIds) : null
+  for (const inv of mockInvoices) {
+    if (!inv.client_id) continue
+    if (filter && !filter.has(inv.client_id)) continue
+    counts.set(inv.client_id, (counts.get(inv.client_id) ?? 0) + 1)
+  }
+  return counts
 }
 
 function getVerifiedCount(batchId: string): { verified: number; total: number } {
@@ -113,6 +180,7 @@ export default function AdminBatchesListView({
   onReturnToApproval,
   canReturnToApproval,
   onDeleteBatch,
+  onManualCreation,
 }: AdminBatchesListViewProps) {
   const c = useClientTheme()
   const [searchTerm, setSearchTerm] = useState('')
@@ -127,15 +195,17 @@ export default function AdminBatchesListView({
 
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
-  /** Right-click a row for delete (or an explanation when locked). */
+  /** Right-click a row for manual creation / delete. */
   const openBatchContextMenu = useCallback(
     (event: ReactMouseEvent, batch: AdminBatchListItem) => {
-      if (!onDeleteBatch) return
+      const canManual = Boolean(onManualCreation && batchIsStuckCreating(batch))
+      const canDelete = Boolean(onDeleteBatch)
+      if (!canManual && !canDelete) return
       event.preventDefault()
       event.stopPropagation()
       setContextMenu({ x: event.clientX, y: event.clientY, batch })
     },
-    [onDeleteBatch]
+    [onDeleteBatch, onManualCreation]
   )
 
   useLayoutEffect(() => {
@@ -476,7 +546,7 @@ export default function AdminBatchesListView({
                   />
                   <ClientSortableHeader
                     field="total_invoices"
-                    label="Invoices"
+                    label="Batch inv"
                     sortField={sortField}
                     sortDir={sortDir}
                     onSort={handleSort}
@@ -535,7 +605,16 @@ export default function AdminBatchesListView({
                     onContextMenu={(e) => openBatchContextMenu(e, batch)}
                   >
                     <ClientListTd variant="primary" className="font-semibold">
-                      {batch.client_name}
+                      <span className="block">{batch.client_name}</span>
+                      {batch.documents_count != null ? (
+                        <span
+                          className="block text-xs font-normal tabular-nums mt-0.5"
+                          style={{ color: c.secondary }}
+                          title="Documents uploaded on this batch"
+                        >
+                          {batch.documents_count} doc{batch.documents_count === 1 ? '' : 's'}
+                        </span>
+                      ) : null}
                     </ClientListTd>
                     <ClientListTd variant="desktop" label="Batch#" style={{ color: c.secondary }}>
                       <span className="inline-flex items-center gap-1.5">
@@ -545,7 +624,12 @@ export default function AdminBatchesListView({
                         )}
                       </span>
                     </ClientListTd>
-                    <ClientListTd variant="desktop" label="Invoices" className="text-right tabular-nums">
+                    <ClientListTd
+                      variant="desktop"
+                      label="Batch inv"
+                      className="text-right tabular-nums"
+                      title="Invoices in this batch"
+                    >
                       {batch.total_invoices}
                     </ClientListTd>
                     <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
@@ -566,10 +650,10 @@ export default function AdminBatchesListView({
                             type="button"
                             onClick={(e) => onReturnToApproval(batch, e)}
                             className="dashboard-btn-secondary !h-7 !px-2 !text-xs inline-flex items-center gap-1"
-                            title="Return batch to Verification stage"
+                            title="Return batch to AI Verification"
                           >
                             <RotateCcw className="w-3 h-3" />
-                            Verification
+                            AI Verify
                           </button>
                         )}
                         {onPreviewClick && (
@@ -695,25 +779,42 @@ export default function AdminBatchesListView({
             <p className="client-ai-doc-menu__label">
               {contextMenu.batch.batch_number}
             </p>
-            {canDeleteBatch(contextMenu.batch.status) ? (
+            {onManualCreation && batchIsStuckCreating(contextMenu.batch) ? (
               <button
                 type="button"
                 role="menuitem"
-                className="client-ai-doc-menu__item client-ai-doc-menu__item--danger"
+                className="client-ai-doc-menu__item"
                 onClick={(e) => {
                   const batch = contextMenu.batch
                   closeContextMenu()
-                  onDeleteBatch?.(batch, e)
+                  onManualCreation(batch, e)
                 }}
               >
-                <Trash2 className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                Delete batch
+                <FileEdit className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                Manual creation
               </button>
-            ) : (
-              <p className="client-ai-doc-menu__empty" role="menuitem" aria-disabled="true">
-                Submitted batches can’t be deleted
-              </p>
-            )}
+            ) : null}
+            {onDeleteBatch ? (
+              canDeleteBatch(contextMenu.batch.status) ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="client-ai-doc-menu__item client-ai-doc-menu__item--danger"
+                  onClick={(e) => {
+                    const batch = contextMenu.batch
+                    closeContextMenu()
+                    onDeleteBatch(batch, e)
+                  }}
+                >
+                  <Trash2 className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                  Delete batch
+                </button>
+              ) : (
+                <p className="client-ai-doc-menu__empty" role="menuitem" aria-disabled="true">
+                  Submitted batches can’t be deleted
+                </p>
+              )
+            ) : null}
           </div>,
           document.body
         )}

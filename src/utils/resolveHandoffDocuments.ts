@@ -5,6 +5,7 @@ import {
   listHandoffBatchDocuments,
   type HandoffStorageDocument,
 } from '../services/supabase/tenantPersist'
+import { fileWithSniffedMime, mimeFromFileName } from './fileMimeSniff'
 
 export interface HandoffDocument {
   id: string
@@ -18,7 +19,7 @@ export interface HandoffDocument {
 const storageFileCache = new Map<string, File>()
 
 function mimeForName(fileName: string): string {
-  return fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'
+  return mimeFromFileName(fileName)
 }
 
 /** List handoff storage entries without downloading file bodies. */
@@ -35,7 +36,13 @@ export async function listHandoffDocumentMeta(
   }
 }
 
-/** Download one batch document by storage path (cached). */
+/** True when cached File may be PDF/image with a useless MIME (blank Packet Rework thumbs). */
+function needsMimeResniff(file: File): boolean {
+  const type = (file.type || '').toLowerCase()
+  return !type || type === 'application/octet-stream' || type === 'binary/octet-stream'
+}
+
+/** Download one batch document by storage path (cached; MIME sniffed from bytes). */
 export async function ensureStoredBatchFile(
   batchId: string,
   docId: string,
@@ -44,6 +51,17 @@ export async function ensureStoredBatchFile(
 ): Promise<File | null> {
   const existing = getBatchFile(batchId, docId) ?? storageFileCache.get(storagePath)
   if (existing) {
+    // Older cache entries often have octet-stream — re-sniff so PDF/JPEG render correctly.
+    if (needsMimeResniff(existing)) {
+      const fixed = await fileWithSniffedMime(
+        existing,
+        fileName || existing.name,
+        existing.type
+      )
+      storageFileCache.set(storagePath, fixed)
+      addBatchFile(batchId, docId, fixed)
+      return fixed
+    }
     addBatchFile(batchId, docId, existing)
     return existing
   }

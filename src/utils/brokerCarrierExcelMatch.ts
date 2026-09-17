@@ -74,14 +74,14 @@ export function matchBrokerCarrierFromExcel(
         ? 'warning'
         : 'missing'
       : !docCarrier
-        ? 'warning'
+        ? 'issue'
         : carrierOk
           ? 'ok'
           : 'issue',
     summary: !fileCarrier
       ? 'Excel file name could not be read for carrier check.'
       : !docCarrier
-        ? 'Carrier was not found on the paperwork.'
+        ? 'Carrier was not found on the rate confirmation.'
         : carrierOk
           ? 'Carrier matches Excel file name.'
           : `Carrier on Excel file (${fileCarrier}) does not match the paperwork carrier (${docCarrier}).`,

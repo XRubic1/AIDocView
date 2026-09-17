@@ -26,6 +26,12 @@ function isStaffRole(value: unknown): value is StaffRole {
   return typeof value === 'string' && (STAFF_ROLES as readonly string[]).includes(value)
 }
 
+/** Built-in role or custom_* id created in the Users → Roles UI. */
+function isAssignableRole(value: unknown): value is string {
+  if (isStaffRole(value)) return true
+  return typeof value === 'string' && /^custom_[a-z0-9_]+$/.test(value)
+}
+
 function displayNameFromUser(user: {
   email?: string | null
   user_metadata?: Record<string, unknown> | null
@@ -44,8 +50,9 @@ function mapStaffUser(user: {
   app_metadata?: Record<string, unknown> | null
   user_metadata?: Record<string, unknown> | null
 }) {
-  const adminRole = isStaffRole(user.app_metadata?.admin_role)
-    ? user.app_metadata?.admin_role
+  const rawRole = user.app_metadata?.admin_role
+  const adminRole = isAssignableRole(rawRole)
+    ? rawRole
     : 'super_admin'
 
   return {
@@ -85,9 +92,27 @@ Deno.serve(async (req) => {
     const callerMeta = userData.user.app_metadata ?? {}
     if (callerMeta.role !== 'admin') return json({ error: 'Forbidden' }, 403)
 
-    const callerRole = isStaffRole(callerMeta.admin_role) ? callerMeta.admin_role : 'super_admin'
-    if (callerRole !== 'super_admin') {
-      return json({ error: 'Only Super Admins can manage users' }, 403)
+    const rawCallerRole = callerMeta.admin_role
+    const callerRole = isAssignableRole(rawCallerRole) ? rawCallerRole : 'super_admin'
+
+    let canManageUsers = callerRole === 'super_admin'
+    if (!canManageUsers && typeof callerRole === 'string' && callerRole.startsWith('custom_')) {
+      const { data: roleRow } = await supabaseAdmin
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'admin_custom_roles')
+        .maybeSingle()
+      const roles = Array.isArray(roleRow?.value) ? roleRow.value : []
+      const match = roles.find(
+        (row: { id?: unknown }) => row && typeof row === 'object' && row.id === callerRole
+      ) as { editPermissions?: unknown } | undefined
+      canManageUsers =
+        Array.isArray(match?.editPermissions) &&
+        match.editPermissions.includes('manage_users')
+    }
+
+    if (!canManageUsers) {
+      return json({ error: 'Only users with Manage users permission can manage staff' }, 403)
     }
 
     const body = await req.json().catch(() => ({}))
@@ -120,7 +145,7 @@ Deno.serve(async (req) => {
       if (password.length < 8) {
         return json({ error: 'Password must be at least 8 characters' }, 400)
       }
-      if (!isStaffRole(adminRole)) {
+      if (!isAssignableRole(adminRole)) {
         return json({ error: 'Invalid admin_role' }, 400)
       }
 
@@ -145,7 +170,7 @@ Deno.serve(async (req) => {
       const userId = typeof body.userId === 'string' ? body.userId : ''
       const adminRole = body.admin_role
       if (!userId) return json({ error: 'userId is required' }, 400)
-      if (!isStaffRole(adminRole)) return json({ error: 'Invalid admin_role' }, 400)
+      if (!isAssignableRole(adminRole)) return json({ error: 'Invalid admin_role' }, 400)
 
       if (userId === userData.user.id && adminRole !== 'super_admin') {
         return json({ error: 'You cannot remove your own Super Admin role' }, 400)

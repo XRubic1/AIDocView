@@ -15,13 +15,18 @@ import DocumentDownloadOverlay from '../ui/DocumentDownloadOverlay'
 import DocQualitySettingsWindow from './DocQualitySettingsWindow'
 import { getPdfJs } from '../../utils/getPdfJs'
 import {
-  DEFAULT_DOC_PAGE_QUALITY,
   autoCropFromCanvas,
   docPageCropClipPath,
   docPageQualityFilter,
   isDefaultDocPageQuality,
   type DocPageQuality,
 } from '../../utils/docPageQuality'
+import {
+  clearDocPageQuality,
+  cloneDocPageQuality,
+  loadDocPageQuality,
+  saveDocPageQuality,
+} from '../../utils/docPageQualityStore'
 
 export interface CompactDocItem {
   id: string
@@ -72,6 +77,11 @@ interface CompactPacketDocPaneProps {
   onEnsureDocument?: (docId: string) => void | Promise<void>
   /** Controlled active document (sync with attached lists). */
   activeDocId?: string | null
+  /**
+   * Bump this on each list click so the pane re-scrolls even when
+   * `activeDocId` is unchanged (e.g. user scrolled away then clicked again).
+   */
+  scrollRequestId?: number
   onActiveDocChange?: (docId: string | null) => void
   dropKind?: 'rate_confirmation' | 'bill_of_lading'
   onDropDocument?: (payload: PacketDocDragPayload) => void
@@ -85,6 +95,11 @@ interface CompactPacketDocPaneProps {
   highlightResetKey?: string | null
   /** Credyx-only: open page quality / crop window (temporary view filters). */
   allowQualityTools?: boolean
+  /**
+   * When set, quality prefs can be Save'd to localStorage under this key
+   * (e.g. `bol`, `rate_con`) and restored across invoices/sessions.
+   */
+  qualityStorageKey?: string
 }
 
 type PdfJsModule = typeof import('pdfjs-dist')
@@ -108,6 +123,33 @@ interface BundlePage {
 function isPdfFile(file: File, name: string): boolean {
   const lower = name.toLowerCase()
   return lower.endsWith('.pdf') || file.type === 'application/pdf'
+}
+
+/**
+ * Decide PDF vs image from magic bytes first (handoff uploads often lack .pdf
+ * or arrive as application/octet-stream — those used to render as broken images).
+ */
+async function resolveIsPdf(file: File, name: string): Promise<boolean> {
+  try {
+    const { sniffBlobMime, headerLooksLikeImage, headerLooksLikePdf } = await import(
+      '../../utils/fileMimeSniff'
+    )
+    const header = new Uint8Array(await file.slice(0, 16).arrayBuffer())
+    if (headerLooksLikePdf(header)) return true
+    if (headerLooksLikeImage(header)) return false
+    const sniffed = await sniffBlobMime(file, name || file.name, file.type)
+    if (sniffed === 'application/pdf') return true
+    if (sniffed.startsWith('image/')) return false
+  } catch {
+    /* fall through */
+  }
+  // Unknown bytes: try PDF when extension/MIME say so, else still try PDF
+  // (rate cons are often PDFs with odd camera/export names).
+  if (isPdfFile(file, name)) return true
+  const lower = (name || file.name || '').toLowerCase()
+  if (/\.(png|jpe?g|gif|webp|heic|heif|tif|tiff)$/i.test(lower)) return false
+  // No clear image signal — prefer PDF so we don't show blank broken images.
+  return true
 }
 
 /** Normalize to 0 / 90 / 180 / 270. */
@@ -385,6 +427,7 @@ export default function CompactPacketDocPane({
   downloadProgress,
   onEnsureDocument,
   activeDocId,
+  scrollRequestId = 0,
   onActiveDocChange,
   dropKind,
   onDropDocument,
@@ -392,6 +435,7 @@ export default function CompactPacketDocPane({
   allowTempHighlight = false,
   highlightResetKey = null,
   allowQualityTools = false,
+  qualityStorageKey,
 }: CompactPacketDocPaneProps) {
   const [dragOver, setDragOver] = useState(false)
   const [bundlePages, setBundlePages] = useState<BundlePage[]>([])
@@ -409,10 +453,11 @@ export default function CompactPacketDocPane({
   /** Unscaled stack size — used to size the scrollable zoom space. */
   const [stackNatural, setStackNatural] = useState({ w: 0, h: 0 })
   const [qualityOpen, setQualityOpen] = useState(false)
-  const [pageQuality, setPageQuality] = useState<DocPageQuality>({
-    ...DEFAULT_DOC_PAGE_QUALITY,
-    crop: { ...DEFAULT_DOC_PAGE_QUALITY.crop },
-  })
+  const [pageQuality, setPageQuality] = useState<DocPageQuality>(() =>
+    qualityStorageKey
+      ? loadDocPageQuality(qualityStorageKey)
+      : cloneDocPageQuality()
+  )
   const [autoCropBusy, setAutoCropBusy] = useState(false)
   const pageCanvasByKeyRef = useRef<Map<string, HTMLCanvasElement>>(new Map())
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -435,6 +480,8 @@ export default function CompactPacketDocPane({
   onActiveDocChangeRef.current = onActiveDocChange
   /** Avoid scroll↔highlight feedback loops. */
   const lastDocIdRef = useRef<string | null>(null)
+  /** Tracks parent list-click bumps so we can re-jump to the same doc. */
+  const lastScrollRequestRef = useRef(0)
 
   /** Bust PDF cache when the generated invoice file is replaced under the same doc id. */
   const pdfRevisionKey = (docId: string, file: File) =>
@@ -485,18 +532,19 @@ export default function CompactPacketDocPane({
     if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
   }, [])
 
-  // Discard marks + zoom + quality when invoice/docs change — never persisted.
+  // Discard marks + zoom when invoice/docs change. Restore saved quality prefs when keyed.
   useEffect(() => {
     clearHighlights()
     setViewZoom(1)
     setMarquee(null)
     zoomDragRef.current = null
-    setPageQuality({
-      ...DEFAULT_DOC_PAGE_QUALITY,
-      crop: { ...DEFAULT_DOC_PAGE_QUALITY.crop },
-    })
+    setPageQuality(
+      qualityStorageKey
+        ? loadDocPageQuality(qualityStorageKey)
+        : cloneDocPageQuality()
+    )
     setQualityOpen(false)
-  }, [highlightResetKey, docsFingerprint, clearHighlights])
+  }, [highlightResetKey, docsFingerprint, clearHighlights, qualityStorageKey])
 
   const onPageCanvasReady = useCallback((pageKey: string, canvas: HTMLCanvasElement | null) => {
     if (canvas) pageCanvasByKeyRef.current.set(pageKey, canvas)
@@ -850,7 +898,10 @@ export default function CompactPacketDocPane({
       setBuilding(false)
       setBundlePages([])
       setPdfByDocId({})
-      setImageUrlByDocId({})
+      setImageUrlByDocId((prev) => {
+        Object.values(prev).forEach((url) => URL.revokeObjectURL(url))
+        return {}
+      })
       setVisibleBundleIndex(1)
       return
     }
@@ -866,37 +917,51 @@ export default function CompactPacketDocPane({
 
         for (const doc of docsWithFiles) {
           const file = doc.file!
-          if (isPdfFile(file, doc.name)) {
-            const revision = pdfRevisionKey(doc.id, file)
-            let pdf = pdfCacheRef.current.get(revision)
-            if (!pdf) {
-              // Drop prior revisions for this doc id so regenerated invoices refresh.
-              for (const key of [...pdfCacheRef.current.keys()]) {
-                if (key === revision || !key.startsWith(`${doc.id}::`)) continue
-                const stale = pdfCacheRef.current.get(key)
-                pdfCacheRef.current.delete(key)
-                void stale?.destroy?.().catch(() => undefined)
+          const preferPdf = await resolveIsPdf(file, doc.name)
+          let loadedAsPdf = false
+
+          if (preferPdf) {
+            try {
+              const revision = pdfRevisionKey(doc.id, file)
+              let pdf = pdfCacheRef.current.get(revision)
+              if (!pdf) {
+                // Drop prior revisions for this doc id so regenerated invoices refresh.
+                for (const key of [...pdfCacheRef.current.keys()]) {
+                  if (key === revision || !key.startsWith(`${doc.id}::`)) continue
+                  const stale = pdfCacheRef.current.get(key)
+                  pdfCacheRef.current.delete(key)
+                  void stale?.destroy?.().catch(() => undefined)
+                }
+                const data = await file.arrayBuffer()
+                pdf = await pdfjs.getDocument({ data }).promise
+                pdfCacheRef.current.set(revision, pdf)
               }
-              const data = await file.arrayBuffer()
-              pdf = await pdfjs.getDocument({ data }).promise
-              pdfCacheRef.current.set(revision, pdf)
+              pdfMap[doc.id] = pdf
+              const count = Math.max(1, pdf.numPages)
+              for (let p = 1; p <= count; p += 1) {
+                pages.push({
+                  key: `${revision}-p${p}`,
+                  docId: doc.id,
+                  docName: doc.name,
+                  generated: doc.generated,
+                  pageInDoc: p,
+                  bundleIndex,
+                  kind: 'pdf',
+                  file,
+                })
+                bundleIndex += 1
+              }
+              loadedAsPdf = true
+            } catch (err) {
+              console.warn(
+                '[CompactPacketDocPane] PDF open failed, falling back to image',
+                doc.name,
+                err
+              )
             }
-            pdfMap[doc.id] = pdf
-            const count = Math.max(1, pdf.numPages)
-            for (let p = 1; p <= count; p += 1) {
-              pages.push({
-                key: `${revision}-p${p}`,
-                docId: doc.id,
-                docName: doc.name,
-                generated: doc.generated,
-                pageInDoc: p,
-                bundleIndex,
-                kind: 'pdf',
-                file,
-              })
-              bundleIndex += 1
-            }
-          } else {
+          }
+
+          if (!loadedAsPdf) {
             imageMap[doc.id] = URL.createObjectURL(file)
             pages.push({
               key: `${doc.id}-p1`,
@@ -935,7 +1000,9 @@ export default function CompactPacketDocPane({
     return () => {
       cancelled = true
     }
-  }, [documents])
+    // Fingerprint (ids + file sizes) avoids rebuild churn from new array identities.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docsFingerprint])
 
   // Drop cached PDFs when docs leave the pane (keys are revision-scoped).
   useEffect(() => {
@@ -974,7 +1041,9 @@ export default function CompactPacketDocPane({
   // When the user picks a doc from the list, jump to its first page in the stack.
   useEffect(() => {
     if (!activeDocId || !scrollRef.current) return
-    if (lastDocIdRef.current === activeDocId) return
+    const forcedJump = scrollRequestId !== lastScrollRequestRef.current
+    if (forcedJump) lastScrollRequestRef.current = scrollRequestId
+    else if (lastDocIdRef.current === activeDocId) return
     const first = bundlePages.find((p) => p.docId === activeDocId)
     if (!first) return
     lastDocIdRef.current = activeDocId
@@ -983,7 +1052,7 @@ export default function CompactPacketDocPane({
     )
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     setVisibleBundleIndex(first.bundleIndex)
-  }, [activeDocId, bundlePages])
+  }, [activeDocId, bundlePages, scrollRequestId])
 
   const scrollToBundleIndex = (index: number) => {
     const clamped = Math.max(1, Math.min(totalPages, index))
@@ -1211,6 +1280,16 @@ export default function CompactPacketDocPane({
           onClose={() => setQualityOpen(false)}
           onAutoCrop={runAutoCropVisiblePage}
           autoCropBusy={autoCropBusy}
+          onSave={
+            qualityStorageKey
+              ? (q) => saveDocPageQuality(qualityStorageKey, q)
+              : undefined
+          }
+          onResetSaved={
+            qualityStorageKey
+              ? () => clearDocPageQuality(qualityStorageKey)
+              : undefined
+          }
         />
       ) : null}
     </section>

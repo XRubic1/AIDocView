@@ -15,12 +15,19 @@ import {
   EMAIL_LIFECYCLE_SETTINGS,
   type EmailLifecycleSettings,
 } from '../config/emailLifecycle'
+import {
+  DEFAULT_EMAIL_MAILBOXES,
+  EMAIL_MAILBOXES,
+  normalizeEmailMailboxes,
+  type EmailMailboxSettings,
+} from '../config/emailMailboxes'
 import { persistOrThrow } from './persistHelper'
 
 const AR_POLICY_KEY = 'ar_policy'
 const COLLECTIONS_POLICY_KEY = 'collections_policy'
 const BROKER_RISK_POLICY_KEY = 'broker_risk_policy'
 const BROKER_SNAPSHOT_TTL_KEY = 'broker_snapshot_ttl'
+const EMAIL_MAILBOXES_KEY = 'email_mailboxes'
 
 /** Defaults for MC Lookup Snapshot cache windows (days). */
 export const DEFAULT_BROKER_SNAPSHOT_TTL = {
@@ -480,5 +487,57 @@ export async function saveEmailLifecycleSettings(
   return normalized
 }
 
-export { BROKER_SNAPSHOT_TTL_KEY, COLLECTIONS_POLICY_KEY, BROKER_RISK_POLICY_KEY }
-export type { ArPolicyType, CollectionsPolicy, BrokerRiskPolicy }
+/** Load mailbox addresses (ops / billing / reply-to) from platform_settings. */
+export async function loadEmailMailboxes(): Promise<EmailMailboxSettings> {
+  if (!isSupabaseConfigured()) return normalizeEmailMailboxes(EMAIL_MAILBOXES)
+
+  const supabase = getSupabase()
+  if (!supabase) return normalizeEmailMailboxes(EMAIL_MAILBOXES)
+
+  const { data, error } = await supabase
+    .from('platform_settings')
+    .select('value')
+    .eq('key', EMAIL_MAILBOXES_KEY)
+    .maybeSingle()
+
+  if (error || !data?.value) return normalizeEmailMailboxes(null)
+  return normalizeEmailMailboxes(data.value as Partial<EmailMailboxSettings>)
+}
+
+/** Apply mailbox settings to the runtime singleton used by templates / contact links. */
+export function applyEmailMailboxes(settings: EmailMailboxSettings): void {
+  Object.assign(EMAIL_MAILBOXES, normalizeEmailMailboxes(settings))
+}
+
+/** Persist mailbox settings from admin Settings → Addresses. */
+export async function saveEmailMailboxes(
+  settings: EmailMailboxSettings
+): Promise<EmailMailboxSettings> {
+  const normalized = normalizeEmailMailboxes(settings)
+  applyEmailMailboxes(normalized)
+
+  if (!isSupabaseConfigured()) return normalized
+
+  const supabase = getSupabase()
+  if (!supabase) return normalized
+
+  await persistOrThrow('email_mailboxes', async () => {
+    const { error } = await supabase.from('platform_settings').upsert({
+      key: EMAIL_MAILBOXES_KEY,
+      value: normalized,
+      updated_at: new Date().toISOString(),
+    })
+    if (error) throw new Error(error.message)
+  })
+
+  return normalized
+}
+
+export {
+  BROKER_SNAPSHOT_TTL_KEY,
+  COLLECTIONS_POLICY_KEY,
+  BROKER_RISK_POLICY_KEY,
+  EMAIL_MAILBOXES_KEY,
+  DEFAULT_EMAIL_MAILBOXES,
+}
+export type { ArPolicyType, CollectionsPolicy, BrokerRiskPolicy, EmailMailboxSettings }

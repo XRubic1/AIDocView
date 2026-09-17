@@ -338,7 +338,7 @@ function pageForTopic(id: DocTopicId): DocPageContent {
           },
         ],
         facts: [
-          { label: 'Workspace', value: 'Payment Posting in OPERATIONS' },
+          { label: 'Workspace', value: 'Payment Posting in FINANCE' },
           { label: 'Short paid pill', value: 'Yellow / amber' },
           { label: 'Truth source', value: 'Confirmed payments drive A/R' },
         ],

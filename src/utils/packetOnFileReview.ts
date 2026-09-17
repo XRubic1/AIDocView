@@ -260,13 +260,14 @@ function carrierRow(packet: PacketOnFileContext, paperwork: PaperworkFields): Lo
       paper
     )
   }
+  // Carrier must appear on the RC — account-on-file alone is not enough to pass.
   return checkRow(
     'req_carrier',
     CHECK_LABELS.carrier,
-    onFile ? 'ok' : 'warning',
+    'issue',
     onFile
-      ? `Carrier on file (${onFile}); none found on paperwork.`
-      : 'Carrier was not found on the paperwork.',
+      ? `Carrier not found on the rate confirmation (expected ${onFile}).`
+      : 'Carrier was not found on the rate confirmation.',
     onFile,
     paper
   )
@@ -278,13 +279,16 @@ export function isCarrierMismatchIssue(snapshot: InvoiceAiReviewSnapshot | null 
   return (snapshot.requiredFailed ?? []).some((row) => row.id === 'req_carrier')
 }
 
-/** Carrier-visible hold reason when paperwork carrier ≠ account on file. */
+/** Carrier-visible review reason when paperwork carrier ≠ account on file (or missing on RC). */
 export function carrierMismatchHoldReason(
   onFile?: string | null,
   paperwork?: string | null
 ): string {
   const left = onFile?.trim() || 'account on file'
-  const right = paperwork?.trim() || 'paperwork carrier'
+  const right = paperwork?.trim()
+  if (!right) {
+    return `Carrier name not found on the rate confirmation — expected: ${left}.`
+  }
   return `Carrier name mismatch — on file: ${left}; paperwork: ${right}.`
 }
 
@@ -303,7 +307,15 @@ export function overlayPacketOnFileChecks(
   byId.set('req_amount', amountRow(packet, paperwork))
   byId.set('req_carrier', carrierRow(packet, paperwork))
 
-  const order = ['req_load', 'req_broker', 'req_amount', 'req_bol', 'req_stops', 'req_carrier']
+  const order = [
+    'req_load',
+    'req_broker',
+    'req_amount',
+    'req_bol',
+    'req_stops',
+    'req_carrier',
+    'req_page_count',
+  ]
   const ordered: LoadCheckRow[] = []
   for (const id of order) {
     const row = byId.get(id)

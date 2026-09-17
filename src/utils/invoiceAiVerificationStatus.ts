@@ -11,6 +11,16 @@ export interface InvoiceAiVerifyUiMeta {
 }
 
 /**
+ * True when Process batch can include this invoice.
+ * Human OK / Hold, or AI cleared (`ready`) without a Credyx Review flag.
+ */
+export function isInvoiceReadyToProcess(invoice: Invoice): boolean {
+  if (invoice.status === 'approved' || invoice.status === 'hold') return true
+  if (invoice.status === 'review') return false
+  return invoice.ai_review_status === 'ready'
+}
+
+/**
  * Map stored invoice + AI review fields to Reviewing / OK / Review / Needs review / Hold.
  * Human OK and Hold win over the AI finding for the list badge.
  */

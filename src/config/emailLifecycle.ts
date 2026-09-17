@@ -15,6 +15,8 @@ export type EmailLifecycleRuleId =
   | 'broker_claim_scope'
   | 'carrier_claim_or_hold_notice'
   | 'carrier_dispute_opened'
+  /** Ops alerts: intake / verification failures. */
+  | 'credyx_ops_issues'
 
 export type EmailLifecycleTrack = 'paperwork' | 'payment'
 
@@ -22,7 +24,7 @@ export interface EmailLifecycleRule {
   id: EmailLifecycleRuleId
   name: string
   description: string
-  audience: 'carrier' | 'broker' | 'staff'
+  audience: 'carrier' | 'broker' | 'staff' | 'ops'
 }
 
 export interface EmailLifecycleSettings {
@@ -35,36 +37,36 @@ export const EMAIL_LIFECYCLE_RULES: EmailLifecycleRule[] = [
   {
     id: 'batch_processed_carrier',
     name: 'Carrier — batch processed',
-    description: 'After Process: all-good or holds listed.',
+    description: 'After Process: all-good summary or holds listed.',
     audience: 'carrier',
   },
   {
     id: 'batch_processed_broker_ppw',
-    name: 'Broker — paperwork packet',
+    name: 'Broker — paperwork packet (PPW)',
     description: 'PPW packet after Process (skipped if broker does not accept packet email).',
     audience: 'broker',
   },
   {
     id: 'broker_paperwork_status_inquiry',
-    name: 'Broker — paperwork status (first)',
+    name: 'Chase — paperwork status (first)',
     description: 'First paperwork-status ask after PPW is delivered.',
     audience: 'broker',
   },
   {
     id: 'broker_paperwork_status_followup',
-    name: 'Broker — paperwork status (second)',
+    name: 'Chase — paperwork status (second)',
     description: 'Second paperwork follow-up if no reply.',
     audience: 'broker',
   },
   {
     id: 'broker_payment_status_inquiry',
-    name: 'Broker — payment status (first)',
+    name: 'Chase — payment status (first)',
     description: 'Only after paperwork status is logged good.',
     audience: 'broker',
   },
   {
     id: 'broker_payment_status_followup',
-    name: 'Broker — payment status (second)',
+    name: 'Chase — payment status (second)',
     description: 'Second payment follow-up if no reply.',
     audience: 'broker',
   },
@@ -85,6 +87,12 @@ export const EMAIL_LIFECYCLE_RULES: EmailLifecycleRule[] = [
     name: 'Carrier — account dispute opened',
     description: 'When Credyx opens a carrier × broker dispute.',
     audience: 'carrier',
+  },
+  {
+    id: 'credyx_ops_issues',
+    name: 'Ops — intake / verification issues',
+    description: 'Internal alerts to ops when batch intake or AI verification fails.',
+    audience: 'ops',
   },
 ]
 

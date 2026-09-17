@@ -81,33 +81,92 @@ function audienceForTemplate(template: EmailTemplate): FromAudience {
 }
 
 /**
- * Resolve From (+ optional Reply-To) from Edge secrets.
- * Brokers → RESEND_FROM_BROKER (e.g. billing@), carriers → RESEND_FROM_CARRIER (ops@),
- * falling back to RESEND_FROM_EMAIL.
+ * Resolve From (+ optional Reply-To) from platform_settings mailboxes, then Edge secrets.
+ * Brokers → billing, carriers → ops, admin → admin/ops, falling back to RESEND_FROM_EMAIL.
  */
-function resolveFromAddresses(template: EmailTemplate): { from: string; replyTo?: string } {
+type MailboxRow = {
+  opsEmail?: string
+  billingEmail?: string
+  adminEmail?: string
+  notificationsEmail?: string
+  replyToBroker?: string
+  replyToCarrier?: string
+  replyToAdmin?: string
+}
+
+function formatFrom(display: string, email: string): string {
+  return `${display} <${email.trim()}>`
+}
+
+function isEmail(value: string | undefined): value is string {
+  return Boolean(value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()))
+}
+
+async function loadPlatformMailboxes(): Promise<MailboxRow> {
+  try {
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    const url = Deno.env.get('SUPABASE_URL')
+    if (!serviceKey || !url) return {}
+    const admin = createClient(url, serviceKey)
+    const { data } = await admin
+      .from('platform_settings')
+      .select('value')
+      .eq('key', 'email_mailboxes')
+      .maybeSingle()
+    return (data?.value as MailboxRow) || {}
+  } catch (err) {
+    console.warn('[send-email] mailbox settings load failed', err)
+    return {}
+  }
+}
+
+async function resolveFromAddresses(
+  template: EmailTemplate
+): Promise<{ from: string; replyTo?: string }> {
   const fallback = Deno.env.get('RESEND_FROM_EMAIL') ?? 'Credyx <onboarding@resend.dev>'
   const audience = audienceForTemplate(template)
+  const mailboxes = await loadPlatformMailboxes()
 
-  const brokerFrom = Deno.env.get('RESEND_FROM_BROKER')?.trim()
-  const carrierFrom = Deno.env.get('RESEND_FROM_CARRIER')?.trim()
-  const adminFrom = Deno.env.get('RESEND_FROM_ADMIN')?.trim()
+  const brokerFromSecret = Deno.env.get('RESEND_FROM_BROKER')?.trim()
+  const carrierFromSecret = Deno.env.get('RESEND_FROM_CARRIER')?.trim()
+  const adminFromSecret = Deno.env.get('RESEND_FROM_ADMIN')?.trim()
 
   let from = fallback
-  if (audience === 'broker' && brokerFrom) from = brokerFrom
-  else if (audience === 'carrier' && carrierFrom) from = carrierFrom
-  else if (audience === 'admin' && adminFrom) from = adminFrom
+  if (audience === 'broker') {
+    if (isEmail(mailboxes.billingEmail)) from = formatFrom('Credyx Billing', mailboxes.billingEmail)
+    else if (brokerFromSecret) from = brokerFromSecret
+  } else if (audience === 'carrier') {
+    if (isEmail(mailboxes.opsEmail)) from = formatFrom('Credyx Ops', mailboxes.opsEmail)
+    else if (carrierFromSecret) from = carrierFromSecret
+  } else if (audience === 'admin') {
+    const adminEmail = mailboxes.adminEmail || mailboxes.opsEmail
+    if (isEmail(adminEmail)) from = formatFrom('Credyx Ops', adminEmail)
+    else if (adminFromSecret) from = adminFromSecret
+  } else if (isEmail(mailboxes.notificationsEmail)) {
+    from = formatFrom('Credyx', mailboxes.notificationsEmail)
+  }
 
   const replyDefault = Deno.env.get('RESEND_REPLY_TO')?.trim()
-  const replyBroker = Deno.env.get('RESEND_REPLY_TO_BROKER')?.trim()
-  const replyCarrier = Deno.env.get('RESEND_REPLY_TO_CARRIER')?.trim()
-  const replyAdmin = Deno.env.get('RESEND_REPLY_TO_ADMIN')?.trim()
+  const replyBrokerSecret = Deno.env.get('RESEND_REPLY_TO_BROKER')?.trim()
+  const replyCarrierSecret = Deno.env.get('RESEND_REPLY_TO_CARRIER')?.trim()
+  const replyAdminSecret = Deno.env.get('RESEND_REPLY_TO_ADMIN')?.trim()
 
   let replyTo: string | undefined
-  if (audience === 'broker') replyTo = replyBroker || replyDefault
-  else if (audience === 'carrier') replyTo = replyCarrier || replyDefault
-  else if (audience === 'admin') replyTo = replyAdmin || replyDefault
-  else replyTo = replyDefault
+  if (audience === 'broker') {
+    replyTo = isEmail(mailboxes.replyToBroker)
+      ? mailboxes.replyToBroker!.trim()
+      : replyBrokerSecret || replyDefault
+  } else if (audience === 'carrier') {
+    replyTo = isEmail(mailboxes.replyToCarrier)
+      ? mailboxes.replyToCarrier!.trim()
+      : replyCarrierSecret || replyDefault
+  } else if (audience === 'admin') {
+    replyTo = isEmail(mailboxes.opsEmail)
+      ? mailboxes.opsEmail!.trim()
+      : replyAdminSecret || replyDefault
+  } else {
+    replyTo = replyDefault
+  }
 
   return { from, replyTo: replyTo || undefined }
 }
@@ -657,7 +716,7 @@ Deno.serve(async (req) => {
     }
 
     const resendKey = Deno.env.get('RESEND_API_KEY')
-    const { from, replyTo } = resolveFromAddresses(payload.template)
+    const { from, replyTo } = await resolveFromAddresses(payload.template)
 
     if (!resendKey) {
       console.log('[send-email] stub — RESEND_API_KEY not configured', {

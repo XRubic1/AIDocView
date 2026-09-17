@@ -34,6 +34,7 @@ import { getInvoiceAiReviewCache, setInvoiceAiReviewCache } from '../../data/inv
 import {
   invoiceAiVerifyBadgeClass,
   invoiceAiVerifyUi,
+  isInvoiceReadyToProcess,
 } from '../../utils/invoiceAiVerificationStatus'
 import { isAIReviewEnabled } from '../../config/aiReview'
 import {
@@ -398,7 +399,8 @@ export default function BatchAiVerificationWorkspace({
     [batchId, showToast, refreshInvoices, reviewing, applyReviewProgress]
   )
 
-  // Finalize from DocSort extracts only — never re-scan paperwork on open.
+  // Pull AI checks from DocSort extract JSON only — never re-scan paperwork on open.
+  // Vision already ran during packet creation; Verification is human OK/Hold on those results.
   useEffect(() => {
     if (loading || !draft || autoReviewStarted.current) return
     if (batch?.status === 'creating' || batch?.sort_status === 'sorting') return
@@ -407,16 +409,22 @@ export default function BatchAiVerificationWorkspace({
       (inv) => !inv.ai_review_status || inv.ai_review_status === 'not_run'
     )
     if (!needsRun) return
+    if (!isAIReviewEnabled()) return
+
     autoReviewStarted.current = true
     if (batch && batch.status === 'ready_to_post') {
       updateBatchStatus(batchId, 'verification')
     }
     void (async () => {
       try {
+        // allowVision: false → assembleBatchReviewFromDocuments(reviewsFromCatalog)
         await runBatchAiReview(batchId, undefined, { allowVision: false })
         refreshInvoices()
       } catch (err) {
         console.warn('[BatchAiVerificationWorkspace] extract finalize failed', err)
+      } finally {
+        settleBatchAiGate(batchId)
+        refreshInvoices()
       }
     })()
   }, [loading, draft, invoices, batch, batchId, refreshInvoices])
@@ -799,7 +807,7 @@ export default function BatchAiVerificationWorkspace({
     showToast('Packet + invoice pages updated. Carrier stayed as the submitting account.', 'success')
   }
 
-  const verifiedCount = invoices.filter((inv) => inv.status === 'approved' || inv.status === 'hold').length
+  const verifiedCount = invoices.filter((inv) => isInvoiceReadyToProcess(inv)).length
   const allVerified = invoices.length > 0 && verifiedCount === invoices.length
   const holdCount = invoices.filter((inv) => inv.status === 'hold').length
   const reviewCount = invoices.filter((inv) => inv.status === 'review').length
@@ -831,16 +839,21 @@ export default function BatchAiVerificationWorkspace({
   const liveBatch = getBatchById(batchId) ?? batch
   const packetsReady = liveBatch ? canOpenPacketRework(liveBatch) : false
   const stillCreating =
-    liveBatch?.status === 'creating' ||
-    (liveBatch?.sort_status === 'sorting' && invoices.length === 0) ||
-    (invoices.length === 0 &&
-      (liveBatch?.upload_mode === 'ai' || liveBatch?.upload_mode === 'handoff'))
+    liveBatch?.status !== 'rework' &&
+    (liveBatch?.status === 'creating' ||
+      (liveBatch?.sort_status === 'sorting' && invoices.length === 0) ||
+      (invoices.length === 0 &&
+        liveBatch?.sort_status !== 'failed' &&
+        (liveBatch?.upload_mode === 'ai' || liveBatch?.upload_mode === 'handoff')))
 
   const handleProcess = async () => {
     if (!batch || processing) return
-    if (!allVerified) {
+    // Prefer live store so AI-ready invoices match Process gate after refresh.
+    const live = getInvoicesByBatchId(batchId)
+    const readyCount = live.filter((inv) => isInvoiceReadyToProcess(inv)).length
+    if (live.length === 0 || readyCount !== live.length) {
       showToast(
-        `Set every invoice to OK or Hold before processing (${verifiedCount}/${invoices.length}).`,
+        `Set every invoice to OK or Hold before processing (${readyCount}/${live.length || invoices.length}).`,
         'error'
       )
       return
@@ -857,6 +870,7 @@ export default function BatchAiVerificationWorkspace({
       })
       if (!result.ok) {
         showToast(result.error ?? 'Batch processing failed', 'error')
+        refreshInvoices()
         return
       }
       showToast(
@@ -869,6 +883,7 @@ export default function BatchAiVerificationWorkspace({
       onClose()
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Batch processing failed', 'error')
+      refreshInvoices()
     } finally {
       setProcessing(false)
     }
@@ -980,9 +995,10 @@ export default function BatchAiVerificationWorkspace({
             className="dashboard-btn-secondary !h-8"
             disabled={reviewing || invoices.length === 0 || stillCreating}
             onClick={() => void runAiReview()}
+            title="Packet creation already scanned paperwork into JSON. Use this only when extracts are missing (e.g. manual packets) or you want a forced re-scan."
           >
             <Sparkles className="w-3.5 h-3.5" />
-            {reviewing ? 'Reviewing…' : 'Run AI review'}
+            {reviewing ? 'Reviewing…' : 'Re-scan paperwork'}
           </button>
           <button
             type="button"
@@ -1009,6 +1025,31 @@ export default function BatchAiVerificationWorkspace({
             This page updates live. When invoices appear you can review extracted fields and AI
             checks. Packet rework unlocks when the batch is ready.
           </p>
+        </div>
+      ) : liveBatch?.status === 'rework' && invoices.length === 0 ? (
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 p-8">
+          <p className="text-sm font-medium" style={{ color: c.primary }}>
+            Manual creation — no invoices yet
+          </p>
+          <p className="text-xs text-center max-w-md" style={{ color: c.secondary }}>
+            AI packet creation was stopped. Open Packet Rework to assign uploaded documents into
+            packets.
+          </p>
+          <div className="flex flex-wrap gap-2 justify-center">
+            {onOpenPackets ? (
+              <button
+                type="button"
+                className="dashboard-btn-primary"
+                onClick={() => onOpenPackets(batchId)}
+              >
+                Open Packet Rework
+              </button>
+            ) : null}
+            <button type="button" className="dashboard-btn-secondary" onClick={onClose}>
+              <ArrowLeft className="w-4 h-4" />
+              Back to batches
+            </button>
+          </div>
         </div>
       ) : (
       <div className="flex-1 min-h-0 overflow-hidden client-ai-upload">
@@ -1692,6 +1733,7 @@ export default function BatchAiVerificationWorkspace({
               onEnsureDocument={ensureDocumentFile}
               allowTempHighlight
               allowQualityTools
+              qualityStorageKey="rate_con"
               highlightResetKey={selectedId}
             />
             <CompactPacketDocPane
@@ -1701,6 +1743,7 @@ export default function BatchAiVerificationWorkspace({
               onEnsureDocument={ensureDocumentFile}
               allowTempHighlight
               allowQualityTools
+              qualityStorageKey="bol"
               highlightResetKey={selectedId}
             />
           </div>

@@ -11,6 +11,9 @@ export type OpenAiJobAuth = {
 let jobAuth: OpenAiJobAuth | null = null
 let cachedAccessToken: string | null = null
 let cachedAtMs = 0
+/** Carrier whose AI spend should be attributed (batch / portal). */
+let spendClientId: string | null = null
+let spendFeature: string | null = null
 
 const TOKEN_TTL_MS = 55 * 60 * 1000
 
@@ -41,16 +44,38 @@ export function getOpenAiJobAuth(): OpenAiJobAuth | null {
   return jobAuth
 }
 
-/** Run `fn` with job auth attached; clears afterward. */
+/** Run work with job-bound OpenAI auth; restores prior binding afterward. */
 export async function withOpenAiJobAuth<T>(
-  auth: OpenAiJobAuth | null,
+  next: OpenAiJobAuth | null,
   fn: () => Promise<T>
 ): Promise<T> {
-  const prev = jobAuth
-  jobAuth = auth
+  const previous = jobAuth
+  jobAuth = next
   try {
     return await fn()
   } finally {
-    jobAuth = prev
+    jobAuth = previous
   }
+}
+
+/** Attribute token spend to a carrier (and optional feature label). */
+export function setOpenAiSpendContext(next: {
+  clientId?: string | null
+  feature?: string | null
+} | null): void {
+  if (!next) {
+    spendClientId = null
+    spendFeature = null
+    return
+  }
+  if (next.clientId !== undefined) spendClientId = next.clientId || null
+  if (next.feature !== undefined) spendFeature = next.feature || null
+}
+
+export function getOpenAiSpendClientId(): string | null {
+  return spendClientId
+}
+
+export function getOpenAiSpendFeature(): string | null {
+  return spendFeature
 }

@@ -9,6 +9,7 @@ import {
   type EmailAttachment,
 } from '../services/emailService'
 import { hasPpwBeenSent } from './ppwSent'
+import { isEmailLifecycleRuleEnabled } from '../config/emailLifecycle'
 import { resolveInvoiceDocumentsAsync } from './resolveInvoiceDocuments'
 import {
   getClientDocumentFile,
@@ -173,6 +174,9 @@ export async function sendBrokerPacketForInvoice(
     skipIfAlreadySent?: boolean
   }
 ): Promise<BrokerPacketSendResult> {
+  if (!isEmailLifecycleRuleEnabled('batch_processed_broker_ppw')) {
+    return { success: true, skipped: true, error: 'Broker paperwork emails disabled' }
+  }
   if (opts.skipIfAlreadySent && hasPpwBeenSent(invoice)) {
     return { success: true, skipped: true }
   }

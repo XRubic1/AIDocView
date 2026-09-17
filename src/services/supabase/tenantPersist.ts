@@ -286,7 +286,7 @@ export async function listStoredBatchDocuments(
   return nested.flat()
 }
 
-/** Download a batch document from storage. */
+/** Download a batch document from storage (MIME sniffed from bytes). */
 export async function downloadBatchDocument(
   storagePath: string,
   fileName: string,
@@ -297,7 +297,9 @@ export async function downloadBatchDocument(
 
   const { data, error } = await supabase.storage.from('batch-documents').download(storagePath)
   if (error || !data) return null
-  return new File([data], fileName, { type: mimeType })
+
+  const { fileWithSniffedMime } = await import('../../utils/fileMimeSniff')
+  return fileWithSniffedMime(data, fileName, mimeType)
 }
 
 /** Upload new files and persist invoice document metadata. */
@@ -576,5 +578,6 @@ export async function downloadClientDocumentFile(
 
   const { data, error } = await supabase.storage.from('client-documents').download(storagePath)
   if (error || !data) return null
-  return new File([data], fileName, { type: mimeType })
+  const { fileWithSniffedMime } = await import('../../utils/fileMimeSniff')
+  return fileWithSniffedMime(data, fileName, mimeType)
 }

@@ -202,10 +202,20 @@ export function ensureBrokerRiskProfile(args: EnsureBrokerRiskArgs): BrokerRiskP
   void persistBrokerRiskProfile(profile, evidence).catch(console.error)
   maybeNotifyUrgentBrokerRisk(profile, args.brokerName)
 
-  // Audit when analysis newly flags a broker for Credyx review.
+  // Audit when analysis newly flags a broker for Credyx review (once per broker).
   const wasPending = existing?.review_status === 'pending_review'
-  if (profile.review_status === 'pending_review' && !wasPending && !priorDecision) {
-    const client = getClientById(args.clientId)
+  const alreadyFlaggedForBroker = listLatestBrokerRiskProfiles().some(
+    (row) =>
+      row.broker_id === args.brokerId &&
+      row.client_id !== args.clientId &&
+      row.review_status === 'pending_review'
+  )
+  if (
+    profile.review_status === 'pending_review' &&
+    !wasPending &&
+    !priorDecision &&
+    !alreadyFlaggedForBroker
+  ) {
     const levelLabel =
       profile.computed_risk_level === 'high'
         ? 'High'
@@ -216,8 +226,6 @@ export function ensureBrokerRiskProfile(args: EnsureBrokerRiskArgs): BrokerRiskP
       action: 'broker_risk_flagged',
       brokerId: args.brokerId,
       brokerName: args.brokerName,
-      clientId: args.clientId,
-      clientName: client?.name,
       reviewedBy: 'System',
       description: `Flagged for review — ${levelLabel} risk (${args.brokerName})`,
       fromStatus: existing?.review_status ?? null,
@@ -238,6 +246,8 @@ export type PublishBrokerRiskArgs = {
   riskLevel?: BrokerRiskLevel
   reviewNote?: string
   reviewedBy: string
+  /** Skip audit when applying the same broker decision across multiple carriers. */
+  skipAuditLog?: boolean
 }
 
 /** Credyx publishes elevated risk to the carrier. */
@@ -270,16 +280,13 @@ export async function publishBrokerRisk(
 
     const brokerName =
       mockBrokers.find((b) => b.id === args.brokerId)?.name ?? args.brokerId
-    const client = getClientById(args.clientId)
     const levelLabel = nextLevel === 'high' ? 'High' : 'Medium'
     const sameStatus = existing.review_status === 'published'
     const levelChanged = sameStatus && existing.risk_level !== nextLevel
-    logBrokerRiskAudit({
+    if (!args.skipAuditLog) logBrokerRiskAudit({
       action: levelChanged ? 'broker_risk_level_changed' : 'broker_risk_published',
       brokerId: args.brokerId,
       brokerName,
-      clientId: args.clientId,
-      clientName: client?.name,
       reviewedBy: args.reviewedBy,
       description: levelChanged
         ? `Risk level changed to ${levelLabel} for ${brokerName}`
@@ -301,6 +308,7 @@ export async function clearBrokerRisk(args: {
   brokerId: string
   reviewNote: string
   reviewedBy: string
+  skipAuditLog?: boolean
 }): Promise<BrokerRiskProfile | null> {
   const note = args.reviewNote.trim()
   if (!note) return null
@@ -323,22 +331,21 @@ export async function clearBrokerRisk(args: {
 
     const brokerName =
       mockBrokers.find((b) => b.id === args.brokerId)?.name ?? args.brokerId
-    const client = getClientById(args.clientId)
-    logBrokerRiskAudit({
-      action: 'broker_risk_cleared',
-      brokerId: args.brokerId,
-      brokerName,
-      clientId: args.clientId,
-      clientName: client?.name,
-      reviewedBy: args.reviewedBy,
-      description: `Risk removed for ${brokerName}`,
-      fromStatus: existing?.review_status ?? null,
-      toStatus: 'cleared',
-      fromLevel: existing?.risk_level ?? null,
-      toLevel: 'low',
-      note,
-      severity: 'info',
-    })
+    if (!args.skipAuditLog) {
+      logBrokerRiskAudit({
+        action: 'broker_risk_cleared',
+        brokerId: args.brokerId,
+        brokerName,
+        reviewedBy: args.reviewedBy,
+        description: `Risk removed for ${brokerName}`,
+        fromStatus: existing?.review_status ?? null,
+        toStatus: 'cleared',
+        fromLevel: existing?.risk_level ?? null,
+        toLevel: 'low',
+        note,
+        severity: 'info',
+      })
+    }
   }
   return updated
 }
@@ -349,6 +356,7 @@ export async function saveBrokerRiskReviewNote(args: {
   brokerId: string
   reviewNote: string
   reviewedBy: string
+  skipAuditLog?: boolean
 }): Promise<BrokerRiskProfile | null> {
   const note = args.reviewNote.trim()
   if (!note) return null
@@ -364,22 +372,21 @@ export async function saveBrokerRiskReviewNote(args: {
 
     const brokerName =
       mockBrokers.find((b) => b.id === args.brokerId)?.name ?? args.brokerId
-    const client = getClientById(args.clientId)
-    logBrokerRiskAudit({
-      action: 'broker_risk_note_updated',
-      brokerId: args.brokerId,
-      brokerName,
-      clientId: args.clientId,
-      clientName: client?.name,
-      reviewedBy: args.reviewedBy,
-      description: `Review note updated for ${brokerName}`,
-      fromStatus: existing?.review_status ?? null,
-      toStatus: existing?.review_status ?? null,
-      fromLevel: existing?.risk_level ?? null,
-      toLevel: existing?.risk_level ?? null,
-      note,
-      severity: 'info',
-    })
+    if (!args.skipAuditLog) {
+      logBrokerRiskAudit({
+        action: 'broker_risk_note_updated',
+        brokerId: args.brokerId,
+        brokerName,
+        reviewedBy: args.reviewedBy,
+        description: `Review note updated for ${brokerName}`,
+        fromStatus: existing?.review_status ?? null,
+        toStatus: existing?.review_status ?? null,
+        fromLevel: existing?.risk_level ?? null,
+        toLevel: existing?.risk_level ?? null,
+        note,
+        severity: 'info',
+      })
+    }
   }
   return updated
 }

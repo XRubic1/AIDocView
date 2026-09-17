@@ -6,7 +6,7 @@ import {
   Phone,
   Calculator,
   ScrollText,
-  Building2,
+  Contact,
   Users,
   UserCog,
   Settings,
@@ -19,6 +19,7 @@ import {
   Bell,
   Briefcase,
   ShieldAlert,
+  ScanSearch,
   Inbox,
   type LucideIcon,
 } from 'lucide-react'
@@ -45,16 +46,38 @@ export interface AdminNavSection {
   items: AdminNavItem[]
 }
 
+/**
+ * Admin sidebar — grouped by daily work, not a flat dump.
+ * TODAY → A/R → BROKERS → FINANCE → PEOPLE → SYSTEM
+ */
 export const adminNavSections: AdminNavSection[] = [
   {
-    title: 'MAIN',
+    title: 'TODAY',
     items: [
       { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
+      { label: 'Work Queue', path: '/admin/work-queue', icon: Briefcase },
+      { label: 'Inbox', path: '/admin/inbox', icon: Inbox },
+      { label: 'Calendar', path: '/admin/calendar', icon: CalendarDays },
+      { label: 'Notifications', path: '/admin/notifications', icon: Bell },
+    ],
+  },
+  {
+    title: 'A/R',
+    items: [
       { label: 'Batches', path: '/batches', icon: Boxes, badgeKey: 'pendingBatches' },
-      { label: 'Invoices', path: '/invoices', icon: FileText, badgeKeys: ['pendingPayments', 'pendingWriteOffs'] },
+      {
+        label: 'Invoices',
+        path: '/invoices',
+        icon: FileText,
+        badgeKeys: ['pendingPayments', 'pendingWriteOffs'],
+      },
       { label: 'Aging A/R', path: '/aging-ar', icon: BarChart3 },
       { label: 'Collections', path: '/collections', icon: Phone },
-      { label: 'Inbox', path: '/admin/inbox', icon: Inbox },
+    ],
+  },
+  {
+    title: 'BROKERS',
+    items: [
       {
         label: 'Broker Risk',
         path: '/admin/broker-risk',
@@ -64,18 +87,14 @@ export const adminNavSections: AdminNavSection[] = [
       {
         label: 'Broker Snapshot',
         path: '/admin/broker-snapshot',
-        icon: Building2,
+        icon: ScanSearch,
         badgeKey: 'pendingBrokerSnapshot',
       },
-      { label: 'Calendar', path: '/admin/calendar', icon: CalendarDays },
-      { label: 'Assistant', path: '/admin/assistant', icon: MessageCircle },
-      { label: 'Work Queue', path: '/admin/work-queue', icon: Briefcase },
-      { label: 'Notifications', path: '/admin/notifications', icon: Bell },
-      { label: 'Docs', path: '/docs', icon: BookOpen },
+      { label: 'Brokers', path: '/brokers', icon: Contact },
     ],
   },
   {
-    title: 'OPERATIONS',
+    title: 'FINANCE',
     items: [
       { label: 'Accounting', path: '/accounting', icon: Calculator },
       {
@@ -89,17 +108,20 @@ export const adminNavSections: AdminNavSection[] = [
     ],
   },
   {
-    title: 'DIRECTORY',
+    title: 'PEOPLE',
     items: [
-      { label: 'Brokers', path: '/brokers', icon: Building2 },
       { label: 'Clients', path: '/clients', icon: Users },
       { label: 'Waitlist', path: '/admin/waitlist', icon: Megaphone },
       { label: 'Users', path: '/users', icon: UserCog },
     ],
   },
   {
-    title: 'ACCOUNT',
-    items: [{ label: 'Settings', path: '/settings', icon: Settings }],
+    title: 'SYSTEM',
+    items: [
+      { label: 'Assistant', path: '/admin/assistant', icon: MessageCircle },
+      { label: 'Docs', path: '/docs', icon: BookOpen },
+      { label: 'Settings', path: '/settings', icon: Settings },
+    ],
   },
 ]
 

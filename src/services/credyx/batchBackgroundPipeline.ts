@@ -13,6 +13,9 @@ import { runHappyPathAfterAiReview } from './batchHappyPath'
 import type { BatchProcessingJobKind } from './batchProcessingJobs'
 import { listHandoffDocumentMeta } from '../../utils/resolveHandoffDocuments'
 import { notifyTenantDataUpdated } from '../supabase/tenantDataLiveSync'
+import { evaluateAiSpendAllow } from '../aiSpendService'
+import { setOpenAiSpendContext } from '../../utils/openaiAuthContext'
+import { markBatchNeedsRework } from '../batchReworkService'
 
 const inflight = new Set<string>()
 
@@ -148,31 +151,45 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
   }
 
   const files = await hydrateHandoffFiles(batchId, batch.client_id)
-  if (files.length === 0) return false
+  if (files.length === 0) {
+    await markBatchNeedsRework(
+      batchId,
+      'No paperwork files found in storage or memory for DocSort. Credyx can upload/assign docs in rework, then retry packet creation.'
+    )
+    return false
+  }
 
   updateBatch(batchId, { status: 'creating', sort_status: 'sorting' })
   notifyTenantDataUpdated(['batches'], batch.client_id)
 
-  const { runBatchIntakePipeline, submitAiBatch } = await import('./batchIntakePipeline')
-  const intake = await runBatchIntakePipeline(files, batch.client_id)
-  if (intake.invoices.length === 0) {
-    updateBatch(batchId, { sort_status: 'failed', status: 'ready_to_post' })
-    notifyTenantDataUpdated(['batches'], batch.client_id)
+  try {
+    const { runBatchIntakePipeline, submitAiBatch } = await import('./batchIntakePipeline')
+    const intake = await runBatchIntakePipeline(files, batch.client_id)
+    if (intake.invoices.length === 0) {
+      await markBatchNeedsRework(
+        batchId,
+        'DocSort finished but produced 0 invoice packets. Documents are still on the batch — create packets manually or retry AI.'
+      )
+      return false
+    }
+
+    await submitAiBatch({
+      clientId: batch.client_id,
+      clientName: batch.client_name,
+      drafts: intake.invoices.map((inv) => ({ ...inv, confirmed: true })),
+      sortResult: intake.sortResult,
+      fileById: intake.fileById,
+      confirmedBy: batch.client_name || 'Carrier',
+      existingBatchId: batchId,
+      uploadMode: 'handoff',
+    })
+    notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
+    return true
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'DocSort / packet creation failed'
+    await markBatchNeedsRework(batchId, message)
     return false
   }
-
-  await submitAiBatch({
-    clientId: batch.client_id,
-    clientName: batch.client_name,
-    drafts: intake.invoices.map((inv) => ({ ...inv, confirmed: true })),
-    sortResult: intake.sortResult,
-    fileById: intake.fileById,
-    confirmedBy: batch.client_name || 'Carrier',
-    existingBatchId: batchId,
-    uploadMode: 'handoff',
-  })
-  notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
-  return true
 }
 
 /**
@@ -188,7 +205,10 @@ export async function runBatchBackgroundPipeline(opts: {
 
   try {
     if (!isAIReviewEnabled()) {
-      await markJob(batchId, 'failed', 'AI review is not configured')
+      await markBatchNeedsRework(
+        batchId,
+        'AI review is not configured (openai-proxy / OPENAI_API_KEY). Documents remain available for manual packet creation.'
+      )
       return
     }
 
@@ -198,16 +218,23 @@ export async function runBatchBackgroundPipeline(opts: {
       return
     }
 
+    // Master / per-client AI off or spend cap: keep docs uploaded, skip AI packets/review.
+    const spend = await evaluateAiSpendAllow(batch.client_id)
+    if (!spend.allowed) {
+      updateBatch(batchId, { sort_status: 'pending', status: 'ready_to_post' })
+      await markJob(batchId, 'succeeded', spend.message)
+      notifyTenantDataUpdated(['batches'], batch.client_id)
+      return
+    }
+
+    setOpenAiSpendContext({ clientId: batch.client_id, feature: 'review' })
+
     let invoices = getInvoicesByBatchId(batchId)
     if (invoices.length === 0) {
       await markJob(batchId, 'running')
       const created = await createInvoicesFromHandoffDocs(batchId)
       if (!created) {
-        await markJob(
-          batchId,
-          'failed',
-          'Could not create invoices from paperwork — Credyx will follow up'
-        )
+        // createInvoicesFromHandoffDocs already moved the batch to rework.
         return
       }
       invoices = getInvoicesByBatchId(batchId)
@@ -242,6 +269,8 @@ export async function runBatchBackgroundPipeline(opts: {
       updateInvoice(inv.id, { ai_review_status: 'not_run' })
     }
 
+    // Finalize checks from DocSort extract JSON (destinations / matches already done
+    // during packet creation). No second vision pass — use "Run AI review" only if extracts missing.
     const outcomes = await runBatchAiReview(batchId, undefined, { allowVision: false })
     settleBatchAiGate(batchId)
     updateBatch(batchId, { sort_status: 'ready', status: 'ready_to_post' })
@@ -258,10 +287,9 @@ export async function runBatchBackgroundPipeline(opts: {
     const message = err instanceof Error ? err.message : 'Background processing failed'
     console.error('[runBatchBackgroundPipeline]', batchId, message)
     settleBatchAiGate(batchId)
-    updateBatch(batchId, { sort_status: 'failed' })
-    await markJob(batchId, 'failed', message)
-    throw err
+    await markBatchNeedsRework(batchId, message)
   } finally {
+    setOpenAiSpendContext(null)
     inflight.delete(batchId)
   }
 }

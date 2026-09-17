@@ -4,6 +4,8 @@ import { updateInvoice } from '../../data/mockInvoices'
 import { setBatchFiles } from '../../data/batchFileStore'
 import { clearClientTenantCache } from '../../data/clientDemoData'
 import { isSupabaseConfigured } from '../../lib/supabase'
+import { evaluateAiSpendAllow } from '../aiSpendService'
+import { setOpenAiSpendContext } from '../../utils/openaiAuthContext'
 import {
   persistInvoice,
   uploadBatchInvoiceDocuments,
@@ -56,46 +58,55 @@ export async function runBatchIntakePipeline(
       'AI review requires Supabase configuration. Deploy the openai-proxy Edge Function with OPENAI_API_KEY.'
     )
   }
+  const spend = await evaluateAiSpendAllow(clientId)
+  if (!spend.allowed) {
+    throw new Error(spend.message)
+  }
   if (files.length === 0) {
     throw new Error('Upload at least one document.')
   }
 
-  const uploads = filesToUploads(files)
-  const sortResult = await runDocSort(uploads, onProgress)
+  setOpenAiSpendContext({ clientId, feature: 'docsort' })
+  try {
+    const uploads = filesToUploads(files)
+    const sortResult = await runDocSort(uploads, onProgress)
 
-  const fileById = new Map<string, File>()
-  uploads.forEach((u) => fileById.set(u.id, u.file))
+    const fileById = new Map<string, File>()
+    uploads.forEach((u) => fileById.set(u.id, u.file))
 
-  const drafted = invoiceDraftGroupsFromSort(sortResult)
-  // Check DB + memory so we never reuse an existing carrier invoice #.
-  const existingNumbers = await loadClientInvoiceNumbers(clientId)
-  const usedInvoiceNumbers: string[] = [...existingNumbers]
-  const clientName = getClientById(clientId)?.name ?? ''
-  const invoices: BatchIntakeDraft['invoices'] = []
-  for (const group of drafted.groups) {
-    const draft = await buildCredyxDraftFromGroup(
-      group,
-      clientId,
-      usedInvoiceNumbers,
-      clientName
-    )
-    usedInvoiceNumbers.push(draft.invoice_number)
-    invoices.push(draft)
-  }
+    const drafted = invoiceDraftGroupsFromSort(sortResult)
+    // Check DB + memory so we never reuse an existing carrier invoice #.
+    const existingNumbers = await loadClientInvoiceNumbers(clientId)
+    const usedInvoiceNumbers: string[] = [...existingNumbers]
+    const clientName = getClientById(clientId)?.name ?? ''
+    const invoices: BatchIntakeDraft['invoices'] = []
+    for (const group of drafted.groups) {
+      const draft = await buildCredyxDraftFromGroup(
+        group,
+        clientId,
+        usedInvoiceNumbers,
+        clientName
+      )
+      usedInvoiceNumbers.push(draft.invoice_number)
+      invoices.push(draft)
+    }
 
-  const nextSort = {
-    ...sortResult,
-    unmatchedRateCons: drafted.unmatched.rateCons,
-    unmatchedBols: drafted.unmatched.bols,
-    otherDocuments: drafted.unmatched.other,
-  }
+    const nextSort = {
+      ...sortResult,
+      unmatchedRateCons: drafted.unmatched.rateCons,
+      unmatchedBols: drafted.unmatched.bols,
+      otherDocuments: drafted.unmatched.other,
+    }
 
-  return {
-    batchNumber: generateBatchNumber(clientId),
-    sortResult: nextSort,
-    invoices,
-    unmatched: drafted.unmatched,
-    fileById,
+    return {
+      batchNumber: generateBatchNumber(clientId),
+      sortResult: nextSort,
+      invoices,
+      unmatched: drafted.unmatched,
+      fileById,
+    }
+  } finally {
+    setOpenAiSpendContext({ feature: null })
   }
 }
 

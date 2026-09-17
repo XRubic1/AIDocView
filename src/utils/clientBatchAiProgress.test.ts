@@ -152,3 +152,34 @@ describe('estimateBatchProcessingEta', () => {
     expect(eta!.shortLabel).toMatch(/min left/)
   })
 })
+
+describe('AI creation timeout', () => {
+  it('is not timed out before ETA + grace', async () => {
+    const { isBatchAiCreationTimedOut, AI_CREATION_TIMEOUT_GRACE_MS } = await import(
+      './batchProcessingEta'
+    )
+    const startedAt = new Date().toISOString()
+    expect(
+      isBatchAiCreationTimedOut({
+        startedAt,
+        fileCount: 4,
+        invoiceTotal: 0,
+      })
+    ).toBe(false)
+    const started = Date.parse(startedAt)
+    // Just after start — still within window.
+    expect(
+      isBatchAiCreationTimedOut(
+        { startedAt, fileCount: 4 },
+        started + 60_000
+      )
+    ).toBe(false)
+    // Far past ETA + grace.
+    expect(
+      isBatchAiCreationTimedOut(
+        { startedAt, fileCount: 4 },
+        started + 60 * 60_000 + AI_CREATION_TIMEOUT_GRACE_MS
+      )
+    ).toBe(true)
+  })
+})

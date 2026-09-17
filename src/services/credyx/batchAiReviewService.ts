@@ -22,6 +22,8 @@ import {
 import { invoiceAiReviewSnapshotFor } from '../../utils/invoiceAiReviewSnapshot'
 import { isAIReviewEnabled } from '../../config/aiReview'
 import { flagInvoiceForReview } from '../adminInvoiceActions'
+import { evaluateAiSpendAllow } from '../aiSpendService'
+import { setOpenAiSpendContext } from '../../utils/openaiAuthContext'
 import type { BatchDocumentReviewResult, DocumentReviewResult } from '../../types/documentReview'
 import type { InvoiceAiReviewSnapshot } from '../../types/invoiceAiReview'
 import type { Invoice } from '../../types/invoice'
@@ -474,6 +476,15 @@ export async function runBatchAiReview(
     )
   }
 
+  const batch = getBatchById(batchId)
+  if (batch?.client_id) {
+    const spend = await evaluateAiSpendAllow(batch.client_id)
+    if (!spend.allowed) {
+      throw new Error(spend.message)
+    }
+    setOpenAiSpendContext({ clientId: batch.client_id, feature: 'review' })
+  }
+
   const allInvoices = getInvoicesByBatchId(batchId)
   const targetIds =
     options.invoiceIds && options.invoiceIds.length > 0
@@ -659,6 +670,7 @@ export async function runBatchAiReview(
   } finally {
     // Never leave packets stuck in `running` — that blocks Packet rework + ETA.
     settleBatchAiGate(batchId)
+    setOpenAiSpendContext({ feature: null })
   }
 }
 

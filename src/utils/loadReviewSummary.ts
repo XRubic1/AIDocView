@@ -4,6 +4,7 @@ import {
   bolAuditMeetsDeliveryRequirements,
   isPickupSignatureMessage,
   isPositiveBolAuditSnippet,
+  parsePrintedBolPagination,
 } from './bolAuditSanitizer'
 import { amountsMatchCents } from './extractBatchFields'
 import { coerceRateValue } from './effectiveRateAmount'
@@ -34,7 +35,7 @@ export interface LoadCheckRow {
 }
 
 export interface StructuredLoadReview {
-  /** All required checks in review order (load → broker → amount → BOL → stops → carrier). */
+  /** All required checks in review order (load → broker → amount → BOL → stops → carrier → page count). */
   requiredAll: LoadCheckRow[]
   requiredFailed: LoadCheckRow[]
   requiredPassed: LoadCheckRow[]
@@ -144,7 +145,7 @@ export interface BuildStructuredLoadReviewOptions {
   packet?: PacketOnFileContext
 }
 
-/** Six required checks in a fixed order — no duplicates. */
+/** Seven required checks in a fixed order — no duplicates. */
 export function buildStructuredLoadReview(
   doc: DocumentReviewResult,
   batch: BatchDocumentReviewResult,
@@ -404,6 +405,55 @@ export function buildStructuredLoadReview(
         cross && checkOk(cross.carrier.status) ? 'ok' : cross ? 'warning' : 'info',
         cross?.carrier.details ?? 'Carrier from rate confirmation.',
         { documentValue: docCarrier ?? '—' }
+      )
+    )
+  }
+
+  // 7. BOL page count — fail only when printed pagination shows missing pages
+  {
+    const pageNotes = [
+      bol?.page_count_notes ?? '',
+      ...(bol?.flags ?? []),
+      ...(doc.extraction.bolPageAudits?.flatMap((e) => [
+        e.audit.page_count_notes ?? '',
+        ...(e.audit.flags ?? []),
+      ]) ?? []),
+    ].join(' ')
+    const printed = parsePrintedBolPagination(pageNotes)
+    const pageStatus = bol?.page_count
+    const incomplete =
+      Boolean(bolDetected && bol) &&
+      (pageStatus === 'INCOMPLETE' || pageStatus === 'FAIL') &&
+      Boolean(printed && printed.total > 1)
+
+    let pageSummary = 'No bill of lading — page count not checked.'
+    if (!bolDetected) {
+      pageSummary = multiLoad
+        ? 'No bill of lading found in this PDF.'
+        : 'No bill of lading found on this packet.'
+    } else if (incomplete && printed) {
+      pageSummary = `Form shows page ${printed.current} of ${printed.total} — missing BOL page(s) in this upload.`
+    } else if (printed && printed.total > 1) {
+      pageSummary = `Printed pagination ${printed.current} of ${printed.total} — complete set on file.`
+    } else if (printed && printed.total === 1) {
+      pageSummary = 'BOL shows page 1 of 1.'
+    } else {
+      pageSummary = 'No printed page count on BOL — assumed complete.'
+    }
+
+    required.push(
+      row(
+        'req_page_count',
+        CHECK_LABELS.pageCount,
+        !bolDetected ? 'missing' : incomplete ? 'issue' : 'ok',
+        pageSummary,
+        {
+          documentValue: !bolDetected
+            ? 'Not found'
+            : printed
+              ? `${printed.current}/${printed.total}`
+              : 'No page mark',
+        }
       )
     )
   }

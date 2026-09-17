@@ -34,16 +34,27 @@ const PACKET_PAGE_CONFUSION =
 
 const PRINTED_COMPLETE = /\b1\s*of\s*1\b|page\s*1\s*of\s*1\b|single[- ]page bol/i
 
-/** Read pagination printed on the BOL form (e.g. "Page 2 of 3"). */
+/** Read pagination printed on the BOL form (e.g. "Page 2 of 3", "1 of 4", "1/2"). */
 export function parsePrintedBolPagination(text: string): { current: number; total: number } | null {
-  const match = text.match(/\bpage\s+(\d+)\s+of\s+(\d+)\b/i)
-  if (!match) return null
-  const current = Number.parseInt(match[1], 10)
-  const total = Number.parseInt(match[2], 10)
-  if (!Number.isFinite(current) || !Number.isFinite(total) || total < 1 || current < 1) {
-    return null
+  if (!text.trim()) return null
+  const patterns = [
+    /\bpage\s+(\d+)\s+of\s+(\d+)\b/i,
+    /\b(\d+)\s+of\s+(\d+)\b/i,
+    /\b(\d+)\s*\/\s*(\d+)\b/,
+  ]
+  for (const re of patterns) {
+    const match = text.match(re)
+    if (!match) continue
+    const current = Number.parseInt(match[1], 10)
+    const total = Number.parseInt(match[2], 10)
+    // BOL page sets are small; skip date-like fractions (e.g. 3/15).
+    if (!Number.isFinite(current) || !Number.isFinite(total) || total < 1 || current < 1) {
+      continue
+    }
+    if (total > 20 || current > total) continue
+    return { current, total }
   }
-  return { current, total }
+  return null
 }
 
 /** Flags from a single BOL image audit — not valid after merge or for whole-PDF approval. */
@@ -57,25 +68,20 @@ const MISSING_BOL_PAGINATION_FLAG =
 const SIGNATURE_AUTHENTICITY_FLAG =
   /signature.*(faked|forged|fake|digitally|tracing|authenticity|may be stamped|stamped or digitally|not authentic)/i
 
-/** BOL footer shows multiple pages but upload does not include the full set. */
+/**
+ * BOL footer shows multi-page printed pagination but upload does not include the full set.
+ * If the form does not print a page count, assume OK (do not fail).
+ */
 export function isGenuineMissingBolPages(audit: BolAudit, context: BolAuditContext): boolean {
   const bolSheetsUploaded = context.allBolPacketPageNumbers.length
   const text = [audit.page_count_notes ?? '', ...(audit.flags ?? [])].join(' ')
   const pagination = parsePrintedBolPagination(text)
 
-  if (pagination && pagination.total > 1 && bolSheetsUploaded >= pagination.total) {
-    return false
-  }
+  // No printed "X of Y" / "X/Y" on the form → assume complete.
+  if (!pagination || pagination.total <= 1) return false
 
-  if (!pagination || pagination.total <= 1) {
-    if (
-      bolSheetsUploaded > 1 &&
-      (audit.page_count === 'INCOMPLETE' || audit.page_count === 'FAIL') &&
-      PER_PAGE_ONLY_FLAG.test(text)
-    ) {
-      return false
-    }
-    return audit.page_count === 'INCOMPLETE' || audit.page_count === 'FAIL'
+  if (pagination.total > 1 && bolSheetsUploaded >= pagination.total) {
+    return false
   }
 
   if (pagination.total > bolSheetsUploaded) return true
@@ -121,13 +127,39 @@ export function sanitizeBolPageCountAudit(audit: BolAudit, context: BolAuditCont
     return strengthenIncompleteBolAudit(audit, context)
   }
 
+  const combinedText = [audit.page_count_notes ?? '', ...(audit.flags ?? [])].join(' ')
+  const pagination = parsePrintedBolPagination(combinedText)
+
+  // No printed pagination (or single-page) → always OK, even if the model guessed INCOMPLETE.
+  if (
+    (!pagination || pagination.total <= 1) &&
+    (audit.page_count === 'INCOMPLETE' ||
+      audit.page_count === 'FAIL' ||
+      audit.page_count === 'UNKNOWN' ||
+      audit.page_count === 'PARTIAL')
+  ) {
+    const cleared: BolAudit = {
+      ...audit,
+      page_count: 'PASS',
+      page_count_notes:
+        audit.page_count_notes?.trim() ||
+        'No printed page count on BOL — assumed complete.',
+      flags: (audit.flags ?? []).filter(
+        (flag) =>
+          !PACKET_PAGE_CONFUSION.test(flag) &&
+          !MISSING_BOL_PAGINATION_FLAG.test(flag) &&
+          !PER_PAGE_ONLY_FLAG.test(flag)
+      ),
+    }
+    cleared.overall = recomputeBolOverall(cleared, undefined)
+    return cleared
+  }
+
   if (!shouldSanitizeBolPacketPageConfusion()) {
     const passthrough = { ...audit }
     passthrough.overall = recomputeBolOverall(passthrough, undefined)
     return passthrough
   }
-
-  const combinedText = [audit.page_count_notes ?? '', ...(audit.flags ?? [])].join(' ')
 
   const confusesPacketIndex =
     PACKET_PAGE_CONFUSION.test(combinedText) ||
@@ -142,7 +174,6 @@ export function sanitizeBolPageCountAudit(audit: BolAudit, context: BolAuditCont
   let page_count_notes = audit.page_count_notes
   let flags = [...(audit.flags ?? [])]
 
-  const pagination = parsePrintedBolPagination(combinedText)
   const uploadHasFullBolSet =
     pagination != null &&
     pagination.total > 1 &&
@@ -411,17 +442,11 @@ export function getBolFailureReasons(
   if (audit.page_count === 'INCOMPLETE' || audit.page_count === 'FAIL') {
     const text = [audit.page_count_notes ?? '', ...(audit.flags ?? [])].join(' ')
     const pagination = parsePrintedBolPagination(text)
+    // Only fail when the form prints a multi-page count and pages are missing.
     if (pagination && pagination.total > 1) {
       reasons.push(
         `BOL is incomplete: form shows page ${pagination.current} of ${pagination.total} but not all BOL pages are in this upload.`
       )
-    } else if (!isPositiveBolAuditSnippet(text)) {
-      reasons.push(
-        audit.page_count_notes?.trim() ||
-          'BOL page set appears incomplete — additional BOL page(s) may be missing.'
-      )
-    } else {
-      reasons.push('BOL page set may be incomplete for this upload.')
     }
   }
 
@@ -488,7 +513,12 @@ export function bolAuditMeetsDeliveryRequirements(
   if (!audit) return false
   if (audit.legibility === 'FAIL') return false
   if (audit.destination_match === 'FAIL') return false
-  if (audit.page_count === 'INCOMPLETE' || audit.page_count === 'FAIL') return false
+  if (audit.page_count === 'INCOMPLETE' || audit.page_count === 'FAIL') {
+    const text = [audit.page_count_notes ?? '', ...(audit.flags ?? [])].join(' ')
+    const pagination = parsePrintedBolPagination(text)
+    // No printed multi-page count → do not block approval.
+    if (pagination && pagination.total > 1) return false
+  }
 
   const sig = audit.signatures
   const receiverOk =

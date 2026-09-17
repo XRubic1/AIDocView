@@ -1,4 +1,4 @@
-/** Temporary page quality / crop settings for Credyx doc review (not saved to packet). */
+/** Page quality / crop settings for Credyx doc review (local view; optional browser save). */
 
 export type DocPageCrop = {
   /** Inset from each edge as 0–45% of page size. */

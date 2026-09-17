@@ -10,6 +10,7 @@ import { sendTransactionalEmail } from '../services/emailService'
 import { resolveBrokerPaperworkEmail } from './paperworkSender'
 import { formatCurrency } from './format'
 import { COLLECTIONS_POLICY } from './collectionsPolicy'
+import { isEmailLifecycleRuleEnabled } from '../config/emailLifecycle'
 import {
   getCollectionsTrackStage,
   type CollectionsTrackStage,
@@ -266,6 +267,9 @@ export async function sendBrokerPaymentStatusInquiry(
   invoice: Invoice,
   broker: Broker
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!isEmailLifecycleRuleEnabled('broker_payment_status_inquiry')) {
+    return { ok: false, error: 'Payment chase emails are disabled in Settings' }
+  }
   const email =
     broker.emails?.find((e) => e.category === 'accounting')?.email?.trim() ||
     resolveBrokerPaperworkEmail(broker) ||
@@ -303,6 +307,9 @@ export async function sendBrokerPaymentStatusFollowup(
   invoice: Invoice,
   broker: Broker
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!isEmailLifecycleRuleEnabled('broker_payment_status_followup')) {
+    return { ok: false, error: 'Payment chase emails are disabled in Settings' }
+  }
   const email =
     broker.emails?.find((e) => e.category === 'accounting')?.email?.trim() ||
     resolveBrokerPaperworkEmail(broker) ||

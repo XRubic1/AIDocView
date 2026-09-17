@@ -81,7 +81,7 @@ export default function ClientBatchDetailView({
       const timer = window.setTimeout(() => setShowDoneBanner(false), 6000)
       return () => window.clearTimeout(timer)
     }
-    if (aiProgress?.phase === 'processing' || aiProgress?.phase === 'failed') {
+    if (aiProgress?.phase === 'processing' || aiProgress?.phase === 'rework') {
       setShowDoneBanner(false)
     }
     return undefined
@@ -90,7 +90,7 @@ export default function ClientBatchDetailView({
   const showAiBanner =
     aiProgress?.show &&
     (aiProgress.phase === 'processing' ||
-      aiProgress.phase === 'failed' ||
+      aiProgress.phase === 'rework' ||
       (aiProgress.phase === 'done' && showDoneBanner))
 
   const sortedInvoices = useMemo(() => {
@@ -166,7 +166,7 @@ export default function ClientBatchDetailView({
       {showAiBanner && aiProgress && (
         <div
           className={`client-batch-ai-progress shrink-0${
-            aiProgress.phase === 'failed' ? ' client-batch-ai-progress--failed' : ''
+            aiProgress.phase === 'rework' ? ' client-batch-ai-progress--rework' : ''
           }${aiProgress.phase === 'done' ? ' client-batch-ai-progress--done' : ''}`}
           role="status"
           aria-live="polite"

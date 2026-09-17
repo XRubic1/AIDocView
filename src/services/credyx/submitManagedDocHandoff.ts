@@ -6,6 +6,7 @@ import { HANDOFF_PLACEHOLDER_INVOICE_ID, setBatchFiles } from '../../data/batchF
 import { addBatch, generateBatchNumber, updateBatch } from '../../data/mockBatches'
 import { isSupabaseConfigured } from '../../lib/supabase'
 import { notifyAdminDocHandoff } from '../adminNotificationService'
+import { evaluateAiSpendAllow } from '../aiSpendService'
 import { getClientById } from '../clientRegistry'
 import { persistBatch, uploadBatchInvoiceDocuments } from '../supabase/tenantPersist'
 import { assertClientSetupComplete } from '../../utils/clientSetupDocuments'
@@ -52,7 +53,9 @@ export async function submitManagedDocHandoff(
 
   const batchNumber = generateBatchNumber(clientId)
   const submittedAt = new Date().toISOString()
-  const aiOn = isAIReviewEnabled()
+  // Uploads always proceed; spend/policy only gates AI packet creation.
+  const spend = await evaluateAiSpendAllow(clientId)
+  const aiOn = isAIReviewEnabled() && spend.allowed
   const batch = addBatch({
     batch_number: batchNumber,
     client_name: clientName,

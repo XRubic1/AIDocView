@@ -9,6 +9,7 @@ const BATCH_STATUSES_PENDING_CLIENT_REVEAL = new Set<Batch['status']>([
   'draft',
   'creating',
   'ready_to_post',
+  'rework',
   'documents_uploaded',
   'verification',
   'approval',

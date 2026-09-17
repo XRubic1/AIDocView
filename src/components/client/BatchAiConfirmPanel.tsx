@@ -163,6 +163,9 @@ export default function BatchAiConfirmPanel({
   const [selectedUnmatched, setSelectedUnmatched] = useState<Set<string>>(new Set())
   const [viewingRcDocId, setViewingRcDocId] = useState<string | null>(null)
   const [viewingBolDocId, setViewingBolDocId] = useState<string | null>(null)
+  /** Bumped on each intentional list click so panes re-scroll to the file. */
+  const [rcScrollRequestId, setRcScrollRequestId] = useState(0)
+  const [bolScrollRequestId, setBolScrollRequestId] = useState(0)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   /** Right-click menu for classify / unassign / move. */
   const [docMenu, setDocMenu] = useState<{
@@ -203,6 +206,50 @@ export default function BatchAiConfirmPanel({
       return next
     })
     setFocus({ type: 'invoice', draftId, docId })
+  }
+
+  /**
+   * Focus an unassigned file and scroll the dual panes to it.
+   * RC → left pane; BOL → right; other → both (shown in each).
+   */
+  const jumpToUnassignedDoc = (
+    docId: string,
+    bucket: 'rate_confirmation' | 'bol' | 'other' = 'other'
+  ) => {
+    setFocus({ type: 'unassigned', docId })
+    ensureDoc(docId)
+    if (bucket === 'bol') {
+      setViewingBolDocId(docId)
+      setBolScrollRequestId((n) => n + 1)
+      return
+    }
+    if (bucket === 'rate_confirmation') {
+      setViewingRcDocId(docId)
+      setRcScrollRequestId((n) => n + 1)
+      return
+    }
+    // Other / unknown lives in both panes — jump whichever stack contains it.
+    setViewingRcDocId(docId)
+    setViewingBolDocId(docId)
+    setRcScrollRequestId((n) => n + 1)
+    setBolScrollRequestId((n) => n + 1)
+  }
+
+  /** Jump the dual panes to an invoice-attached file. */
+  const jumpToPacketDoc = (
+    draftId: string,
+    docId: string,
+    category: string
+  ) => {
+    openPacket(draftId, docId)
+    ensureDoc(docId)
+    if (category === 'bol' || category === 'pod') {
+      setViewingBolDocId(docId)
+      setBolScrollRequestId((n) => n + 1)
+      return
+    }
+    setViewingRcDocId(docId)
+    setRcScrollRequestId((n) => n + 1)
   }
 
   // Auto-expand the focused packet (and unassigned pile when selected).
@@ -898,15 +945,7 @@ export default function BatchAiConfirmPanel({
                               onContextMenu={(e) =>
                                 openDocMenu(e, doc.docId, inv.draftId, doc.generated)
                               }
-                              onClick={() => {
-                                openPacket(inv.draftId, doc.docId)
-                                if (doc.category === 'bol' || doc.category === 'pod') {
-                                  setViewingBolDocId(doc.docId)
-                                } else {
-                                  setViewingRcDocId(doc.docId)
-                                }
-                                ensureDoc(doc.docId)
-                              }}
+                              onClick={() => jumpToPacketDoc(inv.draftId, doc.docId, doc.category)}
                               title={doc.fileName}
                             >
                               <span className="client-ai-packet__acc-doc-kind">
@@ -1016,14 +1055,7 @@ export default function BatchAiConfirmPanel({
                             onContextMenu={(e) =>
                               openDocMenu(e, doc.docId, inv.draftId, doc.generated)
                             }
-                            onClick={() => {
-                              openPacket(inv.draftId, doc.docId)
-                              if (doc.category === 'bol' || doc.category === 'pod') {
-                                setViewingBolDocId(doc.docId)
-                              } else {
-                                setViewingRcDocId(doc.docId)
-                              }
-                            }}
+                            onClick={() => jumpToPacketDoc(inv.draftId, doc.docId, doc.category)}
                             title={doc.fileName}
                           >
                             <span className="client-ai-packet__acc-doc-kind">
@@ -1110,7 +1142,16 @@ export default function BatchAiConfirmPanel({
                               draggable
                               onDragStart={(e) => onDragStartDoc(e, fp.docId, null)}
                               onContextMenu={(e) => openDocMenu(e, fp.docId, null)}
-                              onClick={() => setFocus({ type: 'unassigned', docId: fp.docId })}
+                              onClick={() =>
+                                jumpToUnassignedDoc(
+                                  fp.docId,
+                                  group.key === 'rc'
+                                    ? 'rate_confirmation'
+                                    : group.key === 'bol'
+                                      ? 'bol'
+                                      : 'other'
+                                )
+                              }
                             >
                               <input
                                 type="checkbox"
@@ -1212,9 +1253,18 @@ export default function BatchAiConfirmPanel({
                       )}
                       {unmatchedBuckets.rateCons.map((fp) => (
                         <li key={fp.docId} title={fp.fileName}>
-                          <span className="client-ai-packet__attached-row">
+                          <button
+                            type="button"
+                            className="client-ai-packet__attached-row"
+                            onClick={() => jumpToUnassignedDoc(fp.docId, 'rate_confirmation')}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              openDocMenu(e.clientX, e.clientY, fp.docId, null)
+                            }}
+                          >
                             {shortFileName(fp.fileName, 22)}
-                          </span>
+                          </button>
                         </li>
                       ))}
                     </ul>
@@ -1229,9 +1279,18 @@ export default function BatchAiConfirmPanel({
                       )}
                       {unmatchedBuckets.bols.map((fp) => (
                         <li key={fp.docId} title={fp.fileName}>
-                          <span className="client-ai-packet__attached-row">
+                          <button
+                            type="button"
+                            className="client-ai-packet__attached-row"
+                            onClick={() => jumpToUnassignedDoc(fp.docId, 'bol')}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              openDocMenu(e.clientX, e.clientY, fp.docId, null)
+                            }}
+                          >
                             {shortFileName(fp.fileName, 22)}
-                          </span>
+                          </button>
                         </li>
                       ))}
                     </ul>
@@ -1246,9 +1305,18 @@ export default function BatchAiConfirmPanel({
                       <ul className="client-ai-packet__attached-list">
                         {unmatchedBuckets.other.map((fp) => (
                           <li key={fp.docId} title={fp.fileName}>
-                            <span className="client-ai-packet__attached-row">
+                            <button
+                              type="button"
+                              className="client-ai-packet__attached-row"
+                              onClick={() => jumpToUnassignedDoc(fp.docId, 'other')}
+                              onContextMenu={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                openDocMenu(e.clientX, e.clientY, fp.docId, null)
+                              }}
+                            >
                               {shortFileName(fp.fileName, 36)}
-                            </span>
+                            </button>
                           </li>
                         ))}
                       </ul>
@@ -1476,6 +1544,7 @@ export default function BatchAiConfirmPanel({
                             }
                             onClick={() => {
                               setViewingRcDocId(doc.docId)
+                              setRcScrollRequestId((n) => n + 1)
                               ensureDoc(doc.docId)
                             }}
                           >
@@ -1522,6 +1591,7 @@ export default function BatchAiConfirmPanel({
                             }
                             onClick={() => {
                               setViewingBolDocId(doc.docId)
+                              setBolScrollRequestId((n) => n + 1)
                               ensureDoc(doc.docId)
                             }}
                           >
@@ -1551,6 +1621,7 @@ export default function BatchAiConfirmPanel({
               downloadProgress={downloadProgress}
               onEnsureDocument={onEnsureDocument}
               activeDocId={viewingRcDocId}
+              scrollRequestId={rcScrollRequestId}
               onActiveDocChange={setViewingRcDocId}
               dropKind="rate_confirmation"
               dragFromDraftId={selectedInvoice?.draftId ?? null}
@@ -1583,6 +1654,7 @@ export default function BatchAiConfirmPanel({
               downloadProgress={downloadProgress}
               onEnsureDocument={onEnsureDocument}
               activeDocId={viewingBolDocId}
+              scrollRequestId={bolScrollRequestId}
               onActiveDocChange={setViewingBolDocId}
               dropKind="bill_of_lading"
               dragFromDraftId={selectedInvoice?.draftId ?? null}

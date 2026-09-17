@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { mockBrokers, addBroker, updateBrokerAsync } from '../data/mockBrokers'
 import { mockInvoices } from '../data/mockInvoices'
 import { Broker, BrokerEmail, BrokerPhone } from '../types/broker'
-import { GitMerge, Phone, Mail, MapPin, Search, X, Plus, Trash2, ArrowLeft } from 'lucide-react'
+import { GitMerge, Phone, Mail, MapPin, Search, X, Plus, Trash2 } from 'lucide-react'
 import MergeBrokersModal from '../components/brokers/MergeBrokersModal'
 import { mergeDuplicateBrokers } from '../services/mergeBrokersService'
 import { useToast } from '../components/ui/ToastProvider'
@@ -42,8 +42,26 @@ export default function Brokers() {
   const [brokers, setBrokers] = useState<Broker[]>(mockBrokers)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null)
+  /** Drives slide-in / slide-out of the broker detail drawer. */
+  const [detailDrawerVisible, setDetailDrawerVisible] = useState(false)
   const [showFormModal, setShowFormModal] = useState(false)
+  const [showMergeModal, setShowMergeModal] = useState(false)
   const [auditRefresh, setAuditRefresh] = useState(0)
+
+  // Animate drawer in after mount; lock body scroll while open.
+  useEffect(() => {
+    if (!selectedBroker) {
+      setDetailDrawerVisible(false)
+      return
+    }
+    const frame = window.requestAnimationFrame(() => setDetailDrawerVisible(true))
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.cancelAnimationFrame(frame)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [selectedBroker?.id])
 
   // Load audit trail when viewing a broker.
   useEffect(() => {
@@ -61,7 +79,6 @@ export default function Brokers() {
   }, [selectedBroker, auditRefresh])
 
   /** When set, the form saves via updateBroker instead of addBroker. */
-  const [showMergeModal, setShowMergeModal] = useState(false)
   const [isMerging, setIsMerging] = useState(false)
   const [editingBrokerId, setEditingBrokerId] = useState<string | null>(null)
   const [formData, setFormData] = useState<Partial<Broker>>({
@@ -109,10 +126,23 @@ export default function Brokers() {
     setSelectedBroker(broker)
   }
 
-  const handleCloseModal = () => {
-    setSelectedBroker(null)
+  /** Slide the drawer out, then clear selection. */
+  const handleCloseDetailDrawer = () => {
+    if (isMerging) return
     setShowMergeModal(false)
+    setDetailDrawerVisible(false)
+    window.setTimeout(() => setSelectedBroker(null), 220)
   }
+
+  // Esc closes the detail drawer (not while merge/edit modals are up).
+  useEffect(() => {
+    if (!selectedBroker || showMergeModal || showFormModal) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleCloseDetailDrawer()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [selectedBroker, showMergeModal, showFormModal, isMerging])
 
   const selectedInvoiceCount = selectedBroker
     ? mockInvoices.filter((invoice) => invoice.broker_id === selectedBroker.id).length
@@ -537,42 +567,43 @@ export default function Brokers() {
       ) : null}
 
       {selectedBroker && (
-        <div className="fixed inset-0 z-[70] bg-slate-900/40 flex items-stretch justify-center p-3 sm:p-4">
-          <div className="bg-white w-full max-w-4xl h-full max-h-[calc(100vh-1.5rem)] rounded-lg border border-slate-200 shadow-xl overflow-hidden flex flex-col">
-            <div className="shrink-0 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between gap-3">
-              <div className="min-w-0 flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
-                  aria-label="Back to list"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <div className="min-w-0">
-                  <h2 className="text-sm font-semibold text-slate-900 truncate">
-                    {selectedBroker.name}
-                  </h2>
-                  <p className="text-xs text-slate-500 truncate mt-0.5">
-                    {selectedInvoiceCount} load{selectedInvoiceCount === 1 ? '' : 's'}
-                    {selectedBroker.payment_terms_days && selectedBroker.payment_terms_days > 0
-                      ? ` · Due by ${selectedBroker.payment_terms_days}d`
-                      : ' · No auto due'}
-                    {selectedBroker.contact_person ? ` · ${selectedBroker.contact_person}` : ''}
-                  </p>
-                </div>
+        <div
+          className={`broker-detail-drawer${detailDrawerVisible ? ' is-visible' : ''}`}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${selectedBroker.name} details`}
+        >
+          <button
+            type="button"
+            className="broker-detail-drawer__backdrop"
+            aria-label="Close broker details"
+            onClick={handleCloseDetailDrawer}
+          />
+          <aside className="broker-detail-drawer__panel">
+            <div className="broker-detail-drawer__header">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-slate-900 truncate">
+                  {selectedBroker.name}
+                </h2>
+                <p className="text-xs text-slate-500 truncate mt-0.5">
+                  {selectedInvoiceCount} load{selectedInvoiceCount === 1 ? '' : 's'}
+                  {selectedBroker.payment_terms_days && selectedBroker.payment_terms_days > 0
+                    ? ` · Due by ${selectedBroker.payment_terms_days}d`
+                    : ' · No auto due'}
+                  {selectedBroker.contact_person ? ` · ${selectedBroker.contact_person}` : ''}
+                </p>
               </div>
               <button
                 type="button"
-                onClick={handleCloseModal}
-                className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
+                onClick={handleCloseDetailDrawer}
+                className="p-1.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50 shrink-0"
                 aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 text-sm text-slate-800 space-y-4">
+            <div className="broker-detail-drawer__body text-sm text-slate-800 space-y-4">
               <section>
                 <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
                   Contact
@@ -680,7 +711,7 @@ export default function Brokers() {
                 <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
                   Collections preferences
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px rounded-lg border border-slate-200 overflow-hidden bg-slate-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-px rounded-lg border border-slate-200 overflow-hidden bg-slate-200">
                   <div className="bg-white px-3 py-2">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
                       Due by
@@ -786,8 +817,8 @@ export default function Brokers() {
               />
             </div>
 
-            <div className="shrink-0 px-4 py-2.5 border-t border-slate-200 bg-white flex flex-wrap items-center justify-end gap-2">
-              <button type="button" onClick={handleCloseModal} className="dashboard-btn-secondary">
+            <div className="broker-detail-drawer__footer">
+              <button type="button" onClick={handleCloseDetailDrawer} className="dashboard-btn-secondary">
                 Close
               </button>
               <button
@@ -802,7 +833,7 @@ export default function Brokers() {
                 Edit broker
               </button>
             </div>
-          </div>
+          </aside>
         </div>
       )}
 

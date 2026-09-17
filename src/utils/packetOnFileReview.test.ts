@@ -51,6 +51,17 @@ describe('packetOnFileReview', () => {
     expect(checks.find((c) => c.id === 'req_carrier')?.status).toBe('ok')
   })
 
+  it('fails carrier when account is on file but RC has no carrier name', () => {
+    const checks = overlayPacketOnFileChecks(
+      [],
+      { carrierName: 'Demo Carrier LLC' },
+      { carrierName: undefined }
+    )
+    const carrier = checks.find((c) => c.id === 'req_carrier')
+    expect(carrier?.status).toBe('issue')
+    expect(carrier?.summary).toMatch(/not found on the rate confirmation/i)
+  })
+
   it('copies paperwork load, amount, and broker but never the carrier', () => {
     const patch = invoicePatchFromPaperwork({
       loadNumber: 'T01633053',

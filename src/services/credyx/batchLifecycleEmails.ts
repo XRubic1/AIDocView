@@ -6,6 +6,7 @@ import { sendTransactionalEmail } from '../emailService'
 import type { Invoice } from '../../types/invoice'
 import { hasPpwBeenSent } from '../../utils/ppwSent'
 import { getAllClients } from '../clientRegistry'
+import { isEmailLifecycleRuleEnabled } from '../../config/emailLifecycle'
 
 const CREDYX_OPS_EMAIL = 'ops@credyx.net'
 
@@ -22,6 +23,9 @@ export async function emailCredyxIntakeError(opts: {
   clientName?: string
   issueMessage: string
 }): Promise<{ ok: boolean; error?: string }> {
+  if (!isEmailLifecycleRuleEnabled('credyx_ops_issues')) {
+    return { ok: true, error: 'Ops issue emails disabled' }
+  }
   return sendTransactionalEmail('credyx_batch_error', CREDYX_OPS_EMAIL, {
     batchNumber: opts.batchNumber,
     clientName: opts.clientName ?? '',
@@ -35,6 +39,9 @@ export async function emailCredyxVerificationError(opts: {
   batchNumber: string
   issues: Array<{ invoiceNumber: string; loadNumber?: string; message: string }>
 }): Promise<{ ok: boolean; error?: string }> {
+  if (!isEmailLifecycleRuleEnabled('credyx_ops_issues')) {
+    return { ok: true, error: 'Ops issue emails disabled' }
+  }
   const issueMessage = opts.issues
     .map(
       (i) =>
@@ -105,6 +112,9 @@ export async function emailCarrierBatchProcessed(opts: {
   heldInvoices: Invoice[]
   ppwDetails?: PpwSendDetail[]
 }): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+  if (!isEmailLifecycleRuleEnabled('batch_processed_carrier')) {
+    return { ok: true, skipped: true, error: 'Carrier batch emails disabled' }
+  }
   const to = getClientContactEmail(opts.clientId)
   if (!to) return { ok: false, error: 'Client email not on file', skipped: true }
 

@@ -13,12 +13,13 @@ export const BROKER_RISK_AUDIT_ACTIONS = [
 
 export type BrokerRiskAuditAction = (typeof BROKER_RISK_AUDIT_ACTIONS)[number]
 
+/** Collapse per-carrier fan-out when the same broker decision lands in one burst. */
+const BROKER_RISK_AUDIT_DEDUPE_MS = 3 * 60 * 1000
+
 export type BrokerRiskAuditEventInput = {
   action: BrokerRiskAuditAction
   brokerId: string
   brokerName: string
-  clientId: string
-  clientName?: string | null
   reviewedBy: string
   description: string
   fromStatus?: BrokerRiskReviewStatus | null
@@ -27,6 +28,73 @@ export type BrokerRiskAuditEventInput = {
   toLevel?: BrokerRiskLevel | null
   note?: string | null
   severity?: AuditLog['severity']
+}
+
+/** Stable key for broker-level risk audit rows (ignores carrier scope). */
+export function brokerRiskAuditDedupeKey(
+  input: Pick<
+    BrokerRiskAuditEventInput,
+    'brokerId' | 'action' | 'description' | 'reviewedBy' | 'toStatus' | 'toLevel'
+  > & { timestampMs?: number }
+): string {
+  const tsBucket = input.timestampMs
+    ? Math.floor(input.timestampMs / 1000)
+    : 'pending'
+  return [
+    input.brokerId,
+    input.action,
+    input.description,
+    input.reviewedBy,
+    input.toStatus ?? '',
+    input.toLevel ?? '',
+    tsBucket,
+  ].join('|')
+}
+
+function isDuplicateBrokerRiskAuditWrite(input: BrokerRiskAuditEventInput): boolean {
+  const cutoff = Date.now() - BROKER_RISK_AUDIT_DEDUPE_MS
+  return getAllAuditLogs().some((log) => {
+    if (log.entity_type !== 'broker' || log.entity_id !== input.brokerId) return false
+    if (!BROKER_RISK_AUDIT_ACTIONS.includes(log.action as BrokerRiskAuditAction)) return false
+    if (Date.parse(log.timestamp) < cutoff) return false
+
+    return (
+      brokerRiskAuditDedupeKey({
+        brokerId: input.brokerId,
+        action: log.action as BrokerRiskAuditAction,
+        description: log.description,
+        reviewedBy: log.user_name,
+        toStatus: (log.metadata?.to_status as BrokerRiskReviewStatus | null) ?? null,
+        toLevel: (log.metadata?.to_level as BrokerRiskLevel | null) ?? null,
+        timestampMs: Date.parse(log.timestamp),
+      }) ===
+      brokerRiskAuditDedupeKey({
+        ...input,
+        timestampMs: Date.now(),
+      })
+    )
+  })
+}
+
+/** Collapse legacy rows that were written once per carrier for the same broker action. */
+export function dedupeBrokerRiskAuditLogs(logs: AuditLog[]): AuditLog[] {
+  const seen = new Set<string>()
+  const out: AuditLog[] = []
+  for (const log of logs) {
+    const key = brokerRiskAuditDedupeKey({
+      brokerId: log.entity_id ?? '',
+      action: log.action as BrokerRiskAuditAction,
+      description: log.description,
+      reviewedBy: log.user_name,
+      toStatus: (log.metadata?.to_status as BrokerRiskReviewStatus | null) ?? null,
+      toLevel: (log.metadata?.to_level as BrokerRiskLevel | null) ?? null,
+      timestampMs: Date.parse(log.timestamp),
+    })
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(log)
+  }
+  return out
 }
 
 /** Human label for risk audit action. */
@@ -49,6 +117,8 @@ export function brokerRiskAuditActionLabel(action: string): string {
 
 /** Persist a broker-risk audit event (admin compliance trail). */
 export function logBrokerRiskAudit(input: BrokerRiskAuditEventInput): void {
+  if (isDuplicateBrokerRiskAuditWrite(input)) return
+
   const severity =
     input.severity ??
     (input.action === 'broker_risk_published' || input.action === 'broker_risk_flagged'
@@ -89,8 +159,6 @@ export function logBrokerRiskAudit(input: BrokerRiskAuditEventInput): void {
     'Admin',
     changes.length > 0 ? changes : undefined,
     {
-      client_id: input.clientId,
-      client_name: input.clientName ?? null,
       from_status: input.fromStatus ?? null,
       to_status: input.toStatus ?? null,
       from_level: input.fromLevel ?? null,
@@ -109,7 +177,7 @@ export function listBrokerRiskAuditLogs(args: {
   limit?: number
 }): AuditLog[] {
   const limit = args.limit ?? 50
-  return getAllAuditLogs()
+  const rows = getAllAuditLogs()
     .filter((log) => {
       if (log.entity_type !== 'broker') return false
       if (log.entity_id !== args.brokerId) return false
@@ -123,7 +191,9 @@ export function listBrokerRiskAuditLogs(args: {
       return true
     })
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-    .slice(0, limit)
+
+  const scoped = args.clientId ? rows : dedupeBrokerRiskAuditLogs(rows)
+  return scoped.slice(0, limit)
 }
 
 /**
@@ -133,7 +203,7 @@ export function listBrokerRiskAuditLogs(args: {
 export function synthesizeBrokerRiskAuditFromProfile(
   profile: BrokerRiskProfile | null | undefined,
   brokerName: string,
-  clientName?: string | null
+  _clientName?: string | null
 ): AuditLog[] {
   if (!profile?.reviewed_at || !profile.reviewed_by) return []
   if (profile.review_status !== 'published' && profile.review_status !== 'cleared') {
@@ -164,14 +234,12 @@ export function synthesizeBrokerRiskAuditFromProfile(
       entity_name: brokerName,
       description:
         profile.review_status === 'cleared'
-          ? `Risk removed for ${brokerName}${clientName ? ` · ${clientName}` : ''}`
-          : `Marked ${levelLabel} risk for ${brokerName}${clientName ? ` · ${clientName}` : ''}`,
+          ? `Risk removed for ${brokerName}`
+          : `Marked ${levelLabel} risk for ${brokerName}`,
       changes: profile.review_note
         ? [{ field: 'review_note', old_value: null, new_value: profile.review_note }]
         : undefined,
       metadata: {
-        client_id: profile.client_id,
-        client_name: clientName ?? null,
         to_status: profile.review_status,
         to_level: profile.risk_level,
         review_note: profile.review_note,

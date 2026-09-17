@@ -3,7 +3,7 @@ import {
   getRememberedBatchFileCount,
 } from './batchProcessingEta'
 
-export type ClientBatchAiPhase = 'idle' | 'processing' | 'done' | 'failed'
+export type ClientBatchAiPhase = 'idle' | 'processing' | 'done' | 'rework'
 
 export type BatchProcessingJobSnapshot = {
   id: string
@@ -78,6 +78,7 @@ export function getClientBatchAiProgress(input: {
     uploadMode === 'ai' ||
     uploadMode === 'handoff' ||
     batchStatus === 'creating' ||
+    batchStatus === 'rework' ||
     sortStatus === 'sorting' ||
     sortStatus === 'failed'
 
@@ -123,11 +124,12 @@ export function getClientBatchAiProgress(input: {
     }
   }
 
-  if (sortStatus === 'failed' || jobFailed) {
+  // Carrier-facing: never show technical failure — Credyx rework only.
+  if (batchStatus === 'rework' || sortStatus === 'failed' || jobFailed) {
     return withEta({
-      phase: 'failed',
-      label: 'Couldn’t finish checking — Credyx will follow up',
-      detail: job?.last_error?.trim() || detail,
+      phase: 'rework',
+      label: 'Rework',
+      detail: 'Credyx is finishing your paperwork. We’ll update this batch when invoices are ready.',
       completed,
       total,
       percent,

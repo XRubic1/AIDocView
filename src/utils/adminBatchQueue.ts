@@ -18,10 +18,19 @@ export type AdminBatchChipFilter = (typeof ADMIN_BATCH_CHIP_FILTERS)[number]
 
 export type AdminBatchDisplayFlags = Record<AdminBatchChipFilter, boolean>
 
-/** True when the batch still needs AI / DocSort attention. */
+/** True when the batch still needs AI / DocSort attention (open work only). */
 export function batchNeedsAiAttention(batch: PendingBatch): boolean {
+  // Processed batches leave the AI / Rework queue even with leftover sort flags.
+  if (
+    batch.status === 'submitted' ||
+    batch.status === 'processing' ||
+    batch.status === 'documents_uploaded'
+  ) {
+    return false
+  }
   return (
     batch.status === 'creating' ||
+    batch.status === 'rework' ||
     batch.sort_status === 'sorting' ||
     batch.sort_status === 'failed' ||
     Boolean(batch.unmatched_doc_ids && batch.unmatched_doc_ids.length > 0)
@@ -111,9 +120,9 @@ export function adminBatchFilterLabel(filter: AdminBatchChipFilter): string {
     case 'ready_to_post':
       return 'Ready'
     case 'verification':
-      return 'Verification'
+      return 'AI Verify'
     case 'ai':
-      return 'AI'
+      return 'AI / Rework'
     case 'draft':
       return 'Draft'
     case 'submitted':
@@ -157,8 +166,16 @@ export type AdminBatchWorkflowStage = 'ready_to_post' | 'verification' | 'ai'
 export function resolveAdminBatchWorkflowStage(
   batch: PendingBatch
 ): AdminBatchWorkflowStage {
+  if (
+    batch.status === 'submitted' ||
+    batch.status === 'processing' ||
+    batch.status === 'documents_uploaded'
+  ) {
+    return 'verification'
+  }
   if (batchNeedsAiAttention(batch) || batch.upload_mode === 'ai' || batch.status === 'creating') {
-    // Prefer status workflow when the batch is clearly in Ready / Verification.
+    // Rework opens Packet Rework (handled in Batches.select); list stage hint unused.
+    if (batch.status === 'rework') return 'ai'
     if (batch.status === 'ready_to_post') return 'ready_to_post'
     if (batch.status === 'verification' || batch.status === 'approval') return 'verification'
     return 'ai'
@@ -193,7 +210,7 @@ export function getAdminBatchAiReviewProgress(batchId: string): {
 }
 
 /**
- * Packet rework is available after intake finished creating invoices
+ * Packet rework is available after intake finished (or Manual creation / rework),
  * and AI is not mid-sort / mid-review.
  */
 export function canOpenPacketRework(batch: PendingBatch): boolean {
@@ -204,13 +221,17 @@ export function canOpenPacketRework(batch: PendingBatch): boolean {
   const live = getBatchById(batch.id) ?? batch
 
   if (live.status === 'creating') return false
-  // Only block on active sort when there are still no invoices to rework.
+  if (live.sort_status === 'sorting') return false
+
   const invoices = getInvoicesByBatchId(live.id)
+  if (invoices.some((inv) => inv.ai_review_status === 'running')) return false
+
+  // Manual / failed AI path: open Packets with 0 invoices and all docs unassigned.
   if (invoices.length === 0) {
-    if (live.sort_status === 'sorting') return false
+    if (live.status === 'rework' || live.sort_status === 'failed') return true
+    if (live.unmatched_doc_ids && live.unmatched_doc_ids.length > 0) return true
     return false
   }
-  if (invoices.some((inv) => inv.ai_review_status === 'running')) return false
 
   const aiPath = live.upload_mode === 'ai' || live.upload_mode === 'handoff'
   if (

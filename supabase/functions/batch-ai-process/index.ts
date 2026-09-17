@@ -399,7 +399,10 @@ Deno.serve(async (req) => {
 
         await admin
           .from('batches')
-          .update({ sort_status: giveUp ? 'failed' : 'sorting' })
+          .update({
+            sort_status: giveUp ? 'failed' : 'sorting',
+            status: giveUp ? 'rework' : 'creating',
+          })
           .eq('id', job.batch_id)
 
         results.push({ jobId: job.id, batchId: job.batch_id, ok: false, error: message })
