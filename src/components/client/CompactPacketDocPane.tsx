@@ -100,6 +100,8 @@ interface CompactPacketDocPaneProps {
    * (e.g. `bol`, `rate_con`) and restored across invoices/sessions.
    */
   qualityStorageKey?: string
+  /** Extra classes on the root pane (e.g. `h-full` to fill a flex parent). */
+  className?: string
 }
 
 type PdfJsModule = typeof import('pdfjs-dist')
@@ -436,6 +438,7 @@ export default function CompactPacketDocPane({
   highlightResetKey = null,
   allowQualityTools = false,
   qualityStorageKey,
+  className,
 }: CompactPacketDocPaneProps) {
   const [dragOver, setDragOver] = useState(false)
   const [bundlePages, setBundlePages] = useState<BundlePage[]>([])
@@ -1097,7 +1100,9 @@ export default function CompactPacketDocPane({
 
   return (
     <section
-      className={`client-ai-dual-pane${dragOver ? ' is-drop-target' : ''}`}
+      className={`client-ai-dual-pane${dragOver ? ' is-drop-target' : ''}${
+        className ? ` ${className}` : ''
+      }`}
       onDragOver={handleDragOver}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}

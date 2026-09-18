@@ -10903,6 +10903,10 @@
   overflow: hidden;
 }
 
+.client-portal .client-ai-dual-pane.h-full {
+  height: 100%;
+}
+
 .client-portal .client-ai-dual-pane__head {
   flex: 0 0 auto;
   display: flex;

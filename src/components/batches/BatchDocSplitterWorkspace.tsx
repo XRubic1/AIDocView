@@ -2,24 +2,41 @@
  * Credyx Doc Splitter — split multi-page PDFs into pages, then mark each as
  * RC / BOL / INV before Packet Rework.
  *
- * Flow: select a category → click a pending page/file → it moves into that
- * bin and leaves the pending list. Click any categorized file to preview.
+ * Layout: slim RC | BOL | INV bins · pending page list · large preview (side by side).
+ * Assign via 1/2/3 keys, drag-drop, right-click, or toolbar buttons. Assign auto-advances.
+ * Clicking a page only selects it for preview — never assigns.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, FileStack, Loader2, Scissors } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
+import { createPortal } from 'react-dom'
+import { ArrowLeft, FileStack, Loader2, Sparkles } from 'lucide-react'
 import { getBatchById, updateBatch } from '../../data/mockBatches'
 import { setBatchFiles } from '../../data/batchFileStore'
 import type { BatchIntakeDraft } from '../../types/credyxBatch'
 import type { DocSortFingerprint, DocSortKind } from '../../products/docSort/types'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { useToast } from '../ui/ToastProvider'
-import CompactPacketDocPane, { type CompactDocItem } from '../client/CompactPacketDocPane'
+import CompactPacketDocPane, {
+  PACKET_DOC_MIME,
+  readPacketDocDrag,
+  writePacketDocDrag,
+  type CompactDocItem,
+} from '../client/CompactPacketDocPane'
 import { hydrateIntakeDraftFromBatch } from '../../utils/buildIntakeDraftFromBatch'
 import { clearBatchNeedsDocSplit } from '../../utils/batchDocSplit'
 import {
   canUnpackDraftDocument,
   createManualDocFingerprint,
   ensureDocumentUnassigned,
+  guessDocSortKindFromFileName,
   isGeneratedInvoicePdfDoc,
   locateDraftDocument,
   placeDraftDocument,
@@ -48,10 +65,19 @@ const CATEGORIES: Array<{
   { id: 'inv', label: 'Invoice', short: 'INV', kind: 'invoice' },
 ]
 
+const SPLITTER_DRAG_MIME = PACKET_DOC_MIME
+
 interface BatchDocSplitterWorkspaceProps {
   batchId: string
   onClose: () => void
   onContinueToPacketRework: (batchId: string) => void
+}
+
+type DocMenuState = {
+  x: number
+  y: number
+  docId: string
+  fileName: string
 }
 
 function kindForCategory(category: MarkCategory): DocSortKind {
@@ -62,8 +88,19 @@ function markCategoryForKind(kind: DocSortKind): MarkCategory | null {
   if (kind === 'rate_confirmation') return 'rc'
   if (kind === 'bill_of_lading') return 'bol'
   if (kind === 'invoice') return 'inv'
-  // `other` / lumper stay in the pending inbox until staff marks them.
   return null
+}
+
+function guessMarkCategory(fp: DocSortFingerprint): MarkCategory | null {
+  const extractType = fp.extract?.documentType
+  if (extractType === 'rate_confirmation') return 'rc'
+  if (extractType === 'bill_of_lading') return 'bol'
+  if (extractType === 'invoice') return 'inv'
+
+  const fromKind = markCategoryForKind(fp.kind)
+  if (fromKind) return fromKind
+
+  return markCategoryForKind(guessDocSortKindFromFileName(fp.fileName))
 }
 
 function findFingerprintLabel(draft: BatchIntakeDraft, docId: string): string {
@@ -134,6 +171,10 @@ function listAllSupportingFingerprints(draft: BatchIntakeDraft): DocSortFingerpr
   return [...byId.values()]
 }
 
+function listPending(draft: BatchIntakeDraft): DocSortFingerprint[] {
+  return listAllSupportingFingerprints(draft).filter((fp) => !markCategoryForKind(fp.kind))
+}
+
 /** Pull packet docs into unmatched so Doc Splitter owns categorization. */
 function ensureDocsInUnmatchedPool(draft: BatchIntakeDraft): BatchIntakeDraft {
   let next = draft
@@ -169,14 +210,12 @@ async function explodeMultiPagePdfs(draft: BatchIntakeDraft): Promise<{
   for (const docId of ids) {
     const file = next.fileById.get(docId)
     if (!file || !isPdfFile(file)) continue
-    // Already categorized RC/BOL/INV — leave alone.
     const located = locateDraftDocument(next, docId)
     if (located && markCategoryForKind(located.fingerprint.kind)) continue
 
     const pages = await getPdfPageCount(file)
     if (pages <= 1) continue
 
-    // Prefer AI kind-group unpack when page types were detected.
     if (canUnpackDraftDocument(next, docId)) {
       const result = await unpackDraftDocument(next, docId)
       next = ensureDocsInUnmatchedPool(result.draft)
@@ -192,7 +231,23 @@ async function explodeMultiPagePdfs(draft: BatchIntakeDraft): Promise<{
   return { draft: next, splitCount }
 }
 
-/** Admin workspace: page-split PDFs, then click-assign RC / BOL / INV. */
+/** Next pending id after assigning `assignedId` (prefer following page in list). */
+function nextPendingAfterAssign(
+  pendingBefore: DocSortFingerprint[],
+  assignedId: string,
+  draftAfter: BatchIntakeDraft
+): string | null {
+  const remaining = listPending(draftAfter)
+  if (remaining.length === 0) return null
+  const oldOrder = pendingBefore.map((fp) => fp.docId)
+  const oldIdx = oldOrder.indexOf(assignedId)
+  const preferred =
+    oldOrder.slice(oldIdx + 1).find((id) => remaining.some((fp) => fp.docId === id)) ??
+    remaining[0]?.docId
+  return preferred ?? null
+}
+
+/** Admin workspace: page-split PDFs, drag/click/right-click assign RC / BOL / INV. */
 export default function BatchDocSplitterWorkspace({
   batchId,
   onClose,
@@ -204,9 +259,12 @@ export default function BatchDocSplitterWorkspace({
   const [draft, setDraft] = useState<BatchIntakeDraft | null>(null)
   const [loading, setLoading] = useState(true)
   const [splitting, setSplitting] = useState(false)
+  const [sorting, setSorting] = useState(false)
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
-  const [activeCategory, setActiveCategory] = useState<MarkCategory | null>('rc')
+  const [dropTarget, setDropTarget] = useState<MarkCategory | 'pending' | null>(null)
+  const [docMenu, setDocMenu] = useState<DocMenuState | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const docMenuRef = useRef<HTMLDivElement | null>(null)
 
   const persistDraftFiles = useCallback(
     (next: BatchIntakeDraft) => {
@@ -234,7 +292,6 @@ export default function BatchDocSplitterWorkspace({
           },
           next.invoices
         ),
-        // Keep Doc Split gate while pending pages remain.
         needs_doc_split: pendingLeft,
         sort_status: pendingLeft ? 'needs_split' : 'failed',
         ...(nextStatus ? { status: nextStatus } : {}),
@@ -256,7 +313,6 @@ export default function BatchDocSplitterWorkspace({
       }
       let next = ensureDocsInUnmatchedPool(hydrated)
 
-      // Fetch files needed to count/split pages.
       const paths = next.storagePathsByDocId ?? {}
       for (const docId of Object.keys(paths)) {
         if (next.fileById.has(docId)) continue
@@ -279,9 +335,7 @@ export default function BatchDocSplitterWorkspace({
       setDraft(next)
       persistDraftFiles(next)
 
-      const pending = listAllSupportingFingerprints(next).filter(
-        (fp) => !markCategoryForKind(fp.kind)
-      )
+      const pending = listPending(next)
       setSelectedDocId(pending[0]?.docId ?? listAllSupportingFingerprints(next)[0]?.docId ?? null)
 
       if (exploded.splitCount > 0) {
@@ -323,6 +377,43 @@ export default function BatchDocSplitterWorkspace({
       cancelled = true
     }
   }, [batchId, storagePathsKey])
+
+  const closeDocMenu = useCallback(() => setDocMenu(null), [])
+
+  useLayoutEffect(() => {
+    if (!docMenu || !docMenuRef.current) return
+    const el = docMenuRef.current
+    const pad = 8
+    const rect = el.getBoundingClientRect()
+    let x = docMenu.x
+    let y = docMenu.y
+    if (x + rect.width > window.innerWidth - pad) {
+      x = Math.max(pad, window.innerWidth - rect.width - pad)
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      y = Math.max(pad, window.innerHeight - rect.height - pad)
+    }
+    if (x !== docMenu.x || y !== docMenu.y) {
+      setDocMenu((prev) => (prev ? { ...prev, x, y } : prev))
+    }
+  }, [docMenu])
+
+  useEffect(() => {
+    if (!docMenu) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeDocMenu()
+    }
+    const onPointer = (e: PointerEvent) => {
+      if (docMenuRef.current?.contains(e.target as Node)) return
+      closeDocMenu()
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onPointer, true)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onPointer, true)
+    }
+  }, [docMenu, closeDocMenu])
 
   const allDocs = useMemo(
     () => (draft ? listAllSupportingFingerprints(draft) : []),
@@ -372,64 +463,159 @@ export default function BatchDocSplitterWorkspace({
     return next
   }
 
-  /** Move a pending (or already marked) doc into the active category. */
-  const assignToCategory = (docId: string, category: MarkCategory) => {
+  /** Assign doc to category and auto-advance preview to the next pending page. */
+  const assignToCategory = useCallback(
+    (docId: string, category: MarkCategory) => {
+      if (!draft) return
+      const pendingBefore = listPending(draft)
+      const kind = kindForCategory(category)
+      const alreadyInPool =
+        draft.unmatched.rateCons.some((row) => row.docId === docId) ||
+        draft.unmatched.bols.some((row) => row.docId === docId) ||
+        draft.unmatched.other.some((row) => row.docId === docId)
+      let next = alreadyInPool ? draft : ensureDocumentUnassigned(draft, docId)
+      next = placeDraftDocument(next, docId, null, kind)
+      setDraft(next)
+      persistDraftFiles(next)
+      setSelectedDocId(nextPendingAfterAssign(pendingBefore, docId, next))
+    },
+    [draft, persistDraftFiles]
+  )
+
+  /** 1 = RC, 2 = BOL, 3 = INV — assign selected (or first pending) and advance. */
+  useEffect(() => {
+    if (loading || !draft) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      const byKey: Record<string, MarkCategory> = {
+        '1': 'rc',
+        '2': 'bol',
+        '3': 'inv',
+      }
+      const byCode: Record<string, MarkCategory> = {
+        Digit1: 'rc',
+        Digit2: 'bol',
+        Digit3: 'inv',
+        Numpad1: 'rc',
+        Numpad2: 'bol',
+        Numpad3: 'inv',
+      }
+      const category = byKey[e.key] ?? byCode[e.code]
+      if (!category) return
+
+      const pending = listPending(draft)
+      const targetId =
+        (selectedDocId &&
+        listAllSupportingFingerprints(draft).some((fp) => fp.docId === selectedDocId)
+          ? selectedDocId
+          : null) ?? pending[0]?.docId
+      if (!targetId) return
+
+      e.preventDefault()
+      assignToCategory(targetId, category)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [loading, draft, selectedDocId, assignToCategory])
+
+  const openDocMenu = (event: ReactMouseEvent, fp: DocSortFingerprint) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setSelectedDocId(fp.docId)
+    setDocMenu({
+      x: event.clientX,
+      y: event.clientY,
+      docId: fp.docId,
+      fileName: fp.fileName,
+    })
+  }
+
+  const onDragStartDoc = (event: ReactDragEvent, docId: string) => {
+    writePacketDocDrag(event, { docId, fromDraftId: null })
+    event.dataTransfer.setData(SPLITTER_DRAG_MIME, docId)
+  }
+
+  const allowDrop = (event: ReactDragEvent, target: MarkCategory | 'pending') => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setDropTarget(target)
+  }
+
+  const onDropToCategory = (event: ReactDragEvent, category: MarkCategory) => {
+    event.preventDefault()
+    setDropTarget(null)
+    const payload = readPacketDocDrag(event)
+    const docId = payload?.docId || event.dataTransfer.getData(SPLITTER_DRAG_MIME)
+    if (!docId) return
+    assignToCategory(docId, category)
+  }
+
+  const onDropToPending = (event: ReactDragEvent) => {
+    event.preventDefault()
+    setDropTarget(null)
     if (!draft) return
-    const kind = kindForCategory(category)
+    const payload = readPacketDocDrag(event)
+    const docId = payload?.docId || event.dataTransfer.getData(SPLITTER_DRAG_MIME)
+    if (!docId) return
+    // Un-mark → back to pending (kind other).
     const alreadyInPool =
       draft.unmatched.rateCons.some((row) => row.docId === docId) ||
       draft.unmatched.bols.some((row) => row.docId === docId) ||
       draft.unmatched.other.some((row) => row.docId === docId)
     let next = alreadyInPool ? draft : ensureDocumentUnassigned(draft, docId)
-    next = placeDraftDocument(next, docId, null, kind)
+    next = placeDraftDocument(next, docId, null, 'other')
     setDraft(next)
     persistDraftFiles(next)
-
-    // After assigning from pending, preview next pending page (or the one just marked).
-    const remainingPending = listAllSupportingFingerprints(next).filter(
-      (fp) => !markCategoryForKind(fp.kind)
-    )
-    setSelectedDocId(remainingPending[0]?.docId ?? docId)
+    setSelectedDocId(docId)
   }
 
+  /** Click pending: select for full preview (assign with 1/2/3, drag, or buttons). */
   const handlePendingClick = (fp: DocSortFingerprint) => {
-    if (!activeCategory) {
-      setSelectedDocId(fp.docId)
-      showToast('Select RC, BOL, or INV first, then click a pending file to assign it.', 'info')
-      return
-    }
-    assignToCategory(fp.docId, activeCategory)
+    setSelectedDocId(fp.docId)
   }
 
   const handleCategorizedClick = (fp: DocSortFingerprint) => {
     setSelectedDocId(fp.docId)
   }
 
-  const handleSplitSelected = async () => {
-    if (!draft || !selectedDocId) return
-    setSplitting(true)
+  /** SORT DOCS — auto-mark pending pages from extract / file-name hints. */
+  const handleSortDocs = () => {
+    if (!draft) return
+    setSorting(true)
     try {
-      const withFile = await ensureFileForDoc(selectedDocId, draft)
-      const result = canUnpackDraftDocument(withFile, selectedDocId)
-        ? await unpackDraftDocument(withFile, selectedDocId)
-        : await splitDraftPdfIntoPages(withFile, selectedDocId)
-      const pooled = ensureDocsInUnmatchedPool(result.draft)
-      setDraft(pooled)
-      persistDraftFiles(pooled)
-      const pending = listAllSupportingFingerprints(pooled).filter(
-        (fp) => !markCategoryForKind(fp.kind)
-      )
-      setSelectedDocId(pending[0]?.docId ?? null)
+      const pendingBefore = listPending(draft)
+      let next = draft
+      let moved = 0
+      for (const fp of pendingBefore) {
+        const guess = guessMarkCategory(fp)
+        if (!guess) continue
+        const kind = kindForCategory(guess)
+        next = placeDraftDocument(next, fp.docId, null, kind)
+        moved += 1
+      }
+      next = ensureDocsInUnmatchedPool(next)
+      setDraft(next)
+      persistDraftFiles(next)
+      const remaining = listPending(next)
+      setSelectedDocId(remaining[0]?.docId ?? null)
       showToast(
-        result.status === 'unpacked'
-          ? 'PDF separated into pages — mark each as RC / BOL / INV.'
-          : result.message || 'Could not split further.',
-        result.status === 'unpacked' ? 'success' : 'info'
+        moved > 0
+          ? `Sorted ${moved} page${moved === 1 ? '' : 's'} into RC / BOL / INV.`
+          : 'No automatic matches — mark remaining pages by hand.',
+        moved > 0 ? 'success' : 'info'
       )
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Split failed', 'error')
     } finally {
-      setSplitting(false)
+      setSorting(false)
     }
   }
 
@@ -456,18 +642,37 @@ export default function BatchDocSplitterWorkspace({
     )
   }
 
-  const selectedFile = draft && selectedDocId ? draft.fileById.get(selectedDocId) : undefined
-  const selectedCanSplit =
-    Boolean(selectedFile && isPdfFile(selectedFile)) &&
-    (selectedDocId
-      ? pendingDocs.some((fp) => fp.docId === selectedDocId) ||
-        (draft ? canUnpackDraftDocument(draft, selectedDocId) : false)
-      : false)
+  const renderDocChip = (
+    fp: DocSortFingerprint,
+    opts: { pending?: boolean; onClick: () => void }
+  ) => {
+    const active = fp.docId === selectedDocId
+    return (
+      <button
+        type="button"
+        draggable
+        onDragStart={(e) => onDragStartDoc(e, fp.docId)}
+        onClick={opts.onClick}
+        onContextMenu={(e) => openDocMenu(e, fp)}
+        className="w-full text-left px-2 py-1.5 rounded border text-xs transition-colors"
+        style={{
+          borderColor: active ? c.accent : c.border,
+          backgroundColor: c.card,
+          color: c.primary,
+          boxShadow: active ? `inset 0 0 0 1px ${c.accent}` : undefined,
+          cursor: 'grab',
+        }}
+        title="Drag to RC / BOL / INV · right-click or press 1/2/3 to mark"
+      >
+        <span className="block truncate font-medium">{fp.fileName}</span>
+      </button>
+    )
+  }
 
   return (
     <div className="flex flex-col min-h-0 h-full overflow-hidden">
       <header
-        className="shrink-0 flex flex-wrap items-center gap-3 px-4 py-3 border-b"
+        className="shrink-0 flex flex-wrap items-center gap-2 px-4 py-2.5 border-b"
         style={{ borderColor: c.border }}
       >
         <button
@@ -483,23 +688,30 @@ export default function BatchDocSplitterWorkspace({
           <p className="text-xs uppercase tracking-wide" style={{ color: c.muted }}>
             Doc Splitter
           </p>
-          <h1 className="text-base font-semibold truncate" style={{ color: c.primary }}>
+          <h1 className="text-sm font-semibold truncate" style={{ color: c.primary }}>
             {batch.batch_number}
             <span className="font-normal" style={{ color: c.secondary }}>
               {' '}
               · {batch.client_name}
             </span>
           </h1>
-          <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
-            Select RC, BOL, or INV, then click a pending page to assign it. Click a marked file to
-            preview.
+          <p className="text-[11px] mt-0.5" style={{ color: c.muted }}>
+            Keys: <kbd className="font-semibold">1</kbd> RC ·{' '}
+            <kbd className="font-semibold">2</kbd> BOL ·{' '}
+            <kbd className="font-semibold">3</kbd> INV
           </p>
         </div>
         <button
           type="button"
-          className="dashboard-btn-primary shrink-0"
-          onClick={handleContinue}
+          className="dashboard-btn-secondary !h-8 !px-3 !text-xs inline-flex items-center gap-1.5"
+          disabled={sorting || loading || pendingDocs.length === 0}
+          onClick={handleSortDocs}
+          title="Auto-mark pending pages from file names / AI hints"
         >
+          {sorting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+          Sort docs
+        </button>
+        <button type="button" className="dashboard-btn-primary !h-8 !text-xs" onClick={handleContinue}>
           Continue to Packet Rework
         </button>
       </header>
@@ -527,203 +739,207 @@ export default function BatchDocSplitterWorkspace({
           </button>
         </div>
       ) : (
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(300px,0.9fr)] overflow-hidden">
-          {/* Left: RC / BOL / INV bins */}
+        <div
+          className="flex-1 min-h-0 grid overflow-hidden"
+          style={{
+            gridTemplateColumns: 'minmax(120px, 150px) minmax(130px, 160px) minmax(0, 1fr)',
+          }}
+        >
+          {/* Slim RC / BOL / INV bins */}
           <div
-            className="min-h-0 flex flex-col overflow-hidden border-b lg:border-b-0 lg:border-r"
+            className="min-h-0 grid grid-rows-3 overflow-hidden border-r"
             style={{ borderColor: c.border }}
           >
-            <div
-              className="shrink-0 px-3 py-2 border-b text-xs"
-              style={{ borderColor: c.border, color: c.secondary, backgroundColor: c.card }}
-            >
-              Active mark:{' '}
-              <strong style={{ color: c.primary }}>
-                {activeCategory
-                  ? CATEGORIES.find((row) => row.id === activeCategory)?.short
-                  : 'none'}
-              </strong>
-              {' — '}
-              click a category, then click a pending page on the right.
-            </div>
-            <div className="flex-1 min-h-0 grid grid-cols-1 sm:grid-cols-3 overflow-hidden">
-              {CATEGORIES.map((cat) => {
-                const rows = docsByCategory[cat.id]
-                const isActive = activeCategory === cat.id
-                return (
-                  <section
-                    key={cat.id}
-                    className="min-h-0 flex flex-col border-b sm:border-b-0 sm:border-r last:sm:border-r-0 overflow-hidden"
-                    style={{ borderColor: c.border }}
+            {CATEGORIES.map((cat) => {
+              const rows = docsByCategory[cat.id]
+              const isDrop = dropTarget === cat.id
+              return (
+                <section
+                  key={cat.id}
+                  className="min-h-0 flex flex-col overflow-hidden border-b last:border-b-0"
+                  style={{
+                    borderColor: c.border,
+                    outline: isDrop ? `2px solid ${c.accent}` : undefined,
+                    outlineOffset: -2,
+                  }}
+                  onDragOver={(e) => allowDrop(e, cat.id)}
+                  onDragLeave={() => setDropTarget(null)}
+                  onDrop={(e) => onDropToCategory(e, cat.id)}
+                >
+                  <div
+                    className="shrink-0 px-2 py-1.5 border-b flex items-center justify-between gap-1"
+                    style={{ borderColor: c.border, backgroundColor: c.card }}
+                    title={`Drop pages here · or press ${cat.id === 'rc' ? '1' : cat.id === 'bol' ? '2' : '3'}`}
                   >
-                    <button
-                      type="button"
-                      onClick={() => setActiveCategory(cat.id)}
-                      className="shrink-0 px-3 py-2.5 border-b flex items-center justify-between gap-2 text-left"
-                      style={{
-                        borderColor: c.border,
-                        backgroundColor: isActive ? c.card : undefined,
-                        boxShadow: isActive ? `inset 0 -2px 0 ${c.accent}` : undefined,
-                      }}
-                      title={`Assign pending pages as ${cat.short}`}
-                    >
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold tracking-wide" style={{ color: c.primary }}>
-                          {cat.short}
-                          {isActive ? ' · selected' : ''}
-                        </p>
-                        <p className="text-[11px] truncate" style={{ color: c.muted }}>
-                          {cat.label}
-                        </p>
-                      </div>
-                      <span className="text-xs tabular-nums" style={{ color: c.secondary }}>
-                        {rows.length}
-                      </span>
-                    </button>
-                    <ul className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1.5">
-                      {rows.length === 0 ? (
-                        <li className="px-2 py-6 text-center text-xs" style={{ color: c.muted }}>
-                          No {cat.short} pages yet
+                    <span className="text-[11px] font-semibold" style={{ color: c.primary }}>
+                      {cat.short}
+                    </span>
+                    <span className="text-[11px] tabular-nums" style={{ color: c.secondary }}>
+                      {rows.length}
+                    </span>
+                  </div>
+                  <ul className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-1.5 space-y-1">
+                    {rows.length === 0 ? (
+                      <li className="px-1 py-3 text-center text-[10px]" style={{ color: c.muted }}>
+                        Drop here
+                      </li>
+                    ) : (
+                      rows.map((fp) => (
+                        <li key={fp.docId}>
+                          {renderDocChip(fp, { onClick: () => handleCategorizedClick(fp) })}
                         </li>
-                      ) : (
-                        rows.map((fp) => {
-                          const active = fp.docId === selectedDocId
-                          return (
-                            <li key={fp.docId}>
-                              <button
-                                type="button"
-                                onClick={() => handleCategorizedClick(fp)}
-                                className="w-full text-left px-2.5 py-2 rounded-lg border text-sm"
-                                style={{
-                                  borderColor: active ? c.accent : c.border,
-                                  backgroundColor: c.card,
-                                  color: c.primary,
-                                  boxShadow: active ? `inset 0 0 0 1px ${c.accent}` : undefined,
-                                }}
-                              >
-                                <span className="block truncate font-medium">{fp.fileName}</span>
-                                <span className="text-[11px]" style={{ color: c.muted }}>
-                                  Click to preview
-                                </span>
-                              </button>
-                            </li>
-                          )
-                        })
-                      )}
-                    </ul>
-                  </section>
-                )
-              })}
-            </div>
+                      ))
+                    )}
+                  </ul>
+                </section>
+              )
+            })}
           </div>
 
-          {/* Right: pending inbox + preview */}
-          <aside className="min-h-0 flex flex-col overflow-hidden" style={{ backgroundColor: c.card }}>
+          {/* Pending list — beside preview, not above */}
+          <aside
+            className="min-h-0 flex flex-col overflow-hidden border-r"
+            style={{
+              borderColor: c.border,
+              outline: dropTarget === 'pending' ? `2px solid ${c.accent}` : undefined,
+              outlineOffset: -2,
+            }}
+            onDragOver={(e) => allowDrop(e, 'pending')}
+            onDragLeave={() => setDropTarget(null)}
+            onDrop={onDropToPending}
+          >
             <div
-              className="shrink-0 max-h-[42%] min-h-[140px] flex flex-col border-b overflow-hidden"
-              style={{ borderColor: c.border }}
+              className="shrink-0 px-2 py-1.5 border-b flex items-center justify-between gap-1"
+              style={{ borderColor: c.border, backgroundColor: c.card }}
             >
-              <div
-                className="shrink-0 px-3 py-2 border-b flex items-center justify-between gap-2"
-                style={{ borderColor: c.border }}
-              >
-                <div>
-                  <p className="text-xs font-semibold" style={{ color: c.primary }}>
-                    Pending pages
-                  </p>
-                  <p className="text-[11px]" style={{ color: c.muted }}>
-                    Click to assign as {activeCategory?.toUpperCase() ?? '…'}
-                  </p>
-                </div>
-                <span className="text-xs tabular-nums" style={{ color: c.secondary }}>
-                  {pendingDocs.length}
-                </span>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold" style={{ color: c.primary }}>
+                  Pending
+                </p>
+                <p className="text-[10px] truncate" style={{ color: c.muted }}>
+                  Click to preview · 1/2/3 to mark
+                </p>
               </div>
-              <ul className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1.5">
-                {pendingDocs.length === 0 ? (
-                  <li className="px-2 py-6 text-center text-xs" style={{ color: c.muted }}>
-                    All pages marked — continue to Packet Rework
-                  </li>
-                ) : (
-                  pendingDocs.map((fp) => {
-                    const active = fp.docId === selectedDocId
-                    return (
-                      <li key={fp.docId}>
-                        <button
-                          type="button"
-                          onClick={() => handlePendingClick(fp)}
-                          className="w-full text-left px-2.5 py-2 rounded-lg border text-sm"
-                          style={{
-                            borderColor: active ? c.accent : c.border,
-                            backgroundColor: c.card,
-                            color: c.primary,
-                            boxShadow: active ? `inset 0 0 0 1px ${c.accent}` : undefined,
-                          }}
-                        >
-                          <span className="block truncate font-medium">{fp.fileName}</span>
-                          <span className="text-[11px]" style={{ color: c.muted }}>
-                            {activeCategory
-                              ? `Click → move to ${activeCategory.toUpperCase()}`
-                              : 'Select a category first'}
-                          </span>
-                        </button>
-                      </li>
-                    )
-                  })
-                )}
-              </ul>
+              <span className="text-[11px] tabular-nums" style={{ color: c.secondary }}>
+                {pendingDocs.length}
+              </span>
             </div>
-
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              {selectedDocId && draft ? (
-                <>
-                  <div
-                    className="shrink-0 px-3 py-2 border-b flex flex-wrap items-center gap-2"
-                    style={{ borderColor: c.border }}
-                  >
-                    <p className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: c.primary }}>
-                      {findFingerprintLabel(draft, selectedDocId)}
-                    </p>
-                    {selectedCanSplit ? (
-                      <button
-                        type="button"
-                        className="dashboard-btn-secondary !h-7 !px-2.5 !text-xs inline-flex items-center gap-1"
-                        disabled={splitting}
-                        onClick={() => void handleSplitSelected()}
-                      >
-                        {splitting ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Scissors className="w-3.5 h-3.5" />
-                        )}
-                        Split into pages
-                      </button>
-                    ) : null}
-                  </div>
-                  <div className="flex-1 min-h-0 overflow-hidden">
-                    <CompactPacketDocPane
-                      title="Preview"
-                      documents={previewDocs}
-                      activeDocId={selectedDocId}
-                      emptyHint="Select a page to preview"
-                      onEnsureDocument={async (docId) => {
-                        if (!draft) return
-                        await ensureFileForDoc(docId, draft)
-                      }}
-                    />
-                  </div>
-                </>
+            <ul className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-1.5 space-y-1">
+              {pendingDocs.length === 0 ? (
+                <li className="px-1 py-6 text-center text-[10px]" style={{ color: c.muted }}>
+                  All marked
+                </li>
               ) : (
-                <div className="flex-1 flex items-center justify-center p-6 text-center">
-                  <p className="text-sm" style={{ color: c.secondary }}>
-                    Select a pending page to assign, or a marked file to preview.
-                  </p>
-                </div>
+                pendingDocs.map((fp) => (
+                  <li key={fp.docId}>
+                    {renderDocChip(fp, {
+                      pending: true,
+                      onClick: () => handlePendingClick(fp),
+                    })}
+                  </li>
+                ))
               )}
-            </div>
+            </ul>
           </aside>
+
+          {/* Doc preview — full height, not clipped */}
+          <section className="min-h-0 flex flex-col overflow-hidden" style={{ backgroundColor: c.card }}>
+            {selectedDocId && draft ? (
+              <>
+                <div
+                  className="shrink-0 px-3 py-2 border-b flex flex-wrap items-center gap-2"
+                  style={{ borderColor: c.border }}
+                >
+                  <p className="text-sm font-semibold truncate flex-1 min-w-0" style={{ color: c.primary }}>
+                    {findFingerprintLabel(draft, selectedDocId)}
+                  </p>
+                  <div className="flex items-center gap-1" title="Or press 1 / 2 / 3">
+                    {CATEGORIES.map((cat, i) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        className="dashboard-btn-secondary !h-7 !px-2 !text-xs"
+                        onClick={() => assignToCategory(selectedDocId, cat.id)}
+                        title={`${cat.short} (key ${i + 1}) — then next page`}
+                      >
+                        {i + 1} {cat.short}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                  <CompactPacketDocPane
+                    className="h-full min-h-0 border-0 rounded-none"
+                    title="Preview"
+                    documents={previewDocs}
+                    activeDocId={selectedDocId}
+                    emptyHint="Select a page to preview"
+                    onEnsureDocument={async (docId) => {
+                      if (!draft) return
+                      await ensureFileForDoc(docId, draft)
+                    }}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center p-6 text-center">
+                <p className="text-sm" style={{ color: c.secondary }}>
+                  Select a pending page to preview. Press 1 / 2 / 3 to mark and advance.
+                </p>
+              </div>
+            )}
+          </section>
         </div>
       )}
+
+      {docMenu &&
+        createPortal(
+          <div
+            ref={docMenuRef}
+            className="client-ai-doc-menu admin-batch-context-menu"
+            style={{ left: docMenu.x, top: docMenu.y }}
+            role="menu"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <p className="client-ai-doc-menu__label truncate" title={docMenu.fileName}>
+              {docMenu.fileName}
+            </p>
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                role="menuitem"
+                className="client-ai-doc-menu__item"
+                onClick={() => {
+                  const id = docMenu.docId
+                  closeDocMenu()
+                  assignToCategory(id, cat.id)
+                }}
+              >
+                Mark as {cat.short}
+              </button>
+            ))}
+            <button
+              type="button"
+              role="menuitem"
+              className="client-ai-doc-menu__item"
+              onClick={() => {
+                const id = docMenu.docId
+                closeDocMenu()
+                if (!draft) return
+                let next = placeDraftDocument(draft, id, null, 'other')
+                setDraft(next)
+                persistDraftFiles(next)
+                setSelectedDocId(id)
+              }}
+            >
+              Move to Pending
+            </button>
+          </div>,
+          document.body
+        )}
     </div>
   )
 }
