@@ -124,11 +124,11 @@ export function getClientBatchAiProgress(input: {
     }
   }
 
-  // Carrier-facing: never show technical failure — Credyx rework only.
+  // Carrier-facing: never show Rework — Credyx handles it; client only sees Processing.
   if (batchStatus === 'rework' || sortStatus === 'failed' || jobFailed) {
     return withEta({
-      phase: 'rework',
-      label: 'Rework',
+      phase: 'processing',
+      label: 'Processing…',
       detail: 'Credyx is finishing your paperwork. We’ll update this batch when invoices are ready.',
       completed,
       total,

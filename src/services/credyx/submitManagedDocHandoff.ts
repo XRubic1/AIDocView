@@ -3,10 +3,11 @@
  */
 import { isAIReviewEnabled } from '../../config/aiReview'
 import { HANDOFF_PLACEHOLDER_INVOICE_ID, setBatchFiles } from '../../data/batchFileStore'
-import { addBatch, generateBatchNumber, updateBatch } from '../../data/mockBatches'
+import { addBatch, generateBatchNumber } from '../../data/mockBatches'
 import { isSupabaseConfigured } from '../../lib/supabase'
 import { notifyAdminDocHandoff } from '../adminNotificationService'
 import { evaluateAiSpendAllow } from '../aiSpendService'
+import { releaseBatchForAiPolicyBlock } from '../batchReworkService'
 import { getClientById } from '../clientRegistry'
 import { persistBatch, uploadBatchInvoiceDocuments } from '../supabase/tenantPersist'
 import { assertClientSetupComplete } from '../../utils/clientSetupDocuments'
@@ -78,15 +79,17 @@ export async function submitManagedDocHandoff(
   const batchNumber = generateBatchNumber(clientId)
   const submittedAt = new Date().toISOString()
   // Uploads always proceed; spend/policy only gates AI packet creation.
+  // Start in creating so the client sees Processing until packets exist or Credyx reworks.
   const spend = await evaluateAiSpendAllow(clientId)
-  const aiOn = isAIReviewEnabled() && spend.allowed
+  const aiConfigured = isAIReviewEnabled()
+  const aiOn = aiConfigured && spend.allowed
   const batch = addBatch({
     batch_number: batchNumber,
     client_name: clientName,
     client_id: clientId,
     total_invoices: 0,
     total_amount: 0,
-    status: aiOn ? 'creating' : 'ready_to_post',
+    status: 'creating',
     submitted_at: submittedAt,
     upload_mode: 'handoff',
     sort_status: aiOn ? 'sorting' : 'pending',
@@ -156,7 +159,14 @@ export async function submitManagedDocHandoff(
   const etaLabel = eta?.label ?? `about ${etaMinutes} minutes`
 
   if (!aiOn) {
-    updateBatch(batch.id, { sort_status: 'pending' })
+    // Cap / AI off / AI down → Packet Rework + ops email; client still sees Processing.
+    await releaseBatchForAiPolicyBlock(
+      batch.id,
+      spend.allowed
+        ? { message: 'AI review is not configured.', reason: undefined }
+        : spend,
+      { aiConfigured }
+    )
     return {
       batchId: batch.id,
       batchNumber: batch.batch_number,

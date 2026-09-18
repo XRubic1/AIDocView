@@ -68,6 +68,19 @@ export function buildDocSortSnapshot(
     totalDocuments: sortResult.totalDocuments,
     groupCount: sortResult.groups.length,
     fingerprints: [...byId.values()],
+    needsDocSplit: Boolean(
+      [...byId.values()].some((fp) => {
+        const groups = fp.extract?.pageClassifications
+        if (!groups || groups.length === 0) return false
+        const kinds = new Set(
+          groups
+            .filter((p) => !p.skipped)
+            .map((p) => p.pageType)
+            .filter((t) => t && t !== 'blank')
+        )
+        return kinds.size >= 2
+      })
+    ),
   })
 }
 

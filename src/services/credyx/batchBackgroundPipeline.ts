@@ -15,7 +15,7 @@ import { listHandoffDocumentMeta } from '../../utils/resolveHandoffDocuments'
 import { notifyTenantDataUpdated } from '../supabase/tenantDataLiveSync'
 import { evaluateAiSpendAllow } from '../aiSpendService'
 import { setOpenAiSpendContext } from '../../utils/openaiAuthContext'
-import { markBatchNeedsRework } from '../batchReworkService'
+import { markBatchNeedsRework, releaseBatchForAiPolicyBlock } from '../batchReworkService'
 
 const inflight = new Set<string>()
 
@@ -126,6 +126,12 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
   const batch = getBatchById(batchId)
   if (!batch) return false
 
+  // Already have packets in memory — never create a second set.
+  const localExisting = getInvoicesByBatchId(batchId)
+  if (localExisting.length > 0) {
+    return true
+  }
+
   // Memory empty after refresh, but DB may already have invoices for this batch.
   if (isSupabaseConfigured()) {
     try {
@@ -164,13 +170,70 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
 
   try {
     const { runBatchIntakePipeline, submitAiBatch } = await import('./batchIntakePipeline')
+    const { listCombinedFingerprintIds } = await import(
+      '../../products/docSort/services/docSortUnpack'
+    )
+    const { buildDocSortSnapshot } = await import('../../products/docSort/utils/docSortSnapshot')
+    const { markBatchNeedsDocSplit } = await import('../../utils/batchDocSplit')
+    const { fingerprintDocIds } = await import('../../integrations/docSortToCredyx')
+
     const intake = await runBatchIntakePipeline(files, batch.client_id)
+
+    const allFps = [
+      ...intake.sortResult.groups.flatMap((g) => [
+        ...g.rateCons,
+        ...g.bols,
+        ...(g.others ?? []),
+      ]),
+      ...intake.sortResult.unmatchedRateCons,
+      ...intake.sortResult.unmatchedBols,
+      ...intake.sortResult.otherDocuments,
+    ]
+    const combinedIds = listCombinedFingerprintIds(allFps, intake.fileById)
+
+    // Combined PDFs → Doc Splitter first (no packets from invoice page #s).
+    if (combinedIds.length > 0) {
+      const unmatchedIds = [
+        ...fingerprintDocIds(intake.sortResult.unmatchedRateCons),
+        ...fingerprintDocIds(intake.sortResult.unmatchedBols),
+        ...fingerprintDocIds(intake.sortResult.otherDocuments),
+        ...intake.sortResult.groups.flatMap((g) => [
+          ...fingerprintDocIds(g.rateCons),
+          ...fingerprintDocIds(g.bols),
+          ...fingerprintDocIds(g.others ?? []),
+        ]),
+        ...combinedIds,
+      ]
+      const uniqueUnmatched = [...new Set(unmatchedIds)]
+
+      const { setBatchFiles } = await import('../../data/batchFileStore')
+      setBatchFiles(batchId, intake.fileById)
+
+      markBatchNeedsDocSplit(batchId, {
+        unmatchedDocIds: uniqueUnmatched,
+        snapshot: buildDocSortSnapshot(intake.sortResult, []),
+      })
+      await markJob(
+        batchId,
+        'failed',
+        `Combined PDFs detected (${combinedIds.length}). Open Doc Splitter before Packet Rework.`
+      )
+      notifyTenantDataUpdated(['batches'], batch.client_id)
+      return false
+    }
+
     if (intake.invoices.length === 0) {
       await markBatchNeedsRework(
         batchId,
         'DocSort finished but produced 0 invoice packets. Documents are still on the batch — create packets manually or retry AI.'
       )
       return false
+    }
+
+    // Another tab may have finished while we were sorting — never append duplicates.
+    if (getInvoicesByBatchId(batchId).length > 0) {
+      notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
+      return true
     }
 
     await submitAiBatch({
@@ -205,9 +268,10 @@ export async function runBatchBackgroundPipeline(opts: {
 
   try {
     if (!isAIReviewEnabled()) {
-      await markBatchNeedsRework(
+      await releaseBatchForAiPolicyBlock(
         batchId,
-        'AI review is not configured (openai-proxy / OPENAI_API_KEY). Documents remain available for manual packet creation.'
+        { message: 'AI review is not configured (openai-proxy / OPENAI_API_KEY).' },
+        { aiConfigured: false }
       )
       return
     }
@@ -218,17 +282,16 @@ export async function runBatchBackgroundPipeline(opts: {
       return
     }
 
-    // Master / per-client AI off or spend cap: keep docs uploaded, skip AI packets/review.
+    // Master / per-client AI off or spend cap → Packet Rework + ops email.
     const spend = await evaluateAiSpendAllow(batch.client_id)
     if (!spend.allowed) {
-      updateBatch(batchId, { sort_status: 'pending', status: 'ready_to_post' })
-      await markJob(batchId, 'succeeded', spend.message)
-      notifyTenantDataUpdated(['batches'], batch.client_id)
+      await releaseBatchForAiPolicyBlock(batchId, spend, { aiConfigured: true })
       return
     }
 
     setOpenAiSpendContext({ clientId: batch.client_id, feature: 'review' })
 
+    // Prefer live memory, but re-check DB before creating to avoid duplicate packets.
     let invoices = getInvoicesByBatchId(batchId)
     if (invoices.length === 0) {
       await markJob(batchId, 'running')
@@ -238,6 +301,9 @@ export async function runBatchBackgroundPipeline(opts: {
         return
       }
       invoices = getInvoicesByBatchId(batchId)
+    } else {
+      // Invoices already exist — never append another DocSort pass.
+      notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
     }
 
     const alreadyDone = invoices.every(

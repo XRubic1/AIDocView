@@ -3,6 +3,7 @@ import { CalendarDays, Plus } from 'lucide-react'
 import AdminCreateBatchPanel from '../components/batches/AdminCreateBatchPanel'
 import AllBatchesTab from '../components/batches/AllBatchesTab'
 import BatchPacketReworkWorkspace from '../components/batches/BatchPacketReworkWorkspace'
+import BatchDocSplitterWorkspace from '../components/batches/BatchDocSplitterWorkspace'
 import BatchAiVerificationWorkspace from '../components/batches/BatchAiVerificationWorkspace'
 import { getAllBatches } from '../data/mockBatches'
 import { useClientTheme } from '../theme/ThemeContext'
@@ -13,6 +14,7 @@ import {
   adminBatchFilterLabel,
   batchPassesDateRange,
   batchPassesDisplayFlags,
+  canOpenDocSplitter,
   canOpenPacketRework,
   countAdminBatchFilters,
   createAdminBatchDisplayFlags,
@@ -21,11 +23,12 @@ import {
   type AdminBatchChipFilter,
   type AdminBatchWorkflowStage,
 } from '../utils/adminBatchQueue'
+import { batchNeedsDocSplit } from '../utils/batchDocSplit'
 import { useToast } from '../components/ui/ToastProvider'
 
 /**
- * Admin Batches — list + two workspaces only:
- * Packet Rework (assign docs) and AI Verification (OK / Hold / process).
+ * Admin Batches — list + workspaces:
+ * Doc Splitter (combined PDFs) → Packet Rework → AI Verification.
  */
 export default function Batches() {
   const c = useClientTheme()
@@ -33,6 +36,7 @@ export default function Batches() {
   const tenantRevision = useTenantDataRevision()
   const today = toLocalDateKey()
   const [packetReworkBatchId, setPacketReworkBatchId] = useState<string | null>(null)
+  const [docSplitterBatchId, setDocSplitterBatchId] = useState<string | null>(null)
   const [aiVerifyBatchId, setAiVerifyBatchId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [showCreateBatch, setShowCreateBatch] = useState(false)
@@ -117,8 +121,21 @@ export default function Batches() {
     }))
   }
 
+  const openDocSplitter = (batchId: string) => {
+    setShowCreateBatch(false)
+    setResumeDraftBatchId(null)
+    setAiVerifyBatchId(null)
+    setPacketReworkBatchId(null)
+    setDocSplitterBatchId(batchId)
+  }
+
   const openPacketRework = (batchId: string) => {
     const batch = getAllBatches().find((b) => b.id === batchId)
+    if (batch && batchNeedsDocSplit(batch)) {
+      showToast('Split combined PDFs in Doc Splitter before Packet Rework.', 'info')
+      openDocSplitter(batchId)
+      return
+    }
     if (batch && !canOpenPacketRework(batch)) {
       showToast(
         'Packet rework unlocks when AI is not still creating, or after Manual creation / rework.',
@@ -131,6 +148,7 @@ export default function Batches() {
     setShowCreateBatch(false)
     setResumeDraftBatchId(null)
     setAiVerifyBatchId(null)
+    setDocSplitterBatchId(null)
     setPacketReworkBatchId(batchId)
   }
 
@@ -138,11 +156,13 @@ export default function Batches() {
     setShowCreateBatch(false)
     setResumeDraftBatchId(null)
     setPacketReworkBatchId(null)
+    setDocSplitterBatchId(null)
     setAiVerifyBatchId(batchId)
   }
 
   const openDraftBatch = (batchId: string) => {
     setPacketReworkBatchId(null)
+    setDocSplitterBatchId(null)
     setAiVerifyBatchId(null)
     setResumeDraftBatchId(batchId)
     setShowCreateBatch(true)
@@ -154,6 +174,10 @@ export default function Batches() {
     setResumeDraftBatchId(null)
     setTodayRange()
     const batch = getAllBatches().find((b) => b.id === batchId)
+    if (batch && batchNeedsDocSplit(batch)) {
+      openDocSplitter(batchId)
+      return
+    }
     if (batch && canOpenPacketRework(batch)) {
       openPacketRework(batchId)
       return
@@ -167,11 +191,16 @@ export default function Batches() {
     setRefreshKey((k) => k + 1)
   }
 
-  /** Open the right workspace for a batch (Packet Rework vs AI Verification). */
+  /** Open the right workspace for a batch (Doc Splitter / Packet Rework / AI Verification). */
   const handleBatchSelect = (batchId: string, stage?: AdminBatchWorkflowStage) => {
     const batch = getAllBatches().find((b) => b.id === batchId)
     if (batch?.status === 'draft') {
       openDraftBatch(batchId)
+      return
+    }
+
+    if (batch && batchNeedsDocSplit(batch) && stage !== 'verification') {
+      openDocSplitter(batchId)
       return
     }
 
@@ -195,6 +224,7 @@ export default function Batches() {
   }
 
   const inPacketRework = Boolean(packetReworkBatchId)
+  const inDocSplitter = Boolean(docSplitterBatchId)
   const inAiVerify = Boolean(aiVerifyBatchId)
 
   const dateInputStyle = {
@@ -217,6 +247,19 @@ export default function Batches() {
               resumeDraftBatchId={resumeDraftBatchId}
             />
           </div>
+        ) : inDocSplitter && docSplitterBatchId ? (
+          <BatchDocSplitterWorkspace
+            key={docSplitterBatchId}
+            batchId={docSplitterBatchId}
+            onClose={() => {
+              setDocSplitterBatchId(null)
+              setRefreshKey((k) => k + 1)
+            }}
+            onContinueToPacketRework={(id) => {
+              setDocSplitterBatchId(null)
+              openPacketRework(id)
+            }}
+          />
         ) : inPacketRework && packetReworkBatchId ? (
           <BatchPacketReworkWorkspace
             key={packetReworkBatchId}
@@ -275,6 +318,7 @@ export default function Batches() {
                   type="button"
                   onClick={() => {
                     setPacketReworkBatchId(null)
+                    setDocSplitterBatchId(null)
                     setAiVerifyBatchId(null)
                     setResumeDraftBatchId(null)
                     setShowCreateBatch(true)
@@ -342,8 +386,13 @@ export default function Batches() {
                     openDraftBatch(batchId)
                     return
                   }
+                  if (batch && canOpenDocSplitter(batch)) {
+                    openDocSplitter(batchId)
+                    return
+                  }
                   openPacketRework(batchId)
                 }}
+                onDocSplitter={openDocSplitter}
               />
             </div>
           </>

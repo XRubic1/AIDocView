@@ -1,6 +1,12 @@
 import { isAIReviewEnabled } from '../../config/aiReview'
-import { addBatch, addInvoicesForBatch, generateBatchNumber, updateBatch } from '../../data/mockBatches'
-import { updateInvoice } from '../../data/mockInvoices'
+import {
+  addBatch,
+  addInvoicesForBatch,
+  generateBatchNumber,
+  updateBatch,
+  updateBatchTotals,
+} from '../../data/mockBatches'
+import { getInvoicesByBatchId, updateInvoice } from '../../data/mockInvoices'
 import { setBatchFiles } from '../../data/batchFileStore'
 import { clearClientTenantCache } from '../../data/clientDemoData'
 import { isSupabaseConfigured } from '../../lib/supabase'
@@ -159,7 +165,6 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
     throw new Error(numberIssues[0].message)
   }
 
-  const totalAmount = resolvedDrafts.reduce((s, d) => s + d.amount, 0)
   const assignedDocIds = new Set(resolvedDrafts.flatMap((d) => d.document_doc_ids))
   // Prefer live unmatched lists; drop anything already attached to a packet.
   const unmatchedIds = [
@@ -169,6 +174,20 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
   ].filter((id) => !assignedDocIds.has(id))
 
   const existing = existingBatchId ? updateBatch(existingBatchId, {}) : undefined
+
+  // Never append a second DocSort result onto a batch that already has packets.
+  if (existingBatchId) {
+    const already = getInvoicesByBatchId(existingBatchId)
+    if (already.length > 0) {
+      updateBatchTotals(existingBatchId)
+      return {
+        batchId: existingBatchId,
+        batchNumber: existing?.batch_number ?? generateBatchNumber(clientId),
+        invoices: already,
+      }
+    }
+  }
+
   // Fee calc pulls live from the carrier account (trial/active included).
   const feeTerms = snapshotFeeTermsFromClient(client) ?? client?.fee_terms
   const feeCalculation = calculateBatchFeeCalculation(
@@ -177,14 +196,15 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
   )
   const batchNumber = existing?.batch_number ?? generateBatchNumber(clientId)
 
+  // Keep total_invoices at 0 until all invoices are in memory / DB (avoids list vs rework mismatch).
   const batch = existing
     ? updateBatch(existingBatchId!, {
-        total_invoices: resolvedDrafts.length,
-        total_amount: totalAmount,
-        status: 'ready_to_post',
+        total_invoices: 0,
+        total_amount: 0,
+        status: 'creating',
         submitted_at: new Date().toISOString(),
         upload_mode: uploadMode,
-        sort_status: 'ready',
+        sort_status: 'sorting',
         doc_sort_snapshot: buildDocSortSnapshot(sortResult, resolvedDrafts),
         unmatched_doc_ids: unmatchedIds,
         fee_calculation: feeCalculation,
@@ -193,12 +213,12 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
         batch_number: batchNumber,
         client_name: clientName,
         client_id: clientId,
-        total_invoices: resolvedDrafts.length,
-        total_amount: totalAmount,
-        status: 'ready_to_post',
+        total_invoices: 0,
+        total_amount: 0,
+        status: 'creating',
         submitted_at: new Date().toISOString(),
         upload_mode: uploadMode,
-        sort_status: 'ready',
+        sort_status: 'sorting',
         doc_sort_snapshot: buildDocSortSnapshot(sortResult, resolvedDrafts),
         unmatched_doc_ids: unmatchedIds,
         fee_calculation: feeCalculation,
@@ -211,6 +231,8 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
   })
 
   const invoices = addInvoicesForBatch(batch.id, batchNumber, invoiceFields)
+  // Sync denormalized totals from the real invoice rows immediately after create.
+  updateBatchTotals(batch.id)
 
   const pendingBrokerNames = [
     ...new Set(
@@ -236,6 +258,31 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
     }
   })
   setBatchFiles(batch.id, storeMap)
+
+  // Combined PDFs left unmatched → Credyx Doc Splitter before Packet Rework.
+  const { listCombinedFingerprintIds } = await import(
+    '../../products/docSort/services/docSortUnpack'
+  )
+  const remainingCombined = listCombinedFingerprintIds(
+    [
+      ...sortResult.unmatchedRateCons,
+      ...sortResult.unmatchedBols,
+      ...sortResult.otherDocuments,
+      ...resolvedDrafts.flatMap((d) => [
+        ...d.fingerprints.rateCons,
+        ...d.fingerprints.bols,
+        ...(d.fingerprints.other ?? []),
+      ]),
+    ],
+    storeMap
+  )
+  const needsSplit = remainingCombined.length > 0
+
+  updateBatch(batch.id, {
+    status: needsSplit ? 'rework' : 'ready_to_post',
+    sort_status: needsSplit ? 'needs_split' : 'ready',
+    needs_doc_split: needsSplit,
+  })
 
   if (isSupabaseConfigured()) {
     for (let i = 0; i < invoices.length; i++) {
@@ -269,23 +316,28 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
         await persistInvoice(invoice)
       } catch (err) {
         console.error('[submitAiBatch] invoice persist failed:', err)
+        // Keep totals honest even on partial failure.
+        updateBatchTotals(batch.id)
         throw err instanceof Error ? err : new Error('Could not save invoice to database')
       }
     }
+    updateBatchTotals(batch.id)
   }
 
   clearClientTenantCache(clientId)
 
-  // Kick automated AI verification (edge + in-browser). Does not block submit.
-  try {
-    const { enqueueBatchProcessing } = await import('./batchProcessingJobs')
-    void enqueueBatchProcessing({
-      batchId: batch.id,
-      clientId,
-      kind: 'verify_only',
-    })
-  } catch (err) {
-    console.warn('[submitAiBatch] enqueue background processing failed', err)
+  // Wait for Doc Splitter before verify / happy path when combined PDFs remain.
+  if (!needsSplit) {
+    try {
+      const { enqueueBatchProcessing } = await import('./batchProcessingJobs')
+      void enqueueBatchProcessing({
+        batchId: batch.id,
+        clientId,
+        kind: 'verify_only',
+      })
+    } catch (err) {
+      console.warn('[submitAiBatch] enqueue background processing failed', err)
+    }
   }
 
   // Optional happy path: clean intake → verification (PPW waits until batch process).
@@ -297,16 +349,18 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
         intakeErrorEmailed: boolean
       }
     | undefined
-  try {
-    const { runHappyPathAfterIntake } = await import('./batchHappyPath')
-    happyPath = await runHappyPathAfterIntake({
-      batchId: batch.id,
-      batchNumber,
-      clientName,
-      unmatchedCount: unmatchedIds.length,
-    })
-  } catch (err) {
-    console.error('[submitAiBatch] happy path failed:', err)
+  if (!needsSplit) {
+    try {
+      const { runHappyPathAfterIntake } = await import('./batchHappyPath')
+      happyPath = await runHappyPathAfterIntake({
+        batchId: batch.id,
+        batchNumber,
+        clientName,
+        unmatchedCount: unmatchedIds.length,
+      })
+    } catch (err) {
+      console.error('[submitAiBatch] happy path failed:', err)
+    }
   }
 
   return {

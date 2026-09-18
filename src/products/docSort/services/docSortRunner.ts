@@ -33,7 +33,7 @@ async function runWithConcurrency<T, R>(
 /**
  * Scan each upload with the full extract (RC / BOL / invoice / lumper JSON), then match.
  * Respects Settings → docs/min and DocSort parallel so OpenAI TPM is not blown.
- * Combined PDFs (RC+BOL in one file) are unpacked so BOL pages become a sibling file.
+ * Combined PDFs are detected but not auto-unpacked — Credyx splits them in Doc Splitter.
  */
 export async function runDocSort(
   uploads: DocSortUpload[],
@@ -81,28 +81,18 @@ export async function runDocSort(
     phase: 'matching',
     completed: total,
     total,
-    message: 'Unpacking combined PDFs…',
+    message: 'Checking for combined PDFs…',
   })
 
   const fileById = new Map<string, File>()
   uploads.forEach((u) => fileById.set(u.id, u.file))
 
+  // Detection only — never auto-split (Doc Splitter is the Credyx gate).
   let expanded = fingerprints
   try {
     expanded = await autoUnpackCombinedFingerprints(fingerprints, fileById)
-    // Surface newly extracted files to callers that rebuild fileById from uploads.
-    for (const [docId, file] of fileById) {
-      if (uploads.some((u) => u.id === docId)) continue
-      uploads.push({
-        id: docId,
-        file,
-        fileName: file.name,
-        status: 'done',
-      })
-    }
   } catch (err) {
-    // Never lose originals — continue matching with the unscanned split skipped.
-    console.warn('[runDocSort] auto-unpack failed; keeping original uploads', err)
+    console.warn('[runDocSort] combined-PDF check failed; keeping originals', err)
     expanded = fingerprints
   }
 

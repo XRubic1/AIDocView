@@ -307,7 +307,7 @@ export default function ClientBatches() {
         if (
           jobByBatchId[batchId] ||
           settled.phase === 'done' ||
-          settled.phase === 'rework'
+          batch?.status === 'rework'
         ) {
           next.delete(batchId)
           changed = true

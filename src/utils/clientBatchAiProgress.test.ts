@@ -54,7 +54,7 @@ describe('getClientBatchAiProgress', () => {
     expect(result.percent).toBe(100)
   })
 
-  it('shows failed when job failed', () => {
+  it('shows processing when job failed so carriers never see Rework', () => {
     const result = getClientBatchAiProgress({
       uploadMode: 'ai',
       sortStatus: 'ready',
@@ -66,8 +66,21 @@ describe('getClientBatchAiProgress', () => {
         last_error: 'timeout',
       },
     })
-    expect(result.phase).toBe('failed')
-    expect(result.detail).toBe('timeout')
+    expect(result.phase).toBe('processing')
+    expect(result.label).toBe('Processing…')
+    expect(result.detail).toContain('Credyx is finishing')
+  })
+
+  it('shows processing for rework batch status', () => {
+    const result = getClientBatchAiProgress({
+      uploadMode: 'handoff',
+      batchStatus: 'rework',
+      sortStatus: 'failed',
+      invoices: [],
+    })
+    expect(result.phase).toBe('processing')
+    expect(result.label).toBe('Processing…')
+    expect(result.show).toBe(true)
   })
 
   it('uses optimistic processing right after submit', () => {

@@ -166,13 +166,13 @@ export default function ClientBatchDetailView({
       {showAiBanner && aiProgress && (
         <div
           className={`client-batch-ai-progress shrink-0${
-            aiProgress.phase === 'rework' ? ' client-batch-ai-progress--rework' : ''
-          }${aiProgress.phase === 'done' ? ' client-batch-ai-progress--done' : ''}`}
+            aiProgress.phase === 'done' ? ' client-batch-ai-progress--done' : ''
+          }`}
           role="status"
           aria-live="polite"
         >
           <div className="client-batch-ai-progress__row">
-            {aiProgress.phase === 'processing' ? (
+            {aiProgress.phase === 'processing' || aiProgress.phase === 'rework' ? (
               <Loader2 className="client-batch-ai-progress__spinner w-4 h-4 shrink-0" />
             ) : null}
             <div className="min-w-0 flex-1">

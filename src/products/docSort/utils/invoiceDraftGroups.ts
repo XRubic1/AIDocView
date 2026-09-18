@@ -7,8 +7,27 @@ import {
   primaryLoadLabel,
 } from './matchKeys'
 import { bolBelongsWithRateCon } from './bolRateConMatch'
+import { canUnpackFingerprint } from '../services/docSortUnpack'
 
 export { loadsOverlap }
+
+/** Combined RC+BOL+invoice PDFs must wait for Credyx Doc Splitter — never become packets. */
+function isCombinedForSplitter(fp: DocSortFingerprint): boolean {
+  return canUnpackFingerprint(fp)
+}
+
+function peelCombinedFingerprints(list: DocSortFingerprint[]): {
+  clean: DocSortFingerprint[]
+  combined: DocSortFingerprint[]
+} {
+  const clean: DocSortFingerprint[] = []
+  const combined: DocSortFingerprint[] = []
+  for (const fp of list) {
+    if (isCombinedForSplitter(fp)) combined.push(fp)
+    else clean.push(fp)
+  }
+  return { clean, combined }
+}
 
 function groupMembers(group: DocSortLoadGroup): DocSortFingerprint[] {
   return [...group.rateCons, ...group.bols, ...(group.others ?? [])]
@@ -127,6 +146,8 @@ export function toInvoiceLoadGroup(
  * Credyx invoice drafts from a DocSort run: matched RC+BOL groups, unmatched rate
  * cons (rate / broker / load still create an invoice), and other docs that already
  * have a load # and payable rate (e.g. a broker invoice PDF).
+ * Combined multi-kind PDFs are never turned into packets — they go to unmatched
+ * for Credyx Doc Splitter.
  */
 export function invoiceDraftGroupsFromSort(sort: DocSortResult): {
   groups: DocSortLoadGroup[]
@@ -136,10 +157,36 @@ export function invoiceDraftGroupsFromSort(sort: DocSortResult): {
     other: DocSortFingerprint[]
   }
 } {
-  let others = [...sort.otherDocuments]
-  const groups: DocSortLoadGroup[] = []
+  const peeledGroups: DocSortLoadGroup[] = []
+  const combinedHeld: DocSortFingerprint[] = []
 
   for (const group of sort.groups) {
+    const rc = peelCombinedFingerprints(group.rateCons)
+    const bol = peelCombinedFingerprints(group.bols)
+    const oth = peelCombinedFingerprints(group.others ?? [])
+    combinedHeld.push(...rc.combined, ...bol.combined, ...oth.combined)
+    if (rc.clean.length === 0 && bol.clean.length === 0 && oth.clean.length === 0) continue
+    peeledGroups.push({
+      ...group,
+      rateCons: rc.clean,
+      bols: bol.clean,
+      others: oth.clean,
+    })
+  }
+
+  const peeledUnmatchedRc = peelCombinedFingerprints(sort.unmatchedRateCons)
+  const peeledUnmatchedBol = peelCombinedFingerprints(sort.unmatchedBols)
+  const peeledOther = peelCombinedFingerprints(sort.otherDocuments)
+  combinedHeld.push(
+    ...peeledUnmatchedRc.combined,
+    ...peeledUnmatchedBol.combined,
+    ...peeledOther.combined
+  )
+
+  let others = [...peeledOther.clean]
+  const groups: DocSortLoadGroup[] = []
+
+  for (const group of peeledGroups) {
     const { taken, rest } = takeMatching(others, group)
     others = rest
     groups.push(
@@ -150,7 +197,7 @@ export function invoiceDraftGroupsFromSort(sort: DocSortResult): {
   }
 
   const leftoverRcs: DocSortFingerprint[] = []
-  for (const rc of sort.unmatchedRateCons) {
+  for (const rc of peeledUnmatchedRc.clean) {
     const host = groups.find((group) => fingerprintOverlapsGroup(rc, group))
     if (host) host.rateCons.push(rc)
     else leftoverRcs.push(rc)
@@ -177,7 +224,7 @@ export function invoiceDraftGroupsFromSort(sort: DocSortResult): {
   }
 
   const leftoverBols: DocSortFingerprint[] = []
-  for (const bol of sort.unmatchedBols) {
+  for (const bol of peeledUnmatchedBol.clean) {
     const host = groups.find((group) => fingerprintOverlapsGroup(bol, group))
     if (host) {
       host.bols.push(bol)
@@ -212,7 +259,9 @@ export function invoiceDraftGroupsFromSort(sort: DocSortResult): {
     }
     const hasLoad = allLoadKeys(fp).length > 0
     const hasRate = (fp.rateAmount ?? 0) > 0
-    if (hasLoad && hasRate) {
+    // Never invent a packet from a carrier invoice PDF alone when it still looks combined —
+    // already peeled, but keep the rule: load+rate others only if single-kind.
+    if (hasLoad && hasRate && !isCombinedForSplitter(fp)) {
       groups.push(toInvoiceLoadGroup(`solo-other-${fp.docId}`, [fp], 'extracted from document'))
     } else {
       leftoverOthers.push(fp)
@@ -224,7 +273,7 @@ export function invoiceDraftGroupsFromSort(sort: DocSortResult): {
     unmatched: {
       rateCons: [],
       bols: unmatchedBols,
-      other: leftoverOthers,
+      other: [...leftoverOthers, ...combinedHeld],
     },
   }
 }

@@ -7,9 +7,7 @@
  */
 import { getAllBatches, updateBatchStatus } from '../../data/mockBatches'
 import { getInvoicesByBatchId, mockInvoices } from '../../data/mockInvoices'
-import { approveAdminInvoice } from '../adminInvoiceActions'
 import { emailCredyxIntakeError, emailCredyxVerificationError } from './batchLifecycleEmails'
-import { processVerifiedBatch } from './processBatch'
 import type { InvoiceAiReviewOutcome } from './batchAiReviewService'
 
 export interface HappyPathIntakeResult {
@@ -69,8 +67,8 @@ export interface HappyPathReviewResult {
 }
 
 /**
- * After batch AI review: if all invoices are ready, auto-approve and process.
- * If any needs_work, email Credyx and leave for manual Verification.
+ * After batch AI review: if any needs_work, email Credyx.
+ * If all ready, move to verification for human OK/Hold + Process — never auto-process.
  */
 export async function runHappyPathAfterAiReview(opts: {
   batchId: string
@@ -106,25 +104,11 @@ export async function runHappyPathAfterAiReview(opts: {
     return result
   }
 
-  // Ensure batch is in verification before process
+  // Ensure batch is in verification for Credyx review — do not auto-approve or Process.
+  // Brokers get docs only when Credyx clicks Process batch.
   if (batch.status === 'ready_to_post' || batch.status === 'approval') {
     updateBatchStatus(opts.batchId, 'verification')
   }
 
-  for (const o of opts.outcomes) {
-    approveAdminInvoice(o.invoiceId)
-    result.autoApproved++
-  }
-
-  const processResult = await processVerifiedBatch({
-    batchId: opts.batchId,
-    batchNumber: batch.batch_number,
-    clientId: batch.client_id,
-    totalAmount: batch.total_amount,
-    adminUserId: 'system',
-    adminUserName: 'AI Happy Path',
-  })
-
-  result.processed = processResult.ok
   return result
 }

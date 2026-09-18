@@ -2,6 +2,7 @@ import type { PendingBatch } from '../types/admin'
 import { getBatchById } from '../data/mockBatches'
 import { getInvoicesByBatchId } from '../data/mockInvoices'
 import { settleBatchAiGate } from '../services/credyx/batchAiReviewService'
+import { batchNeedsDocSplit } from './batchDocSplit'
 
 /** Toggle chips for the admin Batches list (invoice-style on/off filters). */
 export const ADMIN_BATCH_CHIP_FILTERS = [
@@ -33,6 +34,8 @@ export function batchNeedsAiAttention(batch: PendingBatch): boolean {
     batch.status === 'rework' ||
     batch.sort_status === 'sorting' ||
     batch.sort_status === 'failed' ||
+    batch.sort_status === 'needs_split' ||
+    Boolean(batch.needs_doc_split) ||
     Boolean(batch.unmatched_doc_ids && batch.unmatched_doc_ids.length > 0)
   )
 }
@@ -211,7 +214,7 @@ export function getAdminBatchAiReviewProgress(batchId: string): {
 
 /**
  * Packet rework is available after intake finished (or Manual creation / rework),
- * and AI is not mid-sort / mid-review.
+ * and AI is not mid-sort / mid-review. Blocked while Doc Splitter is required.
  */
 export function canOpenPacketRework(batch: PendingBatch): boolean {
   if (batch.status === 'draft') return false
@@ -222,6 +225,9 @@ export function canOpenPacketRework(batch: PendingBatch): boolean {
 
   if (live.status === 'creating') return false
   if (live.sort_status === 'sorting') return false
+
+  // Combined PDFs must be split in Doc Splitter first.
+  if (batchNeedsDocSplit(live)) return false
 
   const invoices = getInvoicesByBatchId(live.id)
   if (invoices.some((inv) => inv.ai_review_status === 'running')) return false
@@ -238,10 +244,17 @@ export function canOpenPacketRework(batch: PendingBatch): boolean {
     aiPath &&
     live.sort_status &&
     live.sort_status !== 'ready' &&
-    live.sort_status !== 'failed' &&
-    live.sort_status !== 'sorting'
+    live.sort_status !== 'failed'
   ) {
+    // pending / needs_split / other non-ready states stay locked for Packets
     return false
   }
   return true
+}
+
+/** Doc Splitter unlocks when combined PDFs were detected (or still flagged). */
+export function canOpenDocSplitter(batch: PendingBatch): boolean {
+  if (batch.status === 'draft') return false
+  if (batch.status === 'creating' && batch.sort_status === 'sorting') return false
+  return batchNeedsDocSplit(batch)
 }

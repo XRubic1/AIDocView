@@ -95,6 +95,28 @@ export default function ClientSetupPassword() {
       <aside className="credyx-auth__brand" aria-hidden={false}>
         <div className="credyx-auth__brand-photo" aria-hidden="true" />
         <div className="credyx-auth__brand-mesh" aria-hidden="true" />
+        <svg className="credyx-auth__curve credyx-auth__curve--v" viewBox="0 0 72 1000" preserveAspectRatio="none" aria-hidden="true">
+          <path
+            className="credyx-auth__curve-fill"
+            d="M0,0 C48,180 48,820 0,1000 L72,1000 L72,0 Z"
+          />
+          <path
+            className="credyx-auth__curve-stroke"
+            d="M4,0 C52,180 52,820 4,1000"
+            fill="none"
+          />
+        </svg>
+        <svg className="credyx-auth__curve credyx-auth__curve--h" viewBox="0 0 1000 48" preserveAspectRatio="none" aria-hidden="true">
+          <path
+            className="credyx-auth__curve-fill"
+            d="M0,0 C280,40 720,40 1000,0 L1000,48 L0,48 Z"
+          />
+          <path
+            className="credyx-auth__curve-stroke"
+            d="M0,2 C280,42 720,42 1000,2"
+            fill="none"
+          />
+        </svg>
         <div className="credyx-auth__brand-top">
           <img
             src="/credyx-logo-white-cred-no-bg.png"
@@ -111,7 +133,7 @@ export default function ClientSetupPassword() {
             Account setup
           </div>
           <h2 className="credyx-auth__brand-title">
-            Create your password, <em>then you&apos;re in.</em>
+            Create your password, <em className="credyx-auth__accent">then you&apos;re in.</em>
           </h2>
           <p className="credyx-auth__brand-sub">
             Your portal is ready. Set a password on first login — we&apos;ll handle paperwork and keep you updated, paid on time.

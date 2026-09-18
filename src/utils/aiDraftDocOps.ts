@@ -447,7 +447,7 @@ export function placeDraftDocument(
 }
 
 /** Locate a draft doc without removing it. */
-function locateDraftDocument(
+export function locateDraftDocument(
   draft: BatchIntakeDraft,
   docId: string
 ): { fingerprint: DocSortFingerprint; fromDraftId: string | null } | null {
@@ -554,7 +554,7 @@ export async function unpackDraftDocument(
   docId: string
 ): Promise<UnpackDraftResult> {
   const file = draft.fileById.get(docId)
-  if (!isPdfFile(file)) {
+  if (!file || !isPdfFile(file)) {
     throw new Error('Only PDF files can be unpacked.')
   }
 

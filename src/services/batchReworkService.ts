@@ -3,10 +3,13 @@
  * never a dead "failed" workflow state. Docs stay uploaded for Credyx.
  */
 
-import { getBatchById, updateBatch } from '../data/mockBatches'
+import { getBatchById, updateBatch, updateBatchTotals } from '../data/mockBatches'
 import { getBatchFiles } from '../data/batchFileStore'
+import { deleteInvoice, getInvoicesByBatchId } from '../data/mockInvoices'
 import { notifyTenantDataUpdated } from './supabase/tenantDataLiveSync'
 import { enqueueBatchProcessing, fetchBatchProcessingJob } from './credyx/batchProcessingJobs'
+import { emailCredyxIntakeError } from './credyx/batchLifecycleEmails'
+import type { AiSpendDecision, AiSpendDenyReason } from './aiSpendService'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { listHandoffDocumentMeta } from '../utils/resolveHandoffDocuments'
 
@@ -53,19 +56,101 @@ export async function markBatchNeedsRework(
   }
 }
 
+/** Ops-facing reason when AI cannot create packets for a client. */
+export function opsMessageForAiPolicyBlock(
+  decision: Pick<AiSpendDecision, 'reason' | 'message'>,
+  opts?: { aiConfigured?: boolean; clientName?: string }
+): string {
+  const clientLabel = opts?.clientName?.trim() || 'this client'
+  if (opts?.aiConfigured === false) {
+    return `Batch needs rework because AI is unavailable (openai-proxy / API not configured). Docs are unassigned in Packet Rework for ${clientLabel}.`
+  }
+  const reason = decision.reason as AiSpendDenyReason | undefined
+  if (reason === 'client_cap_exceeded') {
+    return `Batch needs rework because ${clientLabel} hit their AI monthly spend cap. Docs are unassigned in Packet Rework.`
+  }
+  if (reason === 'org_cap_exceeded') {
+    return `Batch needs rework because the platform AI monthly spend cap was reached. Docs for ${clientLabel} are unassigned in Packet Rework.`
+  }
+  if (reason === 'client_disabled') {
+    return `Batch needs rework because AI is disabled for ${clientLabel}. Docs are unassigned in Packet Rework.`
+  }
+  if (reason === 'platform_disabled') {
+    return `Batch needs rework because platform AI is turned off. Docs for ${clientLabel} are unassigned in Packet Rework.`
+  }
+  return `Batch needs rework because AI packet creation is not allowed for ${clientLabel}. ${decision.message} Docs are unassigned in Packet Rework.`
+}
+
+/**
+ * AI off / down / spend cap: Packet Rework with all docs unassigned + ops email.
+ * Client portal must keep showing Processing (never Rework).
+ */
+export async function releaseBatchForAiPolicyBlock(
+  batchId: string,
+  decision: Pick<AiSpendDecision, 'reason' | 'message'>,
+  opts?: { aiConfigured?: boolean }
+): Promise<void> {
+  const batch = getBatchById(batchId)
+  if (!batch) return
+
+  const issueMessage = opsMessageForAiPolicyBlock(decision, {
+    aiConfigured: opts?.aiConfigured,
+    clientName: batch.client_name,
+  })
+
+  await releaseBatchToManualCreation(batchId)
+
+  if (isSupabaseConfigured()) {
+    const supabase = getSupabase()
+    try {
+      await supabase?.rpc('mark_batch_processing_job', {
+        p_batch_id: batchId,
+        p_status: 'failed',
+        p_last_error: issueMessage,
+        p_locked_by: 'ai-policy-block',
+      })
+    } catch (err) {
+      console.warn('[releaseBatchForAiPolicyBlock] job mark failed', err)
+    }
+  }
+
+  try {
+    await emailCredyxIntakeError({
+      batchNumber: batch.batch_number,
+      clientName: batch.client_name,
+      issueMessage: `${issueMessage}\nOpen Batches → Packet Rework for ${batch.batch_number}.`,
+    })
+  } catch (err) {
+    console.warn('[releaseBatchForAiPolicyBlock] ops email failed', err)
+  }
+}
+
+/** Delete all invoices on a batch so packet creation can run again without duplicates. */
+export function clearBatchInvoicesForRecreate(batchId: string): void {
+  const invoices = getInvoicesByBatchId(batchId)
+  for (const inv of invoices) {
+    deleteInvoice(inv.id)
+  }
+  updateBatchTotals(batchId)
+}
+
 /**
  * Admin: re-run DocSort / packet creation from uploaded docs.
- * Resets batch to creating/sorting and enqueues sort_and_verify.
+ * Clears existing invoices first so retry never appends duplicates.
  */
 export async function retryBatchPacketCreation(batchId: string): Promise<void> {
   const batch = getBatchById(batchId)
   if (!batch) throw new Error('Batch not found')
 
+  clearBatchInvoicesForRecreate(batchId)
+
   updateBatch(batchId, {
     status: 'creating',
     sort_status: 'sorting',
+    total_invoices: 0,
+    total_amount: 0,
   })
-  notifyTenantDataUpdated(['batches'], batch.client_id)
+  notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
 
   await enqueueBatchProcessing({
     batchId,

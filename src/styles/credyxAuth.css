@@ -1,30 +1,40 @@
 /*
- * Credyx auth pages (client + admin login)
- * Split-panel shell: brand atmosphere left, clean form surface right.
+ * Credyx auth pages (client + admin login, setup password)
+ * Split shell: full-bleed brand left · calm form surface right.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+@font-face {
+  font-family: 'Royalstaff';
+  src: url('/fonts/royalstaf-regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
 .credyx-auth {
   --cx-navy: #0f172a;
-  --cx-navy-soft: #1e293b;
+  --cx-navy-deep: #0b1220;
   --cx-blue: #1684fe;
-  --cx-blue-soft: #eff6ff;
-  --cx-ink: #16222a;
-  --cx-body: #4b5d63;
-  --cx-muted: #85959a;
-  --cx-border: #e7ebec;
-  --cx-surface: #f7f8f9;
-  --cx-success: #2fa98c;
-  --cx-error: #d14343;
+  --cx-blue-soft: #e8f2ff;
+  --cx-ink: #0f172a;
+  --cx-body: #475569;
+  --cx-muted: #94a3b8;
+  --cx-border: #e2e8f0;
+  --cx-surface: #f8fafc;
+  --cx-success: #0f766e;
+  --cx-error: #b3261e;
+  --cx-display: 'Royalstaff', 'Georgia', serif;
+  --cx-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
 
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
   min-height: 100vh;
   min-height: 100dvh;
   background: #ffffff;
   color: var(--cx-ink);
-  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--cx-sans);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -34,16 +44,17 @@
   box-sizing: border-box;
 }
 
-/* ── Brand panel (left) ── */
+/* ── Brand panel ── */
 .credyx-auth__brand {
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: clamp(28px, 4vw, 48px);
+  padding: clamp(32px, 4.5vw, 56px);
+  padding-right: clamp(56px, 7vw, 88px);
   overflow: hidden;
   color: #ffffff;
-  background: var(--cx-navy);
+  background: var(--cx-navy-deep);
 }
 
 .credyx-auth__brand-photo {
@@ -51,9 +62,15 @@
   inset: 0;
   z-index: 0;
   background:
-    linear-gradient(115deg, rgba(15, 23, 42, 0.92) 0%, rgba(15, 23, 42, 0.72) 48%, rgba(15, 23, 42, 0.55) 100%),
+    linear-gradient(
+      105deg,
+      rgba(11, 18, 32, 0.94) 0%,
+      rgba(15, 23, 42, 0.78) 42%,
+      rgba(15, 23, 42, 0.48) 100%
+    ),
     url('/credyx-hero-truck.jpg') center right / cover no-repeat;
-  transform: scale(1.02);
+  transform-origin: 70% 50%;
+  animation: credyx-auth-kenburns 28s ease-in-out infinite alternate;
 }
 
 .credyx-auth__brand-mesh {
@@ -62,9 +79,53 @@
   z-index: 1;
   pointer-events: none;
   background:
-    radial-gradient(520px 360px at 18% 20%, rgba(22, 132, 254, 0.28), transparent 62%),
-    radial-gradient(480px 340px at 88% 78%, rgba(22, 132, 254, 0.14), transparent 65%);
-  animation: credyx-auth-mesh 16s ease-in-out infinite alternate;
+    radial-gradient(480px 320px at 12% 18%, rgba(22, 132, 254, 0.32), transparent 60%),
+    radial-gradient(420px 300px at 90% 85%, rgba(22, 132, 254, 0.12), transparent 62%);
+  animation: credyx-auth-mesh 18s ease-in-out infinite alternate;
+}
+
+/* Curved blue divider between brand and form */
+.credyx-auth__curve {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.credyx-auth__curve--v {
+  top: 0;
+  right: -1px;
+  bottom: 0;
+  width: clamp(52px, 6vw, 72px);
+  height: 100%;
+  animation: credyx-auth-curve-in 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.credyx-auth__curve--h {
+  display: none;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  width: 100%;
+  height: 36px;
+  animation: credyx-auth-curve-in-y 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.credyx-auth__curve-fill {
+  fill: #ffffff;
+  opacity: 1;
+  fill-opacity: 1;
+}
+
+.credyx-auth__curve-stroke {
+  stroke: var(--cx-blue);
+  stroke-width: 5;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 10px rgba(22, 132, 254, 0.45));
+  stroke-dasharray: 1400;
+  stroke-dashoffset: 1400;
+  animation: credyx-auth-curve-draw 1.45s cubic-bezier(0.4, 0, 0.2, 1) 0.2s forwards;
 }
 
 .credyx-auth__brand-top,
@@ -74,98 +135,126 @@
   z-index: 2;
 }
 
+.credyx-auth__brand-top {
+  animation: credyx-auth-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 .credyx-auth__logo {
   display: block;
-  height: 42px;
+  height: 44px;
   width: auto;
-  max-width: min(220px, 70vw);
+  max-width: min(240px, 72vw);
   object-fit: contain;
   object-position: left center;
 }
 
 .credyx-auth__brand-copy {
-  max-width: 26rem;
+  max-width: 28rem;
   margin: auto 0;
-  animation: credyx-auth-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  padding: 24px 0;
 }
 
 .credyx-auth__eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 18px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
+  margin-bottom: 20px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.82);
+  color: rgba(255, 255, 255, 0.7);
+  animation: credyx-auth-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
 }
 
 .credyx-auth__eyebrow-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--cx-blue);
-  box-shadow: 0 0 0 4px rgba(22, 132, 254, 0.25);
+  box-shadow: 0 0 0 3px rgba(22, 132, 254, 0.28);
+  animation: credyx-auth-pulse 2.4s ease-in-out infinite;
 }
 
 .credyx-auth__brand-title {
-  margin: 0 0 14px;
-  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
-  font-size: clamp(1.75rem, 3.2vw, 2.45rem);
-  font-weight: 700;
-  letter-spacing: -0.035em;
-  line-height: 1.15;
+  margin: 0 0 16px;
+  font-family: var(--cx-display);
+  font-size: clamp(2.1rem, 4vw, 3rem);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.12;
   color: #ffffff;
+  animation: credyx-auth-rise 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.22s both;
 }
 
-.credyx-auth__brand-title em {
+.credyx-auth__brand-title-line {
+  display: block;
+}
+
+.credyx-auth__brand-title em,
+.credyx-auth__accent {
+  position: relative;
+  display: inline-block;
   font-style: normal;
-  color: #7eb8ff;
+  color: var(--cx-blue);
+  white-space: nowrap;
+}
+
+/* Waitlist-style hand marker underline */
+.credyx-auth__accent::after {
+  content: '';
+  position: absolute;
+  left: -0.04em;
+  right: -0.06em;
+  bottom: -0.14em;
+  height: 0.38em;
+  pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 18' preserveAspectRatio='none'%3E%3Cpath d='M2 12 Q100 2 198 11 L196 16.5 Q100 8 4 17 Z' fill='%230B5ED7'/%3E%3C/svg%3E")
+    center bottom / 100% 100% no-repeat;
+  opacity: 0;
+  clip-path: inset(0 100% 0 0);
+  transform-origin: left bottom;
+  animation: credyx-auth-underline-draw 0.65s linear 0.55s forwards;
 }
 
 .credyx-auth__brand-sub {
   margin: 0;
-  max-width: 22rem;
-  font-size: 15.5px;
-  line-height: 1.55;
+  max-width: 23rem;
+  font-size: 15px;
+  line-height: 1.6;
   color: rgba(255, 255, 255, 0.72);
+  font-weight: 400;
+  animation: credyx-auth-rise 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.34s both;
 }
 
 .credyx-auth__brand-foot {
   font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.01em;
-  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.5);
+  animation: credyx-auth-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.48s both;
 }
 
-/* ── Form panel (right) ── */
+/* ── Form panel ── */
 .credyx-auth__panel {
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: clamp(28px, 5vw, 56px) clamp(24px, 5vw, 72px);
-  background:
-    radial-gradient(420px 280px at 100% 0%, rgba(22, 132, 254, 0.07), transparent 70%),
-    radial-gradient(380px 260px at 0% 100%, rgba(15, 23, 42, 0.04), transparent 65%),
-    #ffffff;
+  padding: clamp(32px, 5vw, 64px) clamp(28px, 5vw, 80px);
+  background: #ffffff;
 }
 
 .credyx-auth__panel-inner {
   width: 100%;
-  max-width: 400px;
+  max-width: 384px;
   margin: 0 auto;
-  animation: credyx-auth-rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
 }
 
 .credyx-auth__mobile-logo {
   display: none;
-  margin-bottom: 28px;
+  margin-bottom: 32px;
+  animation: credyx-auth-rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .credyx-auth__mobile-logo img {
@@ -176,68 +265,93 @@
 }
 
 .credyx-auth__heading {
-  margin-bottom: 28px;
+  margin-bottom: 32px;
+  animation: credyx-auth-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
 }
 
 .credyx-auth__heading h1 {
-  margin: 0 0 8px;
-  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
-  font-size: clamp(1.5rem, 2.4vw, 1.75rem);
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  margin: 0 0 10px;
+  font-family: var(--cx-display);
+  font-size: clamp(1.85rem, 3vw, 2.15rem);
+  font-weight: 400;
+  letter-spacing: -0.02em;
   color: var(--cx-navy);
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 .credyx-auth__heading p {
   margin: 0;
   font-size: 14.5px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--cx-body);
 }
 
 .credyx-auth__form {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
+}
+
+.credyx-auth__form > * {
+  animation: credyx-auth-rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.credyx-auth__form > *:nth-child(1) {
+  animation-delay: 0.18s;
+}
+.credyx-auth__form > *:nth-child(2) {
+  animation-delay: 0.26s;
+}
+.credyx-auth__form > *:nth-child(3) {
+  animation-delay: 0.34s;
+}
+.credyx-auth__form > *:nth-child(4) {
+  animation-delay: 0.42s;
+}
+.credyx-auth__form > *:nth-child(5) {
+  animation-delay: 0.5s;
+}
+.credyx-auth__form > *:nth-child(6) {
+  animation-delay: 0.58s;
 }
 
 .credyx-auth__field label {
   display: block;
-  margin-bottom: 7px;
-  font-size: 13px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
   font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--cx-ink);
 }
 
 .credyx-auth__input,
 .credyx-auth__input-wrap input {
   width: 100%;
-  padding: 12px 14px;
-  border: 1.5px solid var(--cx-border);
-  border-radius: 10px;
+  padding: 13px 15px;
+  border: 1px solid var(--cx-border);
+  border-radius: 12px;
   background: #ffffff;
   color: var(--cx-ink);
   font-family: inherit;
-  font-size: 14.5px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  font-size: 15px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
 }
 
 .credyx-auth__input::placeholder,
 .credyx-auth__input-wrap input::placeholder {
-  color: #a7b0b3;
+  color: #a8b4c0;
 }
 
 .credyx-auth__input:hover:not(:disabled),
 .credyx-auth__input-wrap input:hover:not(:disabled) {
-  border-color: #d2d8da;
+  border-color: #cbd5e1;
 }
 
 .credyx-auth__input:focus,
 .credyx-auth__input-wrap input:focus {
   outline: none;
   border-color: var(--cx-blue);
-  box-shadow: 0 0 0 4px rgba(22, 132, 254, 0.14);
+  box-shadow: 0 0 0 3px rgba(22, 132, 254, 0.16);
 }
 
 .credyx-auth__input:disabled,
@@ -255,7 +369,7 @@
 .credyx-auth__input--error:focus,
 .credyx-auth__input-wrap--error input:focus {
   border-color: var(--cx-error);
-  box-shadow: 0 0 0 4px rgba(209, 67, 67, 0.12);
+  box-shadow: 0 0 0 3px rgba(179, 38, 30, 0.12);
 }
 
 .credyx-auth__input-wrap {
@@ -263,19 +377,19 @@
 }
 
 .credyx-auth__input-wrap input {
-  padding-right: 44px;
+  padding-right: 46px;
 }
 
 .credyx-auth__eye {
   position: absolute;
-  right: 10px;
+  right: 8px;
   top: 50%;
   transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border: none;
   border-radius: 8px;
@@ -299,7 +413,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
 }
 
 .credyx-auth__terms {
@@ -344,7 +458,7 @@
   font-weight: 600;
   color: var(--cx-blue);
   cursor: pointer;
-  text-decoration: none;
+  white-space: nowrap;
   transition: color 0.15s ease;
 }
 
@@ -356,7 +470,7 @@
 
 .credyx-auth__alert {
   padding: 12px 14px;
-  border-radius: 10px;
+  border-radius: 12px;
   font-size: 13.5px;
   font-weight: 500;
   line-height: 1.45;
@@ -366,13 +480,13 @@
 .credyx-auth__alert--error {
   background: #fdf2f1;
   border: 1px solid #f6cfcb;
-  color: #b3261e;
+  color: var(--cx-error);
 }
 
 .credyx-auth__alert--info {
   background: #f0faf6;
   border: 1px solid #c8eadc;
-  color: #0f766e;
+  color: var(--cx-success);
 }
 
 .credyx-auth__alert--warn {
@@ -388,30 +502,52 @@
   gap: 8px;
   width: 100%;
   margin-top: 4px;
-  padding: 13px 20px;
+  padding: 14px 20px;
   border: none;
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--cx-blue);
   color: #ffffff;
   font-family: inherit;
   font-size: 15px;
   font-weight: 600;
+  letter-spacing: 0.01em;
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.credyx-auth__submit::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.22) 48%,
+    transparent 62%
+  );
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+
+.credyx-auth__submit:hover:not(:disabled)::after {
+  animation: credyx-auth-shine 0.85s ease;
 }
 
 .credyx-auth__submit:hover:not(:disabled) {
   background: #3b9afe;
+  box-shadow: 0 10px 24px rgba(22, 132, 254, 0.22);
   transform: translateY(-1px);
-  box-shadow: 0 12px 28px rgba(22, 132, 254, 0.28);
 }
 
 .credyx-auth__submit:active:not(:disabled) {
   transform: translateY(0);
+  box-shadow: none;
 }
 
 .credyx-auth__submit:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
@@ -444,15 +580,17 @@
 }
 
 .credyx-auth__footer {
-  margin-top: 28px;
-  padding-top: 22px;
+  margin-top: 32px;
+  padding-top: 24px;
   border-top: 1px solid var(--cx-border);
   text-align: center;
+  animation: credyx-auth-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.55s both;
 }
 
 .credyx-auth__footer p {
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   font-size: 13px;
+  line-height: 1.55;
   color: var(--cx-body);
 }
 
@@ -475,9 +613,8 @@
 }
 
 .credyx-auth__admin-link {
-  display: block;
-  width: 100%;
-  margin-top: 8px;
+  display: inline-block;
+  margin-top: 4px;
   padding: 0;
   border: none;
   background: none;
@@ -493,7 +630,7 @@
 }
 
 .credyx-auth__legal {
-  margin-top: 24px;
+  margin-top: 28px;
   font-size: 11.5px;
   color: var(--cx-muted);
   text-align: center;
@@ -505,18 +642,86 @@
     transform: translate3d(0, 0, 0) scale(1);
   }
   to {
-    transform: translate3d(-1.5%, 1.5%, 0) scale(1.04);
+    transform: translate3d(-1.2%, 1.2%, 0) scale(1.03);
+  }
+}
+
+@keyframes credyx-auth-kenburns {
+  from {
+    transform: scale(1.02) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.08) translate3d(-1.5%, 1%, 0);
   }
 }
 
 @keyframes credyx-auth-rise {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes credyx-auth-underline-draw {
+  0% {
+    opacity: 0.7;
+    clip-path: inset(0 100% 0 0);
+  }
+  8% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0.95;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes credyx-auth-curve-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes credyx-auth-curve-in {
+  from {
+    transform: translateX(14px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes credyx-auth-curve-in-y {
+  from {
+    transform: translateY(10px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes credyx-auth-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(22, 132, 254, 0.22);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(22, 132, 254, 0.12);
+    transform: scale(1.08);
+  }
+}
+
+@keyframes credyx-auth-shine {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(120%);
   }
 }
 
@@ -539,11 +744,37 @@
 
 @media (prefers-reduced-motion: reduce) {
   .credyx-auth__brand-mesh,
-  .credyx-auth__brand-copy,
-  .credyx-auth__panel-inner,
+  .credyx-auth__brand-photo,
+  .credyx-auth__brand-top,
+  .credyx-auth__eyebrow,
+  .credyx-auth__eyebrow-dot,
+  .credyx-auth__brand-title,
+  .credyx-auth__brand-sub,
+  .credyx-auth__brand-foot,
+  .credyx-auth__heading,
+  .credyx-auth__mobile-logo,
+  .credyx-auth__form > *,
+  .credyx-auth__footer,
   .credyx-auth__alert,
-  .credyx-auth__spinner {
-    animation: none;
+  .credyx-auth__spinner,
+  .credyx-auth__curve-fill,
+  .credyx-auth__curve--v,
+  .credyx-auth__curve--h,
+  .credyx-auth__curve-stroke,
+  .credyx-auth__accent::after,
+  .credyx-auth__submit:hover:not(:disabled)::after {
+    animation: none !important;
+  }
+
+  .credyx-auth__curve-stroke {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+
+  .credyx-auth__accent::after {
+    animation: none !important;
+    opacity: 0.95;
+    clip-path: none;
   }
 
   .credyx-auth__submit:hover:not(:disabled) {
@@ -558,9 +789,23 @@
   }
 
   .credyx-auth__brand {
-    min-height: 0;
-    padding: 22px 22px 24px;
+    min-height: 220px;
+    padding: 24px 24px 40px;
     justify-content: flex-end;
+  }
+
+  .credyx-auth__curve--v {
+    display: none;
+  }
+
+  .credyx-auth__curve--h {
+    display: block;
+  }
+
+  .credyx-auth__curve--h .credyx-auth__curve-stroke {
+    stroke-width: 4;
+    stroke-dasharray: 1100;
+    stroke-dashoffset: 1100;
   }
 
   .credyx-auth__brand-top {
@@ -569,16 +814,17 @@
 
   .credyx-auth__brand-copy {
     margin: 0;
+    padding: 0;
   }
 
   .credyx-auth__brand-title {
-    font-size: 1.4rem;
-    margin-bottom: 8px;
+    font-size: clamp(1.55rem, 6vw, 1.85rem);
+    margin-bottom: 10px;
   }
 
   .credyx-auth__brand-sub {
     font-size: 13.5px;
-    max-width: 28rem;
+    max-width: 30rem;
   }
 
   .credyx-auth__brand-foot {
@@ -594,16 +840,20 @@
   }
 
   .credyx-auth__panel {
-    padding: 24px 22px 36px;
+    padding: 28px 24px 40px;
     justify-content: flex-start;
   }
 
   .credyx-auth__heading {
-    margin-bottom: 22px;
+    margin-bottom: 24px;
   }
 }
 
 @media (max-width: 480px) {
+  .credyx-auth__brand {
+    min-height: 200px;
+  }
+
   .credyx-auth__brand-sub {
     display: -webkit-box;
     -webkit-line-clamp: 2;

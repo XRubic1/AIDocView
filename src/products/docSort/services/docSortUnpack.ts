@@ -246,68 +246,24 @@ export async function unpackPdfDocument(
 }
 
 /**
- * During DocSort: when a PDF has BOL pages mixed with RC/invoice/etc.,
- * extract the BOL pages as a sibling file and keep the original as the primary doc.
- * Invoice pages mixed with RC are also extracted so carrier invoices become their own file.
- * Failures never remove the original file from fileById.
+ * During DocSort: detect combined PDFs but do NOT auto-split.
+ * Credyx must review splits in Doc Splitter before Packet Rework —
+ * auto-unpack was creating invoices from carrier invoice page #s and mis-assigning docs.
  */
 export async function autoUnpackCombinedFingerprints(
   fingerprints: DocSortFingerprint[],
-  fileById: Map<string, File>
+  _fileById: Map<string, File>
 ): Promise<DocSortFingerprint[]> {
-  const expanded: DocSortFingerprint[] = []
+  // Detection-only: leave originals intact for Credyx Doc Splitter.
+  return fingerprints
+}
 
-  for (const fp of fingerprints) {
-    // Always keep the original fingerprint + file.
-    expanded.push(fp)
-    const file = fileById.get(fp.docId)
-    if (!file || !isPdfFile(file) || !fp.extract) continue
-
-    // Re-assert original file is present (defensive).
-    fileById.set(fp.docId, file)
-
-    const groups = buildUnpackPageGroups(fp.extract)
-    if (groups.length < 2) continue
-
-    const bolGroup = groups.find((g) => g.kind === 'bill_of_lading')
-    const invoiceGroup = groups.find((g) => g.kind === 'invoice')
-    // Only auto-split siblings off a combined packet — keep primary file intact.
-    const toExtract = [bolGroup, invoiceGroup].filter(
-      (g): g is UnpackPageGroup => Boolean(g) && g.kind !== fp.kind
-    )
-
-    for (const group of toExtract) {
-      try {
-        const docId = newUnpackedDocId(group.kind)
-        const fileName = deriveUnpackedFileName(file.name, kindSuffix(group.kind))
-        const partFile = await extractPdfPages(file, group.pageNumbers, fileName)
-        if (!partFile.size) {
-          throw new Error('Extracted PDF is empty')
-        }
-        const extract = sliceExtractForPages(fp.extract, group.pageNumbers, group.kind)
-        const partFp = fingerprintFromExtraction(docId, fileName, extract)
-        partFp.kind = group.kind
-        if (partFp.loadNumbers.length === 0 && fp.loadNumbers.length > 0) {
-          partFp.loadNumbers = [...fp.loadNumbers]
-        }
-        if (!partFp.broker && fp.broker) partFp.broker = fp.broker
-
-        fileById.set(docId, partFile)
-        // Original must still be present after sibling write.
-        fileById.set(fp.docId, file)
-        expanded.push(partFp)
-      } catch (err) {
-        console.warn(
-          '[autoUnpackCombinedFingerprints] failed for',
-          fp.fileName,
-          group.kind,
-          '— keeping original file',
-          err
-        )
-        fileById.set(fp.docId, file)
-      }
-    }
-  }
-
-  return expanded
+/** Doc ids whose page classifications span 2+ kinds (RC / BOL / invoice / …). */
+export function listCombinedFingerprintIds(
+  fingerprints: DocSortFingerprint[],
+  fileById?: Map<string, File>
+): string[] {
+  return fingerprints
+    .filter((fp) => canUnpackFingerprint(fp, fileById?.get(fp.docId)))
+    .map((fp) => fp.docId)
 }

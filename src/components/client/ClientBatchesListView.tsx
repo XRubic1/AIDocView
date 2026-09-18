@@ -86,17 +86,18 @@ function getAiProgressBadge(progress?: ClientBatchAiProgress | null) {
   if (progress.phase === 'processing') {
     return (
       <span className="inline-flex items-center gap-1 status-pill status-pill--review">
-        Creating…
+        Processing…
         {progress.etaShortLabel ? (
           <span className="opacity-80 font-normal">{progress.etaShortLabel}</span>
         ) : null}
       </span>
     )
   }
+  // Legacy/internal rework phase — carriers still see Processing, never Rework.
   if (progress.phase === 'rework') {
     return (
       <span className="inline-flex items-center status-pill status-pill--review">
-        Rework
+        Processing…
       </span>
     )
   }
@@ -114,10 +115,18 @@ function renderBatchStatus(
   status: string,
   progress?: ClientBatchAiProgress | null
 ) {
-  // While AI is creating/checking or in rework, show that as the Status — not beside Queued.
+  // While AI is creating/checking or Credyx is reworking, show Processing — not Rework.
   const aiBadge = getAiProgressBadge(progress)
   if (aiBadge && (progress?.phase === 'processing' || progress?.phase === 'rework')) {
     return aiBadge
+  }
+  // Hide raw rework status from carriers even without AI progress snapshot.
+  if (status === 'rework' || status === 'creating') {
+    return (
+      <span className="inline-flex items-center status-pill status-pill--review">
+        Processing…
+      </span>
+    )
   }
   return (
     <div className="flex flex-wrap items-center gap-1.5">

@@ -65,6 +65,28 @@ export default function Login() {
       <aside className="credyx-auth__brand">
         <div className="credyx-auth__brand-photo" aria-hidden="true" />
         <div className="credyx-auth__brand-mesh" aria-hidden="true" />
+        <svg className="credyx-auth__curve credyx-auth__curve--v" viewBox="0 0 72 1000" preserveAspectRatio="none" aria-hidden="true">
+          <path
+            className="credyx-auth__curve-fill"
+            d="M0,0 C48,180 48,820 0,1000 L72,1000 L72,0 Z"
+          />
+          <path
+            className="credyx-auth__curve-stroke"
+            d="M4,0 C52,180 52,820 4,1000"
+            fill="none"
+          />
+        </svg>
+        <svg className="credyx-auth__curve credyx-auth__curve--h" viewBox="0 0 1000 48" preserveAspectRatio="none" aria-hidden="true">
+          <path
+            className="credyx-auth__curve-fill"
+            d="M0,0 C280,40 720,40 1000,0 L1000,48 L0,48 Z"
+          />
+          <path
+            className="credyx-auth__curve-stroke"
+            d="M0,2 C280,42 720,42 1000,2"
+            fill="none"
+          />
+        </svg>
 
         <div className="credyx-auth__brand-top">
           <img
@@ -83,10 +105,10 @@ export default function Login() {
             Operations
           </div>
           <h2 className="credyx-auth__brand-title">
-            Credyx ops, <em>in one place.</em>
+            Credyx ops, <em className="credyx-auth__accent">in one place.</em>
           </h2>
           <p className="credyx-auth__brand-sub">
-            Sign in to manage carriers, invoices, and A/R follow-up across the Credyx platform.
+            Manage carriers, invoices, and A/R follow-up across the Credyx platform.
           </p>
         </div>
 
@@ -107,7 +129,7 @@ export default function Login() {
 
           <div className="credyx-auth__heading">
             <h1>Admin sign in</h1>
-            <p>Access the Credyx operations portal.</p>
+            <p>Sign in to the Credyx operations portal.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="credyx-auth__form" noValidate>

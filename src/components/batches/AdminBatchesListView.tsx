@@ -48,6 +48,8 @@ export interface AdminBatchListItem {
   ai_review_total?: number
   /** Packet rework is unlocked only after intake / AI settle. */
   packet_rework_ready?: boolean
+  /** Combined PDFs need Credyx Doc Splitter before Packets. */
+  needs_doc_split?: boolean
 }
 
 type BatchContextMenuState = {
@@ -661,15 +663,19 @@ export default function AdminBatchesListView({
                             type="button"
                             onClick={(e) => onPreviewClick(batch, e)}
                             className={`dashboard-btn-secondary !h-7 !px-2.5 !text-xs${
-                              batch.packet_rework_ready === false ? ' opacity-50' : ''
+                              batch.packet_rework_ready === false && !batch.needs_doc_split
+                                ? ' opacity-50'
+                                : ''
                             }`}
                             title={
-                              batch.packet_rework_ready === false
-                                ? 'Packet rework unlocks when invoices are ready'
-                                : 'Open Packets rework workspace'
+                              batch.needs_doc_split
+                                ? 'Open Doc Splitter — combined PDFs need review'
+                                : batch.packet_rework_ready === false
+                                  ? 'Packet rework unlocks when invoices are ready'
+                                  : 'Open Packets rework workspace'
                             }
                           >
-                            Packets
+                            {batch.needs_doc_split ? 'Doc Split' : 'Packets'}
                           </button>
                         )}
                         <button

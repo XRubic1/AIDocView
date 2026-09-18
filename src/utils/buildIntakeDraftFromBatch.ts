@@ -284,8 +284,15 @@ async function resolveInvoicesForBatch(
   clientId: string
 ): Promise<Invoice[]> {
   const local = collectLocalInvoicesForBatch(batchId, batchNumber, clientId)
-  if (local.length > 0) return local
-  return fetchInvoicesForBatchFromDb(batchId, batchNumber, clientId)
+  const fromDb = await fetchInvoicesForBatchFromDb(batchId, batchNumber, clientId)
+  if (fromDb.length === 0) return local
+  if (local.length === 0) return fromDb
+
+  // Merge by id so a partial local cache never hides newer DB invoices.
+  const byId = new Map<string, Invoice>()
+  for (const inv of local) byId.set(inv.id, inv)
+  for (const inv of fromDb) byId.set(inv.id, inv)
+  return Array.from(byId.values())
 }
 
 async function repairInvoiceCarrierName(

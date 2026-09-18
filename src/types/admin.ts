@@ -33,11 +33,16 @@ export interface PendingBatch {
   /** How the client created this batch */
   upload_mode?: 'ai' | 'manual' | 'handoff'
   /** DocSort pipeline status for AI uploads */
-  sort_status?: 'pending' | 'sorting' | 'ready' | 'failed'
+  sort_status?: 'pending' | 'sorting' | 'ready' | 'failed' | 'needs_split'
   /** JSON-safe DocSort result snapshot (no File blobs) */
   doc_sort_snapshot?: string
   /** Unmatched document ids from DocSort (admin visibility) */
   unmatched_doc_ids?: string[]
+  /**
+   * Combined PDFs (RC+BOL+invoice in one file) need Credyx Doc Splitter
+   * before Packet Rework / packet creation continues.
+   */
+  needs_doc_split?: boolean
 }
 
 export interface CollectionsAlert {

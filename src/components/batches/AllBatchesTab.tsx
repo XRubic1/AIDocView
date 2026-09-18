@@ -9,11 +9,13 @@ import { useClientTheme, useTheme } from '../../theme/ThemeContext'
 import { useTenantDataRevision } from '../../hooks/useTenantDataRevision'
 import { useAdminCapabilities } from '../../hooks/useAdminCapabilities'
 import {
+  canOpenDocSplitter,
   canOpenPacketRework,
   getAdminBatchAiReviewProgress,
   resolveAdminBatchWorkflowStage,
   type AdminBatchWorkflowStage,
 } from '../../utils/adminBatchQueue'
+import { batchNeedsDocSplit } from '../../utils/batchDocSplit'
 import { deleteUnsubmittedBatch } from '../../services/credyx/deleteBatch'
 import {
   batchIsStuckCreating,
@@ -27,6 +29,8 @@ interface AllBatchesTabProps {
   onBatchSelect: (batchId: string, stage?: AdminBatchWorkflowStage) => void
   /** Open the Packets rework workspace (same UI as AI upload confirm). */
   onPacketRework: (batchId: string) => void
+  /** Open Doc Splitter when combined PDFs need Credyx review. */
+  onDocSplitter?: (batchId: string) => void
   /** Parent list refresh after delete / status change. */
   onBatchesChanged?: () => void
 }
@@ -44,6 +48,7 @@ export default function AllBatchesTab({
   batches: batchesProp,
   onBatchSelect,
   onPacketRework,
+  onDocSplitter,
   onBatchesChanged,
 }: AllBatchesTabProps) {
   const c = useClientTheme()
@@ -88,7 +93,8 @@ export default function AllBatchesTab({
       ai_review_label: aiProgress.label,
       ai_review_completed: aiProgress.completed,
       ai_review_total: aiProgress.total,
-      packet_rework_ready: canOpenPacketRework(batch),
+      packet_rework_ready: canOpenPacketRework(batch) && !batchNeedsDocSplit(batch),
+      needs_doc_split: batchNeedsDocSplit(batch),
     }
   })
 
@@ -281,6 +287,28 @@ export default function AllBatchesTab({
               </div>
 
               <div className="p-4 space-y-2">
+                {(onDocSplitter || canOpenDocSplitter(selectedBatchForNavigation)) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const id = selectedBatchForNavigation.id
+                      if (onDocSplitter) onDocSplitter(id)
+                      else onPacketRework(id)
+                      setShowNavigationModal(false)
+                      setSelectedBatchForNavigation(null)
+                    }}
+                    className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
+                    style={{ borderColor: c.border, backgroundColor: c.card }}
+                  >
+                    <div className="font-medium text-sm" style={{ color: c.primary }}>
+                      Doc Splitter
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
+                      Split combined invoice / RC / BOL PDFs before packets
+                      {batchNeedsDocSplit(selectedBatchForNavigation) ? ' · Required' : ''}
+                    </div>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -289,13 +317,23 @@ export default function AllBatchesTab({
                     setSelectedBatchForNavigation(null)
                   }}
                   className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
-                  style={{ borderColor: c.border, backgroundColor: c.card }}
+                  style={{
+                    borderColor: c.border,
+                    backgroundColor: c.card,
+                    opacity:
+                      canOpenPacketRework(selectedBatchForNavigation) &&
+                      !batchNeedsDocSplit(selectedBatchForNavigation)
+                        ? 1
+                        : 0.55,
+                  }}
                 >
                   <div className="font-medium text-sm" style={{ color: c.primary }}>
                     Packet Rework
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
-                    Assign docs into packets and edit invoice fields
+                    {batchNeedsDocSplit(selectedBatchForNavigation)
+                      ? 'Unlocks after Doc Splitter finishes'
+                      : 'Assign docs into packets and edit invoice fields'}
                   </div>
                 </button>
                 <button
