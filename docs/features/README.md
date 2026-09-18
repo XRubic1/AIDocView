@@ -15,6 +15,7 @@ tiers. High-level context and product rationale live in
 | 5 | [Capability Gating Extension](./04-capability-gating.md) | Medium | Closes the "both tiers look identical" gap on the money pages; underpins the other specs |
 | 6 | [A/R-Based Billing Model](./07-ar-based-billing.md) | High | Real pricing: $99 base + tiered % of A/R (factoring discount); replaces placeholder $299 flat fee; billed via Payoneer at launch |
 | 7 | [Self-Service Batch Review](./05-self-service-batch-review.md) | **Later update** | Documented now for planning; depends on persisted batch notes |
+| 8 | [Broker follow-up blueprints](./08-broker-followup-blueprints.md) | High | If/else chase graphs per broker — replaces hardcoded collections clocks over time |
 
 ## Target tier behavior at a glance
 

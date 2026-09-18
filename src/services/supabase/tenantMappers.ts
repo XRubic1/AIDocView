@@ -119,6 +119,7 @@ export interface BatchRow {
   sort_status: Batch['sort_status'] | null
   doc_sort_snapshot: string | null
   unmatched_doc_ids: string[] | null
+  needs_doc_split: boolean | null
   reviewed_at: string | null
   reviewed_by: string | null
   approved_count: number | null
@@ -243,6 +244,7 @@ export function batchRowToBatch(row: BatchRow): Batch {
     sort_status: row.sort_status ?? undefined,
     doc_sort_snapshot: row.doc_sort_snapshot ?? undefined,
     unmatched_doc_ids: row.unmatched_doc_ids ?? undefined,
+    needs_doc_split: row.needs_doc_split ?? undefined,
     reviewed_at: row.reviewed_at ?? undefined,
     reviewed_by: row.reviewed_by ?? undefined,
     approved_count: row.approved_count ?? undefined,
@@ -325,6 +327,7 @@ export function batchToRow(batch: Batch): BatchRow {
     sort_status: batch.sort_status ?? null,
     doc_sort_snapshot: batch.doc_sort_snapshot ?? null,
     unmatched_doc_ids: batch.unmatched_doc_ids ?? null,
+    needs_doc_split: batch.needs_doc_split ?? false,
     reviewed_at: batch.reviewed_at ?? null,
     reviewed_by: batch.reviewed_by ?? null,
     approved_count: batch.approved_count ?? null,

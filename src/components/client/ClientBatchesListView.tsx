@@ -59,7 +59,7 @@ type BatchSortField =
 const STATUS_FILTER_MATCH: Record<StatusFilter, (status: string) => boolean> = {
   all: () => true,
   pending: (s) =>
-    ['draft', 'creating', 'ready_to_post', 'rework', 'documents_uploaded'].includes(s),
+    ['draft', 'creating', 'needs_split', 'ready_to_post', 'rework', 'documents_uploaded'].includes(s),
   review: (s) => ['verification', 'approval'].includes(s),
   processed: (s) => ['submitted', 'processing'].includes(s),
 }
@@ -68,6 +68,7 @@ function getBatchStatusBadge(status: string) {
   const map: Record<string, { label: string; className: string }> = {
     draft: { label: 'Draft', className: 'status-pill--pending-batch' },
     creating: { label: 'Creating', className: 'status-pill--review' },
+    needs_split: { label: 'Doc Split', className: 'status-pill--review' },
     ready_to_post: { label: 'Queued', className: 'status-pill--pending-batch' },
     rework: { label: 'Rework', className: 'status-pill--review' },
     documents_uploaded: { label: 'Docs received', className: 'status-pill--pending-batch' },
@@ -121,7 +122,7 @@ function renderBatchStatus(
     return aiBadge
   }
   // Hide raw rework status from carriers even without AI progress snapshot.
-  if (status === 'rework' || status === 'creating') {
+  if (status === 'rework' || status === 'creating' || status === 'needs_split') {
     return (
       <span className="inline-flex items-center status-pill status-pill--review">
         Processing…

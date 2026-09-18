@@ -78,9 +78,11 @@ export function getClientBatchAiProgress(input: {
     uploadMode === 'ai' ||
     uploadMode === 'handoff' ||
     batchStatus === 'creating' ||
+    batchStatus === 'needs_split' ||
     batchStatus === 'rework' ||
     sortStatus === 'sorting' ||
-    sortStatus === 'failed'
+    sortStatus === 'failed' ||
+    sortStatus === 'needs_split'
 
   if (!isAiRelevant) return IDLE
 
@@ -125,7 +127,13 @@ export function getClientBatchAiProgress(input: {
   }
 
   // Carrier-facing: never show Rework — Credyx handles it; client only sees Processing.
-  if (batchStatus === 'rework' || sortStatus === 'failed' || jobFailed) {
+  if (
+    batchStatus === 'rework' ||
+    batchStatus === 'needs_split' ||
+    sortStatus === 'failed' ||
+    sortStatus === 'needs_split' ||
+    jobFailed
+  ) {
     return withEta({
       phase: 'processing',
       label: 'Processing…',

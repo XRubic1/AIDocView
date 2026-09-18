@@ -279,7 +279,7 @@ export async function submitAiBatch(input: SubmitAiBatchInput): Promise<SubmitAi
   const needsSplit = remainingCombined.length > 0
 
   updateBatch(batch.id, {
-    status: needsSplit ? 'rework' : 'ready_to_post',
+    status: needsSplit ? 'needs_split' : 'ready_to_post',
     sort_status: needsSplit ? 'needs_split' : 'ready',
     needs_doc_split: needsSplit,
   })

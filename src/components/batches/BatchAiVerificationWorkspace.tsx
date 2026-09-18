@@ -57,6 +57,7 @@ import {
   canOpenPacketRework,
   getAdminBatchAiReviewProgress,
 } from '../../utils/adminBatchQueue'
+import { batchNeedsDocSplit } from '../../utils/batchDocSplit'
 import {
   findBrokerByName,
   hasBrokerWithEmailDomain,
@@ -69,6 +70,8 @@ interface BatchAiVerificationWorkspaceProps {
   batchId: string
   onClose: () => void
   onOpenPackets?: (batchId: string) => void
+  /** Open Doc Splitter when combined PDFs must be split before Packets. */
+  onOpenDocSplitter?: (batchId: string) => void
   onProcessed?: () => void
 }
 
@@ -107,6 +110,7 @@ export default function BatchAiVerificationWorkspace({
   batchId,
   onClose,
   onOpenPackets,
+  onOpenDocSplitter,
   onProcessed,
 }: BatchAiVerificationWorkspaceProps) {
   const c = useClientTheme()
@@ -838,8 +842,11 @@ export default function BatchAiVerificationWorkspace({
   const aiProgress = getAdminBatchAiReviewProgress(batchId)
   const liveBatch = getBatchById(batchId) ?? batch
   const packetsReady = liveBatch ? canOpenPacketRework(liveBatch) : false
+  const needsDocSplit = liveBatch ? batchNeedsDocSplit(liveBatch) : false
   const stillCreating =
     liveBatch?.status !== 'rework' &&
+    liveBatch?.status !== 'needs_split' &&
+    !needsDocSplit &&
     (liveBatch?.status === 'creating' ||
       (liveBatch?.sort_status === 'sorting' && invoices.length === 0) ||
       (invoices.length === 0 &&
@@ -965,17 +972,34 @@ export default function BatchAiVerificationWorkspace({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {onOpenDocSplitter && needsDocSplit && (
+            <button
+              type="button"
+              className="dashboard-btn-primary !h-8"
+              title="Split combined PDFs before Packet Rework"
+              onClick={() => onOpenDocSplitter(batchId)}
+            >
+              Doc Split
+            </button>
+          )}
           {onOpenPackets && (
             <button
               type="button"
-              className={`dashboard-btn-secondary !h-8${packetsReady ? '' : ' opacity-50'}`}
+              className={`dashboard-btn-secondary !h-8${packetsReady && !needsDocSplit ? '' : ' opacity-50'}`}
               title={
-                packetsReady
-                  ? 'Open Packets rework workspace'
-                  : 'Packet rework unlocks when invoices are ready'
+                needsDocSplit
+                  ? 'Split combined PDFs in Doc Splitter first'
+                  : packetsReady
+                    ? 'Open Packets rework workspace'
+                    : 'Packet rework unlocks when invoices are ready'
               }
               onClick={() => {
                 const latest = getBatchById(batchId)
+                if (latest && batchNeedsDocSplit(latest) && onOpenDocSplitter) {
+                  showToast('Split combined PDFs in Doc Splitter before Packet Rework.', 'info')
+                  onOpenDocSplitter(batchId)
+                  return
+                }
                 if (!latest || !canOpenPacketRework(latest)) {
                   showToast(
                     'Packet rework unlocks when invoices are created and AI is not still running.',
@@ -1015,7 +1039,32 @@ export default function BatchAiVerificationWorkspace({
         </div>
       </div>
 
-      {stillCreating && invoices.length === 0 ? (
+      {needsDocSplit ? (
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 p-8">
+          <p className="text-sm font-medium" style={{ color: c.primary }}>
+            Doc Split required
+          </p>
+          <p className="text-xs text-center max-w-md" style={{ color: c.secondary }}>
+            Combined PDFs (invoice + RC + BOL) must be split before Packet Rework and AI
+            verification continue.
+          </p>
+          <div className="flex flex-wrap gap-2 justify-center">
+            {onOpenDocSplitter ? (
+              <button
+                type="button"
+                className="dashboard-btn-primary"
+                onClick={() => onOpenDocSplitter(batchId)}
+              >
+                Open Doc Splitter
+              </button>
+            ) : null}
+            <button type="button" className="dashboard-btn-secondary" onClick={onClose}>
+              <ArrowLeft className="w-4 h-4" />
+              Back to batches
+            </button>
+          </div>
+        </div>
+      ) : stillCreating && invoices.length === 0 ? (
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 p-8">
           <Loader2 className="w-8 h-8 animate-spin" style={{ color: c.secondary }} />
           <p className="text-sm font-medium" style={{ color: c.primary }}>

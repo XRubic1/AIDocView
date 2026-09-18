@@ -10,6 +10,7 @@ import { notifyTenantDataUpdated } from '../services/supabase/tenantDataLiveSync
 /** True when snapshot / batch flag says Credyx must split combined PDFs first. */
 export function batchNeedsDocSplit(batch: PendingBatch | null | undefined): boolean {
   if (!batch) return false
+  if (batch.status === 'needs_split') return true
   if (batch.needs_doc_split === true) return true
   if (batch.sort_status === 'needs_split') return true
 
@@ -68,7 +69,7 @@ export function markBatchNeedsDocSplit(
   updateBatch(batchId, {
     needs_doc_split: true,
     sort_status: 'needs_split',
-    status: batch.status === 'creating' || batch.status === 'draft' ? 'rework' : batch.status,
+    status: 'needs_split',
     unmatched_doc_ids: opts.unmatchedDocIds,
     ...(opts.snapshot ? { doc_sort_snapshot: opts.snapshot } : {}),
     total_invoices: batch.total_invoices || 0,
@@ -83,6 +84,7 @@ export function clearBatchNeedsDocSplit(batchId: string): void {
   updateBatch(batchId, {
     needs_doc_split: false,
     sort_status: batch.sort_status === 'needs_split' ? 'failed' : batch.sort_status,
+    status: batch.status === 'needs_split' ? 'rework' : batch.status,
   })
   notifyTenantDataUpdated(['batches'], batch.client_id)
 }

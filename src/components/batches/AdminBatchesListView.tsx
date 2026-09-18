@@ -9,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Boxes, ChevronLeft, ChevronRight, FileEdit, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { Boxes, ChevronLeft, ChevronRight, FileEdit, RotateCcw, Scissors, Search, Trash2 } from 'lucide-react'
 import { canDeleteBatch } from '../../services/credyx/deleteBatch'
 import { batchIsStuckCreating } from '../../services/batchReworkService'
 import { formatCurrency, formatDate } from '../../utils/format'
@@ -80,6 +80,8 @@ interface AdminBatchesListViewProps {
   onViewClick?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   /** Opens the updated invoice + document preview workspace for this batch. */
   onPreviewClick?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
+  /** Opens Doc Splitter (combined PDFs) — also available via right-click. */
+  onDocSplitterClick?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   onReturnToApproval?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   canReturnToApproval?: (status: string) => boolean
   /** Delete draft / intake batches — blocked once submitted/processed. */
@@ -179,6 +181,7 @@ export default function AdminBatchesListView({
   onAction,
   onViewClick,
   onPreviewClick,
+  onDocSplitterClick,
   onReturnToApproval,
   canReturnToApproval,
   onDeleteBatch,
@@ -197,17 +200,19 @@ export default function AdminBatchesListView({
 
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
-  /** Right-click a row for manual creation / delete. */
+  /** Right-click a row for Doc Split / Packets / manual creation / delete. */
   const openBatchContextMenu = useCallback(
     (event: ReactMouseEvent, batch: AdminBatchListItem) => {
+      const canDocSplit = Boolean(onDocSplitterClick)
+      const canPackets = Boolean(onPreviewClick)
       const canManual = Boolean(onManualCreation && batchIsStuckCreating(batch))
       const canDelete = Boolean(onDeleteBatch)
-      if (!canManual && !canDelete) return
+      if (!canDocSplit && !canPackets && !canManual && !canDelete) return
       event.preventDefault()
       event.stopPropagation()
       setContextMenu({ x: event.clientX, y: event.clientY, batch })
     },
-    [onDeleteBatch, onManualCreation]
+    [onDeleteBatch, onDocSplitterClick, onManualCreation, onPreviewClick]
   )
 
   useLayoutEffect(() => {
@@ -785,6 +790,48 @@ export default function AdminBatchesListView({
             <p className="client-ai-doc-menu__label">
               {contextMenu.batch.batch_number}
             </p>
+            {onDocSplitterClick ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="client-ai-doc-menu__item"
+                onClick={(e) => {
+                  const batch = contextMenu.batch
+                  closeContextMenu()
+                  onDocSplitterClick(batch, e)
+                }}
+              >
+                <Scissors className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                {contextMenu.batch.needs_doc_split ? 'Open Doc Split' : 'Doc Split'}
+              </button>
+            ) : null}
+            {onPreviewClick ? (
+              <button
+                type="button"
+                role="menuitem"
+                className={`client-ai-doc-menu__item${
+                  contextMenu.batch.needs_doc_split ||
+                  contextMenu.batch.packet_rework_ready === false
+                    ? ' opacity-60'
+                    : ''
+                }`}
+                title={
+                  contextMenu.batch.needs_doc_split
+                    ? 'Split combined PDFs first'
+                    : contextMenu.batch.packet_rework_ready === false
+                      ? 'Packet rework unlocks when invoices are ready'
+                      : 'Open Packets rework'
+                }
+                onClick={(e) => {
+                  const batch = contextMenu.batch
+                  closeContextMenu()
+                  onPreviewClick(batch, e)
+                }}
+              >
+                <FileEdit className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                Open Packets
+              </button>
+            ) : null}
             {onManualCreation && batchIsStuckCreating(contextMenu.batch) ? (
               <button
                 type="button"

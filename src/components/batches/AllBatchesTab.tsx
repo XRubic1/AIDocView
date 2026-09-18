@@ -129,12 +129,25 @@ export default function AllBatchesTab({
     }
   }
 
+  const canReturnToVerification = (status: string) =>
+    status !== 'verification' &&
+    status !== 'draft' &&
+    status !== 'creating' &&
+    status !== 'needs_split' &&
+    status !== 'ready_to_post'
+
+  const shouldShowOpenModal = (batch: Batch) =>
+    batch.status === 'verification' ||
+    batch.status === 'approval' ||
+    batch.status === 'needs_split' ||
+    batchNeedsDocSplit(batch)
+
   const handleViewClick = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
     const full = allBatches.find((b) => b.id === batch.id) ?? batches.find((b) => b.id === batch.id)
     if (!full) return
 
-    if (full.status === 'verification' || full.status === 'approval') {
+    if (shouldShowOpenModal(full)) {
       setSelectedBatchForNavigation(full)
       setShowNavigationModal(true)
       return
@@ -147,12 +160,26 @@ export default function AllBatchesTab({
     e.stopPropagation()
     const full = allBatches.find((b) => b.id === batch.id) ?? batches.find((b) => b.id === batch.id)
     if (!full) return
+    if (canOpenDocSplitter(full) && onDocSplitter) {
+      onDocSplitter(full.id)
+      return
+    }
     if (!canOpenPacketRework(full)) {
       showToast('Packet rework is available once invoices are created and AI review finishes.', 'info')
       onBatchSelect(full.id, 'ai')
       return
     }
     onPacketRework(batch.id)
+  }
+
+  /** Right-click → Doc Splitter (always, when the parent wired the handler). */
+  const handleDocSplitterClick = (batch: AdminBatchListItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!onDocSplitter) {
+      showToast('Doc Splitter is not available here.', 'info')
+      return
+    }
+    onDocSplitter(batch.id)
   }
 
   const handleManualCreation = async (item: AdminBatchListItem, e: React.MouseEvent) => {
@@ -184,7 +211,8 @@ export default function AllBatchesTab({
       !full ||
       full.status === 'verification' ||
       full.status === 'draft' ||
-      full.status === 'creating'
+      full.status === 'creating' ||
+      full.status === 'needs_split'
     ) {
       return
     }
@@ -198,12 +226,6 @@ export default function AllBatchesTab({
     setListVersion((v) => v + 1)
     onBatchSelect(full.id, 'verification')
   }
-
-  const canReturnToVerification = (status: string) =>
-    status !== 'verification' &&
-    status !== 'draft' &&
-    status !== 'creating' &&
-    status !== 'ready_to_post'
 
   const handleNavigateToStage = (stage: AdminBatchWorkflowStage) => {
     if (selectedBatchForNavigation) {
@@ -225,7 +247,8 @@ export default function AllBatchesTab({
             onBatchSelect(batchId)
             return
           }
-          if (full.status === 'verification' || full.status === 'approval') {
+          // Doc Split / Verification: let staff pick the workspace.
+          if (shouldShowOpenModal(full)) {
             setSelectedBatchForNavigation(full)
             setShowNavigationModal(true)
             return
@@ -234,6 +257,7 @@ export default function AllBatchesTab({
         }}
         onViewClick={handleViewClick}
         onPreviewClick={handlePreviewClick}
+        onDocSplitterClick={onDocSplitter ? handleDocSplitterClick : undefined}
         onReturnToApproval={handleReturnToVerification}
         canReturnToApproval={canReturnToVerification}
         onDeleteBatch={canDeleteBatches ? handleDeleteBatch : undefined}
@@ -291,11 +315,13 @@ export default function AllBatchesTab({
                   <button
                     type="button"
                     onClick={() => {
-                      const id = selectedBatchForNavigation.id
-                      if (onDocSplitter) onDocSplitter(id)
-                      else onPacketRework(id)
-                      setShowNavigationModal(false)
-                      setSelectedBatchForNavigation(null)
+                      if (onDocSplitter) {
+                        onDocSplitter(selectedBatchForNavigation.id)
+                        setShowNavigationModal(false)
+                        setSelectedBatchForNavigation(null)
+                        return
+                      }
+                      handleNavigateToStage('doc_split')
                     }}
                     className="w-full text-left px-4 py-3 rounded-lg border transition-colors dashboard-card-interactive"
                     style={{ borderColor: c.border, backgroundColor: c.card }}

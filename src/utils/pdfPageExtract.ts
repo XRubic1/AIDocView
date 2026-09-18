@@ -46,6 +46,54 @@ export async function extractPdfPages(
   return new File([saved], name, { type: 'application/pdf' })
 }
 
+/** Page count for a PDF File (0 when unreadable). */
+export async function getPdfPageCount(source: File | ArrayBuffer | Uint8Array): Promise<number> {
+  try {
+    const bytes =
+      source instanceof File
+        ? new Uint8Array(await source.arrayBuffer())
+        : source instanceof ArrayBuffer
+          ? new Uint8Array(source)
+          : source
+    const src = await PDFDocument.load(bytes, { ignoreEncryption: true })
+    return src.getPageCount()
+  } catch {
+    return 0
+  }
+}
+
+export type SinglePagePdfPart = {
+  docId: string
+  file: File
+  pageNumber: number
+}
+
+/**
+ * Split a multi-page PDF into one File per page (for manual RC/BOL/INV marking).
+ * Returns [] when the PDF has 0–1 pages.
+ */
+export async function splitPdfIntoSinglePageFiles(
+  sourceFile: File
+): Promise<SinglePagePdfPart[]> {
+  if (!isPdfFile(sourceFile)) {
+    throw new Error('Only PDF files can be split into pages.')
+  }
+  const pageCount = await getPdfPageCount(sourceFile)
+  if (pageCount <= 1) return []
+
+  const parts: SinglePagePdfPart[] = []
+  for (let page = 1; page <= pageCount; page++) {
+    const docId = `page-split-${Date.now()}-p${page}-${Math.random().toString(36).slice(2, 7)}`
+    const fileName = deriveUnpackedFileName(sourceFile.name, `p${page}`)
+    const file = await extractPdfPages(sourceFile, [page], fileName)
+    if (!file.size) {
+      throw new Error(`Extracted page ${page} is empty`)
+    }
+    parts.push({ docId, file, pageNumber: page })
+  }
+  return parts
+}
+
 /** True when the file looks like a PDF we can split. */
 export function isPdfFile(file: File | undefined | null): boolean {
   if (!file) return false

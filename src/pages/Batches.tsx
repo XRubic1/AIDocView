@@ -199,7 +199,11 @@ export default function Batches() {
       return
     }
 
-    if (batch && batchNeedsDocSplit(batch) && stage !== 'verification') {
+    if (
+      stage === 'doc_split' ||
+      batch?.status === 'needs_split' ||
+      (batch && batchNeedsDocSplit(batch) && stage !== 'verification')
+    ) {
       openDocSplitter(batchId)
       return
     }
@@ -277,6 +281,7 @@ export default function Batches() {
               setRefreshKey((k) => k + 1)
             }}
             onOpenPackets={openPacketRework}
+            onOpenDocSplitter={openDocSplitter}
             onProcessed={() => setRefreshKey((k) => k + 1)}
           />
         ) : (

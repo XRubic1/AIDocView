@@ -8,6 +8,7 @@ import { getBatchById, type Batch } from '../data/mockBatches'
 const BATCH_STATUSES_PENDING_CLIENT_REVEAL = new Set<Batch['status']>([
   'draft',
   'creating',
+  'needs_split',
   'ready_to_post',
   'rework',
   'documents_uploaded',

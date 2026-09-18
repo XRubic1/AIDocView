@@ -5,7 +5,7 @@ import {
   canUnpackFingerprint,
   unpackPdfDocument,
 } from '../products/docSort/services/docSortUnpack'
-import { isPdfFile } from './pdfPageExtract'
+import { isPdfFile, splitPdfIntoSinglePageFiles } from './pdfPageExtract'
 
 type UnmatchedBucket = 'rateCons' | 'bols' | 'other'
 
@@ -543,6 +543,70 @@ export type UnpackDraftResult = {
   /** `unpacked` = split ok; `rescued_unassigned` = split failed, file kept in Unassigned. */
   status: 'unpacked' | 'rescued_unassigned'
   message?: string
+}
+
+/**
+ * Split a multi-page PDF into one pending page file each (kind `other`).
+ * Used in Doc Splitter when AI did not detect RC/BOL/INV page groups.
+ */
+export async function splitDraftPdfIntoPages(
+  draft: BatchIntakeDraft,
+  docId: string
+): Promise<UnpackDraftResult> {
+  const file = draft.fileById.get(docId)
+  if (!file || !isPdfFile(file)) {
+    throw new Error('Only PDF files can be split into pages.')
+  }
+
+  const located = locateDraftDocument(draft, docId)
+  if (!located) {
+    throw new Error('Document not found in this batch.')
+  }
+
+  let parts: Awaited<ReturnType<typeof splitPdfIntoSinglePageFiles>>
+  try {
+    parts = await splitPdfIntoSinglePageFiles(file)
+    if (parts.length < 2) {
+      return {
+        draft: ensureDocumentUnassigned(draft, docId, located.fingerprint),
+        status: 'rescued_unassigned',
+        message: 'This PDF is already a single page — mark it as RC / BOL / INV.',
+      }
+    }
+  } catch (err) {
+    console.warn('[splitDraftPdfIntoPages] failed', docId, err)
+    return {
+      draft: ensureDocumentUnassigned(draft, docId, located.fingerprint),
+      status: 'rescued_unassigned',
+      message:
+        err instanceof Error
+          ? `Page split failed (${err.message}). File kept in Unassigned.`
+          : 'Page split failed. File kept in Unassigned.',
+    }
+  }
+
+  const extracted = extractDraftDocument(draft, docId)
+  const fileById = new Map(extracted.draft.fileById)
+  const unmatched = cloneUnmatched(extracted.draft.unmatched)
+  fileById.delete(docId)
+
+  for (const part of parts) {
+    fileById.set(part.docId, part.file)
+    const fingerprint: DocSortFingerprint = {
+      docId: part.docId,
+      fileName: part.file.name,
+      kind: 'other',
+      confidence: 1,
+      loadNumbers: located.fingerprint.loadNumbers ?? [],
+      broker: located.fingerprint.broker,
+    }
+    unmatched.other = [...unmatched.other, fingerprint]
+  }
+
+  return {
+    draft: withPrunedUnmatched({ ...extracted.draft, unmatched, fileById }),
+    status: 'unpacked',
+  }
 }
 
 /**

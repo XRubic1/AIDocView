@@ -8,6 +8,7 @@ import { batchNeedsDocSplit } from './batchDocSplit'
 export const ADMIN_BATCH_CHIP_FILTERS = [
   'ready_to_post',
   'verification',
+  'needs_split',
   'ai',
   'draft',
   'submitted',
@@ -34,8 +35,6 @@ export function batchNeedsAiAttention(batch: PendingBatch): boolean {
     batch.status === 'rework' ||
     batch.sort_status === 'sorting' ||
     batch.sort_status === 'failed' ||
-    batch.sort_status === 'needs_split' ||
-    Boolean(batch.needs_doc_split) ||
     Boolean(batch.unmatched_doc_ids && batch.unmatched_doc_ids.length > 0)
   )
 }
@@ -75,6 +74,9 @@ export function batchPassesDateRange(
 export function getAdminBatchDisplayBucket(
   batch: PendingBatch
 ): AdminBatchChipFilter | 'other' {
+  // Doc Splitter is its own queue — before Packet Rework / AI Verify.
+  if (batch.status === 'needs_split' || batchNeedsDocSplit(batch)) return 'needs_split'
+
   if (batchNeedsAiAttention(batch) || batch.status === 'creating') return 'ai'
 
   const status = batch.status === 'approval' ? 'verification' : batch.status
@@ -98,6 +100,7 @@ export function createAdminBatchDisplayFlags(on: boolean): AdminBatchDisplayFlag
   return {
     ready_to_post: on,
     verification: on,
+    needs_split: on,
     ai: on,
     draft: on,
     submitted: on,
@@ -124,6 +127,8 @@ export function adminBatchFilterLabel(filter: AdminBatchChipFilter): string {
       return 'Ready'
     case 'verification':
       return 'AI Verify'
+    case 'needs_split':
+      return 'Doc Split'
     case 'ai':
       return 'AI / Rework'
     case 'draft':
@@ -146,6 +151,7 @@ export function countAdminBatchFilters(batches: PendingBatch[]): AdminBatchFilte
   const counts: AdminBatchFilterCounts = {
     ready_to_post: 0,
     verification: 0,
+    needs_split: 0,
     ai: 0,
     draft: 0,
     submitted: 0,
@@ -164,11 +170,12 @@ export function countAdminBatchFilters(batches: PendingBatch[]): AdminBatchFilte
 }
 
 /** Workflow stage to open when selecting a batch from the unified list. */
-export type AdminBatchWorkflowStage = 'ready_to_post' | 'verification' | 'ai'
+export type AdminBatchWorkflowStage = 'ready_to_post' | 'verification' | 'ai' | 'doc_split'
 
 export function resolveAdminBatchWorkflowStage(
   batch: PendingBatch
 ): AdminBatchWorkflowStage {
+  if (batch.status === 'needs_split' || batchNeedsDocSplit(batch)) return 'doc_split'
   if (
     batch.status === 'submitted' ||
     batch.status === 'processing' ||
@@ -218,12 +225,13 @@ export function getAdminBatchAiReviewProgress(batchId: string): {
  */
 export function canOpenPacketRework(batch: PendingBatch): boolean {
   if (batch.status === 'draft') return false
+  if (batch.status === 'needs_split') return false
 
   // Clear interrupted reviews + stuck sorting so Packets cannot lock forever.
   settleBatchAiGate(batch.id)
   const live = getBatchById(batch.id) ?? batch
 
-  if (live.status === 'creating') return false
+  if (live.status === 'creating' || live.status === 'needs_split') return false
   if (live.sort_status === 'sorting') return false
 
   // Combined PDFs must be split in Doc Splitter first.
@@ -256,5 +264,6 @@ export function canOpenPacketRework(batch: PendingBatch): boolean {
 export function canOpenDocSplitter(batch: PendingBatch): boolean {
   if (batch.status === 'draft') return false
   if (batch.status === 'creating' && batch.sort_status === 'sorting') return false
+  if (batch.status === 'needs_split') return true
   return batchNeedsDocSplit(batch)
 }
