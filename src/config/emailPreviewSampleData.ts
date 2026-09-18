@@ -35,12 +35,8 @@ export function getEmailPreviewSampleData(templateId: EmailTemplateId): Record<s
         periodLabel: 'August 2026',
         amountDue: '$224.00',
         dueDate: 'Sep 30, 2026',
-        feeTermsLabel: '2.5%',
+        feeTermsLabel: '0.6%',
         collectedVolume: '$5,000',
-        lineItemsHtml:
-          '<p style="margin:0;font-size:13px;">Platform subscription — $99.00<br/>Collection fee — $125.00</p>',
-        invoiceRowsHtml:
-          '<p style="margin:0;font-size:13px;">INV-10428 · Load LD-8831 · Paid</p>',
         paymentUrl: 'https://pay.example.com/inv-august',
         ctaLabel: 'Pay invoice',
         messageHtml: '',

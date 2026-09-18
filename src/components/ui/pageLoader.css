@@ -1,5 +1,13 @@
 /* Boot / route loader — navy + pricing-style drifting waves. */
 
+@font-face {
+  font-family: 'Royalstaff';
+  src: url('/fonts/royalstaf-regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 .page-loader {
   --pl-ink: #e8eef8;
   --pl-muted: #94a3b8;
@@ -31,6 +39,32 @@
   background: transparent;
   --pl-ink: #0f172a;
   --pl-muted: #64748b;
+}
+
+/* Panel-sized boot look (upload progress, etc.) */
+.page-loader--immersive {
+  min-height: 100%;
+  background: var(--pl-navy);
+  --pl-ink: #e8eef8;
+  --pl-muted: #94a3b8;
+}
+
+.page-loader--immersive .page-loader__track {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.page-loader--immersive .page-loader__bar {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.35) 25%,
+    var(--pl-blue) 70%,
+    transparent
+  );
+}
+
+.page-loader--immersive.page-loader--determinate .page-loader__bar {
+  background: linear-gradient(90deg, #3b9bff, var(--pl-blue));
 }
 
 .page-loader__stage {
@@ -96,6 +130,21 @@
   opacity: 0.98;
 }
 
+.page-loader__title {
+  margin: 0;
+  font-family: 'Royalstaff', 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 2rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  color: #ffffff;
+}
+
+/* Credyx “yx” accent — last two letters (#1684FE) */
+.page-loader__title-accent {
+  color: var(--pl-blue);
+}
+
 .page-loader__wordmark {
   display: flex;
   justify-content: center;
@@ -141,9 +190,31 @@
   background: linear-gradient(90deg, transparent, #0f172a 30%, var(--pl-blue) 70%, transparent);
 }
 
+/* Determinate upload progress — same thin bar, fills slowly toward % */
+.page-loader__track--determinate .page-loader__bar,
+.page-loader--determinate .page-loader__bar {
+  width: var(--pl-progress, 0%);
+  animation: none;
+  background: linear-gradient(90deg, #3b9bff, var(--pl-blue));
+  box-shadow: 0 0 10px rgba(22, 132, 254, 0.45);
+  transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.page-loader--inline.page-loader--determinate .page-loader__bar {
+  background: linear-gradient(90deg, #3b9bff, var(--pl-blue));
+}
+
+.page-loader__percent {
+  margin: -0.55rem 0 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--pl-muted);
+}
+
 .page-loader__message {
   margin: 0;
-  max-width: 18rem;
   text-align: center;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   font-size: 0.8125rem;
@@ -151,6 +222,10 @@
   letter-spacing: 0.01em;
   line-height: 1.45;
   color: var(--pl-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: min(18rem, 80vw);
 }
 
 .page-loader--reduced .page-loader__content {
@@ -167,6 +242,11 @@
   opacity: 0.4;
   animation: none;
   background: var(--pl-blue);
+}
+
+.page-loader--reduced.page-loader--determinate .page-loader__bar {
+  width: var(--pl-progress, 0%);
+  opacity: 1;
 }
 
 @keyframes page-loader-enter {

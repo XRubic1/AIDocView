@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useRef, useState, type DragEvent } from 'react'
-import { Upload, FileText, CheckCircle, Loader2, AlertCircle, Trash2, X } from 'lucide-react'
+import { Upload, FileText, CheckCircle, AlertCircle, Trash2, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { getClientById } from '../../services/clientRegistry'
 import { useToast } from '../ui/ToastProvider'
+import PageLoader from '../ui/PageLoader'
 import { useClientTheme } from '../../theme/ThemeContext'
 import {
   ClientSetupIncompleteError,
@@ -112,7 +113,14 @@ export default function ManagedDocHandoffView({
   const handleSubmit = async () => {
     if (files.length === 0 || isSubmitting) return
     setIsSubmitting(true)
-    setProgress({ phase: 'uploading', message: 'Saving your documents…' })
+    setProgress({
+      phase: 'uploading',
+      message: 'Saving your documents…',
+      fileName: files[0]?.name,
+      current: 1,
+      total: files.length,
+      percent: Math.min(99, Math.round((0.5 / Math.max(files.length, 1)) * 100)),
+    })
     try {
       const result = await submitManagedDocHandoff({
         clientId,
@@ -178,21 +186,20 @@ export default function ManagedDocHandoffView({
   }
 
   if (isSubmitting && progress) {
+    const percent = progress.percent ?? 0
+    const fileName = progress.fileName
+
     return (
-      <div className="managed-handoff managed-handoff--success" data-onboard-target="submitPanel">
-        <div className="managed-handoff__success">
-          <Loader2
-            className="w-10 h-10 mb-3 animate-spin"
-            style={{ color: c.info }}
-            aria-hidden
-          />
-          <h3 className="managed-handoff__success-title" style={{ color: c.primary }}>
-            Sending documents
-          </h3>
-          <p className="managed-handoff__success-copy" style={{ color: c.secondary }}>
-            {progress.message}
-          </p>
-        </div>
+      <div
+        className="managed-handoff managed-handoff--sending"
+        data-onboard-target="submitPanel"
+      >
+        <PageLoader
+          fullScreen={false}
+          title="Uploading"
+          progress={percent}
+          message={fileName || progress.message}
+        />
       </div>
     )
   }

@@ -1,6 +1,7 @@
 import type { DocSortProgress, DocSortResult, DocSortUpload } from '../types'
 import { fingerprintDocSortFile } from './docSortVision'
 import { matchSortedDocuments } from './docSortMatcher'
+import { autoUnpackCombinedFingerprints } from './docSortUnpack'
 import {
   getDocSortStartIntervalMs,
   getEffectiveDocSortParallel,
@@ -32,6 +33,7 @@ async function runWithConcurrency<T, R>(
 /**
  * Scan each upload with the full extract (RC / BOL / invoice / lumper JSON), then match.
  * Respects Settings → docs/min and DocSort parallel so OpenAI TPM is not blown.
+ * Combined PDFs (RC+BOL in one file) are unpacked so BOL pages become a sibling file.
  */
 export async function runDocSort(
   uploads: DocSortUpload[],
@@ -51,7 +53,7 @@ export async function runDocSort(
     phase: 'scanning',
     completed: 0,
     total,
-        message: `Extracting documents (max ${docsPerMinute}/min, ${parallel} at a time)…`,
+    message: `Extracting documents (max ${docsPerMinute}/min, ${parallel} at a time)…`,
   })
 
   let completed = 0
@@ -75,9 +77,38 @@ export async function runDocSort(
     }
   })
 
+  onProgress?.({
+    phase: 'matching',
+    completed: total,
+    total,
+    message: 'Unpacking combined PDFs…',
+  })
+
+  const fileById = new Map<string, File>()
+  uploads.forEach((u) => fileById.set(u.id, u.file))
+
+  let expanded = fingerprints
+  try {
+    expanded = await autoUnpackCombinedFingerprints(fingerprints, fileById)
+    // Surface newly extracted files to callers that rebuild fileById from uploads.
+    for (const [docId, file] of fileById) {
+      if (uploads.some((u) => u.id === docId)) continue
+      uploads.push({
+        id: docId,
+        file,
+        fileName: file.name,
+        status: 'done',
+      })
+    }
+  } catch (err) {
+    // Never lose originals — continue matching with the unscanned split skipped.
+    console.warn('[runDocSort] auto-unpack failed; keeping original uploads', err)
+    expanded = fingerprints
+  }
+
   onProgress?.({ phase: 'matching', completed: total, total, message: 'Matching loads…' })
 
-  const result = matchSortedDocuments(fingerprints)
+  const result = matchSortedDocuments(expanded)
 
   onProgress?.({ phase: 'complete', completed: total, total })
 

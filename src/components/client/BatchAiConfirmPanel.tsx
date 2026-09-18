@@ -40,7 +40,9 @@ import {
 } from '../../utils/batchPacketDocs'
 import { useDocumentDownloadProgress } from '../ui/DocumentDownloadOverlay'
 import type { DocSortFingerprint } from '../../products/docSort/types'
-import { pruneUnmatchedAgainstAssigned } from '../../utils/aiDraftDocOps'
+import { canUnpackDraftDocument, pruneUnmatchedAgainstAssigned } from '../../utils/aiDraftDocOps'
+import type { UnpackDraftResult } from '../../utils/aiDraftDocOps'
+import { useToast } from '../ui/ToastProvider'
 
 interface BatchAiConfirmPanelProps {
   draft: BatchIntakeDraft
@@ -67,6 +69,8 @@ interface BatchAiConfirmPanelProps {
   onAssignUnmatchedDocs: (docIds: string[], toDraftId: string) => void
   onAttachDocuments: (draftId: string, files: File[]) => void
   onDeleteDocument: (docId: string) => void
+  /** Split a combined RC+BOL(+invoice) PDF into separate files. */
+  onUnpackDocument?: (docId: string) => void | Promise<void | UnpackDraftResult>
   /** Lazily fetch a PDF body when the admin focuses a doc that is not in memory yet. */
   onEnsureDocument?: (docId: string) => void | Promise<void>
   addingInvoice: boolean
@@ -138,6 +142,7 @@ export default function BatchAiConfirmPanel({
   onAssignUnmatchedDocs,
   onAttachDocuments,
   onDeleteDocument,
+  onUnpackDocument,
   onEnsureDocument,
   addingInvoice,
   onSubmitBatch,
@@ -148,6 +153,7 @@ export default function BatchAiConfirmPanel({
   aiLiveProgress = null,
 }: BatchAiConfirmPanelProps) {
   const c = useClientTheme()
+  const { showToast } = useToast()
   const unmatchedBootstrap =
     draft.invoices.length === 0 &&
     draft.unmatched.rateCons.length + draft.unmatched.bols.length + draft.unmatched.other.length > 0
@@ -167,6 +173,7 @@ export default function BatchAiConfirmPanel({
   const [rcScrollRequestId, setRcScrollRequestId] = useState(0)
   const [bolScrollRequestId, setBolScrollRequestId] = useState(0)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const [unpackingDocId, setUnpackingDocId] = useState<string | null>(null)
   /** Right-click menu for classify / unassign / move. */
   const [docMenu, setDocMenu] = useState<{
     x: number
@@ -587,6 +594,40 @@ export default function BatchAiConfirmPanel({
       openPacket(toId, docMenu.docId)
     }
     setDocMenu(null)
+  }
+
+  const handleUnpackDocument = async () => {
+    if (!docMenu || !onUnpackDocument) return
+    const { docId } = docMenu
+    setDocMenu(null)
+    if (!canUnpackDraftDocument(draft, docId)) {
+      showToast(
+        'This PDF does not have multiple page types (RC / BOL / invoice) to unpack.',
+        'info'
+      )
+      return
+    }
+    setUnpackingDocId(docId)
+    try {
+      await onEnsureDocument?.(docId)
+      const result = await onUnpackDocument(docId)
+      if (result && typeof result === 'object' && 'status' in result) {
+        if (result.status === 'rescued_unassigned') {
+          showToast(
+            result.message ?? 'Split failed — file moved to Unassigned.',
+            'info'
+          )
+        } else {
+          showToast('Unpacked into separate files', 'success')
+        }
+      } else {
+        showToast('Unpacked into separate files', 'success')
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not unpack PDF', 'error')
+    } finally {
+      setUnpackingDocId(null)
+    }
   }
 
   const allowDrop = (event: DragEvent, targetKey: string) => {
@@ -1714,6 +1755,19 @@ export default function BatchAiConfirmPanel({
             >
               Move to unassigned
             </button>
+            {onUnpackDocument &&
+              docMenu &&
+              canUnpackDraftDocument(draft, docMenu.docId) && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="client-ai-doc-menu__item"
+                  disabled={unpackingDocId === docMenu.docId}
+                  onClick={() => void handleUnpackDocument()}
+                >
+                  {unpackingDocId === docMenu.docId ? 'Unpacking…' : 'Unpack pages'}
+                </button>
+              )}
             {movePacketOptions.length > 0 && (
               <>
                 <div className="client-ai-doc-menu__sep" />

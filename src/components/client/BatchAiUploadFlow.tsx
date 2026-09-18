@@ -23,6 +23,7 @@ import {
   deleteDraftDocument,
   moveDraftDocument,
   placeDraftDocument,
+  unpackDraftDocument,
   withPrunedUnmatched,
   removeInvoiceFromDraft,
 } from '../../utils/aiDraftDocOps'
@@ -481,6 +482,15 @@ export default function BatchAiUploadFlow({
     setDraft((prev) => (prev ? deleteDraftDocument(prev, docId) : prev))
   }
 
+  const unpackDocument = async (docId: string) => {
+    if (!draft) {
+      throw new Error('Nothing to unpack.')
+    }
+    const result = await unpackDraftDocument(draft, docId)
+    setDraft(result.draft)
+    return result
+  }
+
   const handleSubmit = async () => {
     if (!draft) return
 
@@ -599,6 +609,7 @@ export default function BatchAiUploadFlow({
           onAssignUnmatchedDocs={assignUnmatchedDocs}
           onAttachDocuments={attachDraftDocuments}
           onDeleteDocument={deleteDocument}
+          onUnpackDocument={unpackDocument}
           addingInvoice={addingInvoice}
           onSubmitBatch={handleSubmit}
           submitting={submitting}

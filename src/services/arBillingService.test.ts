@@ -16,6 +16,7 @@ import {
   clearClientBills,
   computeMonthlyBill,
   formatBillingPeriod,
+  billingDueAtForPeriod,
   getClientCollectedVolume,
   getPeriodBilledInvoices,
   issueClientBill,
@@ -209,9 +210,83 @@ describe('arBillingService', () => {
     expect(getClientById(clientId)?.reimbursement_balance).toBe(0)
   })
 
+  it('bills at live client fee even when invoices were locked at a different rate', async () => {
+    hydrateInvoices([
+      {
+        id: 'inv-1',
+        invoice_number: 'INV-1',
+        client_id: clientId,
+        client_name: 'Test Carrier',
+        broker_id: 'b1',
+        broker_name: 'Broker',
+        amount: 10000,
+        invoice_date: '2026-06-01',
+        due_date: '2026-07-01',
+        expected_payment_date: '2026-07-01',
+        status: 'paid',
+        created_at: '2026-06-01T00:00:00Z',
+        fee_terms: {
+          fee_type: 'percentage',
+          fee_percentage: 1,
+          billing_mode: 'billable',
+          locked_at: '2026-06-01T00:00:00Z',
+        },
+      },
+    ])
+    hydratePayments([
+      {
+        id: 'pay-1',
+        invoice_id: 'inv-1',
+        invoice_number: 'INV-1',
+        broker_name: 'Broker',
+        amount: 10000,
+        payment_date: '2026-06-15',
+        received_date: '2026-06-15',
+        payment_method: 'ach',
+        status: 'confirmed',
+        confirmed_at: '2026-06-15T12:00:00Z',
+        posted_source: 'credyx',
+        posted_by: 'Admin',
+      },
+    ])
+    await updateClient(clientId, {
+      fee_terms: { fee_type: 'percentage', fee_percentage: 0.6 },
+    })
+
+    const bill = computeMonthlyBill(clientId, { year: 2026, month: 6 }, { includeAppFee: false })
+    expect(bill.feeDisplay).toBe('0.6%')
+    expect(bill.arFee).toBeCloseTo(60, 2)
+    expect(bill.lineItems.some((li) => /0\.6%/.test(li.description))).toBe(true)
+    expect(bill.lineItems.some((li) => /(?<![\d.])1%/.test(li.description))).toBe(false)
+  })
+
+  it('applies feeOverride percentage for the whole period', async () => {
+    await updateClient(clientId, {
+      fee_terms: { fee_type: 'percentage', fee_percentage: 1 },
+    })
+    const bill = computeMonthlyBill(clientId, { year: 2026, month: 6 }, {
+      includeAppFee: false,
+      feeOverride: { fee_type: 'percentage', fee_percentage: 0.6 },
+    })
+    expect(bill.feeDisplay).toBe('0.6%')
+    expect(bill.arFee).toBeCloseTo(30, 2) // 0.6% of 5000
+  })
+
   it('requires fee terms when client has none', async () => {
     await updateClient(clientId, { fee_terms: undefined })
     expect(() => computeMonthlyBill(clientId, { year: 2026, month: 6 })).toThrow(/Fee terms/)
+  })
+
+  it('sets pay-by to end of the month after the billing period', async () => {
+    // August → September 30
+    expect(billingDueAtForPeriod({ year: 2026, month: 8 }).slice(0, 10)).toBe('2026-09-30')
+    // September → October 31
+    expect(billingDueAtForPeriod({ year: 2026, month: 9 }).slice(0, 10)).toBe('2026-10-31')
+    // December → January 31 next year
+    expect(billingDueAtForPeriod({ year: 2026, month: 12 }).slice(0, 10)).toBe('2027-01-31')
+
+    const issued = await issueClientBill(clientId, { year: 2026, month: 8 })
+    expect(issued.due_at.slice(0, 10)).toBe('2026-09-30')
   })
 
   it('normalizes payment URLs', () => {

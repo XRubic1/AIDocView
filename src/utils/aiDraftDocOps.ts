@@ -1,6 +1,11 @@
 import type { BatchIntakeDraft, CredyxInvoiceDraft } from '../types/credyxBatch'
 import type { DocSortFingerprint } from '../products/docSort/types'
 import type { DraftViewDocument } from './aiDraftDocuments'
+import {
+  canUnpackFingerprint,
+  unpackPdfDocument,
+} from '../products/docSort/services/docSortUnpack'
+import { isPdfFile } from './pdfPageExtract'
 
 type UnmatchedBucket = 'rateCons' | 'bols' | 'other'
 
@@ -439,4 +444,202 @@ export function placeDraftDocument(
     inv.draftId === toDraftId ? addDocToInvoice(inv, fingerprint) : inv
   )
   return withPrunedUnmatched({ ...extracted.draft, invoices })
+}
+
+/** Locate a draft doc without removing it. */
+function locateDraftDocument(
+  draft: BatchIntakeDraft,
+  docId: string
+): { fingerprint: DocSortFingerprint; fromDraftId: string | null } | null {
+  if (draft.invoices.some((inv) => isGeneratedInvoicePdfDoc(inv, docId))) return null
+
+  for (const inv of draft.invoices) {
+    const fingerprint = resolveFingerprint(draft, inv, docId)
+    if (!fingerprint) continue
+    const inInvoice =
+      inv.fingerprints.rateCons.some((fp) => fp.docId === docId) ||
+      inv.fingerprints.bols.some((fp) => fp.docId === docId) ||
+      otherFps(inv).some((fp) => fp.docId === docId) ||
+      inv.document_doc_ids.includes(docId)
+    if (!inInvoice) continue
+    return { fingerprint, fromDraftId: inv.draftId }
+  }
+
+  const found = findUnmatchedFingerprint(draft.unmatched, docId)
+  if (found) return { fingerprint: found.fingerprint, fromDraftId: null }
+
+  const file = draft.fileById.get(docId)
+  if (file) return { fingerprint: createManualDocFingerprint(docId, file), fromDraftId: null }
+  return null
+}
+
+/**
+ * Park a document in Unassigned and keep its File in the map.
+ * Used when unpack / AI split fails so paperwork is never lost.
+ */
+export function ensureDocumentUnassigned(
+  draft: BatchIntakeDraft,
+  docId: string,
+  fingerprint?: DocSortFingerprint | null
+): BatchIntakeDraft {
+  if (draft.invoices.some((inv) => isGeneratedInvoicePdfDoc(inv, docId))) return draft
+
+  const file = draft.fileById.get(docId)
+  const extracted = extractDraftDocument(draft, docId)
+  const fp =
+    extracted.fingerprint ??
+    fingerprint ??
+    (file ? createManualDocFingerprint(docId, file) : null)
+  if (!fp) return draft
+
+  const unmatched = cloneUnmatched(extracted.draft.unmatched)
+  const already = findUnmatchedFingerprint(unmatched, docId)
+  if (!already) {
+    const bucket = unmatchedBucketForKind(fp.kind)
+    unmatched[bucket] = [...unmatched[bucket], fp]
+  }
+
+  const fileById = new Map(extracted.draft.fileById)
+  if (file) fileById.set(docId, file)
+
+  // Do not prune here — pruning by file-name can drop the doc we just rescued.
+  return { ...extracted.draft, unmatched, fileById }
+}
+
+function parkPartsInUnassigned(
+  draft: BatchIntakeDraft,
+  originalDocId: string,
+  originalFingerprint: DocSortFingerprint,
+  parts: Awaited<ReturnType<typeof unpackPdfDocument>>
+): BatchIntakeDraft {
+  let next = ensureDocumentUnassigned(draft, originalDocId, originalFingerprint)
+  const fileById = new Map(next.fileById)
+  const unmatched = cloneUnmatched(next.unmatched)
+
+  for (const part of parts) {
+    fileById.set(part.docId, part.file)
+    if (!findUnmatchedFingerprint(unmatched, part.docId)) {
+      const bucket = unmatchedBucketForKind(part.fingerprint.kind)
+      unmatched[bucket] = [...unmatched[bucket], part.fingerprint]
+    }
+  }
+
+  return { ...next, unmatched, fileById }
+}
+
+/** Whether a draft doc can be split into RC / BOL / invoice page groups. */
+export function canUnpackDraftDocument(
+  draft: BatchIntakeDraft,
+  docId: string
+): boolean {
+  const file = draft.fileById.get(docId)
+  if (!isPdfFile(file)) return false
+  const located = locateDraftDocument(draft, docId)
+  return canUnpackFingerprint(located?.fingerprint, file)
+}
+
+export type UnpackDraftResult = {
+  draft: BatchIntakeDraft
+  /** `unpacked` = split ok; `rescued_unassigned` = split failed, file kept in Unassigned. */
+  status: 'unpacked' | 'rescued_unassigned'
+  message?: string
+}
+
+/**
+ * One-click unpack: replace a combined PDF with separate RC / BOL / invoice files.
+ * On any failure, the original (and any extracted parts) go to Unassigned — files are kept.
+ */
+export async function unpackDraftDocument(
+  draft: BatchIntakeDraft,
+  docId: string
+): Promise<UnpackDraftResult> {
+  const file = draft.fileById.get(docId)
+  if (!isPdfFile(file)) {
+    throw new Error('Only PDF files can be unpacked.')
+  }
+
+  const located = locateDraftDocument(draft, docId)
+  if (!located) {
+    throw new Error('Document not found in this batch.')
+  }
+  if (!canUnpackFingerprint(located.fingerprint, file)) {
+    return {
+      draft: ensureDocumentUnassigned(draft, docId, located.fingerprint),
+      status: 'rescued_unassigned',
+      message:
+        'Could not split this PDF (missing page types). It was moved to Unassigned so the file is not lost.',
+    }
+  }
+
+  let parts: Awaited<ReturnType<typeof unpackPdfDocument>>
+  try {
+    parts = await unpackPdfDocument(file, located.fingerprint)
+    if (parts.length < 2) {
+      throw new Error('Unpack did not produce enough document parts.')
+    }
+    for (const part of parts) {
+      if (!part.file || part.file.size <= 0) {
+        throw new Error(`Unpack produced an empty file for ${part.fingerprint.fileName}`)
+      }
+    }
+  } catch (err) {
+    console.warn('[unpackDraftDocument] split failed — moving original to unassigned', docId, err)
+    return {
+      draft: ensureDocumentUnassigned(draft, docId, located.fingerprint),
+      status: 'rescued_unassigned',
+      message:
+        err instanceof Error
+          ? `Split failed (${err.message}). File moved to Unassigned.`
+          : 'Split failed. File moved to Unassigned.',
+    }
+  }
+
+  try {
+    // Only remove the original from its packet after parts are ready.
+    const extracted = extractDraftDocument(draft, docId)
+    const fileById = new Map(extracted.draft.fileById)
+    for (const part of parts) {
+      fileById.set(part.docId, part.file)
+    }
+    // Drop the combined original only after siblings are stored.
+    fileById.delete(docId)
+
+    const fromDraftId = extracted.fromDraftId ?? located.fromDraftId
+
+    if (fromDraftId == null) {
+      const unmatched = cloneUnmatched(extracted.draft.unmatched)
+      for (const part of parts) {
+        const bucket = unmatchedBucketForKind(part.fingerprint.kind)
+        unmatched[bucket] = [...unmatched[bucket], part.fingerprint]
+      }
+      return {
+        draft: withPrunedUnmatched({ ...extracted.draft, unmatched, fileById }),
+        status: 'unpacked',
+      }
+    }
+
+    let invoices = extracted.draft.invoices
+    for (const part of parts) {
+      invoices = invoices.map((inv) =>
+        inv.draftId === fromDraftId ? addDocToInvoice(inv, part.fingerprint) : inv
+      )
+    }
+
+    return {
+      draft: withPrunedUnmatched({ ...extracted.draft, invoices, fileById }),
+      status: 'unpacked',
+    }
+  } catch (err) {
+    console.warn(
+      '[unpackDraftDocument] apply failed — parking original + parts in unassigned',
+      docId,
+      err
+    )
+    return {
+      draft: parkPartsInUnassigned(draft, docId, located.fingerprint, parts),
+      status: 'rescued_unassigned',
+      message:
+        'Split partially failed. Original and any extracted pages were moved to Unassigned.',
+    }
+  }
 }

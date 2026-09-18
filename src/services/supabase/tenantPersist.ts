@@ -159,17 +159,34 @@ export async function persistInvoice(invoice: Invoice): Promise<void> {
 }
 
 /** Upload batch invoice paperwork; returns storage paths keyed by doc id. */
+export type BatchDocumentUploadProgress = {
+  /** File currently uploading (1-based). */
+  current: number
+  total: number
+  fileName: string
+}
+
 export async function uploadBatchInvoiceDocuments(
   clientId: string,
   batchId: string,
   invoiceId: string,
-  filesByDocId: Map<string, File>
+  filesByDocId: Map<string, File>,
+  onFileProgress?: (info: BatchDocumentUploadProgress) => void
 ): Promise<Record<string, string>> {
   const supabase = getSupabase()
   if (!supabase) return {}
 
+  const entries = Array.from(filesByDocId.entries())
+  const total = entries.length
   const paths: Record<string, string> = {}
-  for (const [docId, file] of filesByDocId.entries()) {
+
+  for (let i = 0; i < entries.length; i += 1) {
+    const [docId, file] = entries[i]
+    onFileProgress?.({
+      current: i + 1,
+      total,
+      fileName: file.name,
+    })
     const path = `${clientId}/${batchId}/${invoiceId}/${docId}/${file.name}`
     const { error } = await supabase.storage.from('batch-documents').upload(path, file, {
       upsert: true,

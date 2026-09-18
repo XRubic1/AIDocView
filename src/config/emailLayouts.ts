@@ -398,7 +398,7 @@ export const CARRIER_BILLING_INVOICE_BODY_HTML = `<!DOCTYPE html>
                 Invoice for {{periodLabel}}
               </p>
               <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">
-                Hi {{contactName}} — here is the Credyx invoice for {{clientName}}. Amount due is <strong>{{amountDue}}</strong>. Pay using the button below.
+                Hi {{contactName}} — your Credyx invoice for {{clientName}} is ready. Full charge and load details are in the attached PDF.
               </p>
               {{messageHtml}}
             </td>
@@ -407,38 +407,16 @@ export const CARRIER_BILLING_INVOICE_BODY_HTML = `<!DOCTYPE html>
             <td style="padding:16px 28px 8px 28px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
                 <tr>
-                  <td style="padding:14px 16px;border-bottom:1px solid #e2e8f0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+                  <td style="padding:18px 16px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;width:50%;">
                     <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;">Amount due</p>
-                    <p style="margin:4px 0 0 0;font-size:22px;font-weight:700;color:#1684FE;">{{amountDue}}</p>
+                    <p style="margin:6px 0 0 0;font-size:26px;font-weight:700;color:#1684FE;">{{amountDue}}</p>
                   </td>
-                  <td style="padding:14px 16px;border-bottom:1px solid #e2e8f0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-                    <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;">Due</p>
-                    <p style="margin:4px 0 0 0;font-size:15px;font-weight:600;color:#0f172a;">{{dueDate}}</p>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:14px 16px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-                    <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;">Fee terms</p>
-                    <p style="margin:4px 0 0 0;font-size:14px;color:#0f172a;">{{feeTermsLabel}}</p>
-                  </td>
-                  <td style="padding:14px 16px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-                    <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;">Collected</p>
-                    <p style="margin:4px 0 0 0;font-size:14px;color:#0f172a;">{{collectedVolume}}</p>
+                  <td style="padding:18px 16px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;width:50%;">
+                    <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;">Pay by</p>
+                    <p style="margin:6px 0 0 0;font-size:18px;font-weight:600;color:#0f172a;">{{dueDate}}</p>
                   </td>
                 </tr>
               </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:8px 28px 4px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-              <p style="margin:0 0 8px 0;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;">Charges</p>
-              {{lineItemsHtml}}
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:8px 28px 4px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-              <p style="margin:8px 0;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;">Loads this period</p>
-              {{invoiceRowsHtml}}
             </td>
           </tr>
           <tr>
@@ -447,7 +425,7 @@ export const CARRIER_BILLING_INVOICE_BODY_HTML = `<!DOCTYPE html>
                 {{ctaLabel}}
               </a>
               <p style="margin:14px 0 0 0;font-size:12px;line-height:1.5;color:#64748b;">
-                If the button does not work, open: {{paymentUrl}}
+                A PDF invoice with the full breakdown is attached. If the button does not work, open: {{paymentUrl}}
               </p>
             </td>
           </tr>

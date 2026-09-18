@@ -121,6 +121,15 @@ export interface ComputedMonthlyBill {
 export interface ComputeMonthlyBillOptions {
   /** Override client default for including the $99 software fee. */
   includeAppFee?: boolean
+  /**
+   * Fee terms for this bill period. When set, every load is billed at this rate.
+   * Defaults to the carrier's current Clients → Fee Terms when omitted.
+   */
+  feeOverride?: {
+    fee_type: 'percentage' | 'flat'
+    fee_percentage?: number
+    flat_fee_amount?: number
+  }
 }
 
 /** Carrier invoice that hit this Credyx billing period (paid and/or closed). */

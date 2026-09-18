@@ -1,19 +1,18 @@
 import {
   BILL_LOCK_AFTER_DAYS,
-  BILL_PAYMENT_TERMS_DAYS,
   BILL_REMINDER_DAYS,
   BILL_WARNING_DAYS,
   PLATFORM_APP_FEE_MONTHLY,
 } from '../config/arBillingRates'
 import { mockInvoices, getInvoiceById } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
-import { getBatchById } from '../data/mockBatches'
 import { getEffectivePaymentAmount } from '../utils/paymentVariance'
 import {
   feeAmountForPayment,
   formatFeeTermsLabel,
-  resolveInvoiceFeeTerms,
+  snapshotFeeTermsFromClient,
 } from '../utils/feeTermsLock'
+import type { FeeTermsSnapshot } from '../types/feeTerms'
 import {
   getShortPaymentFeeCreditsForPeriod,
   markCreditsAppliedToBill,
@@ -283,11 +282,38 @@ export function normalizePaymentUrl(raw: string): string {
   }
 }
 
-function invoiceFeeForPeriod(invoiceId: string, client: Client, paymentAmt: number): number {
-  const inv = getInvoiceById(invoiceId)
-  if (!inv) return 0
-  const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
-  const terms = resolveInvoiceFeeTerms(inv, batch, client)
+/**
+ * Resolve fee terms for a monthly bill:
+ * optional bill override → current client Fee Terms (never locked Process rates).
+ */
+function resolveBillFeeTerms(
+  client: Client,
+  feeOverride?: ComputeMonthlyBillOptions['feeOverride']
+): FeeTermsSnapshot | undefined {
+  if (feeOverride?.fee_type) {
+    return {
+      fee_type: feeOverride.fee_type,
+      fee_percentage: feeOverride.fee_percentage,
+      flat_fee_amount: feeOverride.flat_fee_amount,
+      billing_mode: client.billing?.subscription_status === 'trial' ? 'trial' : 'billable',
+      locked_at: new Date().toISOString(),
+    }
+  }
+  const terms = snapshotFeeTermsFromClient(client)
+  if (!terms && !client.fee_terms?.fee_type) {
+    throw new Error(`Fee terms not configured for ${client.name}`)
+  }
+  return terms
+}
+
+/** Fee for one payment under the bill's fee terms (override or live client). */
+function invoiceFeeForPeriod(
+  _invoiceId: string,
+  client: Client,
+  paymentAmt: number,
+  feeOverride?: ComputeMonthlyBillOptions['feeOverride']
+): number {
+  const terms = resolveBillFeeTerms(client, feeOverride)
   if (!terms || terms.billing_mode === 'trial') return 0
   return feeAmountForPayment(paymentAmt, terms)
 }
@@ -298,11 +324,13 @@ function invoiceFeeForPeriod(invoiceId: string, client: Client, paymentAmt: numb
  */
 export function getPeriodBilledInvoices(
   clientId: string,
-  period: BillingPeriod
+  period: BillingPeriod,
+  options?: ComputeMonthlyBillOptions
 ): PeriodBilledInvoice[] {
   const client = getClientById(clientId)
   if (!client) return []
 
+  const feeOverride = options?.feeOverride
   const invoiceIds = invoiceIdsForClient(clientId)
   const byInvoice = new Map<string, PeriodBilledInvoice>()
 
@@ -316,10 +344,9 @@ export function getPeriodBilledInvoices(
     const existing = byInvoice.get(inv.id)
     if (existing) {
       existing.collectedAmount += paymentAmt
-      const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
-      const terms = resolveInvoiceFeeTerms(inv, batch, client)
+      const terms = resolveBillFeeTerms(client, feeOverride)
       if (terms?.fee_type !== 'flat') {
-        existing.fee += invoiceFeeForPeriod(inv.id, client, paymentAmt)
+        existing.fee += invoiceFeeForPeriod(inv.id, client, paymentAmt, feeOverride)
       }
       if (activityAt > existing.activityAt) existing.activityAt = activityAt
       continue
@@ -331,7 +358,7 @@ export function getPeriodBilledInvoices(
       brokerName: inv.broker_name,
       invoiceAmount: inv.amount,
       collectedAmount: paymentAmt,
-      fee: invoiceFeeForPeriod(inv.id, client, paymentAmt),
+      fee: invoiceFeeForPeriod(inv.id, client, paymentAmt, feeOverride),
       activityAt,
       status: inv.status,
       closedByCredyx: inv.status === 'force_closed',
@@ -347,8 +374,7 @@ export function getPeriodBilledInvoices(
       row.status = inv.status
       continue
     }
-    const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
-    const terms = resolveInvoiceFeeTerms(inv, batch, client)
+    const terms = resolveBillFeeTerms(client, feeOverride)
     let fee = 0
     if (terms?.billing_mode !== 'trial') {
       if (terms?.fee_type === 'flat' && terms.flat_fee_amount) fee = terms.flat_fee_amount
@@ -384,20 +410,26 @@ export interface ResolvedClientFee {
 }
 
 /**
- * Resolve period collection fee from each payment's invoice/batch lock when present
- * (processed batches), otherwise the carrier's live Fee Terms.
+ * Resolve period collection fee from the bill rate (feeOverride or live client Fee Terms).
+ * Matches the rate shown when issuing a bill — never locked Process/invoice rates.
  */
 export function resolveClientCollectionFee(
   client: Client,
   collectedVolume: number,
-  period: BillingPeriod
+  period: BillingPeriod,
+  feeOverride?: ComputeMonthlyBillOptions['feeOverride']
 ): ResolvedClientFee {
+  const terms = resolveBillFeeTerms(client, feeOverride)
+  if (!terms) {
+    throw new Error(`Fee terms not configured for ${client.name}`)
+  }
+
   const invoiceIds = invoiceIdsForClient(client.id)
   let fee = 0
   let trialVolume = 0
-  const rateLabels = new Set<string>()
   const flatChargedInvoiceIds = new Set<string>()
   let sawPayment = false
+  let collectedBillable = 0
 
   for (const p of mockPayments) {
     if (!invoiceIds.has(p.invoice_id) || p.status !== 'confirmed') continue
@@ -406,21 +438,12 @@ export function resolveClientCollectionFee(
     const inv = getInvoiceById(p.invoice_id)
     if (!inv) continue
     sawPayment = true
-    const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
-    const terms = resolveInvoiceFeeTerms(inv, batch, client)
     const paymentAmt = getEffectivePaymentAmount(p)
-
-    if (!terms) {
-      throw new Error(`Fee terms not found for invoice ${inv.invoice_number} (${client.name})`)
-    }
 
     if (terms.billing_mode === 'trial') {
       trialVolume += paymentAmt
-      rateLabels.add('Trial')
       continue
     }
-
-    rateLabels.add(formatFeeTermsLabel(terms))
 
     if (terms.fee_type === 'flat') {
       if (flatChargedInvoiceIds.has(inv.id)) continue
@@ -428,15 +451,12 @@ export function resolveClientCollectionFee(
       fee += feeAmountForPayment(paymentAmt, terms)
     } else {
       fee += feeAmountForPayment(paymentAmt, terms)
+      collectedBillable += paymentAmt
     }
   }
 
-  // No collections in period — still validate live client terms exist for the UI.
+  // No collections in period — still validate terms exist for the UI.
   if (!sawPayment) {
-    if (!client.fee_terms?.fee_type) {
-      throw new Error(`Fee terms not configured for ${client.name}`)
-    }
-    const terms = client.fee_terms
     if (terms.fee_type === 'flat') {
       return {
         feeType: 'flat',
@@ -456,24 +476,16 @@ export function resolveClientCollectionFee(
   }
 
   fee = Math.round(fee * 100) / 100
-  const displayRate =
-    rateLabels.size === 0 ? '—' : rateLabels.size === 1 ? [...rateLabels][0]! : 'Mixed'
-  const feeType: 'percentage' | 'flat' =
-    [...rateLabels].every((l) => l.includes('flat')) && rateLabels.size > 0
-      ? 'flat'
-      : 'percentage'
-
-  let ratePct = 0
-  if (rateLabels.size === 1) {
-    const only = [...rateLabels][0]!
-    const m = only.match(/^([\d.]+)%$/)
-    if (m) ratePct = Number(m[1])
-  }
+  const displayRate = formatFeeTermsLabel(terms)
+  const feeType: 'percentage' | 'flat' = terms.fee_type === 'flat' ? 'flat' : 'percentage'
+  const ratePct = feeType === 'percentage' ? terms.fee_percentage ?? 0 : 0
 
   const trialNote =
     trialVolume > 0
       ? ` (${formatVolume(trialVolume)} collected under trial — not charged)`
       : ''
+
+  const volumeForLabel = feeType === 'percentage' ? collectedBillable || collectedVolume : collectedVolume
 
   return {
     feeType,
@@ -481,9 +493,9 @@ export function resolveClientCollectionFee(
     fee,
     displayRate,
     feeDescription:
-      feeType === 'flat' && rateLabels.size === 1
+      feeType === 'flat'
         ? `Collection fee — ${displayRate} × ${flatChargedInvoiceIds.size} invoice(s) collected${trialNote}`
-        : `Collection fee — ${displayRate} of ${formatVolume(collectedVolume)} collected${trialNote}`,
+        : `Collection fee — ${displayRate} of ${formatVolume(volumeForLabel)} collected${trialNote}`,
   }
 }
 
@@ -511,15 +523,15 @@ export function resolveIncludeAppFee(
 function getForceCloseAdjustments(
   clientId: string,
   period: BillingPeriod,
-  client: Client
+  client: Client,
+  feeOverride?: ComputeMonthlyBillOptions['feeOverride']
 ): BillingLineItem[] {
   const periodLabel = formatBillingPeriod(period)
   return mockInvoices
     .filter((inv) => inv.client_id === clientId && inv.status === 'force_closed')
     .filter((inv) => isDateInPeriod(inv.updated_at, period))
     .map((inv) => {
-      const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
-      const terms = resolveInvoiceFeeTerms(inv, batch, client)
+      const terms = resolveBillFeeTerms(client, feeOverride)
       let amount = 0
       let detail = 'no fee terms'
       if (terms?.billing_mode === 'trial') {
@@ -555,14 +567,19 @@ export function computeMonthlyBill(
   }
 
   const collectedVolume = getClientCollectedVolume(clientId, period)
-  const resolved = resolveClientCollectionFee(client, collectedVolume, period)
+  const resolved = resolveClientCollectionFee(
+    client,
+    collectedVolume,
+    period,
+    options?.feeOverride
+  )
   const trial = isTrialClient(client)
   const includeAppFee = resolveIncludeAppFee(client, options)
 
   // Always compute gross fees so the UI can show what would be charged.
   const grossAppFee = includeAppFee ? PLATFORM_APP_FEE_MONTHLY : 0
   const grossArFee = resolved.fee
-  const adjustments = [...getForceCloseAdjustments(clientId, period, client)]
+  const adjustments = [...getForceCloseAdjustments(clientId, period, client, options?.feeOverride)]
   const adjustmentTotal = adjustments.reduce((sum, a) => sum + a.amount, 0)
   const grossSubtotal = grossAppFee + grossArFee + adjustmentTotal
 
@@ -673,10 +690,14 @@ export function getBillingStanding(client: Client, bills?: ClientBill[]): Billin
   return worst
 }
 
-function addDays(isoDate: string, days: number): string {
-  const d = new Date(isoDate)
-  d.setDate(d.getDate() + days)
-  return d.toISOString()
+/**
+ * Pay-by date: last day of the month after the billing period (UTC calendar date).
+ * August bill → September 30; September bill → October 31.
+ */
+export function billingDueAtForPeriod(period: BillingPeriod): string {
+  // period.month is 1–12; UTC day 0 of (month+1) is last day of the following month.
+  const endOfNextMonth = new Date(Date.UTC(period.year, period.month + 1, 0, 23, 59, 59, 999))
+  return endOfNextMonth.toISOString()
 }
 
 /** Issue a persisted bill for the period (idempotent per client+period). */
@@ -699,17 +720,27 @@ export async function issueClientBill(
     await updateClient(client.id, { reimbursement_balance: newBalance })
   }
 
+  // Snapshot the rate actually used on this bill (override or live client terms).
+  const usedTerms =
+    client != null ? resolveBillFeeTerms(client, options?.feeOverride) : undefined
+  const fee_terms_snapshot: BillingFeeTermsSnapshot | undefined = usedTerms
+    ? {
+        fee_type: usedTerms.fee_type,
+        fee_percentage: usedTerms.fee_percentage,
+        flat_fee_amount: usedTerms.flat_fee_amount,
+      }
+    : snapshotClientFeeTerms(client)
+
   const bill: ClientBill = {
     id: `bill-${clientId}-${formatBillingPeriod(period)}`,
     client_id: clientId,
     period: formatBillingPeriod(period),
     issued_at: now,
-    due_at: addDays(now, BILL_PAYMENT_TERMS_DAYS),
+    due_at: billingDueAtForPeriod(period),
     amount: computed.total,
     status: 'open',
     line_items: computed.lineItems,
-    // Lock rate at issue so later Fee Terms edits do not change clawbacks.
-    fee_terms_snapshot: snapshotClientFeeTerms(client),
+    fee_terms_snapshot,
     include_app_fee: computed.includeAppFee,
   }
 
@@ -721,6 +752,58 @@ export async function issueClientBill(
   }
 
   return bill
+}
+
+/**
+ * Rebuild an unpaid bill's amount/line items from current options (client terms or override).
+ * Used to fix bills that were issued with the wrong locked Process rate.
+ */
+export async function recomputeUnpaidClientBill(
+  billId: string,
+  options?: ComputeMonthlyBillOptions
+): Promise<ClientBill | undefined> {
+  const bill = getBillById(billId)
+  if (!bill || bill.status === 'paid') return bill
+
+  const period = parseBillingPeriod(bill.period)
+  const client = getClientById(bill.client_id)
+  if (!client) return bill
+
+  const feeOverride =
+    options?.feeOverride ??
+    (bill.fee_terms_snapshot?.fee_type
+      ? {
+          fee_type: bill.fee_terms_snapshot.fee_type,
+          fee_percentage: bill.fee_terms_snapshot.fee_percentage,
+          flat_fee_amount: bill.fee_terms_snapshot.flat_fee_amount,
+        }
+      : undefined)
+
+  const computed = computeMonthlyBill(bill.client_id, period, {
+    includeAppFee: options?.includeAppFee ?? bill.include_app_fee,
+    feeOverride,
+  })
+
+  const usedTerms = resolveBillFeeTerms(client, feeOverride)
+  const updated: ClientBill = {
+    ...bill,
+    amount: computed.total,
+    line_items: computed.lineItems,
+    include_app_fee: computed.includeAppFee,
+    due_at: billingDueAtForPeriod(period),
+    fee_terms_snapshot: usedTerms
+      ? {
+          fee_type: usedTerms.fee_type,
+          fee_percentage: usedTerms.fee_percentage,
+          flat_fee_amount: usedTerms.flat_fee_amount,
+          send: bill.fee_terms_snapshot?.send,
+        }
+      : bill.fee_terms_snapshot,
+  }
+
+  await persistOrThrow('Recompute client bill', () => persistClientBill(updated))
+  upsertBillInCache(updated)
+  return updated
 }
 
 /** Build a readable payment / lifecycle timeline for a bill. */

@@ -1,5 +1,5 @@
 import type { Client } from '../types/client'
-import type { ClientBill, PeriodBilledInvoice } from '../types/billing'
+import type { ClientBill } from '../types/billing'
 import { formatCurrency } from '../utils/format'
 import { escapeHtml } from '../utils/emailTemplateRender'
 import {
@@ -9,40 +9,9 @@ import {
 } from '../utils/emailCompanyLogo'
 import { CARRIER_BILLING_INVOICE_BODY_HTML } from '../config/emailLayouts'
 import { getEmailTemplate } from './emailTemplateService'
-import { sendTransactionalEmail } from './emailService'
+import { fileToEmailAttachment, sendTransactionalEmail } from './emailService'
 import { getPeriodBilledInvoices, parseBillingPeriod, recordBillEmailSent } from './arBillingService'
-
-function lineItemsHtml(bill: ClientBill): string {
-  if (bill.line_items.length === 0) {
-    return `<p style="margin:0;font-size:13px;color:#64748b;">No charges.</p>`
-  }
-  const rows = bill.line_items
-    .map(
-      (li) => `<tr>
-  <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;color:#334155;">${escapeHtml(li.description)}</td>
-  <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:600;text-align:right;color:${li.amount < 0 ? '#047857' : '#0f172a'};">${escapeHtml(formatCurrency(li.amount))}</td>
-</tr>`
-    )
-    .join('')
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table>`
-}
-
-function invoiceRowsHtml(rows: PeriodBilledInvoice[]): string {
-  if (rows.length === 0) {
-    return `<p style="margin:0;font-size:13px;color:#64748b;">No loads collected or closed this period.</p>`
-  }
-  const body = rows
-    .map((row) => {
-      const mark = row.closedByCredyx ? 'Closed by Credyx' : 'Paid'
-      const load = row.loadNumber ? ` · Load ${row.loadNumber}` : ''
-      return `<tr>
-  <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;color:#0f172a;">${escapeHtml(row.invoiceNumber)}${escapeHtml(load)}<br/><span style="font-size:12px;color:#64748b;">${escapeHtml(row.brokerName)} · ${escapeHtml(mark)}</span></td>
-  <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;text-align:right;color:#0f172a;">${escapeHtml(formatCurrency(row.collectedAmount || row.invoiceAmount))}</td>
-</tr>`
-    })
-    .join('')
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${body}</table>`
-}
+import { generateCarrierBillingPdf } from '../utils/generateCarrierBillingPdf'
 
 function periodLabelFromKey(period: string): string {
   const parsed = parseBillingPeriod(period)
@@ -52,8 +21,19 @@ function periodLabelFromKey(period: string): string {
   })
 }
 
+function formatDueDateLabel(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10)
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
 /**
- * Email the issued Credyx invoice to the carrier with an admin-entered payment URL.
+ * Email the issued Credyx invoice to the carrier.
+ * Body stays short (amount + due date); full details go in the attached PDF.
  */
 export async function sendCarrierBillingInvoiceEmail(input: {
   client: Client
@@ -75,17 +55,17 @@ export async function sendCarrierBillingInvoiceEmail(input: {
     parseBillingPeriod(input.bill.period)
   )
   const message = input.message?.trim()
+  const dueDate = formatDueDateLabel(input.bill.due_at)
+
   const data: Record<string, string> = {
     companyLogoHtml: logo ? buildInlineCompanyLogoHtml() : buildCompanyLogoFallbackHtml(),
     contactName: input.client.contact_person || 'there',
     clientName: input.client.name,
     periodLabel: periodLabelFromKey(input.bill.period),
     amountDue: formatCurrency(input.bill.amount),
-    dueDate: input.bill.due_at.slice(0, 10),
+    dueDate,
     feeTermsLabel: input.feeTermsLabel,
     collectedVolume: formatCurrency(input.collectedVolume),
-    lineItemsHtml: lineItemsHtml(input.bill),
-    invoiceRowsHtml: invoiceRowsHtml(billedInvoices),
     paymentUrl: input.paymentUrl,
     ctaLabel: 'Pay invoice',
     messageHtml: message
@@ -100,13 +80,40 @@ export async function sendCarrierBillingInvoiceEmail(input: {
   try {
     const row = await getEmailTemplate('carrier_billing_invoice')
     if (row.subject) subject = row.subject
-    if (row.body_html) html = row.body_html
+    // Prefer DB HTML only when it matches the slim template (no per-load tables).
+    const dbHtml = row.body_html?.trim()
+    if (
+      dbHtml &&
+      !dbHtml.includes('{{invoiceRowsHtml}}') &&
+      !dbHtml.includes('{{lineItemsHtml}}')
+    ) {
+      html = dbHtml
+    }
   } catch {
     /* built-in layout */
   }
 
+  const attachments = logo ? [logo] : []
+  try {
+    const pdfFile = await generateCarrierBillingPdf({
+      client: input.client,
+      bill: input.bill,
+      feeTermsLabel: input.feeTermsLabel,
+      collectedVolume: input.collectedVolume,
+      billedInvoices,
+      paymentUrl: input.paymentUrl,
+    })
+    attachments.push(await fileToEmailAttachment(pdfFile, pdfFile.name))
+  } catch (err) {
+    console.warn('[sendCarrierBillingInvoiceEmail] PDF attach failed', err)
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Could not generate invoice PDF',
+    }
+  }
+
   const result = await sendTransactionalEmail('client_invite', to, data, {
-    attachments: logo ? [logo] : undefined,
+    attachments,
     overrideSubject: subject,
     overrideHtml: html,
   })

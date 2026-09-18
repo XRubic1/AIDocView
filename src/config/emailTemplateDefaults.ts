@@ -95,10 +95,10 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
     id: 'carrier_billing_invoice',
     name: 'Carrier — monthly invoice',
     description:
-      'Sent from Billing with the period charges, collected loads, and a payment URL you enter.',
+      'Sent from Billing with amount due, pay-by date, and a payment URL. Full charge/load details are attached as a PDF.',
     audience: 'carrier',
     placeholders:
-      'companyLogoHtml, contactName, clientName, periodLabel, amountDue, dueDate, feeTermsLabel, collectedVolume, lineItemsHtml, invoiceRowsHtml, paymentUrl, ctaLabel, messageHtml',
+      'companyLogoHtml, contactName, clientName, periodLabel, amountDue, dueDate, feeTermsLabel, collectedVolume, paymentUrl, ctaLabel, messageHtml',
     subject: 'Credyx invoice — {{periodLabel}} · {{amountDue}}',
     body_html: CARRIER_BILLING_INVOICE_BODY_HTML,
   },

@@ -16,6 +16,13 @@ import { enqueueBatchProcessing } from './batchProcessingJobs'
 export type ManagedHandoffProgress = {
   phase: 'uploading'
   message: string
+  /** File currently being uploaded. */
+  fileName?: string
+  /** 1-based index of the current file. */
+  current?: number
+  total?: number
+  /** 0–100 completion percentage. */
+  percent?: number
 }
 
 export interface SubmitManagedDocHandoffInput {
@@ -49,7 +56,24 @@ export async function submitManagedDocHandoff(
   const client = getClientById(clientId)
   assertClientSetupComplete(clientId, client)
 
-  onProgress?.({ phase: 'uploading', message: 'Saving your documents…' })
+  const total = files.length
+  const reportProgress = (current: number, fileName: string) => {
+    // Show completed files plus halfway through the current one so the bar moves immediately.
+    const percent = Math.min(
+      99,
+      Math.round(((current - 0.5) / Math.max(total, 1)) * 100)
+    )
+    onProgress?.({
+      phase: 'uploading',
+      message: 'Saving your documents…',
+      fileName,
+      current,
+      total,
+      percent,
+    })
+  }
+
+  reportProgress(1, files[0]?.name ?? 'document')
 
   const batchNumber = generateBatchNumber(clientId)
   const submittedAt = new Date().toISOString()
@@ -89,13 +113,29 @@ export async function submitManagedDocHandoff(
         clientId,
         batch.id,
         HANDOFF_PLACEHOLDER_INVOICE_ID,
-        fileMap
+        fileMap,
+        ({ current, fileName }) => reportProgress(current, fileName)
       )
     } catch (err) {
       console.warn('[submitManagedDocHandoff] storage upload failed', err)
       throw err instanceof Error ? err : new Error('Could not upload documents')
     }
+  } else {
+    // Local/demo mode: still surface per-file progress so the UI stays informative.
+    for (let i = 0; i < files.length; i += 1) {
+      reportProgress(i + 1, files[i].name)
+      await new Promise((resolve) => setTimeout(resolve, 120))
+    }
   }
+
+  onProgress?.({
+    phase: 'uploading',
+    message: 'Finishing up…',
+    fileName: files[files.length - 1]?.name,
+    current: total,
+    total,
+    percent: 100,
+  })
 
   notifyAdminDocHandoff({
     clientId,

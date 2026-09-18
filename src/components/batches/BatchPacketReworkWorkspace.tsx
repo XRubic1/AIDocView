@@ -26,6 +26,7 @@ import {
   moveDraftDocument,
   placeDraftDocument,
   pruneUnmatchedAgainstAssigned,
+  unpackDraftDocument,
   withPrunedUnmatched,
   removeInvoiceFromDraft,
 } from '../../utils/aiDraftDocOps'
@@ -461,6 +462,16 @@ export default function BatchPacketReworkWorkspace({
     setDraft((prev) => (prev ? deleteDraftDocument(prev, docId) : prev))
   }
 
+  const unpackDocument = async (docId: string) => {
+    if (!draft) {
+      throw new Error('Nothing to unpack.')
+    }
+    const result = await unpackDraftDocument(draft, docId)
+    setDirty(true)
+    setDraft(result.draft)
+    return result
+  }
+
   const persistDraft = async () => {
     if (!draft || !batch) return
     setSaving(true)
@@ -722,6 +733,7 @@ export default function BatchPacketReworkWorkspace({
           onAssignUnmatchedDocs={assignUnmatchedDocs}
           onAttachDocuments={attachDraftDocuments}
           onDeleteDocument={deleteDocument}
+          onUnpackDocument={unpackDocument}
           onEnsureDocument={ensureDocumentFile}
           addingInvoice={addingInvoice}
           onSubmitBatch={() => void persistDraft()}
