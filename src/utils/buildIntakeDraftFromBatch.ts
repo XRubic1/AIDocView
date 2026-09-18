@@ -80,13 +80,15 @@ function fingerprintFromFile(
   catalog?: Map<string, PersistedDocFingerprint>
 ): DocSortFingerprint {
   const saved = catalog?.get(docId)
-  return fingerprintFromPersisted(
+  const fp = fingerprintFromPersisted(
     docId,
     file.name || saved?.fileName || docId,
     saved,
     context,
     0.5
   )
+  // Always prefer the live File name over catalog stubs (`handoff-…` as fileName).
+  return { ...fp, fileName: file.name || fp.fileName }
 }
 
 function fingerprintStub(
@@ -97,6 +99,71 @@ function fingerprintStub(
 ): DocSortFingerprint {
   const saved = catalog?.get(docId)
   return fingerprintFromPersisted(docId, saved?.fileName || fileName, saved, context, 0.3)
+}
+
+/**
+ * Bucket unmatched docs by DocSort kind for Packet Rework Unassigned panes.
+ * Preserves Doc Split marks (RC / BOL / INV) even when no packets exist yet.
+ */
+export function partitionUnmatchedByKind(fps: DocSortFingerprint[]): {
+  rateCons: DocSortFingerprint[]
+  bols: DocSortFingerprint[]
+  other: DocSortFingerprint[]
+} {
+  const rateCons: DocSortFingerprint[] = []
+  const bols: DocSortFingerprint[] = []
+  const other: DocSortFingerprint[] = []
+  for (const fp of fps) {
+    if (fp.kind === 'rate_confirmation') rateCons.push(fp)
+    else if (fp.kind === 'bill_of_lading') bols.push(fp)
+    else other.push(fp)
+  }
+  return { rateCons, bols, other }
+}
+
+/** True when this file name is already a page-split child (`foo-p3.pdf`). */
+function isPageSplitFileName(fileName: string): boolean {
+  return /-(p\d+)\.pdf$/i.test(fileName)
+}
+
+function pdfNameStem(fileName: string): string {
+  return fileName.replace(/\.pdf$/i, '').replace(/-(p\d+)$/i, '')
+}
+
+/**
+ * Drop combined parent PDFs when `*-pN` children are already in the unmatched set.
+ * Uses live File names when catalog stubs still say `handoff-…`.
+ */
+export function omitExplodedParentFingerprints(
+  fps: DocSortFingerprint[],
+  fileById: Map<string, File> = new Map()
+): DocSortFingerprint[] {
+  const knownNames = fps.map((fp) => {
+    const live = fileById.get(fp.docId)?.name
+    return (live || fp.fileName || '').toLowerCase()
+  })
+
+  const hasChildForStem = (stem: string) => {
+    if (!stem) return false
+    return knownNames.some((name) => {
+      if (!isPageSplitFileName(name)) return false
+      return pdfNameStem(name).toLowerCase() === stem
+    })
+  }
+
+  return fps.filter((fp) => {
+    if (fp.docId.startsWith('page-split-') || isPageSplitFileName(fp.fileName)) {
+      return true
+    }
+    const liveName = fileById.get(fp.docId)?.name || fp.fileName
+    if (isPageSplitFileName(liveName)) return true
+    const stem = pdfNameStem(liveName).toLowerCase()
+    if (hasChildForStem(stem)) return false
+    // Handoff stub name equals docId — still drop when a live PDF name has children.
+    const fileStem = pdfNameStem(fileById.get(fp.docId)?.name || '').toLowerCase()
+    if (fileStem && hasChildForStem(fileStem)) return false
+    return true
+  })
 }
 
 /** Document ids attached to an invoice, including storage-path fallbacks. */
@@ -426,55 +493,45 @@ export async function hydrateIntakeDraftFromBatch(
     ])
   )
 
-  const unmatchedIds = [
-    ...(batch.unmatched_doc_ids ?? []),
-    ...[...fileNameById.keys()].filter(
-      (id) => !assignedIds.has(id) && !id.startsWith('invoice-pdf-')
-    ),
-    ...[...fileById.keys()].filter(
-      (id) => !assignedIds.has(id) && !id.startsWith('invoice-pdf-')
-    ),
-  ]
+  const declaredUnmatched = [...(batch.unmatched_doc_ids ?? [])]
+  const unmatchedIds =
+    declaredUnmatched.length > 0
+      ? declaredUnmatched
+      : [
+          ...[...fileNameById.keys()].filter(
+            (id) => !assignedIds.has(id) && !id.startsWith('invoice-pdf-')
+          ),
+          ...[...fileById.keys()].filter(
+            (id) => !assignedIds.has(id) && !id.startsWith('invoice-pdf-')
+          ),
+        ]
   // Never resurface docs that are already on a packet (stale unmatched_doc_ids).
+  // When unmatched_doc_ids is set (post DocSort / Doc Split), trust it — do not
+  // re-pull stripped combined parents that still exist in handoff storage.
   const uniqueUnmatched = [...new Set(unmatchedIds)].filter(
     (id) => !assignedIds.has(id) && !id.startsWith('invoice-pdf-')
   )
 
-  const unmatchedRateCons: DocSortFingerprint[] = []
-  const unmatchedBols: DocSortFingerprint[] = []
-  const otherDocuments: DocSortFingerprint[] = []
-
+  const unmatchedFps: DocSortFingerprint[] = []
   for (const docId of uniqueUnmatched) {
     const file = fileById.get(docId)
     const fileName = fileNameById.get(docId) ?? file?.name ?? docId
-    const fp = file
-      ? fingerprintFromFile(docId, file, undefined, catalog)
-      : fingerprintStub(docId, fileName, undefined, catalog)
-    // Manual / zero-packet rework: keep every doc in Unassigned (other) for hand assignment.
-    if (drafts.length === 0) {
-      otherDocuments.push({ ...fp, kind: 'other' })
-    } else if (fp.kind === 'rate_confirmation') {
-      unmatchedRateCons.push(fp)
-    } else if (fp.kind === 'bill_of_lading') {
-      unmatchedBols.push(fp)
-    } else {
-      otherDocuments.push(fp)
-    }
+    unmatchedFps.push(
+      file
+        ? fingerprintFromFile(docId, file, undefined, catalog)
+        : fingerprintStub(docId, fileName, undefined, catalog)
+    )
   }
+  const partitioned = partitionUnmatchedByKind(
+    omitExplodedParentFingerprints(unmatchedFps, fileById)
+  )
 
   const sortResult =
     parseSortSnapshot(batch.doc_sort_snapshot) ??
     emptySortResult(Math.max(fileById.size, fileNameById.size, drafts.length))
 
   // Also drop duplicate intake copies that share a file name with an assigned packet doc.
-  const unmatched = pruneUnmatchedAgainstAssigned(
-    {
-      rateCons: unmatchedRateCons,
-      bols: unmatchedBols,
-      other: otherDocuments,
-    },
-    drafts
-  )
+  const unmatched = pruneUnmatchedAgainstAssigned(partitioned, drafts)
 
   return {
     batchNumber: batch.batch_number,

@@ -1,5 +1,6 @@
 import type { DocSortFingerprint, DocSortKind, DocSortResult } from '../types'
 import type { CredyxInvoiceDraft } from '../../../types/credyxBatch'
+import { fingerprintNeedsDocSplitter } from '../services/docSortUnpack'
 
 /** Fingerprint + extract JSON stored on the batch for matching and AI verification. */
 export interface PersistedDocFingerprint {
@@ -69,17 +70,16 @@ export function buildDocSortSnapshot(
     groupCount: sortResult.groups.length,
     fingerprints: [...byId.values()],
     needsDocSplit: Boolean(
-      [...byId.values()].some((fp) => {
-        const groups = fp.extract?.pageClassifications
-        if (!groups || groups.length === 0) return false
-        const kinds = new Set(
-          groups
-            .filter((p) => !p.skipped)
-            .map((p) => p.pageType)
-            .filter((t) => t && t !== 'blank')
-        )
-        return kinds.size >= 2
-      })
+      [...byId.values()].some((fp) =>
+        fingerprintNeedsDocSplitter({
+          docId: fp.docId,
+          fileName: fp.fileName,
+          kind: fp.kind,
+          loadNumbers: fp.loadNumbers,
+          extract: fp.extract,
+          confidence: 0,
+        })
+      )
     ),
   })
 }

@@ -9,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Boxes, ChevronLeft, ChevronRight, FileEdit, RotateCcw, Scissors, Search, Trash2 } from 'lucide-react'
+import { Boxes, Bug, ChevronLeft, ChevronRight, FileEdit, RotateCcw, Scissors, Search, Trash2 } from 'lucide-react'
 import { canDeleteBatch } from '../../services/credyx/deleteBatch'
 import { batchIsStuckCreating } from '../../services/batchReworkService'
 import { formatCurrency, formatDate } from '../../utils/format'
@@ -91,6 +91,8 @@ interface AdminBatchesListViewProps {
    * Shown in the row context menu when the batch is stuck creating/sorting.
    */
   onManualCreation?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
+  /** Open batch lifecycle debug panel (right-click). */
+  onDebugClick?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
 }
 
 function getReadyToPostProgress(batchId: string): number {
@@ -186,6 +188,7 @@ export default function AdminBatchesListView({
   canReturnToApproval,
   onDeleteBatch,
   onManualCreation,
+  onDebugClick,
 }: AdminBatchesListViewProps) {
   const c = useClientTheme()
   const [searchTerm, setSearchTerm] = useState('')
@@ -200,19 +203,20 @@ export default function AdminBatchesListView({
 
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
-  /** Right-click a row for Doc Split / Packets / manual creation / delete. */
+  /** Right-click a row for Doc Split / Packets / debug / manual creation / delete. */
   const openBatchContextMenu = useCallback(
     (event: ReactMouseEvent, batch: AdminBatchListItem) => {
       const canDocSplit = Boolean(onDocSplitterClick)
       const canPackets = Boolean(onPreviewClick)
       const canManual = Boolean(onManualCreation && batchIsStuckCreating(batch))
       const canDelete = Boolean(onDeleteBatch)
-      if (!canDocSplit && !canPackets && !canManual && !canDelete) return
+      const canDebug = Boolean(onDebugClick)
+      if (!canDocSplit && !canPackets && !canManual && !canDelete && !canDebug) return
       event.preventDefault()
       event.stopPropagation()
       setContextMenu({ x: event.clientX, y: event.clientY, batch })
     },
-    [onDeleteBatch, onDocSplitterClick, onManualCreation, onPreviewClick]
+    [onDebugClick, onDeleteBatch, onDocSplitterClick, onManualCreation, onPreviewClick]
   )
 
   useLayoutEffect(() => {
@@ -845,6 +849,21 @@ export default function AdminBatchesListView({
               >
                 <FileEdit className="w-3.5 h-3.5 shrink-0" aria-hidden />
                 Manual creation
+              </button>
+            ) : null}
+            {onDebugClick ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="client-ai-doc-menu__item"
+                onClick={(e) => {
+                  const batch = contextMenu.batch
+                  closeContextMenu()
+                  onDebugClick(batch, e)
+                }}
+              >
+                <Bug className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                Open debugging
               </button>
             ) : null}
             {onDeleteBatch ? (

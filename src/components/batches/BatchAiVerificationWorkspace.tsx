@@ -9,7 +9,7 @@ import {
 } from './AiReviewLiveProgress'
 import { getAdminBatchStatusBadge } from './adminBatchStatus'
 import { getBatchById, updateBatchStatus } from '../../data/mockBatches'
-import { getInvoicesByBatchId, updateInvoice } from '../../data/mockInvoices'
+import { getInvoiceById, getInvoicesByBatchId, updateInvoice } from '../../data/mockInvoices'
 import { mockBrokers } from '../../data/mockBrokers'
 import { mergeBatchFiles, addBatchFile } from '../../data/batchFileStore'
 import type { BatchIntakeDraft } from '../../types/credyxBatch'
@@ -311,15 +311,37 @@ export default function BatchAiVerificationWorkspace({
           checks: p.liveChecks ?? null,
           phase: p.phase,
         })
+        setInvoices((prev) =>
+          prev.map((inv) =>
+            inv.id === p.currentInvoiceId
+              ? { ...inv, ai_review_status: 'running' }
+              : inv
+          )
+        )
       } else if (p.phase === 'done') {
         setLiveReview(null)
+        // Pull finished status from the store so the list does not stay on not_run
+        // while later invoices in the batch are still reviewing.
+        const live = getInvoiceById(p.currentInvoiceId)
+        if (live) {
+          setInvoices((prev) =>
+            prev.map((inv) =>
+              inv.id === live.id
+                ? {
+                    ...inv,
+                    ai_review_status: live.ai_review_status,
+                    ai_review_summary: live.ai_review_summary,
+                    status: live.status,
+                  }
+                : inv
+            )
+          )
+        }
       }
-      setInvoices((prev) =>
-        prev.map((inv) =>
-          inv.id === p.currentInvoiceId && inv.ai_review_status !== 'running'
-            ? { ...inv, ai_review_status: 'running' }
-            : inv
-        )
+    }
+    if (typeof p.completed === 'number' && typeof p.total === 'number' && p.total > 0) {
+      setReviewProgress(
+        `AI review ${Math.min(p.completed + (p.phase === 'done' ? 0 : 1), p.total)} of ${p.total}…`
       )
     }
   }, [])
@@ -422,7 +444,13 @@ export default function BatchAiVerificationWorkspace({
     void (async () => {
       try {
         // allowVision: false → assembleBatchReviewFromDocuments(reviewsFromCatalog)
-        await runBatchAiReview(batchId, undefined, { allowVision: false })
+        await runBatchAiReview(
+          batchId,
+          (p) => {
+            applyReviewProgress(p)
+          },
+          { allowVision: false }
+        )
         refreshInvoices()
       } catch (err) {
         console.warn('[BatchAiVerificationWorkspace] extract finalize failed', err)
@@ -431,7 +459,7 @@ export default function BatchAiVerificationWorkspace({
         refreshInvoices()
       }
     })()
-  }, [loading, draft, invoices, batch, batchId, refreshInvoices])
+  }, [loading, draft, invoices, batch, batchId, refreshInvoices, applyReviewProgress])
 
   useEffect(() => {
     if (selectedId && invoices.some((inv) => inv.id === selectedId)) return

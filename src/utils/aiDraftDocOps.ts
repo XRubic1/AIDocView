@@ -413,6 +413,30 @@ export function extractDraftDocument(
 }
 
 /**
+ * Place (or replace) a fingerprint in Unmatched with an explicit kind + extract.
+ * Used after AI Sort docs so RC / BOL / INV marks keep classifier JSON.
+ */
+export function placeUnmatchedFingerprint(
+  draft: BatchIntakeDraft,
+  fingerprint: DocSortFingerprint
+): BatchIntakeDraft {
+  const located = locateDraftDocument(draft, fingerprint.docId)
+  const fileName = located?.fingerprint.fileName || fingerprint.fileName
+  const extracted = extractDraftDocument(draft, fingerprint.docId)
+  const fp: DocSortFingerprint = {
+    ...fingerprint,
+    fileName,
+  }
+  const unmatched = cloneUnmatched(extracted.draft.unmatched)
+  const bucket = unmatchedBucketForKind(fp.kind)
+  unmatched[bucket] = [...unmatched[bucket].filter((row) => row.docId !== fp.docId), fp]
+  const fileById = new Map(extracted.draft.fileById)
+  const file = draft.fileById.get(fingerprint.docId)
+  if (file) fileById.set(fingerprint.docId, file)
+  return { ...extracted.draft, unmatched, fileById }
+}
+
+/**
  * Place a supporting doc onto an invoice (or unmatched) with an explicit kind.
  * Pass `preserve` to keep the document's current RC/BOL/other classification.
  */
@@ -590,6 +614,10 @@ export async function splitDraftPdfIntoPages(
   const unmatched = cloneUnmatched(extracted.draft.unmatched)
   fileById.delete(docId)
 
+  // Drop storage path so hydrate / ensureDocs cannot revive the combined parent.
+  const storagePathsByDocId = { ...(extracted.draft.storagePathsByDocId ?? {}) }
+  delete storagePathsByDocId[docId]
+
   for (const part of parts) {
     fileById.set(part.docId, part.file)
     const fingerprint: DocSortFingerprint = {
@@ -604,7 +632,12 @@ export async function splitDraftPdfIntoPages(
   }
 
   return {
-    draft: withPrunedUnmatched({ ...extracted.draft, unmatched, fileById }),
+    draft: withPrunedUnmatched({
+      ...extracted.draft,
+      unmatched,
+      fileById,
+      storagePathsByDocId,
+    }),
     status: 'unpacked',
   }
 }

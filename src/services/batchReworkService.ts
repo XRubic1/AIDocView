@@ -194,6 +194,38 @@ export async function releaseBatchToManualCreation(batchId: string): Promise<voi
 
   const unmatchedDocIds = await collectUploadedDocIds(batchId, batch.client_id)
 
+  // Combined PDFs still need Doc Splitter — stop AI but keep the Doc Split queue.
+  const { batchNeedsDocSplit } = await import('../utils/batchDocSplit')
+  const needsSplit =
+    batch.status === 'needs_split' ||
+    batch.needs_doc_split === true ||
+    batchNeedsDocSplit(batch)
+
+  if (needsSplit) {
+    updateBatch(batchId, {
+      status: 'needs_split',
+      sort_status: 'needs_split',
+      needs_doc_split: true,
+      unmatched_doc_ids: unmatchedDocIds,
+    })
+    notifyTenantDataUpdated(['batches'], batch.client_id)
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase()
+      try {
+        await supabase?.rpc('mark_batch_processing_job', {
+          p_batch_id: batchId,
+          p_status: 'succeeded',
+          p_last_error:
+            'Stopped AI — open Doc Splitter (combined PDFs) before Packet Rework.',
+          p_locked_by: 'manual-override',
+        })
+      } catch (err) {
+        console.warn('[releaseBatchToManualCreation] job mark failed', err)
+      }
+    }
+    return
+  }
+
   updateBatch(batchId, {
     status: 'rework',
     sort_status: 'failed',

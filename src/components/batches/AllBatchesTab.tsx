@@ -22,6 +22,7 @@ import {
   releaseBatchToManualCreation,
 } from '../../services/batchReworkService'
 import { useToast } from '../ui/ToastProvider'
+import BatchDebugPanel from './BatchDebugPanel'
 
 interface AllBatchesTabProps {
   /** Pre-filtered batches from page-level display chips. */
@@ -65,6 +66,7 @@ export default function AllBatchesTab({
   const batches = (batchesProp as Batch[] | undefined) ?? allBatches
   const [showNavigationModal, setShowNavigationModal] = useState(false)
   const [selectedBatchForNavigation, setSelectedBatchForNavigation] = useState<Batch | null>(null)
+  const [debugBatchId, setDebugBatchId] = useState<string | null>(null)
 
   /** Batch → paperwork document count. */
   const documentCounts = useMemo(
@@ -204,6 +206,12 @@ export default function AllBatchesTab({
     }
   }
 
+  /** Right-click → open lifecycle debug panel. */
+  const handleDebugClick = (batch: AdminBatchListItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDebugBatchId(batch.id)
+  }
+
   const handleReturnToVerification = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
     const full = allBatches.find((b) => b.id === batch.id)
@@ -262,6 +270,7 @@ export default function AllBatchesTab({
         canReturnToApproval={canReturnToVerification}
         onDeleteBatch={canDeleteBatches ? handleDeleteBatch : undefined}
         onManualCreation={handleManualCreation}
+        onDebugClick={handleDebugClick}
         actionLabel="View"
         emptyTitle="No batches found"
         emptyHint="Try adjusting your search or filters"
@@ -380,6 +389,9 @@ export default function AllBatchesTab({
           </div>
         </div>
       )}
+      {debugBatchId ? (
+        <BatchDebugPanel batchId={debugBatchId} onClose={() => setDebugBatchId(null)} />
+      ) : null}
     </>
   )
 }

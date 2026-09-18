@@ -1380,6 +1380,49 @@ export interface ReviewDocumentFileOptions {
   signatureConsensusRuns?: number
 }
 
+/**
+ * Page-type classify only (no field extract) — used by Doc Splitter “Sort docs”.
+ * Faster than full reviewDocumentFile when we only need RC / BOL / INV labels.
+ */
+export async function classifyDocumentFile(file: File): Promise<{
+  documentType: DocumentType
+  pageClassifications: PageClassification[]
+  confidence: number
+}> {
+  const allPages = await fileToReviewImages(file)
+  const budget = createDocumentReviewCostBudget()
+  const primaryImage = allPages[0]
+  if (!primaryImage) {
+    return { documentType: 'other', pageClassifications: [], confidence: 0 }
+  }
+
+  let pageClassifications: PageClassification[]
+  if (allPages.length > 1 || primaryImage.sourceType === 'pdf_page') {
+    const pageScan = await classifyAllPages(allPages, budget)
+    pageClassifications = pageScan.classifications
+  } else {
+    const single = await classifyPageBatch([primaryImage], budget)
+    pageClassifications = single.classifications
+  }
+
+  pageClassifications = mergeTrainingPageClassifications(
+    refinePageClassifications(pageClassifications),
+    file.name
+  )
+
+  const confidence =
+    pageClassifications.length > 0
+      ? pageClassifications.reduce((sum, page) => sum + page.confidence, 0) /
+        pageClassifications.length
+      : 0
+
+  return {
+    documentType: resolvePrimaryDocumentType(pageClassifications),
+    pageClassifications,
+    confidence,
+  }
+}
+
 /** Pick the richest rate con parse from a batch (prefer multi-stop destinations). */
 function mergeBatchRateConParse(documents: DocumentReviewResult[]): RateConParse | undefined {
   const parses = documents

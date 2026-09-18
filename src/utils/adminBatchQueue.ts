@@ -2,7 +2,7 @@ import type { PendingBatch } from '../types/admin'
 import { getBatchById } from '../data/mockBatches'
 import { getInvoicesByBatchId } from '../data/mockInvoices'
 import { settleBatchAiGate } from '../services/credyx/batchAiReviewService'
-import { batchNeedsDocSplit } from './batchDocSplit'
+import { batchNeedsDocSplit, healFalsePositiveDocSplitGate } from './batchDocSplit'
 
 /** Toggle chips for the admin Batches list (invoice-style on/off filters). */
 export const ADMIN_BATCH_CHIP_FILTERS = [
@@ -75,7 +75,9 @@ export function getAdminBatchDisplayBucket(
   batch: PendingBatch
 ): AdminBatchChipFilter | 'other' {
   // Doc Splitter is its own queue — before Packet Rework / AI Verify.
-  if (batch.status === 'needs_split' || batchNeedsDocSplit(batch)) return 'needs_split'
+  healFalsePositiveDocSplitGate(batch.id)
+  const live = getBatchById(batch.id) ?? batch
+  if (batchNeedsDocSplit(live)) return 'needs_split'
 
   if (batchNeedsAiAttention(batch) || batch.status === 'creating') return 'ai'
 
@@ -175,23 +177,25 @@ export type AdminBatchWorkflowStage = 'ready_to_post' | 'verification' | 'ai' | 
 export function resolveAdminBatchWorkflowStage(
   batch: PendingBatch
 ): AdminBatchWorkflowStage {
-  if (batch.status === 'needs_split' || batchNeedsDocSplit(batch)) return 'doc_split'
+  healFalsePositiveDocSplitGate(batch.id)
+  const live = getBatchById(batch.id) ?? batch
+  if (batchNeedsDocSplit(live)) return 'doc_split'
   if (
-    batch.status === 'submitted' ||
-    batch.status === 'processing' ||
-    batch.status === 'documents_uploaded'
+    live.status === 'submitted' ||
+    live.status === 'processing' ||
+    live.status === 'documents_uploaded'
   ) {
     return 'verification'
   }
-  if (batchNeedsAiAttention(batch) || batch.upload_mode === 'ai' || batch.status === 'creating') {
+  if (batchNeedsAiAttention(live) || live.upload_mode === 'ai' || live.status === 'creating') {
     // Rework opens Packet Rework (handled in Batches.select); list stage hint unused.
-    if (batch.status === 'rework') return 'ai'
-    if (batch.status === 'ready_to_post') return 'ready_to_post'
-    if (batch.status === 'verification' || batch.status === 'approval') return 'verification'
+    if (live.status === 'rework') return 'ai'
+    if (live.status === 'ready_to_post') return 'ready_to_post'
+    if (live.status === 'verification' || live.status === 'approval') return 'verification'
     return 'ai'
   }
-  if (batch.status === 'ready_to_post') return 'ready_to_post'
-  if (batch.status === 'verification' || batch.status === 'approval') return 'verification'
+  if (live.status === 'ready_to_post') return 'ready_to_post'
+  if (live.status === 'verification' || live.status === 'approval') return 'verification'
   return 'ready_to_post'
 }
 
@@ -225,17 +229,14 @@ export function getAdminBatchAiReviewProgress(batchId: string): {
  */
 export function canOpenPacketRework(batch: PendingBatch): boolean {
   if (batch.status === 'draft') return false
-  if (batch.status === 'needs_split') return false
 
   // Clear interrupted reviews + stuck sorting so Packets cannot lock forever.
   settleBatchAiGate(batch.id)
+  healFalsePositiveDocSplitGate(batch.id)
   const live = getBatchById(batch.id) ?? batch
-
-  if (live.status === 'creating' || live.status === 'needs_split') return false
-  if (live.sort_status === 'sorting') return false
-
-  // Combined PDFs must be split in Doc Splitter first.
   if (batchNeedsDocSplit(live)) return false
+  if (live.status === 'creating') return false
+  if (live.sort_status === 'sorting') return false
 
   const invoices = getInvoicesByBatchId(live.id)
   if (invoices.some((inv) => inv.ai_review_status === 'running')) return false
@@ -264,6 +265,7 @@ export function canOpenPacketRework(batch: PendingBatch): boolean {
 export function canOpenDocSplitter(batch: PendingBatch): boolean {
   if (batch.status === 'draft') return false
   if (batch.status === 'creating' && batch.sort_status === 'sorting') return false
-  if (batch.status === 'needs_split') return true
-  return batchNeedsDocSplit(batch)
+  healFalsePositiveDocSplitGate(batch.id)
+  const live = getBatchById(batch.id) ?? batch
+  return batchNeedsDocSplit(live)
 }

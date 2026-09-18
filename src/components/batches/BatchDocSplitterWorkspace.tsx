@@ -32,24 +32,36 @@ import CompactPacketDocPane, {
 } from '../client/CompactPacketDocPane'
 import { hydrateIntakeDraftFromBatch } from '../../utils/buildIntakeDraftFromBatch'
 import { clearBatchNeedsDocSplit } from '../../utils/batchDocSplit'
+import { logBatchDocAction } from '../../utils/batchDocActionLog'
 import {
   canUnpackDraftDocument,
   createManualDocFingerprint,
   ensureDocumentUnassigned,
-  guessDocSortKindFromFileName,
   isGeneratedInvoicePdfDoc,
   locateDraftDocument,
   placeDraftDocument,
+  placeUnmatchedFingerprint,
   splitDraftPdfIntoPages,
   unpackDraftDocument,
   withPrunedUnmatched,
 } from '../../utils/aiDraftDocOps'
+import { classifyDocSplitterPage } from '../../products/docSort/services/docSortVision'
+import { isAiReviewConfigured } from '../../utils/aiConfigured'
+import { DocScanRateLimiter } from '../../utils/docScanRateLimiter'
+import {
+  getDocSortStartIntervalMs,
+  getEffectiveDocSortParallel,
+} from '../../utils/aiReviewUserSettings'
 import { buildDocSortSnapshot } from '../../products/docSort/utils/docSortSnapshot'
 import { notifyTenantDataUpdated } from '../../services/supabase/tenantDataLiveSync'
 import {
   ensureStoredBatchFile,
   prefetchStoredBatchFiles,
 } from '../../utils/resolveHandoffDocuments'
+import {
+  ensurePageSplitDraftFile,
+  persistPageSplitFilesToStorage,
+} from '../../utils/resolvePageSplitFile'
 import { getPdfPageCount, isPdfFile } from '../../utils/pdfPageExtract'
 
 type MarkCategory = 'rc' | 'bol' | 'inv'
@@ -91,18 +103,6 @@ function markCategoryForKind(kind: DocSortKind): MarkCategory | null {
   return null
 }
 
-function guessMarkCategory(fp: DocSortFingerprint): MarkCategory | null {
-  const extractType = fp.extract?.documentType
-  if (extractType === 'rate_confirmation') return 'rc'
-  if (extractType === 'bill_of_lading') return 'bol'
-  if (extractType === 'invoice') return 'inv'
-
-  const fromKind = markCategoryForKind(fp.kind)
-  if (fromKind) return fromKind
-
-  return markCategoryForKind(guessDocSortKindFromFileName(fp.fileName))
-}
-
 function findFingerprintLabel(draft: BatchIntakeDraft, docId: string): string {
   const located = locateDraftDocument(draft, docId)
   if (located?.fingerprint.fileName) return located.fingerprint.fileName
@@ -115,6 +115,8 @@ function attachFetchedFile(
   file: File
 ): BatchIntakeDraft | null {
   if (!prev || prev.fileById.has(docId)) return prev
+  // Do not revive a parent PDF after it was page-split into `-pN` children.
+  if (isPdfFile(file) && draftHasPageSplitChildren(prev, file.name)) return prev
   const nextFiles = new Map(prev.fileById)
   nextFiles.set(docId, file)
   return { ...prev, fileById: nextFiles }
@@ -154,19 +156,14 @@ function listAllSupportingFingerprints(draft: BatchIntakeDraft): DocSortFingerpr
 
   for (const [docId, file] of draft.fileById) {
     if (byId.has(docId) || docId.startsWith('invoice-pdf-')) continue
+    // Parent combined PDF already exploded into *-pN children — do not revive.
+    if (isPdfFile(file) && draftHasPageSplitChildren(draft, file.name)) continue
     push(createManualDocFingerprint(docId, file))
   }
 
-  for (const docId of Object.keys(draft.storagePathsByDocId ?? {})) {
-    if (byId.has(docId) || docId.startsWith('invoice-pdf-')) continue
-    byId.set(docId, {
-      docId,
-      fileName: docId,
-      kind: 'other',
-      confidence: 0,
-      loadNumbers: [],
-    })
-  }
+  // Intentionally do not invent fingerprints from storagePathsByDocId alone.
+  // Stripped combined parents often still have storage rows; reviving them
+  // re-floods Pending / Packet Rework after page-split.
 
   return [...byId.values()]
 }
@@ -195,21 +192,165 @@ function ensureDocsInUnmatchedPool(draft: BatchIntakeDraft): BatchIntakeDraft {
   return withPrunedUnmatched(next)
 }
 
+/** True when this file name is already a page-split child (`foo-p3.pdf`). */
+function isPageSplitFileName(fileName: string): boolean {
+  return /-(p\d+)\.pdf$/i.test(fileName)
+}
+
+/** Stem used to match parent PDF → `RateConf_x.pdf` children `RateConf_x-p1.pdf`. */
+function pdfNameStem(fileName: string): string {
+  return fileName.replace(/\.pdf$/i, '').replace(/-(p\d+)$/i, '')
+}
+
+/** Draft already has `stem-pN.pdf` children for this parent file. */
+function draftHasPageSplitChildren(draft: BatchIntakeDraft, parentFileName: string): boolean {
+  if (isPageSplitFileName(parentFileName)) return true
+  const stem = pdfNameStem(parentFileName).toLowerCase()
+  if (!stem) return false
+  return listAllSupportingFingerprints(draft).some((fp) => {
+    if (!isPageSplitFileName(fp.fileName)) return false
+    return pdfNameStem(fp.fileName).toLowerCase() === stem
+  })
+}
+
+/**
+ * Keep one fingerprint per page-split file name (earlier reloads created duplicates).
+ */
+function dedupePageSplitChildren(
+  draft: BatchIntakeDraft,
+  batchId?: string
+): BatchIntakeDraft {
+  const seenNames = new Set<string>()
+  const removeIds = new Set<string>()
+  const removedNames: string[] = []
+  for (const fp of listAllSupportingFingerprints(draft)) {
+    if (!isPageSplitFileName(fp.fileName) && !fp.docId.startsWith('page-split-')) continue
+    const key = fp.fileName.toLowerCase()
+    if (seenNames.has(key)) {
+      removeIds.add(fp.docId)
+      removedNames.push(fp.fileName)
+    } else seenNames.add(key)
+  }
+  if (removeIds.size === 0) return draft
+  if (batchId) {
+    logBatchDocAction(batchId, {
+      type: 'dedupe',
+      title: `Removed ${removeIds.size} duplicate page-split file(s)`,
+      detail: removedNames.slice(0, 8).join(', '),
+    })
+  }
+
+  const unmatched = {
+    rateCons: draft.unmatched.rateCons.filter((row) => !removeIds.has(row.docId)),
+    bols: draft.unmatched.bols.filter((row) => !removeIds.has(row.docId)),
+    other: draft.unmatched.other.filter((row) => !removeIds.has(row.docId)),
+  }
+  const fileById = new Map(draft.fileById)
+  for (const id of removeIds) fileById.delete(id)
+  const invoices = draft.invoices.map((inv) => ({
+    ...inv,
+    document_doc_ids: inv.document_doc_ids.filter((id) => !removeIds.has(id)),
+    fingerprints: {
+      rateCons: inv.fingerprints.rateCons.filter((fp) => !removeIds.has(fp.docId)),
+      bols: inv.fingerprints.bols.filter((fp) => !removeIds.has(fp.docId)),
+      other: (inv.fingerprints.other ?? []).filter((fp) => !removeIds.has(fp.docId)),
+    },
+  }))
+  return withPrunedUnmatched({ ...draft, unmatched, fileById, invoices })
+}
+
+/**
+ * Drop parent multi-page PDFs that already have page-split children so the
+ * pending rail does not show originals alongside `*-pN.pdf` pages.
+ */
+function stripExplodedParentPdfs(
+  draft: BatchIntakeDraft,
+  batchId?: string
+): BatchIntakeDraft {
+  const parents = listAllSupportingFingerprints(draft).filter((fp) => {
+    if (isPageSplitFileName(fp.fileName) || fp.docId.startsWith('page-split-')) {
+      return false
+    }
+    // Prefer live File name — catalog stubs often keep the handoff docId as fileName.
+    const liveName = draft.fileById.get(fp.docId)?.name || fp.fileName
+    return (
+      draftHasPageSplitChildren(draft, liveName) ||
+      draftHasPageSplitChildren(draft, fp.fileName)
+    )
+  })
+  const removeIds = new Set(parents.map((fp) => fp.docId))
+  if (removeIds.size === 0) return draft
+  if (batchId) {
+    logBatchDocAction(batchId, {
+      type: 'strip_parent',
+      title: `Stripped ${parents.length} parent PDF(s) already page-split`,
+      detail: parents
+        .map((fp) => draft.fileById.get(fp.docId)?.name || fp.fileName)
+        .slice(0, 8)
+        .join(', '),
+    })
+  }
+
+  const unmatched = {
+    rateCons: draft.unmatched.rateCons.filter((row) => !removeIds.has(row.docId)),
+    bols: draft.unmatched.bols.filter((row) => !removeIds.has(row.docId)),
+    other: draft.unmatched.other.filter((row) => !removeIds.has(row.docId)),
+  }
+  const fileById = new Map(draft.fileById)
+  for (const id of removeIds) fileById.delete(id)
+
+  const storagePathsByDocId = { ...(draft.storagePathsByDocId ?? {}) }
+  for (const id of removeIds) delete storagePathsByDocId[id]
+
+  const invoices = draft.invoices.map((inv) => ({
+    ...inv,
+    document_doc_ids: inv.document_doc_ids.filter((id) => !removeIds.has(id)),
+    fingerprints: {
+      rateCons: inv.fingerprints.rateCons.filter((fp) => !removeIds.has(fp.docId)),
+      bols: inv.fingerprints.bols.filter((fp) => !removeIds.has(fp.docId)),
+      other: (inv.fingerprints.other ?? []).filter((fp) => !removeIds.has(fp.docId)),
+    },
+  }))
+
+  return withPrunedUnmatched({
+    ...draft,
+    unmatched,
+    fileById,
+    invoices,
+    storagePathsByDocId,
+  })
+}
+
 /**
  * Break multi-page PDFs into one pending page each so staff mark pages,
- * not whole combined files.
+ * not whole combined files. Idempotent — will not re-split when `*-pN` children exist.
  */
-async function explodeMultiPagePdfs(draft: BatchIntakeDraft): Promise<{
+async function explodeMultiPagePdfs(
+  draft: BatchIntakeDraft,
+  batchId: string
+): Promise<{
   draft: BatchIntakeDraft
   splitCount: number
 }> {
-  let next = draft
+  let next = dedupePageSplitChildren(stripExplodedParentPdfs(draft, batchId), batchId)
   let splitCount = 0
   const ids = listAllSupportingFingerprints(next).map((fp) => fp.docId)
 
   for (const docId of ids) {
+    if (docId.startsWith('page-split-')) continue
     const file = next.fileById.get(docId)
     if (!file || !isPdfFile(file)) continue
+    if (isPageSplitFileName(file.name)) continue
+    if (draftHasPageSplitChildren(next, file.name)) {
+      logBatchDocAction(batchId, {
+        type: 'skip_split',
+        title: 'Skipped parent — page children already exist',
+        docId,
+        fileName: file.name,
+      })
+      continue
+    }
+
     const located = locateDraftDocument(next, docId)
     if (located && markCategoryForKind(located.fingerprint.kind)) continue
 
@@ -219,15 +360,33 @@ async function explodeMultiPagePdfs(draft: BatchIntakeDraft): Promise<{
     if (canUnpackDraftDocument(next, docId)) {
       const result = await unpackDraftDocument(next, docId)
       next = ensureDocsInUnmatchedPool(result.draft)
-      if (result.status === 'unpacked') splitCount += 1
+      if (result.status === 'unpacked') {
+        splitCount += 1
+        logBatchDocAction(batchId, {
+          type: 'unpack',
+          title: `Unpacked combined PDF into typed parts (${pages} pages)`,
+          docId,
+          fileName: file.name,
+        })
+      }
       continue
     }
 
     const result = await splitDraftPdfIntoPages(next, docId)
     next = ensureDocsInUnmatchedPool(result.draft)
-    if (result.status === 'unpacked') splitCount += 1
+    if (result.status === 'unpacked') {
+      splitCount += 1
+      logBatchDocAction(batchId, {
+        type: 'page_split',
+        title: `Split PDF into ${pages} pending page(s)`,
+        docId,
+        fileName: file.name,
+        detail: 'Mark each page as RC / BOL / INV',
+      })
+    }
   }
 
+  next = dedupePageSplitChildren(stripExplodedParentPdfs(next, batchId), batchId)
   return { draft: next, splitCount }
 }
 
@@ -260,11 +419,18 @@ export default function BatchDocSplitterWorkspace({
   const [loading, setLoading] = useState(true)
   const [splitting, setSplitting] = useState(false)
   const [sorting, setSorting] = useState(false)
+  const [reloadToken, setReloadToken] = useState(0)
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<MarkCategory | 'pending' | null>(null)
   const [docMenu, setDocMenu] = useState<DocMenuState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const docMenuRef = useRef<HTMLDivElement | null>(null)
+  const batchMetaRef = useRef({ clientId: batch?.client_id, status: batch?.status })
+  batchMetaRef.current = { clientId: batch?.client_id, status: batch?.status }
+  const showToastRef = useRef(showToast)
+  showToastRef.current = showToast
+  /** Prevent overlapping hydrates (Strict Mode / status churn) from re-splitting PDFs. */
+  const loadEpochRef = useRef(0)
 
   const persistDraftFiles = useCallback(
     (next: BatchIntakeDraft) => {
@@ -276,11 +442,12 @@ export default function BatchDocSplitterWorkspace({
         ...unmatched.other,
       ].map((fp) => fp.docId)
       const pendingLeft = unmatched.other.length > 0
+      const liveStatus = batchMetaRef.current.status
       const nextStatus = pendingLeft
         ? 'needs_split'
-        : batch?.status === 'needs_split'
+        : liveStatus === 'needs_split'
           ? 'rework'
-          : batch?.status
+          : liveStatus
       updateBatch(batchId, {
         unmatched_doc_ids: unmatchedIds,
         doc_sort_snapshot: buildDocSortSnapshot(
@@ -296,66 +463,108 @@ export default function BatchDocSplitterWorkspace({
         sort_status: pendingLeft ? 'needs_split' : 'failed',
         ...(nextStatus ? { status: nextStatus } : {}),
       })
-      notifyTenantDataUpdated(['batches'], batch?.client_id)
+      notifyTenantDataUpdated(['batches'], batchMetaRef.current.clientId)
     },
-    [batch?.client_id, batch?.status, batchId]
+    [batchId]
   )
 
-  const loadDraft = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const hydrated = await hydrateIntakeDraftFromBatch(batchId)
-      if (!hydrated) {
-        setError('Could not load batch documents for Doc Splitter.')
-        setDraft(null)
-        return
-      }
-      let next = ensureDocsInUnmatchedPool(hydrated)
+  useEffect(() => {
+    const epoch = ++loadEpochRef.current
+    let cancelled = false
 
-      const paths = next.storagePathsByDocId ?? {}
-      for (const docId of Object.keys(paths)) {
-        if (next.fileById.has(docId)) continue
-        const file = await ensureStoredBatchFile(
-          batchId,
-          docId,
-          paths[docId],
-          findFingerprintLabel(next, docId)
+    const run = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const hydrated = await hydrateIntakeDraftFromBatch(batchId)
+        if (cancelled || epoch !== loadEpochRef.current) return
+        if (!hydrated) {
+          setError('Could not load batch documents for Doc Splitter.')
+          setDraft(null)
+          return
+        }
+        let next = ensureDocsInUnmatchedPool(hydrated)
+
+        const paths = next.storagePathsByDocId ?? {}
+        for (const docId of Object.keys(paths)) {
+          if (cancelled || epoch !== loadEpochRef.current) return
+          if (next.fileById.has(docId)) continue
+          const file = await ensureStoredBatchFile(
+            batchId,
+            docId,
+            paths[docId],
+            findFingerprintLabel(next, docId)
+          )
+          if (file) {
+            const fileById = new Map(next.fileById)
+            fileById.set(docId, file)
+            next = { ...next, fileById }
+          }
+        }
+
+        if (cancelled || epoch !== loadEpochRef.current) return
+
+        // Rebuild page-split children that exist in the catalog but have no File yet.
+        {
+          const clientIdForHeal = batchMetaRef.current.clientId
+          for (const fp of listAllSupportingFingerprints(next)) {
+            if (cancelled || epoch !== loadEpochRef.current) return
+            if (next.fileById.has(fp.docId)) continue
+            const healed = await ensurePageSplitDraftFile(
+              next,
+              batchId,
+              fp.docId,
+              clientIdForHeal
+            )
+            next = healed.draft
+          }
+        }
+
+        setSplitting(true)
+        logBatchDocAction(batchId, {
+          type: 'hydrate',
+          title: 'Doc Splitter loaded batch documents',
+          detail: `${listAllSupportingFingerprints(next).length} doc(s) before page-split`,
+        })
+        const exploded = await explodeMultiPagePdfs(next, batchId)
+        if (cancelled || epoch !== loadEpochRef.current) return
+        next = exploded.draft
+        const clientId = batchMetaRef.current.clientId
+        if (clientId) {
+          next = await persistPageSplitFilesToStorage(next, batchId, clientId)
+        }
+        if (cancelled || epoch !== loadEpochRef.current) return
+        setDraft(next)
+        persistDraftFiles(next)
+
+        const pending = listPending(next)
+        setSelectedDocId(
+          pending[0]?.docId ?? listAllSupportingFingerprints(next)[0]?.docId ?? null
         )
-        if (file) {
-          const fileById = new Map(next.fileById)
-          fileById.set(docId, file)
-          next = { ...next, fileById }
+
+        if (exploded.splitCount > 0) {
+          showToastRef.current(
+            `Split ${exploded.splitCount} PDF${exploded.splitCount === 1 ? '' : 's'} into pages — mark each as RC / BOL / INV.`,
+            'success'
+          )
+        }
+      } catch (err) {
+        if (cancelled || epoch !== loadEpochRef.current) return
+        console.warn('[BatchDocSplitterWorkspace] hydrate failed', err)
+        setError(err instanceof Error ? err.message : 'Failed to load documents')
+      } finally {
+        if (!cancelled && epoch === loadEpochRef.current) {
+          setSplitting(false)
+          setLoading(false)
         }
       }
-
-      setSplitting(true)
-      const exploded = await explodeMultiPagePdfs(next)
-      next = exploded.draft
-      setDraft(next)
-      persistDraftFiles(next)
-
-      const pending = listPending(next)
-      setSelectedDocId(pending[0]?.docId ?? listAllSupportingFingerprints(next)[0]?.docId ?? null)
-
-      if (exploded.splitCount > 0) {
-        showToast(
-          `Split ${exploded.splitCount} PDF${exploded.splitCount === 1 ? '' : 's'} into pages — mark each as RC / BOL / INV.`,
-          'success'
-        )
-      }
-    } catch (err) {
-      console.warn('[BatchDocSplitterWorkspace] hydrate failed', err)
-      setError(err instanceof Error ? err.message : 'Failed to load documents')
-    } finally {
-      setSplitting(false)
-      setLoading(false)
     }
-  }, [batchId, persistDraftFiles, showToast])
 
-  useEffect(() => {
-    void loadDraft()
-  }, [loadDraft])
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [batchId, persistDraftFiles, reloadToken])
 
   const storagePathsKey = draft?.storagePathsByDocId
     ? Object.keys(draft.storagePathsByDocId).sort().join('\0')
@@ -450,17 +659,24 @@ export default function BatchDocSplitterWorkspace({
   }, [draft, selectedDocId])
 
   const ensureFileForDoc = async (docId: string, current: BatchIntakeDraft) => {
-    if (current.fileById.has(docId)) return current
-    const storagePath = current.storagePathsByDocId?.[docId]
-    if (!storagePath) return current
-    const fileName = findFingerprintLabel(current, docId)
-    const file = await ensureStoredBatchFile(batchId, docId, storagePath, fileName)
-    if (!file) return current
-    const fileById = new Map(current.fileById)
-    fileById.set(docId, file)
-    const next = { ...current, fileById }
-    setDraft(next)
-    return next
+    const clientId = batchMetaRef.current.clientId
+    const resolved = await ensurePageSplitDraftFile(
+      current,
+      batchId,
+      docId,
+      clientId
+    )
+    if (resolved.file && resolved.draft !== current) {
+      setDraft(resolved.draft)
+      // Persist new storage paths when a page-split was rebuilt + uploaded.
+      if (
+        resolved.draft.storagePathsByDocId &&
+        resolved.draft.storagePathsByDocId !== current.storagePathsByDocId
+      ) {
+        persistDraftFiles(resolved.draft)
+      }
+    }
+    return resolved.draft
   }
 
   /** Assign doc to category and auto-advance preview to the next pending page. */
@@ -474,12 +690,22 @@ export default function BatchDocSplitterWorkspace({
         draft.unmatched.bols.some((row) => row.docId === docId) ||
         draft.unmatched.other.some((row) => row.docId === docId)
       let next = alreadyInPool ? draft : ensureDocumentUnassigned(draft, docId)
+      const fileName =
+        locateDraftDocument(draft, docId)?.fingerprint.fileName ??
+        draft.fileById.get(docId)?.name
       next = placeDraftDocument(next, docId, null, kind)
       setDraft(next)
       persistDraftFiles(next)
+      logBatchDocAction(batchId, {
+        type: 'mark',
+        title: `Marked as ${category.toUpperCase()}`,
+        docId,
+        fileName,
+        detail: kind.replace(/_/g, ' '),
+      })
       setSelectedDocId(nextPendingAfterAssign(pendingBefore, docId, next))
     },
-    [draft, persistDraftFiles]
+    [batchId, draft, persistDraftFiles]
   )
 
   /** 1 = RC, 2 = BOL, 3 = INV — assign selected (or first pending) and advance. */
@@ -573,9 +799,18 @@ export default function BatchDocSplitterWorkspace({
       draft.unmatched.bols.some((row) => row.docId === docId) ||
       draft.unmatched.other.some((row) => row.docId === docId)
     let next = alreadyInPool ? draft : ensureDocumentUnassigned(draft, docId)
+    const fileName =
+      locateDraftDocument(draft, docId)?.fingerprint.fileName ??
+      draft.fileById.get(docId)?.name
     next = placeDraftDocument(next, docId, null, 'other')
     setDraft(next)
     persistDraftFiles(next)
+    logBatchDocAction(batchId, {
+      type: 'unmark',
+      title: 'Returned to Pending',
+      docId,
+      fileName,
+    })
     setSelectedDocId(docId)
   }
 
@@ -588,32 +823,216 @@ export default function BatchDocSplitterWorkspace({
     setSelectedDocId(fp.docId)
   }
 
-  /** SORT DOCS — auto-mark pending pages from extract / file-name hints. */
-  const handleSortDocs = () => {
+  /** SORT DOCS — AI classifies each pending page as RC / BOL / INV. */
+  const handleSortDocs = async () => {
     if (!draft) return
+    const pendingBefore = listPending(draft)
+    if (pendingBefore.length === 0) return
+
+    if (!isAiReviewConfigured()) {
+      showToast(
+        'AI is not configured — mark pages with 1 / 2 / 3 or drag to RC / BOL / INV.',
+        'error'
+      )
+      logBatchDocAction(batchId, {
+        type: 'ai_sort',
+        title: 'AI sort skipped — not configured',
+        detail: 'Deploy openai-proxy with OPENAI_API_KEY',
+      })
+      return
+    }
+
     setSorting(true)
+    logBatchDocAction(batchId, {
+      type: 'ai_sort',
+      title: `AI sort started (${pendingBefore.length} pending page(s))`,
+      detail: 'Classifier marks each page as RC / BOL / INV',
+    })
+
+    type SortOutcome =
+      | {
+          status: 'marked'
+          fingerprint: DocSortFingerprint
+          category: MarkCategory
+          file: File
+        }
+      | {
+          status: 'skipped'
+          docId: string
+          fileName: string
+          kind: string
+          confidence: number
+          file?: File
+        }
+      | {
+          status: 'failed'
+          docId: string
+          fileName: string
+          detail: string
+        }
+
+    const parallel = getEffectiveDocSortParallel()
+    const limiter = new DocScanRateLimiter(getDocSortStartIntervalMs())
+    const outcomes: SortOutcome[] = new Array(pendingBefore.length)
+
+    const classifyOne = async (fp: DocSortFingerprint, index: number) => {
+      await limiter.acquire()
+      let working = draft
+      const resolved = await ensurePageSplitDraftFile(
+        working,
+        batchId,
+        fp.docId,
+        batchMetaRef.current.clientId
+      )
+      working = resolved.draft
+      const file = resolved.file
+      if (!file) {
+        outcomes[index] = {
+          status: 'failed',
+          docId: fp.docId,
+          fileName: fp.fileName,
+          detail: 'Could not load PDF for classification',
+        }
+        return
+      }
+
+      try {
+        const classified = await classifyDocSplitterPage(file, fp.docId)
+        const category = markCategoryForKind(classified.kind)
+        if (!category) {
+          outcomes[index] = {
+            status: 'skipped',
+            docId: fp.docId,
+            fileName: fp.fileName,
+            kind: classified.kind,
+            confidence: classified.confidence,
+            file,
+          }
+          return
+        }
+        outcomes[index] = {
+          status: 'marked',
+          category,
+          file,
+          fingerprint: {
+            ...classified,
+            fileName: fp.fileName || classified.fileName,
+            loadNumbers: classified.loadNumbers?.length
+              ? classified.loadNumbers
+              : fp.loadNumbers,
+            broker: classified.broker || fp.broker,
+          },
+        }
+      } catch (err) {
+        outcomes[index] = {
+          status: 'failed',
+          docId: fp.docId,
+          fileName: fp.fileName,
+          detail: err instanceof Error ? err.message : 'Classification error',
+        }
+      }
+    }
+
     try {
-      const pendingBefore = listPending(draft)
+      let cursor = 0
+      const workers = Array.from(
+        { length: Math.min(parallel, pendingBefore.length) },
+        async () => {
+          while (cursor < pendingBefore.length) {
+            const index = cursor
+            cursor += 1
+            await classifyOne(pendingBefore[index], index)
+          }
+        }
+      )
+      await Promise.all(workers)
+
       let next = draft
       let moved = 0
-      for (const fp of pendingBefore) {
-        const guess = guessMarkCategory(fp)
-        if (!guess) continue
-        const kind = kindForCategory(guess)
-        next = placeDraftDocument(next, fp.docId, null, kind)
-        moved += 1
+      let skipped = 0
+      let failed = 0
+
+      for (const outcome of outcomes) {
+        if (!outcome) continue
+        if (outcome.status === 'marked') {
+          if (!next.fileById.has(outcome.fingerprint.docId)) {
+            const fileById = new Map(next.fileById)
+            fileById.set(outcome.fingerprint.docId, outcome.file)
+            next = { ...next, fileById }
+          }
+          next = placeUnmatchedFingerprint(next, outcome.fingerprint)
+          moved += 1
+          const short =
+            CATEGORIES.find((row) => row.id === outcome.category)?.short ?? outcome.category
+          logBatchDocAction(batchId, {
+            type: 'mark',
+            title: `AI marked as ${short}`,
+            docId: outcome.fingerprint.docId,
+            fileName: outcome.fingerprint.fileName,
+            detail: `${outcome.fingerprint.kind.replace(/_/g, ' ')} · ${Math.round(outcome.fingerprint.confidence * 100)}%`,
+          })
+          continue
+        }
+        if (outcome.status === 'skipped') {
+          if (outcome.file && !next.fileById.has(outcome.docId)) {
+            const fileById = new Map(next.fileById)
+            fileById.set(outcome.docId, outcome.file)
+            next = { ...next, fileById }
+          }
+          skipped += 1
+          logBatchDocAction(batchId, {
+            type: 'ai_sort',
+            title: `AI left pending (${outcome.kind})`,
+            docId: outcome.docId,
+            fileName: outcome.fileName,
+            detail: `${Math.round(outcome.confidence * 100)}% · not RC/BOL/INV`,
+          })
+          continue
+        }
+        failed += 1
+        logBatchDocAction(batchId, {
+          type: 'ai_sort',
+          title: 'AI sort failed for page',
+          docId: outcome.docId,
+          fileName: outcome.fileName,
+          detail: outcome.detail,
+        })
       }
+
       next = ensureDocsInUnmatchedPool(next)
+      const clientId = batchMetaRef.current.clientId
+      if (clientId) {
+        next = await persistPageSplitFilesToStorage(next, batchId, clientId)
+      }
       setDraft(next)
       persistDraftFiles(next)
       const remaining = listPending(next)
       setSelectedDocId(remaining[0]?.docId ?? null)
+
+      logBatchDocAction(batchId, {
+        type: 'ai_sort',
+        title: `AI sort finished — ${moved} marked`,
+        detail: `${remaining.length} pending · ${skipped} skipped · ${failed} failed`,
+      })
+
       showToast(
         moved > 0
-          ? `Sorted ${moved} page${moved === 1 ? '' : 's'} into RC / BOL / INV.`
-          : 'No automatic matches — mark remaining pages by hand.',
+          ? `AI marked ${moved} page${moved === 1 ? '' : 's'} as RC / BOL / INV${
+              remaining.length > 0 ? ` · ${remaining.length} still pending` : ''
+            }.`
+          : remaining.length > 0
+            ? 'AI could not classify pending pages — mark remaining by hand.'
+            : 'Nothing left to sort.',
         moved > 0 ? 'success' : 'info'
       )
+    } catch (err) {
+      console.warn('[BatchDocSplitterWorkspace] AI sort failed', err)
+      logBatchDocAction(batchId, {
+        type: 'ai_sort',
+        title: 'AI sort aborted',
+        detail: err instanceof Error ? err.message : 'Unexpected error',
+      })
+      showToast(err instanceof Error ? err.message : 'AI sort failed', 'error')
     } finally {
       setSorting(false)
     }
@@ -626,7 +1045,20 @@ export default function BatchDocSplitterWorkspace({
       )
       if (!proceed) return
     }
-    if (draft) persistDraftFiles(draft)
+    if (draft) {
+      // Final strip so combined parents never land in Packet Rework Unassigned.
+      const cleaned = stripExplodedParentPdfs(draft, batchId)
+      setDraft(cleaned)
+      persistDraftFiles(cleaned)
+    }
+    logBatchDocAction(batchId, {
+      type: 'continue',
+      title: 'Continued to Packet Rework',
+      detail:
+        pendingDocs.length > 0
+          ? `${pendingDocs.length} page(s) still pending`
+          : 'All pages marked',
+    })
     clearBatchNeedsDocSplit(batchId)
     onContinueToPacketRework(batchId)
   }
@@ -705,11 +1137,11 @@ export default function BatchDocSplitterWorkspace({
           type="button"
           className="dashboard-btn-secondary !h-8 !px-3 !text-xs inline-flex items-center gap-1.5"
           disabled={sorting || loading || pendingDocs.length === 0}
-          onClick={handleSortDocs}
-          title="Auto-mark pending pages from file names / AI hints"
+          onClick={() => void handleSortDocs()}
+          title="AI classify each pending page as RC / BOL / INV"
         >
           {sorting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-          Sort docs
+          {sorting ? 'AI sorting…' : 'Sort docs'}
         </button>
         <button type="button" className="dashboard-btn-primary !h-8 !text-xs" onClick={handleContinue}>
           Continue to Packet Rework
@@ -724,7 +1156,11 @@ export default function BatchDocSplitterWorkspace({
       ) : error ? (
         <div className="p-6">
           <p style={{ color: '#b91c1c' }}>{error}</p>
-          <button type="button" className="dashboard-btn-secondary mt-3" onClick={() => void loadDraft()}>
+          <button
+            type="button"
+            className="dashboard-btn-secondary mt-3"
+            onClick={() => setReloadToken((n) => n + 1)}
+          >
             Retry
           </button>
         </div>
@@ -875,8 +1311,9 @@ export default function BatchDocSplitterWorkspace({
                     activeDocId={selectedDocId}
                     emptyHint="Select a page to preview"
                     onEnsureDocument={async (docId) => {
-                      if (!draft) return
-                      await ensureFileForDoc(docId, draft)
+                      if (!draft) return null
+                      const next = await ensureFileForDoc(docId, draft)
+                      return next.fileById.get(docId) ?? null
                     }}
                   />
                 </div>
@@ -932,6 +1369,12 @@ export default function BatchDocSplitterWorkspace({
                 let next = placeDraftDocument(draft, id, null, 'other')
                 setDraft(next)
                 persistDraftFiles(next)
+                logBatchDocAction(batchId, {
+                  type: 'unmark',
+                  title: 'Returned to Pending',
+                  docId: id,
+                  fileName: docMenu?.fileName,
+                })
                 setSelectedDocId(id)
               }}
             >

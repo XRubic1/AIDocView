@@ -1,26 +1,55 @@
 import type { PendingBatch } from '../types/admin'
 import type { DocSortFingerprint } from '../products/docSort/types'
 import { getBatchById, updateBatch } from '../data/mockBatches'
-import { canUnpackFingerprint } from '../products/docSort/services/docSortUnpack'
+import {
+  canUnpackFingerprint,
+  fingerprintNeedsDocSplitter,
+} from '../products/docSort/services/docSortUnpack'
 import { parseFingerprintCatalog } from '../products/docSort/utils/docSortSnapshot'
 import type { BatchIntakeDraft } from '../types/credyxBatch'
 import { canUnpackDraftDocument } from './aiDraftDocOps'
 import { notifyTenantDataUpdated } from '../services/supabase/tenantDataLiveSync'
 
-/** True when snapshot / batch flag says Credyx must split combined PDFs first. */
+/** True when catalog shows a real RC/BOL/invoice mix (sticky flags alone are not enough). */
 export function batchNeedsDocSplit(batch: PendingBatch | null | undefined): boolean {
   if (!batch) return false
-  if (batch.status === 'needs_split') return true
-  if (batch.needs_doc_split === true) return true
-  if (batch.sort_status === 'needs_split') return true
 
   const catalog = parseFingerprintCatalog(batch.doc_sort_snapshot)
-  for (const fp of catalog.values()) {
-    if (canUnpackFingerprint(fp as unknown as DocSortFingerprint)) {
-      return true
-    }
+  if (catalog.size > 0) {
+    return [...catalog.values()].some((fp) =>
+      fingerprintNeedsDocSplitter(fp as unknown as DocSortFingerprint)
+    )
   }
-  return false
+
+  // No catalog yet — fall back to sticky flags from submit / pipeline.
+  return (
+    batch.status === 'needs_split' ||
+    batch.needs_doc_split === true ||
+    batch.sort_status === 'needs_split'
+  )
+}
+
+/**
+ * Clear sticky Doc Split gates when the snapshot no longer has a true combined PDF.
+ * Safe to call from list / packet unlock paths.
+ */
+export function healFalsePositiveDocSplitGate(batchId: string): boolean {
+  const batch = getBatchById(batchId)
+  if (!batch) return false
+  const flagged =
+    batch.status === 'needs_split' ||
+    batch.needs_doc_split === true ||
+    batch.sort_status === 'needs_split'
+  if (!flagged) return false
+  if (batchNeedsDocSplit(batch)) return false
+
+  updateBatch(batchId, {
+    needs_doc_split: false,
+    sort_status: batch.sort_status === 'needs_split' ? 'ready' : batch.sort_status,
+    status: batch.status === 'needs_split' ? 'rework' : batch.status,
+  })
+  notifyTenantDataUpdated(['batches'], batch.client_id)
+  return true
 }
 
 /** Combined docs still unpackable in a live intake draft. */

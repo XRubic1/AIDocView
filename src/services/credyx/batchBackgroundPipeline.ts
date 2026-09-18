@@ -126,6 +126,17 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
   const batch = getBatchById(batchId)
   if (!batch) return false
 
+  // Doc Splitter queue — Credyx must split combined PDFs first.
+  const { batchNeedsDocSplit } = await import('../../utils/batchDocSplit')
+  if (batch.status === 'needs_split' || batchNeedsDocSplit(batch)) {
+    await markJob(
+      batchId,
+      'succeeded',
+      'Waiting on Doc Splitter — combined PDFs must be split before packets.'
+    )
+    return false
+  }
+
   // Already have packets in memory — never create a second set.
   const localExisting = getInvoicesByBatchId(batchId)
   if (localExisting.length > 0) {
@@ -213,9 +224,10 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
         unmatchedDocIds: uniqueUnmatched,
         snapshot: buildDocSortSnapshot(intake.sortResult, []),
       })
+      // succeeded (not failed): failed jobs are revived by enqueue and re-run DocSort.
       await markJob(
         batchId,
-        'failed',
+        'succeeded',
         `Combined PDFs detected (${combinedIds.length}). Open Doc Splitter before Packet Rework.`
       )
       notifyTenantDataUpdated(['batches'], batch.client_id)
@@ -279,6 +291,17 @@ export async function runBatchBackgroundPipeline(opts: {
     const batch = getBatchById(batchId)
     if (!batch) {
       await markJob(batchId, 'failed', 'Batch not found')
+      return
+    }
+
+    // Waiting on Credyx Doc Splitter — do not retry DocSort / packet creation.
+    const { batchNeedsDocSplit } = await import('../../utils/batchDocSplit')
+    if (batch.status === 'needs_split' || batchNeedsDocSplit(batch)) {
+      await markJob(
+        batchId,
+        'succeeded',
+        'Waiting on Doc Splitter — combined PDFs must be split before packets.'
+      )
       return
     }
 

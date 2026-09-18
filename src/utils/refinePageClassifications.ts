@@ -177,7 +177,8 @@ function applyCarrierSubmissionPageOrder(pages: PageClassification[]): PageClass
   const hasBol = pages.some((page) => page.pageType === 'bill_of_lading')
 
   if (page1.pageType !== 'rate_confirmation' || rateConCount < 1) return pages
-  if (!hasBol && rateConCount < 2) return pages
+  // Multi-page rate cons alone must stay RC — only rewrite when BOL is in the same file.
+  if (!hasBol) return pages
 
   const refined = pages.map((page) => ({ ...page }))
   refined[0] = {

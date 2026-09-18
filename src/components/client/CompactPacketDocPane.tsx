@@ -74,7 +74,7 @@ interface CompactPacketDocPaneProps {
   emptyHint?: string
   downloading?: boolean
   downloadProgress?: number
-  onEnsureDocument?: (docId: string) => void | Promise<void>
+  onEnsureDocument?: (docId: string) => void | Promise<void | File | null>
   /** Controlled active document (sync with attached lists). */
   activeDocId?: string | null
   /**
@@ -446,6 +446,10 @@ export default function CompactPacketDocPane({
   const [imageUrlByDocId, setImageUrlByDocId] = useState<Record<string, string>>({})
   const [visibleBundleIndex, setVisibleBundleIndex] = useState(1)
   const [building, setBuilding] = useState(false)
+  /** Doc ids where ensure finished without a File — stop infinite download overlay. */
+  const [ensureFailedIds, setEnsureFailedIds] = useState<Set<string>>(() => new Set())
+  const ensureFailedRef = useRef<Set<string>>(new Set())
+  const ensureInFlightRef = useRef<Set<string>>(new Set())
   /** Per-page clockwise rotation offsets (degrees). */
   const [pageRotations, setPageRotations] = useState<Record<string, number>>({})
   /** Ctrl held — enable highlighter pointer capture over docs. */
@@ -889,8 +893,57 @@ export default function CompactPacketDocPane({
   useEffect(() => {
     if (!onEnsureDocument) return
     documents.forEach((doc) => {
-      if (!doc.file) void onEnsureDocument(doc.id)
+      if (doc.file) {
+        if (ensureFailedRef.current.has(doc.id)) {
+          ensureFailedRef.current.delete(doc.id)
+          setEnsureFailedIds(new Set(ensureFailedRef.current))
+        }
+        return
+      }
+      if (ensureFailedRef.current.has(doc.id) || ensureInFlightRef.current.has(doc.id)) {
+        return
+      }
+      ensureInFlightRef.current.add(doc.id)
+      void (async () => {
+        try {
+          const result = await onEnsureDocument(doc.id)
+          if (result instanceof File) {
+            ensureFailedRef.current.delete(doc.id)
+            setEnsureFailedIds(new Set(ensureFailedRef.current))
+            return
+          }
+          if (result === null) {
+            ensureFailedRef.current.add(doc.id)
+            setEnsureFailedIds(new Set(ensureFailedRef.current))
+          }
+        } catch {
+          ensureFailedRef.current.add(doc.id)
+          setEnsureFailedIds(new Set(ensureFailedRef.current))
+        } finally {
+          ensureInFlightRef.current.delete(doc.id)
+        }
+      })()
     })
+  }, [documents, onEnsureDocument])
+
+  // Clear stuck overlay when ensure never returns a File (legacy void callbacks).
+  useEffect(() => {
+    if (!onEnsureDocument) return
+    const missing = documents.filter(
+      (d) => !d.file && !ensureFailedRef.current.has(d.id)
+    )
+    if (missing.length === 0) return
+    const timer = window.setTimeout(() => {
+      let changed = false
+      for (const doc of missing) {
+        if (!ensureInFlightRef.current.has(doc.id) && !ensureFailedRef.current.has(doc.id)) {
+          ensureFailedRef.current.add(doc.id)
+          changed = true
+        }
+      }
+      if (changed) setEnsureFailedIds(new Set(ensureFailedRef.current))
+    }, 12_000)
+    return () => window.clearTimeout(timer)
   }, [documents, onEnsureDocument])
 
   // Build the flat page list across all loaded documents.
@@ -1086,7 +1139,9 @@ export default function CompactPacketDocPane({
   }
 
   const waitingForFiles =
-    documents.length > 0 && documents.some((d) => !d.file) && Boolean(onEnsureDocument)
+    documents.length > 0 &&
+    documents.some((d) => !d.file && !ensureFailedIds.has(d.id)) &&
+    Boolean(onEnsureDocument)
 
   const pageLabel = totalPages === 0 ? '0/0' : `${visibleBundleIndex}/${totalPages}`
 
@@ -1223,11 +1278,13 @@ export default function CompactPacketDocPane({
           <div className="client-ai-dual-pane__empty">
             <FileText className="w-5 h-5 opacity-50" />
             <span>
-              {dropKind
-                ? `${emptyHint} — drop a file here to mark as ${
-                    dropKind === 'bill_of_lading' ? 'BOL' : 'rate con'
-                  }`
-                : emptyHint}
+              {documents.some((d) => !d.file && ensureFailedIds.has(d.id))
+                ? 'Could not load this document. Try another page or re-open Doc Split.'
+                : dropKind
+                  ? `${emptyHint} — drop a file here to mark as ${
+                      dropKind === 'bill_of_lading' ? 'BOL' : 'rate con'
+                    }`
+                  : emptyHint}
             </span>
           </div>
         ) : (

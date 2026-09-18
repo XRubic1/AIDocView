@@ -76,17 +76,58 @@ export function buildUnpackPageGroups(
     }))
 }
 
-/** True when this fingerprint has 2+ document kinds across pages (worth unpacking). */
-export function canUnpackFingerprint(
-  fingerprint: DocSortFingerprint | undefined | null,
+/** Primary paperwork kinds that mean a file mixes separate packet docs. */
+const DOC_SPLITTER_KINDS: DocSortKind[] = [
+  'rate_confirmation',
+  'bill_of_lading',
+  'invoice',
+]
+
+function isPdfFingerprint(
+  fingerprint: DocSortFingerprint,
   file?: File | null
 ): boolean {
-  if (!fingerprint?.extract) return false
   if (file && !isPdfFile(file)) return false
   if (file == null && fingerprint.fileName && !/\.pdf$/i.test(fingerprint.fileName)) {
     return false
   }
-  return buildUnpackPageGroups(fingerprint.extract).length >= 2
+  return true
+}
+
+/**
+ * Doc Splitter gate: true only when a PDF mixes 2+ of RC / BOL / invoice.
+ * Ignores `other` / lumper pages so multi-page rate cons are not blocked.
+ */
+export function fingerprintNeedsDocSplitter(
+  fingerprint: DocSortFingerprint | undefined | null,
+  file?: File | null
+): boolean {
+  if (!fingerprint?.extract) return false
+  if (!isPdfFingerprint(fingerprint, file)) return false
+  const primary = buildUnpackPageGroups(fingerprint.extract).filter((g) =>
+    DOC_SPLITTER_KINDS.includes(g.kind)
+  )
+  const kinds = new Set(primary.map((g) => g.kind))
+  const hasBol = kinds.has('bill_of_lading')
+  const hasInv = kinds.has('invoice')
+
+  // RateConf PDFs: invoice tags without BOL are not a combined packet
+  // (legacy page-order rewrite / payment-instruction pages).
+  if (!hasBol && hasInv && fingerprint.kind === 'rate_confirmation') {
+    kinds.delete('invoice')
+  }
+
+  return (
+    [...kinds].filter((k) => DOC_SPLITTER_KINDS.includes(k)).length >= 2
+  )
+}
+
+/** True when Credyx should open Doc Splitter for this file (same as gate). */
+export function canUnpackFingerprint(
+  fingerprint: DocSortFingerprint | undefined | null,
+  file?: File | null
+): boolean {
+  return fingerprintNeedsDocSplitter(fingerprint, file)
 }
 
 /**
@@ -258,12 +299,12 @@ export async function autoUnpackCombinedFingerprints(
   return fingerprints
 }
 
-/** Doc ids whose page classifications span 2+ kinds (RC / BOL / invoice / …). */
+/** Doc ids that mix RC / BOL / invoice in one PDF (Doc Splitter queue). */
 export function listCombinedFingerprintIds(
   fingerprints: DocSortFingerprint[],
   fileById?: Map<string, File>
 ): string[] {
   return fingerprints
-    .filter((fp) => canUnpackFingerprint(fp, fileById?.get(fp.docId)))
+    .filter((fp) => fingerprintNeedsDocSplitter(fp, fileById?.get(fp.docId)))
     .map((fp) => fp.docId)
 }
