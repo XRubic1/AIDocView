@@ -2,7 +2,6 @@ import type { PendingBatch } from '../types/admin'
 import type { DocSortFingerprint } from '../products/docSort/types'
 import { getBatchById, updateBatch } from '../data/mockBatches'
 import {
-  canUnpackFingerprint,
   fingerprintNeedsDocSplitter,
 } from '../products/docSort/services/docSortUnpack'
 import { parseFingerprintCatalog } from '../products/docSort/utils/docSortSnapshot'

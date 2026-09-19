@@ -237,6 +237,7 @@ export default function BatchAiUploadFlow({
     if (!restoredDraft || restoredAppliedRef.current) return
     setStep(restoredDraft.step)
     setFiles(restoredDraft.uploadFiles)
+    if (!restoredDraft.intake) return
     setDraft(rematchPendingDraftBrokers(restoredDraft.intake))
     restoredAppliedRef.current = true
   }, [restoredDraft])

@@ -22,6 +22,7 @@ export type DocumentType =
   | 'proof_of_delivery'
   | 'delivery_confirmation'
   | 'lumper'
+  | 'invoice'
   | 'other'
 
 export type ReviewModel = string
@@ -102,6 +103,11 @@ export interface ExtractedDocumentData {
     pageNumber: number
     shipTo?: string
     audit: import('./documentPipeline').BolAudit
+  }>
+  /** Per-page rate-con audits (dropped when slicing non-RC docs). */
+  rateConPageAudits?: Array<{
+    pageNumber: number
+    audit?: unknown
   }>
   /** Per-page invoice extraction when multiple invoice sheets exist. */
   invoicePageAudits?: Array<{

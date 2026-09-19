@@ -313,4 +313,6 @@ export type AssistantCalendarEvent = {
   amountLabel?: string
   /** Optional join link (meetings). */
   meetingUrl?: string
+  /** Carrier / client label when shown on admin shared calendar. */
+  clientName?: string
 }

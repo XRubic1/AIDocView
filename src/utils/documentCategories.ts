@@ -17,6 +17,7 @@ export const DOCUMENT_CATEGORY_LABELS: Record<DocumentCategory, string> = {
   proof_of_delivery: 'Proof of Delivery',
   delivery_confirmation: 'Delivery Confirmation',
   lumper: 'Lumper Receipt',
+  invoice: 'Invoice',
   other: 'Other / Unknown',
 }
 
@@ -26,6 +27,7 @@ export const DOCUMENT_CATEGORY_COLORS: Record<DocumentCategory, { bg: string; te
   proof_of_delivery: { bg: '#E3F2FD', text: '#1565C0' },
   delivery_confirmation: { bg: '#E8EAF6', text: '#3949AB' },
   lumper: { bg: '#FFF8E1', text: '#B8860B' },
+  invoice: { bg: '#E3F2FD', text: '#1565C0' },
   other: { bg: '#F3F4F6', text: '#6B7280' },
 }
 

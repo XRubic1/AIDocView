@@ -91,7 +91,7 @@ export default function AdminEmailInbox() {
   const c = useClientTheme()
   const { showToast } = useToast()
   const { resolved } = useAuth()
-  const actor = getAdminUserDisplayName(resolved.user?.email)
+  const actor = getAdminUserDisplayName(resolved.user?.email ?? null)
   const [tick, setTick] = useState(0)
   const [tab, setTab] = useState<InboxTab>('sent')
   const [kindFilter, setKindFilter] = useState<'all' | OutboundInboxKind>('all')

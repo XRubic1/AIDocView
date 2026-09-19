@@ -43,7 +43,7 @@ export async function extractPdfPages(
     ? outFileName
     : `${outFileName}.pdf`
 
-  return new File([saved], name, { type: 'application/pdf' })
+  return new File([saved as BlobPart], name, { type: 'application/pdf' })
 }
 
 /** Page count for a PDF File (0 when unreadable). */

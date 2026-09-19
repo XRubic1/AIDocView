@@ -13,7 +13,6 @@ import { generateInvoicePDFFile, type InvoicePDFInput } from '../utils/generateI
 import type { DocSortLoadGroup, DocSortFingerprint } from '../products/docSort/types'
 import { invoiceFieldsFromLoadGroup } from '../products/docSort/utils/formatRate'
 import { getClientById } from '../services/clientRegistry'
-import { invoiceFieldsFromLoadGroup } from '../products/docSort/utils/formatRate'
 
 export type { BrokerResolveResult }
 export { matchBrokerByName, resolveOrCreateBroker }

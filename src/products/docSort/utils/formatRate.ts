@@ -42,7 +42,8 @@ export function invoiceFieldsFromLoadGroup(group: DocSortLoadGroup): {
   const withRate = fingerprints.find((fp) => fp.rateAmount != null && fp.rateAmount > 0)
   const withBroker = fingerprints.find((fp) => {
     const name = fp.broker?.trim()
-    return Boolean(name) && name.toLowerCase() !== 'broker'
+    if (!name) return false
+    return name.toLowerCase() !== 'broker'
   })
   // Prefer RC load # — never let a longer BOL PRO / reference become the packet load.
   const loadNumber =

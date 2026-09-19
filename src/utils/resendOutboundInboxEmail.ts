@@ -44,7 +44,7 @@ export async function resendOutboundInboxEmail(opts: {
       skipIfAlreadySent: false,
       message: `Resent from Credyx Inbox (original: ${opts.row.to}).`,
     })
-    if (!result.ok && !result.skipped) {
+    if (!result.success && !result.skipped) {
       return { ok: false, error: result.error || 'PPW resend failed' }
     }
     addAdminInvoiceNote(

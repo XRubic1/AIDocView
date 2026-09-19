@@ -118,7 +118,7 @@ export function matchesAdminInvoiceStatusFilter(
   return invoice.status === filter
 }
 
-export const ADMIN_INVOICE_CHIP_FILTERS: AdminInvoiceStatusFilter[] = [
+export const ADMIN_INVOICE_CHIP_FILTERS = [
   'pending_payment',
   'awaiting_confirmation',
   'receipt_dispute',
@@ -131,7 +131,7 @@ export const ADMIN_INVOICE_CHIP_FILTERS: AdminInvoiceStatusFilter[] = [
   'hold',
   'approved',
   'paid',
-]
+] as const satisfies readonly AdminInvoiceStatusFilter[]
 
 export type AdminInvoiceChipFilter = (typeof ADMIN_INVOICE_CHIP_FILTERS)[number]
 

@@ -5,7 +5,7 @@
 import type { Invoice } from '../types/invoice'
 import type { Broker } from '../types/broker'
 import { getDaysSincePpwSent, getPpwSentAt } from './ppwSent'
-import { getInvoiceById, updateInvoice, updateInvoiceAsync } from '../data/mockInvoices'
+import { getInvoiceById, updateInvoiceAsync } from '../data/mockInvoices'
 import { sendTransactionalEmail } from '../services/emailService'
 import { resolveBrokerPaperworkEmail } from './paperworkSender'
 import { formatCurrency } from './format'
@@ -260,6 +260,11 @@ export async function setExpectedPaymentFromBrokerStatus(
     patch.notes_history = history
   }
   return updateInvoiceAsync(invoiceId, patch)
+}
+
+/** Flag an invoice so collections staff call the broker. */
+export function markCollectionsNeedsAttention(invoiceId: string): void {
+  void updateInvoiceAsync(invoiceId, { collections_needs_attention: true })
 }
 
 /** Send payment-status inquiry email (manual trigger; AI will automate later). */

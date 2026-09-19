@@ -1301,7 +1301,7 @@ export default function BatchAiConfirmPanel({
                             onContextMenu={(e) => {
                               e.preventDefault()
                               e.stopPropagation()
-                              openDocMenu(e.clientX, e.clientY, fp.docId, null)
+                              openDocMenu(e, fp.docId, null)
                             }}
                           >
                             {shortFileName(fp.fileName, 22)}
@@ -1327,7 +1327,7 @@ export default function BatchAiConfirmPanel({
                             onContextMenu={(e) => {
                               e.preventDefault()
                               e.stopPropagation()
-                              openDocMenu(e.clientX, e.clientY, fp.docId, null)
+                              openDocMenu(e, fp.docId, null)
                             }}
                           >
                             {shortFileName(fp.fileName, 22)}
@@ -1353,7 +1353,7 @@ export default function BatchAiConfirmPanel({
                               onContextMenu={(e) => {
                                 e.preventDefault()
                                 e.stopPropagation()
-                                openDocMenu(e.clientX, e.clientY, fp.docId, null)
+                                openDocMenu(e, fp.docId, null)
                               }}
                             >
                               {shortFileName(fp.fileName, 36)}

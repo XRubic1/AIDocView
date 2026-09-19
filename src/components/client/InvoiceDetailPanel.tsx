@@ -19,6 +19,7 @@ import {
   PauseCircle,
   PlayCircle,
 } from 'lucide-react'
+import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
 import { formatCurrency } from '../../utils/format'
 import {
@@ -734,7 +735,7 @@ export default function InvoiceDetailPanel({
 
   const sendEntries = useMemo((): TimelineEntry[] => {
     const history = invoice.document_send_history || []
-    return history.map((send, idx) => {
+    return history.map((send: NonNullable<Invoice['document_send_history']>[number], idx: number) => {
       const sendTone: TimelineTone =
         send.status === 'delivered'
           ? 'success'

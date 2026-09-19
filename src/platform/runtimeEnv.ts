@@ -9,8 +9,13 @@ function viteEnv(): EnvSource {
 }
 
 function nodeEnv(): EnvSource {
-  if (typeof process === 'undefined' || !process.env) return {}
-  return process.env as EnvSource
+  try {
+    const proc = (globalThis as { process?: { env?: EnvSource } }).process
+    if (!proc?.env) return {}
+    return proc.env
+  } catch {
+    return {}
+  }
 }
 
 /** Read config from Vite (`import.meta.env`) or Node (`process.env`) for eval/CI. */

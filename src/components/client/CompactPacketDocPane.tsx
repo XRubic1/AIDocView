@@ -105,9 +105,7 @@ interface CompactPacketDocPaneProps {
 }
 
 type PdfJsModule = typeof import('pdfjs-dist')
-type PdfDocument = Awaited<
-  ReturnType<Awaited<ReturnType<PdfJsModule['getDocument']>>['promise']>
->
+type PdfDocument = import('pdfjs-dist').PDFDocumentProxy
 
 interface BundlePage {
   key: string

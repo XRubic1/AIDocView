@@ -296,7 +296,7 @@ export async function listStoredBatchDocuments(
         })
       )
 
-      return files.filter((item): item is HandoffStorageDocument => item != null)
+      return files.filter((item) => item != null) as HandoffStorageDocument[]
     })
   )
 

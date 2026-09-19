@@ -225,7 +225,8 @@ export async function generateCarrierBillingPdf(
       const desc = doc.splitTextToSize(li.description, contentW - 100)
       doc.text(desc, margin, y)
       doc.setFont('helvetica', 'bold')
-      doc.setTextColor(...(li.amount < 0 ? COLORS.green : COLORS.ink))
+      const amountColor = li.amount < 0 ? COLORS.green : COLORS.ink
+      doc.setTextColor(amountColor[0], amountColor[1], amountColor[2])
       doc.text(formatCurrency(li.amount), pageW - margin, y, { align: 'right' })
       y += Math.max(18, desc.length * 13)
     }

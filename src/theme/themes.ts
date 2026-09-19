@@ -11,6 +11,8 @@ export const lightClientTheme = {
   border: '#E2E8F0',
   surface: '#EEF1F5',
   card: '#FFFFFF',
+  /** Page / shell background (aliases surface for panels that expect `background`). */
+  background: '#F8FAFC',
   success: '#10B981',
   warning: '#F59E0B',
   error: '#EF4444',
@@ -75,6 +77,7 @@ export const darkClientTheme = {
   border: '#1E293B',
   surface: '#0F172A',
   card: '#111827',
+  background: '#0F172A',
   success: '#34D399',
   warning: '#FBBF24',
   error: '#F87171',

@@ -482,9 +482,9 @@ export function buildStructuredLoadReview(
   const paperwork: PaperworkFields = {
     loadNumber: docLoad,
     amount: rateAmount ?? docAmount ?? invAmount,
-    brokerName: docBroker,
+    brokerName: docBroker ?? undefined,
     brokerDomain: extractedDomain.includes('.') ? extractedDomain : undefined,
-    carrierName: docCarrier,
+    carrierName: docCarrier ?? undefined,
     pickup: pickupCompact || undefined,
     destinations: deliveryCompact || undefined,
   }

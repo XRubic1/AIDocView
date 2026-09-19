@@ -18,9 +18,9 @@ const PAGE_TYPE_LABELS: Record<PageDocumentType, string> = {
 }
 
 const PAGE_TYPE_COLORS: Record<PageDocumentType, { bg: string; text: string }> = {
+  ...DOCUMENT_CATEGORY_COLORS,
   invoice: { bg: '#E3F2FD', text: '#1565C0' },
   blank: { bg: '#FEE2E2', text: '#991B1B' },
-  ...DOCUMENT_CATEGORY_COLORS,
   other: { bg: '#F3F4F6', text: '#6B7280' },
 }
 
