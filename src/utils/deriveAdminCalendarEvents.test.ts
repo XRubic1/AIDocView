@@ -206,7 +206,7 @@ describe('deriveAdminCalendarEvents — due / hold / missed W/P', () => {
       new Date('2026-08-05T12:00:00')
     )
     const followup = events.find((e) => e.id === 'live-broker-followup-inv-ppw')
-    expect(followup?.title).toBe('Broker paperwork check')
+    expect(followup?.title).toBe('PPW chase email')
     expect(followup?.dueDate).toBe('2026-08-08')
     expect(followup?.type).toBe('paperwork_check')
     expect(followup?.owner).toBe('credyx_staff')

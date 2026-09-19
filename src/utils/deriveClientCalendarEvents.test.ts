@@ -157,7 +157,7 @@ describe('deriveClientCalendarEvents', () => {
       asOf
     )
     const followup = events.find((e) => e.id === 'live-broker-followup-inv-1')
-    expect(followup?.title).toBe('Broker paperwork check')
+    expect(followup?.title).toBe('PPW chase email')
     expect(followup?.dueDate).toBe('2026-08-08')
     expect(followup?.type).toBe('reminder')
     expect(followup?.owner).toBe('system')
