@@ -15,6 +15,7 @@ import {
   Accounting,
   AdminDashboard,
   AdminWaitlist,
+  AdminSales,
   AdminNotifications,
   AdminWorkQueue,
   AdminBrokerRisk,
@@ -84,8 +85,11 @@ function App() {
           <ToastProvider>
             <Routes>
               <Route path="/enroll" element={<Enroll />} />
-              <Route path="/waitlist" element={<Waitlist />} />
-              <Route path="/join" element={<Navigate to="/waitlist" replace />} />
+              {/* Public Schedule Demo marketing site — also hosts client + admin login on this deploy */}
+              <Route path="/" element={<Waitlist />} />
+              <Route path="/demo" element={<Navigate to="/" replace />} />
+              <Route path="/waitlist" element={<Navigate to="/" replace />} />
+              <Route path="/join" element={<Navigate to="/" replace />} />
               <Route path="/tour" element={withRouteSuspense(Tour, 'Loading tour…')} />
               <Route path="/how-it-works" element={withRouteSuspense(HowItWorks)} />
               <Route
@@ -99,7 +103,7 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/client/login" element={<ClientLogin />} />
               <Route path="/client/setup-password" element={<ClientSetupPassword />} />
-              <Route path="/" element={<LandingPage />} />
+              <Route path="/landing" element={<LandingPage />} />
               <Route path="/home" element={withRouteSuspense(PlatformLandingPage)} />
               <Route path="/docsort" element={withRouteSuspense(DocSortLandingPage)} />
 
@@ -144,6 +148,7 @@ function App() {
               <Route element={<AdminProtectedLayout />}>
                 <Route path="/admin/dashboard" element={withRouteSuspense(AdminDashboard)} />
                 <Route path="/admin/waitlist" element={withRouteSuspense(AdminWaitlist)} />
+                <Route path="/admin/sales" element={withRouteSuspense(AdminSales)} />
                 <Route path="/admin/notifications" element={withRouteSuspense(AdminNotifications)} />
                 <Route path="/admin/work-queue" element={withRouteSuspense(AdminWorkQueue)} />
                 <Route path="/admin/broker-risk" element={withRouteSuspense(AdminBrokerRisk)} />

@@ -16,3 +16,18 @@ export function clientLoginPathWithReturn(fromPath: string): string {
   if (next === '/client/dashboard') return '/client/login'
   return `/client/login?next=${encodeURIComponent(next)}`
 }
+
+const DEFAULT_APP_ORIGIN = 'https://app.credyx.net'
+
+/**
+ * Absolute client-login URL for marketing-only deploys (links out to the product app).
+ * Prefer VITE_PUBLIC_APP_URL; never use the marketing site origin as a fallback.
+ */
+export function getClientLoginHref(): string {
+  const fromEnv =
+    typeof import.meta !== 'undefined'
+      ? (import.meta.env?.VITE_PUBLIC_APP_URL as string | undefined)?.replace(/\/$/, '')
+      : ''
+  const origin = fromEnv || DEFAULT_APP_ORIGIN
+  return `${origin}/client/login`
+}

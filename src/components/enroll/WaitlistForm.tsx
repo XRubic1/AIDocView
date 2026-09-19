@@ -35,7 +35,7 @@ const EMPTY_FORM: WaitlistFormData = {
   notes: '',
 }
 
-/** Single-step waitlist signup form — persists leads to Supabase. */
+/** Single-step demo-request form — persists leads to waitlist_signups. */
 export function WaitlistForm() {
   const [formData, setFormData] = useState<WaitlistFormData>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
@@ -82,7 +82,7 @@ export function WaitlistForm() {
       setError(
         err instanceof Error
           ? err.message
-          : 'Something went wrong joining the waitlist. Please try again.'
+          : 'Something went wrong scheduling your demo. Please try again.'
       )
     } finally {
       setIsSubmitting(false)
@@ -93,9 +93,9 @@ export function WaitlistForm() {
     return (
       <div className="cx-success cx-success--waitlist success-pop">
         <CheckCircle2 size={44} className="cx-success-icon" />
-        <h3 className="cx-success-title">You&apos;re on the list</h3>
+        <h3 className="cx-success-title">Demo request received</h3>
         <p className="cx-success-body">
-          Founding access is reserved — we&apos;ll reach out when onboarding opens.
+          We&apos;ll reach out shortly to book your demo.
         </p>
       </div>
     )
@@ -202,11 +202,11 @@ export function WaitlistForm() {
           {isSubmitting ? (
             <>
               <Loader2 size={16} className="animate-spin" />
-              Joining…
+              Submitting…
             </>
           ) : (
             <>
-              Join the waitlist
+              Schedule Demo
               <ArrowRight size={16} />
             </>
           )}

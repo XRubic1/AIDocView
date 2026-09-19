@@ -2,15 +2,19 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 import { trackWebsiteEvent } from '../../services/websiteAnalytics'
+import { getClientLoginHref } from '../../utils/clientLoginRedirect'
 
 const isMarketingOnly = import.meta.env.VITE_MARKETING_ONLY === 'true'
 
-/** True when the current page is the waitlist marketing surface. */
-function isWaitlistPath(pathname: string) {
-  return pathname === '/' || pathname === '/waitlist'
+/** Home path for the public marketing page (never /waitlist). */
+const marketingHomePath = '/'
+
+/** True when the current page is the public marketing / demo surface. */
+function isMarketingHomePath(pathname: string) {
+  return pathname === '/' || pathname === '/demo'
 }
 
-/** Sticky marketing nav for the Credyx waitlist page (mobile hamburger + waitlist CTA). */
+/** Sticky marketing nav for the Credyx marketing page (mobile hamburger + Schedule Demo CTA). */
 export function MarketingHeader() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -21,32 +25,43 @@ export function MarketingHeader() {
     setMenuOpen(false)
   }, [location.pathname])
 
-  const onWaitlist = isWaitlistPath(location.pathname)
+  const onMarketingHome = isMarketingHomePath(location.pathname)
 
-  const goWaitlistCta = () => {
-    trackWebsiteEvent('cta_click', 'nav_join')
+  const goDemoCta = () => {
+    trackWebsiteEvent('cta_click', 'nav_schedule_demo')
     setMenuOpen(false)
-    if (onWaitlist) {
+    if (onMarketingHome) {
       document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
       return
     }
-    navigate(isMarketingOnly ? '/#waitlist-form' : '/waitlist')
+    navigate(`${marketingHomePath}#waitlist-form`)
   }
 
   const goSection = (id: string) => {
     trackWebsiteEvent('nav_click', `nav_${id}`)
     setMenuOpen(false)
-    if (onWaitlist) {
+    if (onMarketingHome) {
       document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
       return
     }
-    navigate(isMarketingOnly ? `/#${id}` : `/waitlist#${id}`)
+    navigate(`${marketingHomePath}#${id}`)
   }
 
   const go = (path: string, target: string) => {
     trackWebsiteEvent('nav_click', target)
     setMenuOpen(false)
     navigate(path)
+  }
+
+  /** Client login: in-app on full product; absolute app URL on marketing-only. */
+  const goClientLogin = () => {
+    trackWebsiteEvent('nav_click', 'nav_client_login')
+    setMenuOpen(false)
+    if (isMarketingOnly) {
+      window.location.assign(getClientLoginHref())
+      return
+    }
+    navigate('/client/login')
   }
 
   return (
@@ -57,11 +72,11 @@ export function MarketingHeader() {
         onClick={() => {
           trackWebsiteEvent('nav_click', 'nav_logo')
           setMenuOpen(false)
-          if (onWaitlist) {
+          if (onMarketingHome) {
             window.scrollTo({ top: 0, behavior: 'smooth' })
             return
           }
-          navigate(isMarketingOnly ? '/' : '/waitlist')
+          navigate(marketingHomePath)
         }}
         aria-label="Credyx A/R Solutions — back to top"
       >
@@ -111,17 +126,13 @@ export function MarketingHeader() {
             <button type="button" className="cx-nav-link" onClick={() => go('/tour', 'nav_tour')}>
               Product tour
             </button>
-            <button
-              type="button"
-              className="cx-nav-link"
-              onClick={() => go('/client/login', 'nav_client_login')}
-            >
-              Client login
-            </button>
           </>
         )}
-        <button type="button" className="cx-nav-cta" onClick={goWaitlistCta}>
-          Join the waitlist
+        <button type="button" className="cx-nav-link" onClick={goClientLogin}>
+          Client login
+        </button>
+        <button type="button" className="cx-nav-cta" onClick={goDemoCta}>
+          Schedule Demo
         </button>
       </nav>
     </header>

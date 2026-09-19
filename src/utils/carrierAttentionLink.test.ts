@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { buildCarrierAttentionPath, buildCarrierAttentionUrl } from './carrierAttentionLink'
-import { getSafeClientReturnPath, clientLoginPathWithReturn } from './clientLoginRedirect'
+import {
+  getSafeClientReturnPath,
+  clientLoginPathWithReturn,
+  getClientLoginHref,
+} from './clientLoginRedirect'
 
 describe('carrierAttentionLink', () => {
   it('deep-links an invoice with upload=1', () => {
@@ -42,5 +46,10 @@ describe('clientLoginRedirect', () => {
     expect(clientLoginPathWithReturn('/client/invoices/needattention?invoice=A')).toContain(
       'next=%2Fclient%2Finvoices%2Fneedattention'
     )
+  })
+
+  it('builds an absolute client login href for marketing links', () => {
+    expect(getClientLoginHref()).toMatch(/\/client\/login$/)
+    expect(getClientLoginHref()).toMatch(/^https:\/\//)
   })
 })

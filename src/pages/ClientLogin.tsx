@@ -339,9 +339,6 @@ export default function ClientLogin() {
                 Create your password
               </button>
             </p>
-            <button type="button" className="credyx-auth__admin-link" onClick={() => navigate('/login')}>
-              Admin login →
-            </button>
           </div>
         </div>
       </main>

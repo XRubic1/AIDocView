@@ -23,6 +23,7 @@ import { WaitlistForm } from '../components/enroll/WaitlistForm'
 import { WaitlistInvoiceProgress } from '../components/enroll/WaitlistInvoiceProgress'
 import { WaitlistPlatformDeck } from '../components/enroll/WaitlistPlatformDeck'
 import { WaitlistPricingCompare } from '../components/enroll/WaitlistPricingCompare'
+import { getClientLoginHref } from '../utils/clientLoginRedirect'
 
 // ── Static content (aligned with WAITLIST_MARKETING_SITE.md) ──
 
@@ -200,10 +201,6 @@ const PLATFORM_FEATURES = [
     ],
   },
 ] as const
-
-const WAITLIST_CAP = 100
-const WAITLIST_SPOTS_LEFT = 68
-const WAITLIST_TAKEN = WAITLIST_CAP - WAITLIST_SPOTS_LEFT
 
 const BUDDY_EXAMPLES = [
   {
@@ -427,7 +424,7 @@ export default function Waitlist() {
     document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  // Support deep links from nav (/waitlist#pricing, #buddy, #features)
+  // Support deep links from nav (/#pricing, /demo#buddy, etc.)
   useEffect(() => {
     const hash = window.location.hash
     if (hash !== '#pricing' && hash !== '#buddy' && hash !== '#features') return
@@ -468,7 +465,7 @@ export default function Waitlist() {
             </p>
             <div className="cx-hero-buttons hero-enter hero-enter-4">
               <button type="button" className="cx-btn-primary" onClick={scrollToForm}>
-                Join the waitlist
+                Schedule Demo
                 <ArrowRight size={17} />
               </button>
               <button type="button" className="cx-btn-secondary" onClick={scrollToPricing}>
@@ -929,11 +926,11 @@ export default function Waitlist() {
               type="button"
               className="cx-btn-primary"
               onClick={() => {
-                trackWebsiteEvent('cta_click', 'vs_join')
+                trackWebsiteEvent('cta_click', 'vs_schedule_demo')
                 document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
               }}
             >
-              Join the waitlist
+              Schedule Demo
               <ArrowRight size={17} />
             </button>
           </div>
@@ -946,11 +943,11 @@ export default function Waitlist() {
           <div className="cx-enroll-shell">
             <div className="cx-join-head reveal reveal-grow">
               <h2 className="cx-section-title">
-                Join the{' '}
-                <span className="accent cx-hand-underline cx-hand-underline--v6">waitlist</span>
+                Schedule a{' '}
+                <span className="accent cx-hand-underline cx-hand-underline--v6">demo</span>
               </h2>
               <p className="cx-section-sub">
-                Tell us about your fleet — we&apos;ll reach out when onboarding opens.
+                Tell us about your fleet — we&apos;ll reach out to book your demo.
               </p>
             </div>
 
@@ -959,19 +956,9 @@ export default function Waitlist() {
               <div className="cx-founding-inner">
                 <div className="cx-founding-top">
                   <div>
-                    <p className="cx-founding-eyebrow">Founding waitlist offer</p>
-                    <h3>First 100 · 1 month free on fees</h3>
+                    <p className="cx-founding-eyebrow">Limited offer · New clients</p>
+                    <h3>1 month free on fees</h3>
                     <p>No fee on invoices you submit in your first month.</p>
-                  </div>
-                  <div className="cx-founding-spots" role="status">
-                    <div className="cx-founding-spots-num">{WAITLIST_SPOTS_LEFT}</div>
-                    <div className="cx-founding-spots-label">positions left</div>
-                    <div className="cx-founding-meter" aria-hidden>
-                      <span style={{ width: `${(WAITLIST_TAKEN / WAITLIST_CAP) * 100}%` }} />
-                    </div>
-                    <div className="cx-founding-meter-copy">
-                      {WAITLIST_TAKEN} of {WAITLIST_CAP} claimed
-                    </div>
                   </div>
                 </div>
               </div>
@@ -997,29 +984,31 @@ export default function Waitlist() {
         </div>
         <div className="cx-footer-links">
           {!isMarketingOnly && (
-            <>
-              <button
-                type="button"
-                className="cx-footer-link"
-                onClick={() => {
-                  trackWebsiteEvent('nav_click', 'footer_tour')
-                  navigate('/tour')
-                }}
-              >
-                Product tour
-              </button>
-              <button
-                type="button"
-                className="cx-footer-link"
-                onClick={() => {
-                  trackWebsiteEvent('nav_click', 'footer_client_login')
-                  navigate('/client/login')
-                }}
-              >
-                Client login
-              </button>
-            </>
+            <button
+              type="button"
+              className="cx-footer-link"
+              onClick={() => {
+                trackWebsiteEvent('nav_click', 'footer_tour')
+                navigate('/tour')
+              }}
+            >
+              Product tour
+            </button>
           )}
+          <button
+            type="button"
+            className="cx-footer-link"
+            onClick={() => {
+              trackWebsiteEvent('nav_click', 'footer_client_login')
+              if (isMarketingOnly) {
+                window.location.assign(getClientLoginHref())
+                return
+              }
+              navigate('/client/login')
+            }}
+          >
+            Client login
+          </button>
           <button
             type="button"
             className="cx-footer-link"
