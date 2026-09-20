@@ -63,6 +63,10 @@ import {
   persistPageSplitFilesToStorage,
 } from '../../utils/resolvePageSplitFile'
 import { getPdfPageCount, isPdfFile } from '../../utils/pdfPageExtract'
+import {
+  draftHasPageSplitChildren,
+  isPageSplitFileName,
+} from '../../utils/pageSplitDraftHelpers'
 
 type MarkCategory = 'rc' | 'bol' | 'inv'
 
@@ -190,27 +194,6 @@ function ensureDocsInUnmatchedPool(draft: BatchIntakeDraft): BatchIntakeDraft {
     }
   }
   return withPrunedUnmatched(next)
-}
-
-/** True when this file name is already a page-split child (`foo-p3.pdf`). */
-function isPageSplitFileName(fileName: string): boolean {
-  return /-(p\d+)\.pdf$/i.test(fileName)
-}
-
-/** Stem used to match parent PDF → `RateConf_x.pdf` children `RateConf_x-p1.pdf`. */
-function pdfNameStem(fileName: string): string {
-  return fileName.replace(/\.pdf$/i, '').replace(/-(p\d+)$/i, '')
-}
-
-/** Draft already has `stem-pN.pdf` children for this parent file. */
-function draftHasPageSplitChildren(draft: BatchIntakeDraft, parentFileName: string): boolean {
-  if (isPageSplitFileName(parentFileName)) return true
-  const stem = pdfNameStem(parentFileName).toLowerCase()
-  if (!stem) return false
-  return listAllSupportingFingerprints(draft).some((fp) => {
-    if (!isPageSplitFileName(fp.fileName)) return false
-    return pdfNameStem(fp.fileName).toLowerCase() === stem
-  })
 }
 
 /**
