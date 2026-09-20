@@ -14,41 +14,9 @@ export default defineConfig({
     strictPort: true,
     open: true,
   },
+  // Do not manually split React / Recharts — that caused production boot to hang with:
+  // Cannot read properties of undefined (reading 'forwardRef') in vendor-charts-*.js
   build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return
-
-          // Keep React + Recharts/d3 in one chunk. Splitting them breaks production
-          // with: Cannot read properties of undefined (reading 'forwardRef').
-          if (
-            id.includes('node_modules/react/') ||
-            id.includes('node_modules/react-dom/') ||
-            id.includes('node_modules/react-router') ||
-            id.includes('node_modules/scheduler/') ||
-            id.includes('node_modules/recharts') ||
-            id.includes('node_modules/d3-') ||
-            id.includes('/d3/')
-          ) {
-            return 'vendor-react'
-          }
-          if (
-            id.includes('jspdf') ||
-            id.includes('pdfjs') ||
-            id.includes('html2canvas') ||
-            id.includes('xlsx')
-          ) {
-            return 'vendor-docs'
-          }
-          if (id.includes('@supabase')) {
-            return 'vendor-supabase'
-          }
-          if (id.includes('lucide-react')) {
-            return 'vendor-icons'
-          }
-        },
-      },
-    },
+    chunkSizeWarningLimit: 1600,
   },
 })
