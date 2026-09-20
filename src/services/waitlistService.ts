@@ -61,11 +61,9 @@ export async function submitWaitlistSignup(
     device_type: deviceType,
   }
 
-  const { data, error } = await supabase
-    .from('waitlist_signups')
-    .insert(row)
-    .select('id')
-    .single()
+  // Insert without `.select()` — anon has INSERT but no SELECT policy (admin-only reads).
+  // PostgREST RETURNING would fail RLS with "new row violates row-level security policy".
+  const { error } = await supabase.from('waitlist_signups').insert(row)
 
   // Unique email conflict → treat as success (already on the list).
   if (error) {
@@ -96,5 +94,5 @@ export async function submitWaitlistSignup(
     notes: notes ?? '—',
   })
 
-  return { id: data.id as string, alreadySignedUp: false }
+  return { id: crypto.randomUUID(), alreadySignedUp: false }
 }

@@ -3571,6 +3571,16 @@
   line-height: 1.45;
 }
 
+/* Native <select> popup: light text on white options was unreadable */
+.credyx-page--waitlist .cx-form-card--join select.cx-input {
+  color-scheme: dark;
+}
+
+.credyx-page--waitlist .cx-form-card--join select.cx-input option {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
 .credyx-page--waitlist .cx-waitlist-submit {
   width: 100%;
   justify-content: center;
