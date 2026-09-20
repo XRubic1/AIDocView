@@ -4574,11 +4574,17 @@
 /* Full-width dense table — balanced columns, Broker ellipsizes when tight */
 .client-portal .client-invoices-page .dashboard-table {
   table-layout: fixed;
+  /* Keep columns readable when the detail panel steals width — scroll instead of crush */
   width: 100%;
+  min-width: 56rem;
 }
 
 .client-portal .client-invoices-page .client-table-scroll {
   overflow-x: auto;
+}
+
+.client-portal .payments-workspace-body--detail-open .client-invoices-page .dashboard-table {
+  min-width: 58rem;
 }
 
 .client-portal .client-invoices-page .dashboard-table th,
@@ -4586,6 +4592,11 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.client-portal .client-invoices-page .dashboard-table td.client-list-td--status-col {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .client-portal .client-invoices-page .dashboard-table th:first-child,
@@ -6493,7 +6504,7 @@
 }
 
 .client-portal .payments-workspace-body {
-  --payments-detail-width: 440px;
+  --payments-detail-width: 400px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 0px;
   flex: 1 1 0;
@@ -6505,13 +6516,13 @@
 /* Mid-size desktops: narrower detail panel so the list stays readable. */
 @media (max-width: 1600px) {
   .client-portal .payments-workspace-body {
-    --payments-detail-width: min(400px, 34vw);
+    --payments-detail-width: min(360px, 30vw);
   }
 }
 
 @media (max-width: 1400px) {
   .client-portal .payments-workspace-body {
-    --payments-detail-width: min(360px, 32vw);
+    --payments-detail-width: min(320px, 28vw);
   }
 
   .client-portal .dashboard-table {
@@ -16535,9 +16546,43 @@
   box-shadow: none;
 }
 
+/* Match invoices table header row density (10px caps, compact bar) */
 .client-portal .payment-confirmation-panel__header--sidebar {
+  align-items: center;
+  gap: 4px;
+  padding: var(--cp-table-th-py) var(--cp-table-compact-px);
+  min-height: 0;
   background: var(--cp-surface);
   touch-action: auto;
+}
+
+.client-portal .payment-confirmation-panel__header--sidebar .payment-confirmation-panel__eyebrow {
+  font-size: var(--cp-table-th-font);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+
+.client-portal .payment-confirmation-panel__header--sidebar .payment-confirmation-panel__context-line {
+  font-size: var(--cp-table-td-font);
+  font-weight: 600;
+  margin-top: 0;
+}
+
+.client-portal .payment-confirmation-panel__header--sidebar .payment-confirmation-panel__icon-btn {
+  width: 22px;
+  height: 22px;
+}
+
+.client-portal .payment-confirmation-panel__header--sidebar .payment-confirmation-panel__icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.client-portal .payment-confirmation-panel__header--sidebar .payment-confirmation-panel__nav-count {
+  font-size: var(--cp-table-th-font);
+  font-weight: 500;
+  min-width: 2.75rem;
 }
 
 .client-portal .payment-confirmation-panel {

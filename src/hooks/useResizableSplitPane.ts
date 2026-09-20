@@ -2,15 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 const STORAGE_KEY = 'client-payments-detail-width'
 const MIN_WIDTH = 280
-const MAX_WIDTH = 560
+const MAX_WIDTH = 480
 
 /** Default detail width scales down on mid-size screens. */
 function getDefaultWidth(): number {
-  if (typeof window === 'undefined') return 400
+  if (typeof window === 'undefined') return 360
   const vw = window.innerWidth
-  if (vw < 1400) return Math.min(360, Math.floor(vw * 0.32))
-  if (vw < 1600) return 400
-  return 440
+  if (vw < 1400) return Math.min(320, Math.floor(vw * 0.28))
+  if (vw < 1600) return 360
+  return 400
 }
 
 function readStoredWidth(): number | null {
@@ -28,13 +28,19 @@ function clampWidth(width: number, max: number) {
   return Math.min(max, Math.max(MIN_WIDTH, width))
 }
 
+function getViewportMaxWidth(): number {
+  if (typeof window === 'undefined') return MAX_WIDTH
+  // Keep most of the viewport for the list until the workspace ref measures.
+  return Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.34))
+}
+
 /** Horizontal split-pane resize — drag handle adjusts trailing panel width. */
 export function useResizableSplitPane() {
   const workspaceRef = useRef<HTMLDivElement>(null)
   const detailWidthRef = useRef(getDefaultWidth())
   const [detailWidth, setDetailWidth] = useState(() => {
     const stored = readStoredWidth()
-    return stored ?? getDefaultWidth()
+    return clampWidth(stored ?? getDefaultWidth(), getViewportMaxWidth())
   })
   const [isResizing, setIsResizing] = useState(false)
   const resizeState = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null)
@@ -43,9 +49,9 @@ export function useResizableSplitPane() {
 
   const getMaxWidth = useCallback(() => {
     const workspace = workspaceRef.current
-    if (!workspace) return MAX_WIDTH
-    // Keep at least ~55% of the workspace for the list/table.
-    return Math.min(MAX_WIDTH, Math.floor(workspace.clientWidth * 0.42))
+    if (!workspace) return getViewportMaxWidth()
+    // Keep at least ~62% of the workspace for the list/table.
+    return Math.min(MAX_WIDTH, Math.floor(workspace.clientWidth * 0.38))
   }, [])
 
   const clampDetailWidth = useCallback(

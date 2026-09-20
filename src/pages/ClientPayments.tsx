@@ -1886,8 +1886,8 @@ export default function ClientPayments() {
                     role="separator"
                     aria-orientation="vertical"
                     aria-label="Resize payment details panel"
-                    aria-valuemin={320}
-                    aria-valuemax={720}
+                    aria-valuemin={280}
+                    aria-valuemax={480}
                     aria-valuenow={detailWidth}
                     {...resizeHandleProps}
                   />

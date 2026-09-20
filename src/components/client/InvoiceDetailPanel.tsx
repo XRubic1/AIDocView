@@ -15,7 +15,6 @@ import {
   PanelRightOpen,
   Mail,
   Menu,
-  MessageSquare,
   PauseCircle,
   PlayCircle,
 } from 'lucide-react'
@@ -980,7 +979,7 @@ export default function InvoiceDetailPanel({
     canPlaceHold ||
     canReleaseHold ||
     enableClientActions ||
-    notesEnabled ||
+    notesAsPrimaryTab ||
     canSendDocuments ||
     Boolean(visibleInvoice.batch_id)
 
@@ -1938,16 +1937,6 @@ export default function InvoiceDetailPanel({
                 {isMobile ? 'Upload docs' : 'Upload'}
               </button>
             )}
-            {notesEnabled && !isMobile && detailSurface === 'overview' && !notesAsPrimaryTab ? (
-              <button
-                type="button"
-                onClick={() => setDetailSurface('activity')}
-                className="dashboard-btn-secondary flex-1 min-w-[90px] inline-flex items-center justify-center gap-1.5"
-              >
-                <MessageSquare className="w-4 h-4" />
-                Note
-              </button>
-            ) : null}
             {canPlaceHold && (
               <button
                 type="button"
