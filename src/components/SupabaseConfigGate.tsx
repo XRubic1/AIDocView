@@ -11,11 +11,15 @@ export default function SupabaseConfigGate({ children }: { children: ReactNode }
         <div className="max-w-md w-full rounded-lg border border-red-200 bg-white p-8 shadow-sm">
           <h1 className="text-lg font-semibold text-slate-900 mb-2">Configuration required</h1>
           <p className="text-sm text-slate-600 mb-4">
-            Credyx requires Supabase to run. Add the following to your <code>.env</code> file:
+            Credyx requires Supabase to run. Set these in Vercel (or your <code>.env</code>):
           </p>
           <pre className="text-xs bg-slate-100 rounded p-3 overflow-x-auto text-slate-800 mb-4">
-{`VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key`}
+{`SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY=your-anon-or-publishable-key
+
+# Also accepted:
+# VITE_SUPABASE_URL=...
+# VITE_SUPABASE_PUBLISHABLE_KEY=...`}
           </pre>
           <p className="text-sm text-red-600">{configError}</p>
         </div>

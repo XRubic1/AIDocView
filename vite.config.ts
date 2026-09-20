@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Expose VITE_* plus the safe public Supabase keys (not SERVICE_ROLE).
+  envPrefix: ['VITE_', 'SUPABASE_URL', 'SUPABASE_ANON', 'SUPABASE_PUBLISHABLE'],
   server: {
     port: 3000,
     // Bind IPv4 so http://localhost:3000 and http://127.0.0.1:3000 both work
