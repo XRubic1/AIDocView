@@ -11,7 +11,16 @@ import {
 /**
  * Compact All / Needs switcher — sits in the invoices toolbar, not a full-width tab bar.
  */
-export default function ClientInvoicesTabs({ className = '' }: { className?: string }) {
+export default function ClientInvoicesTabs({
+  className = '',
+  allPath = CLIENT_INVOICES_PATH,
+  needsPath = CLIENT_INVOICES_ATTENTION_PATH,
+}: {
+  className?: string
+  /** Override All tab target (e.g. `/client/invoices-v2`). */
+  allPath?: string
+  needsPath?: string
+}) {
   const { invoices: rawInvoices } = useClientDemoSnapshot()
   const attentionCount = useMemo(
     () =>
@@ -28,7 +37,7 @@ export default function ClientInvoicesTabs({ className = '' }: { className?: str
       aria-label="Invoice views"
     >
       <NavLink
-        to={CLIENT_INVOICES_PATH}
+        to={allPath}
         end
         role="tab"
         aria-label="All invoices"
@@ -41,7 +50,7 @@ export default function ClientInvoicesTabs({ className = '' }: { className?: str
         All
       </NavLink>
       <NavLink
-        to={CLIENT_INVOICES_ATTENTION_PATH}
+        to={needsPath}
         role="tab"
         aria-label="Needs attention"
         className={({ isActive }) =>

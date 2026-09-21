@@ -1,0 +1,69 @@
+---
+description: Client Invoices V2 — waitlist/marketing brand, dense list + detail panel (parallel to Dashboard V3)
+globs: src/pages/ClientInvoicesV2.tsx,src/components/client/invoices-v2/**,src/styles/clientInvoicesV2.css
+alwaysApply: false
+---
+
+# Client Invoices V2 — branded & dense
+
+V2 is a **new** invoices experience (`ClientInvoicesV2`, route `/client/invoices-v2`). **Do not delete or restyle V1** (`ClientInvoices` / portal invoice styles) unless the user explicitly asks to replace it.
+
+Visual references:
+- **Brand / atmosphere:** same as Dashboard V3 — waitlist navy, `#1684FE`, soft blue mesh, Plus Jakarta headlines
+- **Hierarchy:** one hero money story + compact filters + dense table; detail panel is product chrome, not a second admin form
+
+## Tokens (must match Dashboard V3 / waitlist)
+
+| Token | Hex | Use |
+| --- | --- | --- |
+| `--civ2-navy` | `#0F172A` | Headlines, primary CTAs |
+| `--civ2-blue` | `#1684FE` | Accent, open balance, active chips, selected row |
+| `--civ2-blue-soft` | `#EFF6FF` | Soft fills, selected filters |
+| `--civ2-ink` | `#16222A` | Body |
+| `--civ2-body` | `#4B5D63` | Secondary |
+| `--civ2-muted` | `#85959A` | Labels, captions |
+| `--civ2-border` | `#E7EBEC` | Hairlines |
+| `--civ2-surface` | `#F7F8F9` | Page canvas |
+| `--civ2-success` | `#2FA98C` | Paid / confirmed |
+| `--civ2-warning` | `#D4A853` | Holds |
+| `--civ2-error` | `#D14343` | Overdue / short / urgent |
+
+Typography: Plus Jakarta for section titles / hero; Inter for table & UI.
+
+## Anti–empty-space rules (hard)
+
+1. **No viewport stretch for decoration.** Hero and filter rows hug content.
+2. **One hero money story.** Open balance (blue) + overdue callout — not four equal pastel KPI twins.
+3. **Gap budget:** `12–16px` between regions; table cells stay dense.
+4. **Detail panel** sits beside the list; cards inside hug content; no huge blank regions under 2–3 alerts.
+5. **Same product language** as Credyx (Submitted → Verified → Invoiced → Paid). No “get paid faster” / factoring.
+
+## Layout recipe
+
+```
+Soft mesh canvas
+└── Split shell (full height)
+    ├── Left column
+    │   ├── Hero: Open balance | Overdue | chips
+    │   ├── Toolbar: tabs · filters · search · date
+    │   └── Dense invoice table
+    └── Detail rail (from top when an invoice is selected)
+        └── InvoiceDetailPanelV2
+```
+
+Hero + search stay in the **left column only** — they must not span above the detail panel.
+
+## File map
+
+| Piece | Path |
+| --- | --- |
+| Page | `src/pages/ClientInvoicesV2.tsx` |
+| Styles | `src/styles/clientInvoicesV2.css` |
+| Detail panel | `src/components/client/invoices-v2/InvoiceDetailPanelV2.tsx` |
+| Route | `/client/invoices-v2` (V1 stays on `/client/invoices`) |
+
+## What not to do
+
+- Do not restyle V1 in place or redirect `/client/invoices` without an explicit ask
+- Do not clone Monk orange/cream; stay Credyx navy + blue
+- Do not add purple glow, neon, or glassmorphism stacks

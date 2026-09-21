@@ -1,0 +1,549 @@
+/**
+ * Client Invoices V2 — waitlist brand + dense list/detail.
+ * Content hugs data; V1 ClientInvoices / portal invoice chrome untouched.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
+.client-portal .client-main--flush .client-invoices-v2 {
+  flex: 1 1 0;
+  height: 0;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.client-invoices-v2 {
+  --civ2-navy: #0f172a;
+  --civ2-blue: #1684fe;
+  --civ2-blue-soft: #eff6ff;
+  --civ2-ink: #16222a;
+  --civ2-body: #4b5d63;
+  --civ2-muted: #85959a;
+  --civ2-border: #e7ebec;
+  --civ2-surface: #f7f8f9;
+  --civ2-card: #ffffff;
+  --civ2-success: #2fa98c;
+  --civ2-warning: #d4a853;
+  --civ2-error: #d14343;
+  --civ2-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.04);
+  --civ2-radius: 14px;
+  --civ2-gap: 12px;
+  --civ2-font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --civ2-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+
+  /* Remap portal tokens inside this page */
+  --cp-bg: var(--civ2-surface);
+  --cp-card: var(--civ2-card);
+  --cp-border: var(--civ2-border);
+  --cp-text: var(--civ2-ink);
+  --cp-text-secondary: var(--civ2-body);
+  --cp-muted: var(--civ2-muted);
+  --cp-primary: var(--civ2-navy);
+  --cp-info: var(--civ2-blue);
+  --cp-success: var(--civ2-success);
+  --cp-warning: var(--civ2-warning);
+  --cp-error: var(--civ2-error);
+  --cp-radius: var(--civ2-radius);
+
+  box-sizing: border-box;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--civ2-surface);
+  color: var(--civ2-ink);
+  font-family: var(--civ2-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+.client-invoices-v2::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 50% at 0% -10%, rgba(22, 132, 254, 0.1), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(15, 23, 42, 0.04), transparent 50%);
+}
+
+.client-invoices-v2 > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ——— Split shell: list column left, detail from top right ——— */
+
+.civ2-shell {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  align-items: stretch;
+  gap: 0;
+}
+
+.civ2-shell.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.civ2-shell.is-resizing .civ2-detail-rail {
+  transition: none;
+}
+
+.civ2-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.civ2-list-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-radius: var(--civ2-radius);
+  border: 1px solid var(--civ2-border);
+  background: var(--civ2-card);
+  box-shadow: var(--civ2-shadow);
+  overflow: hidden;
+}
+
+.civ2-list-panel .payments-list-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+}
+
+.civ2-detail-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid transparent;
+  background: var(--civ2-surface);
+  transition: flex-basis 0.2s ease, width 0.2s ease, border-color 0.2s ease;
+}
+
+.civ2-shell.is-detail-open .civ2-detail-rail,
+.civ2-detail-rail.is-open {
+  flex: 0 0 var(--civ2-detail-width, 360px);
+  width: var(--civ2-detail-width, 360px);
+  border-left-color: var(--civ2-border);
+}
+
+.civ2-detail-rail__inner {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.civ2-detail-rail__empty {
+  display: none;
+}
+
+.civ2-detail-rail .payments-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 4;
+}
+
+/* ——— Hero band (left column only) ——— */
+
+.civ2-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--civ2-radius);
+  background: var(--civ2-card);
+  border: 1px solid var(--civ2-border);
+  box-shadow: var(--civ2-shadow);
+  flex-shrink: 0;
+}
+
+.civ2-hero__open {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  flex: 1 1 140px;
+}
+
+.civ2-hero__label {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--civ2-muted);
+}
+
+.civ2-hero__amount {
+  margin: 0;
+  font-family: var(--civ2-display);
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--civ2-blue);
+}
+
+.civ2-hero__amount.is-zero {
+  color: var(--civ2-muted);
+}
+
+.civ2-hero__overdue {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 110px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.civ2-hero__overdue:hover {
+  background: #fee2e2;
+}
+
+.civ2-hero__overdue.is-active {
+  border-color: var(--civ2-error);
+  box-shadow: 0 0 0 2px rgba(209, 67, 67, 0.15);
+}
+
+.civ2-hero__overdue-count {
+  font-family: var(--civ2-display);
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--civ2-error);
+  line-height: 1.1;
+}
+
+.civ2-hero__overdue-meta {
+  font-size: 11px;
+  font-weight: 600;
+  color: #9f1239;
+}
+
+.civ2-hero__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.civ2-hero__chip {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--civ2-surface);
+  border: 1px solid var(--civ2-border);
+  min-width: 72px;
+}
+
+.civ2-hero__chip strong {
+  font-family: var(--civ2-display);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--civ2-navy);
+}
+
+.civ2-hero__chip span {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--civ2-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ——— Toolbar ——— */
+
+.client-invoices-v2 .client-page-toolbar,
+.client-invoices-v2 .civ2-toolbar {
+  margin: 0 !important;
+  padding: 8px 10px !important;
+  border-radius: 12px !important;
+  border: 1px solid var(--civ2-border) !important;
+  background: var(--civ2-card) !important;
+  box-shadow: var(--civ2-shadow);
+  flex-shrink: 0;
+}
+
+.client-invoices-v2 .page-tab {
+  border-radius: 8px !important;
+  font-weight: 600;
+  font-size: 11.5px !important;
+}
+
+.client-invoices-v2 .page-tab--active {
+  background: var(--civ2-blue-soft) !important;
+  color: var(--civ2-blue) !important;
+  box-shadow: none !important;
+}
+
+.client-invoices-v2 .client-input {
+  border-radius: 10px !important;
+  border-color: var(--civ2-border) !important;
+  font-size: 13px;
+}
+
+.client-invoices-v2 .client-input:focus {
+  border-color: var(--civ2-blue) !important;
+  box-shadow: 0 0 0 3px rgba(22, 132, 254, 0.12) !important;
+}
+
+/* ——— Workspace / table ——— */
+
+.client-invoices-v2 .payments-list-panel {
+  background: transparent;
+}
+
+.client-invoices-v2 .client-list-table thead th,
+.client-invoices-v2 .client-table thead th,
+.client-invoices-v2 table thead th {
+  background: var(--civ2-blue-soft) !important;
+  color: var(--civ2-navy) !important;
+  font-family: var(--civ2-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  border-bottom-color: var(--civ2-border) !important;
+}
+
+.client-invoices-v2 tbody tr {
+  border-color: var(--civ2-border);
+}
+
+.client-invoices-v2 tbody tr:hover {
+  background: rgba(22, 132, 254, 0.04) !important;
+}
+
+.client-invoices-v2 tbody tr.is-selected,
+.client-invoices-v2 tbody tr[aria-selected='true'],
+.client-invoices-v2 tbody tr.selected {
+  background: var(--civ2-blue-soft) !important;
+  box-shadow: inset 3px 0 0 var(--civ2-blue);
+}
+
+/* ——— Detail panel V2 skin ——— */
+
+.civ2-detail {
+  --civ2-navy: #0f172a;
+  --civ2-blue: #1684fe;
+  --civ2-blue-soft: #eff6ff;
+  --civ2-ink: #16222a;
+  --civ2-body: #4b5d63;
+  --civ2-muted: #85959a;
+  --civ2-border: #e7ebec;
+  --civ2-surface: #f7f8f9;
+  --civ2-card: #ffffff;
+  --civ2-success: #2fa98c;
+  --civ2-warning: #d4a853;
+  --civ2-error: #d14343;
+  --civ2-radius: 14px;
+  --civ2-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  --civ2-font: 'Inter', system-ui, sans-serif;
+
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--civ2-font);
+  color: var(--civ2-ink);
+  background: var(--civ2-surface);
+}
+
+.civ2-detail .payment-confirmation-panel {
+  background: transparent !important;
+  font-family: var(--civ2-font);
+}
+
+/* Match invoices list thead density */
+.civ2-detail .payment-confirmation-panel__header,
+.civ2-detail .payment-confirmation-panel__header--sidebar {
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 4px 10px !important;
+  min-height: 0 !important;
+  border-bottom: 1px solid var(--civ2-border) !important;
+  background: var(--civ2-blue-soft) !important;
+}
+
+.civ2-detail .payment-confirmation-panel__eyebrow {
+  font-family: var(--civ2-display) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  line-height: 1.2 !important;
+  color: var(--civ2-muted) !important;
+  margin: 0 !important;
+}
+
+.civ2-detail .payment-confirmation-panel__context-line {
+  font-family: var(--civ2-font) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  margin-top: 0 !important;
+  line-height: 1.25 !important;
+  color: var(--civ2-navy) !important;
+}
+
+.civ2-detail .payment-confirmation-panel__icon-btn {
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 6px !important;
+  border-color: var(--civ2-border) !important;
+  color: var(--civ2-body) !important;
+}
+
+.civ2-detail .payment-confirmation-panel__icon-btn svg {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+.civ2-detail .payment-confirmation-panel__icon-btn:hover {
+  background: #fff !important;
+  color: var(--civ2-blue) !important;
+  border-color: #bfdbfe !important;
+}
+
+.civ2-detail .payment-confirmation-panel__nav-count {
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  min-width: 2.5rem !important;
+}
+
+.civ2-detail .payment-confirmation-panel__body {
+  background: var(--civ2-surface) !important;
+  padding: 8px !important;
+  gap: 6px !important;
+}
+
+/* Compact Overview | Activity — hug content, no stretched empty middle */
+.civ2-detail .payment-confirmation-panel__mobile-surface-tabs {
+  display: inline-flex !important;
+  grid-template-columns: none !important;
+  width: auto !important;
+  max-width: 100%;
+  align-self: flex-start;
+  gap: 2px !important;
+  margin: 0 !important;
+  padding: 2px !important;
+  border-radius: 8px !important;
+  background: var(--civ2-card) !important;
+  border: 1px solid var(--civ2-border) !important;
+}
+
+.civ2-detail .payment-confirmation-panel__mobile-surface-tab {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  min-height: 26px !important;
+  padding: 0 10px !important;
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+  font-size: 11.5px !important;
+  flex: 0 0 auto !important;
+}
+
+.civ2-detail .payment-confirmation-panel__mobile-surface-tab--active,
+.civ2-detail .payment-confirmation-panel__mobile-surface-tab.is-active,
+.civ2-detail .payment-confirmation-panel__mobile-surface-tab[aria-selected='true'] {
+  background: var(--civ2-blue-soft) !important;
+  color: var(--civ2-blue) !important;
+  box-shadow: none !important;
+}
+
+.civ2-detail .payment-confirmation-panel__mobile-surface-tab-count {
+  min-width: 1rem !important;
+  height: 1rem !important;
+  font-size: 10px !important;
+}
+
+.civ2-detail .payment-confirmation-panel__footer {
+  border-top: 1px solid var(--civ2-border) !important;
+  background: var(--civ2-card) !important;
+  padding: 8px 10px !important;
+}
+
+.civ2-detail .payment-confirmation-panel__footer .dashboard-btn-secondary,
+.civ2-detail .payment-confirmation-panel__footer button {
+  border-radius: 10px !important;
+}
+
+.civ2-detail .confirm-payment-receipt-modal__confirm-btn,
+.civ2-detail .payment-confirmation-panel__footer-confirm {
+  background: var(--civ2-navy) !important;
+  border-color: var(--civ2-navy) !important;
+  border-radius: 10px !important;
+  font-weight: 700 !important;
+}
+
+/* Overview summary card inside panel */
+.civ2-detail [class*='overview'],
+.civ2-detail .mobile-invoice-overview,
+.civ2-detail .invoice-overview-card {
+  border-radius: 12px !important;
+  border-color: var(--civ2-border) !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+}
+
+@media (max-width: 720px) {
+  .civ2-main {
+    padding: 8px 10px 10px;
+    gap: 8px;
+  }
+
+  .civ2-hero {
+    padding: 10px;
+  }
+
+  .civ2-hero__chips {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .civ2-detail-rail,
+  .civ2-shell.is-detail-open .civ2-detail-rail {
+    display: none;
+  }
+}

@@ -384,6 +384,14 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
       return true
     }
 
+    // Invoices V2 is a parallel skin — keep Invoices nav highlighted.
+    if (
+      pathOnly === '/client/invoices' &&
+      location.pathname === '/client/invoices-v2'
+    ) {
+      return true
+    }
+
     const pathnameMatch =
       location.pathname === pathOnly ||
       (pathOnly !== '/client/dashboard' &&

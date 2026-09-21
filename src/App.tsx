@@ -38,6 +38,7 @@ import {
   OnboardingDashboard,
   ClientDocuments,
   ClientInvoices,
+  ClientInvoicesV2,
   ClientPayments,
   ClientReports,
   ClientSettings,
@@ -126,6 +127,10 @@ function App() {
                 />
                 <Route path="/client/batches" element={withRouteSuspense(ClientBatches)} />
                 <Route path="/client/invoices" element={withRouteSuspense(ClientInvoices)} />
+                <Route
+                  path="/client/invoices-v2"
+                  element={withRouteSuspense(ClientInvoicesV2, 'Loading invoices…')}
+                />
                 <Route
                   path="/client/invoices/needattention"
                   element={withRouteSuspense(ClientAttention, 'Loading invoices…')}

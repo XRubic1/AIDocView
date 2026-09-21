@@ -367,6 +367,8 @@ function ChartTooltip({
 const BAR_GAP = 4
 const CASH_BAR_WIDTH = 34
 const INVOICED_BAR_WIDTH = 18
+/** Overlap hatch onto solid so the seam never shows a hairline gap. */
+const STACK_SEAM = 1.5
 
 type BarShapeProps = {
   x?: number
@@ -374,6 +376,72 @@ type BarShapeProps = {
   width?: number
   height?: number
   payload?: SparkPoint
+}
+
+/** Flat bottom, rounded top — forecast grows out of collected. */
+function roundedTopPath(x: number, y: number, w: number, h: number, r: number): string {
+  if (w <= 0 || h <= 0) return ''
+  const radius = Math.max(0, Math.min(r, w / 2, h))
+  if (radius <= 0) {
+    return `M${x},${y + h}H${x + w}V${y}H${x}Z`
+  }
+  return [
+    `M${x},${y + h}`,
+    `L${x},${y + radius}`,
+    `Q${x},${y} ${x + radius},${y}`,
+    `L${x + w - radius},${y}`,
+    `Q${x + w},${y} ${x + w},${y + radius}`,
+    `L${x + w},${y + h}`,
+    `Z`,
+  ].join('')
+}
+
+function pushCashStack(
+  nodes: ReactNode[],
+  opts: {
+    x: number
+    baseline: number
+    width: number
+    colH: number
+    fcsH: number
+    hatchFill: string
+  },
+) {
+  const { x, baseline, width, colH, fcsH, hatchFill } = opts
+  const hasCol = colH > 0
+  const hasFcs = fcsH > 0
+
+  if (hasCol) {
+    const top = baseline - colH
+    if (hasFcs) {
+      // Square top under hatch so the stack reads as one continuous bar.
+      nodes.push(
+        <rect key="col" x={x} y={top} width={width} height={colH} fill="#2FA98C" />,
+      )
+    } else {
+      nodes.push(
+        <path
+          key="col"
+          d={roundedTopPath(x, top, width, colH, 8)}
+          fill="#2FA98C"
+        />,
+      )
+    }
+  }
+
+  if (hasFcs) {
+    // Pull hatch down into the green so sides connect with no white gap.
+    const seam = hasCol ? STACK_SEAM : 0
+    const top = baseline - colH - fcsH
+    const h = fcsH + seam
+    nodes.push(
+      <path
+        key="fcs"
+        d={roundedTopPath(x, top, width, h, 8)}
+        fill={hatchFill}
+      />,
+    )
+  }
 }
 
 /**
@@ -406,94 +474,40 @@ function makeMonthBarShape(hatchFill: string) {
 
       const invH = toH(invoiced)
       nodes.push(
-        <rect
+        <path
           key="inv"
-          x={startX}
-          y={baseline - invH}
-          width={invW}
-          height={invH}
+          d={roundedTopPath(startX, baseline - invH, invW, invH, 6)}
           fill="#E7EBEC"
-          rx={6}
-          ry={6}
         />,
       )
 
-      const colH = toH(collected)
-      const fcsH = toH(forecast)
-      const cashX = startX + invW + BAR_GAP
-      if (colH > 0) {
-        nodes.push(
-          <rect
-            key="col"
-            x={cashX}
-            y={baseline - colH}
-            width={cashW}
-            height={colH}
-            fill="#2FA98C"
-          />,
-        )
-      }
-      if (fcsH > 0) {
-        nodes.push(
-          <rect
-            key="fcs"
-            x={cashX}
-            y={baseline - colH - fcsH}
-            width={cashW}
-            height={fcsH}
-            fill={hatchFill}
-            rx={8}
-            ry={8}
-          />,
-        )
-      }
+      pushCashStack(nodes, {
+        x: startX + invW + BAR_GAP,
+        baseline,
+        width: cashW,
+        colH: toH(collected),
+        fcsH: toH(forecast),
+        hatchFill,
+      })
     } else if (hasCash) {
       const barW = Math.min(CASH_BAR_WIDTH, width)
-      const barX = x + (width - barW) / 2
-      const colH = toH(collected)
-      const fcsH = toH(forecast)
-      if (colH > 0) {
-        nodes.push(
-          <rect
-            key="col"
-            x={barX}
-            y={baseline - colH}
-            width={barW}
-            height={colH}
-            fill="#2FA98C"
-            rx={fcsH > 0 ? 0 : 8}
-            ry={fcsH > 0 ? 0 : 8}
-          />,
-        )
-      }
-      if (fcsH > 0) {
-        nodes.push(
-          <rect
-            key="fcs"
-            x={barX}
-            y={baseline - colH - fcsH}
-            width={barW}
-            height={fcsH}
-            fill={hatchFill}
-            rx={8}
-            ry={8}
-          />,
-        )
-      }
+      pushCashStack(nodes, {
+        x: x + (width - barW) / 2,
+        baseline,
+        width: barW,
+        colH: toH(collected),
+        fcsH: toH(forecast),
+        hatchFill,
+      })
     } else if (hasInvoiced) {
       const barW = Math.min(INVOICED_BAR_WIDTH, width)
       const barX = x + (width - barW) / 2
       const invH = toH(invoiced)
       nodes.push(
-        <rect
+        <path
           key="inv"
-          x={barX}
-          y={baseline - invH}
-          width={barW}
-          height={invH}
+          d={roundedTopPath(barX, baseline - invH, barW, invH, 6)}
           fill="#E7EBEC"
-          rx={6}
-          ry={6}
         />,
       )
     }
@@ -812,7 +826,11 @@ export default function CashCollectedPanel({
 
           <aside className="cdv3-cash__aside" aria-label="Cash summary">
             <p className="cdv3-cash__aside-label">This {unit}</p>
-            <p className="cdv3-cash__aside-amount tabular-nums is-collected">
+            <p
+              className={`cdv3-cash__aside-amount tabular-nums ${
+                !loading && currentCollected <= 0 ? 'is-zero' : 'is-blue'
+              }`}
+            >
               {loading ? '—' : formatCurrency(currentCollected)}
             </p>
             {!loading ? (
@@ -827,13 +845,21 @@ export default function CashCollectedPanel({
                 <div className="cdv3-cash__aside-forecast-stack">
                   <div>
                     <span>current</span>
-                    <strong className="tabular-nums is-forecast">
+                    <strong
+                      className={`tabular-nums ${
+                        !loading && currentForecast <= 0 ? 'is-zero' : 'is-blue'
+                      }`}
+                    >
                       {loading ? '—' : formatCurrency(currentForecast)}
                     </strong>
                   </div>
                   <div>
                     <span>next {unit}</span>
-                    <strong className="tabular-nums is-forecast">
+                    <strong
+                      className={`tabular-nums ${
+                        !loading && nextForecast <= 0 ? 'is-zero' : 'is-blue'
+                      }`}
+                    >
                       {loading ? '—' : formatCurrency(nextForecast)}
                     </strong>
                   </div>
@@ -843,13 +869,21 @@ export default function CashCollectedPanel({
                 <span>
                   Collected ({historyCount} {period === 'monthly' ? 'mo' : 'wk'})
                 </span>
-                <strong className="tabular-nums is-collected">
+                <strong
+                  className={`tabular-nums ${
+                    !loading && collectedTotal <= 0 ? 'is-zero' : 'is-blue'
+                  }`}
+                >
                   {loading ? '—' : formatCurrency(collectedTotal)}
                 </strong>
               </div>
               <div className="cdv3-cash__aside-card">
                 <span>Invoiced (window)</span>
-                <strong className="tabular-nums">
+                <strong
+                  className={`tabular-nums ${
+                    !loading && invoicedTotal <= 0 ? 'is-zero' : undefined
+                  }`}
+                >
                   {loading ? '—' : formatCurrency(invoicedTotal)}
                 </strong>
               </div>

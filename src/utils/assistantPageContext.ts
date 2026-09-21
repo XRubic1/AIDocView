@@ -27,7 +27,7 @@ const CLIENT_PAGES: AssistantPageHelp[] = [
   {
     id: 'client-invoices',
     mode: 'client',
-    paths: ['/client/invoices'],
+    paths: ['/client/invoices', '/client/invoices-v2'],
     title: 'Invoices',
     offer: 'held invoices, missing documents, notes, and disputes',
     nudge: 'I can help with held invoices, missing docs, or posting a note.',

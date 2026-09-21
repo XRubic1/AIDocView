@@ -903,8 +903,12 @@
   color: var(--cdv3-blue);
 }
 
-.cdv3-cash__aside-amount.is-collected {
-  color: var(--cdv3-success);
+.cdv3-cash__aside-amount.is-blue {
+  color: var(--cdv3-blue);
+}
+
+.cdv3-cash__aside-amount.is-zero {
+  color: var(--cdv3-muted);
 }
 
 .cdv3-cash__aside-mom {
@@ -957,12 +961,16 @@
   color: var(--cdv3-blue);
 }
 
-.cdv3-cash__aside-card strong.is-collected {
-  color: var(--cdv3-success);
+.cdv3-cash__aside-card strong.is-zero {
+  color: var(--cdv3-muted);
 }
 
-.cdv3-cash__aside-card strong.is-forecast {
-  color: #2fa98c;
+.cdv3-cash__aside-forecast-stack strong.is-blue {
+  color: var(--cdv3-blue);
+}
+
+.cdv3-cash__aside-forecast-stack strong.is-zero {
+  color: var(--cdv3-muted);
 }
 
 .cdv3-cash__aside-card--forecast {
