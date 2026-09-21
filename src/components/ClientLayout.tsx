@@ -581,7 +581,7 @@ export default function ClientLayout({ clientName, clientId, flushMain = false, 
                         <Icon
                           className={isMobile ? 'w-5 h-5' : 'w-4 h-4'}
                           strokeWidth={1.75}
-                          style={{ color: active ? t.sidebar.activeText : t.mutedLight }}
+                          style={{ color: active ? t.accent : t.mutedLight }}
                         />
                         {/* Collapsed rail: keep count visible on the icon */}
                         {badge > 0 && !showLabels && (

@@ -282,7 +282,7 @@ export default function AdminLayout({
                         <Icon
                           className={isMobile ? 'w-5 h-5' : 'w-4 h-4'}
                           strokeWidth={1.75}
-                          style={{ color: active ? t.sidebar.activeText : t.sidebar.muted }}
+                          style={{ color: active ? t.accent : t.sidebar.muted }}
                         />
                         {badge > 0 && !showLabels && (
                           <span

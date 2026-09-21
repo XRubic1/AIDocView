@@ -1,0 +1,92 @@
+---
+description: Client Dashboard V3 — waitlist/marketing brand, Monk-clean hierarchy, no wasted empty space
+globs: src/pages/ClientDashboardV3.tsx,src/components/client/dashboard-v3/**,src/styles/clientDashboardV3.css
+alwaysApply: false
+---
+
+# Client Dashboard V3 — branded & dense
+
+V3 is a **new** home (`ClientDashboardV3`, route `/client/dashboard-v3`). **Do not delete or restyle V2** (`ClientDashboardV2` / `clientDashboardV2.css`) unless the user explicitly asks to replace it.
+
+Visual references:
+- **Brand / atmosphere:** waitlist site (`credyxMarketing.css`, `Waitlist.tsx`) — navy, `#1684FE`, soft blue mesh, Plus Jakarta headlines
+- **Hierarchy / calm:** Monk-style — one hero story, one chart, ranked chase lists; not a grid of equal white boxes
+
+## Tokens (must match waitlist)
+
+Use V3 CSS variables (mirrored from marketing):
+
+| Token | Hex | Use |
+| --- | --- | --- |
+| `--cdv3-navy` | `#0F172A` | Headlines, primary CTAs |
+| `--cdv3-blue` | `#1684FE` | Accent, open-balance figure, links, active chips |
+| `--cdv3-blue-soft` | `#EFF6FF` | Soft fills, selected filters |
+| `--cdv3-ink` | `#16222A` | Body |
+| `--cdv3-body` | `#4B5D63` | Secondary |
+| `--cdv3-muted` | `#85959A` | Labels, captions |
+| `--cdv3-border` | `#E7EBEC` | Hairlines |
+| `--cdv3-surface` | `#F7F8F9` | Page canvas |
+| `--cdv3-success` | `#2FA98C` | Confirmed / paid |
+| `--cdv3-warning` | `#D4A853` | Holds |
+| `--cdv3-error` | `#D14343` | Overdue / urgent |
+
+Typography:
+- **Section titles / hero labels:** Plus Jakarta Sans (600–800), tight tracking
+- **Data / UI:** Inter
+- Do **not** use Monk orange or cream-only skin — Credyx stays navy + blue
+
+## Anti–empty-space rules (hard)
+
+1. **No viewport stretch for decoration.** Do not force panels to `height: 100%` / `flex: 1` just to fill the screen. Cards hug content.
+2. **Lists scroll inside themselves** only when row count needs it (`max-height` + overflow). Never leave a huge blank card body under 2–3 rows.
+3. **Unequal layout.** Hero + work queue get more weight than secondary chips. Chart sits beside the queue — not a third equal sibling of two sparse lists.
+4. **One hero number.** Open balance is large and blue. Overdue is a clear red callout. Coming due / confirmed pay are compact chips — not four identical KPI twins.
+5. **No URGENT pager on the home.** Work lists live behind Overdue / On hold / Broker risk tabs — they swap with Cash collected, they do not sit beside it as equal empty panels.
+6. **Chart-first cash story.** Prefer blue bar chart (Cash collected) over muddy dual area lines. Current period may be hatched.
+7. **Gap budget:** prefer `12–16px` between cards; avoid large empty gutters. Padding inside cards: tight but readable (`14–18px`), not airy marketing hero padding.
+8. **No decorative wave layers** that compete with data. Soft blue mesh (waitlist-style) is OK; animated wave textures are not for V3.
+9. **No operating summary strip** like `9 overdue · 2 on hold · $24k open` — that repeats the hero. Optional away line only.
+
+## Layout recipe
+
+```
+Soft mesh canvas
+├── Away line (optional — activity since last visit)
+├── Hero band: Open balance | Overdue | Coming due + Confirmed chips
+├── Tab bar: Cash · Overdue · On hold · Broker risk (Confirm if any)
+│     → swaps main panel (no navigation away)
+└── Cash collected OR work list for the active tab
+```
+
+**Do not put on V3:**
+- URGENT / 1 of N priority pager (`PriorityActionCard`)
+- “Needs your action” invoice lists
+- Stretched empty Broker Risk panels as equal siblings of the chart
+
+Deep-link from hero tiles and shortcut pills into Invoices / Payments / Brokers instead.
+
+Phone: keep using `MobileEmptyDashboard` (same as V2) until a phone V3 exists.
+
+## Content / product rules
+
+- Same data sources as V2 (`useClientDemoSnapshot`, aging, attention actions, broker risk)
+- Credyx workflow language only (Submitted → Verified → Invoiced → Paid). No “get paid faster,” factoring, or delivery/POD as Credyx steps
+- Demo data only in mocks; blur real PII in screenshots
+
+## What not to do
+
+- Do not restyle V2 in place or redirect `/client/dashboard` to V3 without an explicit user ask
+- Do not clone Monk’s serif + orange system
+- Do not add purple glow, neon, glassmorphism stacks, or extra widget chrome
+- Do not put stats/chips as floating badges over a hero image
+- Do not invent a third parallel dashboard folder without updating this rule
+
+## File map
+
+| Piece | Path |
+| --- | --- |
+| Page | `src/pages/ClientDashboardV3.tsx` |
+| Styles | `src/styles/clientDashboardV3.css` |
+| Hero | `src/components/client/dashboard-v3/HeroCashBand.tsx` |
+| Chart | `src/components/client/dashboard-v3/CashCollectedPanel.tsx` |
+| Route | `/client/dashboard-v3` (V2 stays on `/client/dashboard`) |

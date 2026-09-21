@@ -34,6 +34,7 @@ import {
   ClientCollections,
   ClientCollectionsQueue,
   ClientDashboardV2,
+  ClientDashboardV3,
   OnboardingDashboard,
   ClientDocuments,
   ClientInvoices,
@@ -114,6 +115,10 @@ function App() {
                 <Route
                   path="/client/dashboard-v2"
                   element={<Navigate to="/client/dashboard" replace />}
+                />
+                <Route
+                  path="/client/dashboard-v3"
+                  element={withRouteSuspense(ClientDashboardV3, 'Loading dashboard…')}
                 />
                 <Route
                   path="/client/onboarding"
