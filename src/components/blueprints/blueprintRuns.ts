@@ -231,17 +231,17 @@ function normLabel(s: string): string {
   return s.trim().toLowerCase()
 }
 
-/** Active enrollments for an invoice (by id or invoice number). */
+/** Active enrollments for an invoice (by id; label match only when no subjectId). */
 export function findRunsForInvoice(invoice: {
   id: string
   invoice_number: string
 }): BlueprintRunRow[] {
+  const all = listBlueprintRuns().filter((r) => r.subject === 'invoice')
+  const byId = all.filter((r) => r.subjectId && r.subjectId === invoice.id)
+  if (byId.length > 0) return byId
   const num = normLabel(invoice.invoice_number)
-  return listBlueprintRuns().filter((r) => {
-    if (r.subject !== 'invoice') return false
-    if (r.subjectId && r.subjectId === invoice.id) return true
-    return normLabel(r.subjectLabel) === num
-  })
+  // Demo Activity rows have no subjectId — only match those by label
+  return all.filter((r) => !r.subjectId && normLabel(r.subjectLabel) === num)
 }
 
 /** Latest non-terminal run preferred; else most recently updated. */

@@ -5,7 +5,7 @@
  */
 import type { Edge } from '@xyflow/react'
 import { isBlueprintsRunnerEnabled } from '../../config/blueprintsRuntime'
-import { getInvoiceById } from '../../data/mockInvoices'
+import { getInvoiceById, mockInvoices } from '../../data/mockInvoices'
 import type { Invoice } from '../../types/invoice'
 import type { BlueprintFlowNode, BlueprintNodeData } from '../../types/blueprintGraph'
 import { findBestMatchingBlueprint, scoreBlueprintForEvent, type BlueprintMatchEvent } from './blueprintAutoMatch'
@@ -16,6 +16,7 @@ import {
 } from './blueprintCatalog'
 import {
   assignInvoiceBlueprint,
+  clearInvoiceBlueprintAssignment,
   getInvoiceBlueprintAssignment,
 } from './invoiceBlueprintAssignment'
 import {
@@ -31,13 +32,9 @@ import {
   normalizeTriggerFilters,
   type BlueprintTriggerFilters,
 } from './blueprintTriggerFilters'
-import { findFirstWaitNodeId } from './blueprintUpcomingSteps'
 import { executeBlueprintThenDo } from './blueprintRunnerActions'
 import { notifyTenantDataUpdated } from '../../services/supabase/tenantDataLiveSync'
-import {
-  normalizeWhenMatch,
-  whenNodePasses,
-} from './blueprintWhenMatch'
+import { whenNodePasses } from './blueprintWhenMatch'
 
 export type BlueprintRunnerLog = {
   invoiceId: string
@@ -121,11 +118,6 @@ function evaluateWhenNode(data: BlueprintNodeData, invoice: Invoice): boolean {
   return whenNodePasses(data, evaluateWhenRaw(data.checkId, invoice))
 }
 
-function shouldParkWhenUntilTrue(data: BlueprintNodeData): boolean {
-  // Match when · False (e.g. removed from hold) — sit here until the world changes
-  return normalizeWhenMatch(data) === 'no'
-}
-
 function whenParkStepLine(data: BlueprintNodeData): string {
   const label = data.label?.trim() || data.checkId || 'When'
   return `Waiting · ${label}`
@@ -194,6 +186,8 @@ function pickNext(
   if (whenTargets.length > 0) {
     const matched = whenTargets.find((t) => evaluateWhenNode(t.data, invoice))
     if (matched) return matched
+    // Enter the When so advance can park — never skip Whens (any blueprint)
+    if (whenTargets[0]) return whenTargets[0]
     if (otherTargets[0]) return otherTargets[0]
     return null
   }
@@ -222,31 +216,21 @@ function ensureEnrollment(
       existing.status === 'active' ||
       existing.status === 'paused')
   ) {
-    return { run: existing, created: false }
+    // Event assigned a different blueprint — stop the old run and enroll fresh
+    if (existing.blueprintId !== assignment.blueprintId) {
+      upsertBlueprintRun({
+        ...existing,
+        status: 'stopped',
+        currentStep: `Stopped · switching to ${assignment.blueprintName}`,
+        waitUntil: null,
+      })
+    } else {
+      return { run: existing, created: false }
+    }
   }
 
   const start = getStartNode(bp.nodes)
-  const waitId = findFirstWaitNodeId(bp.nodes, bp.edges)
-  const waitNode = waitId ? bp.nodes.find((n) => n.id === waitId) : null
-
-  if (waitNode) {
-    const days = parseWaitDays(waitNode)
-    const run = startInvoiceRun({
-      invoiceId: invoice.id,
-      invoiceNumber: invoice.invoice_number,
-      clientLabel: invoice.client_name,
-      blueprintId: assignment.blueprintId,
-      blueprintName: assignment.blueprintName,
-      waitDays: days,
-      currentNodeId: waitNode.id,
-      currentStep: waitStepLine(waitNode),
-      status: 'waiting',
-      waitUntil: daysFromNow(days),
-    })
-    return { run, created: true }
-  }
-
-  // No Wait — park on Start / first step as active and advance immediately
+  // Always enroll at Start, then advance — never jump to a Wait (would skip Whens).
   const firstId = start?.id
   const run = startInvoiceRun({
     invoiceId: invoice.id,
@@ -352,31 +336,18 @@ export function advanceInvoiceRun(
     if (isWhen(current.data)) {
       const ok = evaluateWhenNode(current.data, invoice)
       const next = nextAfterWhen(current.id, bp.nodes, bp.edges, ok)
-      const polarity = normalizeWhenMatch(current.data)
       if (!ok) {
-        if (shouldParkWhenUntilTrue(current.data)) {
-          run = upsertBlueprintRun({
-            ...run,
-            status: 'waiting',
-            currentNodeId: current.id,
-            currentStep: whenParkStepLine(current.data),
-            waitUntil: null,
-            blueprintId: assignment.blueprintId,
-            blueprintName: assignment.blueprintName,
-          })
-          details.push(
-            `Parked at When until it matches (${polarity === 'no' ? 'e.g. hold cleared' : 'condition'}).`
-          )
-          break
-        }
+        // Always park unmatched Whens (every blueprint) until invoice state changes
         run = upsertBlueprintRun({
           ...run,
-          status: 'stopped',
+          status: 'waiting',
           currentNodeId: current.id,
-          currentStep: `Stopped · When did not match`,
+          currentStep: whenParkStepLine(current.data),
           waitUntil: null,
+          blueprintId: assignment.blueprintId,
+          blueprintName: assignment.blueprintName,
         })
-        details.push('When did not match — enrollment stopped.')
+        details.push(`Parked at When until it matches (${whenParkStepLine(current.data)}).`)
         break
       }
       if (!next) {
@@ -461,7 +432,7 @@ export function advanceInvoiceRun(
   }
 
   try {
-    notifyTenantDataUpdated()
+    notifyTenantDataUpdated(['invoices'], invoice.client_id)
   } catch {
     /* ignore */
   }
@@ -563,15 +534,8 @@ export function enrollInvoiceIfNeeded(
       detail: `Already enrolled (${result.run.status}).`,
     }
   }
-  // If enrolled on Start with no Wait, advance once
-  if (result.run.status === 'active') {
-    return advanceInvoiceRun(invoice.id, { forceWake: true })
-  }
-  return {
-    invoiceId: invoice.id,
-    ok: true,
-    detail: `Enrolled: ${result.run.currentStep} (${reason}).`,
-  }
+  // Always advance from Start until Wait / parked When / Done
+  return advanceInvoiceRun(invoice.id, { forceWake: true })
 }
 
 /** Assign (if needed) + enroll for a live event. */
@@ -602,44 +566,73 @@ export function enrollForEvent(
 /** Hold placed — auto-match hold blueprints if none assigned. */
 export function onInvoiceHeld(invoiceId: string): void {
   try {
-    if (!isBlueprintsRunnerEnabled()) return
-    const invoice = getInvoiceById(invoiceId)
-    if (!invoice) return
-    enrollForEvent(invoice, 'hold', 'invoice held')
+    runBlueprintLifecycleHook(() => {
+      if (!isBlueprintsRunnerEnabled()) return
+      const invoice = getInvoiceById(invoiceId)
+      if (!invoice) return
+      enrollForEvent(invoice, 'hold', 'invoice held')
+    })
   } catch (err) {
     console.warn('[blueprints] onInvoiceHeld', err)
   }
 }
 
-/** Hold cleared / approved — advance parked “removed from hold” runs; else enroll. */
+/** True when the live run is sitting on a When (parked until it matches). */
+function isParkedAtWhen(invoiceId: string): boolean {
+  const invoice = getInvoiceById(invoiceId)
+  if (!invoice) return false
+  const run = getPrimaryRunForInvoice(invoice)
+  if (!run || (run.status !== 'waiting' && run.status !== 'active')) return false
+  const loaded = loadAssignedGraph(invoiceId)
+  if (!loaded || !run.currentNodeId) return false
+  const node = loaded.bp.nodes.find((n) => n.id === run.currentNodeId)
+  return Boolean(node && isWhen(node.data))
+}
+
+/**
+ * If parked on a When that now matches, advance (Then-do / Wait / Done).
+ * Works for every blueprint — not hold-specific.
+ */
+export function tryAdvanceParkedWhen(invoiceId: string): boolean {
+  if (!isBlueprintsRunnerEnabled()) return false
+  const invoice = getInvoiceById(invoiceId)
+  if (!invoice) return false
+  const run = getPrimaryRunForInvoice(invoice)
+  if (!run || (run.status !== 'waiting' && run.status !== 'active' && run.status !== 'paused')) {
+    return false
+  }
+  if (run.status === 'paused') return false
+  const loaded = loadAssignedGraph(invoiceId)
+  if (!loaded || !run.currentNodeId) return false
+  const node = loaded.bp.nodes.find((n) => n.id === run.currentNodeId)
+  if (!node || !isWhen(node.data)) return false
+  if (!evaluateWhenNode(node.data, invoice)) return false
+  advanceInvoiceRun(invoiceId, { forceWake: true })
+  return true
+}
+
+/** Hold cleared / approved — advance parked When if ready; else enroll hold_cleared. */
 export function onInvoiceHoldCleared(invoiceId: string): void {
   try {
-    if (!isBlueprintsRunnerEnabled()) return
-    const invoice = getInvoiceById(invoiceId)
-    if (!invoice) return
+    runBlueprintLifecycleHook(() => {
+      if (!isBlueprintsRunnerEnabled()) return
+      const invoice = getInvoiceById(invoiceId)
+      if (!invoice) return
 
-    const run = getPrimaryRunForInvoice(invoice)
-    if (
-      run &&
-      (run.status === 'waiting' || run.status === 'active' || run.status === 'paused')
-    ) {
-      const loaded = loadAssignedGraph(invoiceId)
-      const parkedWhen =
-        loaded && run.currentNodeId
-          ? loaded.bp.nodes.find((n) => n.id === run.currentNodeId)
-          : null
+      if (tryAdvanceParkedWhen(invoiceId)) return
+
+      const run = getPrimaryRunForInvoice(invoice)
       if (
-        parkedWhen &&
-        isWhen(parkedWhen.data) &&
-        shouldParkWhenUntilTrue(parkedWhen.data)
+        run &&
+        (run.status === 'waiting' || run.status === 'active' || run.status === 'paused')
       ) {
-        advanceInvoiceRun(invoiceId, { forceWake: true })
-        return
+        // Still parked on a When that does not match yet — leave it
+        if (isParkedAtWhen(invoiceId)) return
+        stopInvoiceRun(invoiceId, 'hold cleared')
       }
-      stopInvoiceRun(invoiceId, 'hold cleared')
-    }
 
-    enrollForEvent(invoice, 'hold_cleared', 'hold cleared')
+      enrollForEvent(invoice, 'hold_cleared', 'hold cleared')
+    })
   } catch (err) {
     console.warn('[blueprints] onInvoiceHoldCleared', err)
   }
@@ -648,25 +641,31 @@ export function onInvoiceHoldCleared(invoiceId: string): void {
 /** PPW / paperwork track started — stop hold run; auto-match paperwork blueprint. */
 export function onInvoicePpwSent(invoiceId: string): void {
   try {
-    if (!isBlueprintsRunnerEnabled()) return
-    const invoice = getInvoiceById(invoiceId)
-    if (!invoice) return
+    runBlueprintLifecycleHook(() => {
+      if (!isBlueprintsRunnerEnabled()) return
+      const invoice = getInvoiceById(invoiceId)
+      if (!invoice) return
 
-    const existing = getPrimaryRunForInvoice(invoice)
-    if (existing && (existing.status === 'waiting' || existing.status === 'active')) {
-      const loaded = loadAssignedGraph(invoiceId)
-      const start = loaded ? getStartNode(loaded.bp.nodes) : null
-      const filters = start
-        ? normalizeTriggerFilters(start.data.triggerFilters)
-        : null
-      if (filters && assignedBlueprintMatchesHold(filters)) {
-        stopInvoiceRun(invoiceId, 'PPW sent — hold track ended')
-      } else if (existing) {
-        stopInvoiceRun(invoiceId, 'restarting for PPW')
+      if (tryAdvanceParkedWhen(invoiceId)) {
+        /* may complete hold-clear path; still enroll PPW below if needed */
       }
-    }
 
-    enrollForEvent(invoice, 'ppw', 'PPW sent')
+      const existing = getPrimaryRunForInvoice(invoice)
+      if (existing && (existing.status === 'waiting' || existing.status === 'active')) {
+        const loaded = loadAssignedGraph(invoiceId)
+        const start = loaded ? getStartNode(loaded.bp.nodes) : null
+        const filters = start
+          ? normalizeTriggerFilters(start.data.triggerFilters)
+          : null
+        if (filters && assignedBlueprintMatchesHold(filters)) {
+          stopInvoiceRun(invoiceId, 'PPW sent — hold track ended')
+        } else if (existing && !isParkedAtWhen(invoiceId)) {
+          stopInvoiceRun(invoiceId, 'restarting for PPW')
+        }
+      }
+
+      enrollForEvent(invoice, 'ppw', 'PPW sent')
+    })
   } catch (err) {
     console.warn('[blueprints] onInvoicePpwSent', err)
   }
@@ -675,13 +674,101 @@ export function onInvoicePpwSent(invoiceId: string): void {
 /** Invoice entered Credyx (batch / purchase) — auto-match open-invoice blueprints. */
 export function onInvoicePurchased(invoiceId: string): void {
   try {
-    if (!isBlueprintsRunnerEnabled()) return
-    const invoice = getInvoiceById(invoiceId)
-    if (!invoice) return
-    enrollForEvent(invoice, 'purchased', 'invoice purchased')
+    runBlueprintLifecycleHook(() => {
+      if (!isBlueprintsRunnerEnabled()) return
+      const invoice = getInvoiceById(invoiceId)
+      if (!invoice) return
+      enrollForEvent(invoice, 'purchased', 'invoice purchased')
+    })
   } catch (err) {
     console.warn('[blueprints] onInvoicePurchased', err)
   }
+}
+
+const TERMINAL_FOR_SYNC = new Set([
+  'paid',
+  'rejected',
+  'written_off',
+  'write_off_pending',
+  'force_closed',
+])
+
+/**
+ * Realtime assign + enroll for one invoice (current status).
+ * Also wakes a parked When when it now matches.
+ */
+export function syncInvoiceBlueprints(
+  invoiceId: string,
+  reason = 'realtime sync'
+): BlueprintRunnerLog {
+  if (!isBlueprintsRunnerEnabled()) {
+    return { invoiceId, ok: false, detail: 'Blueprint runner is off.' }
+  }
+  const invoice = getInvoiceById(invoiceId)
+  if (!invoice) {
+    return { invoiceId, ok: false, detail: 'Invoice not found.' }
+  }
+
+  if (TERMINAL_FOR_SYNC.has(invoice.status)) {
+    const run = getPrimaryRunForInvoice(invoice)
+    if (run && (run.status === 'waiting' || run.status === 'active' || run.status === 'paused')) {
+      stopInvoiceRun(invoiceId, 'invoice closed')
+    }
+    return { invoiceId, ok: true, detail: 'Terminal status — no open blueprint.' }
+  }
+
+  if (tryAdvanceParkedWhen(invoiceId)) {
+    return { invoiceId, ok: true, detail: `Advanced parked When (${reason}).` }
+  }
+
+  // Already on a live Wait / active path for the assigned BP — keep it
+  const existing = getPrimaryRunForInvoice(invoice)
+  const assignment = getInvoiceBlueprintAssignment(invoiceId)
+  if (
+    existing &&
+    assignment &&
+    existing.blueprintId === assignment.blueprintId &&
+    (existing.status === 'waiting' || existing.status === 'active' || existing.status === 'paused')
+  ) {
+    return {
+      invoiceId,
+      ok: true,
+      detail: `Already on ${assignment.blueprintName} (${existing.status}).`,
+    }
+  }
+
+  const event: BlueprintMatchEvent =
+    invoice.status === 'hold' ? 'hold' : 'sync'
+
+  // Stale hold assignment on an open invoice — drop so sync can pick an open-A/R blueprint
+  if (assignment && invoice.status !== 'hold') {
+    const bp = getSavedBlueprint(assignment.blueprintId)
+    const stillFits = bp ? scoreBlueprintForEvent(bp, event, invoice) : null
+    if (!stillFits || stillFits.score <= 0) {
+      clearInvoiceBlueprintAssignment(invoiceId)
+    }
+  }
+
+  return enrollForEvent(invoice, event, reason)
+}
+
+/** Assign every open invoice to its best-matching blueprint (hydrate / Live runner on). */
+export function syncAllOpenInvoiceBlueprints(reason = 'assign all open'): {
+  assigned: number
+  logs: BlueprintRunnerLog[]
+} {
+  if (!isBlueprintsRunnerEnabled()) {
+    return { assigned: 0, logs: [] }
+  }
+  const logs: BlueprintRunnerLog[] = []
+  let assigned = 0
+  for (const inv of mockInvoices) {
+    if (TERMINAL_FOR_SYNC.has(inv.status)) continue
+    const log = syncInvoiceBlueprints(inv.id, reason)
+    logs.push(log)
+    if (getInvoiceBlueprintAssignment(inv.id)) assigned += 1
+  }
+  return { assigned, logs }
 }
 
 /** Wake all due Wait clocks. */
@@ -698,6 +785,7 @@ export function tickBlueprintRuns(authorName?: string): {
   for (const run of listBlueprintRuns()) {
     if (run.subject !== 'invoice' || !run.subjectId) continue
     if (run.status !== 'waiting') continue
+    // Parked Whens have null waitUntil — only clock Waits tick here
     if (!run.waitUntil || new Date(run.waitUntil).getTime() > now) continue
     const log = advanceInvoiceRun(run.subjectId, {
       forceWake: true,
@@ -707,4 +795,21 @@ export function tickBlueprintRuns(authorName?: string): {
     if (log.ok) advanced += 1
   }
   return { advanced, logs }
+}
+
+/** Re-entrancy guard so status→sync does not double-fire inside hold/PPW hooks. */
+let blueprintLifecycleDepth = 0
+
+function runBlueprintLifecycleHook(fn: () => void): void {
+  blueprintLifecycleDepth += 1
+  try {
+    fn()
+  } finally {
+    blueprintLifecycleDepth -= 1
+  }
+}
+
+/** True while a lifecycle hook is running (updateInvoice should not also sync). */
+export function isBlueprintLifecycleHookActive(): boolean {
+  return blueprintLifecycleDepth > 0
 }

@@ -45,6 +45,7 @@ import {
   isBlueprintsRunnerEnabled,
   setBlueprintsRunnerEnabled,
 } from '../config/blueprintsRuntime'
+import { syncAllOpenInvoiceBlueprints } from '../components/blueprints/blueprintRunner'
 import '../styles/adminBlueprints.css'
 
 type BlueprintsPageTab = 'editor' | 'library' | 'activity'
@@ -361,12 +362,17 @@ export default function AdminBlueprints() {
                 onChange={(e) => {
                   setBlueprintsRunnerEnabled(e.target.checked)
                   setRunnerOn(e.target.checked)
-                  showToast(
-                    e.target.checked
-                      ? 'Live runner on — notes/status only; chase emails unchanged.'
-                      : 'Live runner off — old chase only.',
-                    'success'
-                  )
+                  if (e.target.checked) {
+                    const { assigned } = syncAllOpenInvoiceBlueprints('Live runner on')
+                    showToast(
+                      assigned > 0
+                        ? `Live runner on — ${assigned} open invoice(s) assigned.`
+                        : 'Live runner on — notes/status only; chase emails unchanged.',
+                      'success'
+                    )
+                  } else {
+                    showToast('Live runner off — old chase only.', 'success')
+                  }
                 }}
               />
               <span>Live runner</span>
@@ -414,12 +420,17 @@ export default function AdminBlueprints() {
               onChange={(e) => {
                 setBlueprintsRunnerEnabled(e.target.checked)
                 setRunnerOn(e.target.checked)
-                showToast(
-                  e.target.checked
-                    ? 'Live runner on — notes/status only; chase emails unchanged.'
-                    : 'Live runner off — old chase only.',
-                  'success'
-                )
+                if (e.target.checked) {
+                  const { assigned } = syncAllOpenInvoiceBlueprints('Live runner on')
+                  showToast(
+                    assigned > 0
+                      ? `Live runner on — ${assigned} open invoice(s) assigned.`
+                      : 'Live runner on — notes/status only; chase emails unchanged.',
+                    'success'
+                  )
+                } else {
+                  showToast('Live runner off — old chase only.', 'success')
+                }
               }}
             />
             <span>Live runner</span>

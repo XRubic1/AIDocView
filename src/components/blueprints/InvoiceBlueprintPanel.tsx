@@ -168,21 +168,28 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
     return () => window.removeEventListener(BLUEPRINT_RUNS_CHANGED_EVENT, refresh)
   }, [invoice.id, invoice])
 
-  const effectiveBlueprintId = assignment?.blueprintId ?? run?.blueprintId ?? ''
-  const effectiveBlueprintName =
-    assignment?.blueprintName ?? run?.blueprintName ?? ''
+  const liveRun =
+    run &&
+    (run.status === 'waiting' || run.status === 'active' || run.status === 'paused')
+      ? run
+      : null
 
-  const health = healthFromRun(run, Boolean(assignment || run))
+  // Never treat a finished hold (or any) run as the current assignment
+  const effectiveBlueprintId = assignment?.blueprintId ?? liveRun?.blueprintId ?? ''
+  const effectiveBlueprintName =
+    assignment?.blueprintName ?? liveRun?.blueprintName ?? ''
+
+  const health = healthFromRun(run, Boolean(assignment || liveRun))
   const runnerOn = isBlueprintsRunnerEnabled()
 
   const upcoming = useMemo(() => {
-    if (!run || run.status === 'completed' || run.status === 'stopped') return []
+    if (!liveRun) return []
     return getUpcomingStepsForInvoiceRun({
-      blueprintId: effectiveBlueprintId || run.blueprintId,
-      currentNodeId: run.currentNodeId,
-      currentStep: run.currentStep,
+      blueprintId: effectiveBlueprintId || liveRun.blueprintId,
+      currentNodeId: liveRun.currentNodeId,
+      currentStep: liveRun.currentStep,
     })
-  }, [run, effectiveBlueprintId])
+  }, [liveRun, effectiveBlueprintId])
 
   const handleAssign = (blueprintId: string) => {
     if (!blueprintId) {
@@ -280,12 +287,12 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
         </label>
         {assignment ? (
           <p className="inv-bp__meta">Assigned {formatWhen(assignment.assignedAt)}</p>
-        ) : run ? (
-          <p className="inv-bp__meta">Inferred from active run (assign to lock it in).</p>
+        ) : liveRun ? (
+          <p className="inv-bp__meta">Inferred from live run (assign to lock it in).</p>
         ) : (
           <p className="inv-bp__meta">
-            Assign a blueprint, or turn Live runner on and place on hold / send PPW — it will
-            auto-match. Live runner is {runnerOn ? 'on' : 'off'}.
+            Assign a blueprint, or turn Live runner on — every open invoice is assigned in
+            realtime (status changes, hydrate, hold/PPW). Live runner is {runnerOn ? 'on' : 'off'}.
           </p>
         )}
         <Link to="/admin/blueprints" className="inv-bp__link">
@@ -294,7 +301,9 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
       </section>
 
       <section className="inv-bp__card">
-        <div className="inv-bp__card-head">Current enrollment</div>
+        <div className="inv-bp__card-head">
+          {liveRun ? 'Current enrollment' : run ? 'Last enrollment' : 'Current enrollment'}
+        </div>
         {run ? (
           <div className="inv-bp__run">
             <div className="inv-bp__run-row">
@@ -308,6 +317,11 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
               <span className="inv-bp__muted">Blueprint</span>
               <span className="inv-bp__value">{run.blueprintName}</span>
             </div>
+            {!liveRun && (run.status === 'completed' || run.status === 'stopped') ? (
+              <p className="inv-bp__meta" style={{ marginTop: 8 }}>
+                Finished run — not the current assignment while this invoice is open.
+              </p>
+            ) : null}
             <div className="inv-bp__run-row">
               <span className="inv-bp__muted">Current step</span>
               <span className="inv-bp__value">{run.currentStep}</span>
@@ -339,8 +353,8 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
               Start enrollment
             </button>
             <p className="inv-bp__meta">
-              Creates a Waiting run from the assigned graph. With Live runner on, hold/PPW hooks
-              and Run blueprints advance it; Then-do writes notes/status only.
+              Creates a Waiting run from the assigned graph. With Live runner on, invoices
+              auto-assign on status changes, hydrate, hold, and PPW; Then-do writes notes/status only.
             </p>
           </div>
         )}

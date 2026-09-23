@@ -169,4 +169,42 @@ describe('blueprintAutoMatch', () => {
     expect(scoreBlueprintForEvent(low, 'hold', makeInvoice('hold'))).not.toBeNull()
     expect(scoreBlueprintForEvent(high, 'hold', makeInvoice('hold'))).not.toBeNull()
   })
+
+  it('scores sync event for open invoices matching Start filters', () => {
+    const chase = agingChaseBlueprint()
+    chase.nodes[0].data.triggerFilters!.invoices.minDaysPastDue = ''
+    const m = scoreBlueprintForEvent(chase, 'sync', makeInvoice('approved'))
+    expect(m).not.toBeNull()
+    expect(m!.score).toBeGreaterThan(0)
+  })
+
+  it('does not sync hold-only blueprint onto approved invoice', () => {
+    const holdOnly: SavedBlueprint = {
+      ...holdBlueprint(),
+      id: 'bp-hold-only',
+      nodes: [
+        {
+          id: 'n-start',
+          type: 'blueprint',
+          position: { x: 0, y: 0 },
+          data: {
+            kind: 'trigger',
+            label: 'Start',
+            triggerSubject: 'invoices',
+            triggerEntry: 'filter',
+            triggerFilters: {
+              ...defaultTriggerFilters(),
+              invoices: {
+                openOnly: true,
+                statuses: ['hold'],
+                minDaysPastDue: '',
+              },
+            },
+          },
+        },
+      ],
+      edges: [],
+    }
+    expect(scoreBlueprintForEvent(holdOnly, 'sync', makeInvoice('approved'))).toBeNull()
+  })
 })

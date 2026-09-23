@@ -99,6 +99,18 @@ Rules of thumb:
 - Do **not** leave a hold reminder waiting after the invoice is good and PPW is out.
 - **Match filters** blueprints also enroll from a **clock job** (daily/hourly), not only from events.
 
+### Realtime assignment (Live runner on)
+
+When **Live runner** is enabled:
+
+1. **All open invoices** are assigned to the best-matching blueprint on admin hydrate and when you turn Live runner on.
+2. **Status changes** (and realtime merges) re-sync assignment and wake any parked **When**.
+3. Event hooks still apply: hold / hold cleared / PPW / purchase.
+4. Unmatched **When** cards always **park** until the condition is true (every blueprint — not hold-only).
+5. Enrollment always starts at **Start** and advances into Wait / When / Then-do (never jumps over a When to a Wait).
+
+Then-do still writes **notes/status only**; broker chase emails stay on the old path.
+
 ### Example handoff
 
 | What happened | Hold reminder run | Paperwork status run |

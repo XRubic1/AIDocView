@@ -13,7 +13,13 @@ import {
 } from './blueprintTriggerFilters'
 import { normalizeWhenMatch } from './blueprintWhenMatch'
 
-export type BlueprintMatchEvent = 'hold' | 'hold_cleared' | 'ppw' | 'purchased'
+export type BlueprintMatchEvent =
+  | 'hold'
+  | 'hold_cleared'
+  | 'ppw'
+  | 'purchased'
+  /** Current open-A/R state — assign any Start that matches filters. */
+  | 'sync'
 
 export type BlueprintMatch = {
   blueprint: SavedBlueprint
@@ -183,6 +189,39 @@ export function scoreBlueprintForEvent(
       blueprint: bp,
       score,
       reason: 'paperwork / open-A/R Start',
+    }
+  }
+
+  if (event === 'sync') {
+    // Realtime assign: Start filters must pass for the invoice as it is now
+    if (!invoicePassesGate(invoice, filters)) return null
+    if (holdOnly(filters) && invoice.status !== 'hold') return null
+    // Removed-from-hold-only graphs: assign while on hold (park); release uses hold_cleared
+    if (hasWhenOnHold(bp.nodes, 'no') && !hasWhenOnHold(bp.nodes, 'yes')) {
+      if (invoice.status !== 'hold') return null
+      let score = 70
+      if (entry === 'event') score += 10
+      return {
+        blueprint: bp,
+        score,
+        reason: 'When · Removed from hold (park until clear)',
+      }
+    }
+    if (invoice.status === 'hold' && (holdOnly(filters) || hasWhenOnHold(bp.nodes, 'yes'))) {
+      let score = holdOnly(filters) ? 95 : 80
+      if (hasWhenOnHold(bp.nodes, 'yes')) score += 10
+      return { blueprint: bp, score, reason: 'hold track matches sync' }
+    }
+    if (holdOnly(filters)) return null
+    let score = 45
+    if (statuses.length === 0 || statuses.includes(invoice.status as never)) score += 25
+    if (entry === 'filter') score += 15
+    if (filters.invoices.minDaysPastDue) score += 10
+    if (score < 40) return null
+    return {
+      blueprint: bp,
+      score,
+      reason: 'Start filters match open invoice',
     }
   }
 

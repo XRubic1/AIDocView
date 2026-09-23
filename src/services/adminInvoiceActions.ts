@@ -7,6 +7,8 @@ import {
   onInvoiceHeld,
   onInvoiceHoldCleared,
 } from '../components/blueprints/blueprintRunner'
+import { persistInvoice } from './supabase/tenantPersist'
+import { persistWithFeedback } from './persistFeedback'
 
 const DEFAULT_ADMIN = 'Admin User'
 
@@ -35,24 +37,50 @@ export function approveAdminInvoice(
   if (!existing) return undefined
   if (TERMINAL_STATUS.has(existing.status)) return existing
 
-  const updated = updateInvoice(invoiceId, {
+  const wasHold = existing.status === 'hold'
+  const now = new Date().toISOString()
+  const patch: Partial<Invoice> = {
     status: 'approved',
     approved_by: approvedBy,
-    approved_at: new Date().toISOString(),
+    approved_at: now,
     hold_reason: undefined,
-  })
+  }
+
+  // So lists/badges stop treating leftover hold_reason notes as still on hold.
+  if (wasHold) {
+    const note: InvoiceNote = {
+      id: `note-hold-released-${Date.now()}`,
+      note: 'Hold released.',
+      created_by: approvedBy,
+      created_at: now,
+      type: 'status_update',
+      visibility: 'client',
+    }
+    const notes_history = [...(existing.notes_history || []), note]
+    patch.notes_history = notes_history
+    patch.notes = existing.notes
+      ? `${existing.notes}\nHold released.`
+      : 'Hold released.'
+  }
+
+  // Defer persist so blueprint Then-do notes land in the same row (avoid race wipe).
+  const updated = updateInvoice(invoiceId, patch, { deferPersist: true })
   // Object.assign leaves undefined; drop the key so persist sends null and UI stays clean.
   if (updated && 'hold_reason' in updated) {
     delete updated.hold_reason
   }
-  if (updated && existing.status === 'hold') {
+  if (updated && wasHold) {
     try {
       onInvoiceHoldCleared(invoiceId)
     } catch {
       /* runner optional */
     }
   }
-  return updated
+  const finalInv = getInvoiceById(invoiceId) ?? updated
+  if (finalInv) {
+    void persistWithFeedback('Invoice save', () => persistInvoice(finalInv))
+  }
+  return finalInv
 }
 
 /**
@@ -89,8 +117,14 @@ export function holdAdminInvoice(
     patch.notes = existing.notes ? `${existing.notes}\n${reason}` : reason
   }
 
-  const updated = updateInvoice(invoiceId, patch)
-  if (!updated || alreadyHeld) return updated
+  // Defer persist until after blueprint enroll (same row as any Then-do notes).
+  const updated = updateInvoice(invoiceId, patch, { deferPersist: true })
+  if (!updated || alreadyHeld) {
+    if (updated) {
+      void persistWithFeedback('Invoice save', () => persistInvoice(updated))
+    }
+    return updated
+  }
 
   // While the batch is still in verification, defer the client bell until Process.
   if (!isInvoicePendingClientReveal(updated)) {
@@ -110,7 +144,11 @@ export function holdAdminInvoice(
     /* runner optional */
   }
 
-  return updated
+  const finalInv = getInvoiceById(invoiceId) ?? updated
+  if (finalInv) {
+    void persistWithFeedback('Invoice save', () => persistInvoice(finalInv))
+  }
+  return finalInv
 }
 
 const AI_AUTO_NOTE =

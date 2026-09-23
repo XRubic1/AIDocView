@@ -7,6 +7,20 @@ import { persistWithFeedback } from '../services/persistFeedback'
 /** Mutable in-memory invoice store (hydrated from Supabase when configured). */
 export const mockInvoices: Invoice[] = []
 
+function queueBlueprintStatusSync(invoiceId: string): void {
+  queueMicrotask(() => {
+    try {
+      // Lazy import avoids circular deps (runner → mockInvoices → runner)
+      void import('../components/blueprints/blueprintRunner').then((mod) => {
+        if (mod.isBlueprintLifecycleHookActive()) return
+        mod.syncInvoiceBlueprints(invoiceId, 'status change')
+      })
+    } catch {
+      /* runner optional */
+    }
+  })
+}
+
 export const getInvoicesByBatchId = (batchId: string): Invoice[] => {
   return mockInvoices.filter((inv) => inv.batch_id === batchId)
 }
@@ -28,10 +42,17 @@ export function clearInvoices(): void {
 /** Merge an invoice row from Supabase realtime (no persist). */
 export function mergeInvoice(invoice: Invoice): void {
   const idx = mockInvoices.findIndex((i) => i.id === invoice.id)
+  const prevStatus = idx >= 0 ? mockInvoices[idx].status : undefined
   if (idx >= 0) {
     mockInvoices[idx] = { ...mockInvoices[idx], ...invoice }
   } else {
     mockInvoices.unshift(invoice)
+  }
+  const next = idx >= 0 ? mockInvoices[idx] : mockInvoices[0]
+  if (next && prevStatus !== next.status) {
+    queueBlueprintStatusSync(next.id)
+  } else if (idx < 0) {
+    queueBlueprintStatusSync(invoice.id)
   }
 }
 
@@ -72,12 +93,17 @@ export function updateInvoice(
   const inv = mockInvoices.find((i) => i.id === invoiceId)
   if (!inv) return undefined
   const batchId = inv.batch_id
+  const statusChanged = patch.status !== undefined && patch.status !== inv.status
   Object.assign(inv, patch, { updated_at: new Date().toISOString() })
   if (!options?.deferPersist) {
     void persistWithFeedback('Invoice save', () => persistInvoice(inv))
   }
   if (batchId && patch.status !== undefined) {
     syncBatchFees(batchId)
+  }
+  // Realtime blueprint assign when status changes (skip inside hold/PPW hooks)
+  if (statusChanged) {
+    queueBlueprintStatusSync(invoiceId)
   }
   return inv
 }
@@ -90,10 +116,14 @@ export async function updateInvoiceAsync(
   const inv = mockInvoices.find((i) => i.id === invoiceId)
   if (!inv) return undefined
   const batchId = inv.batch_id
+  const statusChanged = patch.status !== undefined && patch.status !== inv.status
   Object.assign(inv, patch, { updated_at: new Date().toISOString() })
   await persistOrThrow('invoice', () => persistInvoice(inv))
   if (batchId && patch.status !== undefined) {
     syncBatchFees(batchId)
+  }
+  if (statusChanged) {
+    queueBlueprintStatusSync(invoiceId)
   }
   return inv
 }

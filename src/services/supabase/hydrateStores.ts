@@ -56,6 +56,24 @@ import {
   stopTenantDataLiveSync,
 } from './tenantDataLiveSync'
 
+/** After hydrate, assign open invoices when Live runner is on. */
+function scheduleBlueprintAssignAll(reason: string): void {
+  queueMicrotask(() => {
+    try {
+      void import('../../components/blueprints/blueprintRunner').then((mod) => {
+        const result = mod.syncAllOpenInvoiceBlueprints(reason)
+        if (result.assigned > 0) {
+          console.info(
+            `[blueprints] ${reason}: ${result.assigned} open invoice(s) assigned/synced`
+          )
+        }
+      })
+    } catch {
+      /* runner optional */
+    }
+  })
+}
+
 export class HydrationError extends Error {
   constructor(
     message: string,
@@ -135,6 +153,7 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
     if (invoicesRes.error) errors.push(`invoices: ${invoicesRes.error.message}`)
     else if (invoicesRes.data) {
       hydrateInvoices((invoicesRes.data as InvoiceRow[]).map(invoiceRowToInvoice))
+      scheduleBlueprintAssignAll('hydrate admin')
     }
 
     if (batchesRes.error) errors.push(`batches: ${batchesRes.error.message}`)
@@ -270,6 +289,7 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
     if (invoicesRes.error) errors.push(`invoices: ${invoicesRes.error.message}`)
     else if (invoicesRes.data) {
       hydrateInvoices((invoicesRes.data as InvoiceRow[]).map(invoiceRowToInvoice))
+      // Blueprints are admin-side — no assign-all on carrier hydrate
     }
 
     if (batchesRes.error) errors.push(`batches: ${batchesRes.error.message}`)
