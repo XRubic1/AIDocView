@@ -111,7 +111,19 @@ export function onAuthStateChange(
 ): () => void {
   const supabase = requireSupabase()
   const { data } = supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'PASSWORD_RECOVERY') {
+    const hashType =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.hash.replace(/^#/, '')).get('type')
+        : null
+    const queryType =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('type')
+        : null
+    const linkType = hashType || queryType
+    if (
+      event === 'PASSWORD_RECOVERY' ||
+      (event === 'SIGNED_IN' && (linkType === 'recovery' || linkType === 'invite'))
+    ) {
       markPasswordSetupRequired()
     }
     callback(resolveSession(session))

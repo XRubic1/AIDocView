@@ -111,9 +111,29 @@ export default function PageLoader({
 }: PageLoaderProps) {
   const reducedMotion = usePrefersReducedMotion()
   const [logoFailed, setLogoFailed] = useState(false)
-  const logoSrc = fullScreen
-    ? '/credyx-logo-white-cred-no-bg.png'
-    : '/credyx-logo-black-cred-no-bg.png'
+  const [isLight, setIsLight] = useState(() => {
+    if (typeof document === 'undefined') return true
+    return document.documentElement.getAttribute('data-theme') !== 'dark'
+  })
+
+  useEffect(() => {
+    const read = () =>
+      setIsLight(document.documentElement.getAttribute('data-theme') !== 'dark')
+    read()
+    const observer = new MutationObserver(read)
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    })
+    return () => observer.disconnect()
+  }, [])
+
+  const logoSrc =
+    fullScreen || Boolean(title)
+      ? isLight
+        ? '/credyx-logo-black-cred-no-bg.png'
+        : '/credyx-logo-white-cred-no-bg.png'
+      : '/credyx-logo-black-cred-no-bg.png'
 
   const determinate =
     typeof progress === 'number' && Number.isFinite(progress)

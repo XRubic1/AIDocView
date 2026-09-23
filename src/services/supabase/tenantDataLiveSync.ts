@@ -30,7 +30,10 @@ export type TenantDataTable =
   | 'brokers'
   | 'batch_processing_jobs'
 
-const POLL_INTERVAL_MS = 45_000
+/** Backup poll while realtime is connected — catches missed batch status events. */
+const POLL_INTERVAL_MS = 12_000
+/** Slower poll only used before the channel is SUBSCRIBED (or after errors). */
+const POLL_INTERVAL_DISCONNECTED_MS = 8_000
 
 type SyncScope = {
   principal: 'admin' | 'client'
@@ -258,11 +261,12 @@ async function refreshTenantDataFromServer(scope: SyncScope): Promise<void> {
   }
 }
 
-function startPolling(scope: SyncScope): void {
-  if (pollTimer || typeof window === 'undefined') return
+function startPolling(scope: SyncScope, intervalMs = POLL_INTERVAL_MS): void {
+  if (typeof window === 'undefined') return
+  stopPolling()
   pollTimer = setInterval(() => {
     void refreshTenantDataFromServer(scope)
-  }, POLL_INTERVAL_MS)
+  }, intervalMs)
 }
 
 function stopPolling(): void {
@@ -391,15 +395,17 @@ export function ensureTenantDataLiveSync(
     )
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') {
-        stopPolling()
+        // Keep a light backup poll so batch status stays live even if a
+        // postgres_changes event is dropped (RLS / publication gaps).
+        startPolling(nextScope, POLL_INTERVAL_MS)
       }
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        startPolling(nextScope)
+        startPolling(nextScope, POLL_INTERVAL_DISCONNECTED_MS)
       }
     })
 
   realtimeChannel = channel
-  startPolling(nextScope)
+  startPolling(nextScope, POLL_INTERVAL_DISCONNECTED_MS)
 }
 
 /** Tear down tenant realtime subscriptions (sign-out / principal change). */

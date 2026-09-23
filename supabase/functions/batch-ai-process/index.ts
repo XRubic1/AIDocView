@@ -56,6 +56,7 @@ type InvoiceRow = {
   client_name: string | null
   document_doc_ids: string[] | null
   ai_review_status: string | null
+  ai_review_snapshot?: string | null
 }
 
 type Fingerprint = {
@@ -64,7 +65,33 @@ type Fingerprint = {
   kind: string
   loadNumbers?: string[]
   broker?: string
+  carrier?: string
+  pickup?: string
+  delivery?: string
+  rateAmount?: number
   extract?: Record<string, unknown>
+}
+
+type CheckStatus = 'ok' | 'issue' | 'warning' | 'info' | 'missing'
+
+type LoadCheckRow = {
+  id: string
+  label: string
+  status: CheckStatus
+  summary: string
+  detail?: string
+  excelValue?: string
+  documentValue?: string
+}
+
+type PaperworkFields = {
+  loadNumber?: string
+  amount?: number
+  brokerName?: string
+  brokerDomain?: string
+  carrierName?: string
+  pickup?: string
+  destinations?: string
 }
 
 function json(status: number, body: unknown) {
@@ -86,6 +113,113 @@ function parseFingerprints(raw: string | null | undefined): Map<string, Fingerpr
     /* ignore */
   }
   return map
+}
+
+function normalizeId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+}
+
+function namesAlign(a?: string | null, b?: string | null): boolean {
+  if (!a?.trim() || !b?.trim()) return false
+  const left = a.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+  const right = b.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (!left || !right) return false
+  return left === right || left.includes(right) || right.includes(left)
+}
+
+function loadKeysAlign(a?: string | null, b?: string | null): boolean {
+  if (!a?.trim() || !b?.trim()) return false
+  const left = normalizeId(a)
+  const right = normalizeId(b)
+  if (!left || !right) return false
+  return left === right || left.endsWith(right) || right.endsWith(left)
+}
+
+function checkRow(
+  id: string,
+  label: string,
+  status: CheckStatus,
+  summary: string,
+  onFile?: string,
+  paperwork?: string
+): LoadCheckRow {
+  return {
+    id,
+    label,
+    status,
+    summary,
+    detail: `On file: ${onFile?.trim() || '—'} · Paperwork: ${paperwork?.trim() || '—'}`,
+    excelValue: onFile,
+    documentValue: paperwork,
+  }
+}
+
+function formatStop(stop: unknown): string | undefined {
+  if (!stop) return undefined
+  if (typeof stop === 'string') return stop.trim() || undefined
+  if (typeof stop !== 'object') return undefined
+  const o = stop as Record<string, unknown>
+  const city = String(o.city ?? '').trim()
+  const state = String(o.state ?? '').trim()
+  if (city && state) return `${city}, ${state}`
+  return city || state || undefined
+}
+
+/** Pull display fields from DocSort fingerprint extracts for the UI "Extracted from paperwork" panel. */
+function paperworkFromFingerprints(fps: Fingerprint[], inv: InvoiceRow): PaperworkFields {
+  const rc = fps.find((f) => f.kind === 'rate_confirmation')
+  const extract = (rc?.extract ?? {}) as Record<string, unknown>
+  const rateCon = (extract.rateConParse ?? {}) as Record<string, unknown>
+  const destinations = Array.isArray(rateCon.destinations) ? rateCon.destinations : []
+  const lastStop = destinations[destinations.length - 1]
+
+  const loadNumber =
+    String(rateCon.load_number ?? extract.loadNumber ?? '').trim() ||
+    rc?.loadNumbers?.[0] ||
+    inv.load_number ||
+    undefined
+  const amount =
+    typeof rateCon.rate_total === 'number' && rateCon.rate_total > 0
+      ? rateCon.rate_total
+      : typeof rc?.rateAmount === 'number' && rc.rateAmount > 0
+        ? rc.rateAmount
+        : inv.amount > 0
+          ? inv.amount
+          : undefined
+  const brokerName =
+    String(rateCon.broker_name ?? '').trim() || rc?.broker || inv.broker_name || undefined
+  const carrierName =
+    String(rateCon.carrier_name ?? '').trim() || rc?.carrier || inv.client_name || undefined
+  const pickup = formatStop(rateCon.origin) || rc?.pickup || undefined
+  const destinationsLine =
+    destinations
+      .map((d) => formatStop(d))
+      .filter(Boolean)
+      .join(' → ') ||
+    rc?.delivery ||
+    undefined
+
+  return {
+    loadNumber: loadNumber || undefined,
+    amount,
+    brokerName: brokerName || undefined,
+    carrierName: carrierName || undefined,
+    pickup,
+    destinations: destinationsLine || undefined,
+  }
+}
+
+/** True when a stored snapshot cannot render in InvoiceAiReviewOutcomePanel. */
+function isMalformedAiReviewSnapshot(raw: string | null | undefined): boolean {
+  if (!raw) return true
+  try {
+    const parsed = JSON.parse(raw) as { requiredAll?: unknown }
+    const rows = parsed.requiredAll
+    if (!Array.isArray(rows) || rows.length === 0) return true
+    return rows.some((row) => typeof row === 'string' || !row || typeof row !== 'object' || !('status' in (row as object)))
+  } catch {
+    return true
+  }
 }
 
 /** Heuristic verification from DocSort extract JSON (no second vision pass). */
@@ -122,23 +256,100 @@ function verifyInvoiceFromCatalog(
   }
 
   const hasRc = fps.some((f) => f.kind === 'rate_confirmation' || /rate/i.test(f.kind))
-  const hasBol = fps.some((f) => f.kind === 'bol' || f.kind === 'bill_of_lading' || /bol/i.test(f.kind))
-  const issues: string[] = []
-  if (!hasRc) issues.push('Missing rate confirmation')
-  if (!hasBol) issues.push('Missing BOL')
+  const hasBol = fps.some(
+    (f) => f.kind === 'bol' || f.kind === 'bill_of_lading' || /bol/i.test(f.kind)
+  )
+  const paperwork = paperworkFromFingerprints(fps, inv)
 
-  const load = (inv.load_number || '').trim()
-  if (load) {
-    const loadHit = fps.some((f) =>
-      (f.loadNumbers ?? []).some((n) => normalizeId(n) === normalizeId(load))
-    )
-    if (!loadHit) issues.push(`Load # ${load} not found on attached docs`)
-  }
+  const loadOnFile = (inv.load_number || '').trim()
+  const loadPaper = (paperwork.loadNumber || '').trim()
+  const loadOk =
+    (!loadOnFile && !loadPaper) ||
+    (Boolean(loadOnFile) && Boolean(loadPaper) && loadKeysAlign(loadOnFile, loadPaper)) ||
+    (Boolean(loadOnFile) &&
+      fps.some((f) => (f.loadNumbers ?? []).some((n) => loadKeysAlign(n, loadOnFile))))
 
-  const ready = issues.length === 0
+  const amountOnFile = inv.amount
+  const amountPaper = paperwork.amount
+  const amountOk =
+    amountPaper == null ||
+    amountOnFile == null ||
+    Math.abs(Number(amountOnFile) - Number(amountPaper)) < 0.02
+
+  const brokerOnFile = (inv.broker_name || '').trim()
+  const brokerPaper = (paperwork.brokerName || '').trim()
+  const brokerOk = !brokerPaper || !brokerOnFile || namesAlign(brokerOnFile, brokerPaper)
+
+  const carrierOnFile = (inv.client_name || '').trim()
+  const carrierPaper = (paperwork.carrierName || '').trim()
+  const carrierOk = !carrierPaper || !carrierOnFile || namesAlign(carrierOnFile, carrierPaper)
+
+  const requiredAll: LoadCheckRow[] = [
+    checkRow(
+      'req_load',
+      'Load number',
+      loadOk ? 'ok' : 'issue',
+      loadOk
+        ? 'Load number matches the packet on file.'
+        : 'Load number on paperwork does not match the packet.',
+      loadOnFile || undefined,
+      loadPaper || undefined
+    ),
+    checkRow(
+      'req_broker',
+      'Broker name',
+      brokerOk ? 'ok' : 'issue',
+      brokerOk
+        ? 'Broker name matches the packet on file.'
+        : 'Broker name on paperwork does not match the packet.',
+      brokerOnFile || undefined,
+      brokerPaper || undefined
+    ),
+    checkRow(
+      'req_amount',
+      'Freight amount',
+      amountOk ? 'ok' : 'issue',
+      amountOk
+        ? 'Freight amount matches the packet on file.'
+        : 'Freight amount on paperwork does not match the packet.',
+      amountOnFile != null ? String(amountOnFile) : undefined,
+      amountPaper != null ? String(amountPaper) : undefined
+    ),
+    checkRow(
+      'req_bol',
+      'Bill of lading (signed & delivery address)',
+      hasBol ? 'ok' : 'issue',
+      hasBol ? 'BOL is present in the packet.' : 'Missing BOL',
+      hasBol ? 'present' : 'missing',
+      hasBol ? 'present' : 'missing'
+    ),
+    checkRow(
+      'req_carrier',
+      'Carrier name',
+      carrierOk ? 'ok' : 'issue',
+      carrierOk
+        ? 'Carrier name matches the account on file.'
+        : 'Carrier name on paperwork does not match the account.',
+      carrierOnFile || undefined,
+      carrierPaper || undefined
+    ),
+    checkRow(
+      'req_rc',
+      'Rate confirmation',
+      hasRc ? 'ok' : 'issue',
+      hasRc ? 'Rate confirmation is present in the packet.' : 'Missing rate confirmation',
+      hasRc ? 'present' : 'missing',
+      hasRc ? 'present' : 'missing'
+    ),
+  ]
+
+  const requiredPassed = requiredAll.filter((r) => r.status === 'ok')
+  const requiredFailed = requiredAll.filter((r) => r.status !== 'ok')
+  const issues = requiredFailed.map((r) => r.summary)
+  const ready = requiredFailed.length === 0
   const headline = ready ? 'Good to go' : 'Needs additional work'
   const detail = ready
-    ? 'DocSort extracts look complete (RC + BOL). Credyx can still re-check in AI verification.'
+    ? `All ${requiredAll.length} required checks passed.`
     : issues.join('; ')
 
   return {
@@ -149,25 +360,19 @@ function verifyInvoiceFromCatalog(
       headline,
       detail,
       ready,
-      passCount: ready ? 2 : Math.max(0, 2 - issues.length),
-      requiredTotal: 2,
-      requiredAll: ['Rate confirmation present', 'BOL present'],
-      requiredFailed: issues,
-      requiredPassed: [
-        hasRc ? 'Rate confirmation present' : null,
-        hasBol ? 'BOL present' : null,
-      ].filter(Boolean),
+      passCount: requiredPassed.length,
+      requiredTotal: requiredAll.length,
+      requiredAll,
+      requiredFailed,
+      requiredPassed,
       additional: [],
       issues,
       warnings: [],
+      paperwork,
       reviewedAt: new Date().toISOString(),
       source: 'batch-ai-process-edge',
     },
   }
-}
-
-function normalizeId(value: string): string {
-  return value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
 }
 
 function minimalSnapshot(detail: string, issues: string[]) {
@@ -177,12 +382,13 @@ function minimalSnapshot(detail: string, issues: string[]) {
     ready: false,
     passCount: 0,
     requiredTotal: 0,
-    requiredAll: [],
-    requiredFailed: [],
-    requiredPassed: [],
-    additional: [],
+    requiredAll: [] as LoadCheckRow[],
+    requiredFailed: [] as LoadCheckRow[],
+    requiredPassed: [] as LoadCheckRow[],
+    additional: [] as LoadCheckRow[],
     issues,
-    warnings: [],
+    warnings: [] as string[],
+    paperwork: {},
     reviewedAt: new Date().toISOString(),
     source: 'batch-ai-process-edge',
   }
@@ -308,7 +514,7 @@ Deno.serve(async (req) => {
           const { data: invoices, error: invErr } = await admin
             .from('invoices')
             .select(
-              'id, invoice_number, load_number, amount, broker_name, client_name, document_doc_ids, ai_review_status'
+              'id, invoice_number, load_number, amount, broker_name, client_name, document_doc_ids, ai_review_status, ai_review_snapshot'
             )
             .eq('batch_id', job.batch_id)
           if (invErr) throw new Error(invErr.message)
@@ -404,15 +610,23 @@ Deno.serve(async (req) => {
 
         const catalog = parseFingerprints(batch.doc_sort_snapshot as string | null)
         if (catalog.size === 0 || list.length === 0) {
-          // Legacy verify-only batches without extracts — wait for the browser intake.
+          // Packets without a DocSort snapshot need a browser re-scan — don't spin the cron.
+          const reason =
+            list.length === 0 ? 'Waiting for invoices' : 'Waiting for DocSort snapshot'
+          const spinForever = list.length > 0 && catalog.size === 0
           await admin
             .from('batch_processing_jobs')
             .update({
-              status: 'pending',
-              attempts: Math.max(0, (job.attempts ?? 1) - 1),
+              status: spinForever ? 'succeeded' : 'pending',
+              attempts: spinForever
+                ? job.attempts
+                : Math.max(0, (job.attempts ?? 1) - 1),
               locked_at: null,
               locked_by: null,
-              last_error: list.length === 0 ? 'Waiting for invoices' : 'Waiting for DocSort snapshot',
+              last_error: spinForever
+                ? 'Invoices exist but DocSort snapshot is empty — open AI verification and Re-scan paperwork.'
+                : reason,
+              finished_at: spinForever ? new Date().toISOString() : null,
               updated_at: new Date().toISOString(),
             })
             .eq('id', job.id)
@@ -429,12 +643,13 @@ Deno.serve(async (req) => {
         let needsWorkCount = 0
 
         for (const inv of list) {
-          // Skip invoices already reviewed unless not_run.
-          if (
+          // Skip finished reviews unless the stored snapshot is malformed
+          // (legacy edge writes used plain strings for requiredAll — UI can't render those).
+          const finished =
             inv.ai_review_status &&
             inv.ai_review_status !== 'not_run' &&
             inv.ai_review_status !== 'running'
-          ) {
+          if (finished && !isMalformedAiReviewSnapshot(inv.ai_review_snapshot)) {
             if (inv.ai_review_status === 'ready') readyCount += 1
             else needsWorkCount += 1
             continue

@@ -1,43 +1,92 @@
 /**
  * First-login / recovery: create a portal password after the welcome or reset link.
+ * This page is only for email-link sessions — create-password is not a public self-serve flow.
  */
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, KeyRound } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { updateClientPassword } from '../services/clientAuthService'
 import {
-  requestClientPasswordReset,
-  updateClientPassword,
-} from '../services/clientAuthService'
-import { clientNeedsPasswordSetup } from '../services/sessionService'
+  clientNeedsPasswordSetup,
+  markPasswordSetupRequired,
+} from '../services/sessionService'
 import { fetchClientById } from '../services/clientRegistry'
+import { getSupabase } from '../lib/supabase'
 import '../styles/credyxAuth.css'
+
+/** True when the URL looks like an auth recovery / invite redirect. */
+function urlSuggestsPasswordSetup(): boolean {
+  if (typeof window === 'undefined') return false
+  const hash = window.location.hash.replace(/^#/, '')
+  const hashParams = new URLSearchParams(hash)
+  const query = new URLSearchParams(window.location.search)
+  const type = hashParams.get('type') || query.get('type')
+  if (type === 'recovery' || type === 'invite' || type === 'magiclink') return true
+  if (hashParams.has('access_token') || query.has('code')) return true
+  return false
+}
 
 export default function ClientSetupPassword() {
   const navigate = useNavigate()
   const { resolved, isReady, refreshSession } = useAuth()
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [email, setEmail] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
-  const [info, setInfo] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [awaitingLinkSession, setAwaitingLinkSession] = useState(() => urlSuggestsPasswordSetup())
 
   const hasSession = Boolean(resolved.session)
   const needsSetup = clientNeedsPasswordSetup(resolved.user)
 
   useEffect(() => {
-    if (!isReady) return
+    if (!urlSuggestsPasswordSetup()) return
+    markPasswordSetupRequired()
+  }, [])
+
+  // Give Supabase a moment to exchange hash/code tokens into a session.
+  useEffect(() => {
+    if (!awaitingLinkSession) return
+    if (hasSession) {
+      setAwaitingLinkSession(false)
+      return
+    }
+    let cancelled = false
+    const supabase = getSupabase()
+    const trySession = async () => {
+      if (!supabase) return
+      const { data } = await supabase.auth.getSession()
+      if (cancelled) return
+      if (data.session) {
+        markPasswordSetupRequired()
+        await refreshSession()
+        setAwaitingLinkSession(false)
+      }
+    }
+    void trySession()
+    const timer = window.setTimeout(() => {
+      if (cancelled) return
+      void trySession().finally(() => {
+        if (!cancelled) setAwaitingLinkSession(false)
+      })
+    }, 2500)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [awaitingLinkSession, hasSession, refreshSession])
+
+  useEffect(() => {
+    if (!isReady || awaitingLinkSession) return
     if (hasSession && !needsSetup && resolved.principal === 'client') {
       navigate('/client/dashboard', { replace: true })
     }
-  }, [isReady, hasSession, needsSetup, resolved.principal, navigate])
+  }, [isReady, hasSession, needsSetup, resolved.principal, navigate, awaitingLinkSession])
 
   const handleCreatePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    setInfo('')
     if (password.length < 8) {
       setError('Password must be at least 8 characters.')
       return
@@ -67,28 +116,9 @@ export default function ClientSetupPassword() {
     }
   }
 
-  const handleRequestLink = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setInfo('')
-    if (!email.trim()) {
-      setError('Enter the email on your Credyx account.')
-      return
-    }
-    setIsLoading(true)
-    try {
-      const result = await requestClientPasswordReset(email.trim())
-      if (!result.ok) {
-        setError(result.error ?? 'Could not send setup email.')
-        return
-      }
-      setInfo('If an account exists for that email, we sent a link to create your password.')
-    } catch {
-      setError('Could not send setup email. Please try again.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const showPasswordForm = hasSession && (needsSetup || awaitingLinkSession || urlSuggestsPasswordSetup())
+  const showWaiting = awaitingLinkSession && !hasSession
+  const showLinkRequired = isReady && !awaitingLinkSession && !hasSession
 
   return (
     <div className="credyx-auth">
@@ -136,7 +166,7 @@ export default function ClientSetupPassword() {
             Create your password, <em className="credyx-auth__accent">then you&apos;re in.</em>
           </h2>
           <p className="credyx-auth__brand-sub">
-            Your portal is ready. Set a password on first login — we&apos;ll handle paperwork and keep you updated, paid on time.
+            Your portal is ready. Set a password from the link Credyx sent you — we&apos;ll handle paperwork and keep you updated, paid on time.
           </p>
         </div>
         <p className="credyx-auth__brand-foot">Credyx · Paid on time</p>
@@ -155,118 +185,122 @@ export default function ClientSetupPassword() {
           </div>
 
           <div className="credyx-auth__heading">
-            <h1>{hasSession ? 'Create your password' : 'Set up your account'}</h1>
+            <h1>
+              {showPasswordForm
+                ? 'Create your password'
+                : showWaiting
+                  ? 'Opening your setup link…'
+                  : 'Use your email link'}
+            </h1>
             <p>
-              {hasSession
+              {showPasswordForm
                 ? 'Choose a password for the Credyx client portal. You will use this on every sign-in.'
-                : 'Open the link from your welcome email, or enter your email and we will send a new setup link.'}
+                : showWaiting
+                  ? 'Hang on while we verify your link.'
+                  : 'Password setup is sent by Credyx when your account is activated. If you already have a login, use Forgot password on the sign-in page.'}
             </p>
           </div>
 
-          <form
-            onSubmit={hasSession ? handleCreatePassword : handleRequestLink}
-            className="credyx-auth__form"
-            noValidate
-          >
-            {!hasSession && (
+          {showPasswordForm && (
+            <form onSubmit={handleCreatePassword} className="credyx-auth__form" noValidate>
               <div className="credyx-auth__field">
-                <label htmlFor="setup-email">Email address</label>
+                <label htmlFor="setup-password">New password</label>
+                <div className="credyx-auth__input-wrap">
+                  <input
+                    id="setup-password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value)
+                      setError('')
+                    }}
+                    placeholder="At least 8 characters"
+                    className="credyx-auth__input"
+                    required
+                    disabled={isLoading}
+                  />
+                  <button
+                    type="button"
+                    className="credyx-auth__eye"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={isLoading}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="credyx-auth__field">
+                <label htmlFor="setup-confirm">Confirm password</label>
                 <input
-                  id="setup-email"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
+                  id="setup-confirm"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={confirm}
                   onChange={(e) => {
-                    setEmail(e.target.value)
+                    setConfirm(e.target.value)
                     setError('')
                   }}
-                  placeholder="you@company.com"
+                  placeholder="Re-enter password"
                   className="credyx-auth__input"
                   required
                   disabled={isLoading}
                 />
               </div>
-            )}
 
-            {hasSession && (
-              <>
-                <div className="credyx-auth__field">
-                  <label htmlFor="setup-password">New password</label>
-                  <div className="credyx-auth__input-wrap">
-                    <input
-                      id="setup-password"
-                      type={showPassword ? 'text' : 'password'}
-                      autoComplete="new-password"
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value)
-                        setError('')
-                      }}
-                      placeholder="At least 8 characters"
-                      className="credyx-auth__input"
-                      required
-                      disabled={isLoading}
-                    />
-                    <button
-                      type="button"
-                      className="credyx-auth__eye"
-                      onClick={() => setShowPassword(!showPassword)}
-                      disabled={isLoading}
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
+              {error && (
+                <div className="credyx-auth__alert credyx-auth__alert--error" role="alert">
+                  {error}
                 </div>
-                <div className="credyx-auth__field">
-                  <label htmlFor="setup-confirm">Confirm password</label>
-                  <input
-                    id="setup-confirm"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    value={confirm}
-                    onChange={(e) => {
-                      setConfirm(e.target.value)
-                      setError('')
-                    }}
-                    placeholder="Re-enter password"
-                    className="credyx-auth__input"
-                    required
-                    disabled={isLoading}
-                  />
-                </div>
-              </>
-            )}
-
-            {(error || info) && (
-              <div
-                className={`credyx-auth__alert ${error ? 'credyx-auth__alert--error' : 'credyx-auth__alert--info'}`}
-                role="alert"
-              >
-                {error || info}
-              </div>
-            )}
-
-            <button type="submit" className="credyx-auth__submit" disabled={isLoading || !isReady}>
-              {isLoading ? (
-                <>
-                  <span className="credyx-auth__spinner" aria-hidden="true" />
-                  <span>{hasSession ? 'Saving…' : 'Sending…'}</span>
-                </>
-              ) : (
-                <>
-                  <KeyRound className="w-4 h-4" aria-hidden="true" />
-                  <span>{hasSession ? 'Save password and continue' : 'Send setup link'}</span>
-                </>
               )}
-            </button>
-          </form>
+
+              <button type="submit" className="credyx-auth__submit" disabled={isLoading || !isReady}>
+                {isLoading ? (
+                  <>
+                    <span className="credyx-auth__spinner" aria-hidden="true" />
+                    <span>Saving…</span>
+                  </>
+                ) : (
+                  <>
+                    <KeyRound className="w-4 h-4" aria-hidden="true" />
+                    <span>Save password and continue</span>
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          {showWaiting && (
+            <div className="credyx-auth__form">
+              <div className="credyx-auth__alert credyx-auth__alert--info" role="status">
+                Verifying your link…
+              </div>
+            </div>
+          )}
+
+          {showLinkRequired && (
+            <div className="credyx-auth__form">
+              <div className="credyx-auth__alert credyx-auth__alert--info" role="status">
+                Open the welcome or reset link from your email, or use Forgot password on the sign-in
+                page. Credyx sends first-time setup links from the admin portal — they are not
+                requested here.
+              </div>
+              <Link to="/client/login" className="credyx-auth__submit" style={{ textAlign: 'center' }}>
+                Back to sign in
+              </Link>
+            </div>
+          )}
 
           <div className="credyx-auth__footer">
             <p>
               Already set a password?{' '}
               <Link to="/client/login" className="credyx-auth__text-btn">
                 Sign in
+              </Link>
+              {' · '}
+              <Link to="/client/login" className="credyx-auth__text-btn" state={{ forgot: true }}>
+                Forgot password
               </Link>
             </p>
           </div>

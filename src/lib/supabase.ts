@@ -43,7 +43,16 @@ export function isSupabaseConfigured(): boolean {
 /** Browser Supabase client — null when env vars are missing. */
 export function getSupabase(): SupabaseClient | null {
   if (!url || !key) return null
-  if (!client) client = createClient(url, key)
+  if (!client) {
+    client = createClient(url, key, {
+      auth: {
+        detectSessionInUrl: true,
+        persistSession: true,
+        autoRefreshToken: true,
+        flowType: 'pkce',
+      },
+    })
+  }
   return client
 }
 

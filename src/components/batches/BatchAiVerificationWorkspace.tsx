@@ -24,7 +24,8 @@ import { getAdminUserDisplayName } from '../../config/adminNav'
 import { hydrateIntakeDraftFromBatch } from '../../utils/buildIntakeDraftFromBatch'
 import { groupPacketDocuments } from '../../utils/batchPacketDocs'
 import { formatCurrency } from '../../utils/format'
-import { invoiceAiReviewSnapshotFor } from '../../utils/invoiceAiReviewSnapshot'
+import { invoiceAiReviewSnapshotFor, isMalformedAiReviewSnapshotRaw } from '../../utils/invoiceAiReviewSnapshot'
+import { parseFingerprintCatalog } from '../../products/docSort/utils/docSortSnapshot'
 import {
   invoicePatchFromPaperwork,
   snapshotAfterPacketResolve,
@@ -427,15 +428,27 @@ export default function BatchAiVerificationWorkspace({
 
   // Pull AI checks from DocSort extract JSON only — never re-scan paperwork on open.
   // Vision already ran during packet creation; Verification is human OK/Hold on those results.
+  // Rebuild legacy edge snapshots when DocSort extracts are available to rebuild from.
   useEffect(() => {
     if (loading || !draft || autoReviewStarted.current) return
     if (batch?.status === 'creating' || batch?.sort_status === 'sorting') return
     if (invoices.length === 0) return
-    const needsRun = invoices.some(
-      (inv) => !inv.ai_review_status || inv.ai_review_status === 'not_run'
-    )
-    if (!needsRun) return
     if (!isAIReviewEnabled()) return
+
+    const catalog = parseFingerprintCatalog(batch?.doc_sort_snapshot)
+    const notRunIds = invoices
+      .filter((inv) => !inv.ai_review_status || inv.ai_review_status === 'not_run')
+      .map((inv) => inv.id)
+    // Only force-rebuild malformed reviews when extracts exist — otherwise the UI
+    // normalizer shows labels, and the user can click Re-scan paperwork.
+    const malformedIds =
+      catalog.size > 0
+        ? invoices
+            .filter((inv) => isMalformedAiReviewSnapshotRaw(inv.ai_review_snapshot))
+            .map((inv) => inv.id)
+        : []
+    const targetIds = [...new Set([...notRunIds, ...malformedIds])]
+    if (targetIds.length === 0) return
 
     autoReviewStarted.current = true
     if (batch && batch.status === 'ready_to_post') {
@@ -443,13 +456,16 @@ export default function BatchAiVerificationWorkspace({
     }
     void (async () => {
       try {
-        // allowVision: false → assembleBatchReviewFromDocuments(reviewsFromCatalog)
         await runBatchAiReview(
           batchId,
           (p) => {
             applyReviewProgress(p)
           },
-          { allowVision: false }
+          {
+            allowVision: false,
+            force: malformedIds.length > 0,
+            invoiceIds: targetIds,
+          }
         )
         refreshInvoices()
       } catch (err) {

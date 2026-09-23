@@ -68,11 +68,17 @@ function contactName(user: AuthUser): string {
 }
 
 function confirmationUrl(tokenHash: string, type: string, redirectTo: string, siteUrl: string): string {
-  const base = (Deno.env.get('SUPABASE_URL') || siteUrl || '').replace(/\/$/, '')
+  const supabaseUrl = (Deno.env.get('SUPABASE_URL') || '').replace(/\/$/, '')
+  const base = supabaseUrl || (siteUrl || '').replace(/\/$/, '')
+  // Prefer app origin for redirect so recovery lands on setup-password, not the API host.
+  const site = (Deno.env.get('SITE_URL') || siteUrl || '').replace(/\/$/, '')
+  const safeRedirect =
+    redirectTo?.trim() ||
+    (site ? `${site}/client/setup-password` : base)
   const params = new URLSearchParams({
     token: tokenHash,
     type,
-    redirect_to: redirectTo || base,
+    redirect_to: safeRedirect,
   })
   return `${base}/auth/v1/verify?${params.toString()}`
 }

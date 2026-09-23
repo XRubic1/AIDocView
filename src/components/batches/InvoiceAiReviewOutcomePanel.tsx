@@ -74,17 +74,27 @@ export default function InvoiceAiReviewOutcomePanel({
             {passCount}/{total || 7} checks passed
           </p>
           <ul className="client-ai-verify__checks">
-            {checks.map((row) => {
-              const ok = checkPassed(row)
-              const resolvable = isResolvablePacketCheck(row)
-              const label = resolvable ? resolvableCheckLabel(row) : row.label
+            {checks.map((row, index) => {
+              // Defensive: legacy snapshots may still hand us a string until rebuild lands.
+              const normalized =
+                typeof row === 'string'
+                  ? {
+                      id: `legacy_${index}`,
+                      label: row,
+                      status: 'ok' as const,
+                      summary: row,
+                    }
+                  : row
+              const ok = checkPassed(normalized)
+              const resolvable = isResolvablePacketCheck(normalized)
+              const label = resolvable ? resolvableCheckLabel(normalized) : normalized.label
               return (
                 <li
-                  key={row.id}
+                  key={normalized.id || `check-${index}`}
                   className={`client-ai-verify__check${
                     ok ? ' is-ok' : resolvable ? ' is-warn' : ' is-fail'
                   }`}
-                  title={resolvable ? row.detail || row.summary : row.summary || undefined}
+                  title={resolvable ? normalized.detail || normalized.summary : normalized.summary || undefined}
                 >
                   {ok ? (
                     <Check className="w-3 h-3 shrink-0" />
@@ -96,7 +106,7 @@ export default function InvoiceAiReviewOutcomePanel({
                     <X className="w-3 h-3 shrink-0" />
                   )}
                   <span className="client-ai-verify__check-label">{label}</span>
-                  {!ok && !resolvable && row.status === 'warning' && (
+                  {!ok && !resolvable && normalized.status === 'warning' && (
                     <AlertTriangle className="w-3 h-3 shrink-0 opacity-70" />
                   )}
                 </li>

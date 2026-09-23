@@ -11,7 +11,7 @@ export default function ClientLogin() {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
-  const sessionMessage = (location.state as { message?: string } | null)?.message
+  const sessionMessage = (location.state as { message?: string; forgot?: boolean } | null)?.message
   const returnPath = getSafeClientReturnPath(
     searchParams.get('next'),
     (location.state as { from?: string } | null)?.from
@@ -39,7 +39,9 @@ export default function ClientLogin() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [showForgot, setShowForgot] = useState(false)
+  const [showForgot, setShowForgot] = useState(
+    () => Boolean((location.state as { forgot?: boolean } | null)?.forgot)
+  )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -328,15 +330,6 @@ export default function ClientLogin() {
               New client?{' '}
               <button type="button" className="credyx-auth__text-btn" onClick={() => navigate('/enroll')}>
                 Enroll your company
-              </button>
-              {' · '}
-              First login?{' '}
-              <button
-                type="button"
-                className="credyx-auth__text-btn"
-                onClick={() => navigate('/client/setup-password')}
-              >
-                Create your password
               </button>
             </p>
           </div>

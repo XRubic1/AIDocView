@@ -56,9 +56,13 @@ export function formatNewBrokerName(name: string): string {
 
 /** Add broker to store and persist to Supabase when configured. */
 export function addBroker(broker: Broker): Broker {
+  const terms = Number(broker.payment_terms_days)
   const created: Broker = {
     ...broker,
     name: formatNewBrokerName(broker.name),
+    // New debtors without Net days default to Net 30 and show as NEW to carriers.
+    payment_terms_days: Number.isFinite(terms) && terms > 0 ? terms : 30,
+    is_new: broker.is_new ?? true,
   }
   mockBrokers.push(created)
   void persistBroker(created)

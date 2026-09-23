@@ -439,15 +439,12 @@ export default function ClientBatches() {
     setSelectedBatchInvoiceId(null)
   }, [selectedBatch])
 
-  // Update tab when URL parameter changes
+  // Sync tab with URL: ?tab=create → Submit docs; otherwise Batches list.
   useEffect(() => {
     const tabParam = searchParams.get('tab')
-    if (tabParam === 'create' && activeTab !== 'create') {
-      setActiveTab('create')
-    } else if (tabParam === 'view' && activeTab !== 'view') {
-      setActiveTab('view')
-    } else if (!tabParam && activeTab === 'create' && searchParams.has('highlight_batch')) {
-      // Tour / deep-link to list: leave the create tab.
+    if (tabParam === 'create') {
+      if (activeTab !== 'create') setActiveTab('create')
+    } else if (activeTab !== 'view') {
       setActiveTab('view')
     }
   }, [searchParams, activeTab])
@@ -594,7 +591,9 @@ export default function ClientBatches() {
 
     const next = new URLSearchParams(searchParams)
     next.delete('batch')
-    if (next.get('tab') === 'view') next.delete('tab')
+    // Opening a submitted batch always lands on the list/detail view.
+    if (match.status !== 'draft') next.delete('tab')
+    else if (next.get('tab') === 'view') next.delete('tab')
     // Preserve returnTo so "Back to payment" stays available.
     setSearchParams(next, { replace: true, state: location.state })
   }, [batches, resumeDraftBatch, searchParams, setSearchParams, location.state])
@@ -715,11 +714,24 @@ export default function ClientBatches() {
     }
   }, [searchParams, setSearchParams, location.state, startAiDraft])
 
+  /** Switch to Batches list and clear ?tab=create so nav/URL stay in sync. */
+  const goToBatchesView = useCallback(
+    (opts?: { batchId?: string | null; clearSelection?: boolean }) => {
+      setActiveTab('view')
+      if (opts?.clearSelection) {
+        setSelectedBatch(null)
+      } else if (opts?.batchId) {
+        setSelectedBatch(opts.batchId)
+      }
+      const next = new URLSearchParams(searchParams)
+      next.delete('tab')
+      setSearchParams(next, { replace: true })
+    },
+    [searchParams, setSearchParams]
+  )
+
   const handleOpenViewBatches = () => {
-    setActiveTab('view')
-    setSelectedBatch(null)
-    searchParams.delete('tab')
-    setSearchParams(searchParams, { replace: true })
+    goToBatchesView({ clearSelection: true })
   }
 
   const pendingInvoiceNumbers = useCallback(
@@ -1441,8 +1453,7 @@ export default function ClientBatches() {
       refreshBatches()
       setInvoicesRefreshKey((key) => key + 1)
       clearClientTenantCache(clientId)
-      setActiveTab('view')
-      setSelectedBatch(batch.id)
+      goToBatchesView({ batchId: batch.id })
       showToast(`Batch ${batch.batch_number} submitted. Credyx will review your paperwork.`, 'success')
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Could not create batch', 'error')
@@ -1666,8 +1677,7 @@ export default function ClientBatches() {
               refreshBatches()
               void refreshProcessingJobs()
               setOptimisticProcessingIds((prev) => new Set(prev).add(batchId))
-              setActiveTab('view')
-              setSelectedBatch(batchId)
+              goToBatchesView({ batchId })
               showToast(
                 `Thank you — invoices are being created (${etaLabel}). We’ll notify you to review.`,
                 'success'
@@ -1711,8 +1721,7 @@ export default function ClientBatches() {
                   setOptimisticProcessingIds((prev) => new Set(prev).add(batchId))
                   refreshBatches()
                   void refreshProcessingJobs()
-                  setActiveTab('view')
-                  setSelectedBatch(batchId)
+                  goToBatchesView({ batchId })
                   showToast(
                     'Thank you for submitting. Invoices are being checked — we’ll notify you when they’re ready to review.',
                     'success'

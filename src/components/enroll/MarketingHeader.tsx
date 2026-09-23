@@ -30,8 +30,9 @@ export function MarketingHeader() {
   const goDemoCta = () => {
     trackWebsiteEvent('cta_click', 'nav_schedule_demo')
     setMenuOpen(false)
-    if (onMarketingHome) {
-      document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
+    const localForm = document.getElementById('waitlist-form')
+    if (localForm) {
+      localForm.scrollIntoView({ behavior: 'smooth' })
       return
     }
     navigate(`${marketingHomePath}#waitlist-form`)

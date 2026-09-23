@@ -94,7 +94,8 @@ export default function Brokers() {
     mc_number: '',
     dot_number: '',
     notes: '',
-    payment_terms_days: 0,
+    is_new: true,
+    payment_terms_days: 30,
     paperwork_status_check_days: 7,
     payment_status_inquiry_days: 15,
     preferred_contact: 'either',
@@ -184,8 +185,8 @@ export default function Brokers() {
     dot_number: '',
     notes: '',
     carrier_notes: '',
-    is_new: false,
-    payment_terms_days: 0,
+    is_new: true,
+    payment_terms_days: 30,
     paperwork_status_check_days: 7,
     payment_status_inquiry_days: 15,
     preferred_contact: 'either',
@@ -332,8 +333,13 @@ export default function Brokers() {
       dot_number: formData.dot_number?.trim() || undefined,
       notes: formData.notes?.trim() || undefined,
       carrier_notes: formData.carrier_notes?.trim() || undefined,
-      is_new: Boolean(formData.is_new),
-      payment_terms_days: formData.payment_terms_days,
+      is_new: editingBrokerId ? Boolean(formData.is_new) : Boolean(formData.is_new ?? true),
+      payment_terms_days:
+        formData.payment_terms_days != null && Number(formData.payment_terms_days) > 0
+          ? Number(formData.payment_terms_days)
+          : editingBrokerId
+            ? formData.payment_terms_days
+            : 30,
       paperwork_status_check_days: formData.paperwork_status_check_days ?? 7,
       payment_status_inquiry_days: formData.payment_status_inquiry_days ?? 15,
       preferred_contact: formData.preferred_contact ?? 'either',

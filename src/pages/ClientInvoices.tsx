@@ -88,7 +88,7 @@ const INVOICE_STATUS_FILTERS: { id: InvoiceStatusFilter; label: string }[] = [
   { id: 'overdue', label: 'Overdue' },
   { id: 'confirm', label: 'Confirm' },
   { id: 'short_paid', label: 'Short paid' },
-  { id: 'approved', label: 'Open' },
+  { id: 'approved', label: 'Invoiced' },
   { id: 'hold', label: 'On hold' },
   { id: 'pending', label: 'Pending' },
   { id: 'paid', label: 'Paid' },
@@ -182,11 +182,14 @@ function matchesInvoiceStatusFilter(
     case 'overdue':
       return Boolean(invoice.isOverdue)
     case 'approved':
-      // Open filter = unpaid open A/R that is not short-paid (short paid has its own chip).
+      // Open filter = unpaid open A/R after PPW (Invoiced). Verified stays out until paperwork is sent.
       if (isShortPaid && !awaitingReceipt) return false
       // Receipt-dispute hold is still open A/R (Open Disputed).
       if (isReceiptDisputeHold(invoice)) return true
-      return displayStatus === filter
+      return (
+        displayStatus === 'approved' ||
+        displayStatus === 'invoiced'
+      )
     case 'paid':
       return displayStatus === filter && !isReceiptDisputeHold(invoice)
     case 'closed':

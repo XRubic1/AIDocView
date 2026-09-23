@@ -1677,6 +1677,138 @@
   }
 }
 
+/* ── How / Tour on waitlist dark shell ── */
+.credyx-page--waitlist .cx-hero:not(.cx-hero--waitlist) .cx-hero-inner {
+  text-align: center;
+  align-items: center;
+  margin-inline: auto;
+}
+
+.credyx-page--waitlist .cx-hero:not(.cx-hero--waitlist) .cx-hero-headline,
+.credyx-page--waitlist .cx-hero:not(.cx-hero--waitlist) .cx-hero-sub,
+.credyx-page--waitlist .cx-hero:not(.cx-hero--waitlist) .cx-hero-buttons,
+.credyx-page--waitlist .cx-hero:not(.cx-hero--waitlist) .cx-hero-stats {
+  text-align: center;
+  justify-content: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.credyx-page--waitlist .cx-hero:not(.cx-hero--waitlist) {
+  background: linear-gradient(180deg, #0b1220 0%, #0f172a 55%, #111827 100%);
+  padding-top: clamp(100px, 14vh, 140px);
+  padding-bottom: clamp(48px, 8vh, 88px);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-slider {
+  background: #111827;
+  border-top-color: var(--cx-border);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-slider__tab {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-slider__tab:hover {
+  border-color: rgba(22, 132, 254, 0.35);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-slider__tab.is-done {
+  background: rgba(22, 132, 254, 0.1);
+  border-color: rgba(22, 132, 254, 0.32);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-slider__tab.is-active {
+  background: rgba(15, 23, 42, 0.95);
+  border-color: var(--cx-blue);
+  box-shadow: 0 0 0 3px rgba(22, 132, 254, 0.18);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-slider__tab-label {
+  color: var(--cx-ink);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-slider__viewport {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-panel__icon {
+  background: rgba(22, 132, 254, 0.14);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-panel__step {
+  color: #ffffff;
+  opacity: 0.1;
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-panel__title {
+  color: var(--cx-ink);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-panel__card {
+  background: rgba(30, 41, 59, 0.7);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-panel__card--benefit {
+  background: linear-gradient(160deg, rgba(22, 132, 254, 0.16), rgba(22, 132, 254, 0.04));
+  border-color: rgba(22, 132, 254, 0.32);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-panel__card--benefit p {
+  color: var(--cx-ink);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-slider__arrow {
+  background: rgba(30, 41, 59, 0.9);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--cx-ink);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-slider__dot {
+  background: rgba(148, 163, 184, 0.35);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-diff__card {
+  background: rgba(30, 41, 59, 0.75);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.credyx-page--waitlist.credyx-page--how .cx-how-diff__card h3 {
+  color: var(--cx-ink);
+}
+
+.credyx-page--waitlist .cx-tour-cta {
+  background: rgba(30, 41, 59, 0.75);
+  border-color: rgba(22, 132, 254, 0.28);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.credyx-page--waitlist .cx-tour-highlights li {
+  color: var(--cx-body);
+}
+
+.credyx-page--waitlist .cx-hero-stats {
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.credyx-page--waitlist .cx-hero-stat {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.credyx-page--waitlist .cx-hero:not(.cx-hero--waitlist) .cx-hero-stat-num {
+  color: #ffffff;
+}
+
+.credyx-page--waitlist .cx-hero-stat-label {
+  color: #94a3b8;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * WAITLIST VARIANT — navy/blue tokens, fluid scale, growth motion, imagery
  * ═══════════════════════════════════════════════════════════════════════════ */

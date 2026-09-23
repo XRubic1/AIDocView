@@ -19,4 +19,24 @@ describe('addBroker', () => {
     })
     expect(created.name).toBe('LANDSTAR RANGER')
   })
+
+  it('defaults missing Net days to 30 and marks the broker as new', () => {
+    const created = addBroker({
+      id: 'broker-test-net30',
+      name: 'New Broker LLC',
+    })
+    expect(created.payment_terms_days).toBe(30)
+    expect(created.is_new).toBe(true)
+  })
+
+  it('keeps explicit Net days and is_new=false', () => {
+    const created = addBroker({
+      id: 'broker-test-explicit',
+      name: 'Known Broker',
+      payment_terms_days: 45,
+      is_new: false,
+    })
+    expect(created.payment_terms_days).toBe(45)
+    expect(created.is_new).toBe(false)
+  })
 })

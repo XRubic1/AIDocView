@@ -12,7 +12,13 @@ import {
 } from 'lucide-react'
 import '../styles/credyxMarketing.css'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
-import { EnrollHeader } from '../components/enroll/EnrollHeader'
+import { useWebsiteAnalytics } from '../hooks/useWebsiteAnalytics'
+import { trackWebsiteEvent } from '../services/websiteAnalytics'
+import { MarketingHeader } from '../components/enroll/MarketingHeader'
+import { WaitlistForm } from '../components/enroll/WaitlistForm'
+import { getClientLoginHref } from '../utils/clientLoginRedirect'
+
+const isMarketingOnly = import.meta.env.VITE_MARKETING_ONLY === 'true'
 
 const TOUR_STOPS = [
   {
@@ -57,7 +63,7 @@ const TOUR_STOPS = [
       'Role-based access for your team with a clean, finance-grade interface on desktop and mobile.',
     highlights: ['Client login', 'Notification center', 'Settings & preferences'],
   },
-]
+] as const
 
 const PORTAL_STATS = [
   { value: 'Real-time', label: 'A/R visibility' },
@@ -70,19 +76,24 @@ export default function Tour() {
   const navigate = useNavigate()
   const pageRef = useRef<HTMLDivElement>(null)
   useRevealOnScroll(pageRef)
+  useWebsiteAnalytics()
+
+  const scrollToDemo = (source: string) => {
+    trackWebsiteEvent('cta_click', source)
+    document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   return (
-    <div ref={pageRef} className="credyx-page">
-      <EnrollHeader />
+    <div ref={pageRef} className="credyx-page credyx-page--waitlist">
+      <MarketingHeader />
 
       <section className="cx-hero">
         <div className="cx-mesh" aria-hidden />
         <div className="cx-hero-inner">
           <p className="cx-badge hero-enter hero-enter-1">Product tour</p>
           <h1 className="cx-hero-headline hero-enter hero-enter-2">
-            Your back office,
-            <br />
-            <span className="accent">in one portal.</span>
+            Your back office,{' '}
+            <span className="accent cx-hand-underline cx-hand-underline--v8">in one portal</span>
           </h1>
           <p className="cx-hero-sub hero-enter hero-enter-3">
             Credyx gives carriers a single place to submit documents, track invoices, monitor
@@ -90,11 +101,26 @@ export default function Tour() {
             <strong>without spreadsheets or guesswork.</strong>
           </p>
           <div className="cx-hero-buttons hero-enter hero-enter-4">
-            <button className="cx-btn-primary" onClick={() => navigate('/enroll')}>
-              Get started
+            <button
+              type="button"
+              className="cx-btn-primary"
+              onClick={() => scrollToDemo('tour_hero_demo')}
+            >
+              Schedule Demo
               <ArrowRight size={17} />
             </button>
-            <button className="cx-btn-secondary" onClick={() => navigate('/client/login')}>
+            <button
+              type="button"
+              className="cx-btn-secondary"
+              onClick={() => {
+                trackWebsiteEvent('cta_click', 'tour_hero_login')
+                if (isMarketingOnly) {
+                  window.location.assign(getClientLoginHref())
+                  return
+                }
+                navigate('/client/login')
+              }}
+            >
               Client login
             </button>
           </div>
@@ -116,9 +142,14 @@ export default function Tour() {
             <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
               Inside the portal
             </p>
-            <h2 className="cx-section-title">Six areas. Complete control.</h2>
+            <h2 className="cx-section-title">
+              Six areas.{' '}
+              <span className="accent cx-hand-underline cx-hand-underline--v2">
+                Complete control.
+              </span>
+            </h2>
             <p className="cx-section-sub">
-              Walk through what your team sees after enrollment — from the dashboard to reports.
+              Walk through what your team sees after onboarding — from the dashboard to reports.
             </p>
           </div>
 
@@ -142,7 +173,7 @@ export default function Tour() {
         </div>
       </section>
 
-      <section className="cx-section surface bordered">
+      <section className="cx-section bordered">
         <div className="cx-section-inner">
           <div className="cx-tour-cta reveal">
             <div className="cx-tour-cta-icon" aria-hidden>
@@ -150,34 +181,108 @@ export default function Tour() {
             </div>
             <div className="cx-tour-cta-body">
               <h2 className="cx-section-title" style={{ marginBottom: 8 }}>
-                Ready to see it with your freight?
+                Ready to see it with your{' '}
+                <span className="accent cx-hand-underline cx-hand-underline--v4">freight?</span>
               </h2>
               <p className="cx-section-sub" style={{ margin: 0 }}>
-                Enroll in minutes. We&apos;ll onboard your operation and give your team portal
-                access within 24 hours.
+                Schedule a demo. We&apos;ll walk through the portal with your operation in mind.
               </p>
             </div>
-            <button className="cx-btn-primary" onClick={() => navigate('/enroll')}>
-              Enroll now
+            <button
+              type="button"
+              className="cx-btn-primary"
+              onClick={() => scrollToDemo('tour_mid_demo')}
+            >
+              Schedule Demo
               <ArrowRight size={17} />
             </button>
           </div>
         </div>
       </section>
 
+      <section id="waitlist-form" className="cx-section cx-section--join bordered">
+        <div className="cx-section-inner">
+          <div className="cx-enroll-shell">
+            <div className="cx-join-head reveal reveal-grow">
+              <h2 className="cx-section-title">
+                Schedule a{' '}
+                <span className="accent cx-hand-underline cx-hand-underline--v6">demo</span>
+              </h2>
+              <p className="cx-section-sub">
+                Tell us about your fleet — we&apos;ll reach out to book your demo.
+              </p>
+            </div>
+            <div className="reveal reveal-grow">
+              <WaitlistForm />
+            </div>
+          </div>
+        </div>
+      </section>
+
       <footer className="cx-footer">
         <div className="cx-footer-brand">
-          Cred<span>yx</span> A/R Solutions
+          <img
+            src="/credyx-logo-white-cred-no-bg.png"
+            alt="Credyx"
+            className="cx-footer-logo"
+            width={107}
+            height={28}
+          />
         </div>
         <div className="cx-footer-links">
-          <button type="button" className="cx-footer-link" onClick={() => navigate('/privacy')}>
+          {!isMarketingOnly && (
+            <button
+              type="button"
+              className="cx-footer-link"
+              onClick={() => {
+                trackWebsiteEvent('nav_click', 'footer_how')
+                navigate('/how-it-works')
+              }}
+            >
+              How it works
+            </button>
+          )}
+          <button
+            type="button"
+            className="cx-footer-link"
+            onClick={() => {
+              trackWebsiteEvent('nav_click', 'footer_client_login')
+              if (isMarketingOnly) {
+                window.location.assign(getClientLoginHref())
+                return
+              }
+              navigate('/client/login')
+            }}
+          >
+            Client login
+          </button>
+          <button
+            type="button"
+            className="cx-footer-link"
+            onClick={() => {
+              trackWebsiteEvent('nav_click', 'footer_privacy')
+              navigate('/privacy')
+            }}
+          >
             Privacy
           </button>
-          <button type="button" className="cx-footer-link" onClick={() => navigate('/terms')}>
+          <button
+            type="button"
+            className="cx-footer-link"
+            onClick={() => {
+              trackWebsiteEvent('nav_click', 'footer_terms')
+              navigate('/terms')
+            }}
+          >
             Terms
           </button>
         </div>
-        <p className="cx-footer-copy">© {new Date().getFullYear()} Credyx. All rights reserved.</p>
+        <div className="cx-footer-copy">
+          © {new Date().getFullYear()} Credyx A/R Solutions. All rights reserved.
+        </div>
+        <p className="cx-footer-mission">
+          Empowering truckers. Simplifying payments. Driving success.
+        </p>
       </footer>
     </div>
   )

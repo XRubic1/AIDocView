@@ -76,11 +76,14 @@ export async function getClientIdFromSession(): Promise<string | null> {
   return resolved.clientId
 }
 
-/** Send password reset email. */
+/** Send password reset email (Forgot password). Lands on /client/setup-password. */
 export async function requestClientPasswordReset(email: string): Promise<ClientAuthResult> {
   const supabase = requireSupabase()
-  const redirectTo = `${window.location.origin}/client/setup-password`
-  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+  const origin = window.location.origin.replace(/\/$/, '')
+  const redirectTo = `${origin}/client/setup-password`
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+    redirectTo,
+  })
   if (error) return { ok: false, error: error.message }
   return { ok: true }
 }

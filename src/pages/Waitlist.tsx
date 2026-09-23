@@ -426,10 +426,17 @@ export default function Waitlist() {
     document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  // Support deep links from nav (/#pricing, /demo#buddy, etc.)
+  // Support deep links from nav (/#pricing, /demo#buddy, /#waitlist-form, etc.)
   useEffect(() => {
     const hash = window.location.hash
-    if (hash !== '#pricing' && hash !== '#buddy' && hash !== '#features') return
+    if (
+      hash !== '#pricing' &&
+      hash !== '#buddy' &&
+      hash !== '#features' &&
+      hash !== '#waitlist-form'
+    ) {
+      return
+    }
     const id = hash.slice(1)
     const timer = window.setTimeout(() => {
       document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })

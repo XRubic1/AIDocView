@@ -17,7 +17,13 @@ import {
 } from 'lucide-react'
 import '../styles/credyxMarketing.css'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
-import { EnrollHeader } from '../components/enroll/EnrollHeader'
+import { useWebsiteAnalytics } from '../hooks/useWebsiteAnalytics'
+import { trackWebsiteEvent } from '../services/websiteAnalytics'
+import { MarketingHeader } from '../components/enroll/MarketingHeader'
+import { WaitlistForm } from '../components/enroll/WaitlistForm'
+import { getClientLoginHref } from '../utils/clientLoginRedirect'
+
+const isMarketingOnly = import.meta.env.VITE_MARKETING_ONLY === 'true'
 
 /** Correct Credyx workflow — sliding panels left → right. */
 const STEPS = [
@@ -137,6 +143,7 @@ export default function HowItWorks() {
   const isJumping = useRef(false)
   const [activeStep, setActiveStep] = useState(0)
   useRevealOnScroll(rootRef)
+  useWebsiteAnalytics()
 
   const stepCount = STEPS.length
 
@@ -148,7 +155,6 @@ export default function HowItWorks() {
       const total = sliderRef.current.offsetHeight - window.innerHeight
       if (total <= 0) return
 
-      // Progress 0 → 1 while the sticky section is pinned
       const scrolled = Math.min(Math.max(-rect.top, 0), total)
       const progress = scrolled / total
       const index = Math.min(stepCount - 1, Math.floor(progress * stepCount + 0.001))
@@ -160,7 +166,6 @@ export default function HowItWorks() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [stepCount])
 
-  /** Jump scroll so a specific panel is active. */
   const goToStep = useCallback(
     (index: number) => {
       if (!sliderRef.current) return
@@ -179,34 +184,30 @@ export default function HowItWorks() {
     [stepCount]
   )
 
-  const scrollToEnroll = () => {
-    navigate('/enroll')
-    window.setTimeout(() => {
-      document.getElementById('enroll-form')?.scrollIntoView({ behavior: 'smooth' })
-    }, 120)
+  const scrollToDemo = (source: string) => {
+    trackWebsiteEvent('cta_click', source)
+    document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
   }
 
   return (
-    <div ref={rootRef} className="credyx-page credyx-page--how">
-      <EnrollHeader />
+    <div ref={rootRef} className="credyx-page credyx-page--waitlist credyx-page--how">
+      <MarketingHeader />
 
-      {/* Hero */}
       <section className="cx-hero cx-how-hero">
         <div className="cx-mesh" aria-hidden />
         <div className="cx-hero-inner">
           <p className="cx-badge hero-enter hero-enter-1">How Credyx works</p>
           <h1 className="cx-hero-headline hero-enter hero-enter-2">
-            From docs to
-            <br />
-            <span className="accent">paid on time.</span>
+            From docs to{' '}
+            <span className="accent cx-hand-underline cx-hand-underline--v5">paid on time</span>
           </h1>
           <p className="cx-hero-sub hero-enter hero-enter-3">
             Credyx is your A/R back office — paperwork verified, brokers invoiced, follow-up handled,
             and payments tracked in one portal.
           </p>
           <div className="cx-hero-buttons hero-enter hero-enter-4">
-            <button type="button" className="cx-btn-primary" onClick={scrollToEnroll}>
-              Enroll now
+            <button type="button" className="cx-btn-primary" onClick={() => scrollToDemo('how_hero_demo')}>
+              Schedule Demo
               <ArrowRight size={17} />
             </button>
             <button type="button" className="cx-btn-secondary" onClick={() => navigate('/tour')}>
@@ -216,7 +217,6 @@ export default function HowItWorks() {
         </div>
       </section>
 
-      {/* Horizontal sliding process */}
       <section
         ref={sliderRef}
         className="cx-how-slider"
@@ -229,7 +229,12 @@ export default function HowItWorks() {
               <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
                 The process
               </p>
-              <h2 className="cx-section-title">Five steps. Full visibility.</h2>
+              <h2 className="cx-section-title">
+                Five steps.{' '}
+                <span className="accent cx-hand-underline cx-hand-underline--v2">
+                  Full visibility.
+                </span>
+              </h2>
               <p className="cx-section-sub">
                 Scroll or use the arrows — each panel slides in from the right.
               </p>
@@ -338,15 +343,19 @@ export default function HowItWorks() {
         </div>
       </section>
 
-      {/* Features */}
-      <section className="cx-section surface bordered">
+      <section className="cx-section bordered">
         <div className="cx-section-inner">
           <div className="cx-section-head centered reveal">
             <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
               Platform
             </p>
-            <h2 className="cx-section-title">Built for carriers who want clarity</h2>
-            <p className="cx-section-sub">Visibility, follow-up, and a secure vault — without hiring a full A/R team.</p>
+            <h2 className="cx-section-title">
+              Built for carriers who want{' '}
+              <span className="accent cx-hand-underline cx-hand-underline--v3">clarity</span>
+            </h2>
+            <p className="cx-section-sub">
+              Visibility, follow-up, and a secure vault — without hiring a full A/R team.
+            </p>
           </div>
           <div className="cx-card-grid reveal">
             {FEATURES.map((feature) => (
@@ -362,14 +371,16 @@ export default function HowItWorks() {
         </div>
       </section>
 
-      {/* Differentiators */}
       <section className="cx-section bordered">
         <div className="cx-section-inner">
           <div className="cx-section-head centered reveal">
             <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
               Why Credyx
             </p>
-            <h2 className="cx-section-title">What makes us different</h2>
+            <h2 className="cx-section-title">
+              What makes us{' '}
+              <span className="accent cx-hand-underline cx-hand-underline--v7">different</span>
+            </h2>
           </div>
           <div className="cx-how-diff reveal">
             {DIFFERENTIATORS.map((item) => (
@@ -383,74 +394,112 @@ export default function HowItWorks() {
         </div>
       </section>
 
-      {/* Single plan */}
-      <section className="cx-section surface bordered">
-        <div className="cx-section-inner">
-          <div className="cx-section-head centered reveal" style={{ marginBottom: 28 }}>
-            <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
-              Pricing
+      <section className="cx-section bordered">
+        <div className="cx-section-inner" style={{ textAlign: 'center' }}>
+          <div className="reveal">
+            <BarChart3 size={28} style={{ color: 'var(--cx-blue)', margin: '0 auto 16px' }} />
+            <h2 className="cx-section-title">
+              Ready for a clearer{' '}
+              <span className="accent cx-hand-underline cx-hand-underline--v4">A/R?</span>
+            </h2>
+            <p className="cx-section-sub" style={{ margin: '0 auto 28px' }}>
+              Focus on the road. We&apos;ll handle the paperwork, follow-up, and status updates.
             </p>
-            <h2 className="cx-section-title">Full Service · $0/mo</h2>
-            <p className="cx-section-sub">
-              Platform fee waived. A/R fee only on collected volume. One plan — everything included.
-            </p>
-          </div>
-          <div className="cx-how-plan reveal">
-            <div className="cx-how-plan__badge">Full service</div>
-            <div className="cx-how-plan__price">
-              $0<small>/mo</small>
-            </div>
-            <ul>
-              <li>
-                <Check size={15} /> Paperwork verification
-              </li>
-              <li>
-                <Check size={15} /> Broker invoicing & follow-up
-              </li>
-              <li>
-                <Check size={15} /> Portal visibility through paid on time
-              </li>
-            </ul>
-            <button type="button" className="cx-btn-primary" onClick={scrollToEnroll}>
-              Enroll with Full Service
+            <button
+              type="button"
+              className="cx-btn-primary"
+              onClick={() => scrollToDemo('how_mid_demo')}
+            >
+              Schedule Demo
               <ArrowRight size={17} />
             </button>
           </div>
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="cx-section bordered">
-        <div className="cx-section-inner" style={{ textAlign: 'center' }}>
-          <div className="reveal">
-            <BarChart3 size={28} style={{ color: 'var(--cx-blue)', margin: '0 auto 16px' }} />
-            <h2 className="cx-section-title">Ready for a clearer A/R?</h2>
-            <p className="cx-section-sub" style={{ margin: '0 auto 28px' }}>
-              Focus on the road. We&apos;ll handle the paperwork, follow-up, and status updates.
-            </p>
-            <button type="button" className="cx-btn-primary" onClick={scrollToEnroll}>
-              Get started
-              <ArrowRight size={17} />
-            </button>
+      <section id="waitlist-form" className="cx-section cx-section--join bordered">
+        <div className="cx-section-inner">
+          <div className="cx-enroll-shell">
+            <div className="cx-join-head reveal reveal-grow">
+              <h2 className="cx-section-title">
+                Schedule a{' '}
+                <span className="accent cx-hand-underline cx-hand-underline--v6">demo</span>
+              </h2>
+              <p className="cx-section-sub">
+                Tell us about your fleet — we&apos;ll reach out to book your demo.
+              </p>
+            </div>
+            <div className="reveal reveal-grow">
+              <WaitlistForm />
+            </div>
           </div>
         </div>
       </section>
 
       <footer className="cx-footer">
         <div className="cx-footer-brand">
-          Cred<span>yx</span>
+          <img
+            src="/credyx-logo-white-cred-no-bg.png"
+            alt="Credyx"
+            className="cx-footer-logo"
+            width={107}
+            height={28}
+          />
         </div>
         <div className="cx-footer-links">
-          <button type="button" className="cx-footer-link" onClick={() => navigate('/privacy')}>
+          {!isMarketingOnly && (
+            <button
+              type="button"
+              className="cx-footer-link"
+              onClick={() => {
+                trackWebsiteEvent('nav_click', 'footer_tour')
+                navigate('/tour')
+              }}
+            >
+              Product tour
+            </button>
+          )}
+          <button
+            type="button"
+            className="cx-footer-link"
+            onClick={() => {
+              trackWebsiteEvent('nav_click', 'footer_client_login')
+              if (isMarketingOnly) {
+                window.location.assign(getClientLoginHref())
+                return
+              }
+              navigate('/client/login')
+            }}
+          >
+            Client login
+          </button>
+          <button
+            type="button"
+            className="cx-footer-link"
+            onClick={() => {
+              trackWebsiteEvent('nav_click', 'footer_privacy')
+              navigate('/privacy')
+            }}
+          >
             Privacy
           </button>
-          <button type="button" className="cx-footer-link" onClick={() => navigate('/terms')}>
+          <button
+            type="button"
+            className="cx-footer-link"
+            onClick={() => {
+              trackWebsiteEvent('nav_click', 'footer_terms')
+              navigate('/terms')
+            }}
+          >
             Terms
           </button>
         </div>
         <div className="cx-footer-copy">
           © {new Date().getFullYear()} Credyx A/R Solutions. All rights reserved.
         </div>
+        <p className="cx-footer-mission">
+          Empowering truckers. Simplifying payments. Driving success.
+        </p>
       </footer>
     </div>
   )
