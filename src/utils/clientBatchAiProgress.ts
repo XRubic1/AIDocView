@@ -79,10 +79,15 @@ export function getClientBatchAiProgress(input: {
     uploadMode === 'handoff' ||
     batchStatus === 'creating' ||
     batchStatus === 'needs_split' ||
+    batchStatus === 'ai_splitting' ||
+    batchStatus === 'creating_packets' ||
+    batchStatus === 'failed' ||
     batchStatus === 'rework' ||
     sortStatus === 'sorting' ||
     sortStatus === 'failed' ||
-    sortStatus === 'needs_split'
+    sortStatus === 'needs_split' ||
+    sortStatus === 'ai_splitting' ||
+    sortStatus === 'creating_packets'
 
   if (!isAiRelevant) return IDLE
 
@@ -124,6 +129,41 @@ export function getClientBatchAiProgress(input: {
       etaLabel: eta?.label ?? null,
       etaShortLabel: eta?.shortLabel ?? null,
     }
+  }
+
+  // Live Doc Split phases — show real labels (not generic Processing).
+  if (batchStatus === 'ai_splitting' || sortStatus === 'ai_splitting') {
+    return withEta({
+      phase: 'processing',
+      label: 'AI splitting docs…',
+      detail: 'Credyx is splitting and classifying your paperwork.',
+      completed,
+      total,
+      percent,
+      show: true,
+    })
+  }
+  if (batchStatus === 'creating_packets' || sortStatus === 'creating_packets') {
+    return withEta({
+      phase: 'processing',
+      label: 'Creating packets…',
+      detail: 'Matching rate cons and BOLs into invoice packets.',
+      completed,
+      total,
+      percent,
+      show: true,
+    })
+  }
+  if (batchStatus === 'failed') {
+    return withEta({
+      phase: 'processing',
+      label: 'Processing…',
+      detail: 'Credyx is finishing your paperwork. We’ll update this batch when invoices are ready.',
+      completed,
+      total,
+      percent,
+      show: true,
+    })
   }
 
   // Carrier-facing: never show Rework — Credyx handles it; client only sees Processing.

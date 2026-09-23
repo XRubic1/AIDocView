@@ -1,11 +1,17 @@
 /**
- * Background DocSort / AI verification worker.
+ * Background DocSort / AI verification worker — browser-free.
  * Auth: user JWT (submit kick) or x-cron-secret (scheduled drain).
  *
- * verify_only: rebuild review from batch.doc_sort_snapshot extracts (no vision).
- * sort_and_verify without snapshot: marks failed so browser pipeline / Credyx can finish.
+ * Batches with no invoices: run the full server Doc Split pipeline
+ * (split PDFs → classify → extract → match → create packets), checkpointed
+ * into batch.doc_sort_snapshot so each tick resumes where the last stopped.
+ * Batches with invoices: rebuild review from snapshot extracts (no vision).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import {
+  batchWantsServerDocSplit,
+  runServerDocSplitPipeline,
+} from './docSplitPipeline.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -21,6 +27,24 @@ type JobRow = {
   status: string
   attempts: number
   max_attempts: number
+  locked_at: string | null
+  locked_by: string | null
+}
+
+/** Fresh browser lock = a live tab owns this job; edge must not double-run. */
+const BROWSER_LOCK_FRESH_MS = 2 * 60_000
+/** Stale edge lock = a previous invocation crashed; safe to reclaim. */
+const EDGE_LOCK_FRESH_MS = 5 * 60_000
+
+function lockAgeMs(job: JobRow): number {
+  if (!job.locked_at) return Number.MAX_SAFE_INTEGER
+  const at = new Date(job.locked_at).getTime()
+  return Number.isFinite(at) ? Date.now() - at : Number.MAX_SAFE_INTEGER
+}
+
+function isBrowserLock(job: JobRow): boolean {
+  const by = job.locked_by ?? ''
+  return by === 'browser-pipeline' || by === 'doc-split-pipeline' || by === ''
 }
 
 type InvoiceRow = {
@@ -210,7 +234,7 @@ Deno.serve(async (req) => {
     if (body.batchId) {
       const { data } = await admin
         .from('batch_processing_jobs')
-        .select('id, batch_id, client_id, kind, status, attempts, max_attempts')
+        .select('id, batch_id, client_id, kind, status, attempts, max_attempts, locked_at, locked_by')
         .eq('batch_id', body.batchId)
         .in('status', ['pending', 'running', 'failed'])
         .order('created_at', { ascending: false })
@@ -232,21 +256,29 @@ Deno.serve(async (req) => {
         jobs[0].status = 'pending'
       }
     } else {
+      // Include running jobs so we can reclaim zombies from closed browser tabs.
       const { data } = await admin
         .from('batch_processing_jobs')
-        .select('id, batch_id, client_id, kind, status, attempts, max_attempts')
-        .eq('status', 'pending')
+        .select('id, batch_id, client_id, kind, status, attempts, max_attempts, locked_at, locked_by')
+        .in('status', ['pending', 'running'])
         .order('created_at', { ascending: true })
         .limit(limit)
       jobs = (data as JobRow[]) ?? []
     }
 
+    const invocationStartedAt = Date.now()
     const results: Array<Record<string, unknown>> = []
 
     for (const job of jobs) {
       if (job.status === 'running') {
-        results.push({ jobId: job.id, skipped: true, reason: 'already_running' })
-        continue
+        // A live worker (browser tab heartbeating, or another edge invocation)
+        // owns this job — only reclaim once the lock is stale.
+        const age = lockAgeMs(job)
+        const freshLimit = isBrowserLock(job) ? BROWSER_LOCK_FRESH_MS : EDGE_LOCK_FRESH_MS
+        if (age < freshLimit) {
+          results.push({ jobId: job.id, skipped: true, reason: 'already_running' })
+          continue
+        }
       }
 
       await admin
@@ -272,39 +304,107 @@ Deno.serve(async (req) => {
           throw new Error(batchErr?.message || 'Batch not found')
         }
 
-        const catalog = parseFingerprints(batch.doc_sort_snapshot as string | null)
-        if (catalog.size === 0) {
-          // Browser / intake still sorting — keep job usable for openai-proxy job auth.
-          await admin
-            .from('batch_processing_jobs')
-            .update({
-              status: 'pending',
-              attempts: Math.max(0, (job.attempts ?? 1) - 1),
-              locked_at: null,
-              locked_by: null,
-              last_error: 'Waiting for DocSort snapshot',
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', job.id)
-          results.push({
-            jobId: job.id,
-            batchId: job.batch_id,
-            skipped: true,
-            reason: 'waiting_for_docsort',
-          })
-          continue
+        const fetchInvoices = async (): Promise<InvoiceRow[]> => {
+          const { data: invoices, error: invErr } = await admin
+            .from('invoices')
+            .select(
+              'id, invoice_number, load_number, amount, broker_name, client_name, document_doc_ids, ai_review_status'
+            )
+            .eq('batch_id', job.batch_id)
+          if (invErr) throw new Error(invErr.message)
+          return (invoices as InvoiceRow[]) ?? []
         }
 
-        const { data: invoices, error: invErr } = await admin
-          .from('invoices')
-          .select(
-            'id, invoice_number, load_number, amount, broker_name, client_name, document_doc_ids, ai_review_status'
-          )
-          .eq('batch_id', job.batch_id)
+        let list = await fetchInvoices()
 
-        if (invErr) throw new Error(invErr.message)
-        const list = (invoices as InvoiceRow[]) ?? []
+        // No packets yet → run the server-side Doc Split pipeline (browser-free).
         if (list.length === 0) {
+          if (!batchWantsServerDocSplit(batch)) {
+            await admin
+              .from('batch_processing_jobs')
+              .update({
+                status: 'succeeded',
+                finished_at: new Date().toISOString(),
+                locked_at: null,
+                locked_by: null,
+                last_error: `Batch is ${batch.status} — automated processing stays off.`,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', job.id)
+            results.push({ jobId: job.id, batchId: job.batch_id, skipped: true, reason: 'rework' })
+            continue
+          }
+
+          await admin
+            .from('batches')
+            .update({ status: 'creating', sort_status: 'sorting' })
+            .eq('id', job.batch_id)
+
+          const outcome = await runServerDocSplitPipeline(
+            admin,
+            job.id,
+            batch,
+            invocationStartedAt
+          )
+
+          if (outcome.failed) {
+            await admin
+              .from('batch_processing_jobs')
+              .update({
+                status: 'failed',
+                last_error: outcome.failed,
+                finished_at: new Date().toISOString(),
+                locked_at: null,
+                locked_by: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', job.id)
+            await admin
+              .from('batches')
+              .update({ status: 'rework', sort_status: 'failed' })
+              .eq('id', job.batch_id)
+            results.push({ jobId: job.id, batchId: job.batch_id, ok: false, error: outcome.failed })
+            continue
+          }
+
+          if (!outcome.done) {
+            // Partial slice — checkpointed; hand back to cron without burning an attempt.
+            await admin
+              .from('batch_processing_jobs')
+              .update({
+                status: 'pending',
+                attempts: Math.max(0, (job.attempts ?? 1) - 1),
+                locked_at: null,
+                locked_by: null,
+                last_error: outcome.progress,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', job.id)
+            results.push({
+              jobId: job.id,
+              batchId: job.batch_id,
+              partial: true,
+              progress: outcome.progress,
+            })
+            continue
+          }
+
+          // Packets created — reload state and fall through to verification.
+          list = await fetchInvoices()
+          const { data: freshBatch } = await admin
+            .from('batches')
+            .select('doc_sort_snapshot, status')
+            .eq('id', job.batch_id)
+            .maybeSingle()
+          if (freshBatch) {
+            batch.doc_sort_snapshot = freshBatch.doc_sort_snapshot
+            batch.status = freshBatch.status
+          }
+        }
+
+        const catalog = parseFingerprints(batch.doc_sort_snapshot as string | null)
+        if (catalog.size === 0 || list.length === 0) {
+          // Legacy verify-only batches without extracts — wait for the browser intake.
           await admin
             .from('batch_processing_jobs')
             .update({
@@ -312,7 +412,7 @@ Deno.serve(async (req) => {
               attempts: Math.max(0, (job.attempts ?? 1) - 1),
               locked_at: null,
               locked_by: null,
-              last_error: 'Waiting for invoices',
+              last_error: list.length === 0 ? 'Waiting for invoices' : 'Waiting for DocSort snapshot',
               updated_at: new Date().toISOString(),
             })
             .eq('id', job.id)
@@ -320,7 +420,7 @@ Deno.serve(async (req) => {
             jobId: job.id,
             batchId: job.batch_id,
             skipped: true,
-            reason: 'waiting_for_invoices',
+            reason: list.length === 0 ? 'waiting_for_invoices' : 'waiting_for_docsort',
           })
           continue
         }

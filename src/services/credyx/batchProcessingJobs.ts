@@ -206,24 +206,64 @@ async function kickBatchProcessingLocal(
 
 /** Drain pending jobs when an admin opens Batches (covers handoff DocSort). */
 export async function drainPendingBatchProcessingJobs(limit = 3): Promise<number> {
-  if (!isSupabaseConfigured()) return 0
+  if (!isSupabaseConfigured()) {
+    // Local / mock: still resume zombie Doc Split locks in memory.
+    return resumeStuckDocSplitBatches(limit)
+  }
   const supabase = getSupabase()
-  if (!supabase) return 0
+  if (!supabase) return resumeStuckDocSplitBatches(limit)
 
   const { data, error } = await supabase
     .from('batch_processing_jobs')
-    .select('id, batch_id, kind')
-    .eq('status', 'pending')
+    .select('id, batch_id, kind, status, locked_at, locked_by')
+    .in('status', ['pending', 'running'])
     .order('created_at', { ascending: true })
-    .limit(limit)
+    .limit(Math.max(limit * 3, 9))
 
-  if (error || !data?.length) return 0
+  if (error || !data?.length) {
+    return resumeStuckDocSplitBatches(limit)
+  }
 
   let done = 0
   for (const row of data) {
+    if (done >= limit) break
     const batchId = String(row.batch_id)
     const jobId = String(row.id)
     const kind = (row.kind === 'sort_and_verify' ? 'sort_and_verify' : 'verify_only') as BatchProcessingJobKind
+    const status = String(row.status)
+
+    // Stuck "running" jobs are zombies once the browser tab that owned them is gone.
+    // Doc Split only runs in-browser — edge skips status=running — so we must reclaim.
+    if (status === 'running') {
+      const lockedBy = row.locked_by != null ? String(row.locked_by) : ''
+      const lockedAt = row.locked_at ? new Date(String(row.locked_at)).getTime() : 0
+      const staleMs = Date.now() - lockedAt
+      // Edge worker owns this job (server-side pipeline) — never steal a fresh
+      // edge lock; it heartbeats locked_at while working and re-queues on exit.
+      const isEdgeLock =
+        lockedBy === 'cron' || lockedBy === 'edge-invoke' || lockedBy.startsWith('edge')
+      if (isEdgeLock && staleMs < 3 * 60_000) continue
+      const isBrowserLock =
+        lockedBy === 'doc-split-pipeline' ||
+        lockedBy === 'browser-pipeline' ||
+        lockedBy === ''
+      // Reclaim after 45s with no live worker in this tab (or immediately for Doc Split gate).
+      const { getBatchById } = await import('../../data/mockBatches')
+      const { isBatchBackgroundPipelineRunning } = await import('./batchBackgroundPipeline')
+      const { isDocSplitPipelineRunning, batchShouldRunDocSplitPipeline } = await import(
+        '../../utils/docSplitterAutoPipeline'
+      )
+      if (isBatchBackgroundPipelineRunning(batchId) || isDocSplitPipelineRunning(batchId)) {
+        continue
+      }
+      const batch = getBatchById(batchId)
+      const needsDocSplitResume = batch ? batchShouldRunDocSplitPipeline(batch) : false
+      if (!isBrowserLock && !needsDocSplitResume) continue
+      if (!needsDocSplitResume && staleMs < 45_000) continue
+    } else if (status !== 'pending') {
+      continue
+    }
+
     try {
       await kickBatchProcessingLocal(batchId, kind, jobId)
       void kickBatchProcessingEdge(batchId)
@@ -232,5 +272,49 @@ export async function drainPendingBatchProcessingJobs(limit = 3): Promise<number
       console.warn('[drainPendingBatchProcessingJobs]', batchId, err)
     }
   }
-  return done
+
+  const resumed = await resumeStuckDocSplitBatches(Math.max(0, limit - done))
+  return done + resumed
+}
+
+/**
+ * Resume Doc Split batches that are locked / needs_split but have no in-tab worker.
+ * Covers refresh / closed tab zombies (job may be missing or still "running").
+ */
+export async function resumeStuckDocSplitBatches(limit = 3): Promise<number> {
+  try {
+    const { getAllBatches } = await import('../../data/mockBatches')
+    const { isBatchBackgroundPipelineRunning } = await import('./batchBackgroundPipeline')
+    const {
+      batchShouldRunDocSplitPipeline,
+      isDocSplitPipelineRunning,
+    } = await import('../../utils/docSplitterAutoPipeline')
+
+    let done = 0
+    for (const batch of getAllBatches()) {
+      if (done >= limit) break
+      // Never auto-resume Packet Rework / intentional stops.
+      if (batch.status === 'rework' || batch.status === 'failed') continue
+      if (!batchShouldRunDocSplitPipeline(batch) && batch.in_use_by !== 'AI Doc Split') {
+        continue
+      }
+      if (isBatchBackgroundPipelineRunning(batch.id) || isDocSplitPipelineRunning(batch.id)) {
+        continue
+      }
+      // Locked by AI Doc Split with no worker = zombie; always reclaim.
+      const zombieLock = batch.in_use === true && batch.in_use_by === 'AI Doc Split'
+      if (!zombieLock && !batchShouldRunDocSplitPipeline(batch)) continue
+
+      try {
+        await kickBatchProcessingLocal(batch.id, 'sort_and_verify', null)
+        done += 1
+      } catch (err) {
+        console.warn('[resumeStuckDocSplitBatches]', batch.id, err)
+      }
+    }
+    return done
+  } catch (err) {
+    console.warn('[resumeStuckDocSplitBatches]', err)
+    return 0
+  }
 }

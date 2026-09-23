@@ -67,6 +67,61 @@ function asNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+/** Pull MC/MX/FF from whatever field BrokerSnapshot populated. */
+function extractMcNumber(data: Record<string, unknown>): string | null {
+  const general = (data.General ?? {}) as Record<string, unknown>
+  const authority = (data.Authority ?? {}) as Record<string, unknown>
+
+  const prefixRaw =
+    data.prefix ?? general.prefix ?? authority.prefix ?? 'MC'
+  const prefix = String(prefixRaw || 'MC').toUpperCase().replace(/[^A-Z]/g, '') || 'MC'
+
+  const docketCandidates = [
+    data.docket_number,
+    data.docket,
+    general.docket_number,
+    general.docket,
+    authority.docket_number,
+    authority.docket,
+  ]
+  for (const raw of docketCandidates) {
+    if (raw == null || raw === '') continue
+    const digits = extractDocketDigits(raw)
+    if (digits) return `${prefix}-${digits}`
+  }
+
+  // Some payloads already include a formatted docket string.
+  const formatted = data.mc_number ?? general.mc_number ?? authority.mc_number
+  if (formatted != null && String(formatted).trim()) {
+    const text = String(formatted).trim().toUpperCase()
+    if (/^(MC|MX|FF)-?\d+/i.test(text)) {
+      const digits = extractDocketDigits(text)
+      const p = text.match(/^(MC|MX|FF)/i)?.[1]?.toUpperCase() ?? prefix
+      return digits ? `${p}-${digits}` : text
+    }
+  }
+
+  return null
+}
+
+/** True when FMCSA / Snapshot shows the company as currently active. */
+function isCurrentlyOperating(operatingStatus: string | null, statusCode: string | null): boolean {
+  const op = (operatingStatus ?? '').toLowerCase()
+  const code = (statusCode ?? '').toLowerCase().trim()
+  if (code === 'a' || code === 'active' || code === 'authorized') return true
+  if (!op) return false
+  if (
+    op.includes('not authorized') ||
+    op.includes('unauthorized') ||
+    op.includes('out of service') ||
+    op.includes('revoked') ||
+    op.includes('suspended')
+  ) {
+    return false
+  }
+  return /\bactive\b/.test(op) || op.includes('authorized')
+}
+
 /** Map BrokerSnapshot Company payload → UI-safe summary (no raw dump). */
 function summarizeCompany(data: Record<string, unknown>) {
   const general = (data.General ?? {}) as Record<string, unknown>
@@ -92,10 +147,7 @@ function summarizeCompany(data: Record<string, unknown>) {
     ? (data.Revocations as Record<string, unknown>[])
     : []
 
-  const prefix = data.prefix != null ? String(data.prefix) : 'MC'
-  const docket =
-    data.docket_number != null ? String(data.docket_number) : null
-  const mcNumber = docket ? `${prefix}-${docket}` : null
+  const mcNumber = extractMcNumber(data)
 
   const common = authorityLabel(authority.common_stat)
   const contract = authorityLabel(authority.contract_stat)
@@ -103,11 +155,16 @@ function summarizeCompany(data: Record<string, unknown>) {
   const operatingStatus =
     authority.OperatingStatus != null
       ? String(authority.OperatingStatus)
-      : null
+      : general.status_code != null
+        ? String(general.status_code)
+        : null
+  const statusCode = general.status_code != null ? String(general.status_code) : null
 
   const riskFlags: string[] = []
   const hasActiveAuthority =
     common === 'Active' || contract === 'Active' || broker === 'Active'
+  const currentlyOperating = isCurrentlyOperating(operatingStatus, statusCode)
+
   if (operatingStatus) {
     const op = operatingStatus.toLowerCase()
     const unauthorizedOp =
@@ -117,16 +174,22 @@ function summarizeCompany(data: Record<string, unknown>) {
       op.includes('revoked') ||
       op.includes('suspended')
     // Brokers often show FMCSA "Not Authorized" while broker_stat is Active.
-    if (unauthorizedOp && !hasActiveAuthority) {
+    // Private Property carriers may have no for-hire authority but still Active DOT.
+    if (unauthorizedOp && !hasActiveAuthority && !currentlyOperating) {
       riskFlags.push('Not authorized — do not work this broker')
-    } else if (!hasActiveAuthority && !op.includes('authoriz') && !op.includes('active')) {
+    } else if (
+      !hasActiveAuthority &&
+      !currentlyOperating &&
+      !op.includes('authoriz') &&
+      !op.includes('active')
+    ) {
       riskFlags.push('No clear active operating authority')
     }
-  } else if (!hasActiveAuthority) {
+  } else if (!hasActiveAuthority && !currentlyOperating) {
     riskFlags.push('Authority status unclear')
   }
 
-  if (!hasActiveAuthority && broker === 'Inactive') {
+  if (!hasActiveAuthority && broker === 'Inactive' && !currentlyOperating) {
     riskFlags.push('Broker authority is inactive')
   }
 
@@ -143,7 +206,7 @@ function summarizeCompany(data: Record<string, unknown>) {
   const totalTrucks = asNumber(totals.total_trucks)
   if (totalTrucks === 0) riskFlags.push('Reports zero trucks')
 
-  // Cancellations from insurance history (rows with a cancel date).
+  // Historical cancels — informational only; current coverage = ActiveInsurances.
   const cancellations = historyInsurances
     .filter((row) => row.cancel_effective_date != null && String(row.cancel_effective_date).trim())
     .map((row) => ({
@@ -167,11 +230,12 @@ function summarizeCompany(data: Record<string, unknown>) {
   if (activeInsurances.length === 0) {
     riskFlags.push('No active insurance on file in Snapshot')
   }
+  // Past cancels are history — only flag when there is also no current coverage.
   if (hasInsuranceCancellation && activeInsurances.length === 0) {
     riskFlags.push(
       latestCancellationDate
-        ? `Insurance cancellation on file (${latestCancellationDate})`
-        : 'Insurance cancellation on file'
+        ? `Past insurance cancellation on file (${latestCancellationDate}) — no current coverage listed`
+        : 'Past insurance cancellation on file — no current coverage listed'
     )
   }
   if (rejectedInsurances.length > 0) {
@@ -191,30 +255,31 @@ function summarizeCompany(data: Record<string, unknown>) {
 
   const cargoPolicy = activeInsurances.find((row) => Number(row.bi_pd_maximum_limit ?? 0) > 0)
 
-  // Quick insurance verdict for the top of MC Lookup.
+  // Verdict uses CURRENT ActiveInsurances only — history cancels do not force "cancelled".
   let insuranceVerdict: 'ok' | 'missing' | 'cancelled' | 'warning' = 'ok'
   let insuranceNote = 'Broker insurance is fine.'
 
-  if (activeInsurances.length === 0 && hasInsuranceCancellation) {
-    insuranceVerdict = 'cancelled'
-    insuranceNote = latestCancellationDate
-      ? `Insurance cancelled — last cancel ${latestCancellationDate}. Do not book until coverage is confirmed.`
-      : 'Insurance cancelled — no active coverage on file. Do not book until coverage is confirmed.'
-  } else if (activeInsurances.length === 0) {
-    insuranceVerdict = 'missing'
-    insuranceNote = 'No active insurance on file — verify coverage before booking.'
-  } else if (hasInsuranceCancellation) {
-    insuranceVerdict = 'ok'
-    insuranceNote = 'Broker insurance is fine — active coverage on file (older cancellations in history).'
-  } else {
+  if (activeInsurances.length > 0) {
     insuranceVerdict = 'ok'
     const insurer =
       cargoPolicy?.company_name != null
         ? String(cargoPolicy.company_name)
         : insurances[0]?.companyName
-    insuranceNote = insurer
-      ? `Broker insurance is fine — active coverage (${insurer}).`
-      : 'Broker insurance is fine — active coverage on file.'
+    insuranceNote = hasInsuranceCancellation
+      ? insurer
+        ? `Active coverage on file (${insurer}). Older cancellations are history only.`
+        : 'Active coverage on file. Older cancellations are history only.'
+      : insurer
+        ? `Broker insurance is fine — active coverage (${insurer}).`
+        : 'Broker insurance is fine — active coverage on file.'
+  } else {
+    // No current coverage listed — treat as missing (not "cancelled" from history alone).
+    insuranceVerdict = 'missing'
+    insuranceNote = hasInsuranceCancellation
+      ? latestCancellationDate
+        ? `No current insurance on file (last historical cancel ${latestCancellationDate}). Verify coverage before booking.`
+        : 'No current insurance on file (historical cancellations only). Verify coverage before booking.'
+      : 'No active insurance on file — verify coverage before booking.'
   }
 
   return {
@@ -224,7 +289,7 @@ function summarizeCompany(data: Record<string, unknown>) {
     name: general.name != null ? String(general.name) : null,
     mcNumber,
     dotNumber: asNumber(data.dot_number),
-    statusCode: general.status_code != null ? String(general.status_code) : null,
+    statusCode,
     entityType: general.carship != null ? String(general.carship) : null,
     carrierOperation:
       general.carrier_operation != null ? String(general.carrier_operation) : null,
@@ -916,6 +981,8 @@ Deno.serve(async (req) => {
         include: '3',
         includeInsurance: '23',
         includeSos: '0',
+        includeSms: '0',
+        includeReview: '0',
       })
       const result = await fetchCompany(apiKey, params)
       if (!result.ok || !result.body.Data) {
@@ -924,9 +991,37 @@ Deno.serve(async (req) => {
           Data: { found: false, dotNumber: Number(dot), riskFlags: [] },
         })
       }
+
+      let summary = summarizeCompany(result.body.Data as Record<string, unknown>) as Record<
+        string,
+        unknown
+      >
+
+      // Company-by-DOT sometimes omits docket — resolve MC from Companies list.
+      if (!summary.mcNumber) {
+        const listUrl = `${API_BASE}/Companies?dot=${encodeURIComponent(dot)}&include=3&limit=5`
+        const listRes = await fetch(listUrl, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            Accept: 'application/json',
+            'X-Null-Value': 'include',
+          },
+        })
+        const listBody = (await listRes.json().catch(() => ({}))) as Record<string, unknown>
+        const rows = Array.isArray(listBody.Data) ? listBody.Data : []
+        for (const row of rows) {
+          const mc = extractMcNumber(row as Record<string, unknown>)
+          if (mc) {
+            summary = { ...summary, mcNumber: mc }
+            break
+          }
+        }
+      }
+
       return jsonResponse({
         Success: true,
-        Data: summarizeCompany(result.body.Data as Record<string, unknown>),
+        Data: summary,
       })
     }
 

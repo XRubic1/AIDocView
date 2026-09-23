@@ -1,6 +1,9 @@
 node_modules/
 .next/
 dist/
+supabase/.temp/
+Untitled
+Untitled copy
 .env
 .env.local
 .env.*.local

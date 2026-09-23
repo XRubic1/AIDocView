@@ -1,302 +1,108 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Check, User, X } from 'lucide-react'
 
-type Phase = 'inhouse' | 'credyx'
-
-/** In-house “expensive” demo values (illustrative). */
-const INHOUSE = {
-  start: 2800,
-  monthly: 5100,
-  total: 7900,
-} as const
-
-const INHOUSE_HASSLES = [
+const CREDYX_POINTS = [
   {
-    title: 'Hire and train',
-    detail: 'Weeks before anyone is productive',
+    title: '$0 monthly fees',
+    detail: 'No fixed costs, no overhead.',
   },
   {
-    title: 'Salary and benefits',
-    detail: 'Fixed cost every payday, rain or shine',
+    title: '$0 startup fees',
+    detail: 'Get started without the setup hassle.',
   },
   {
-    title: 'Coverage gaps',
-    detail: 'PTO, sick days, turnover, work still waits',
+    title: 'Expert team',
+    detail: 'Experienced, dedicated A/R specialists.',
+  },
+  {
+    title: 'More time & focus',
+    detail: 'You run your business. We handle the rest.',
   },
 ] as const
 
-const CREDYX_STEPS = [
+const INHOUSE_POINTS = [
   {
-    title: 'You send paperwork',
-    detail: 'Drop the packet in the portal',
+    title: '$3,000 – $4,500+ / month',
+    detail: 'Salary, benefits, taxes, equipment.',
   },
   {
-    title: 'You get paid',
-    detail: 'Broker pays you first',
+    title: '$3,000 – $5,000+',
+    detail: 'Hiring, training, setup time.',
   },
   {
-    title: 'Then a small %',
-    detail: 'Only after the invoice is paid',
+    title: '1 person',
+    detail: 'Limited bandwidth, higher risk.',
+  },
+  {
+    title: 'Less flexibility',
+    detail: 'Time off, turnover, management.',
   },
 ] as const
-
-/** Auto-cycle duration per phase (no manual controls). */
-const PHASE_MS = 10000
-const COUNT_UP_MS = 2200
-const COUNT_DOWN_MS = 2400
 
 /**
- * Pricing compare: in-house hire cost → count down to Credyx.
- * Auto-cycles when in view — no progress bar / Restart / Next UI.
+ * Credyx vs in-house A/R pricing compare — matches the IG creative.
+ * Always side-by-side so the contrast stays visible on mobile.
  */
 export function WaitlistPricingCompare() {
-  const rootRef = useRef<HTMLDivElement>(null)
-  const [inView, setInView] = useState(false)
-  const [phase, setPhase] = useState<Phase>('inhouse')
-  const [startAmt, setStartAmt] = useState(0)
-  const [monthlyAmt, setMonthlyAmt] = useState(0)
-  const [totalAmt, setTotalAmt] = useState(0)
-  const [showInhouseFoot, setShowInhouseFoot] = useState(true)
-  const [showCredyxFoot, setShowCredyxFoot] = useState(false)
-  const [noteVisible, setNoteVisible] = useState(true)
-
-  const runIdRef = useRef(0)
-  const timeoutIdsRef = useRef<number[]>([])
-  const rafIdsRef = useRef<number[]>([])
-  const cancelledRef = useRef(false)
-
-  const clearTimers = useCallback(() => {
-    timeoutIdsRef.current.forEach((id) => window.clearTimeout(id))
-    rafIdsRef.current.forEach((id) => window.cancelAnimationFrame(id))
-    timeoutIdsRef.current = []
-    rafIdsRef.current = []
-  }, [])
-
-  const at = useCallback((ms: number, fn: () => void) => {
-    timeoutIdsRef.current.push(
-      window.setTimeout(() => {
-        if (!cancelledRef.current) fn()
-      }, ms)
-    )
-  }, [])
-
-  const countFromTo = useCallback(
-    (from: number, to: number, durationMs: number, onTick: (value: number) => void) => {
-      const start = performance.now()
-      const tick = (now: number) => {
-        if (cancelledRef.current) return
-        const t = Math.min(1, (now - start) / durationMs)
-        const eased = 1 - (1 - t) ** 3
-        onTick(Math.round(from + (to - from) * eased))
-        if (t < 1) rafIdsRef.current.push(window.requestAnimationFrame(tick))
-        else onTick(to)
-      }
-      rafIdsRef.current.push(window.requestAnimationFrame(tick))
-    },
-    []
-  )
-
-  const startPhase = useCallback(
-    (next: Phase) => {
-      clearTimers()
-      const runId = ++runIdRef.current
-      cancelledRef.current = false
-      setPhase(next)
-
-      // Auto-advance to the other scene
-      at(PHASE_MS, () => {
-        if (runId !== runIdRef.current) return
-        startPhase(next === 'inhouse' ? 'credyx' : 'inhouse')
-      })
-
-      if (next === 'inhouse') {
-        setStartAmt(0)
-        setMonthlyAmt(0)
-        setTotalAmt(0)
-        setShowCredyxFoot(false)
-        setShowInhouseFoot(false)
-        setNoteVisible(false)
-
-        at(120, () => {
-          if (runId !== runIdRef.current) return
-          setNoteVisible(true)
-          setShowInhouseFoot(true)
-        })
-        at(200, () => {
-          if (runId !== runIdRef.current) return
-          countFromTo(0, INHOUSE.start, COUNT_UP_MS, setStartAmt)
-          countFromTo(0, INHOUSE.monthly, COUNT_UP_MS, setMonthlyAmt)
-          countFromTo(0, INHOUSE.total, COUNT_UP_MS, setTotalAmt)
-        })
-      } else {
-        setShowInhouseFoot(false)
-        setShowCredyxFoot(true)
-        setNoteVisible(false)
-        setStartAmt(INHOUSE.start)
-        setMonthlyAmt(INHOUSE.monthly)
-        setTotalAmt(INHOUSE.total)
-
-        at(120, () => {
-          if (runId !== runIdRef.current) return
-          setNoteVisible(true)
-          countFromTo(INHOUSE.start, 0, COUNT_DOWN_MS, setStartAmt)
-          countFromTo(INHOUSE.monthly, 0, COUNT_DOWN_MS, setMonthlyAmt)
-          countFromTo(INHOUSE.total, 0, COUNT_DOWN_MS, setTotalAmt)
-        })
-      }
-    },
-    [at, clearTimers, countFromTo]
-  )
-
-  useEffect(() => {
-    const node = rootRef.current
-    if (!node) return
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) setInView(true)
-      },
-      { threshold: 0.3 }
-    )
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
-
-  useEffect(() => {
-    if (!inView) return
-
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (prefersReducedMotion) {
-      setPhase('credyx')
-      setStartAmt(0)
-      setMonthlyAmt(0)
-      setTotalAmt(0)
-      setShowInhouseFoot(false)
-      setShowCredyxFoot(true)
-      setNoteVisible(true)
-      return
-    }
-
-    cancelledRef.current = false
-    startPhase('inhouse')
-
-    return () => {
-      cancelledRef.current = true
-      clearTimers()
-    }
-  }, [inView, startPhase, clearTimers])
-
-  const formatMoney = (n: number) => `$${n.toLocaleString('en-US')}`
-  const showPerMonth = phase === 'inhouse' || monthlyAmt > 0
-  const showTotalAsPercent = phase === 'credyx' && totalAmt === 0
-
   return (
     <div
-      ref={rootRef}
-      className={`cx-pricing-hero cx-pricing-hero--animate${
-        phase === 'credyx' ? ' is-credyx' : ' is-inhouse'
-      }`}
-      aria-label="In-house back office cost versus Credyx"
+      className="cx-pricing-compare"
+      aria-label="Credyx versus hiring an in-house A/R person"
     >
-      <div className="cx-pricing-note-slot" aria-live="polite">
-        <p
-          className={`cx-pricing-note is-warn${
-            phase === 'inhouse' && noteVisible ? ' is-shown' : ''
-          }`}
-        >
-          Hiring in-house for back office is expensive
-        </p>
-        <p
-          className={`cx-pricing-note is-good${
-            phase === 'credyx' && noteVisible ? ' is-shown' : ''
-          }`}
-        >
-          But with Credyx, this is how it looks
-        </p>
-      </div>
-
-      <div className="cx-pricing-zeros">
-        <div className={phase === 'inhouse' ? 'is-expensive' : 'is-zero'}>
-          <span className="cx-pricing-amt">{formatMoney(startAmt)}</span>
-          <small>To start</small>
-        </div>
-        <div className={phase === 'inhouse' ? 'is-expensive' : 'is-zero'}>
-          <span className="cx-pricing-amt">
-            {formatMoney(monthlyAmt)}
-            {showPerMonth ? <em className="cx-pricing-per">/mo</em> : null}
-          </span>
-          <small className="cx-pricing-card-label">
-            <span className={phase === 'inhouse' ? 'is-shown' : ''}>Monthly cost, on average</span>
-            <span className={phase === 'credyx' ? 'is-shown' : ''}>No monthly fee</span>
-          </small>
-        </div>
-        <div className={phase === 'inhouse' ? 'is-expensive' : 'is-zero'}>
-          <span className="cx-pricing-amt">
-            {showTotalAsPercent ? '%' : formatMoney(totalAmt)}
-            {phase === 'inhouse' || (totalAmt > 0 && !showTotalAsPercent) ? (
-              <em className="cx-pricing-per">/mo</em>
-            ) : null}
-          </span>
-          <small className="cx-pricing-card-label">
-            <span className={phase === 'inhouse' ? 'is-shown' : ''}>Est. monthly total</span>
-            <span className={phase === 'credyx' ? 'is-shown' : ''}>Only after you&apos;re paid</span>
-          </small>
-        </div>
-      </div>
-
-      <div className="cx-pricing-foot">
-        <div
-          className={`cx-pricing-foot-panel${showInhouseFoot ? ' is-visible' : ''}`}
-          aria-hidden={!showInhouseFoot}
-        >
-          <p className="cx-pricing-charge-note cx-pricing-charge-note--warn is-visible">
-            You pay every month, whether invoices clear or not.
-          </p>
-          <ol
-            className="cx-pricing-steps cx-pricing-steps--cards"
-            aria-label="What an in-house hire still requires"
-          >
-            {INHOUSE_HASSLES.map((item, index) => (
-              <li key={item.title}>
-                <span className="cx-pricing-step-num">{index + 1}</span>
-                <div className="cx-pricing-step-copy">
-                  <strong>{item.title}</strong>
-                  <em>{item.detail}</em>
+      <div className="cx-pricing-grid">
+        <div className="cx-pricing-col cx-pricing-col--credyx">
+          <div className="cx-pricing-col-head">
+            <span className="cx-pricing-col-icon" aria-hidden>
+              <Check size={16} strokeWidth={3} />
+            </span>
+            <div>
+              <p className="cx-pricing-col-title">Credyx</p>
+              <p className="cx-pricing-col-sub">On-demand A/R solutions</p>
+            </div>
+          </div>
+          <ul className="cx-pricing-list">
+            {CREDYX_POINTS.map((point) => (
+              <li key={point.title}>
+                <span className="cx-pricing-mark cx-pricing-mark--check" aria-hidden>
+                  <Check size={14} strokeWidth={3} />
+                </span>
+                <div>
+                  <strong>{point.title}</strong>
+                  <span>{point.detail}</span>
                 </div>
               </li>
             ))}
-          </ol>
-          <p className="cx-pricing-example is-visible">
-            You belong on the road, <strong>not buried in back office work.</strong>
-          </p>
+          </ul>
         </div>
 
-        <div
-          className={`cx-pricing-foot-panel${showCredyxFoot ? ' is-visible' : ''}`}
-          aria-hidden={!showCredyxFoot}
-        >
-          <p className="cx-pricing-charge-note is-visible">
-            We only charge a small % when the invoice is paid — not before.
-          </p>
-          <ol
-            className="cx-pricing-steps cx-pricing-steps--cards"
-            aria-label="How Credyx pricing works"
-          >
-            {CREDYX_STEPS.map((item, index) => (
-              <li key={item.title}>
-                <span className="cx-pricing-step-num">{index + 1}</span>
-                <div className="cx-pricing-step-copy">
-                  <strong>{item.title}</strong>
-                  <em>{item.detail}</em>
+        <div className="cx-pricing-col cx-pricing-col--inhouse">
+          <div className="cx-pricing-col-head">
+            <span className="cx-pricing-col-icon cx-pricing-col-icon--neutral" aria-hidden>
+              <User size={16} strokeWidth={2.25} />
+            </span>
+            <div>
+              <p className="cx-pricing-col-title">In-house A/R</p>
+              <p className="cx-pricing-col-sub">Full-time employee</p>
+            </div>
+          </div>
+          <ul className="cx-pricing-list">
+            {INHOUSE_POINTS.map((point) => (
+              <li key={point.title}>
+                <span className="cx-pricing-mark cx-pricing-mark--x" aria-hidden>
+                  <X size={13} strokeWidth={3} />
+                </span>
+                <div>
+                  <strong>{point.title}</strong>
+                  <span>{point.detail}</span>
                 </div>
               </li>
             ))}
-          </ol>
-          <p className="cx-pricing-example is-visible">
-            Focus on the road. <strong>We&apos;ll handle the rest</strong> — paperwork to paid on
-            time.
-          </p>
+          </ul>
         </div>
       </div>
+
+      <p className="cx-pricing-closing">
+        Same results. <span>Way less headaches.</span>
+      </p>
     </div>
   )
 }

@@ -64,6 +64,7 @@ const ROLE_PATH_PREFIXES: Record<BuiltInAdminStaffRole, string[]> = {
     '/brokers',
     '/clients',
     '/admin/waitlist',
+    '/admin/sales',
   ],
   reports: [
     '/admin/dashboard',
@@ -80,6 +81,7 @@ const ROLE_PATH_PREFIXES: Record<BuiltInAdminStaffRole, string[]> = {
     '/force-close',
     '/Audit',
     '/admin/waitlist',
+    '/admin/sales',
   ],
   billing: [
     '/admin/dashboard',

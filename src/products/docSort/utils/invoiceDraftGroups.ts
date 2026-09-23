@@ -47,9 +47,19 @@ function fingerprintOverlapsGroup(fp: DocSortFingerprint, group: DocSortLoadGrou
   return groupMembers(group).some((member) => pairBelongsTogether(fp, member))
 }
 
+/**
+ * Only core RC / BOL docs decide whether two packets are the same load.
+ * Support docs (INV pages, lumper receipts…) previously bridged unrelated
+ * groups transitively and merged separate loads into one packet.
+ */
+function groupCoreMembers(group: DocSortLoadGroup): DocSortFingerprint[] {
+  const core = [...group.rateCons, ...group.bols]
+  return core.length > 0 ? core : groupMembers(group)
+}
+
 function groupsBelongTogether(a: DocSortLoadGroup, b: DocSortLoadGroup): boolean {
-  return groupMembers(a).some((left) =>
-    groupMembers(b).some((right) => pairBelongsTogether(left, right))
+  return groupCoreMembers(a).some((left) =>
+    groupCoreMembers(b).some((right) => pairBelongsTogether(left, right))
   )
 }
 

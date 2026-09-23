@@ -1,22 +1,29 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-/** First non-empty env value from Vite-exposed keys. */
-function envString(...keys: string[]): string {
-  const env = import.meta.env as Record<string, string | undefined>
-  for (const key of keys) {
-    const value = env[key]?.trim()
-    if (value) return value
+declare const __CREDYX_SUPABASE_URL__: string
+declare const __CREDYX_SUPABASE_KEY__: string
+
+/** First non-empty string from build define + Vite env fallbacks. */
+function envString(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    const trimmed = value?.trim()
+    if (trimmed) return trimmed
   }
   return ''
 }
 
-// Prefer VITE_* (local/.env); also accept plain SUPABASE_* (Vercel / hosting).
-const url = envString('VITE_SUPABASE_URL', 'SUPABASE_URL')
+// Injected at build time from SUPABASE_* or VITE_* (see vite.config.ts).
+const url = envString(
+  typeof __CREDYX_SUPABASE_URL__ !== 'undefined' ? __CREDYX_SUPABASE_URL__ : undefined,
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.SUPABASE_URL
+)
 const key = envString(
-  'VITE_SUPABASE_PUBLISHABLE_KEY',
-  'SUPABASE_PUBLISHABLE_KEY',
-  'VITE_SUPABASE_ANON_KEY',
-  'SUPABASE_ANON_KEY'
+  typeof __CREDYX_SUPABASE_KEY__ !== 'undefined' ? __CREDYX_SUPABASE_KEY__ : undefined,
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  import.meta.env.SUPABASE_PUBLISHABLE_KEY,
+  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  import.meta.env.SUPABASE_ANON_KEY
 )
 
 let client: SupabaseClient | null = null
@@ -45,7 +52,7 @@ export function requireSupabase(): SupabaseClient {
   const sb = getSupabase()
   if (!sb) {
     throw new SupabaseConfigError(
-      'Supabase is not configured. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY (or VITE_ equivalents) in your environment.'
+      'Supabase is not configured. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY (or VITE_ equivalents) in your environment, then redeploy.'
     )
   }
   return sb
@@ -55,6 +62,6 @@ export function getSupabaseConfigError(): string | null {
   if (isSupabaseConfigured()) return null
   const missing: string[] = []
   if (!url) missing.push('SUPABASE_URL (or VITE_SUPABASE_URL)')
-  if (!key) missing.push('SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_PUBLISHABLE_KEY)')
-  return `Missing required environment variables: ${missing.join(', ')}`
+  if (!key) missing.push('SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_PUBLISHABLE_KEY / SUPABASE_ANON_KEY)')
+  return `Missing required environment variables: ${missing.join(', ')}. After setting them on Vercel, trigger a new deploy (values are baked in at build time).`
 }

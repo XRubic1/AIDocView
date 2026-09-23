@@ -1,6 +1,7 @@
 /**
  * Client Dashboard V3 — waitlist-branded, chart-first home.
  * Tabs swap Cash collected ↔ Overdue / On hold / Broker risk.
+ * PC: fit-to-viewport (density scales with monitor height/width).
  * Routed at /client/dashboard-v3.
  */
 import { useMemo, useRef, useState } from 'react'

@@ -12,6 +12,9 @@ export function getAdminBatchStatusBadge(status: string) {
     draft: { label: 'Draft', className: 'status-pill--pending' },
     creating: { label: 'Creating', className: 'status-pill--review' },
     needs_split: { label: 'Doc Split', className: 'status-pill--review' },
+    ai_splitting: { label: 'AI splitting docs…', className: 'status-pill--review' },
+    creating_packets: { label: 'Creating packets…', className: 'status-pill--review' },
+    failed: { label: 'Failed !', className: 'status-pill--overdue' },
     rework: { label: 'Rework', className: 'status-pill--review' },
   }
   const config = map[status] ?? {
@@ -19,6 +22,11 @@ export function getAdminBatchStatusBadge(status: string) {
     className: 'status-pill--pending-batch',
   }
   return (
-    <span className={`inline-flex items-center status-pill ${config.className}`}>{config.label}</span>
+    <span
+      className={`inline-flex items-center status-pill ${config.className}`}
+      title={status === 'failed' ? 'Open batch debug or job error for details' : undefined}
+    >
+      {config.label}
+    </span>
   )
 }

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   ArrowRight,
+  Check,
   Eye,
   FileCheck,
   Headphones,
@@ -13,6 +14,7 @@ import {
   AlertCircle,
   MessageSquare,
   Building2,
+  X,
 } from 'lucide-react'
 import '../styles/credyxMarketing.css'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
@@ -93,23 +95,13 @@ const BENEFITS = [
   },
 ]
 
-/** Credyx vs factoring compare panels (copy source: docs/marketing/CREDYX_VS_FACTORING.md §5). */
-const VS_FACTORING_PANELS = [
-  {
-    tag: 'Factoring company',
-    tagline: 'You\u2019re buying cash flow',
-    tone: 'factor' as const,
-    points: [
-      'They advance cash and own the invoice (NOA)',
-      'Fees are financing fees — discount, reserves, minimums',
-      'Collections protect their receivable — you see funded or not',
-      'Broker doesn\u2019t pay? Chargeback plus fees',
-    ],
-  },
-  {
-    tag: 'Credyx',
-    tagline: 'You\u2019re buying a back office',
-    tone: 'credyx' as const,
+/** Credyx vs factoring (copy source: docs/marketing/CREDYX_VS_FACTORING.md §5). Credyx left. */
+const SHOW_VS_FACTORING = false
+
+const VS_FACTORING = {
+  credyx: {
+    title: 'Credyx',
+    sub: 'You\u2019re buying a back office',
     points: [
       'You keep your invoices — brokers pay you directly',
       'Small fee only when invoices are collected — no hidden fees',
@@ -117,7 +109,17 @@ const VS_FACTORING_PANELS = [
       'No advance — nothing to claw back; uncollected means no % fee',
     ],
   },
-] as const
+  factor: {
+    title: 'Factoring',
+    sub: 'You\u2019re buying cash flow',
+    points: [
+      'They advance cash and own the invoice (NOA)',
+      'Fees are financing fees — discount, reserves, minimums',
+      'Collections protect their receivable — you see funded or not',
+      'Broker doesn\u2019t pay? Chargeback plus fees',
+    ],
+  },
+} as const
 
 const PLATFORM_FEATURES = [
   {
@@ -603,33 +605,28 @@ export default function Waitlist() {
       </section>
 
       {/* ── Why Credyx ── */}
-      <section className="cx-section surface bordered cx-section--why">
+      <section className="cx-section bordered cx-section--why">
         <div className="cx-section-inner">
           <div className="cx-section-head centered reveal reveal-grow">
-            <p className="cx-eyebrow">
-              Why Credyx
-            </p>
+            <p className="cx-eyebrow">Why Credyx</p>
             <h2 className="cx-section-title">
               Your back office,{' '}
               <span className="accent cx-hand-underline cx-hand-underline--v7">without the hire</span>
             </h2>
-            <p className="cx-section-sub">
-              Visibility, follow-up, and A/R tracking in one portal — built for carriers.
-            </p>
           </div>
-          <div className="cx-card-grid cx-why-grid reveal-stagger reveal">
+          <ul className="cx-why-list reveal-stagger reveal">
             {BENEFITS.map((benefit) => (
-              <div key={benefit.title} className="cx-card cx-card--grow cx-why-card">
-                <div className="cx-card-icon">
-                  <benefit.icon size={20} />
+              <li key={benefit.title} className="cx-why-item">
+                <span className="cx-why-icon" aria-hidden>
+                  <benefit.icon size={18} />
+                </span>
+                <div className="cx-why-copy">
+                  <h3>{benefit.title}</h3>
+                  <p>{benefit.description}</p>
                 </div>
-                <div className="cx-why-card-copy">
-                  <h3 className="cx-card-title">{benefit.title}</h3>
-                  <p className="cx-card-desc">{benefit.description}</p>
-                </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
 
@@ -857,12 +854,11 @@ export default function Waitlist() {
           <div className="cx-pricing-head reveal reveal-grow">
             <p className="cx-eyebrow">Pricing</p>
             <h2 className="cx-section-title">
-              How we get paid{' '}
-              <span className="accent cx-hand-underline cx-hand-underline--v5">explained simply</span>
+              Credyx vs.{' '}
+              <span className="accent cx-hand-underline cx-hand-underline--v5">
+                hiring an in-house A/R person
+              </span>
             </h2>
-            <p className="cx-section-sub">
-              You get paid first. We only take a small cut after that.
-            </p>
           </div>
 
           <div className="cx-pricing">
@@ -873,7 +869,8 @@ export default function Waitlist() {
         </div>
       </section>
 
-      {/* ── Credyx vs factoring ── */}
+      {/* ── Credyx vs factoring (hidden — set SHOW_VS_FACTORING to re-enable) ── */}
+      {SHOW_VS_FACTORING ? (
       <section id="vs-factoring" className="cx-section cx-section--vs bordered">
         <div className="cx-section-inner">
           <div className="cx-vs-head centered reveal reveal-grow">
@@ -891,30 +888,56 @@ export default function Waitlist() {
             </p>
           </div>
 
-          <div className="cx-vs-grid reveal-stagger reveal">
-            {VS_FACTORING_PANELS.map((panel, index) => (
-              <div key={panel.tag} className="cx-vs-col">
-                {index === 1 && (
-                  <div className="cx-vs-divider" aria-hidden>
-                    <span>vs</span>
+          <div className="cx-pricing-compare reveal reveal-grow">
+            <div className="cx-pricing-grid">
+              <div className="cx-pricing-col cx-pricing-col--credyx">
+                <div className="cx-pricing-col-head">
+                  <span className="cx-pricing-col-icon" aria-hidden>
+                    <Check size={16} strokeWidth={3} />
+                  </span>
+                  <div>
+                    <p className="cx-pricing-col-title">{VS_FACTORING.credyx.title}</p>
+                    <p className="cx-pricing-col-sub">{VS_FACTORING.credyx.sub}</p>
                   </div>
-                )}
-                <div className={`cx-card cx-card--grow cx-vs-panel cx-vs-panel--${panel.tone}`}>
-                  <div className="cx-vs-panel-head">
-                    <span className="cx-vs-tag">{panel.tag}</span>
-                    <p className="cx-vs-tagline">{panel.tagline}</p>
-                  </div>
-                  <ul className="cx-vs-list">
-                    {panel.points.map((point) => (
-                      <li key={point}>
-                        <span className="cx-vs-mark" aria-hidden />
-                        <span>{point}</span>
-                      </li>
-                    ))}
-                  </ul>
                 </div>
+                <ul className="cx-pricing-list">
+                  {VS_FACTORING.credyx.points.map((point) => (
+                    <li key={point}>
+                      <span className="cx-pricing-mark cx-pricing-mark--check" aria-hidden>
+                        <Check size={14} strokeWidth={3} />
+                      </span>
+                      <div>
+                        <strong>{point}</strong>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
-            ))}
+
+              <div className="cx-pricing-col cx-pricing-col--inhouse">
+                <div className="cx-pricing-col-head">
+                  <span className="cx-pricing-col-icon cx-pricing-col-icon--neutral" aria-hidden>
+                    <X size={15} strokeWidth={3} />
+                  </span>
+                  <div>
+                    <p className="cx-pricing-col-title">{VS_FACTORING.factor.title}</p>
+                    <p className="cx-pricing-col-sub">{VS_FACTORING.factor.sub}</p>
+                  </div>
+                </div>
+                <ul className="cx-pricing-list">
+                  {VS_FACTORING.factor.points.map((point) => (
+                    <li key={point}>
+                      <span className="cx-pricing-mark cx-pricing-mark--x" aria-hidden>
+                        <X size={13} strokeWidth={3} />
+                      </span>
+                      <div>
+                        <strong>{point}</strong>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
           </div>
 
           <div className="cx-vs-closing reveal reveal-grow">
@@ -936,6 +959,7 @@ export default function Waitlist() {
           </div>
         </div>
       </section>
+      ) : null}
 
       {/* ── Waitlist form ── */}
       <section id="waitlist-form" className="cx-section cx-section--join bordered">

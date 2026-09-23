@@ -16,8 +16,32 @@ import { notifyTenantDataUpdated } from '../supabase/tenantDataLiveSync'
 import { evaluateAiSpendAllow } from '../aiSpendService'
 import { setOpenAiSpendContext } from '../../utils/openaiAuthContext'
 import { markBatchNeedsRework, releaseBatchForAiPolicyBlock } from '../batchReworkService'
+import {
+  finishBatchLiveActivity,
+  startBatchLiveActivity,
+  updateBatchLiveActivity,
+} from '../../utils/batchLiveActivity'
+import {
+  beginBackgroundPipelineAbort,
+  clearBackgroundPipelineAbort,
+  isBatchWorkAbortError,
+  registerBackgroundInflightClear,
+  throwIfBatchWorkAborted,
+} from '../../utils/batchBackgroundControl'
 
 const inflight = new Set<string>()
+
+/** True while this browser tab is running the background pipeline for the batch. */
+export function isBatchBackgroundPipelineRunning(batchId: string): boolean {
+  return inflight.has(batchId)
+}
+
+/** Allow stopAllBatchBackgroundWork to clear the inflight guard. */
+export function clearBackgroundPipelineInflight(batchId: string): void {
+  inflight.delete(batchId)
+}
+
+registerBackgroundInflightClear(clearBackgroundPipelineInflight)
 
 /** Ensure invoice document Files are available for review (storage → memory). */
 async function hydrateBatchFiles(batchId: string): Promise<void> {
@@ -178,6 +202,13 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
 
   updateBatch(batchId, { status: 'creating', sort_status: 'sorting' })
   notifyTenantDataUpdated(['batches'], batch.client_id)
+  updateBatchLiveActivity(batchId, {
+    phase: 'doc_sort',
+    thinking: 'Group uploaded PDFs into loads (RC + BOL) and build invoice packets.',
+    doing: `Running DocSort on ${files.length} file(s)…`,
+    progressPercent: 20,
+    progressLabel: 'DocSort',
+  })
 
   try {
     const { runBatchIntakePipeline, submitAiBatch } = await import('./batchIntakePipeline')
@@ -185,7 +216,6 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
       '../../products/docSort/services/docSortUnpack'
     )
     const { buildDocSortSnapshot } = await import('../../products/docSort/utils/docSortSnapshot')
-    const { markBatchNeedsDocSplit } = await import('../../utils/batchDocSplit')
     const { fingerprintDocIds } = await import('../../integrations/docSortToCredyx')
 
     const intake = await runBatchIntakePipeline(files, batch.client_id)
@@ -202,8 +232,14 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
     ]
     const combinedIds = listCombinedFingerprintIds(allFps, intake.fileById)
 
-    // Combined PDFs → Doc Splitter first (no packets from invoice page #s).
+    // Combined PDFs → background Doc Split (no UI open required).
     if (combinedIds.length > 0) {
+      updateBatchLiveActivity(batchId, {
+        phase: 'doc_split',
+        thinking: `Found ${combinedIds.length} combined PDF(s) — need page split before packets.`,
+        doing: 'Handing off to AI Doc Split…',
+        progressPercent: 30,
+      })
       const unmatchedIds = [
         ...fingerprintDocIds(intake.sortResult.unmatchedRateCons),
         ...fingerprintDocIds(intake.sortResult.unmatchedBols),
@@ -220,18 +256,28 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
       const { setBatchFiles } = await import('../../data/batchFileStore')
       setBatchFiles(batchId, intake.fileById)
 
-      markBatchNeedsDocSplit(batchId, {
-        unmatchedDocIds: uniqueUnmatched,
-        snapshot: buildDocSortSnapshot(intake.sortResult, []),
-      })
-      // succeeded (not failed): failed jobs are revived by enqueue and re-run DocSort.
-      await markJob(
-        batchId,
-        'succeeded',
-        `Combined PDFs detected (${combinedIds.length}). Open Doc Splitter before Packet Rework.`
+      const { ensureDocSplitFlags, runDocSplitterAutoPipeline } = await import(
+        '../../utils/docSplitterAutoPipeline'
       )
+      ensureDocSplitFlags(batchId, uniqueUnmatched, buildDocSortSnapshot(intake.sortResult, []))
+
+      await markJob(batchId, 'running', 'AI splitting docs…')
       notifyTenantDataUpdated(['batches'], batch.client_id)
-      return false
+
+      const splitResult = await runDocSplitterAutoPipeline(batchId)
+      if (splitResult.aborted) return false
+      if (!splitResult.ok) {
+        await markJob(
+          batchId,
+          'failed',
+          splitResult.error ?? 'Doc Split pipeline failed'
+        )
+        return false
+      }
+
+      // Packets created — continue into verify path below via caller.
+      notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
+      return true
     }
 
     if (intake.invoices.length === 0) {
@@ -277,50 +323,128 @@ export async function runBatchBackgroundPipeline(opts: {
   const { batchId } = opts
   if (inflight.has(batchId)) return
   inflight.add(batchId)
+  const signal = beginBackgroundPipelineAbort(batchId)
+
+  const jobKind = opts.kind ?? 'sort_and_verify'
+  startBatchLiveActivity(batchId, {
+    jobLabel: 'Background batch pipeline',
+    jobKind,
+    background: true,
+    phase: 'queued',
+    thinking: 'Automated paperwork → packets → verify (no Doc Splitter window required).',
+    doing: 'Starting background job…',
+  })
 
   try {
+    throwIfBatchWorkAborted(signal)
     if (!isAIReviewEnabled()) {
       await releaseBatchForAiPolicyBlock(
         batchId,
         { message: 'AI review is not configured (openai-proxy / OPENAI_API_KEY).' },
         { aiConfigured: false }
       )
+      finishBatchLiveActivity(batchId, {
+        phase: 'failed',
+        thinking: 'AI is not configured.',
+        doing: 'Stopped — AI unavailable',
+        error: 'AI review is not configured',
+      })
       return
     }
 
     const batch = getBatchById(batchId)
     if (!batch) {
       await markJob(batchId, 'failed', 'Batch not found')
+      finishBatchLiveActivity(batchId, {
+        phase: 'failed',
+        thinking: 'Batch missing from store.',
+        doing: 'Batch not found',
+        error: 'Batch not found',
+      })
       return
     }
 
-    // Waiting on Credyx Doc Splitter — do not retry DocSort / packet creation.
-    const { batchNeedsDocSplit } = await import('../../utils/batchDocSplit')
-    if (batch.status === 'needs_split' || batchNeedsDocSplit(batch)) {
-      await markJob(
-        batchId,
-        'succeeded',
-        'Waiting on Doc Splitter — combined PDFs must be split before packets.'
-      )
+    if (batch.status === 'rework') {
+      finishBatchLiveActivity(batchId, {
+        phase: 'aborted',
+        thinking: 'Batch is in Packet Rework — automated processing stays off.',
+        doing: 'Skipped (rework)',
+      })
       return
+    }
+
+    // Doc Split in progress / needed — resume auto pipeline (no UI required).
+    const { batchNeedsDocSplit } = await import('../../utils/batchDocSplit')
+    const {
+      batchShouldRunDocSplitPipeline,
+      runDocSplitterAutoPipeline,
+      isDocSplitPipelineRunning,
+    } = await import('../../utils/docSplitterAutoPipeline')
+
+    throwIfBatchWorkAborted(signal)
+    if (
+      batchShouldRunDocSplitPipeline(batch) ||
+      batch.status === 'needs_split' ||
+      batchNeedsDocSplit(batch)
+    ) {
+      if (isDocSplitPipelineRunning(batchId)) {
+        await markJob(batchId, 'running', 'AI Doc Split already in progress…')
+        updateBatchLiveActivity(batchId, {
+          phase: 'doc_split',
+          thinking: 'Another Doc Split run already owns this batch.',
+          doing: 'Waiting — Doc Split already in progress',
+        })
+        return
+      }
+      updateBatchLiveActivity(batchId, {
+        phase: 'hydrating',
+        thinking: 'Reload paperwork from storage before Doc Split.',
+        doing: 'Hydrating handoff files…',
+        progressPercent: 10,
+      })
+      await hydrateHandoffFiles(batchId, batch.client_id)
+      throwIfBatchWorkAborted(signal)
+      if (!getBatchById(batchId)) return
+      await markJob(batchId, 'running', 'AI splitting docs…')
+      const splitResult = await runDocSplitterAutoPipeline(batchId, { signal })
+      if (splitResult.aborted || !splitResult.ok) {
+        return
+      }
+      notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
     }
 
     // Master / per-client AI off or spend cap → Packet Rework + ops email.
+    throwIfBatchWorkAborted(signal)
+    if (!getBatchById(batchId)) return
     const spend = await evaluateAiSpendAllow(batch.client_id)
     if (!spend.allowed) {
       await releaseBatchForAiPolicyBlock(batchId, spend, { aiConfigured: true })
+      finishBatchLiveActivity(batchId, {
+        phase: 'failed',
+        thinking: 'AI spend / policy blocked packet creation.',
+        doing: spend.message,
+        error: spend.message,
+      })
       return
     }
 
     setOpenAiSpendContext({ clientId: batch.client_id, feature: 'review' })
 
     // Prefer live memory, but re-check DB before creating to avoid duplicate packets.
+    throwIfBatchWorkAborted(signal)
     let invoices = getInvoicesByBatchId(batchId)
     if (invoices.length === 0) {
       await markJob(batchId, 'running')
+      updateBatchLiveActivity(batchId, {
+        phase: 'doc_sort',
+        jobLabel: 'Background packet creation',
+        thinking: 'No invoices yet — run DocSort / Doc Split to create packets.',
+        doing: 'Creating invoices from uploaded docs…',
+        progressPercent: 15,
+      })
+      throwIfBatchWorkAborted(signal)
       const created = await createInvoicesFromHandoffDocs(batchId)
       if (!created) {
-        // createInvoicesFromHandoffDocs already moved the batch to rework.
         return
       }
       invoices = getInvoicesByBatchId(batchId)
@@ -328,6 +452,9 @@ export async function runBatchBackgroundPipeline(opts: {
       // Invoices already exist — never append another DocSort pass.
       notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
     }
+
+    throwIfBatchWorkAborted(signal)
+    if (!getBatchById(batchId)) return
 
     const alreadyDone = invoices.every(
       (inv) =>
@@ -338,6 +465,11 @@ export async function runBatchBackgroundPipeline(opts: {
       updateBatch(batchId, { sort_status: 'ready', status: 'ready_to_post' })
       await markJob(batchId, 'succeeded')
       notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
+      finishBatchLiveActivity(batchId, {
+        phase: 'succeeded',
+        thinking: 'All invoices already reviewed.',
+        doing: `Ready · ${invoices.length} packet(s)`,
+      })
       return
     }
 
@@ -346,7 +478,16 @@ export async function runBatchBackgroundPipeline(opts: {
       sort_status: batch.sort_status === 'ready' ? 'ready' : 'sorting',
     })
 
+    updateBatchLiveActivity(batchId, {
+      phase: 'hydrating',
+      jobLabel: 'Background AI verify',
+      thinking: 'Ensure invoice PDF files are in memory for verification.',
+      doing: 'Hydrating invoice documents…',
+      progressPercent: 60,
+    })
     await hydrateBatchFiles(batchId)
+    throwIfBatchWorkAborted(signal)
+    if (!getBatchById(batchId)) return
 
     for (const inv of invoices) {
       if (
@@ -358,12 +499,28 @@ export async function runBatchBackgroundPipeline(opts: {
       updateInvoice(inv.id, { ai_review_status: 'not_run' })
     }
 
+    updateBatchLiveActivity(batchId, {
+      phase: 'verifying',
+      thinking: `Check ${invoices.length} packet(s) against DocSort extract JSON (destinations / matches).`,
+      doing: 'Running AI verification…',
+      progressPercent: 75,
+      progressLabel: `0 / ${invoices.length}`,
+    })
+
     // Finalize checks from DocSort extract JSON (destinations / matches already done
     // during packet creation). No second vision pass — use "Run AI review" only if extracts missing.
     const outcomes = await runBatchAiReview(batchId, undefined, { allowVision: false })
+    throwIfBatchWorkAborted(signal)
+    if (!getBatchById(batchId)) return
     settleBatchAiGate(batchId)
     updateBatch(batchId, { sort_status: 'ready', status: 'ready_to_post' })
 
+    updateBatchLiveActivity(batchId, {
+      phase: 'happy_path',
+      thinking: 'Apply auto-approve / hold rules after verification.',
+      doing: 'Running happy path…',
+      progressPercent: 90,
+    })
     try {
       await runHappyPathAfterAiReview({ batchId, outcomes })
     } catch (err) {
@@ -372,13 +529,28 @@ export async function runBatchBackgroundPipeline(opts: {
 
     await markJob(batchId, 'succeeded')
     notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
+    finishBatchLiveActivity(batchId, {
+      phase: 'succeeded',
+      thinking: 'Background pipeline finished.',
+      doing: `Verified ${invoices.length} packet(s)`,
+    })
   } catch (err) {
+    if (isBatchWorkAbortError(err)) {
+      finishBatchLiveActivity(batchId, {
+        phase: 'aborted',
+        thinking: 'Background pipeline cancelled.',
+        doing: 'Aborted',
+        error: 'aborted',
+      })
+      return
+    }
     const message = err instanceof Error ? err.message : 'Background processing failed'
     console.error('[runBatchBackgroundPipeline]', batchId, message)
     settleBatchAiGate(batchId)
     await markBatchNeedsRework(batchId, message)
   } finally {
     setOpenAiSpendContext(null)
+    clearBackgroundPipelineAbort(batchId)
     inflight.delete(batchId)
   }
 }

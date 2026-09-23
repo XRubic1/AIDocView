@@ -16,6 +16,12 @@ import { fingerprintNeedsDocSplitter } from '../products/docSort/services/docSor
 import { getBatchDocActions, type BatchDocAction } from './batchDocActionLog'
 import type { BatchProcessingJobDebug } from '../services/credyx/batchDebugService'
 import { hasPpwBeenSent } from './ppwSent'
+import {
+  getBatchLiveActivity,
+  isBatchLiveActivityRunning,
+  type BatchLiveActivity,
+} from './batchLiveActivity'
+import { isDocSplitPipelineRunning } from './docSplitterAutoPipeline'
 
 export type BatchDebugSeverity = 'info' | 'warning' | 'error' | 'success'
 
@@ -73,7 +79,12 @@ export type BatchDebugSnapshot = {
     total_amount: number
     unmatched_doc_count: number
     ai_review_label: string | null
+    processing_error?: string | null
   }
+  /** Live in-tab pipeline activity (what the job is thinking / doing). */
+  liveActivity: BatchLiveActivity | null
+  /** True when this browser tab owns an in-flight background run. */
+  backgroundRunningInThisTab: boolean
   timeline: BatchDebugTimelineEvent[]
   jobs: BatchProcessingJobDebug[]
   invoices: BatchDebugInvoiceRow[]
@@ -383,6 +394,11 @@ export function buildBatchDebugSnapshot(
     doc_sort_snapshot_length: batch.doc_sort_snapshot?.length ?? 0,
   }
 
+  const liveActivity = getBatchLiveActivity(batchId)
+  const backgroundRunningInThisTab =
+    isDocSplitPipelineRunning(batchId) ||
+    (isBatchLiveActivityRunning(liveActivity) && Boolean(liveActivity?.background))
+
   return {
     batchId: batch.id,
     batchNumber: batch.batch_number,
@@ -405,14 +421,23 @@ export function buildBatchDebugSnapshot(
       total_amount: batch.total_amount,
       unmatched_doc_count: batch.unmatched_doc_ids?.length ?? 0,
       ai_review_label: aiProgress.label,
+      processing_error: batch.processing_error ?? null,
     },
+    liveActivity,
+    backgroundRunningInThisTab,
     timeline,
     jobs,
     invoices: invoiceRows,
     documents,
     docActions: getBatchDocActions(batchId),
     auditLogs,
-    rawBatch,
+    rawBatch: {
+      ...rawBatch,
+      processing_error: batch.processing_error ?? null,
+      live_activity: liveActivity,
+      background_running_in_this_tab: backgroundRunningInThisTab,
+      live_activity_running: isBatchLiveActivityRunning(liveActivity),
+    },
   }
 }
 

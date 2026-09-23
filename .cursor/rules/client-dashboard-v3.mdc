@@ -37,13 +37,13 @@ Typography:
 
 ## Anti–empty-space rules (hard)
 
-1. **No viewport stretch for decoration.** Do not force panels to `height: 100%` / `flex: 1` just to fill the screen. Cards hug content.
-2. **Lists scroll inside themselves** only when row count needs it (`max-height` + overflow). Never leave a huge blank card body under 2–3 rows.
+1. **Fit-to-viewport on PC (intentional).** Lock the shell to the flush main (`overflow: hidden`). Hero + tabs stay compact; the Cash / work panel `flex: 1` fills leftover height so the chart/list scales with the monitor — not decorative blank cards.
+2. **Lists scroll inside themselves** only when row count needs it (`max-height` / flex overflow). Never leave a huge blank card body under 2–3 rows on a tall screen without giving that height to the chart/list.
 3. **Unequal layout.** Hero + work queue get more weight than secondary chips. Chart sits beside the queue — not a third equal sibling of two sparse lists.
 4. **One hero number.** Open balance is large and blue. Overdue is a clear red callout. Coming due / confirmed pay are compact chips — not four identical KPI twins.
 5. **No URGENT pager on the home.** Work lists live behind Overdue / On hold / Broker risk tabs — they swap with Cash collected, they do not sit beside it as equal empty panels.
 6. **Chart-first cash story.** Prefer blue bar chart (Cash collected) over muddy dual area lines. Current period may be hatched.
-7. **Gap budget:** prefer `12–16px` between cards; avoid large empty gutters. Padding inside cards: tight but readable (`14–18px`), not airy marketing hero padding.
+7. **Gap budget:** prefer density tokens (`--cdv3-gap` / `--cdv3-s`) that shrink on short monitors; avoid large empty gutters. Padding inside cards: tight but readable.
 8. **No decorative wave layers** that compete with data. Soft blue mesh (waitlist-style) is OK; animated wave textures are not for V3.
 9. **No operating summary strip** like `9 overdue · 2 on hold · $24k open` — that repeats the hero. Optional away line only.
 

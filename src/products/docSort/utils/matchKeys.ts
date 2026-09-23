@@ -195,6 +195,14 @@ export function explainFingerprintsLink(
     reasons.push(`filename family ${documentFamilyKey(a.fileName)}`)
   }
 
+  // Pages from two different source scans never share a packet without a real
+  // shared load # — blocks cross-load merges like 14503-p4 ↔ 14504-p5.
+  const familyA = documentFamilyKey(a.fileName)
+  const familyB = documentFamilyKey(b.fileName)
+  if (familyA && familyB && familyA !== familyB && shared.length === 0) {
+    blockers.push(`different source documents (${familyA} vs ${familyB})`)
+  }
+
   if (a.broker?.trim() && b.broker?.trim() && !namesOverlap(a.broker, b.broker)) {
     blockers.push(`different brokers (“${a.broker.trim()}” vs “${b.broker.trim()}”)`)
   }

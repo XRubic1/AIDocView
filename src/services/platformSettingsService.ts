@@ -11,6 +11,12 @@ import {
   type BrokerRiskPolicy,
 } from '../utils/brokerRiskPolicy'
 import {
+  DEFAULT_SALES_LEAD_RATING_POLICY,
+  normalizeSalesLeadRatingPolicy,
+  SALES_LEAD_RATING_POLICY,
+  type SalesLeadRatingPolicy,
+} from '../utils/salesLeadRating'
+import {
   DEFAULT_EMAIL_LIFECYCLE_SETTINGS,
   EMAIL_LIFECYCLE_SETTINGS,
   type EmailLifecycleSettings,
@@ -28,6 +34,7 @@ const COLLECTIONS_POLICY_KEY = 'collections_policy'
 const BROKER_RISK_POLICY_KEY = 'broker_risk_policy'
 const BROKER_SNAPSHOT_TTL_KEY = 'broker_snapshot_ttl'
 const EMAIL_MAILBOXES_KEY = 'email_mailboxes'
+const SALES_LEAD_RATING_KEY = 'sales_lead_rating'
 
 /** Defaults for MC Lookup Snapshot cache windows (days). */
 export const DEFAULT_BROKER_SNAPSHOT_TTL = {
@@ -533,11 +540,65 @@ export async function saveEmailMailboxes(
   return normalized
 }
 
+/** Load sales-lead chase rating rules from platform_settings. */
+export async function loadSalesLeadRatingPolicy(): Promise<SalesLeadRatingPolicy> {
+  if (!isSupabaseConfigured()) return { ...DEFAULT_SALES_LEAD_RATING_POLICY }
+
+  const supabase = getSupabase()
+  if (!supabase) return { ...DEFAULT_SALES_LEAD_RATING_POLICY }
+
+  const { data, error } = await supabase
+    .from('platform_settings')
+    .select('value')
+    .eq('key', SALES_LEAD_RATING_KEY)
+    .maybeSingle()
+
+  if (error || !data?.value) return { ...DEFAULT_SALES_LEAD_RATING_POLICY }
+  return normalizeSalesLeadRatingPolicy(data.value as Partial<SalesLeadRatingPolicy>)
+}
+
+/** Apply sales-lead rating policy to the runtime singleton. */
+export function applySalesLeadRatingPolicy(policy: SalesLeadRatingPolicy): void {
+  Object.assign(SALES_LEAD_RATING_POLICY, normalizeSalesLeadRatingPolicy(policy))
+}
+
+/** Persist sales-lead chase rating rules (Sales page / Settings). */
+export async function saveSalesLeadRatingPolicy(
+  policy: Partial<SalesLeadRatingPolicy>
+): Promise<SalesLeadRatingPolicy> {
+  const normalized = normalizeSalesLeadRatingPolicy(policy)
+  applySalesLeadRatingPolicy(normalized)
+
+  if (!isSupabaseConfigured()) return normalized
+
+  const supabase = getSupabase()
+  if (!supabase) return normalized
+
+  await persistOrThrow('sales_lead_rating', async () => {
+    const { error } = await supabase.from('platform_settings').upsert({
+      key: SALES_LEAD_RATING_KEY,
+      value: normalized,
+      updated_at: new Date().toISOString(),
+    })
+    if (error) throw new Error(error.message)
+  })
+
+  return normalized
+}
+
 export {
   BROKER_SNAPSHOT_TTL_KEY,
   COLLECTIONS_POLICY_KEY,
   BROKER_RISK_POLICY_KEY,
   EMAIL_MAILBOXES_KEY,
+  SALES_LEAD_RATING_KEY,
   DEFAULT_EMAIL_MAILBOXES,
+  DEFAULT_SALES_LEAD_RATING_POLICY,
 }
-export type { ArPolicyType, CollectionsPolicy, BrokerRiskPolicy, EmailMailboxSettings }
+export type {
+  ArPolicyType,
+  CollectionsPolicy,
+  BrokerRiskPolicy,
+  EmailMailboxSettings,
+  SalesLeadRatingPolicy,
+}

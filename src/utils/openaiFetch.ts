@@ -7,10 +7,62 @@ import {
   rememberOpenAiAccessToken,
 } from './openaiAuthContext'
 
-const MAX_429_RETRIES = 8
+const MAX_429_RETRIES = 12
+/** After repeated TPM hits, park for this long so the per-minute window resets. */
+const RATE_LIMIT_LONG_WAIT_MS = 100_000
+const RATE_LIMIT_MIN_WAIT_MS = 1_000
+
+/**
+ * Shared cooldown: one 429 pauses every OpenAI call in this tab, so parallel
+ * workers stop burning the same tokens-per-minute budget while we wait.
+ */
+let rateLimitCooldownUntil = 0
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function waitForRateLimitCooldown(): Promise<void> {
+  for (;;) {
+    const remaining = rateLimitCooldownUntil - Date.now()
+    if (remaining <= 0) return
+    await sleep(Math.min(remaining, 5_000))
+  }
+}
+
+/** Surface long waits in the batch's live activity so the job doesn't look stuck. */
+function notifyRateLimitWait(waitMs: number): void {
+  const seconds = Math.round(waitMs / 1000)
+  console.warn(
+    `[openaiFetch] OpenAI rate limit hit — pausing AI calls for ${seconds}s, then resuming from checkpoint`
+  )
+  if (waitMs < 10_000) return
+  const auth = getOpenAiJobAuth()
+  if (!auth?.batchId) return
+  void import('./batchLiveActivity')
+    .then(({ updateBatchLiveActivity }) => {
+      updateBatchLiveActivity(auth.batchId, {
+        thinking:
+          'OpenAI tokens-per-minute limit reached — waiting for the window to reset, then continuing from the last successful step.',
+        doing: `Rate limited — waiting ${seconds}s…`,
+      })
+    })
+    .catch(() => {})
+}
+
+/**
+ * 429 backoff: honor OpenAI's suggested wait for the first hits; once the org
+ * TPM budget keeps rejecting us, park all AI calls for 100s so the minute
+ * window resets, then continue (work resumes from its checkpoint — nothing
+ * already completed is redone).
+ */
+async function pauseForRateLimit(attempt: number, retrySeconds: number | undefined): Promise<void> {
+  const suggestedMs = Math.ceil((retrySeconds ?? 3) * 1000) + 750 + 250 * attempt
+  const waitMs =
+    attempt >= 2 ? RATE_LIMIT_LONG_WAIT_MS : Math.max(suggestedMs, RATE_LIMIT_MIN_WAIT_MS)
+  rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + waitMs)
+  notifyRateLimitWait(waitMs)
+  await waitForRateLimitCooldown()
 }
 
 export function parseOpenAIRetrySeconds(errorBody: string): number | undefined {
@@ -166,6 +218,9 @@ export async function postOpenAIChatCompletions(
       : body
 
   for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt += 1) {
+    // Respect a cooldown another concurrent request may have started.
+    await waitForRateLimitCooldown()
+
     const { data, error } = await supabase.functions.invoke('openai-proxy', {
       body: payloadBody,
       headers: invokeHeaders,
@@ -192,6 +247,11 @@ export async function postOpenAIChatCompletions(
         })
       }
 
+      if (failure.status === 429 || isRateLimitPayload(failure.body, failure.status)) {
+        await pauseForRateLimit(attempt, parseOpenAIRetrySeconds(failure.body))
+        continue
+      }
+
       const retrySeconds = parseOpenAIRetrySeconds(failure.body) ?? attempt + 1
       await sleep(Math.ceil(retrySeconds * 1000) + 750 + 250 * attempt)
       continue
@@ -205,8 +265,7 @@ export async function postOpenAIChatCompletions(
     if (status === 429 && attempt < MAX_429_RETRIES) {
       lastErrorBody = payloadText
       lastStatus = 429
-      const retrySeconds = parseOpenAIRetrySeconds(payloadText) ?? 3
-      await sleep(Math.ceil(retrySeconds * 1000) + 750 + 250 * attempt)
+      await pauseForRateLimit(attempt, parseOpenAIRetrySeconds(payloadText))
       continue
     }
 

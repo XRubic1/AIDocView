@@ -14,10 +14,28 @@ export interface PendingBatch {
   total_invoices: number
   total_amount: number
   minutes_since_submitted: number
-  status: 'draft' | 'creating' | 'needs_split' | 'ready_to_post' | 'rework' | 'verification' | 'approval' | 'submitted' | 'processing' | 'documents_uploaded'
+  status:
+    | 'draft'
+    | 'creating'
+    | 'needs_split'
+    /** Background Doc Split: AI classifying / page-splitting pages. */
+    | 'ai_splitting'
+    /** Background Doc Split: RC↔BOL match + packet creation. */
+    | 'creating_packets'
+    /** Pipeline failed or overridden — red Failed badge. */
+    | 'failed'
+    | 'ready_to_post'
+    | 'rework'
+    | 'verification'
+    | 'approval'
+    | 'submitted'
+    | 'processing'
+    | 'documents_uploaded'
   submitted_at: string
   in_use?: boolean
   in_use_by?: string
+  /** Last pipeline / override error shown next to Failed (!). */
+  processing_error?: string | null
   fee_calculation?: {
     fee_type?: 'percentage' | 'flat'
     fee_percentage?: number
@@ -33,7 +51,14 @@ export interface PendingBatch {
   /** How the client created this batch */
   upload_mode?: 'ai' | 'manual' | 'handoff'
   /** DocSort pipeline status for AI uploads */
-  sort_status?: 'pending' | 'sorting' | 'ready' | 'failed' | 'needs_split'
+  sort_status?:
+    | 'pending'
+    | 'sorting'
+    | 'ready'
+    | 'failed'
+    | 'needs_split'
+    | 'ai_splitting'
+    | 'creating_packets'
   /** JSON-safe DocSort result snapshot (no File blobs) */
   doc_sort_snapshot?: string
   /** Unmatched document ids from DocSort (admin visibility) */

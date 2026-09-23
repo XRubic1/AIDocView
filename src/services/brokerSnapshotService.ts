@@ -61,6 +61,51 @@ export async function lookupBrokerSnapshotByMc(
   return summary
 }
 
+/**
+ * Look up a carrier by USDOT via BrokerSnapshot (Edge proxy).
+ * Same summary shape as MC lookup (fleet, add date, authority, insurance).
+ */
+export async function lookupBrokerSnapshotByDot(
+  dot: string
+): Promise<BrokerSnapshotSummary> {
+  const key = `DOT:${dot.trim().replace(/\D/g, '')}`
+  if (key === 'DOT:') {
+    return { found: false, riskFlags: [], dotNumber: null }
+  }
+
+  const hit = cache.get(key)
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+    return hit.data
+  }
+
+  const supabase = requireSupabase()
+  const { data, error } = await supabase.functions.invoke('brokersnapshot-proxy', {
+    body: { action: 'lookupByDot', dot },
+  })
+
+  if (error) {
+    throw new Error(error.message || 'BrokerSnapshot DOT lookup failed')
+  }
+
+  const payload = data as {
+    Success?: boolean
+    Data?: BrokerSnapshotSummary
+    error?: string
+  }
+
+  if (payload?.error) {
+    throw new Error(payload.error)
+  }
+
+  const summary: BrokerSnapshotSummary = payload?.Data ?? {
+    found: false,
+    riskFlags: [],
+  }
+
+  cache.set(key, { at: Date.now(), data: summary })
+  return summary
+}
+
 const LOOKUP_LOG_SELECT =
   'id, mc_number, mc_digits, legal_name, insurance_verdict, found, operating_status, broker_authority, status_label, created_at'
 

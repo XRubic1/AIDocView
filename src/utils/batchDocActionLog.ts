@@ -13,6 +13,8 @@ export type BatchDocActionType =
   | 'ai_sort'
   | 'continue'
   | 'note'
+  | 'auto_pipeline'
+  | 'override'
 
 export type BatchDocAction = {
   id: string

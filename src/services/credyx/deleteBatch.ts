@@ -52,6 +52,7 @@ async function assertAdminCanDeleteBatches(): Promise<void> {
  * Delete a batch that has not been submitted/processed yet.
  * Drafts clear IndexedDB + the batch row; intake batches also remove invoices and files.
  * Restricted to admin / super_admin staff roles.
+ * Stops any in-browser Doc Split / background AI work first.
  */
 export async function deleteUnsubmittedBatch(batchId: string): Promise<void> {
   await assertAdminCanDeleteBatches()
@@ -65,6 +66,16 @@ export async function deleteUnsubmittedBatch(batchId: string): Promise<void> {
   }
 
   const clientId = batch.client_id
+
+  try {
+    const { stopAllBatchBackgroundWork } = await import('../../utils/batchBackgroundControl')
+    await stopAllBatchBackgroundWork(batchId, {
+      outcome: 'deleted',
+      reason: `Batch ${batch.batch_number} deleted — background work cancelled.`,
+    })
+  } catch (err) {
+    console.warn('[deleteUnsubmittedBatch] stop background work failed', err)
+  }
 
   if (batch.status === 'draft') {
     await clearClientDraftBatch(batchId)

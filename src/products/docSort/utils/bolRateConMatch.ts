@@ -1,7 +1,7 @@
 import { loadNumbersMatch } from '../../../utils/extractBatchFields'
 import { destinationsMatch, formatRateConStop, formatRateConStopCityState } from '../../../utils/locationMatch'
 import type { DocSortFingerprint } from '../types'
-import { namesOverlap } from './matchKeys'
+import { documentFamilyKey, namesOverlap, sameDocumentFamily } from './matchKeys'
 
 const MIN_NUMERIC_REF_LEN = 5
 const MIN_ALPHA_REF_LEN = 4
@@ -142,6 +142,24 @@ export function scoreBolToRateCon(
   const reasons: string[] = []
 
   const sharedRefs = sharedReferenceNumbers(rateCon, bol)
+
+  // Pages split from two different source scans (e.g. 14503-p2 vs 14504-p3) are
+  // different loads unless a real reference number ties them together. This stops
+  // destination-only matches from attaching a BOL to another load's rate con.
+  const rcFamily = documentFamilyKey(rateCon.fileName)
+  const bolFamily = documentFamilyKey(bol.fileName)
+  if (rcFamily && bolFamily && rcFamily !== bolFamily && sharedRefs.length === 0) {
+    return {
+      score: 0,
+      reason: `different source documents (${bolFamily} vs ${rcFamily})`,
+    }
+  }
+
+  if (sameDocumentFamily(bol, rateCon)) {
+    score += 90
+    reasons.push(`same scanned document ${rcFamily}`)
+  }
+
   if (sharedRefs.length > 0) {
     score += 90
     reasons.push(`ref ${sharedRefs[0]}`)

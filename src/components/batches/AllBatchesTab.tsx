@@ -90,6 +90,7 @@ export default function AllBatchesTab({
       sort_status: batch.sort_status,
       in_use: batch.in_use,
       in_use_by: batch.in_use_by,
+      processing_error: batch.processing_error,
       reviewed_at: batch.reviewed_at ?? null,
       reviewed_by: batch.reviewed_by,
       ai_review_label: aiProgress.label,
@@ -206,6 +207,29 @@ export default function AllBatchesTab({
     }
   }
 
+  /** Right-click → cancel locked AI Doc Split / creating pipeline. */
+  const handleOverrideProcessing = async (item: AdminBatchListItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const full =
+      allBatches.find((b) => b.id === item.id) ?? batches.find((b) => b.id === item.id)
+    if (!full) return
+
+    const confirmed = window.confirm(
+      `Override processing on ${full.batch_number}?\n\nThis cancels AI Doc Split / packet creation, unlocks the batch, and marks it Failed so you can fix it in Doc Splitter or Packet Rework.`
+    )
+    if (!confirmed) return
+
+    try {
+      const { overrideDocSplitPipeline } = await import('../../utils/docSplitterAutoPipeline')
+      await overrideDocSplitPipeline(full.id, 'Credyx')
+      setListVersion((v) => v + 1)
+      onBatchesChanged?.()
+      showToast(`Overrode processing on ${full.batch_number}`, 'success')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not override processing', 'error')
+    }
+  }
+
   /** Right-click → open lifecycle debug panel. */
   const handleDebugClick = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -270,6 +294,7 @@ export default function AllBatchesTab({
         canReturnToApproval={canReturnToVerification}
         onDeleteBatch={canDeleteBatches ? handleDeleteBatch : undefined}
         onManualCreation={handleManualCreation}
+        onOverrideProcessing={handleOverrideProcessing}
         onDebugClick={handleDebugClick}
         actionLabel="View"
         emptyTitle="No batches found"

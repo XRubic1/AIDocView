@@ -23,8 +23,12 @@ export function batchNeedsDocSplit(batch: PendingBatch | null | undefined): bool
   // No catalog yet — fall back to sticky flags from submit / pipeline.
   return (
     batch.status === 'needs_split' ||
+    batch.status === 'ai_splitting' ||
+    batch.status === 'creating_packets' ||
     batch.needs_doc_split === true ||
-    batch.sort_status === 'needs_split'
+    batch.sort_status === 'needs_split' ||
+    batch.sort_status === 'ai_splitting' ||
+    batch.sort_status === 'creating_packets'
   )
 }
 
@@ -35,6 +39,10 @@ export function batchNeedsDocSplit(batch: PendingBatch | null | undefined): bool
 export function healFalsePositiveDocSplitGate(batchId: string): boolean {
   const batch = getBatchById(batchId)
   if (!batch) return false
+  // Never clear gates while background Doc Split is mid-flight.
+  if (batch.status === 'ai_splitting' || batch.status === 'creating_packets') {
+    return false
+  }
   const flagged =
     batch.status === 'needs_split' ||
     batch.needs_doc_split === true ||
@@ -109,10 +117,18 @@ export function markBatchNeedsDocSplit(
 export function clearBatchNeedsDocSplit(batchId: string): void {
   const batch = getBatchById(batchId)
   if (!batch) return
+  const wasSplitGate =
+    batch.status === 'needs_split' ||
+    batch.status === 'ai_splitting' ||
+    batch.status === 'creating_packets'
+  const wasSortGate =
+    batch.sort_status === 'needs_split' ||
+    batch.sort_status === 'ai_splitting' ||
+    batch.sort_status === 'creating_packets'
   updateBatch(batchId, {
     needs_doc_split: false,
-    sort_status: batch.sort_status === 'needs_split' ? 'failed' : batch.sort_status,
-    status: batch.status === 'needs_split' ? 'rework' : batch.status,
+    sort_status: wasSortGate ? 'failed' : batch.sort_status,
+    status: wasSplitGate ? 'rework' : batch.status,
   })
   notifyTenantDataUpdated(['batches'], batch.client_id)
 }

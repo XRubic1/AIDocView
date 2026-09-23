@@ -1,0 +1,41 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.117.0"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.117.0": "52358cc08fc0a25278a2be371821c2eb1fa5c615ba76dbca43a01b2d122f0201",
+    "https://esm.sh/pdf-lib@1.17.1": "cf7c5527829cb9bbb3aa20d339c530067441c10eb98880360aea9e77c3c87ff8"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@kenjiuno/msgreader@^1.28.0",
+        "npm:@supabase/supabase-js@^2.110.0",
+        "npm:@types/react-dom@^18.3.1",
+        "npm:@types/react@^18.3.12",
+        "npm:@vitejs/plugin-react@^4.3.3",
+        "npm:autoprefixer@^10.4.22",
+        "npm:canvas@^3.1.0",
+        "npm:html2canvas@^1.4.1",
+        "npm:jspdf@^3.0.4",
+        "npm:jszip@^3.10.1",
+        "npm:lucide-react@0.555",
+        "npm:motion@^12.42.2",
+        "npm:pdf-lib@^1.17.1",
+        "npm:pdfjs-dist@^5.6.205",
+        "npm:postcss@^8.5.6",
+        "npm:react-dom@^18.3.1",
+        "npm:react-router-dom@^6.28.0",
+        "npm:react@^18.3.1",
+        "npm:recharts@^3.5.1",
+        "npm:tailwindcss@^3.4.18",
+        "npm:tsx@^4.20.3",
+        "npm:typescript@^5.7.2",
+        "npm:vite@^6.0.5",
+        "npm:vitest@^3.2.4",
+        "npm:xlsx@~0.18.5"
+      ]
+    }
+  }
+}

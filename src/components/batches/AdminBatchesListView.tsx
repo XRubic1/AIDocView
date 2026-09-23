@@ -50,6 +50,8 @@ export interface AdminBatchListItem {
   packet_rework_ready?: boolean
   /** Combined PDFs need Credyx Doc Splitter before Packets. */
   needs_doc_split?: boolean
+  /** Failed pipeline detail for Failed ! tooltip. */
+  processing_error?: string | null
 }
 
 type BatchContextMenuState = {
@@ -86,11 +88,12 @@ interface AdminBatchesListViewProps {
   canReturnToApproval?: (status: string) => boolean
   /** Delete draft / intake batches — blocked once submitted/processed. */
   onDeleteBatch?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
-  /**
-   * Stop AI “Creating…” and open manual invoice creation (handoff docs still available).
+  /** Stop AI “Creating…” and open manual invoice creation (handoff docs still available).
    * Shown in the row context menu when the batch is stuck creating/sorting.
    */
   onManualCreation?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
+  /** Cancel locked AI Doc Split / packet pipeline (Credyx Override). */
+  onOverrideProcessing?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   /** Open batch lifecycle debug panel (right-click). */
   onDebugClick?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
 }
@@ -188,6 +191,7 @@ export default function AdminBatchesListView({
   canReturnToApproval,
   onDeleteBatch,
   onManualCreation,
+  onOverrideProcessing,
   onDebugClick,
 }: AdminBatchesListViewProps) {
   const c = useClientTheme()
@@ -209,14 +213,37 @@ export default function AdminBatchesListView({
       const canDocSplit = Boolean(onDocSplitterClick)
       const canPackets = Boolean(onPreviewClick)
       const canManual = Boolean(onManualCreation && batchIsStuckCreating(batch))
+      const canOverride = Boolean(
+        onOverrideProcessing &&
+          (batch.in_use ||
+            batch.status === 'ai_splitting' ||
+            batch.status === 'creating_packets' ||
+            batchIsStuckCreating(batch))
+      )
       const canDelete = Boolean(onDeleteBatch)
       const canDebug = Boolean(onDebugClick)
-      if (!canDocSplit && !canPackets && !canManual && !canDelete && !canDebug) return
+      if (
+        !canDocSplit &&
+        !canPackets &&
+        !canManual &&
+        !canOverride &&
+        !canDelete &&
+        !canDebug
+      ) {
+        return
+      }
       event.preventDefault()
       event.stopPropagation()
       setContextMenu({ x: event.clientX, y: event.clientY, batch })
     },
-    [onDebugClick, onDeleteBatch, onDocSplitterClick, onManualCreation, onPreviewClick]
+    [
+      onDebugClick,
+      onDeleteBatch,
+      onDocSplitterClick,
+      onManualCreation,
+      onOverrideProcessing,
+      onPreviewClick,
+    ]
   )
 
   useLayoutEffect(() => {
@@ -402,6 +429,15 @@ export default function AdminBatchesListView({
           <ClientListTd variant="status">
             <div className="flex flex-col items-start gap-1">
               {getAdminBatchStatusBadge(batch.status)}
+              {batch.status === 'failed' && batch.processing_error ? (
+                <span
+                  className="text-xs max-w-[14rem] truncate"
+                  style={{ color: c.secondary }}
+                  title={batch.processing_error}
+                >
+                  ! {batch.processing_error}
+                </span>
+              ) : null}
               {showAiProgress && batch.ai_review_label ? (
                 <span className="text-xs tabular-nums" style={{ color: c.secondary }}>
                   {batch.ai_review_label}
@@ -410,6 +446,16 @@ export default function AdminBatchesListView({
               {!showAiProgress && batch.status === 'creating' ? (
                 <span className="text-xs" style={{ color: c.secondary }}>
                   Creating invoices…
+                </span>
+              ) : null}
+              {!showAiProgress && batch.status === 'ai_splitting' ? (
+                <span className="text-xs" style={{ color: c.secondary }}>
+                  AI splitting docs…
+                </span>
+              ) : null}
+              {!showAiProgress && batch.status === 'creating_packets' ? (
+                <span className="text-xs" style={{ color: c.secondary }}>
+                  Creating packets…
                 </span>
               ) : null}
             </div>
@@ -849,6 +895,25 @@ export default function AdminBatchesListView({
               >
                 <FileEdit className="w-3.5 h-3.5 shrink-0" aria-hidden />
                 Manual creation
+              </button>
+            ) : null}
+            {onOverrideProcessing &&
+            (contextMenu.batch.in_use ||
+              contextMenu.batch.status === 'ai_splitting' ||
+              contextMenu.batch.status === 'creating_packets' ||
+              batchIsStuckCreating(contextMenu.batch)) ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="client-ai-doc-menu__item client-ai-doc-menu__item--danger"
+                onClick={(e) => {
+                  const batch = contextMenu.batch
+                  closeContextMenu()
+                  onOverrideProcessing(batch, e)
+                }}
+              >
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                Override processing…
               </button>
             ) : null}
             {onDebugClick ? (

@@ -185,3 +185,37 @@ export async function emailCarrierBatchHolds(opts: {
     heldInvoices: opts.heldInvoices,
   })
 }
+
+/** Notify Credyx that Doc Split created packets and cleared the gate. */
+export async function emailCredyxDocSplitReady(opts: {
+  batchNumber: string
+  clientName?: string
+  packetCount: number
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!isEmailLifecycleRuleEnabled('credyx_ops_issues')) {
+    return { ok: true, error: 'Ops issue emails disabled' }
+  }
+  return sendTransactionalEmail('credyx_batch_error', CREDYX_OPS_EMAIL, {
+    batchNumber: opts.batchNumber,
+    clientName: opts.clientName ?? '',
+    issueMessage: `Doc Split ready: ${opts.packetCount} packet(s) created for ${opts.batchNumber}. Gate cleared — continue verify / Packet Rework if needed.`,
+    scope: 'doc_split_ready',
+  })
+}
+
+/** Notify Credyx that Doc Split failed, timed out, or was overridden. */
+export async function emailCredyxDocSplitStuck(opts: {
+  batchNumber: string
+  clientName?: string
+  issueMessage: string
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!isEmailLifecycleRuleEnabled('credyx_ops_issues')) {
+    return { ok: true, error: 'Ops issue emails disabled' }
+  }
+  return sendTransactionalEmail('credyx_batch_error', CREDYX_OPS_EMAIL, {
+    batchNumber: opts.batchNumber,
+    clientName: opts.clientName ?? '',
+    issueMessage: `Doc Split stuck/failed for ${opts.batchNumber}:\n${opts.issueMessage}\nOpen Batches → Doc Split or Packet Rework.`,
+    scope: 'doc_split_stuck',
+  })
+}

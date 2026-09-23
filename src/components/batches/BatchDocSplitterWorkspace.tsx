@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Credyx Doc Splitter — split multi-page PDFs into pages, then mark each as
  * RC / BOL / INV before Packet Rework.
  *
@@ -34,15 +34,21 @@ import { hydrateIntakeDraftFromBatch } from '../../utils/buildIntakeDraftFromBat
 import { clearBatchNeedsDocSplit } from '../../utils/batchDocSplit'
 import { logBatchDocAction } from '../../utils/batchDocActionLog'
 import {
-  canUnpackDraftDocument,
+  explodeMultiPagePdfs,
+  stripExplodedParentPdfs,
+  type DocSplitMarkCategory,
+} from '../../utils/docSplitterExplode'
+import {
+  isDocSplitPipelineRunning,
+  runDocSplitterAutoPipeline,
+} from '../../utils/docSplitterAutoPipeline'
+import {
   createManualDocFingerprint,
   ensureDocumentUnassigned,
   isGeneratedInvoicePdfDoc,
   locateDraftDocument,
   placeDraftDocument,
   placeUnmatchedFingerprint,
-  splitDraftPdfIntoPages,
-  unpackDraftDocument,
   withPrunedUnmatched,
 } from '../../utils/aiDraftDocOps'
 import { classifyDocSplitterPage } from '../../products/docSort/services/docSortVision'
@@ -62,13 +68,12 @@ import {
   ensurePageSplitDraftFile,
   persistPageSplitFilesToStorage,
 } from '../../utils/resolvePageSplitFile'
-import { getPdfPageCount, isPdfFile } from '../../utils/pdfPageExtract'
+import { isPdfFile } from '../../utils/pdfPageExtract'
 import {
   draftHasPageSplitChildren,
-  isPageSplitFileName,
 } from '../../utils/pageSplitDraftHelpers'
 
-type MarkCategory = 'rc' | 'bol' | 'inv'
+type MarkCategory = DocSplitMarkCategory
 
 const CATEGORIES: Array<{
   id: MarkCategory
@@ -196,183 +201,6 @@ function ensureDocsInUnmatchedPool(draft: BatchIntakeDraft): BatchIntakeDraft {
   return withPrunedUnmatched(next)
 }
 
-/**
- * Keep one fingerprint per page-split file name (earlier reloads created duplicates).
- */
-function dedupePageSplitChildren(
-  draft: BatchIntakeDraft,
-  batchId?: string
-): BatchIntakeDraft {
-  const seenNames = new Set<string>()
-  const removeIds = new Set<string>()
-  const removedNames: string[] = []
-  for (const fp of listAllSupportingFingerprints(draft)) {
-    if (!isPageSplitFileName(fp.fileName) && !fp.docId.startsWith('page-split-')) continue
-    const key = fp.fileName.toLowerCase()
-    if (seenNames.has(key)) {
-      removeIds.add(fp.docId)
-      removedNames.push(fp.fileName)
-    } else seenNames.add(key)
-  }
-  if (removeIds.size === 0) return draft
-  if (batchId) {
-    logBatchDocAction(batchId, {
-      type: 'dedupe',
-      title: `Removed ${removeIds.size} duplicate page-split file(s)`,
-      detail: removedNames.slice(0, 8).join(', '),
-    })
-  }
-
-  const unmatched = {
-    rateCons: draft.unmatched.rateCons.filter((row) => !removeIds.has(row.docId)),
-    bols: draft.unmatched.bols.filter((row) => !removeIds.has(row.docId)),
-    other: draft.unmatched.other.filter((row) => !removeIds.has(row.docId)),
-  }
-  const fileById = new Map(draft.fileById)
-  for (const id of removeIds) fileById.delete(id)
-  const invoices = draft.invoices.map((inv) => ({
-    ...inv,
-    document_doc_ids: inv.document_doc_ids.filter((id) => !removeIds.has(id)),
-    fingerprints: {
-      rateCons: inv.fingerprints.rateCons.filter((fp) => !removeIds.has(fp.docId)),
-      bols: inv.fingerprints.bols.filter((fp) => !removeIds.has(fp.docId)),
-      other: (inv.fingerprints.other ?? []).filter((fp) => !removeIds.has(fp.docId)),
-    },
-  }))
-  return withPrunedUnmatched({ ...draft, unmatched, fileById, invoices })
-}
-
-/**
- * Drop parent multi-page PDFs that already have page-split children so the
- * pending rail does not show originals alongside `*-pN.pdf` pages.
- */
-function stripExplodedParentPdfs(
-  draft: BatchIntakeDraft,
-  batchId?: string
-): BatchIntakeDraft {
-  const parents = listAllSupportingFingerprints(draft).filter((fp) => {
-    if (isPageSplitFileName(fp.fileName) || fp.docId.startsWith('page-split-')) {
-      return false
-    }
-    // Prefer live File name — catalog stubs often keep the handoff docId as fileName.
-    const liveName = draft.fileById.get(fp.docId)?.name || fp.fileName
-    return (
-      draftHasPageSplitChildren(draft, liveName) ||
-      draftHasPageSplitChildren(draft, fp.fileName)
-    )
-  })
-  const removeIds = new Set(parents.map((fp) => fp.docId))
-  if (removeIds.size === 0) return draft
-  if (batchId) {
-    logBatchDocAction(batchId, {
-      type: 'strip_parent',
-      title: `Stripped ${parents.length} parent PDF(s) already page-split`,
-      detail: parents
-        .map((fp) => draft.fileById.get(fp.docId)?.name || fp.fileName)
-        .slice(0, 8)
-        .join(', '),
-    })
-  }
-
-  const unmatched = {
-    rateCons: draft.unmatched.rateCons.filter((row) => !removeIds.has(row.docId)),
-    bols: draft.unmatched.bols.filter((row) => !removeIds.has(row.docId)),
-    other: draft.unmatched.other.filter((row) => !removeIds.has(row.docId)),
-  }
-  const fileById = new Map(draft.fileById)
-  for (const id of removeIds) fileById.delete(id)
-
-  const storagePathsByDocId = { ...(draft.storagePathsByDocId ?? {}) }
-  for (const id of removeIds) delete storagePathsByDocId[id]
-
-  const invoices = draft.invoices.map((inv) => ({
-    ...inv,
-    document_doc_ids: inv.document_doc_ids.filter((id) => !removeIds.has(id)),
-    fingerprints: {
-      rateCons: inv.fingerprints.rateCons.filter((fp) => !removeIds.has(fp.docId)),
-      bols: inv.fingerprints.bols.filter((fp) => !removeIds.has(fp.docId)),
-      other: (inv.fingerprints.other ?? []).filter((fp) => !removeIds.has(fp.docId)),
-    },
-  }))
-
-  return withPrunedUnmatched({
-    ...draft,
-    unmatched,
-    fileById,
-    invoices,
-    storagePathsByDocId,
-  })
-}
-
-/**
- * Break multi-page PDFs into one pending page each so staff mark pages,
- * not whole combined files. Idempotent — will not re-split when `*-pN` children exist.
- */
-async function explodeMultiPagePdfs(
-  draft: BatchIntakeDraft,
-  batchId: string
-): Promise<{
-  draft: BatchIntakeDraft
-  splitCount: number
-}> {
-  let next = dedupePageSplitChildren(stripExplodedParentPdfs(draft, batchId), batchId)
-  let splitCount = 0
-  const ids = listAllSupportingFingerprints(next).map((fp) => fp.docId)
-
-  for (const docId of ids) {
-    if (docId.startsWith('page-split-')) continue
-    const file = next.fileById.get(docId)
-    if (!file || !isPdfFile(file)) continue
-    if (isPageSplitFileName(file.name)) continue
-    if (draftHasPageSplitChildren(next, file.name)) {
-      logBatchDocAction(batchId, {
-        type: 'skip_split',
-        title: 'Skipped parent — page children already exist',
-        docId,
-        fileName: file.name,
-      })
-      continue
-    }
-
-    const located = locateDraftDocument(next, docId)
-    if (located && markCategoryForKind(located.fingerprint.kind)) continue
-
-    const pages = await getPdfPageCount(file)
-    if (pages <= 1) continue
-
-    if (canUnpackDraftDocument(next, docId)) {
-      const result = await unpackDraftDocument(next, docId)
-      next = ensureDocsInUnmatchedPool(result.draft)
-      if (result.status === 'unpacked') {
-        splitCount += 1
-        logBatchDocAction(batchId, {
-          type: 'unpack',
-          title: `Unpacked combined PDF into typed parts (${pages} pages)`,
-          docId,
-          fileName: file.name,
-        })
-      }
-      continue
-    }
-
-    const result = await splitDraftPdfIntoPages(next, docId)
-    next = ensureDocsInUnmatchedPool(result.draft)
-    if (result.status === 'unpacked') {
-      splitCount += 1
-      logBatchDocAction(batchId, {
-        type: 'page_split',
-        title: `Split PDF into ${pages} pending page(s)`,
-        docId,
-        fileName: file.name,
-        detail: 'Mark each page as RC / BOL / INV',
-      })
-    }
-  }
-
-  next = dedupePageSplitChildren(stripExplodedParentPdfs(next, batchId), batchId)
-  return { draft: next, splitCount }
-}
-
 /** Next pending id after assigning `assignedId` (prefer following page in list). */
 function nextPendingAfterAssign(
   pendingBefore: DocSortFingerprint[],
@@ -407,9 +235,16 @@ export default function BatchDocSplitterWorkspace({
   const [dropTarget, setDropTarget] = useState<MarkCategory | 'pending' | null>(null)
   const [docMenu, setDocMenu] = useState<DocMenuState | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [retryingAuto, setRetryingAuto] = useState(false)
   const docMenuRef = useRef<HTMLDivElement | null>(null)
   const batchMetaRef = useRef({ clientId: batch?.client_id, status: batch?.status })
   batchMetaRef.current = { clientId: batch?.client_id, status: batch?.status }
+
+  const pipelineLocked =
+    isDocSplitPipelineRunning(batchId) ||
+    batch?.status === 'ai_splitting' ||
+    batch?.status === 'creating_packets' ||
+    (batch?.in_use === true && batch?.in_use_by === 'AI Doc Split')
   const showToastRef = useRef(showToast)
   showToastRef.current = showToast
   /** Prevent overlapping hydrates (Strict Mode / status churn) from re-splitting PDFs. */
@@ -426,9 +261,29 @@ export default function BatchDocSplitterWorkspace({
       ].map((fp) => fp.docId)
       const pendingLeft = unmatched.other.length > 0
       const liveStatus = batchMetaRef.current.status
+      // Do not stomp mid-flight background pipeline statuses from the optional UI.
+      if (
+        liveStatus === 'ai_splitting' ||
+        liveStatus === 'creating_packets'
+      ) {
+        updateBatch(batchId, {
+          unmatched_doc_ids: unmatchedIds,
+          doc_sort_snapshot: buildDocSortSnapshot(
+            {
+              ...next.sortResult,
+              unmatchedRateCons: unmatched.rateCons,
+              unmatchedBols: unmatched.bols,
+              otherDocuments: unmatched.other,
+            },
+            next.invoices
+          ),
+        })
+        notifyTenantDataUpdated(['batches'], batchMetaRef.current.clientId)
+        return
+      }
       const nextStatus = pendingLeft
         ? 'needs_split'
-        : liveStatus === 'needs_split'
+        : liveStatus === 'needs_split' || liveStatus === 'failed'
           ? 'rework'
           : liveStatus
       updateBatch(batchId, {
@@ -501,6 +356,22 @@ export default function BatchDocSplitterWorkspace({
             )
             next = healed.draft
           }
+        }
+
+        // While the background pipeline owns this batch, open read-only:
+        // re-exploding + snapshot writes here would race the pipeline's own
+        // explode/persist (duplicate page-splits, stomped state).
+        const pipelineOwnsBatch =
+          isDocSplitPipelineRunning(batchId) ||
+          batchMetaRef.current.status === 'ai_splitting' ||
+          batchMetaRef.current.status === 'creating_packets'
+        if (pipelineOwnsBatch) {
+          setDraft(next)
+          const pendingNow = listPending(next)
+          setSelectedDocId(
+            pendingNow[0]?.docId ?? listAllSupportingFingerprints(next)[0]?.docId ?? null
+          )
+          return
         }
 
         setSplitting(true)
@@ -1116,20 +987,70 @@ export default function BatchDocSplitterWorkspace({
             <kbd className="font-semibold">3</kbd> INV
           </p>
         </div>
+        {batch.status === 'failed' || batch.processing_error ? (
+          <button
+            type="button"
+            className="dashboard-btn-secondary !h-8 !px-3 !text-xs inline-flex items-center gap-1.5"
+            disabled={retryingAuto || pipelineLocked || loading}
+            onClick={() => {
+              void (async () => {
+                setRetryingAuto(true)
+                try {
+                  const result = await runDocSplitterAutoPipeline(batchId)
+                  if (result.ok) {
+                    showToast(
+                      `Created ${result.packetCount ?? 0} packet(s) — continuing to Packet Rework.`,
+                      'success'
+                    )
+                    onContinueToPacketRework(batchId)
+                  } else if (!result.aborted) {
+                    showToast(result.error ?? 'Auto Doc Split failed', 'error')
+                    setReloadToken((t) => t + 1)
+                  }
+                } finally {
+                  setRetryingAuto(false)
+                }
+              })()
+            }}
+            title="Re-run background Doc Split → packets"
+          >
+            {retryingAuto ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
+            Retry AI Doc Split
+          </button>
+        ) : null}
         <button
           type="button"
           className="dashboard-btn-secondary !h-8 !px-3 !text-xs inline-flex items-center gap-1.5"
-          disabled={sorting || loading || pendingDocs.length === 0}
+          disabled={sorting || loading || pipelineLocked || pendingDocs.length === 0}
           onClick={() => void handleSortDocs()}
           title="AI classify each pending page as RC / BOL / INV"
         >
           {sorting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
           {sorting ? 'AI sorting…' : 'Sort docs'}
         </button>
-        <button type="button" className="dashboard-btn-primary !h-8 !text-xs" onClick={handleContinue}>
+        <button
+          type="button"
+          className="dashboard-btn-primary !h-8 !text-xs"
+          disabled={pipelineLocked}
+          onClick={handleContinue}
+        >
           Continue to Packet Rework
         </button>
       </header>
+
+      {pipelineLocked ? (
+        <div
+          className="shrink-0 px-4 py-2 text-xs border-b"
+          style={{ borderColor: c.border, backgroundColor: c.stat?.blue ?? c.card, color: c.secondary }}
+        >
+          AI Doc Split is running in the background — this view is read-only until it finishes (or use
+          Override on the batches list).
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center gap-2" style={{ color: c.secondary }}>

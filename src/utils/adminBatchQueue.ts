@@ -33,8 +33,13 @@ export function batchNeedsAiAttention(batch: PendingBatch): boolean {
   return (
     batch.status === 'creating' ||
     batch.status === 'rework' ||
+    batch.status === 'failed' ||
+    batch.status === 'ai_splitting' ||
+    batch.status === 'creating_packets' ||
     batch.sort_status === 'sorting' ||
     batch.sort_status === 'failed' ||
+    batch.sort_status === 'ai_splitting' ||
+    batch.sort_status === 'creating_packets' ||
     Boolean(batch.unmatched_doc_ids && batch.unmatched_doc_ids.length > 0)
   )
 }
@@ -77,7 +82,14 @@ export function getAdminBatchDisplayBucket(
   // Doc Splitter is its own queue — before Packet Rework / AI Verify.
   healFalsePositiveDocSplitGate(batch.id)
   const live = getBatchById(batch.id) ?? batch
-  if (batchNeedsDocSplit(live)) return 'needs_split'
+  if (
+    live.status === 'ai_splitting' ||
+    live.status === 'creating_packets' ||
+    batchNeedsDocSplit(live)
+  ) {
+    return 'needs_split'
+  }
+  if (live.status === 'failed') return 'ai'
 
   if (batchNeedsAiAttention(batch) || batch.status === 'creating') return 'ai'
 
@@ -236,7 +248,11 @@ export function canOpenPacketRework(batch: PendingBatch): boolean {
   const live = getBatchById(batch.id) ?? batch
   if (batchNeedsDocSplit(live)) return false
   if (live.status === 'creating') return false
+  if (live.status === 'ai_splitting' || live.status === 'creating_packets') return false
   if (live.sort_status === 'sorting') return false
+  if (live.sort_status === 'ai_splitting' || live.sort_status === 'creating_packets') {
+    return false
+  }
 
   const invoices = getInvoicesByBatchId(live.id)
   if (invoices.some((inv) => inv.ai_review_status === 'running')) return false
@@ -261,11 +277,19 @@ export function canOpenPacketRework(batch: PendingBatch): boolean {
   return true
 }
 
-/** Doc Splitter unlocks when combined PDFs were detected (or still flagged). */
+/** Doc Splitter unlocks for review (optional) whenever split work is needed or mid-flight. */
 export function canOpenDocSplitter(batch: PendingBatch): boolean {
   if (batch.status === 'draft') return false
   if (batch.status === 'creating' && batch.sort_status === 'sorting') return false
   healFalsePositiveDocSplitGate(batch.id)
   const live = getBatchById(batch.id) ?? batch
+  if (
+    live.status === 'ai_splitting' ||
+    live.status === 'creating_packets' ||
+    live.status === 'failed' ||
+    live.status === 'needs_split'
+  ) {
+    return true
+  }
   return batchNeedsDocSplit(live)
 }

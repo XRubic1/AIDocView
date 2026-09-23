@@ -59,7 +59,17 @@ type BatchSortField =
 const STATUS_FILTER_MATCH: Record<StatusFilter, (status: string) => boolean> = {
   all: () => true,
   pending: (s) =>
-    ['draft', 'creating', 'needs_split', 'ready_to_post', 'rework', 'documents_uploaded'].includes(s),
+    [
+      'draft',
+      'creating',
+      'needs_split',
+      'ai_splitting',
+      'creating_packets',
+      'failed',
+      'ready_to_post',
+      'rework',
+      'documents_uploaded',
+    ].includes(s),
   review: (s) => ['verification', 'approval'].includes(s),
   processed: (s) => ['submitted', 'processing'].includes(s),
 }
@@ -69,6 +79,9 @@ function getBatchStatusBadge(status: string) {
     draft: { label: 'Draft', className: 'status-pill--pending-batch' },
     creating: { label: 'Creating', className: 'status-pill--review' },
     needs_split: { label: 'Doc Split', className: 'status-pill--review' },
+    ai_splitting: { label: 'AI splitting docs…', className: 'status-pill--review' },
+    creating_packets: { label: 'Creating packets…', className: 'status-pill--review' },
+    failed: { label: 'Failed', className: 'status-pill--overdue' },
     ready_to_post: { label: 'Queued', className: 'status-pill--pending-batch' },
     rework: { label: 'Rework', className: 'status-pill--review' },
     documents_uploaded: { label: 'Docs received', className: 'status-pill--pending-batch' },
@@ -87,7 +100,7 @@ function getAiProgressBadge(progress?: ClientBatchAiProgress | null) {
   if (progress.phase === 'processing') {
     return (
       <span className="inline-flex items-center gap-1 status-pill status-pill--review">
-        Processing…
+        {progress.label || 'Processing…'}
         {progress.etaShortLabel ? (
           <span className="opacity-80 font-normal">{progress.etaShortLabel}</span>
         ) : null}

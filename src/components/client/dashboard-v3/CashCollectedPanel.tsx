@@ -759,7 +759,7 @@ export default function CashCollectedPanel({
             {!loading && !hasSignal ? (
               <p className="cdv3-cash__empty">No collections or invoices in this window yet.</p>
             ) : (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <BarChart
                   data={data}
                   margin={{ top: 22, right: 8, left: 0, bottom: 4 }}

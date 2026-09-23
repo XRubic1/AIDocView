@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Bug, Copy, Loader2, RefreshCw, X } from 'lucide-react'
+import { Bug, Copy, Loader2, RefreshCw, X, Activity } from 'lucide-react'
 import { useClientTheme, useTheme } from '../../theme/ThemeContext'
 import { formatCurrency, formatDateTime } from '../../utils/format'
 import {
@@ -10,6 +10,12 @@ import {
 import { fetchBatchProcessingJobsForDebug } from '../../services/credyx/batchDebugService'
 import { getAdminBatchStatusBadge } from './adminBatchStatus'
 import { useToast } from '../ui/ToastProvider'
+import {
+  batchLiveActivityPhaseLabel,
+  isBatchLiveActivityRunning,
+  subscribeBatchLiveActivity,
+  type BatchLiveActivity,
+} from '../../utils/batchLiveActivity'
 
 interface BatchDebugPanelProps {
   batchId: string
@@ -31,6 +37,261 @@ function severityClass(severity: BatchDebugSeverity): string {
   }
 }
 
+/** Fallback “current job” when live activity is empty but batch status implies work. */
+function inferJobFromBatch(snapshot: BatchDebugSnapshot): {
+  jobLabel: string
+  thinking: string
+  doing: string
+  background: boolean
+  phaseLabel: string
+} | null {
+  const status = snapshot.overview.status
+  const runningJob = snapshot.jobs.find((j) => j.status === 'running' || j.status === 'pending')
+  const lockedByAi =
+    snapshot.overview.in_use &&
+    (snapshot.overview.in_use_by === 'AI Doc Split' ||
+      runningJob?.locked_by === 'doc-split-pipeline' ||
+      runningJob?.locked_by === 'browser-pipeline')
+  const noLocalWorker =
+    !snapshot.backgroundRunningInThisTab && !snapshot.liveActivity
+
+  // Zombie: DB says running / locked, but this tab has no worker (refresh / closed tab).
+  if (lockedByAi && noLocalWorker) {
+    return {
+      jobLabel: 'AI Doc Split (stuck)',
+      thinking:
+        'Doc Split only runs in the browser. The job is still marked running/locked, but this tab is not executing it — usually after a refresh or closed tab. Opening Batches should reclaim and resume; or use Override processing… then Retry.',
+      doing:
+        runningJob?.last_error?.trim() ||
+        (status === 'needs_split'
+          ? 'Waiting to resume — combined PDFs not split yet'
+          : `Locked as ${status} with no live worker`),
+      background: true,
+      phaseLabel: 'Stuck / no worker',
+    }
+  }
+
+  if (status === 'ai_splitting') {
+    return {
+      jobLabel: 'AI Doc Split',
+      thinking: 'Classify / page-split combined paperwork (INV stays unassigned).',
+      doing: runningJob?.last_error || 'AI splitting docs…',
+      background: true,
+      phaseLabel: 'Classifying pages',
+    }
+  }
+  if (status === 'creating_packets') {
+    return {
+      jobLabel: 'AI Doc Split → packets',
+      thinking: 'Match RC↔BOL and create invoice packets.',
+      doing: runningJob?.last_error || 'Creating packets…',
+      background: true,
+      phaseLabel: 'Creating packets',
+    }
+  }
+  if (status === 'needs_split') {
+    return {
+      jobLabel: 'Doc Split',
+      thinking: 'Combined PDFs need page split before packets.',
+      doing: runningJob?.last_error || 'Queued for AI Doc Split…',
+      background: true,
+      phaseLabel: 'Needs split',
+    }
+  }
+  if (status === 'creating' || snapshot.overview.sort_status === 'sorting') {
+    return {
+      jobLabel: 'Packet creation',
+      thinking: 'DocSort / intake building invoices from uploads.',
+      doing: runningJob?.last_error || 'Creating…',
+      background: true,
+      phaseLabel: 'DocSort',
+    }
+  }
+  if (runningJob) {
+    return {
+      jobLabel: runningJob.kind.replace(/_/g, ' '),
+      thinking: runningJob.locked_by
+        ? `Locked by ${runningJob.locked_by}`
+        : 'Processing job is active in the queue.',
+      doing: runningJob.last_error || runningJob.status,
+      background: true,
+      phaseLabel: runningJob.status,
+    }
+  }
+  return null
+}
+
+function CurrentJobCard({
+  activity,
+  backgroundRunningInThisTab,
+  inferred,
+  theme,
+}: {
+  activity: BatchLiveActivity | null
+  backgroundRunningInThisTab: boolean
+  inferred: ReturnType<typeof inferJobFromBatch>
+  theme: ReturnType<typeof useClientTheme>
+}) {
+  const c = theme
+  const running = isBatchLiveActivityRunning(activity)
+  const show = activity || inferred
+  if (!show) {
+    return (
+      <div
+        className="rounded-xl border px-4 py-3 text-sm"
+        style={{ borderColor: c.border, backgroundColor: c.card, color: c.secondary }}
+      >
+        <div className="flex items-center gap-2 font-medium" style={{ color: c.primary }}>
+          <Activity className="w-4 h-4" style={{ color: c.muted }} aria-hidden />
+          No job running
+        </div>
+        <p className="text-xs mt-1" style={{ color: c.muted }}>
+          When a background pipeline starts in this browser tab, thinking + doing updates appear here
+          live.
+        </p>
+      </div>
+    )
+  }
+
+  const jobLabel = activity?.jobLabel ?? inferred!.jobLabel
+  const thinking = activity?.thinking ?? inferred!.thinking
+  const doing = activity?.doing ?? inferred!.doing
+  const phaseLabel = activity
+    ? batchLiveActivityPhaseLabel(activity.phase)
+    : inferred!.phaseLabel
+  const background = activity?.background ?? inferred!.background
+  const isLive = running || backgroundRunningInThisTab
+
+  return (
+    <div
+      className="rounded-xl border px-4 py-3"
+      style={{
+        borderColor: isLive ? c.accent : c.border,
+        backgroundColor: c.card,
+        boxShadow: isLive ? `inset 0 0 0 1px ${c.accent}33` : undefined,
+      }}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {isLive ? (
+            <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: c.accent }} />
+          ) : (
+            <Activity className="w-4 h-4 shrink-0" style={{ color: c.muted }} aria-hidden />
+          )}
+          <div className="min-w-0">
+            <div className="text-[10px] uppercase tracking-wide" style={{ color: c.muted }}>
+              Current job
+            </div>
+            <div className="font-semibold text-sm truncate" style={{ color: c.primary }}>
+              {jobLabel}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {background ? (
+            <span className="status-pill status-pill--review text-[10px]">Background</span>
+          ) : (
+            <span className="status-pill status-pill--pending-batch text-[10px]">Foreground</span>
+          )}
+          {backgroundRunningInThisTab ? (
+            <span className="status-pill status-pill--submitted text-[10px]">This tab</span>
+          ) : null}
+          <span
+            className={`status-pill text-[10px] ${
+              running
+                ? 'status-pill--review'
+                : activity?.phase === 'failed' || activity?.phase === 'aborted'
+                  ? 'status-pill--overdue'
+                  : activity?.phase === 'succeeded'
+                    ? 'status-pill--submitted'
+                    : 'status-pill--pending-batch'
+            }`}
+          >
+            {phaseLabel}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 text-sm">
+        <div>
+          <div className="text-[10px] uppercase tracking-wide mb-0.5" style={{ color: c.muted }}>
+            Thinking
+          </div>
+          <p className="text-xs leading-snug" style={{ color: c.secondary }}>
+            {thinking}
+          </p>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wide mb-0.5" style={{ color: c.muted }}>
+            Doing now
+          </div>
+          <p className="text-xs font-medium leading-snug" style={{ color: c.primary }}>
+            {doing}
+          </p>
+        </div>
+      </div>
+
+      {activity?.progressPercent != null ? (
+        <div className="mt-3">
+          <div className="flex justify-between text-[10px] mb-1" style={{ color: c.muted }}>
+            <span>{activity.progressLabel || 'Progress'}</span>
+            <span className="tabular-nums">{Math.round(activity.progressPercent)}%</span>
+          </div>
+          <div
+            className="h-1.5 rounded-full overflow-hidden"
+            style={{ backgroundColor: resolvedBarTrack(c) }}
+          >
+            <div
+              className="h-full rounded-full transition-all duration-300"
+              style={{
+                width: `${Math.max(2, Math.min(100, activity.progressPercent))}%`,
+                backgroundColor: c.accent,
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {activity?.error ? (
+        <p className="text-xs mt-2" style={{ color: '#dc2626' }}>
+          {activity.error}
+        </p>
+      ) : null}
+
+      {activity && activity.recentSteps.length > 0 ? (
+        <details className="mt-2">
+          <summary
+            className="text-[10px] uppercase tracking-wide cursor-pointer select-none"
+            style={{ color: c.muted }}
+          >
+            Recent steps ({activity.recentSteps.length})
+          </summary>
+          <ol className="mt-1 space-y-0.5 pl-3 list-decimal text-[11px]" style={{ color: c.secondary }}>
+            {[...activity.recentSteps].reverse().map((step, i) => (
+              <li key={`${i}-${step}`}>{step}</li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
+
+      {activity ? (
+        <p className="text-[10px] mt-2 tabular-nums" style={{ color: c.muted }}>
+          Updated {formatDateTime(activity.updatedAt)}
+          {activity.jobKind ? ` · ${activity.jobKind}` : ''}
+        </p>
+      ) : (
+        <p className="text-[10px] mt-2" style={{ color: c.muted }}>
+          Inferred from batch status (live activity not yet written in this tab).
+        </p>
+      )}
+    </div>
+  )
+}
+
+function resolvedBarTrack(c: ReturnType<typeof useClientTheme>): string {
+  return typeof c.border === 'string' ? c.border : '#e2e8f0'
+}
+
 /** Admin batch lifecycle debugger — timeline, jobs, invoices, docs, audit. */
 export default function BatchDebugPanel({ batchId, onClose }: BatchDebugPanelProps) {
   const c = useClientTheme()
@@ -41,6 +302,10 @@ export default function BatchDebugPanel({ batchId, onClose }: BatchDebugPanelPro
   const [jobsError, setJobsError] = useState<string | null>(null)
   const [jobs, setJobs] = useState<Awaited<ReturnType<typeof fetchBatchProcessingJobsForDebug>>>([])
   const [reloadKey, setReloadKey] = useState(0)
+  /** Soft poll counter — refreshes jobs without forcing the loading spinner. */
+  const [pollTick, setPollTick] = useState(0)
+  /** Bumps when live activity changes so thinking/doing stay current. */
+  const [activityTick, setActivityTick] = useState(0)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -53,6 +318,53 @@ export default function BatchDebugPanel({ batchId, onClose }: BatchDebugPanelPro
       document.body.style.overflow = ''
     }
   }, [onClose])
+
+  useEffect(() => {
+    return subscribeBatchLiveActivity(() => {
+      setActivityTick((n) => n + 1)
+    })
+  }, [])
+
+  // Soft poll so DB job rows + status stay fresh while a background job runs.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setPollTick((n) => n + 1)
+    }, 2500)
+    return () => window.clearInterval(id)
+  }, [batchId])
+
+  // Zombie Doc Split lock (refresh / closed tab) — reclaim when debug opens.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const { getBatchById } = await import('../../data/mockBatches')
+        const { getBatchLiveActivity } = await import('../../utils/batchLiveActivity')
+        const { isDocSplitPipelineRunning } = await import('../../utils/docSplitterAutoPipeline')
+        const { isBatchBackgroundPipelineRunning } = await import(
+          '../../services/credyx/batchBackgroundPipeline'
+        )
+        const batch = getBatchById(batchId)
+        if (!batch) return
+        const locked = batch.in_use === true && batch.in_use_by === 'AI Doc Split'
+        const noWorker =
+          !isBatchBackgroundPipelineRunning(batchId) &&
+          !isDocSplitPipelineRunning(batchId) &&
+          !getBatchLiveActivity(batchId)
+        if (!locked || !noWorker) return
+        const { resumeStuckDocSplitBatches } = await import(
+          '../../services/credyx/batchProcessingJobs'
+        )
+        const n = await resumeStuckDocSplitBatches(1)
+        if (!cancelled && n > 0) setReloadKey((k) => k + 1)
+      } catch {
+        /* non-blocking */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [batchId])
 
   useEffect(() => {
     let cancelled = false
@@ -76,10 +388,28 @@ export default function BatchDebugPanel({ batchId, onClose }: BatchDebugPanelPro
     }
   }, [batchId, reloadKey])
 
+  useEffect(() => {
+    if (pollTick === 0) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const rows = await fetchBatchProcessingJobsForDebug(batchId)
+        if (!cancelled) setJobs(rows)
+      } catch {
+        // Soft poll — keep prior rows on transient errors.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [batchId, pollTick])
+
   const snapshot: BatchDebugSnapshot | null = useMemo(
     () => buildBatchDebugSnapshot(batchId, jobs),
-    [batchId, jobs, reloadKey]
+    [batchId, jobs, reloadKey, activityTick, pollTick]
   )
+
+  const inferredJob = snapshot ? inferJobFromBatch(snapshot) : null
 
   const copyJson = async () => {
     if (!snapshot) return
@@ -234,6 +564,17 @@ export default function BatchDebugPanel({ batchId, onClose }: BatchDebugPanelPro
           </div>
         )}
 
+        {snapshot ? (
+          <div className="flex-shrink-0 px-5 py-3 border-b" style={{ borderColor: c.border }}>
+            <CurrentJobCard
+              activity={snapshot.liveActivity}
+              backgroundRunningInThisTab={snapshot.backgroundRunningInThisTab}
+              inferred={inferredJob}
+              theme={c}
+            />
+          </div>
+        ) : null}
+
         <nav
           className="flex-shrink-0 flex gap-1 px-4 pt-3 overflow-x-auto"
           style={{ borderColor: c.border }}
@@ -312,15 +653,53 @@ export default function BatchDebugPanel({ batchId, onClose }: BatchDebugPanelPro
                   <article
                     key={job.id}
                     className="rounded-lg border p-3 text-sm"
-                    style={{ borderColor: c.border, backgroundColor: c.card }}
+                    style={{
+                      borderColor:
+                        job.status === 'running' || job.status === 'pending'
+                          ? c.accent
+                          : c.border,
+                      backgroundColor: c.card,
+                    }}
                   >
                     <div className="flex flex-wrap gap-x-3 gap-y-1 font-medium" style={{ color: c.primary }}>
                       <span>{job.kind}</span>
-                      <span className="status-pill status-pill--review">{job.status}</span>
+                      <span
+                        className={`status-pill ${
+                          job.status === 'running'
+                            ? 'status-pill--review'
+                            : job.status === 'failed'
+                              ? 'status-pill--overdue'
+                              : job.status === 'succeeded'
+                                ? 'status-pill--submitted'
+                                : 'status-pill--pending-batch'
+                        }`}
+                      >
+                        {job.status === 'running' ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            running
+                          </span>
+                        ) : (
+                          job.status
+                        )}
+                      </span>
+                      {(job.status === 'running' || job.status === 'pending') && (
+                        <span className="status-pill status-pill--review text-[10px]">
+                          Current
+                        </span>
+                      )}
                       <span className="text-xs font-normal" style={{ color: c.muted }}>
                         {job.id}
                       </span>
                     </div>
+                    {job.last_error ? (
+                      <p className="text-xs mt-2 whitespace-pre-wrap" style={{ color: c.secondary }}>
+                        <span className="font-medium" style={{ color: c.primary }}>
+                          Latest message:{' '}
+                        </span>
+                        {job.last_error}
+                      </p>
+                    ) : null}
                     <dl className="batch-debug-fields mt-2">
                       <div>
                         <dt>Attempts</dt>
@@ -345,7 +724,7 @@ export default function BatchDebugPanel({ batchId, onClose }: BatchDebugPanelPro
                         <dd>{job.locked_by || '—'}</dd>
                       </div>
                     </dl>
-                    {job.last_error ? (
+                    {job.last_error && job.status === 'failed' ? (
                       <pre
                         className="mt-2 text-xs whitespace-pre-wrap rounded-md p-2 overflow-x-auto"
                         style={{ backgroundColor: 'rgba(220,38,38,0.08)', color: '#b91c1c' }}

@@ -21,6 +21,7 @@ import {
   ShieldAlert,
   ScanSearch,
   Inbox,
+  Target,
   type LucideIcon,
 } from 'lucide-react'
 import { getInitials, getClientUserDisplayName } from './clientNav'
@@ -111,6 +112,7 @@ export const adminNavSections: AdminNavSection[] = [
     title: 'PEOPLE',
     items: [
       { label: 'Clients', path: '/clients', icon: Users },
+      { label: 'Sales', path: '/admin/sales', icon: Target },
       { label: 'Waitlist', path: '/admin/waitlist', icon: Megaphone },
       { label: 'Users', path: '/users', icon: UserCog },
     ],

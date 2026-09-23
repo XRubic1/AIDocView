@@ -28,8 +28,21 @@ export async function fetchBatchAiLastError(batchId: string): Promise<string | n
 /** Persist batch as rework with optional admin-only error detail on the job row. */
 export async function markBatchNeedsRework(
   batchId: string,
-  errorMessage: string
+  errorMessage: string,
+  opts?: { skipStop?: boolean; emailOps?: boolean }
 ): Promise<void> {
+  if (!opts?.skipStop) {
+    try {
+      const { stopAllBatchBackgroundWork } = await import('../utils/batchBackgroundControl')
+      await stopAllBatchBackgroundWork(batchId, {
+        outcome: 'abort_only',
+        reason: errorMessage,
+      })
+    } catch (err) {
+      console.warn('[markBatchNeedsRework] stop work failed', err)
+    }
+  }
+
   const batch = getBatchById(batchId)
   if (!batch) return
 
@@ -37,22 +50,39 @@ export async function markBatchNeedsRework(
     status: 'rework',
     // Keep sort_status failed so admin AI tools know DocSort did not finish.
     sort_status: 'failed',
+    needs_doc_split: false,
+    processing_error: errorMessage,
+    in_use: false,
+    in_use_by: undefined,
   })
   notifyTenantDataUpdated(['batches'], batch.client_id)
 
-  if (!isSupabaseConfigured()) return
-  const supabase = getSupabase()
-  if (!supabase) return
+  if (isSupabaseConfigured()) {
+    const supabase = getSupabase()
+    if (supabase) {
+      try {
+        await supabase.rpc('mark_batch_processing_job', {
+          p_batch_id: batchId,
+          p_status: 'failed',
+          p_last_error: errorMessage,
+          p_locked_by: 'browser-pipeline',
+        })
+      } catch (err) {
+        console.warn('[markBatchNeedsRework] job mark failed', err)
+      }
+    }
+  }
 
-  try {
-    await supabase.rpc('mark_batch_processing_job', {
-      p_batch_id: batchId,
-      p_status: 'failed',
-      p_last_error: errorMessage,
-      p_locked_by: 'browser-pipeline',
-    })
-  } catch (err) {
-    console.warn('[markBatchNeedsRework] job mark failed', err)
+  if (opts?.emailOps !== false) {
+    try {
+      await emailCredyxIntakeError({
+        batchNumber: batch.batch_number,
+        clientName: batch.client_name,
+        issueMessage: `${errorMessage}\nOpen Batches → Packet Rework for ${batch.batch_number}.`,
+      })
+    } catch (err) {
+      console.warn('[markBatchNeedsRework] ops email failed', err)
+    }
   }
 }
 
@@ -97,6 +127,16 @@ export async function releaseBatchForAiPolicyBlock(
     aiConfigured: opts?.aiConfigured,
     clientName: batch.client_name,
   })
+
+  try {
+    const { stopAllBatchBackgroundWork } = await import('../utils/batchBackgroundControl')
+    await stopAllBatchBackgroundWork(batchId, {
+      outcome: 'abort_only',
+      reason: issueMessage,
+    })
+  } catch (err) {
+    console.warn('[releaseBatchForAiPolicyBlock] stop work failed', err)
+  }
 
   await releaseBatchToManualCreation(batchId)
 
@@ -181,6 +221,16 @@ async function collectUploadedDocIds(batchId: string, clientId: string): Promise
  * Credyx assigns each document manually into packets.
  */
 export async function releaseBatchToManualCreation(batchId: string): Promise<void> {
+  try {
+    const { stopAllBatchBackgroundWork } = await import('../utils/batchBackgroundControl')
+    await stopAllBatchBackgroundWork(batchId, {
+      outcome: 'abort_only',
+      reason: 'Manual creation — automated processing stopped.',
+    })
+  } catch (err) {
+    console.warn('[releaseBatchToManualCreation] stop work failed', err)
+  }
+
   const batch = getBatchById(batchId)
   if (!batch) throw new Error('Batch not found')
 
@@ -255,5 +305,12 @@ export function batchIsStuckCreating(batch: {
   status?: string | null
   sort_status?: string | null
 }): boolean {
-  return batch.status === 'creating' || batch.sort_status === 'sorting'
+  return (
+    batch.status === 'creating' ||
+    batch.status === 'ai_splitting' ||
+    batch.status === 'creating_packets' ||
+    batch.sort_status === 'sorting' ||
+    batch.sort_status === 'ai_splitting' ||
+    batch.sort_status === 'creating_packets'
+  )
 }

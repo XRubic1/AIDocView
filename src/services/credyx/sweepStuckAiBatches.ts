@@ -38,7 +38,11 @@ function isEligibleForTimeout(batch: {
     batch.upload_mode === 'ai' ||
     batch.upload_mode === 'handoff' ||
     batch.status === 'creating' ||
-    batch.sort_status === 'sorting'
+    batch.status === 'ai_splitting' ||
+    batch.status === 'creating_packets' ||
+    batch.sort_status === 'sorting' ||
+    batch.sort_status === 'ai_splitting' ||
+    batch.sort_status === 'creating_packets'
   )
 }
 
@@ -62,6 +66,23 @@ export async function maybeTimeoutStuckAiBatch(batchId: string): Promise<boolean
 
   sweeping.add(batchId)
   try {
+    const isDocSplit =
+      batch.status === 'ai_splitting' ||
+      batch.status === 'creating_packets' ||
+      batch.sort_status === 'ai_splitting' ||
+      batch.sort_status === 'creating_packets'
+
+    if (isDocSplit) {
+      const { abortDocSplitPipeline, failDocSplitPipeline } = await import(
+        '../../utils/docSplitterAutoPipeline'
+      )
+      abortDocSplitPipeline(batchId)
+      const docSplitMessage =
+        'AI Doc Split timed out (estimated time + 10 minutes). Open Doc Splitter or Packet Rework.'
+      await failDocSplitPipeline(batchId, docSplitMessage)
+      return true
+    }
+
     await releaseBatchToManualCreation(batchId)
 
     // Reinforce admin-visible timeout reason on the processing job.
