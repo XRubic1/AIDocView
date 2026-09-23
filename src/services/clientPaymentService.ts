@@ -855,7 +855,14 @@ export async function createAdHocInvoiceForPaymentAsync(
   input: CreateAdHocInvoiceInput,
   authorName: string
 ): Promise<Invoice> {
-  return addInvoiceAsync(buildAdHocInvoicePayload(input, authorName))
+  const invoice = await addInvoiceAsync(buildAdHocInvoicePayload(input, authorName))
+  try {
+    const { onInvoicePurchased } = await import('../components/blueprints/blueprintRunner')
+    onInvoicePurchased(invoice.id)
+  } catch {
+    /* runner optional */
+  }
+  return invoice
 }
 
 function buildAdHocInvoicePayload(
@@ -900,7 +907,17 @@ function buildAdHocInvoiceForPayment(
   input: CreateAdHocInvoiceInput,
   authorName: string
 ): Invoice {
-  return addInvoice(buildAdHocInvoicePayload(input, authorName))
+  const invoice = addInvoice(buildAdHocInvoicePayload(input, authorName))
+  void import('../components/blueprints/blueprintRunner')
+    .then(({ onInvoicePurchased }) => {
+      try {
+        onInvoicePurchased(invoice.id)
+      } catch {
+        /* ignore */
+      }
+    })
+    .catch(() => {})
+  return invoice
 }
 
 /** Create invoice + post payment in one step (unmatched remittance). */

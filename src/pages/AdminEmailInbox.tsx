@@ -3,7 +3,7 @@
  * Layout matches Collections / Work Queue (toolbar, page tabs, compact table).
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Inbox, RefreshCw, Search, Send, Upload } from 'lucide-react'
+import { Inbox, GitBranch, RefreshCw, Search, Send, Upload } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useToast } from '../components/ui/ToastProvider'
@@ -31,6 +31,8 @@ import {
   type OutboundInboxKind,
 } from '../utils/outboundInboxRows'
 import { resendOutboundInboxEmail } from '../utils/resendOutboundInboxEmail'
+import { tickBlueprintRuns } from '../components/blueprints/blueprintRunner'
+import { isBlueprintsRunnerEnabled } from '../config/blueprintsRuntime'
 
 const CLASS_LABEL: Record<InboundClassification, string> = {
   paperwork_ok: 'Paperwork good',
@@ -324,23 +326,57 @@ export default function AdminEmailInbox() {
             Outbound Credyx emails by invoice, carrier, and broker
           </p>
         </div>
-        <button
-          type="button"
-          className="dashboard-btn-secondary !h-8 inline-flex items-center gap-1.5"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true)
-            void runEmailLifecycleChase()
-              .then((r) => {
-                showToast(`Chase ran — ${r.sent} sent, ${r.actions} staff items`, 'success')
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="dashboard-btn-secondary !h-8 inline-flex items-center gap-1.5"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true)
+              void runEmailLifecycleChase()
+                .then((r) => {
+                  showToast(`Chase ran — ${r.sent} sent, ${r.actions} staff items`, 'success')
+                  setTick((n) => n + 1)
+                })
+                .finally(() => setBusy(false))
+            }}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Run chase
+          </button>
+          <button
+            type="button"
+            className="dashboard-btn-secondary !h-8 inline-flex items-center gap-1.5"
+            disabled={busy}
+            title={
+              isBlueprintsRunnerEnabled()
+                ? 'Advance due blueprint Wait clocks (notes/status only)'
+                : 'Enable Live runner on Blueprints first'
+            }
+            onClick={() => {
+              if (!isBlueprintsRunnerEnabled()) {
+                showToast('Turn on Live runner under Blueprints first.', 'error')
+                return
+              }
+              setBusy(true)
+              try {
+                const { advanced } = tickBlueprintRuns(actor)
+                showToast(
+                  advanced > 0
+                    ? `Blueprints — advanced ${advanced} run${advanced === 1 ? '' : 's'}`
+                    : 'Blueprints — no waiting runs were due',
+                  'success'
+                )
                 setTick((n) => n + 1)
-              })
-              .finally(() => setBusy(false))
-          }}
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Run chase
-        </button>
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <GitBranch className="w-3.5 h-3.5" />
+            Run blueprints
+          </button>
+        </div>
       </header>
 
       <div

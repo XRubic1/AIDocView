@@ -3,6 +3,10 @@ import { getBatchById } from '../data/mockBatches'
 import { notifyClientInvoiceOnHold } from '../data/mockNotifications'
 import { isInvoicePendingClientReveal } from '../utils/clientInvoiceView'
 import type { Invoice, InvoiceNote } from '../types/invoice'
+import {
+  onInvoiceHeld,
+  onInvoiceHoldCleared,
+} from '../components/blueprints/blueprintRunner'
 
 const DEFAULT_ADMIN = 'Admin User'
 
@@ -40,6 +44,13 @@ export function approveAdminInvoice(
   // Object.assign leaves undefined; drop the key so persist sends null and UI stays clean.
   if (updated && 'hold_reason' in updated) {
     delete updated.hold_reason
+  }
+  if (updated && existing.status === 'hold') {
+    try {
+      onInvoiceHoldCleared(invoiceId)
+    } catch {
+      /* runner optional */
+    }
   }
   return updated
 }
@@ -91,6 +102,12 @@ export function holdAdminInvoice(
       batchId: updated.batch_id,
       batchNumber: updated.batch_number,
     })
+  }
+
+  try {
+    onInvoiceHeld(invoiceId)
+  } catch {
+    /* runner optional */
   }
 
   return updated

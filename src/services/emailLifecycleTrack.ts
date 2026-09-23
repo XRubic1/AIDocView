@@ -6,6 +6,7 @@ import { getInvoiceById, updateInvoiceAsync } from '../data/mockInvoices'
 import { upsertEmailReview } from '../data/emailInboxStore'
 import type { InvoiceEmailLifecycle } from '../types/emailLifecycle'
 import type { Invoice } from '../types/invoice'
+import { onInvoicePpwSent } from '../components/blueprints/blueprintRunner'
 
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -24,6 +25,11 @@ export async function startPaperworkTrack(invoiceId: string, deliveredAt = new D
     },
   }
   await updateInvoiceAsync(invoiceId, { email_lifecycle: lifecycle })
+  try {
+    onInvoicePpwSent(invoiceId)
+  } catch {
+    /* runner optional — never block PPW */
+  }
 }
 
 /** Broker does not accept packet email — staff must deliver another way. */

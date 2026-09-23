@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
+import InvoiceBlueprintPanel from '../blueprints/InvoiceBlueprintPanel'
 import { formatCurrency } from '../../utils/format'
 import {
   addClientInvoiceNote,
@@ -277,8 +278,10 @@ export default function InvoiceDetailPanel({
   const notesEnabled = enableNotes ?? enableClientActions
   const authorName = noteAuthorName?.trim() || clientName
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all')
-  /** Overview vs activity / notes surface (mobile + sidebar). */
-  const [detailSurface, setDetailSurface] = useState<'overview' | 'activity' | 'notes'>('overview')
+  /** Overview vs activity / notes / blueprints surface (mobile + sidebar). */
+  const [detailSurface, setDetailSurface] = useState<
+    'overview' | 'activity' | 'notes' | 'blueprints'
+  >('overview')
   const notesAsPrimaryTab = detailTabs === 'details_notes'
   /**
    * Mobile invoice pager animation:
@@ -425,6 +428,7 @@ export default function InvoiceDetailPanel({
     setUploadSuccess(null)
     setStatusError(null)
     setStatusDate(new Date().toISOString().slice(0, 10))
+    setDetailSurface('overview')
   }, [invoice.id])
 
   // Assistant deep-link: open upload modal once for this invoice.
@@ -1068,6 +1072,8 @@ export default function InvoiceDetailPanel({
       setShowHoldModal(false)
       setHoldReasonDraft('')
       onInvoiceUpdated?.()
+      // Let blueprint runner finish assign/enroll (sync) then refresh notes/BP tab
+      window.setTimeout(() => onInvoiceUpdated?.(), 0)
     } finally {
       setHoldBusy(false)
     }
@@ -1084,6 +1090,7 @@ export default function InvoiceDetailPanel({
       showToast('Hold released', 'success')
       setShowReleaseHoldModal(false)
       onInvoiceUpdated?.()
+      window.setTimeout(() => onInvoiceUpdated?.(), 0)
     } finally {
       setHoldBusy(false)
     }
@@ -1422,7 +1429,11 @@ export default function InvoiceDetailPanel({
           <button
             type="button"
             onClick={() => {
-              if (detailSurface === 'activity' || detailSurface === 'notes') {
+              if (
+                detailSurface === 'activity' ||
+                detailSurface === 'notes' ||
+                detailSurface === 'blueprints'
+              ) {
                 setDetailSurface('overview')
                 return
               }
@@ -1430,7 +1441,9 @@ export default function InvoiceDetailPanel({
             }}
             className="payment-confirmation-panel__icon-btn"
             aria-label={
-              detailSurface === 'activity' || detailSurface === 'notes'
+              detailSurface === 'activity' ||
+              detailSurface === 'notes' ||
+              detailSurface === 'blueprints'
                 ? 'Back to invoice overview'
                 : 'Back to invoices'
             }
@@ -1464,7 +1477,9 @@ export default function InvoiceDetailPanel({
                 ? 'Notes'
                 : detailSurface === 'activity'
                   ? 'Activity & notes'
-                  : 'Invoice details'}
+                  : detailSurface === 'blueprints'
+                    ? 'Blueprints'
+                    : 'Invoice details'}
             </p>
             <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
               {visibleInvoice.invoice_number}
@@ -1473,7 +1488,9 @@ export default function InvoiceDetailPanel({
           </div>
         ) : (
           <>
-            {detailSurface === 'activity' || detailSurface === 'notes' ? (
+            {detailSurface === 'activity' ||
+            detailSurface === 'notes' ||
+            detailSurface === 'blueprints' ? (
               <button
                 type="button"
                 onClick={() => setDetailSurface('overview')}
@@ -1489,9 +1506,13 @@ export default function InvoiceDetailPanel({
                   ? 'Notes'
                   : detailSurface === 'activity'
                     ? 'Activity & notes'
-                    : 'Invoice details'}
+                    : detailSurface === 'blueprints'
+                      ? 'Blueprints'
+                      : 'Invoice details'}
               </p>
-              {detailSurface === 'activity' || detailSurface === 'notes' ? (
+              {detailSurface === 'activity' ||
+              detailSurface === 'notes' ||
+              detailSurface === 'blueprints' ? (
                 <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
                   Invoice {visibleInvoice.invoice_number}
                   {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
@@ -1619,6 +1640,21 @@ export default function InvoiceDetailPanel({
               ) : null}
             </button>
           )}
+          {isAdminPortal && !notesAsPrimaryTab ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={detailSurface === 'blueprints'}
+              className={`payment-confirmation-panel__mobile-surface-tab${
+                detailSurface === 'blueprints'
+                  ? ' payment-confirmation-panel__mobile-surface-tab--active'
+                  : ''
+              }`}
+              onClick={() => setDetailSurface('blueprints')}
+            >
+              Blueprints
+            </button>
+          ) : null}
         </div>
 
         {detailSurface === 'overview' ? (
@@ -1696,6 +1732,16 @@ export default function InvoiceDetailPanel({
                   }
             }
           />
+        ) : detailSurface === 'blueprints' ? (
+          <section
+            className={`payment-confirmation-panel__notes ${
+              isMobile
+                ? 'payment-confirmation-panel__notes--mobile-surface'
+                : 'payment-confirmation-panel__notes--sidebar-surface payment-confirmation-panel__notes--sidebar-matches-mobile'
+            }`}
+          >
+            <InvoiceBlueprintPanel invoice={visibleInvoice} />
+          </section>
         ) : (
           <section
             className={`payment-confirmation-panel__notes ${

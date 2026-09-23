@@ -155,6 +155,20 @@ export const addInvoicesForBatch = (
     )
   )
   updateBatchTotals(batchId)
+  // Phase 2: auto-match purchase blueprints (never block batch create)
+  void import('../components/blueprints/blueprintRunner')
+    .then(({ onInvoicePurchased }) => {
+      for (const inv of created) {
+        try {
+          onInvoicePurchased(inv.id)
+        } catch {
+          /* per-invoice */
+        }
+      }
+    })
+    .catch(() => {
+      /* runner optional */
+    })
   return created
 }
 

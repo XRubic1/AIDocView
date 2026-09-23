@@ -18,6 +18,7 @@ import {
   AdminNotifications,
   AdminWorkQueue,
   AdminBrokerRisk,
+  AdminBlueprints,
   AdminBrokerSnapshot,
   AgingAR,
   BrokerAgingInvoicesPopup,
@@ -160,6 +161,7 @@ function App() {
                 <Route path="/admin/notifications" element={withRouteSuspense(AdminNotifications)} />
                 <Route path="/admin/work-queue" element={withRouteSuspense(AdminWorkQueue)} />
                 <Route path="/admin/broker-risk" element={withRouteSuspense(AdminBrokerRisk)} />
+                <Route path="/admin/blueprints" element={withRouteSuspense(AdminBlueprints)} />
                 <Route
                   path="/admin/broker-snapshot"
                   element={withRouteSuspense(AdminBrokerSnapshot)}

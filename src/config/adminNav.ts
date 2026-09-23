@@ -20,6 +20,7 @@ import {
   Briefcase,
   ShieldAlert,
   ScanSearch,
+  GitBranch,
   Inbox,
   Target,
   type LucideIcon,
@@ -84,6 +85,11 @@ export const adminNavSections: AdminNavSection[] = [
         path: '/admin/broker-risk',
         icon: ShieldAlert,
         badgeKey: 'pendingBrokerRisk',
+      },
+      {
+        label: 'Blueprints',
+        path: '/admin/blueprints',
+        icon: GitBranch,
       },
       {
         label: 'Broker Snapshot',

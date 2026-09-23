@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import {
   ChevronDown,
   ChevronRight,
+  Check,
   FileText,
   Filter,
   Search,
@@ -14,6 +15,10 @@ import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import DocumentViewer from '../components/DocumentViewer'
 import EmptyState from '../components/ui/EmptyState'
 import { useToast } from '../components/ui/ToastProvider'
+import {
+  INVOICE_BLUEPRINT_CHANGED_EVENT,
+  isInvoiceBlueprintAssigned,
+} from '../components/blueprints/invoiceBlueprintAssignment'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
@@ -195,6 +200,14 @@ export default function AdminInvoices() {
   const [refreshKey, setRefreshKey] = useState(0)
   const bump = () => setRefreshKey((k) => k + 1)
   const dataRevision = refreshKey + tenantRevision
+  const [blueprintRevision, setBlueprintRevision] = useState(0)
+
+  useEffect(() => {
+    const onBlueprintChange = () => setBlueprintRevision((k) => k + 1)
+    window.addEventListener(INVOICE_BLUEPRINT_CHANGED_EVENT, onBlueprintChange)
+    return () =>
+      window.removeEventListener(INVOICE_BLUEPRINT_CHANGED_EVENT, onBlueprintChange)
+  }, [])
 
   const [searchTerm, setSearchTerm] = useState('')
   const [clientFilter, setClientFilter] = useState(() => searchParams.get('client') || '')
@@ -793,6 +806,7 @@ export default function AdminInvoices() {
                     selectedInvoiceId={selectedInvoiceId}
                     queueIndexById={queueIndex.byInvoiceId}
                     openArById={openArById}
+                    blueprintRevision={blueprintRevision}
                     onToggle={() => toggleCarrier(group.clientId)}
                     onOpenInvoice={openDetail}
                     secondaryColor={c.secondary}
@@ -957,6 +971,8 @@ type AdminInvoiceCarrierBlockProps = {
   selectedInvoiceId: string | null
   queueIndexById: Map<string, AdminInvoiceQueueFlags>
   openArById: Map<string, number>
+  /** Bumps when blueprint assignments change so checkmarks refresh. */
+  blueprintRevision: number
   onToggle: () => void
   onOpenInvoice: (invoice: EnrichedInvoice) => void
   secondaryColor: string
@@ -975,6 +991,7 @@ function AdminInvoiceCarrierBlock({
   selectedInvoiceId,
   queueIndexById,
   openArById,
+  blueprintRevision,
   onToggle,
   onOpenInvoice,
   secondaryColor,
@@ -985,6 +1002,7 @@ function AdminInvoiceCarrierBlock({
   errorColor,
   warningColor,
 }: AdminInvoiceCarrierBlockProps) {
+  void blueprintRevision
   const pendingPayCount = group.invoices.filter(
     (invoice) => (queueIndexById.get(invoice.id)?.pendingPaymentIds.length ?? 0) > 0
   ).length
@@ -1096,7 +1114,13 @@ function AdminInvoiceCarrierBlock({
               Age
             </td>
             <td
-              colSpan={2}
+              className="!py-1 !px-3 text-center text-[10px] font-semibold uppercase tracking-wide"
+              style={{ color: secondaryColor }}
+              title="Blueprint assigned"
+            >
+              BP
+            </td>
+            <td
               className="!py-1 !px-3 text-[10px] font-semibold uppercase tracking-wide"
               style={{ color: secondaryColor }}
             >
@@ -1109,6 +1133,7 @@ function AdminInvoiceCarrierBlock({
             const selected = invoice.id === selectedInvoiceId
             const noteStatus = getInvoiceNoteStatusDisplay(invoice)
             const agingStopped = invoiceHasStoppedAging(invoice)
+            const hasBlueprint = isInvoiceBlueprintAssigned(invoice.id)
             return (
               <tr
                 key={invoice.id}
@@ -1153,7 +1178,26 @@ function AdminInvoiceCarrierBlock({
                     {invoice.invoiceAgeDays}d
                   </span>
                 </ClientListTd>
-                <ClientListTd className="client-list-td--status-col" colSpan={2}>
+                <ClientListTd className="text-center">
+                  {hasBlueprint ? (
+                    <span
+                      className="inline-flex items-center justify-center w-5 h-5 rounded-full"
+                      style={{
+                        backgroundColor: 'color-mix(in srgb, #16a34a 16%, transparent)',
+                        color: '#15803d',
+                      }}
+                      title="Blueprint assigned"
+                      aria-label="Blueprint assigned"
+                    >
+                      <Check className="w-3.5 h-3.5" strokeWidth={2.5} aria-hidden />
+                    </span>
+                  ) : (
+                    <span className="text-[11px]" style={{ color: mutedColor }} aria-label="No blueprint">
+                      —
+                    </span>
+                  )}
+                </ClientListTd>
+                <ClientListTd className="client-list-td--status-col">
                   <div className="flex flex-col gap-1 items-start">
                     <span
                       className={
