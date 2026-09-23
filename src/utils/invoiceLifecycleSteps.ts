@@ -58,8 +58,7 @@ export function getInvoiceLifecycleStatusLabel(invoice: Invoice): string {
  *
  * - Submitted: invoice packet received by Credyx
  * - Verified: in verification / approved; On Hold before PPW → Verified flashes red
- * - Invoiced: PPW sent; On Hold after PPW → Invoiced flashes red (does not roll back)
- * - Invoiced: PPW sent to broker (open A/R stays here until paid)
+ * - Invoiced: PPW sent to broker; On Hold after PPW → Invoiced flashes red (does not roll back)
  * - Paid: payment confirmed — or "Short paid" when partially short, or yellow "Confirm" when awaiting receipt
  */
 export function getInvoiceLifecycleSteps(
@@ -98,13 +97,21 @@ export function getInvoiceLifecycleSteps(
     },
   ]
 
-  // Payment disputed (not confirmed): stay on Invoiced step — list/detail show Open Disputed.
-  // Paid invoices with a disputed short correction keep the Paid complete path.
+  // Payment disputed (not confirmed): stay on the stage already reached.
+  // Without PPW → Verified; after PPW → Invoiced. List/detail show Open Disputed.
   if (paymentDisputed && !isClosed && !awaitingReceipt && !isPaid) {
+    if (ppwSent) {
+      return [
+        { ...labels[0], state: 'done' },
+        { ...labels[1], state: 'done' },
+        { ...labels[2], state: 'current' },
+        { ...labels[3], state: 'upcoming' },
+      ]
+    }
     return [
       { ...labels[0], state: 'done' },
-      { ...labels[1], state: 'done' },
-      { ...labels[2], state: 'current' },
+      { ...labels[1], state: 'current' },
+      { ...labels[2], state: 'upcoming' },
       { ...labels[3], state: 'upcoming' },
     ]
   }
@@ -202,12 +209,12 @@ export function getInvoiceLifecycleSteps(
     ]
   }
 
-  // Verified but PPW not sent yet — Invoiced is the next/current step.
+  // Verified / approved but paperwork not sent — stay on Verified; do not mark Invoiced.
   if (verifiedDone) {
     return [
       { ...labels[0], state: 'done' },
-      { ...labels[1], state: 'done' },
-      { ...labels[2], state: 'current' },
+      { ...labels[1], state: 'current' },
+      { ...labels[2], state: 'upcoming' },
       { ...labels[3], state: 'upcoming' },
     ]
   }

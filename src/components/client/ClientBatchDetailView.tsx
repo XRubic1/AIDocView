@@ -4,7 +4,6 @@ import { Invoice } from '../../types/invoice'
 import { formatCurrency, formatDate } from '../../utils/format'
 import { useClientTheme } from '../../theme/ThemeContext'
 import { toClientVisibleInvoiceStatus } from '../../utils/clientInvoiceView'
-import { hasPpwBeenSent } from '../../utils/ppwSent'
 import { ClientBatchListItem, getBatchStatusBadge } from './ClientBatchesListView'
 import ClientSortableHeader from './ClientSortableHeader'
 import ClientListTd from './ClientListTd'
@@ -34,17 +33,8 @@ type InvoiceSortField =
 /** Client-facing status for invoices inside a batch review. */
 function getBatchInvoiceStatusBadge(invoice: Invoice) {
   const visibleStatus = toClientVisibleInvoiceStatus(invoice)
-  const ppwSent = hasPpwBeenSent(invoice)
-  const displayKey =
-    visibleStatus === 'approved'
-      ? ppwSent
-        ? 'invoiced'
-        : 'verified'
-      : visibleStatus
   const classMap: Record<string, string> = {
     approved: 'status-pill status-pill--open',
-    invoiced: 'status-pill status-pill--open',
-    verified: 'status-pill status-pill--pending',
     paid: 'status-pill status-pill--approved',
     rejected: 'status-pill status-pill--overdue',
     force_closed: 'status-pill status-pill--overdue',
@@ -56,8 +46,6 @@ function getBatchInvoiceStatusBadge(invoice: Invoice) {
   const labels: Record<string, string> = {
     pending: 'Pending',
     approved: 'Open',
-    verified: 'Verified',
-    invoiced: 'Invoiced',
     paid: 'Paid',
     rejected: 'Denied',
     force_closed: 'Force Closed',
@@ -65,8 +53,8 @@ function getBatchInvoiceStatusBadge(invoice: Invoice) {
     hold: 'On Hold',
   }
   return (
-    <span className={`inline-flex items-center ${classMap[displayKey] || 'status-pill status-pill--pending'}`}>
-      {labels[displayKey] || 'Pending'}
+    <span className={`inline-flex items-center ${classMap[visibleStatus] || 'status-pill status-pill--pending'}`}>
+      {labels[visibleStatus] || 'Pending'}
     </span>
   )
 }

@@ -1,8 +1,7 @@
-import type { DocumentSendRecord, Invoice } from '../types/invoice'
+import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
 import { isShortPayment } from '../types/payment'
 import { formatCurrency } from './format'
-import { hasPpwBeenSent } from './ppwSent'
 
 export const AMOUNT_EPSILON = 0.01
 
@@ -140,13 +139,12 @@ export function getClientDisplayBalanceState(
  * Fully covered / overpaid invoices show Paid even if DB status is still approved.
  * Client-posted pending that covers the invoice → Paid + Awaiting Credyx.
  * Partial pay → Open (or Overdue) + Short paid; overpay → Paid + Overpaid.
- * Approved without PPW → Verified; approved after PPW → Invoiced (open A/R).
+ * Open A/R (approved) always shows Open — not Verified.
  */
 export function getClientInvoiceStatusParts(
   invoice: {
     status: string
     displayStatus?: string
-    document_send_history?: DocumentSendRecord[]
   },
   balance: InvoiceBalanceState,
   options?: { pendingClientPosted?: number; confirmedReceived?: number; invoiceAmount?: number }
@@ -196,7 +194,7 @@ export function getClientInvoiceStatusParts(
   }
   if (balance.tone === 'short') {
     return {
-      status: raw === 'overdue' ? 'overdue' : openArStatusForInvoice(invoice, raw),
+      status: raw === 'overdue' ? 'overdue' : openArStatusForInvoice(raw),
       variance: 'short_paid',
     }
   }
@@ -204,19 +202,14 @@ export function getClientInvoiceStatusParts(
   // Nothing confirmed yet
   if (raw === 'paid') return { status: 'paid', variance: null }
   if (raw === 'overdue') return { status: 'overdue', variance: null }
-  return { status: openArStatusForInvoice(invoice, raw), variance: null }
+  return { status: openArStatusForInvoice(raw), variance: null }
 }
 
-/** Open A/R label: Verified until PPW is sent, then Invoiced. */
-function openArStatusForInvoice(
-  invoice: { document_send_history?: DocumentSendRecord[] },
-  rawStatus: string
-): string {
+/** Map open A/R / legacy keys to Open (`approved`). */
+function openArStatusForInvoice(rawStatus: string): string {
   if (rawStatus === 'pending' || rawStatus === 'review') return rawStatus
-  if (hasPpwBeenSent(invoice)) return 'invoiced'
-  // Approved (or legacy open) without paperwork to the broker → still Verified.
   if (rawStatus === 'approved' || rawStatus === 'invoiced' || rawStatus === 'verified') {
-    return 'verified'
+    return 'approved'
   }
   return rawStatus
 }

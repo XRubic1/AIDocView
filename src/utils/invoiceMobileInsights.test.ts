@@ -181,4 +181,34 @@ describe('hold invoice lifecycle', () => {
     expect(steps.find((s) => s.id === 'verified')?.state).toBe('hold')
     expect(steps.find((s) => s.id === 'invoiced')?.state).toBe('upcoming')
   })
+
+  it('keeps Verified current when approved but paperwork has not been sent', () => {
+    const invoice = baseInvoice({
+      status: 'approved',
+      approved_at: '2026-07-13T00:00:00Z',
+    })
+    expect(getInvoiceLifecycleStatusLabel(invoice)).toBe('Verified')
+    const steps = getInvoiceLifecycleSteps(invoice)
+    expect(steps.find((s) => s.id === 'verified')?.state).toBe('current')
+    expect(steps.find((s) => s.id === 'invoiced')?.state).toBe('upcoming')
+  })
+
+  it('moves to Invoiced only after paperwork is sent', () => {
+    const invoice = baseInvoice({
+      status: 'approved',
+      approved_at: '2026-07-13T00:00:00Z',
+      document_send_history: [
+        {
+          email_address: 'broker@example.com',
+          sent_at: '2026-07-14T00:00:00Z',
+          sent_by: 'Credyx',
+          status: 'sent',
+        },
+      ],
+    })
+    expect(getInvoiceLifecycleStatusLabel(invoice)).toBe('Invoiced')
+    const steps = getInvoiceLifecycleSteps(invoice)
+    expect(steps.find((s) => s.id === 'verified')?.state).toBe('done')
+    expect(steps.find((s) => s.id === 'invoiced')?.state).toBe('current')
+  })
 })

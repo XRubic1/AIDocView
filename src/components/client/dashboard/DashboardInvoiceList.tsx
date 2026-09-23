@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import type { Invoice } from '../../../types/invoice'
 import { formatCurrency } from '../../../utils/format'
 import { isReceiptDisputeHold } from '../../../services/paymentReceiptConfirmationService'
-import { hasPpwBeenSent } from '../../../utils/ppwSent'
 
 type DashboardInvoiceListProps = {
   invoices: Invoice[]
@@ -27,11 +26,7 @@ function statusPill(invoice: Invoice): { label: string; tone: string } {
   if (invoice.status === 'hold') return { label: 'Held', tone: 'warn' }
   if (isOverdue) return { label: 'Overdue', tone: 'danger' }
   if (invoice.status === 'paid') return { label: 'Paid', tone: 'success' }
-  if (invoice.status === 'approved') {
-    return hasPpwBeenSent(invoice)
-      ? { label: 'Invoiced', tone: 'info' }
-      : { label: 'Verified', tone: 'neutral' }
-  }
+  if (invoice.status === 'approved') return { label: 'Open', tone: 'info' }
   if (invoice.status === 'pending') return { label: 'Pending', tone: 'neutral' }
   return { label: 'Open', tone: 'neutral' }
 }

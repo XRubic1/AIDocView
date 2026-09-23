@@ -20,7 +20,6 @@ import {
 } from '../../utils/clientInvoiceDisputeStatus'
 import { invoiceHasWillPayStatus } from '../../utils/invoiceWillPay'
 import { getInvoiceNoteStatusDisplay } from '../../utils/invoiceStatusHeadline'
-import { hasPpwBeenSent } from '../../utils/ppwSent'
 
 export const NOTE_TYPE_LABELS: Record<string, string> = {
   note: 'Note',
@@ -102,7 +101,8 @@ export function getInvoiceStatusBadge(status: string, options?: { compact?: bool
     written_off: 'Written Off',
     open_disputed: getOpenDisputedStatusLabel(),
     verified: 'Verified',
-    invoiced: 'Invoiced',
+    // Open A/R after PPW — list status stays Open
+    invoiced: 'Open',
   }
   const base = classMap[status] || 'status-pill status-pill--pending'
   return (
@@ -217,13 +217,12 @@ export function getInvoiceRowStatusBadge(
       return getInvoiceStatusBadge('will_pay', options)
     }
     const raw = invoice.displayStatus || invoice.status
-    let status =
+    const status =
       invoice.isOverdue && (raw === 'approved' || raw === 'pending' || raw === 'invoiced' || raw === 'verified')
         ? 'overdue'
-        : raw
-    if (status === 'approved') {
-      status = hasPpwBeenSent(invoice) ? 'invoiced' : 'verified'
-    }
+        : raw === 'verified' || raw === 'invoiced'
+          ? 'approved'
+          : raw
     return getInvoiceStatusBadge(status, options)
   }
   const parts = getClientInvoiceStatusParts(invoice, options.balance, {
