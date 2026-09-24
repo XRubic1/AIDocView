@@ -162,3 +162,206 @@ export const LEGACY_DEMO_BLUEPRINT_IDS = [
   'bp-demo-invoice-chase-v5',
   'bp-demo-invoice-chase-v6',
 ] as const
+
+/**
+ * New broker onboarding — fires when a broker is added to Credyx.
+ * Start (event) → When broker created → urgent review → note → Done
+ */
+export const NEW_BROKER_ONBOARDING_BLUEPRINT: SavedBlueprint = {
+  id: 'bp-new-broker-onboarding-v1',
+  name: 'New broker onboarding',
+  updatedAt: '2026-09-24T00:00:00.000Z',
+  priority: 80,
+  nodes: [
+    {
+      id: 'n-start',
+      type: 'blueprint',
+      position: { x: 20, y: 160 },
+      data: {
+        kind: 'trigger',
+        label: 'Brokers that match',
+        triggerSubject: 'brokers',
+        triggerEntry: 'event',
+        triggerFilters: {
+          ...defaultTriggerFilters(),
+          brokers: { activeOnly: true, minDaysNoPayment: '' },
+        },
+      },
+    },
+    {
+      id: 'n-when-created',
+      type: 'blueprint',
+      position: { x: 260, y: 160 },
+      data: {
+        kind: 'if',
+        label: 'New broker',
+        checkId: 'broker_created',
+        whenMatch: 'yes',
+        fieldKey: 'This broker was just added to Credyx',
+      },
+    },
+    {
+      id: 'n-urgent',
+      type: 'blueprint',
+      position: { x: 500, y: 160 },
+      data: {
+        kind: 'action',
+        label: 'Urgent review',
+        actionId: 'urgent_review',
+        actionIds: ['urgent_review'],
+        actionConfigs: {
+          urgent_review: {
+            message: 'New broker added — review MC / risk before loads.',
+            channel: 'app',
+          },
+        },
+        status: 'Needs urgent review',
+      },
+    },
+    {
+      id: 'n-note',
+      type: 'blueprint',
+      position: { x: 740, y: 160 },
+      data: {
+        kind: 'action',
+        label: 'Add note',
+        actionId: 'add_note',
+        actionIds: ['add_note'],
+        actionConfigs: {
+          add_note: {
+            message: 'Onboarding: confirm contact, Net terms, and Snapshot profile.',
+            channel: 'app',
+          },
+        },
+        status: 'Write a note on this broker',
+      },
+    },
+    {
+      id: 'n-done',
+      type: 'blueprint',
+      position: { x: 980, y: 160 },
+      data: {
+        kind: 'stop',
+        label: 'Done',
+      },
+    },
+  ],
+  edges: [
+    { id: 'e1', source: 'n-start', target: 'n-when-created' },
+    { id: 'e2', source: 'n-when-created', target: 'n-urgent' },
+    { id: 'e3', source: 'n-urgent', target: 'n-note' },
+    { id: 'e4', source: 'n-note', target: 'n-done' },
+  ],
+}
+
+/**
+ * Batch processed notice — fires when admin Process moves a batch to submitted.
+ * Carrier email via Then-do when Live runner is on (Settings send is skipped).
+ */
+export const BATCH_PROCESSED_NOTICE_BLUEPRINT: SavedBlueprint = {
+  id: 'bp-batch-processed-notice-v1',
+  name: 'Batch processed notice',
+  updatedAt: '2026-09-24T12:00:00.000Z',
+  priority: 70,
+  nodes: [
+    {
+      id: 'n-start',
+      type: 'blueprint',
+      position: { x: 20, y: 160 },
+      data: {
+        kind: 'trigger',
+        label: 'Batches that match',
+        triggerSubject: 'batches',
+        triggerEntry: 'event',
+        triggerFilters: {
+          ...defaultTriggerFilters(),
+          batches: { submittedOnly: true },
+        },
+      },
+    },
+    {
+      id: 'n-when-processed',
+      type: 'blueprint',
+      position: { x: 260, y: 160 },
+      data: {
+        kind: 'if',
+        label: 'Batch processed',
+        checkId: 'batch_processed',
+        whenMatch: 'yes',
+        fieldKey: 'This batch was just processed / submitted',
+      },
+    },
+    {
+      id: 'n-email-carrier',
+      type: 'blueprint',
+      position: { x: 500, y: 160 },
+      data: {
+        kind: 'action',
+        label: 'Email carrier',
+        actionId: 'email_carrier_batch_processed',
+        actionIds: ['email_carrier_batch_processed'],
+        actionConfigs: {
+          email_carrier_batch_processed: {
+            message: '',
+            channel: 'email',
+            templateId: 'carrier_batch_processed',
+          },
+        },
+        status: 'Email the carrier that this batch was processed',
+      },
+    },
+    {
+      id: 'n-notify',
+      type: 'blueprint',
+      position: { x: 740, y: 160 },
+      data: {
+        kind: 'action',
+        label: 'Notify team',
+        actionId: 'push_notify',
+        actionIds: ['push_notify'],
+        actionConfigs: {
+          push_notify: {
+            message:
+              'Batch processed — check holds and paperwork results in the portal.',
+            channel: 'app',
+          },
+        },
+        status: 'Send a push notification to the team',
+      },
+    },
+    {
+      id: 'n-urgent',
+      type: 'blueprint',
+      position: { x: 980, y: 160 },
+      data: {
+        kind: 'action',
+        label: 'Urgent review',
+        actionId: 'urgent_review',
+        actionIds: ['urgent_review'],
+        actionConfigs: {
+          urgent_review: {
+            message: 'Review PPW failures or holds on this batch if any.',
+            channel: 'app',
+          },
+        },
+        status: 'Needs urgent Credyx review',
+      },
+    },
+    {
+      id: 'n-done',
+      type: 'blueprint',
+      position: { x: 1220, y: 160 },
+      data: {
+        kind: 'stop',
+        label: 'Done',
+      },
+    },
+  ],
+  edges: [
+    { id: 'e1', source: 'n-start', target: 'n-when-processed' },
+    { id: 'e2', source: 'n-when-processed', target: 'n-email-carrier' },
+    { id: 'e3', source: 'n-email-carrier', target: 'n-notify' },
+    { id: 'e4', source: 'n-notify', target: 'n-urgent' },
+    { id: 'e5', source: 'n-urgent', target: 'n-done' },
+  ],
+}

@@ -1,6 +1,7 @@
 import { Broker } from '../types/broker'
 import { persistBroker } from '../services/supabase/tenantPersist'
 import { syncOpenInvoiceDueDatesForBroker } from '../services/syncBrokerInvoiceDueDates'
+import { emitCredyxEvent } from '../services/credyxEvents'
 
 /** Mutable in-memory broker directory (hydrated from Supabase when configured). */
 export const mockBrokers: Broker[] = []
@@ -15,6 +16,10 @@ function emitBrokersUpdated(): void {
 export function hydrateBrokers(items: Broker[]): void {
   mockBrokers.length = 0
   mockBrokers.push(...items)
+}
+
+export function getBrokerById(brokerId: string): Broker | undefined {
+  return mockBrokers.find((b) => b.id === brokerId)
 }
 
 /** Merge one broker row from live sync / hydrate. */
@@ -68,6 +73,18 @@ export function addBroker(broker: Broker): Broker {
   void persistBroker(created)
     .then(() => emitBrokersUpdated())
     .catch(console.error)
+
+  // Domain event + blueprint enroll (Live runner) — after the row exists in memory.
+  emitCredyxEvent('broker.created', created.id, { name: created.name })
+  queueMicrotask(() => {
+    void import('../components/blueprints/blueprintBrokerRunner')
+      .then((m) => {
+        m.ensureBrokerBlueprintListener()
+        m.onBrokerCreated(created.id)
+      })
+      .catch(() => undefined)
+  })
+
   return created
 }
 

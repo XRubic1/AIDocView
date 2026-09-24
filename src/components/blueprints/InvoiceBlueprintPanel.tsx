@@ -211,8 +211,9 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
       setAssignment(assignInvoiceBlueprint(invoice.id, bpId, bpName))
     }
     if (runnerOn) {
-      enrollInvoiceIfNeeded(invoice, 'manual start')
-      setRun(getPrimaryRunForInvoice(invoice))
+      void enrollInvoiceIfNeeded(invoice, 'manual start').then(() => {
+        setRun(getPrimaryRunForInvoice(invoice))
+      })
       return
     }
     const saved = getSavedBlueprint(bpId)

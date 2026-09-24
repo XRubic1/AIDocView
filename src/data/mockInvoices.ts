@@ -13,7 +13,7 @@ function queueBlueprintStatusSync(invoiceId: string): void {
       // Lazy import avoids circular deps (runner → mockInvoices → runner)
       void import('../components/blueprints/blueprintRunner').then((mod) => {
         if (mod.isBlueprintLifecycleHookActive()) return
-        mod.syncInvoiceBlueprints(invoiceId, 'status change')
+        void mod.syncInvoiceBlueprints(invoiceId, 'status change')
       })
     } catch {
       /* runner optional */

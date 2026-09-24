@@ -43,9 +43,15 @@ export type BlueprintBrokerTriggerFilters = {
   minDaysNoPayment: string
 }
 
+export type BlueprintBatchTriggerFilters = {
+  /** When true, only submitted (processed) batches qualify as a gate. */
+  submittedOnly: boolean
+}
+
 export type BlueprintTriggerFilters = {
   invoices: BlueprintInvoiceTriggerFilters
   brokers: BlueprintBrokerTriggerFilters
+  batches: BlueprintBatchTriggerFilters
 }
 
 export function defaultInvoiceTriggerFilters(): BlueprintInvoiceTriggerFilters {
@@ -63,10 +69,17 @@ export function defaultBrokerTriggerFilters(): BlueprintBrokerTriggerFilters {
   }
 }
 
+export function defaultBatchTriggerFilters(): BlueprintBatchTriggerFilters {
+  return {
+    submittedOnly: true,
+  }
+}
+
 export function defaultTriggerFilters(): BlueprintTriggerFilters {
   return {
     invoices: defaultInvoiceTriggerFilters(),
     brokers: defaultBrokerTriggerFilters(),
+    batches: defaultBatchTriggerFilters(),
   }
 }
 
@@ -90,6 +103,9 @@ export function normalizeTriggerFilters(
       activeOnly: raw.brokers?.activeOnly ?? defaults.brokers.activeOnly,
       minDaysNoPayment: raw.brokers?.minDaysNoPayment ?? '',
     },
+    batches: {
+      submittedOnly: raw.batches?.submittedOnly ?? defaults.batches.submittedOnly,
+    },
   }
 }
 
@@ -103,11 +119,19 @@ function statusLabel(id: BlueprintInvoiceTriggerStatus): string {
 
 /** Plain-English card / dry-run line for a Start node. */
 export function formatTriggerCardLine(data: BlueprintNodeData): string {
-  const subject = data.triggerSubject === 'brokers' ? 'brokers' : 'invoices'
+  const subject: BlueprintSubject =
+    data.triggerSubject === 'brokers' || data.triggerSubject === 'batches'
+      ? data.triggerSubject
+      : 'invoices'
   const entry = getTriggerEntry(data)
   const filters = normalizeTriggerFilters(data.triggerFilters)
 
   if (entry === 'event') {
+    if (subject === 'batches') {
+      const gate = formatBatchFilterBits(filters.batches)
+      if (gate) return `When an event happens · gate: ${gate}`
+      return 'When something happens to a batch'
+    }
     const gate =
       subject === 'invoices'
         ? formatInvoiceFilterBits(filters.invoices)
@@ -121,6 +145,11 @@ export function formatTriggerCardLine(data: BlueprintNodeData): string {
   if (subject === 'brokers') {
     const bits = formatBrokerFilterBits(filters.brokers)
     return bits ? `Brokers that match · ${bits}` : 'Brokers that match'
+  }
+
+  if (subject === 'batches') {
+    const bits = formatBatchFilterBits(filters.batches)
+    return bits ? `Batches that match · ${bits}` : 'Batches that match'
   }
 
   const bits = formatInvoiceFilterBits(filters.invoices)
@@ -143,6 +172,12 @@ function formatBrokerFilterBits(f: BlueprintBrokerTriggerFilters): string {
   if (f.activeOnly) parts.push('active only')
   const days = f.minDaysNoPayment.trim()
   if (days) parts.push(`${days}+ days with no payment`)
+  return parts.join(' · ')
+}
+
+function formatBatchFilterBits(f: BlueprintBatchTriggerFilters): string {
+  const parts: string[] = []
+  if (f.submittedOnly) parts.push('submitted only')
   return parts.join(' · ')
 }
 
@@ -199,5 +234,7 @@ export function compileBlueprintIndex(
 }
 
 export function triggerSubjectNoun(subject: BlueprintSubject | null | undefined): string {
-  return subject === 'brokers' ? 'brokers' : 'invoices'
+  if (subject === 'brokers') return 'brokers'
+  if (subject === 'batches') return 'batches'
+  return 'invoices'
 }

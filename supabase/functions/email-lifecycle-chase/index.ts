@@ -284,6 +284,11 @@ Deno.serve(async (req) => {
         continue
       }
 
+      // Blueprint owns payment chase — skip payment track (paperwork already handled)
+      if (life.blueprint_owns_chase === true) {
+        continue
+      }
+
       const dueYmd = (invoice.due_date || invoice.expected_payment_date) as string | undefined
       if (dueYmd) {
         const dueMs = Date.parse(`${dueYmd}T12:00:00`)

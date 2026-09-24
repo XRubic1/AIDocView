@@ -5,6 +5,7 @@ import {
   Clock,
   FileText,
   ListTodo,
+  Package,
   PauseCircle,
   Play,
   RefreshCw,
@@ -94,14 +95,14 @@ export default function BlueprintActivityPanel() {
     setRows(resetBlueprintRunsDemo())
   }
 
-  const handleTick = () => {
+  const handleTick = async () => {
     if (!isBlueprintsRunnerEnabled()) {
       showToast('Turn on Live runner first (Blueprints page).', 'error')
       return
     }
     setTickBusy(true)
     try {
-      const { advanced } = tickBlueprintRuns('Credyx Blueprint')
+      const { advanced } = await tickBlueprintRuns('Credyx Blueprint')
       setRows(listBlueprintRuns())
       showToast(
         advanced > 0
@@ -123,7 +124,8 @@ export default function BlueprintActivityPanel() {
             Running activity
           </h2>
           <p className="bp-activity__sub">
-            Invoices and brokers enrolled in a blueprint — waiting on a clock, mid-step, or finished.
+            Invoices, brokers, and batches enrolled in a blueprint — waiting on a clock, mid-step, or
+            finished.
             Live runner writes notes/status only; broker chase emails stay on Run chase.
           </p>
         </div>
@@ -171,6 +173,7 @@ export default function BlueprintActivityPanel() {
               { id: 'all', label: 'All subjects' },
               { id: 'invoice', label: 'Invoices' },
               { id: 'broker', label: 'Brokers' },
+              { id: 'batch', label: 'Batches' },
             ] as const
           ).map((opt) => (
             <button
@@ -188,8 +191,8 @@ export default function BlueprintActivityPanel() {
       <div className="bp-activity__table-wrap">
         {visible.length === 0 ? (
           <div className="bp-activity__empty">
-            No runs match these filters. When the engine enrolls an invoice or broker, it will show
-            up here.
+            No runs match these filters. When the engine enrolls an invoice, broker, or batch, it
+            will show up here.
           </div>
         ) : (
           <table className="bp-activity__table">
@@ -211,6 +214,8 @@ export default function BlueprintActivityPanel() {
                       <span className="bp-activity__subject-icon" aria-hidden>
                         {row.subject === 'invoice' ? (
                           <FileText size={14} />
+                        ) : row.subject === 'batch' ? (
+                          <Package size={14} />
                         ) : (
                           <Building2 size={14} />
                         )}
@@ -218,7 +223,12 @@ export default function BlueprintActivityPanel() {
                       <div>
                         <div className="bp-activity__subject-name">{row.subjectLabel}</div>
                         <div className="bp-activity__subject-meta">
-                          {row.subject === 'invoice' ? 'Invoice' : 'Broker'} · {row.clientLabel}
+                          {row.subject === 'invoice'
+                            ? 'Invoice'
+                            : row.subject === 'batch'
+                              ? 'Batch'
+                              : 'Broker'}
+                          {row.clientLabel ? ` · ${row.clientLabel}` : ''}
                         </div>
                       </div>
                     </div>

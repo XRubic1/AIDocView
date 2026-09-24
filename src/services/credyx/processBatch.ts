@@ -12,6 +12,7 @@ import { getClientById } from '../clientRegistry'
 import { approveAdminInvoice, notifyClientHoldsAfterBatchProcess } from '../adminInvoiceActions'
 import { notifyTenantDataUpdated } from '../supabase/tenantDataLiveSync'
 import { emailCarrierBatchProcessed } from './batchLifecycleEmails'
+import { emitCredyxEvent } from '../credyxEvents'
 
 export interface ProcessBatchResult {
   ok: boolean
@@ -143,21 +144,34 @@ export async function processVerifiedBatch(opts: {
   // Reveal hold outcomes to the client now that the batch is processed.
   notifyClientHoldsAfterBatchProcess(opts.batchId)
 
-  // One carrier email: processed + holds (if any) + broker paperwork summary.
+  // One carrier email: processed + holds + PPW summary — unless a Live
+  // batch blueprint Then-do owns that email (avoids double-send).
   let carrierEmail: ProcessBatchResult['carrierEmail'] = { ok: true, kind: 'none' }
   if (liveInvoices.length > 0) {
-    const res = await emailCarrierBatchProcessed({
-      clientId: opts.clientId,
-      batchNumber: opts.batchNumber,
-      invoices: liveInvoices,
-      heldInvoices: held,
-      ppwDetails,
-    })
-    carrierEmail = {
-      ok: res.ok || Boolean(res.skipped),
-      kind: 'processed',
-      error: res.error,
-      skipped: res.skipped,
+    const { shouldSkipSettingsBatchCarrierEmail } = await import(
+      '../../components/blueprints/blueprintBatchCarrierEmail'
+    )
+    if (shouldSkipSettingsBatchCarrierEmail(opts.batchId)) {
+      carrierEmail = {
+        ok: true,
+        kind: 'processed',
+        skipped: true,
+        error: 'Blueprint owns carrier batch email',
+      }
+    } else {
+      const res = await emailCarrierBatchProcessed({
+        clientId: opts.clientId,
+        batchNumber: opts.batchNumber,
+        invoices: liveInvoices,
+        heldInvoices: held,
+        ppwDetails,
+      })
+      carrierEmail = {
+        ok: res.ok || Boolean(res.skipped),
+        kind: 'processed',
+        error: res.error,
+        skipped: res.skipped,
+      }
     }
   }
 
@@ -181,6 +195,19 @@ export async function processVerifiedBatch(opts: {
     paperworkResults.failed > 0 || !carrierEmail.ok ? 'warning' : 'info',
     true
   )
+
+  emitCredyxEvent('batch.processed', opts.batchId, {
+    batchNumber: opts.batchNumber,
+    clientId: opts.clientId,
+  })
+  queueMicrotask(() => {
+    void import('../../components/blueprints/blueprintBatchRunner')
+      .then((m) => {
+        m.ensureBatchBlueprintListener()
+        m.onBatchProcessed(opts.batchId)
+      })
+      .catch(() => undefined)
+  })
 
   return {
     ok: true,

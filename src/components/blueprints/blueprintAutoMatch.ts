@@ -20,6 +20,12 @@ export type BlueprintMatchEvent =
   | 'purchased'
   /** Current open-A/R state — assign any Start that matches filters. */
   | 'sync'
+  /** Broker just added to the catalog. */
+  | 'broker_created'
+  /** Confirmed payment posted on the invoice. */
+  | 'payment_posted'
+  /** Batch Process completed (status → submitted). */
+  | 'batch_processed'
 
 export type BlueprintMatch = {
   blueprint: SavedBlueprint
@@ -35,7 +41,47 @@ function isInvoiceBlueprint(bp: SavedBlueprint): boolean {
   const start = getStartNode(bp.nodes)
   if (!start) return false
   const subject = start.data.triggerSubject
-  return subject !== 'brokers'
+  return subject !== 'brokers' && subject !== 'batches'
+}
+
+function isBrokerBlueprint(bp: SavedBlueprint): boolean {
+  const start = getStartNode(bp.nodes)
+  if (!start) return false
+  return start.data.triggerSubject === 'brokers'
+}
+
+function isBatchBlueprint(bp: SavedBlueprint): boolean {
+  const start = getStartNode(bp.nodes)
+  if (!start) return false
+  return start.data.triggerSubject === 'batches'
+}
+
+function hasWhenPaymentPosted(
+  nodes: BlueprintFlowNode[],
+  match: 'yes' | 'no' | 'any' = 'yes'
+): boolean {
+  return nodes.some((n) => {
+    if (n.data.kind !== 'if' && n.data.kind !== 'elseif') return false
+    if (n.data.checkId !== 'payment_posted') return false
+    if (match === 'any') return true
+    return normalizeWhenMatch(n.data) === match
+  })
+}
+
+function hasBrokerCreatedWhen(nodes: BlueprintFlowNode[]): boolean {
+  return nodes.some(
+    (n) =>
+      (n.data.kind === 'if' || n.data.kind === 'elseif') &&
+      n.data.checkId === 'broker_created'
+  )
+}
+
+function hasBatchProcessedWhen(nodes: BlueprintFlowNode[]): boolean {
+  return nodes.some(
+    (n) =>
+      (n.data.kind === 'if' || n.data.kind === 'elseif') &&
+      n.data.checkId === 'batch_processed'
+  )
 }
 
 function holdOnly(filters: BlueprintTriggerFilters): boolean {
@@ -90,6 +136,57 @@ export function scoreBlueprintForEvent(
   event: BlueprintMatchEvent,
   invoice: Invoice
 ): BlueprintMatch | null {
+  if (event === 'broker_created') {
+    if (!isBrokerBlueprint(bp)) return null
+    const start = getStartNode(bp.nodes)
+    if (!start) return null
+    const entry = getTriggerEntry(start.data)
+    let score = 50
+    if (entry === 'event') score += 30
+    if (hasBrokerCreatedWhen(bp.nodes)) score += 25
+    // Start with no When still matches create if entry is event
+    if (entry !== 'event' && !hasBrokerCreatedWhen(bp.nodes)) return null
+    return {
+      blueprint: bp,
+      score,
+      reason: hasBrokerCreatedWhen(bp.nodes)
+        ? 'When · Broker created'
+        : 'Start · broker create event',
+    }
+  }
+
+  if (event === 'batch_processed') {
+    if (!isBatchBlueprint(bp)) return null
+    const start = getStartNode(bp.nodes)
+    if (!start) return null
+    const entry = getTriggerEntry(start.data)
+    let score = 50
+    if (entry === 'event') score += 30
+    if (hasBatchProcessedWhen(bp.nodes)) score += 25
+    if (entry !== 'event' && !hasBatchProcessedWhen(bp.nodes)) return null
+    return {
+      blueprint: bp,
+      score,
+      reason: hasBatchProcessedWhen(bp.nodes)
+        ? 'When · Batch processed'
+        : 'Start · batch process event',
+    }
+  }
+
+  if (event === 'payment_posted') {
+    if (!isInvoiceBlueprint(bp)) return null
+    if (!hasWhenPaymentPosted(bp.nodes, 'yes')) return null
+    const start = getStartNode(bp.nodes)
+    if (!start) return null
+    let score = 80
+    if (getTriggerEntry(start.data) === 'event') score += 10
+    return {
+      blueprint: bp,
+      score,
+      reason: 'When · Payment posted',
+    }
+  }
+
   if (!isInvoiceBlueprint(bp)) return null
   const start = getStartNode(bp.nodes)
   if (!start) return null
@@ -274,4 +371,43 @@ export function findBestMatchingBlueprint(
   invoice: Invoice
 ): BlueprintMatch | null {
   return findMatchingBlueprints(event, invoice)[0] ?? null
+}
+
+/** Broker create / broker-subject match (no invoice required). */
+export function findBestMatchingBrokerBlueprint(
+  event: 'broker_created'
+): BlueprintMatch | null {
+  const matches: BlueprintMatch[] = []
+  // Dummy invoice unused for broker_created scoring
+  const stub = { status: 'approved' } as Invoice
+  for (const bp of listSavedBlueprints()) {
+    const m = scoreBlueprintForEvent(bp, event, stub)
+    if (m && m.score > 0) matches.push(m)
+  }
+  matches.sort((a, b) => {
+    const p = blueprintPriority(b.blueprint) - blueprintPriority(a.blueprint)
+    if (p !== 0) return p
+    if (b.score !== a.score) return b.score - a.score
+    return b.blueprint.updatedAt.localeCompare(a.blueprint.updatedAt)
+  })
+  return matches[0] ?? null
+}
+
+/** Batch process / batch-subject match (no invoice required). */
+export function findBestMatchingBatchBlueprint(
+  event: 'batch_processed'
+): BlueprintMatch | null {
+  const matches: BlueprintMatch[] = []
+  const stub = { status: 'approved' } as Invoice
+  for (const bp of listSavedBlueprints()) {
+    const m = scoreBlueprintForEvent(bp, event, stub)
+    if (m && m.score > 0) matches.push(m)
+  }
+  matches.sort((a, b) => {
+    const p = blueprintPriority(b.blueprint) - blueprintPriority(a.blueprint)
+    if (p !== 0) return p
+    if (b.score !== a.score) return b.score - a.score
+    return b.blueprint.updatedAt.localeCompare(a.blueprint.updatedAt)
+  })
+  return matches[0] ?? null
 }

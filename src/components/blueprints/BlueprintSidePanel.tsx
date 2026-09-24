@@ -560,12 +560,12 @@ export default function BlueprintSidePanel({
                 [
                   'filter',
                   'Match filters',
-                  'Start with invoices or brokers that already match your rules below (status, unpaid, days past due, and so on). Good for scheduled chase: Credyx looks for records that fit, then follows Wait / When / Then do.',
+                  'Start with invoices, brokers, or batches that already match your rules below. Good for scheduled chase: Credyx looks for records that fit, then follows Wait / When / Then do.',
                 ],
                 [
                   'event',
                   'When an event happens',
-                  'Start when something happens in Credyx (for example an invoice goes on hold or a broker replies). The filters below are still an optional gate — the event wakes the blueprint, then filters can narrow who qualifies.',
+                  'Start when something happens in Credyx (for example an invoice goes on hold, a broker is added, or a batch is processed). The filters below are still an optional gate.',
                 ],
               ] as const
             ).map(([value, label, tip]) => (
@@ -576,16 +576,17 @@ export default function BlueprintSidePanel({
                   checked={getTriggerEntry(data) === value}
                   onChange={() => {
                     const entry = value as BlueprintTriggerEntry
-                    const opt = TRIGGER_SUBJECT_OPTIONS.find(
-                      (o) => o.id === (data.triggerSubject ?? 'invoices')
-                    )
+                    const subject = data.triggerSubject ?? 'invoices'
+                    const opt = TRIGGER_SUBJECT_OPTIONS.find((o) => o.id === subject)
                     applyPatch({
                       triggerEntry: entry,
                       label:
                         entry === 'event'
-                          ? data.triggerSubject === 'brokers'
+                          ? subject === 'brokers'
                             ? 'When a broker event happens'
-                            : 'When an invoice event happens'
+                            : subject === 'batches'
+                              ? 'When a batch event happens'
+                              : 'When an invoice event happens'
                           : opt?.title ?? data.label,
                     })
                   }}
@@ -596,12 +597,15 @@ export default function BlueprintSidePanel({
           </fieldset>
 
           <p className="bp-side__help">
-            Only matching records enter this blueprint — not every open invoice or broker in the
-            system.
+            Only matching records enter this blueprint — not every open invoice, broker, or batch in
+            the system.
           </p>
 
           {(() => {
-            const subjectKey = data.triggerSubject === 'brokers' ? 'brokers' : 'invoices'
+            const subjectKey =
+              data.triggerSubject === 'brokers' || data.triggerSubject === 'batches'
+                ? data.triggerSubject
+                : 'invoices'
             const filters = normalizeTriggerFilters(
               data.triggerFilters ?? defaultTriggerFilters()
             )
@@ -695,6 +699,36 @@ export default function BlueprintSidePanel({
               )
             }
 
+            if (subjectKey === 'batches') {
+              const ba = filters.batches
+              return (
+                <div className="bp-side__filters">
+                  <div className="bp-side__filters-head">
+                    <div className="bp-side__todos-label">Which batches?</div>
+                    <FilterInfoTip text="Optional gate after a batch event — usually keep submitted only for Process workflows." />
+                  </div>
+                  <p className="bp-side__help">
+                    Only batches that pass these checks continue the chain.
+                  </p>
+                  <label className="bp-side__channel-opt">
+                    <input
+                      type="checkbox"
+                      checked={ba.submittedOnly}
+                      onChange={(e) =>
+                        patchFilters({
+                          ...filters,
+                          batches: { ...ba, submittedOnly: e.target.checked },
+                        })
+                      }
+                    />
+                    <FilterLabel tip="After Process, batches are submitted. Leave on so this flow only runs on processed batches.">
+                      Submitted (processed) only
+                    </FilterLabel>
+                  </label>
+                </div>
+              )
+            }
+
             const br = filters.brokers
             return (
               <div className="bp-side__filters">
@@ -751,7 +785,7 @@ export default function BlueprintSidePanel({
           {!subject ? (
             <p className="bp-side__warn">
               Connect this box to a <strong>Start with</strong> step so we know broker vs invoice
-              clocks.
+              vs batch clocks.
             </p>
           ) : (
             <p className="bp-side__context">Wait clocks for: {subjectLabel(subject)}</p>

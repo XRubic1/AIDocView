@@ -7,6 +7,9 @@ verify_jwt = false
 [functions.email-lifecycle-chase]
 verify_jwt = false
 
+[functions.blueprint-wake-cron]
+verify_jwt = false
+
 [functions.batch-ai-process]
 verify_jwt = false
 

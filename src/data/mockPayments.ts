@@ -4,6 +4,7 @@ import { persistPayment } from '../services/supabase/tenantPersist'
 import { persistOrThrow } from '../services/persistHelper'
 import { persistWithFeedback } from '../services/persistFeedback'
 import { getInvoiceById } from './mockInvoices'
+import { emitCredyxEvent } from '../services/credyxEvents'
 
 /** Mutable in-memory payment store (hydrated from Supabase when configured). */
 export const mockPayments: Payment[] = []
@@ -27,6 +28,7 @@ export function mergePayment(payment: Payment): void {
     mockPayments.unshift(payment)
   }
   maybeRefreshBrokerRisk(payment.invoice_id, prevStatus, payment.status)
+  maybeNotifyPaymentPosted(payment.invoice_id, prevStatus, payment.status)
 }
 
 /** Remove a payment from the in-memory store (realtime DELETE). */
@@ -76,6 +78,22 @@ function maybeRefreshBrokerRisk(
   })
 }
 
+/** Notify blueprints when a payment becomes confirmed (posted). */
+function maybeNotifyPaymentPosted(
+  invoiceId: string,
+  prevStatus?: PaymentStatus,
+  nextStatus?: PaymentStatus
+): void {
+  if (nextStatus !== 'confirmed') return
+  if (prevStatus === 'confirmed') return
+  emitCredyxEvent('payment.posted', invoiceId)
+  queueMicrotask(() => {
+    void import('../components/blueprints/blueprintRunner')
+      .then((m) => m.onPaymentPosted(invoiceId))
+      .catch(() => undefined)
+  })
+}
+
 /** Total posted-but-not-yet-confirmed amount (pending / awaiting receipt / disputed). */
 export function getUnconfirmedPaymentTotal(invoiceId: string): number {
   return getPaymentsByInvoiceId(invoiceId)
@@ -112,6 +130,7 @@ export function addPayment(
     void persistWithFeedback('Payment save', () => persistPayment(payment, clientId))
   }
   maybeRefreshBrokerRisk(payment.invoice_id, undefined, payment.status)
+  maybeNotifyPaymentPosted(payment.invoice_id, undefined, payment.status)
   return payment
 }
 
@@ -126,6 +145,7 @@ export function updatePayment(
   const clientId = getInvoiceById(payment.invoice_id)?.client_id
   void persistWithFeedback('Payment save', () => persistPayment(payment, clientId))
   maybeRefreshBrokerRisk(payment.invoice_id, prevStatus, payment.status)
+  maybeNotifyPaymentPosted(payment.invoice_id, prevStatus, payment.status)
   return payment
 }
 
@@ -152,8 +172,11 @@ export async function updatePaymentAsync(
 ): Promise<Payment | undefined> {
   const payment = mockPayments.find((p) => p.id === paymentId)
   if (!payment) return undefined
+  const prevStatus = payment.status
   Object.assign(payment, patch)
   const clientId = getInvoiceById(payment.invoice_id)?.client_id
   await persistOrThrow('payment', () => persistPayment(payment, clientId))
+  maybeRefreshBrokerRisk(payment.invoice_id, prevStatus, payment.status)
+  maybeNotifyPaymentPosted(payment.invoice_id, prevStatus, payment.status)
   return payment
 }

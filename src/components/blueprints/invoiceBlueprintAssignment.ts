@@ -1,4 +1,6 @@
-/** Per-invoice blueprint assignment (localStorage until live engine). */
+/** Per-invoice blueprint assignment (localStorage write-through + Supabase). */
+
+import { syncInvoiceBlueprintOwnsChaseFlag } from './blueprintChaseOwnership'
 
 export interface InvoiceBlueprintAssignment {
   invoiceId: string
@@ -38,6 +40,13 @@ function writeAll(map: Record<string, InvoiceBlueprintAssignment>): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
 }
 
+/** Replace local map from Supabase hydrate. */
+export function replaceInvoiceBlueprintAssignments(
+  map: Record<string, InvoiceBlueprintAssignment>
+): void {
+  writeAll(map)
+}
+
 export function getInvoiceBlueprintAssignment(
   invoiceId: string
 ): InvoiceBlueprintAssignment | null {
@@ -63,6 +72,10 @@ export function assignInvoiceBlueprint(
   const map = readAll()
   map[invoiceId] = next
   writeAll(map)
+  syncInvoiceBlueprintOwnsChaseFlag(invoiceId, blueprintId)
+  void import('../../services/supabase/blueprintPersist').then((m) =>
+    m.persistInvoiceAssignment(next)
+  )
   notifyChanged(invoiceId)
   return next
 }
@@ -71,5 +84,9 @@ export function clearInvoiceBlueprintAssignment(invoiceId: string): void {
   const map = readAll()
   delete map[invoiceId]
   writeAll(map)
+  syncInvoiceBlueprintOwnsChaseFlag(invoiceId, null)
+  void import('../../services/supabase/blueprintPersist').then((m) =>
+    m.clearInvoiceAssignmentFromDb(invoiceId)
+  )
   notifyChanged(invoiceId)
 }

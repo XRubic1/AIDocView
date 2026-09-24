@@ -30,6 +30,9 @@ import {
   listOutboundInboxRows,
   type OutboundInboxKind,
 } from '../utils/outboundInboxRows'
+import {
+  listInboundInboxRows,
+} from '../utils/inboundInboxRows'
 import { resendOutboundInboxEmail } from '../utils/resendOutboundInboxEmail'
 import { tickBlueprintRuns } from '../components/blueprints/blueprintRunner'
 import { isBlueprintsRunnerEnabled } from '../config/blueprintsRuntime'
@@ -61,7 +64,7 @@ const KIND_TABS: Array<{ id: 'all' | OutboundInboxKind; label: string }> = [
   { id: 'other', label: 'Other' },
 ]
 
-type InboxTab = 'sent' | 'review'
+type InboxTab = 'received' | 'review' | 'sent'
 
 function formatWhen(iso: string): string {
   try {
@@ -95,12 +98,14 @@ export default function AdminEmailInbox() {
   const { resolved } = useAuth()
   const actor = getAdminUserDisplayName(resolved.user?.email ?? null)
   const [tick, setTick] = useState(0)
-  const [tab, setTab] = useState<InboxTab>('sent')
+  const [tab, setTab] = useState<InboxTab>('received')
   const [kindFilter, setKindFilter] = useState<'all' | OutboundInboxKind>('all')
   const [clientFilter, setClientFilter] = useState('')
   const [brokerFilter, setBrokerFilter] = useState('')
   const [sentQuery, setSentQuery] = useState('')
+  const [receivedQuery, setReceivedQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedReceivedId, setSelectedReceivedId] = useState<string | null>(null)
   const [resendTo, setResendTo] = useState('')
   const [resending, setResending] = useState(false)
 
@@ -120,6 +125,28 @@ export default function AdminEmailInbox() {
 
   const allSent = useMemo(() => listOutboundInboxRows(), [tick])
   const pending = useMemo(() => listEmailReviews('pending_review'), [tick])
+  const allReceived = useMemo(() => listInboundInboxRows(), [tick])
+
+  const receivedRows = useMemo(() => {
+    const q = receivedQuery.trim().toLowerCase()
+    if (!q) return allReceived
+    return allReceived.filter(
+      (r) =>
+        r.subject.toLowerCase().includes(q) ||
+        r.from.toLowerCase().includes(q) ||
+        r.to.toLowerCase().includes(q) ||
+        r.clientName.toLowerCase().includes(q) ||
+        r.brokerName.toLowerCase().includes(q) ||
+        r.invoiceNumber.toLowerCase().includes(q) ||
+        (r.matchLabel || '').toLowerCase().includes(q) ||
+        (r.body || '').toLowerCase().includes(q)
+    )
+  }, [allReceived, receivedQuery])
+
+  const selectedReceived = useMemo(
+    () => receivedRows.find((r) => r.id === selectedReceivedId) ?? null,
+    [receivedRows, selectedReceivedId]
+  )
 
   const clients = useMemo(() => {
     const map = new Map<string, string>()
@@ -359,18 +386,17 @@ export default function AdminEmailInbox() {
                 return
               }
               setBusy(true)
-              try {
-                const { advanced } = tickBlueprintRuns(actor)
-                showToast(
-                  advanced > 0
-                    ? `Blueprints — advanced ${advanced} run${advanced === 1 ? '' : 's'}`
-                    : 'Blueprints — no waiting runs were due',
-                  'success'
-                )
-                setTick((n) => n + 1)
-              } finally {
-                setBusy(false)
-              }
+              void tickBlueprintRuns(actor)
+                .then(({ advanced }) => {
+                  showToast(
+                    advanced > 0
+                      ? `Blueprints — advanced ${advanced} run${advanced === 1 ? '' : 's'}`
+                      : 'Blueprints — no waiting runs were due',
+                    'success'
+                  )
+                  setTick((n) => n + 1)
+                })
+                .finally(() => setBusy(false))
             }}
           >
             <GitBranch className="w-3.5 h-3.5" />
@@ -385,10 +411,10 @@ export default function AdminEmailInbox() {
       >
         <button
           type="button"
-          className={`page-tab ${tab === 'sent' ? 'page-tab--active' : ''}`}
-          onClick={() => setTab('sent')}
+          className={`page-tab ${tab === 'received' ? 'page-tab--active' : ''}`}
+          onClick={() => setTab('received')}
         >
-          Sent ({allSent.length})
+          Received ({allReceived.length})
         </button>
         <button
           type="button"
@@ -397,7 +423,170 @@ export default function AdminEmailInbox() {
         >
           Needs review ({pending.length})
         </button>
+        <button
+          type="button"
+          className={`page-tab ${tab === 'sent' ? 'page-tab--active' : ''}`}
+          onClick={() => setTab('sent')}
+        >
+          Sent ({allSent.length})
+        </button>
       </div>
+
+      {tab === 'received' ? (
+        <>
+          <div
+            className="client-page-toolbar px-4 py-2 border-b shrink-0"
+            style={{ borderColor: c.border, backgroundColor: c.card }}
+          >
+            <div className="flex-1 relative min-w-0 max-w-xl">
+              <Search
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+                style={{ color: c.secondary }}
+              />
+              <input
+                type="text"
+                placeholder="Search received mail…"
+                value={receivedQuery}
+                onChange={(e) => setReceivedQuery(e.target.value)}
+                className="client-input pl-8 w-full"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+            <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
+              <div className="client-table-scroll">
+                {receivedRows.length === 0 ? (
+                  <div className="flex items-center justify-center p-8 min-h-[200px]">
+                    <EmptyState
+                      title="No received emails yet"
+                      hint="Inbound mail to system@credyx.net (test) or billing@ lands here after Cloudflare → Resend Receiving → email-inbound. You can also paste/drop on Needs review."
+                    />
+                  </div>
+                ) : (
+                  <table className="dashboard-table dashboard-table--compact">
+                    <thead>
+                      <tr>
+                        <th>When</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Subject</th>
+                        <th>Match</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {receivedRows.map((row) => (
+                        <tr
+                          key={row.id}
+                          className={
+                            selectedReceivedId === row.id ? 'is-selected' : undefined
+                          }
+                          onClick={() => setSelectedReceivedId(row.id)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <td className="whitespace-nowrap">{formatWhen(row.sentAt)}</td>
+                          <td className="truncate max-w-[140px]" title={row.from}>
+                            {row.from}
+                          </td>
+                          <td className="truncate max-w-[120px]" title={row.to}>
+                            {row.to}
+                          </td>
+                          <td className="truncate max-w-[220px]" title={row.subject}>
+                            {row.subject}
+                          </td>
+                          <td className="truncate max-w-[260px]" title={row.matchLabel}>
+                            {row.matchLabel}
+                          </td>
+                          <td>
+                            {row.pendingReview ? (
+                              <span className="status-pill status-pill--compact status-pill--pending">
+                                Needs review
+                              </span>
+                            ) : (
+                              <span className="status-pill status-pill--compact status-pill--open">
+                                Logged
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+            <aside
+              className="lg:w-[360px] shrink-0 border-t lg:border-t-0 lg:border-l overflow-y-auto p-4 space-y-3"
+              style={{ borderColor: c.border, backgroundColor: c.card }}
+            >
+              {!selectedReceived ? (
+                <p className="text-sm" style={{ color: c.secondary }}>
+                  Select a received email.
+                </p>
+              ) : (
+                <>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide" style={{ color: c.secondary }}>
+                      From
+                    </div>
+                    <div className="text-sm font-medium break-all">{selectedReceived.from}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide" style={{ color: c.secondary }}>
+                      To
+                    </div>
+                    <div className="text-sm break-all">{selectedReceived.to || '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide" style={{ color: c.secondary }}>
+                      Subject
+                    </div>
+                    <div className="text-sm font-medium break-words">
+                      {selectedReceived.subject || '(no subject)'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide" style={{ color: c.secondary }}>
+                      Match
+                    </div>
+                    <div className="text-sm font-medium break-words">
+                      {selectedReceived.matchLabel}
+                    </div>
+                    {!selectedReceived.matchConfirmed &&
+                    selectedReceived.matchLabel &&
+                    selectedReceived.matchLabel !== '—' ? (
+                      <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
+                        Guess from subject/body — not linked in system yet
+                      </div>
+                    ) : null}
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide" style={{ color: c.secondary }}>
+                      Body
+                    </div>
+                    <pre
+                      className="text-xs whitespace-pre-wrap break-words p-3 rounded border max-h-[50vh] overflow-y-auto mt-1"
+                      style={{ borderColor: c.border, backgroundColor: c.background }}
+                    >
+                      {selectedReceived.body?.trim() || '(empty body — send a new test after deploy)'}
+                    </pre>
+                  </div>
+                  {selectedReceived.pendingReview && selectedReceived.reviewId ? (
+                    <button
+                      type="button"
+                      className="client-btn client-btn--primary text-sm"
+                      onClick={() => setTab('review')}
+                    >
+                      Open in Needs review
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </aside>
+          </div>
+        </>
+      ) : null}
 
       {tab === 'sent' ? (
         <>
@@ -660,7 +849,9 @@ export default function AdminEmailInbox() {
             ) : null}
           </div>
         </>
-      ) : (
+      ) : null}
+
+      {tab === 'review' ? (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
           <section
             className={`rounded-lg border-2 border-dashed p-4 space-y-3 transition-colors ${
@@ -871,7 +1062,7 @@ export default function AdminEmailInbox() {
             </ul>
           )}
         </div>
-      )}
+      ) : null}
 
       {composeInvoiceId ? (
         <SendLifecycleEmailModal

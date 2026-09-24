@@ -52,6 +52,15 @@ export const ACTION_SETUP: Record<string, ActionSetupSpec> = {
     messagePlaceholder: 'Optional override text if you are not using a template…',
     defaultChannel: 'both',
   },
+  email_carrier_batch_processed: {
+    needsMessage: true,
+    needsChannel: false,
+    needsTemplate: true,
+    templateAudiences: ['carrier'],
+    messageLabel: 'Extra note (optional)',
+    messagePlaceholder: 'Optional note — default uses the batch processed template…',
+    defaultChannel: 'email',
+  },
   push_notify: {
     needsMessage: true,
     needsChannel: true,

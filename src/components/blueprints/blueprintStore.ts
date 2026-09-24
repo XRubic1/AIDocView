@@ -1,6 +1,8 @@
 import type { SavedBlueprint } from '../../types/blueprintGraph'
 import {
+  BATCH_PROCESSED_NOTICE_BLUEPRINT,
   LEGACY_DEMO_BLUEPRINT_IDS,
+  NEW_BROKER_ONBOARDING_BLUEPRINT,
   RISK_LADDER_DEMO_BLUEPRINT,
 } from './blueprintSeed'
 
@@ -30,7 +32,12 @@ function writeAll(list: SavedBlueprint[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
 }
 
-/** Drop old IF/Net demo; seed plain-English draft if missing. */
+/** Replace local cache from Supabase hydrate (does not auto-seed). */
+export function replaceSavedBlueprints(list: SavedBlueprint[]): void {
+  writeAll(list)
+}
+
+/** Drop old IF/Net demo; seed chase + onboarding + batch notice if missing. */
 export function ensureDemoBlueprintSeeded(): void {
   const existing = readAll()
   const withoutLegacy = existing.filter(
@@ -39,14 +46,21 @@ export function ensureDemoBlueprintSeeded(): void {
         b.id as (typeof LEGACY_DEMO_BLUEPRINT_IDS)[number]
       )
   )
-  const hasDemo = withoutLegacy.some((b) => b.id === RISK_LADDER_DEMO_BLUEPRINT.id)
+  const hasChase = withoutLegacy.some((b) => b.id === RISK_LADDER_DEMO_BLUEPRINT.id)
+  const hasNewBroker = withoutLegacy.some(
+    (b) => b.id === NEW_BROKER_ONBOARDING_BLUEPRINT.id
+  )
+  const hasBatchProcessed = withoutLegacy.some(
+    (b) => b.id === BATCH_PROCESSED_NOTICE_BLUEPRINT.id
+  )
   const removedLegacy = withoutLegacy.length !== existing.length
 
-  if (hasDemo && !removedLegacy) return
+  if (hasChase && hasNewBroker && hasBatchProcessed && !removedLegacy) return
 
-  const next = hasDemo
-    ? withoutLegacy
-    : [RISK_LADDER_DEMO_BLUEPRINT, ...withoutLegacy]
+  let next = withoutLegacy
+  if (!hasChase) next = [RISK_LADDER_DEMO_BLUEPRINT, ...next]
+  if (!hasNewBroker) next = [NEW_BROKER_ONBOARDING_BLUEPRINT, ...next]
+  if (!hasBatchProcessed) next = [BATCH_PROCESSED_NOTICE_BLUEPRINT, ...next]
   writeAll(next)
 }
 
@@ -66,11 +80,17 @@ export function saveBlueprint(blueprint: SavedBlueprint): SavedBlueprint {
   }
   const list = readAll().filter((b) => b.id !== next.id)
   writeAll([next, ...list])
+  void import('../../services/supabase/blueprintPersist').then((m) =>
+    m.persistBlueprint(next)
+  )
   return next
 }
 
 export function deleteSavedBlueprint(id: string): void {
   writeAll(readAll().filter((b) => b.id !== id))
+  void import('../../services/supabase/blueprintPersist').then((m) =>
+    m.deleteBlueprintFromDb(id)
+  )
 }
 
 export function newBlueprintId(): string {

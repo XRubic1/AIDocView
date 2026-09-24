@@ -29,6 +29,10 @@ import {
 } from '../../types/blueprintGraph'
 import { defaultTriggerFilters } from './blueprintTriggerFilters'
 import type { SavedBlueprintCard } from './blueprintCardLibrary'
+import {
+  canConnectNodes,
+  canInsertAfterTip,
+} from './blueprintConnectionRules'
 
 const nodeTypes = { blueprint: BlueprintNode }
 
@@ -85,11 +89,41 @@ function BlueprintCanvasInner({
     onGraphChangeRef.current(nodes as BlueprintFlowNode[], edges)
   }, [nodes, edges])
 
+  const isValidConnection = useCallback(
+    (connection: Connection | Edge) => {
+      const sourceId = connection.source
+      const targetId = connection.target
+      if (!sourceId || !targetId) return false
+      const source = (nodes as BlueprintFlowNode[]).find((n) => n.id === sourceId)
+      const target = (nodes as BlueprintFlowNode[]).find((n) => n.id === targetId)
+      if (!source || !target) return false
+      return canConnectNodes(
+        source,
+        target,
+        nodes as BlueprintFlowNode[],
+        edges
+      ).ok
+    },
+    [nodes, edges]
+  )
+
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
+      const source = (nodes as BlueprintFlowNode[]).find(
+        (n) => n.id === connection.source
+      )
+      const target = (nodes as BlueprintFlowNode[]).find(
+        (n) => n.id === connection.target
+      )
+      if (!source || !target) return
+      if (
+        !canConnectNodes(source, target, nodes as BlueprintFlowNode[], edges).ok
+      ) {
+        return
+      }
       setEdges((eds) => addEdge({ ...connection, animated: false }, eds))
     },
-    [setEdges]
+    [nodes, edges, setEdges]
   )
 
   const selectedNode =
@@ -108,7 +142,12 @@ function BlueprintCanvasInner({
       const canLink =
         !!fromNode &&
         fromNode.id !== node.id &&
-        fromNode.data.kind !== 'stop'
+        canInsertAfterTip(
+          fromNode,
+          node.data,
+          nodes as BlueprintFlowNode[],
+          edges
+        ).ok
 
       setNodes((nds) => [...nds, node])
       if (canLink && fromId) {
@@ -127,7 +166,7 @@ function BlueprintCanvasInner({
       chainTipIdRef.current = node.id
       setSelectedId(node.id)
     },
-    [selectedId, nodes, setNodes, setEdges]
+    [selectedId, nodes, edges, setNodes, setEdges]
   )
 
   const addNode = useCallback(
@@ -290,6 +329,7 @@ function BlueprintCanvasInner({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          isValidConnection={isValidConnection}
           nodeTypes={nodeTypes}
           onPaneContextMenu={onPaneContextMenu}
           onNodeContextMenu={onNodeContextMenu}
@@ -310,6 +350,7 @@ function BlueprintCanvasInner({
         {menu ? (
           <BlueprintContextMenu
             menu={menu}
+            tipKind={selectedNode?.data.kind ?? null}
             onAdd={addNode}
             onDuplicate={duplicateNode}
             onDelete={deleteNode}

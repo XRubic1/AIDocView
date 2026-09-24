@@ -23,9 +23,16 @@ export function resolveSubjectForNode(
 
     if (node.data.kind === 'trigger') {
       const subject = node.data.triggerSubject
-      if (subject === 'brokers' || subject === 'invoices') return subject
+      if (
+        subject === 'brokers' ||
+        subject === 'invoices' ||
+        subject === 'batches'
+      ) {
+        return subject
+      }
       const label = (node.data.label || '').toLowerCase()
       if (label.includes('invoice')) return 'invoices'
+      if (label.includes('batch')) return 'batches'
       return 'brokers'
     }
 

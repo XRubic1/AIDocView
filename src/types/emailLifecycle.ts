@@ -38,6 +38,11 @@ export interface InvoiceEmailLifecycle {
   paperwork_status: PaperworkStatus
   paperwork?: EmailTrackState
   payment?: EmailTrackState
+  /**
+   * When true, email-lifecycle payment chase is owned by a Live blueprint
+   * (Then-do payment / follow-up emails). Cron + Run chase skip payment track.
+   */
+  blueprint_owns_chase?: boolean
 }
 
 export interface EmailThread {
@@ -75,6 +80,7 @@ export interface EmailReviewItem {
   summary: string
   body_text: string
   from_address?: string
+  to_address?: string
   subject?: string
   load_number?: string
   invoice_number?: string

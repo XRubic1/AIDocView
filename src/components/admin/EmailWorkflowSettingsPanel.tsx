@@ -58,7 +58,7 @@ const RULE_GROUPS: {
 
 /** Short labels for dense rows (full detail lives in the info tip). */
 const SHORT_LABELS: Partial<Record<EmailLifecycleRule['id'], string>> = {
-  batch_processed_carrier: 'Batch processed',
+  batch_processed_carrier: 'Batch processed (skipped if Live blueprint Then-do owns it)',
   carrier_claim_or_hold_notice: 'Hold / claim notice',
   carrier_dispute_opened: 'Dispute opened',
   batch_processed_broker_ppw: 'Paperwork packet (PPW)',

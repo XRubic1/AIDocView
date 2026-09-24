@@ -698,3 +698,42 @@ export function notifyAdminBrokerRiskUrgent(
     },
   })
 }
+
+export type BlueprintAlertNotificationInput = {
+  title: string
+  message: string
+  blueprintName: string
+  brokerId?: string
+  brokerName?: string
+  batchId?: string
+  batchNumber?: string
+  clientName?: string
+}
+
+/** Ops alert from a live blueprint Then-do (e.g. new broker urgent review). */
+export function notifyAdminBlueprintAlert(
+  input: BlueprintAlertNotificationInput
+): Notification {
+  const entityId = input.batchId ?? input.brokerId ?? 'ops'
+  const id = `admin-notif-bp-${entityId}-${Date.now()}`
+  return pushNotification({
+    id,
+    type: 'system_alert',
+    title: input.title,
+    message: input.message,
+    timestamp: new Date().toISOString(),
+    read: false,
+    link: '/admin/blueprints',
+    link_label: 'Open Blueprints',
+    batch_id: input.batchId,
+    metadata: {
+      broker_id: input.brokerId,
+      broker_name: input.brokerName,
+      batch_id: input.batchId,
+      batch_number: input.batchNumber,
+      client_name: input.clientName,
+      blueprint_name: input.blueprintName,
+      source: 'blueprint',
+    },
+  })
+}

@@ -1,6 +1,6 @@
 /**
- * Admin Blueprints — graph editor + Activity; optional live runner (notes/status only).
- * Old email-lifecycle chase is unchanged.
+ * Admin Blueprints — graph editor + Activity; optional live runner (notes/status + Then-do emails).
+ * Old email-lifecycle chase cron is unchanged.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -363,13 +363,14 @@ export default function AdminBlueprints() {
                   setBlueprintsRunnerEnabled(e.target.checked)
                   setRunnerOn(e.target.checked)
                   if (e.target.checked) {
-                    const { assigned } = syncAllOpenInvoiceBlueprints('Live runner on')
-                    showToast(
-                      assigned > 0
-                        ? `Live runner on — ${assigned} open invoice(s) assigned.`
-                        : 'Live runner on — notes/status only; chase emails unchanged.',
-                      'success'
-                    )
+                    void syncAllOpenInvoiceBlueprints('Live runner on').then(({ assigned }) => {
+                      showToast(
+                        assigned > 0
+                          ? `Live runner on — ${assigned} open invoice(s) assigned.`
+                          : 'Live runner on — Then-do can send broker/carrier emails (Settings toggles still apply).',
+                        'success'
+                      )
+                    })
                   } else {
                     showToast('Live runner off — old chase only.', 'success')
                   }
@@ -421,13 +422,14 @@ export default function AdminBlueprints() {
                 setBlueprintsRunnerEnabled(e.target.checked)
                 setRunnerOn(e.target.checked)
                 if (e.target.checked) {
-                  const { assigned } = syncAllOpenInvoiceBlueprints('Live runner on')
-                  showToast(
-                    assigned > 0
-                      ? `Live runner on — ${assigned} open invoice(s) assigned.`
-                      : 'Live runner on — notes/status only; chase emails unchanged.',
-                    'success'
-                  )
+                  void syncAllOpenInvoiceBlueprints('Live runner on').then(({ assigned }) => {
+                    showToast(
+                      assigned > 0
+                        ? `Live runner on — ${assigned} open invoice(s) assigned.`
+                        : 'Live runner on — Then-do can send broker/carrier emails (Settings toggles still apply).',
+                      'success'
+                    )
+                  })
                 } else {
                   showToast('Live runner off — old chase only.', 'success')
                 }

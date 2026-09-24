@@ -543,6 +543,50 @@ export async function persistEmailMessage(message: {
   })
 }
 
+/** Persist staff review queue row (inbound classify / confirm). */
+export async function persistEmailReview(review: {
+  id: string
+  created_at: string
+  status: 'pending_review' | 'confirmed' | 'dismissed'
+  thread_id?: string | null
+  invoice_id: string | null
+  broker_id: string | null
+  client_id: string | null
+  classification: string
+  proposed_actions: string[]
+  summary: string
+  body_text?: string
+  from_address?: string
+  to_address?: string
+  subject?: string
+  load_number?: string | null
+  invoice_number?: string | null
+  confirmed_at?: string | null
+  confirmed_by?: string | null
+}): Promise<void> {
+  if (!isSupabaseConfigured()) return
+  await upsert('email_review_items', {
+    id: review.id,
+    created_at: review.created_at,
+    status: review.status,
+    thread_id: review.thread_id ?? null,
+    invoice_id: review.invoice_id,
+    broker_id: review.broker_id,
+    client_id: review.client_id,
+    classification: review.classification,
+    proposed_actions: review.proposed_actions,
+    summary: review.summary,
+    body_text: review.body_text ?? '',
+    from_address: review.from_address ?? '',
+    to_address: review.to_address ?? '',
+    subject: review.subject ?? '',
+    load_number: review.load_number ?? null,
+    invoice_number: review.invoice_number ?? null,
+    confirmed_at: review.confirmed_at ?? null,
+    confirmed_by: review.confirmed_by ?? null,
+  })
+}
+
 export async function persistAuditLog(log: AuditLog): Promise<void> {
   if (!isSupabaseConfigured()) return
   await upsert('audit_logs', auditLogToRow(log))

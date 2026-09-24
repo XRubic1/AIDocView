@@ -50,6 +50,13 @@ export function listOutboundEmailMessages(): EmailMessage[] {
     .sort((a, b) => b.sent_at.localeCompare(a.sent_at))
 }
 
+/** All inbound messages, newest first. */
+export function listInboundEmailMessages(): EmailMessage[] {
+  return messages
+    .filter((m) => m.direction === 'inbound')
+    .sort((a, b) => b.sent_at.localeCompare(a.sent_at))
+}
+
 export function getEmailThreadById(id: string): EmailThread | undefined {
   return threads.find((t) => t.id === id)
 }

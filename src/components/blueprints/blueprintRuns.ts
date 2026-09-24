@@ -10,7 +10,7 @@ export type BlueprintRunStatus =
   | 'completed'
   | 'stopped'
 
-export type BlueprintRunSubject = 'invoice' | 'broker'
+export type BlueprintRunSubject = 'invoice' | 'broker' | 'batch'
 
 export interface BlueprintRunRow {
   id: string
@@ -180,6 +180,17 @@ function writeAll(list: BlueprintRunRow[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
 }
 
+/** Replace runs from Supabase hydrate; marks seeded so demo seed does not reappear. */
+export function replaceBlueprintRunsFromHydrate(rows: BlueprintRunRow[]): void {
+  writeAll(rows)
+  localStorage.setItem(SEED_FLAG, '1')
+  try {
+    window.dispatchEvent(new CustomEvent('credyx:blueprint-runs-changed'))
+  } catch {
+    /* ignore */
+  }
+}
+
 export function ensureBlueprintRunsSeeded(): void {
   if (localStorage.getItem(SEED_FLAG) === '1' && readAll().length > 0) return
   writeAll(seedBlueprintRunsDemo())
@@ -195,6 +206,11 @@ export function resetBlueprintRunsDemo(): BlueprintRunRow[] {
   const next = seedBlueprintRunsDemo()
   writeAll(next)
   localStorage.setItem(SEED_FLAG, '1')
+  void import('../../services/supabase/blueprintPersist').then(async (m) => {
+    for (const row of next) {
+      await m.persistBlueprintRun(row)
+    }
+  })
   return next
 }
 
@@ -271,6 +287,9 @@ export function upsertBlueprintRun(row: BlueprintRunRow): BlueprintRunRow {
   } catch {
     /* ignore */
   }
+  void import('../../services/supabase/blueprintPersist').then((m) =>
+    m.persistBlueprintRun(next)
+  )
   return next
 }
 
@@ -311,6 +330,115 @@ export function startInvoiceRun(input: {
     startedAt: now,
     updatedAt: now,
   })
+}
+
+/** Enroll a broker on a blueprint run. */
+export function startBrokerRun(input: {
+  brokerId: string
+  brokerName: string
+  blueprintId: string
+  blueprintName: string
+  currentNodeId?: string
+  currentStep?: string
+  status?: BlueprintRunStatus
+  waitUntil?: string | null
+  waitDays?: number
+}): BlueprintRunRow {
+  const waitDays = input.waitDays ?? 5
+  const now = new Date().toISOString()
+  const status = input.status ?? 'active'
+  return upsertBlueprintRun({
+    id: `run-broker-${input.brokerId}`,
+    subject: 'broker',
+    subjectId: input.brokerId,
+    subjectLabel: input.brokerName,
+    clientLabel: '',
+    blueprintId: input.blueprintId,
+    blueprintName: input.blueprintName,
+    status,
+    currentStep: input.currentStep ?? 'Start with',
+    currentNodeId: input.currentNodeId,
+    waitUntil:
+      input.waitUntil !== undefined
+        ? input.waitUntil
+        : status === 'waiting'
+          ? daysFromNow(waitDays)
+          : null,
+    startedAt: now,
+    updatedAt: now,
+  })
+}
+
+export function getPrimaryRunForBroker(broker: {
+  id: string
+  name: string
+}): BlueprintRunRow | null {
+  const runs = listBlueprintRuns().filter((r) => {
+    if (r.subject !== 'broker') return false
+    if (r.subjectId && r.subjectId === broker.id) return true
+    return false
+  })
+  if (runs.length === 0) return null
+  const live = runs.find(
+    (r) =>
+      r.status === 'waiting' || r.status === 'active' || r.status === 'paused'
+  )
+  return live ?? runs[0] ?? null
+}
+
+/** Enroll a batch on a blueprint run. */
+export function startBatchRun(input: {
+  batchId: string
+  batchNumber: string
+  clientLabel: string
+  blueprintId: string
+  blueprintName: string
+  currentNodeId?: string
+  currentStep?: string
+  status?: BlueprintRunStatus
+  waitUntil?: string | null
+  waitDays?: number
+}): BlueprintRunRow {
+  const waitDays = input.waitDays ?? 1
+  const now = new Date().toISOString()
+  const status = input.status ?? 'active'
+  return upsertBlueprintRun({
+    id: `run-batch-${input.batchId}`,
+    subject: 'batch',
+    subjectId: input.batchId,
+    subjectLabel: input.batchNumber,
+    clientLabel: input.clientLabel,
+    blueprintId: input.blueprintId,
+    blueprintName: input.blueprintName,
+    status,
+    currentStep: input.currentStep ?? 'Start with',
+    currentNodeId: input.currentNodeId,
+    waitUntil:
+      input.waitUntil !== undefined
+        ? input.waitUntil
+        : status === 'waiting'
+          ? daysFromNow(waitDays)
+          : null,
+    startedAt: now,
+    updatedAt: now,
+  })
+}
+
+export function getPrimaryRunForBatch(batch: {
+  id: string
+  batch_number: string
+}): BlueprintRunRow | null {
+  const runs = listBlueprintRuns().filter((r) => {
+    if (r.subject !== 'batch') return false
+    if (r.subjectId && r.subjectId === batch.id) return true
+    return false
+  })
+  if (runs.length === 0) return null
+  const live = runs.find(
+    (r) =>
+      r.status === 'waiting' || r.status === 'active' || r.status === 'paused'
+  )
+  return live ?? runs[0] ?? null
 }
 
 /** @deprecated Use startInvoiceRun */

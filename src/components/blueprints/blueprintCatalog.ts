@@ -1,6 +1,6 @@
 /** Guided dropdown catalogs for blueprint steps (UI only — no engine). */
 
-export type BlueprintSubject = 'brokers' | 'invoices'
+export type BlueprintSubject = 'brokers' | 'invoices' | 'batches'
 
 export type BlueprintCatalogOption = {
   id: string
@@ -32,6 +32,7 @@ export const TRIGGER_SUBJECT_OPTIONS: {
 }[] = [
   { id: 'brokers', label: 'Brokers', title: 'Brokers that match' },
   { id: 'invoices', label: 'Invoices', title: 'Invoices that match' },
+  { id: 'batches', label: 'Batches', title: 'Batches that match' },
 ]
 
 /** Clock gates — one Wait until card per pause. */
@@ -116,6 +117,14 @@ export const INVOICE_WAIT_UNTIL_OPTIONS: BlueprintCatalogOption[] = [
  * Clocks live on Wait until cards.
  */
 export const BROKER_EVENT_OPTIONS: BlueprintCatalogOption[] = [
+  {
+    id: 'broker_created',
+    label: 'Broker was just created',
+    needsDays: false,
+    defaultTitle: 'New broker',
+    cardTemplate: 'This broker was just added to Credyx',
+    help: 'Fires once when someone adds a broker (catalog, Snapshot, or picker). Use for onboarding: note, urgent review, risk mark.',
+  },
   {
     id: 'broker_replied',
     label: 'Broker replied',
@@ -217,6 +226,58 @@ export const BROKER_ACTION_OPTIONS: BlueprintActionOption[] = [
   },
 ]
 
+/** Batch clocks — simple pause for now. */
+export const BATCH_WAIT_UNTIL_OPTIONS: BlueprintCatalogOption[] = [
+  {
+    id: 'pause_days',
+    label: 'Just wait X days (simple timer)',
+    needsDays: true,
+    daysHint: 'How many days to wait?',
+    defaultDays: '1',
+    defaultTitle: 'Simple wait',
+    cardTemplate: 'Wait {days} days from this step',
+    help: 'Fixed pause after Process. Use between Then-do cards if you need a delay.',
+  },
+]
+
+export const BATCH_EVENT_OPTIONS: BlueprintCatalogOption[] = [
+  {
+    id: 'batch_processed',
+    label: 'Batch was processed (submitted)',
+    needsDays: false,
+    defaultTitle: 'Batch processed',
+    cardTemplate: 'This batch was just processed / submitted',
+    help: 'Fires when admin hits Process and the batch moves to submitted. Carrier “batch processed” email can run from Then-do (skips Settings send when Live runner owns it).',
+  },
+]
+
+export const BATCH_ACTION_OPTIONS: BlueprintActionOption[] = [
+  {
+    id: 'email_carrier_batch_processed',
+    label: 'Email: batch processed (carrier)',
+    defaultTitle: 'Email carrier',
+    cardLine: 'Email the carrier that this batch was processed',
+  },
+  {
+    id: 'add_note',
+    label: 'Add a staff note (admin alert)',
+    defaultTitle: 'Add note',
+    cardLine: 'Log a note for Credyx ops on this batch',
+  },
+  {
+    id: 'urgent_review',
+    label: 'Flag for urgent review',
+    defaultTitle: 'Urgent review',
+    cardLine: 'Needs urgent Credyx review',
+  },
+  {
+    id: 'push_notify',
+    label: 'Send a push notification',
+    defaultTitle: 'Notify team',
+    cardLine: 'Send a push notification to the team',
+  },
+]
+
 export const INVOICE_ACTION_OPTIONS: BlueprintActionOption[] = [
   {
     id: 'email_payment_status',
@@ -267,18 +328,21 @@ export function waitUntilForSubject(
 ): BlueprintCatalogOption[] {
   if (subject === 'brokers') return BROKER_WAIT_UNTIL_OPTIONS
   if (subject === 'invoices') return INVOICE_WAIT_UNTIL_OPTIONS
+  if (subject === 'batches') return BATCH_WAIT_UNTIL_OPTIONS
   return []
 }
 
 export function eventsForSubject(subject: BlueprintSubject | null): BlueprintCatalogOption[] {
   if (subject === 'brokers') return BROKER_EVENT_OPTIONS
   if (subject === 'invoices') return INVOICE_EVENT_OPTIONS
+  if (subject === 'batches') return BATCH_EVENT_OPTIONS
   return []
 }
 
 export function actionsForSubject(subject: BlueprintSubject | null): BlueprintActionOption[] {
   if (subject === 'brokers') return BROKER_ACTION_OPTIONS
   if (subject === 'invoices') return INVOICE_ACTION_OPTIONS
+  if (subject === 'batches') return BATCH_ACTION_OPTIONS
   return []
 }
 
@@ -311,6 +375,7 @@ export function lookupWaitUntilById(id: string | undefined) {
   return (
     BROKER_WAIT_UNTIL_OPTIONS.find((c) => c.id === id) ??
     INVOICE_WAIT_UNTIL_OPTIONS.find((c) => c.id === id) ??
+    BATCH_WAIT_UNTIL_OPTIONS.find((c) => c.id === id) ??
     null
   )
 }
@@ -320,6 +385,7 @@ export function lookupEventById(id: string | undefined) {
   return (
     BROKER_EVENT_OPTIONS.find((c) => c.id === id) ??
     INVOICE_EVENT_OPTIONS.find((c) => c.id === id) ??
+    BATCH_EVENT_OPTIONS.find((c) => c.id === id) ??
     null
   )
 }
@@ -329,6 +395,7 @@ export function lookupActionById(id: string | undefined) {
   return (
     BROKER_ACTION_OPTIONS.find((a) => a.id === id) ??
     INVOICE_ACTION_OPTIONS.find((a) => a.id === id) ??
+    BATCH_ACTION_OPTIONS.find((a) => a.id === id) ??
     null
   )
 }

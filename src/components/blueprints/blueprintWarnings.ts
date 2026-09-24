@@ -4,6 +4,7 @@ import type { Edge } from '@xyflow/react'
 import type { BlueprintFlowNode } from '../../types/blueprintGraph'
 import { getActionIds } from './blueprintSubject'
 import { defaultTaskConfig, isTaskReady } from './blueprintActionSetup'
+import { canConnectNodes } from './blueprintConnectionRules'
 
 export function collectBlueprintWarnings(
   nodes: BlueprintFlowNode[],
@@ -40,7 +41,7 @@ export function collectBlueprintWarnings(
   }
 
   const start = nodes.find((n) => n.data.kind === 'trigger')
-  if (start && start.data.triggerSubject !== 'brokers') {
+  if (start && start.data.triggerSubject === 'invoices') {
     const statuses = start.data.triggerFilters?.invoices?.statuses ?? []
     const broadStart =
       statuses.length > 1 || (statuses.length === 1 && statuses[0] !== 'hold')
@@ -58,6 +59,24 @@ export function collectBlueprintWarnings(
         'Only invoices that go on hold will continue past Start. Pending / approved invoices match the gate but wait at When until they are on hold.'
       )
     }
+  }
+
+  let badLinks = 0
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  for (const e of edges) {
+    const source = byId.get(e.source)
+    const target = byId.get(e.target)
+    if (!source || !target) continue
+    if (!canConnectNodes(source, target, nodes, edges).ok) badLinks += 1
+  }
+  if (badLinks === 1) {
+    warnings.push(
+      'One connection is not allowed (wrong card types or subject mismatch). Remove or redraw that link.'
+    )
+  } else if (badLinks > 1) {
+    warnings.push(
+      `${badLinks} connections are not allowed (wrong card types or subject mismatch). Remove or redraw those links.`
+    )
   }
 
   return warnings

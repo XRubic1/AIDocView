@@ -37,6 +37,22 @@ An invoice does **not** store the full canvas. It stores (or will store) a **poi
 
 Connect cards left → right. One clear path (or When branches) is enough.
 
+### Connection rules
+
+The editor only allows links that make sense for the runner:
+
+| From | May connect to |
+| --- | --- |
+| **Start with** | Wait until, When, Then do, Done |
+| **Wait until** | Wait until, When, Then do, Done |
+| **When** | Wait until, When, Then do, Done, True, False |
+| **Then do** | Wait until, When, Then do, Done |
+| **Done** | *(nothing)* |
+
+Also: cards on a **Brokers** Start cannot link to invoice-only Wait / When / Then options (and the reverse). Same for **Batches**. Shared options (e.g. simple pause) are fine either way.
+
+Right-click **Add a step** grays out kinds the **selected** card cannot accept. Deselect (click empty canvas) to place a free-standing card.
+
 ### Invoice progress (product) vs chase steps
 
 Credyx invoice lifecycle is **not** “Delivered → Verified → Submitted → Paid.”  
@@ -106,10 +122,15 @@ When **Live runner** is enabled:
 1. **All open invoices** are assigned to the best-matching blueprint on admin hydrate and when you turn Live runner on.
 2. **Status changes** (and realtime merges) re-sync assignment and wake any parked **When**.
 3. Event hooks still apply: hold / hold cleared / PPW / purchase.
-4. Unmatched **When** cards always **park** until the condition is true (every blueprint — not hold-only).
-5. Enrollment always starts at **Start** and advances into Wait / When / Then-do (never jumps over a When to a Wait).
+4. **`broker.created`** — adding a broker enrolls matching **broker** blueprints (e.g. New broker onboarding → urgent review + note).
+5. **Broker Then-do risk marks** — `mark_good` / `mark_review` / `mark_bad` clear, flag, or publish real risk profiles (+ Risk Audit).
+6. **`payment.posted`** — confirmed payments wake parked Payment Whens / enroll payment blueprints.
+7. Unmatched **When** cards always **park** until the condition is true (every blueprint — not hold-only).
+8. Enrollment always starts at **Start** and advances into Wait / When / Then-do (never jumps over a When to a Wait).
 
-Then-do still writes **notes/status only**; broker chase emails stay on the old path.
+Then-do still writes **notes/status** (invoices) or **broker notes + risk decisions + admin alerts** (brokers); chase emails stay on the old path.
+
+Domain events go through `emitCredyxEvent` (`src/services/credyxEvents.ts`).
 
 ### Example handoff
 
@@ -125,12 +146,25 @@ Then-do still writes **notes/status only**; broker chase emails stay on the old 
 
 ### Wait
 
-When a run hits **Wait until**:
+When a run hits **Wait until**, the runner resolves an **absolute wake time** from the card’s catalog option (`waitUntilId`) and day count `D` — not always “today + D.”
 
-1. Runner stores **wake at** (e.g. today + 5 days).  
+| Catalog id | Subject | Wake formula |
+| --- | --- | --- |
+| `pause_days` | Invoice / Broker / Batch | Now + `D` @ 09:00 local (step pause) |
+| `net_plus_late` | Invoice | `invoice_date` + broker Net terms + `D` |
+| `due_plus_late` | Invoice | Effective due date + `D` |
+| `after_last_email` | Invoice | Last chase email + `D`; if no chase yet → same as `pause_days` from this step |
+| `no_payments_for` | Broker | Last confirmed payment + `D` (or broker created / step pause if never paid) |
+| `avg_pay_late` | Broker | **Gate**, not a calendar clock: if avg days late ≥ `D` → wake now; else soft-poll tomorrow @ 09:00 |
+
+Then:
+
+1. Runner stores **wake at** (`waitUntil` ISO) and a short detail line in the run log.  
 2. Status = **Waiting**.  
-3. Cron / scheduler wakes runs whose time has passed.  
+3. Cron / scheduler (`blueprint-wake-cron`) or **Run blueprints** wakes runs whose time has passed (or the gate re-checks on soft poll).  
 4. Run advances to the next card.
+
+If the computed wake is already past, `waitUntil` is clamped to now so the next advance can continue.
 
 The Wait itself does **not** re-check “still on hold.” That check belongs on a **When** (or Start gate) after the Wait.
 
@@ -215,22 +249,32 @@ Same shape; different Start event and Then-do target (carrier vs broker).
 
 | Built | Not built yet |
 | --- | --- |
-| Graph editor, filters, Wait / When / Then do | Supabase tables for blueprints & runs |
-| Dry-run log | Then-do broker/carrier **emails** (still old chase) |
-| Activity list + enrollments (localStorage) | Server cron for Wait clocks |
-| Per-invoice Blueprints tab (assign + preview) | Disabling email-lifecycle when a blueprint is assigned |
-| **Live runner (flag off by default)** — notes & status only | Auto-match on *every* UI action (expand events over time) |
+| Graph editor, filters, Wait / When / Then do | Expanding more domain events over time |
+| Dry-run log | Live broker replied / no reply When (inbound capture ships first) |
+| Activity list + enrollments (**Supabase** + local write-through cache) | |
+| Per-invoice Blueprints tab (assign + preview) | |
+| **Live runner (flag off by default)** — notes/status + Then-do emails | |
 | Hold / release / PPW / purchase hooks | |
 | **Phase 2 auto-match** — event picks best blueprint + assigns | |
-| **Run blueprints** (Inbox + Activity) — separate from **Run chase** | |
+| **`broker.created` + broker runner** — new broker onboarding | |
+| **`batch.processed` + batch runner** — admin alerts + carrier Process email Then-do | |
+| **Run blueprints** (Inbox + Activity) — uses server wake when Supabase is configured | |
+| **Skip old payment chase** when Live + assigned blueprint has payment/follow-up Then-do | |
+| **Supabase tables** — `blueprints`, `blueprint_runs`, subject assignments (admin RLS) | |
+| **Server Wake cron** — `blueprint-wake-cron` advances due Waits (schedule + manual Run blueprints) | |
+| **Inbound email** — Resend Receiving → `email-inbound` → Inbox Received / Needs review | |
 
 ### Phase 1–2 live runner
 
 - Toggle **Live runner** on Admin → Blueprints (default **off**).
-- Then-do → `addAdminInvoiceNote` / `postInvoiceStatusNote` + `(Blueprint: …)`. Chase emails stay on **Run chase**.
+- Then-do → notes/status **and** broker payment / carrier notify emails when Live runner is on (Settings lifecycle toggles still apply).
+- **Double-chase guard:** if Live runner is on and the invoice’s assigned blueprint includes Then-do `email_payment_status` or `email_followup`, **Run chase** / email-lifecycle cron **skip the payment track** for that invoice (paperwork track still runs). Hold/note-only blueprints do not skip. Assign stamps `email_lifecycle.blueprint_owns_chase` for the server cron.
 - **Phase 2:** place on hold / send PPW / invoice purchased / hold cleared → find matching Start (or keep staff assignment if it still matches) → assign + enroll. **Priority** (editor toolbar) decides the winner when several match — higher number wins.
 - Prefer more specific matches (e.g. hold-only / When · On hold over a broad chase).
-- Storage remains **browser localStorage** until Supabase tables land.
+- **Batches:** Process (`verification` → `submitted`) emits `batch.processed` → **Batch processed notice** seed (carrier email Then-do + admin alerts). When Live runner is on and that graph includes `email_carrier_batch_processed`, Settings · Email sends (`batch_processed_carrier`) is skipped so Process does not double-email. Live off → Settings send as before.
+- **Storage:** graphs, runs, and assignments upsert to Supabase on write; admin session hydrate loads them into the local cache. Empty `blueprints` table seeds demo graphs once.
+- **Wait wake:** schedule Edge Function `blueprint-wake-cron` (every 15–60 min, `OPS_CRON_SECRET`) so due Waits advance without a tab open. Inbox / Activity **Run blueprints** calls the same function when Supabase is configured (admin JWT); otherwise ticks locally (invoice + broker + batch).
+- **Inbound broker mail:** Test with `system@credyx.net` (Cloudflare Email Routing → Resend Receiving → `email-inbound`) so `billing@` Gmail stays untouched. Later same pattern for `billing@`. Admin Inbox **Received** lists inbound mail; **Needs review** confirms/classifies. Blueprint When · broker replied still next.
 
 ---
 

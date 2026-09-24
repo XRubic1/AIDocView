@@ -60,8 +60,8 @@ import {
 function scheduleBlueprintAssignAll(reason: string): void {
   queueMicrotask(() => {
     try {
-      void import('../../components/blueprints/blueprintRunner').then((mod) => {
-        const result = mod.syncAllOpenInvoiceBlueprints(reason)
+      void import('../../components/blueprints/blueprintRunner').then(async (mod) => {
+        const result = await mod.syncAllOpenInvoiceBlueprints(reason)
         if (result.assigned > 0) {
           console.info(
             `[blueprints] ${reason}: ${result.assigned} open invoice(s) assigned/synced`
@@ -153,7 +153,6 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
     if (invoicesRes.error) errors.push(`invoices: ${invoicesRes.error.message}`)
     else if (invoicesRes.data) {
       hydrateInvoices((invoicesRes.data as InvoiceRow[]).map(invoiceRowToInvoice))
-      scheduleBlueprintAssignAll('hydrate admin')
     }
 
     if (batchesRes.error) errors.push(`batches: ${batchesRes.error.message}`)
@@ -210,6 +209,16 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
       await hydrateBrokerRiskFromSupabase()
     } catch (err) {
       errors.push(`broker_risk: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      const { hydrateBlueprintsFromSupabase } = await import('./blueprintPersist')
+      await hydrateBlueprintsFromSupabase()
+      scheduleBlueprintAssignAll('hydrate admin')
+    } catch (err) {
+      errors.push(`blueprints: ${err instanceof Error ? err.message : String(err)}`)
+      // Still try assign-all from any local cache
+      scheduleBlueprintAssignAll('hydrate admin (blueprints partial)')
     }
 
     try {

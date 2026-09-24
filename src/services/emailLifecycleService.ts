@@ -28,6 +28,7 @@ import type {
   ProposedAction,
 } from '../types/emailLifecycle'
 import { classifyInboundBrokerReply } from '../utils/classifyInboundBrokerReply'
+import { shouldSkipEmailLifecyclePaymentChase } from '../components/blueprints/blueprintChaseSkip'
 import { brokerEmailAccept, daysBetween, resolveTrackClock } from '../utils/emailLifecycleClocks'
 import {
   isEmailLifecycleRuleEnabled,
@@ -118,12 +119,16 @@ export function recordOutboundMessage(opts: {
 function createReview(partial: Omit<EmailReviewItem, 'id' | 'created_at' | 'status'> & {
   status?: EmailReviewItem['status']
 }): EmailReviewItem {
-  return upsertEmailReview({
+  const row = upsertEmailReview({
     id: newId('review'),
     created_at: new Date().toISOString(),
     status: partial.status ?? 'pending_review',
     ...partial,
   })
+  void import('./supabase/tenantPersist')
+    .then(({ persistEmailReview }) => persistEmailReview(row))
+    .catch((err) => console.warn('[emailLifecycle] persist review failed', err))
+  return row
 }
 
 /** Staff paste or inbound webhook body → pending review. */
@@ -132,21 +137,52 @@ export function ingestBrokerReply(opts: {
   fromAddress: string
   subject: string
   bodyText: string
+  toAddress?: string
 }): EmailReviewItem {
-  const invoice = opts.invoiceId ? getInvoiceById(opts.invoiceId) : matchInvoiceFromText(opts.subject, opts.bodyText)
-  const classified = classifyInboundBrokerReply({ subject: opts.subject, bodyText: opts.bodyText })
+  const invoice = opts.invoiceId
+    ? getInvoiceById(opts.invoiceId)
+    : matchInvoiceFromText(opts.subject, opts.bodyText)
+  const classified = classifyInboundBrokerReply({
+    subject: opts.subject,
+    bodyText: opts.bodyText,
+  })
+  const toAddress = opts.toAddress?.trim() || 'billing@credyx.net'
   if (invoice) {
     const thread = getOrCreateThread(invoice)
-    addEmailMessage({
+    const message = addEmailMessage({
       id: newId('msg'),
       thread_id: thread.id,
       direction: 'inbound',
       from_address: opts.fromAddress,
-      to_address: 'collections@credyx.net',
+      to_address: toAddress,
       subject: opts.subject,
       body_text: opts.bodyText,
       sent_at: new Date().toISOString(),
     })
+    upsertEmailThread({ ...thread, updated_at: message.sent_at })
+    void import('./supabase/tenantPersist')
+      .then(async ({ persistEmailThread, persistEmailMessage }) => {
+        await persistEmailThread({ ...thread, updated_at: message.sent_at })
+        await persistEmailMessage(message)
+      })
+      .catch((err) => console.warn('[emailLifecycle] persist inbound failed', err))
+
+    // Soft stamp lastInboundAt for open tracks (same as edge webhook)
+    const life = ensureLifecycle(invoice)
+    const now = new Date().toISOString()
+    const next = { ...life }
+    let touched = false
+    if (life.paperwork?.firstAskedAt || life.paperwork?.startedAt) {
+      next.paperwork = { ...(life.paperwork ?? {}), lastInboundAt: now }
+      touched = true
+    }
+    if (life.payment?.firstAskedAt || life.payment?.startedAt) {
+      next.payment = { ...(life.payment ?? {}), lastInboundAt: now }
+      touched = true
+    }
+    if (touched) {
+      void persistInvoiceLifecycle(invoice.id, next)
+    }
   }
   return createReview({
     thread_id: invoice ? findThreadForInvoice(invoice.id)?.id : null,
@@ -256,6 +292,19 @@ export async function confirmEmailReview(
     confirmed_at: now,
     confirmed_by: actor,
   })
+  void import('./supabase/tenantPersist')
+    .then(({ persistEmailReview }) =>
+      persistEmailReview({
+        ...review,
+        invoice_id: invoiceId,
+        classification,
+        proposed_actions: actions,
+        status: 'confirmed',
+        confirmed_at: now,
+        confirmed_by: actor,
+      })
+    )
+    .catch((err) => console.warn('[emailLifecycle] persist confirm failed', err))
 
   return { ok: true }
 }
@@ -580,6 +629,14 @@ export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
     const life = ensureLifecycle(latest)
     if (life.paperwork_status !== 'good') continue
 
+    // Blueprint Then-do owns payment / follow-up emails — skip old payment track
+    if (
+      life.blueprint_owns_chase === true ||
+      shouldSkipEmailLifecyclePaymentChase(latest.id)
+    ) {
+      continue
+    }
+
     const dueYmd = getEffectiveInvoiceDueDate(latest)
     if (dueYmd) {
       const daysPastDue = daysFromYmd(dueYmd, new Date(nowMs))
@@ -673,12 +730,16 @@ export async function reclassifyEmailReview(reviewId: string): Promise<EmailRevi
     subject: review.subject ?? '',
     bodyText: review.body_text || review.summary,
   })
-  return upsertEmailReview({
+  const next = upsertEmailReview({
     ...review,
     classification: result.classification,
     proposed_actions: result.proposed_actions,
     summary: result.summary,
   })
+  void import('./supabase/tenantPersist')
+    .then(({ persistEmailReview }) => persistEmailReview(next))
+    .catch((err) => console.warn('[emailLifecycle] persist reclassify failed', err))
+  return next
 }
 
 export { listEmailReviews, listEmailMessagesForInvoice, getEmailReviewById }

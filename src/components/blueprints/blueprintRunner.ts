@@ -6,6 +6,7 @@
 import type { Edge } from '@xyflow/react'
 import { isBlueprintsRunnerEnabled } from '../../config/blueprintsRuntime'
 import { getInvoiceById, mockInvoices } from '../../data/mockInvoices'
+import { getConfirmedPaymentTotal } from '../../data/mockPayments'
 import type { Invoice } from '../../types/invoice'
 import type { BlueprintFlowNode, BlueprintNodeData } from '../../types/blueprintGraph'
 import { findBestMatchingBlueprint, scoreBlueprintForEvent, type BlueprintMatchEvent } from './blueprintAutoMatch'
@@ -33,6 +34,7 @@ import {
   type BlueprintTriggerFilters,
 } from './blueprintTriggerFilters'
 import { executeBlueprintThenDo } from './blueprintRunnerActions'
+import { resolveBlueprintWaitUntil } from './blueprintWaitUntil'
 import { notifyTenantDataUpdated } from '../../services/supabase/tenantDataLiveSync'
 import { whenNodePasses } from './blueprintWhenMatch'
 
@@ -56,18 +58,6 @@ function isBranchFalse(data: BlueprintNodeData): boolean {
 
 function isBranch(data: BlueprintNodeData): boolean {
   return isBranchTrue(data) || isBranchFalse(data)
-}
-
-function daysFromNow(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  d.setHours(9, 0, 0, 0)
-  return d.toISOString()
-}
-
-function parseWaitDays(node: BlueprintFlowNode): number {
-  const n = Number(node.data.days)
-  return Number.isFinite(n) && n >= 0 ? n : 3
 }
 
 function waitStepLine(node: BlueprintFlowNode): string {
@@ -100,6 +90,11 @@ function evaluateWhenRaw(checkId: string | undefined, invoice: Invoice): boolean
   switch (checkId) {
     case 'on_hold':
       return invoice.status === 'hold'
+    case 'payment_posted':
+      return (
+        invoice.status === 'paid' ||
+        getConfirmedPaymentTotal(invoice.id) > 0
+      )
     case 'broker_replied':
     case 'no_reply':
       // Phase 1: no live reply signal — treat as false so path doesn't invent mail.
@@ -250,10 +245,10 @@ function ensureEnrollment(
 /**
  * Advance one enrollment until Wait / blocked When / Done / max steps.
  */
-export function advanceInvoiceRun(
+export async function advanceInvoiceRun(
   invoiceId: string,
   options?: { forceWake?: boolean; authorName?: string }
-): BlueprintRunnerLog {
+): Promise<BlueprintRunnerLog> {
   if (!isBlueprintsRunnerEnabled()) {
     return { invoiceId, ok: false, detail: 'Blueprint runner is off.' }
   }
@@ -319,17 +314,20 @@ export function advanceInvoiceRun(
     guard += 1
 
     if (current.data.kind === 'wait') {
-      const days = parseWaitDays(current)
+      const resolved = resolveBlueprintWaitUntil(
+        { kind: 'invoice', invoice },
+        current
+      )
       run = upsertBlueprintRun({
         ...run,
         status: 'waiting',
         currentNodeId: current.id,
         currentStep: waitStepLine(current),
-        waitUntil: daysFromNow(days),
+        waitUntil: resolved.waitUntil,
         blueprintId: assignment.blueprintId,
         blueprintName: assignment.blueprintName,
       })
-      details.push(`Waiting: ${waitStepLine(current)}`)
+      details.push(`Waiting: ${resolved.detail}`)
       break
     }
 
@@ -376,7 +374,7 @@ export function advanceInvoiceRun(
         waitUntil: null,
       })
       for (const actionId of ids) {
-        const result = executeBlueprintThenDo({
+        const result = await executeBlueprintThenDo({
           invoiceId,
           actionId,
           blueprintName: assignment.blueprintName,
@@ -513,10 +511,10 @@ function resolveBlueprintForEvent(
   }
 }
 
-export function enrollInvoiceIfNeeded(
+export async function enrollInvoiceIfNeeded(
   invoice: Invoice,
   reason: string
-): BlueprintRunnerLog {
+): Promise<BlueprintRunnerLog> {
   if (!isBlueprintsRunnerEnabled()) {
     return { invoiceId: invoice.id, ok: false, detail: 'Blueprint runner is off.' }
   }
@@ -539,11 +537,11 @@ export function enrollInvoiceIfNeeded(
 }
 
 /** Assign (if needed) + enroll for a live event. */
-export function enrollForEvent(
+export async function enrollForEvent(
   invoice: Invoice,
   event: BlueprintMatchEvent,
   reason: string
-): BlueprintRunnerLog {
+): Promise<BlueprintRunnerLog> {
   if (!isBlueprintsRunnerEnabled()) {
     return { invoiceId: invoice.id, ok: false, detail: 'Blueprint runner is off.' }
   }
@@ -555,7 +553,7 @@ export function enrollForEvent(
       detail: `No blueprint matches event “${event}”.`,
     }
   }
-  const log = enrollInvoiceIfNeeded(invoice, reason)
+  const log = await enrollInvoiceIfNeeded(invoice, reason)
   if (!log.ok) return log
   return {
     ...log,
@@ -570,7 +568,9 @@ export function onInvoiceHeld(invoiceId: string): void {
       if (!isBlueprintsRunnerEnabled()) return
       const invoice = getInvoiceById(invoiceId)
       if (!invoice) return
-      enrollForEvent(invoice, 'hold', 'invoice held')
+      void enrollForEvent(invoice, 'hold', 'invoice held').catch((err) =>
+        console.warn('[blueprints] onInvoiceHeld enroll', err)
+      )
     })
   } catch (err) {
     console.warn('[blueprints] onInvoiceHeld', err)
@@ -593,7 +593,7 @@ function isParkedAtWhen(invoiceId: string): boolean {
  * If parked on a When that now matches, advance (Then-do / Wait / Done).
  * Works for every blueprint — not hold-specific.
  */
-export function tryAdvanceParkedWhen(invoiceId: string): boolean {
+export async function tryAdvanceParkedWhen(invoiceId: string): Promise<boolean> {
   if (!isBlueprintsRunnerEnabled()) return false
   const invoice = getInvoiceById(invoiceId)
   if (!invoice) return false
@@ -607,7 +607,7 @@ export function tryAdvanceParkedWhen(invoiceId: string): boolean {
   const node = loaded.bp.nodes.find((n) => n.id === run.currentNodeId)
   if (!node || !isWhen(node.data)) return false
   if (!evaluateWhenNode(node.data, invoice)) return false
-  advanceInvoiceRun(invoiceId, { forceWake: true })
+  await advanceInvoiceRun(invoiceId, { forceWake: true })
   return true
 }
 
@@ -616,22 +616,24 @@ export function onInvoiceHoldCleared(invoiceId: string): void {
   try {
     runBlueprintLifecycleHook(() => {
       if (!isBlueprintsRunnerEnabled()) return
-      const invoice = getInvoiceById(invoiceId)
-      if (!invoice) return
+      void (async () => {
+        const invoice = getInvoiceById(invoiceId)
+        if (!invoice) return
 
-      if (tryAdvanceParkedWhen(invoiceId)) return
+        if (await tryAdvanceParkedWhen(invoiceId)) return
 
-      const run = getPrimaryRunForInvoice(invoice)
-      if (
-        run &&
-        (run.status === 'waiting' || run.status === 'active' || run.status === 'paused')
-      ) {
-        // Still parked on a When that does not match yet — leave it
-        if (isParkedAtWhen(invoiceId)) return
-        stopInvoiceRun(invoiceId, 'hold cleared')
-      }
+        const run = getPrimaryRunForInvoice(invoice)
+        if (
+          run &&
+          (run.status === 'waiting' || run.status === 'active' || run.status === 'paused')
+        ) {
+          // Still parked on a When that does not match yet — leave it
+          if (isParkedAtWhen(invoiceId)) return
+          stopInvoiceRun(invoiceId, 'hold cleared')
+        }
 
-      enrollForEvent(invoice, 'hold_cleared', 'hold cleared')
+        await enrollForEvent(invoice, 'hold_cleared', 'hold cleared')
+      })().catch((err) => console.warn('[blueprints] onInvoiceHoldCleared', err))
     })
   } catch (err) {
     console.warn('[blueprints] onInvoiceHoldCleared', err)
@@ -643,28 +645,28 @@ export function onInvoicePpwSent(invoiceId: string): void {
   try {
     runBlueprintLifecycleHook(() => {
       if (!isBlueprintsRunnerEnabled()) return
-      const invoice = getInvoiceById(invoiceId)
-      if (!invoice) return
+      void (async () => {
+        const invoice = getInvoiceById(invoiceId)
+        if (!invoice) return
 
-      if (tryAdvanceParkedWhen(invoiceId)) {
-        /* may complete hold-clear path; still enroll PPW below if needed */
-      }
+        await tryAdvanceParkedWhen(invoiceId)
 
-      const existing = getPrimaryRunForInvoice(invoice)
-      if (existing && (existing.status === 'waiting' || existing.status === 'active')) {
-        const loaded = loadAssignedGraph(invoiceId)
-        const start = loaded ? getStartNode(loaded.bp.nodes) : null
-        const filters = start
-          ? normalizeTriggerFilters(start.data.triggerFilters)
-          : null
-        if (filters && assignedBlueprintMatchesHold(filters)) {
-          stopInvoiceRun(invoiceId, 'PPW sent — hold track ended')
-        } else if (existing && !isParkedAtWhen(invoiceId)) {
-          stopInvoiceRun(invoiceId, 'restarting for PPW')
+        const existing = getPrimaryRunForInvoice(invoice)
+        if (existing && (existing.status === 'waiting' || existing.status === 'active')) {
+          const loaded = loadAssignedGraph(invoiceId)
+          const start = loaded ? getStartNode(loaded.bp.nodes) : null
+          const filters = start
+            ? normalizeTriggerFilters(start.data.triggerFilters)
+            : null
+          if (filters && assignedBlueprintMatchesHold(filters)) {
+            stopInvoiceRun(invoiceId, 'PPW sent — hold track ended')
+          } else if (existing && !isParkedAtWhen(invoiceId)) {
+            stopInvoiceRun(invoiceId, 'restarting for PPW')
+          }
         }
-      }
 
-      enrollForEvent(invoice, 'ppw', 'PPW sent')
+        await enrollForEvent(invoice, 'ppw', 'PPW sent')
+      })().catch((err) => console.warn('[blueprints] onInvoicePpwSent', err))
     })
   } catch (err) {
     console.warn('[blueprints] onInvoicePpwSent', err)
@@ -678,10 +680,41 @@ export function onInvoicePurchased(invoiceId: string): void {
       if (!isBlueprintsRunnerEnabled()) return
       const invoice = getInvoiceById(invoiceId)
       if (!invoice) return
-      enrollForEvent(invoice, 'purchased', 'invoice purchased')
+      void enrollForEvent(invoice, 'purchased', 'invoice purchased').catch((err) =>
+        console.warn('[blueprints] onInvoicePurchased enroll', err)
+      )
     })
   } catch (err) {
     console.warn('[blueprints] onInvoicePurchased', err)
+  }
+}
+
+/** Confirmed payment posted — wake parked Payment When; enroll payment blueprints. */
+const handledPaymentPosts = new Set<string>()
+
+export function onPaymentPosted(invoiceId: string): void {
+  try {
+    runBlueprintLifecycleHook(() => {
+      if (!isBlueprintsRunnerEnabled()) return
+      void (async () => {
+        const invoice = getInvoiceById(invoiceId)
+        if (!invoice) return
+
+        if (await tryAdvanceParkedWhen(invoiceId)) {
+          handledPaymentPosts.add(invoiceId)
+          return
+        }
+
+        // Dedupe burst from emit + microtask
+        const key = `${invoiceId}:${getConfirmedPaymentTotal(invoiceId)}`
+        if (handledPaymentPosts.has(key)) return
+        handledPaymentPosts.add(key)
+
+        await enrollForEvent(invoice, 'payment_posted', 'payment posted')
+      })().catch((err) => console.warn('[blueprints] onPaymentPosted', err))
+    })
+  } catch (err) {
+    console.warn('[blueprints] onPaymentPosted', err)
   }
 }
 
@@ -697,10 +730,10 @@ const TERMINAL_FOR_SYNC = new Set([
  * Realtime assign + enroll for one invoice (current status).
  * Also wakes a parked When when it now matches.
  */
-export function syncInvoiceBlueprints(
+export async function syncInvoiceBlueprints(
   invoiceId: string,
   reason = 'realtime sync'
-): BlueprintRunnerLog {
+): Promise<BlueprintRunnerLog> {
   if (!isBlueprintsRunnerEnabled()) {
     return { invoiceId, ok: false, detail: 'Blueprint runner is off.' }
   }
@@ -717,7 +750,7 @@ export function syncInvoiceBlueprints(
     return { invoiceId, ok: true, detail: 'Terminal status — no open blueprint.' }
   }
 
-  if (tryAdvanceParkedWhen(invoiceId)) {
+  if (await tryAdvanceParkedWhen(invoiceId)) {
     return { invoiceId, ok: true, detail: `Advanced parked When (${reason}).` }
   }
 
@@ -753,10 +786,10 @@ export function syncInvoiceBlueprints(
 }
 
 /** Assign every open invoice to its best-matching blueprint (hydrate / Live runner on). */
-export function syncAllOpenInvoiceBlueprints(reason = 'assign all open'): {
+export async function syncAllOpenInvoiceBlueprints(reason = 'assign all open'): Promise<{
   assigned: number
   logs: BlueprintRunnerLog[]
-} {
+}> {
   if (!isBlueprintsRunnerEnabled()) {
     return { assigned: 0, logs: [] }
   }
@@ -764,35 +797,85 @@ export function syncAllOpenInvoiceBlueprints(reason = 'assign all open'): {
   let assigned = 0
   for (const inv of mockInvoices) {
     if (TERMINAL_FOR_SYNC.has(inv.status)) continue
-    const log = syncInvoiceBlueprints(inv.id, reason)
+    const log = await syncInvoiceBlueprints(inv.id, reason)
     logs.push(log)
     if (getInvoiceBlueprintAssignment(inv.id)) assigned += 1
   }
   return { assigned, logs }
 }
 
-/** Wake all due Wait clocks. */
-export function tickBlueprintRuns(authorName?: string): {
+/** Wake all due Wait clocks (server cron when configured, else local). */
+export async function tickBlueprintRuns(authorName?: string): Promise<{
   advanced: number
   logs: BlueprintRunnerLog[]
-} {
+}> {
   if (!isBlueprintsRunnerEnabled()) {
     return { advanced: 0, logs: [] }
   }
+
+  try {
+    const { invokeBlueprintWakeCron } = await import('../../services/blueprintWakeCron')
+    const server = await invokeBlueprintWakeCron(40)
+    if (server) {
+      return {
+        advanced: server.advanced,
+        logs: (server.details ?? []).map((detail) => ({
+          invoiceId: '',
+          ok: true,
+          detail,
+        })),
+      }
+    }
+  } catch (err) {
+    console.warn('[tickBlueprintRuns] server wake unavailable', err)
+  }
+
   const now = Date.now()
   const logs: BlueprintRunnerLog[] = []
   let advanced = 0
+
+  const { advanceBrokerRun } = await import('./blueprintBrokerRunner')
+  const { advanceBatchRun } = await import('./blueprintBatchRunner')
+
   for (const run of listBlueprintRuns()) {
-    if (run.subject !== 'invoice' || !run.subjectId) continue
+    if (!run.subjectId) continue
     if (run.status !== 'waiting') continue
     // Parked Whens have null waitUntil — only clock Waits tick here
     if (!run.waitUntil || new Date(run.waitUntil).getTime() > now) continue
-    const log = advanceInvoiceRun(run.subjectId, {
-      forceWake: true,
-      authorName,
-    })
-    logs.push(log)
-    if (log.ok) advanced += 1
+
+    if (run.subject === 'invoice') {
+      const log = await advanceInvoiceRun(run.subjectId, {
+        forceWake: true,
+        authorName,
+      })
+      logs.push(log)
+      if (log.ok) advanced += 1
+      continue
+    }
+
+    if (run.subject === 'broker') {
+      const log = advanceBrokerRun(run.subjectId, {
+        forceWake: true,
+        authorName,
+      })
+      logs.push({
+        invoiceId: run.subjectId,
+        ok: log.ok,
+        detail: log.detail,
+      })
+      if (log.ok) advanced += 1
+      continue
+    }
+
+    if (run.subject === 'batch') {
+      const log = await advanceBatchRun(run.subjectId, { forceWake: true })
+      logs.push({
+        invoiceId: run.subjectId,
+        ok: log.ok,
+        detail: log.detail,
+      })
+      if (log.ok) advanced += 1
+    }
   }
   return { advanced, logs }
 }

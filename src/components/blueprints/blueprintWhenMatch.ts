@@ -22,6 +22,10 @@ export function whenMatchSwitchLabels(checkId: string | undefined): {
         yes: 'Went on hold / is on hold',
         no: 'Removed from hold',
       }
+    case 'broker_created':
+      return { yes: 'Just created', no: 'Not a new create' }
+    case 'batch_processed':
+      return { yes: 'Just processed', no: 'Not just processed' }
     case 'broker_replied':
       return { yes: 'Broker replied', no: 'No reply yet' }
     case 'no_reply':

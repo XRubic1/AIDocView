@@ -540,6 +540,18 @@
   background: color-mix(in srgb, var(--bp-accent) 12%, transparent);
 }
 
+.bp-ctx__item:disabled,
+.bp-ctx__item--disabled {
+  color: var(--bp-muted);
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.bp-ctx__item:disabled:hover,
+.bp-ctx__item--disabled:hover {
+  background: transparent;
+}
+
 .bp-ctx__item--danger {
   color: #b91c1c;
 }

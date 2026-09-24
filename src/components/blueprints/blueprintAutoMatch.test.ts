@@ -178,10 +178,11 @@ describe('blueprintAutoMatch', () => {
     expect(m!.score).toBeGreaterThan(0)
   })
 
-  it('does not sync hold-only blueprint onto approved invoice', () => {
-    const holdOnly: SavedBlueprint = {
-      ...holdBlueprint(),
-      id: 'bp-hold-only',
+  it('matches payment_posted to When · Payment posted graphs', () => {
+    const bp: SavedBlueprint = {
+      id: 'bp-pay',
+      name: 'Payment note',
+      updatedAt: '2026-09-24T00:00:00.000Z',
       nodes: [
         {
           id: 'n-start',
@@ -191,20 +192,26 @@ describe('blueprintAutoMatch', () => {
             kind: 'trigger',
             label: 'Start',
             triggerSubject: 'invoices',
-            triggerEntry: 'filter',
-            triggerFilters: {
-              ...defaultTriggerFilters(),
-              invoices: {
-                openOnly: true,
-                statuses: ['hold'],
-                minDaysPastDue: '',
-              },
-            },
+            triggerEntry: 'event',
+            triggerFilters: defaultTriggerFilters(),
+          },
+        },
+        {
+          id: 'n-when',
+          type: 'blueprint',
+          position: { x: 0, y: 0 },
+          data: {
+            kind: 'if',
+            label: 'Paid',
+            checkId: 'payment_posted',
+            whenMatch: 'yes',
           },
         },
       ],
-      edges: [],
+      edges: [{ id: 'e1', source: 'n-start', target: 'n-when' }],
     }
-    expect(scoreBlueprintForEvent(holdOnly, 'sync', makeInvoice('approved'))).toBeNull()
+    const m = scoreBlueprintForEvent(bp, 'payment_posted', makeInvoice('approved'))
+    expect(m).not.toBeNull()
+    expect(m!.reason).toMatch(/Payment posted/i)
   })
 })
