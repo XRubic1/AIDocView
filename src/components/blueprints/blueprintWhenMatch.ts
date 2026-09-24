@@ -26,6 +26,8 @@ export function whenMatchSwitchLabels(checkId: string | undefined): {
       return { yes: 'Just created', no: 'Not a new create' }
     case 'batch_processed':
       return { yes: 'Just processed', no: 'Not just processed' }
+    case 'invoice_processed':
+      return { yes: 'Just processed', no: 'Not just processed' }
     case 'broker_replied':
       return { yes: 'Broker replied', no: 'No reply yet' }
     case 'no_reply':

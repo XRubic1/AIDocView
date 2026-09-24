@@ -231,6 +231,12 @@ function isFullEmailDocument(html: string): boolean {
   return t.startsWith('<!doctype') || t.startsWith('<html')
 }
 
+/** Real Credyx wordmark (hosted) when the client did not attach a cid logo. */
+function defaultCompanyLogoHtml(): string {
+  const origin = (Deno.env.get('SITE_URL') || 'https://app.credyx.net').replace(/\/$/, '')
+  return `<img src="${origin}/credyx-logo-white-cred-no-bg.png" alt="Credyx" width="168" style="display:block;border:0;outline:none;text-decoration:none;height:auto;max-width:168px;" />`
+}
+
 const EMAIL_SHELL_EYEBROW: Record<string, string> = {
   carrier_batch_processed: 'Batch update',
   carrier_batch_verified: 'Batch verified',
@@ -366,25 +372,19 @@ function enrichData(template: EmailTemplate, data: Record<string, string>): Reco
     if (!next.inviteLink) next.inviteLink = next.setupLink
     if (!next.ctaLabel) next.ctaLabel = 'Create your password'
     if (!next.companyLogoHtml) {
-      next.companyLogoHtml = `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.02em;line-height:1;">
-  <span style="color:#ffffff;">Cred</span><span style="color:#1684FE;">yx</span>
-</div>`
+      next.companyLogoHtml = defaultCompanyLogoHtml()
     }
   }
 
   if (!next.contactName) next.contactName = 'there'
   if (!next.loadNumber) next.loadNumber = 'N/A'
   if (!next.companyLogoHtml) {
-    next.companyLogoHtml = `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.02em;line-height:1;">
-  <span style="color:#ffffff;">Cred</span><span style="color:#1684FE;">yx</span>
-</div>`
+    next.companyLogoHtml = defaultCompanyLogoHtml()
   }
 
   if (String(template).startsWith('auth_')) {
     if (!next.companyLogoHtml) {
-      next.companyLogoHtml = `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.02em;line-height:1;">
-  <span style="color:#ffffff;">Cred</span><span style="color:#1684FE;">yx</span>
-</div>`
+      next.companyLogoHtml = defaultCompanyLogoHtml()
     }
     const labels: Record<string, string> = {
       auth_signup: 'Confirm email',
@@ -805,7 +805,25 @@ Deno.serve(async (req) => {
     }
 
     const resendKey = Deno.env.get('RESEND_API_KEY')
-    const { from, replyTo } = await resolveFromAddresses(payload.template)
+    let { from, replyTo } = await resolveFromAddresses(payload.template)
+    const fromOverride =
+      typeof (payload as { fromOverride?: string }).fromOverride === 'string'
+        ? (payload as { fromOverride?: string }).fromOverride!.trim()
+        : ''
+    if (fromOverride) {
+      // Only allow verified Credyx-style addresses (display name optional)
+      const emailMatch = fromOverride.match(/<([^>]+)>/) || fromOverride.match(/([^\s<>]+@[^\s<>]+)/)
+      const addr = (emailMatch?.[1] || fromOverride).trim().toLowerCase()
+      if (/^[^\s@]+@credyx\.net$/i.test(addr)) {
+        from = fromOverride.includes('<')
+          ? fromOverride
+          : `Credyx <${addr}>`
+        // Keep Reply-To aligned with the chosen From (else carrier templates keep ops@)
+        replyTo = addr
+      } else {
+        console.warn('[send-email] ignoring fromOverride outside @credyx.net', addr)
+      }
+    }
 
     if (!resendKey) {
       console.log('[send-email] stub — RESEND_API_KEY not configured', {
@@ -856,6 +874,15 @@ Deno.serve(async (req) => {
     }
     if (replyTo) {
       resendBody.reply_to = replyTo
+    }
+
+    const ccRaw = (payload as { cc?: unknown }).cc
+    if (Array.isArray(ccRaw) && ccRaw.length) {
+      const cc = ccRaw
+        .filter((v): v is string => typeof v === 'string')
+        .map((v) => v.trim().toLowerCase())
+        .filter((v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))
+      if (cc.length) resendBody.cc = cc
     }
 
     if (payload.attachments?.length) {

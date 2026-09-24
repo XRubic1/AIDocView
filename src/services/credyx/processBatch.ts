@@ -75,10 +75,22 @@ export async function processVerifiedBatch(opts: {
   const held = liveInvoices.filter((inv) => inv.status === 'hold')
 
   // Only send PPW for approved invoices that have not been sent yet (unless force).
-  const toSend = opts.forceResendPpw
-    ? approved
-    : approved.filter((inv) => !hasPpwBeenSent(inv))
+  // Skip when a Live invoice blueprint Then-do owns the packet (avoids double-send).
+  const { shouldSkipProcessPpwForInvoice } = await import(
+    '../../components/blueprints/blueprintBrokerPacketOwnership'
+  )
+  const toSend = (
+    opts.forceResendPpw
+      ? approved
+      : approved.filter((inv) => !hasPpwBeenSent(inv))
+  ).filter((inv) => !shouldSkipProcessPpwForInvoice(inv))
   const alreadySentSkipped = approved.length - toSend.length
+  const blueprintOwnedSkipped = approved.filter(
+    (inv) =>
+      !toSend.some((s) => s.id === inv.id) &&
+      shouldSkipProcessPpwForInvoice(inv) &&
+      (opts.forceResendPpw || !hasPpwBeenSent(inv))
+  ).length
 
   logAuditEvent(
     'batch_status_changed',
@@ -124,7 +136,8 @@ export async function processVerifiedBatch(opts: {
     }))
 
   const ppwDetails = [...preSkippedDetails, ...paperworkResults.details]
-  const totalSkipped = alreadySentSkipped + paperworkResults.skipped
+  const totalSkipped =
+    alreadySentSkipped + blueprintOwnedSkipped + paperworkResults.skipped
 
   // Submitted + clear AI/rework attention so the batch leaves the AI Verify queue.
   const moved = updateBatch(opts.batchId, {
@@ -205,6 +218,13 @@ export async function processVerifiedBatch(opts: {
       .then((m) => {
         m.ensureBatchBlueprintListener()
         m.onBatchProcessed(opts.batchId)
+      })
+      .catch(() => undefined)
+    void import('../../components/blueprints/blueprintRunner')
+      .then((m) => {
+        for (const inv of liveInvoices) {
+          m.onInvoiceProcessed(inv.id)
+        }
       })
       .catch(() => undefined)
   })

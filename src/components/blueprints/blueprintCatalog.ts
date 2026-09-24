@@ -39,13 +39,13 @@ export const TRIGGER_SUBJECT_OPTIONS: {
 export const BROKER_WAIT_UNTIL_OPTIONS: BlueprintCatalogOption[] = [
   {
     id: 'pause_days',
-    label: 'Just wait X days (simple timer)',
+    label: 'Just wait X (simple timer)',
     needsDays: true,
-    daysHint: 'How many days to wait?',
+    daysHint: 'How long to wait?',
     defaultDays: '3',
     defaultTitle: 'Simple wait',
     cardTemplate: 'Wait {days} days from this step',
-    help: 'Not tied to payments. From this step, wait this many calendar days, then go to the next card. Use between emails or tasks.',
+    help: 'Not tied to payments. Wait this many days, hours, or minutes from this step, then go to the next card. Hours/minutes are best for testing.',
   },
   {
     id: 'no_payments_for',
@@ -102,13 +102,13 @@ export const INVOICE_WAIT_UNTIL_OPTIONS: BlueprintCatalogOption[] = [
   },
   {
     id: 'pause_days',
-    label: 'Just wait X days (simple timer)',
+    label: 'Just wait X (simple timer)',
     needsDays: true,
-    daysHint: 'How many days to wait?',
+    daysHint: 'How long to wait?',
     defaultDays: '3',
     defaultTitle: 'Simple wait',
     cardTemplate: 'Wait {days} days from this step',
-    help: 'Not tied to due dates or Net. From this step, wait this many calendar days, then continue. Use for a fixed pause between steps.',
+    help: 'Not tied to due dates or Net. Wait days, hours, or minutes from this step. Hours/minutes are best for testing.',
   },
 ]
 
@@ -156,6 +156,14 @@ export const BROKER_EVENT_OPTIONS: BlueprintCatalogOption[] = [
 ]
 
 export const INVOICE_EVENT_OPTIONS: BlueprintCatalogOption[] = [
+  {
+    id: 'invoice_processed',
+    label: 'Invoice was processed',
+    needsDays: false,
+    defaultTitle: 'Invoice processed',
+    cardTemplate: 'This invoice was just processed (batch Process)',
+    help: 'Fires when admin hits Process on the batch that contains this invoice (invoice becomes approved or hold). Use for per-invoice follow-up after Process.',
+  },
   {
     id: 'broker_replied',
     label: 'Broker replied',
@@ -230,24 +238,24 @@ export const BROKER_ACTION_OPTIONS: BlueprintActionOption[] = [
 export const BATCH_WAIT_UNTIL_OPTIONS: BlueprintCatalogOption[] = [
   {
     id: 'pause_days',
-    label: 'Just wait X days (simple timer)',
+    label: 'Just wait X (simple timer)',
     needsDays: true,
-    daysHint: 'How many days to wait?',
+    daysHint: 'How long to wait?',
     defaultDays: '1',
     defaultTitle: 'Simple wait',
     cardTemplate: 'Wait {days} days from this step',
-    help: 'Fixed pause after Process. Use between Then-do cards if you need a delay.',
+    help: 'Fixed pause after Process. Days, hours, or minutes — hours/minutes help when testing.',
   },
 ]
 
 export const BATCH_EVENT_OPTIONS: BlueprintCatalogOption[] = [
   {
     id: 'batch_processed',
-    label: 'Batch was processed (submitted)',
+    label: 'Batch was processed',
     needsDays: false,
     defaultTitle: 'Batch processed',
     cardTemplate: 'This batch was just processed / submitted',
-    help: 'Fires when admin hits Process and the batch moves to submitted. Carrier “batch processed” email can run from Then-do (skips Settings send when Live runner owns it).',
+    help: 'Fires when admin hits Process and the batch moves to submitted. Use Then-do for carrier “batch processed” email (skips Settings send when Live runner owns it).',
   },
 ]
 
@@ -279,6 +287,12 @@ export const BATCH_ACTION_OPTIONS: BlueprintActionOption[] = [
 ]
 
 export const INVOICE_ACTION_OPTIONS: BlueprintActionOption[] = [
+  {
+    id: 'email_broker_packet',
+    label: 'Email: broker paperwork packet',
+    defaultTitle: 'Send packet to broker',
+    cardLine: 'Send invoice docs / PPW packet to the broker',
+  },
   {
     id: 'email_payment_status',
     label: 'Email: payment status check',
@@ -363,9 +377,17 @@ export function findAction(subject: BlueprintSubject | null, actionId: string | 
 
 export function formatCatalogCardLine(
   opt: BlueprintCatalogOption,
-  days: string | undefined
+  days: string | undefined,
+  waitUnit?: string
 ): string {
   const d = (days ?? opt.defaultDays ?? '').trim() || '…'
+  if (opt.id === 'pause_days' && (waitUnit === 'hours' || waitUnit === 'minutes')) {
+    const n = Number(d)
+    const singular = waitUnit === 'hours' ? 'hour' : 'minute'
+    const plural = waitUnit === 'hours' ? 'hours' : 'minutes'
+    const unitWord = n === 1 ? singular : plural
+    return `Wait ${d} ${unitWord} from this step`
+  }
   return opt.cardTemplate.replace(/\{days\}/g, d)
 }
 

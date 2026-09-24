@@ -1,6 +1,12 @@
 import { requireSupabase } from '../lib/supabase'
 
 import type { EmailTemplateId } from '../config/emailTemplateDefaults'
+import {
+  EMAIL_LOGO_CONTENT_ID,
+  buildCompanyLogoHtml,
+  buildInlineCompanyLogoHtml,
+  loadCompanyLogoAttachment,
+} from '../utils/emailCompanyLogo'
 
 export type EmailTemplate = EmailTemplateId
 
@@ -27,6 +33,13 @@ export interface SendTransactionalEmailOptions {
   /** Admin-only: send unsaved editor HTML instead of the saved DB template. */
   overrideSubject?: string
   overrideHtml?: string
+  /**
+   * Optional Resend From header override (e.g. `Credyx Billing <billing@credyx.net>`).
+   * Must use a verified domain; Edge validates.
+   */
+  fromOverride?: string
+  /** Optional CC addresses (Resend `cc`). */
+  cc?: string[]
 }
 
 function friendlySendError(raw: string, stub?: boolean): string {
@@ -98,17 +111,42 @@ export async function sendTransactionalEmail(
     ? { attachments: attachmentsOrOptions }
     : attachmentsOrOptions ?? {}
 
+  const attachments = [...(options.attachments ?? [])]
+  const hasLogoCid = attachments.some((a) => a.contentId === EMAIL_LOGO_CONTENT_ID)
+  if (!hasLogoCid) {
+    const logo = await loadCompanyLogoAttachment()
+    if (logo) attachments.push(logo)
+  }
+
+  const sendData = { ...data }
+  if (!sendData.companyLogoHtml?.trim()) {
+    const logoAttached = attachments.some((a) => a.contentId === EMAIL_LOGO_CONTENT_ID)
+    sendData.companyLogoHtml = logoAttached
+      ? buildInlineCompanyLogoHtml()
+      : buildCompanyLogoHtml()
+  }
+
   try {
     const supabase = requireSupabase()
     const { data: result, error } = await supabase.functions.invoke('send-email', {
       body: {
         template,
         to,
-        data,
-        ...(options.attachments?.length ? { attachments: options.attachments } : {}),
+        data: sendData,
+        ...(attachments.length ? { attachments } : {}),
         ...(options.isTest ? { isTest: true } : {}),
         ...(options.overrideSubject ? { overrideSubject: options.overrideSubject } : {}),
         ...(options.overrideHtml ? { overrideHtml: options.overrideHtml } : {}),
+        ...(options.fromOverride?.trim()
+          ? { fromOverride: options.fromOverride.trim() }
+          : {}),
+        ...(options.cc?.length
+          ? {
+              cc: options.cc
+                .map((e) => e.trim())
+                .filter(Boolean),
+            }
+          : {}),
       },
     })
 

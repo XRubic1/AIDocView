@@ -4,7 +4,7 @@
  */
 import type { Edge } from '@xyflow/react'
 import { isBlueprintsRunnerEnabled } from '../../config/blueprintsRuntime'
-import { getBatchById, type Batch } from '../../data/mockBatches'
+import { getBatchById, getAllBatches, type Batch } from '../../data/mockBatches'
 import type { BlueprintFlowNode, BlueprintNodeData } from '../../types/blueprintGraph'
 import { findBestMatchingBatchBlueprint } from './blueprintAutoMatch'
 import {
@@ -389,6 +389,83 @@ export async function enrollBatchForEvent(
     forceWake: true,
     justProcessed: event === 'batch_processed',
   })
+}
+
+/** Look up batch by id or batch # (for editor test runs). */
+function findBatchByQuery(query: string): Batch | undefined {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return undefined
+  const byId = getBatchById(query.trim())
+  if (byId) return byId
+  const all = getAllBatches()
+  return (
+    all.find((b) => b.batch_number.toLowerCase() === needle) ||
+    all.find((b) => b.batch_number.toLowerCase().includes(needle)) ||
+    all.find((b) => b.id.toLowerCase() === needle)
+  )
+}
+
+/**
+ * Editor test: assign this blueprint to a batch (by id or batch #),
+ * restart enrollment, force-advance through Wait so Then-do runs now.
+ */
+export async function testRunBlueprintByBatchQuery(opts: {
+  blueprintId: string
+  blueprintName: string
+  query: string
+}): Promise<BatchRunnerLog & { batchNumber?: string }> {
+  if (!isBlueprintsRunnerEnabled()) {
+    return {
+      batchId: '',
+      ok: false,
+      detail: 'Turn on Live runner first.',
+    }
+  }
+  const batch = findBatchByQuery(opts.query)
+  if (!batch) {
+    return {
+      batchId: '',
+      ok: false,
+      detail: `No batch found for “${opts.query.trim()}”. Try Batch id or Batch #.`,
+    }
+  }
+
+  assignBatchBlueprint(batch.id, opts.blueprintId, opts.blueprintName)
+
+  const existing = getPrimaryRunForBatch(batch)
+  if (
+    existing &&
+    (existing.status === 'waiting' ||
+      existing.status === 'active' ||
+      existing.status === 'paused')
+  ) {
+    upsertBlueprintRun({
+      ...existing,
+      status: 'stopped',
+      currentStep: 'Stopped · editor test re-run',
+      waitUntil: null,
+    })
+  }
+
+  const enrolled = ensureBatchEnrollment(batch, 'editor test run')
+  if (!enrolled) {
+    return {
+      batchId: batch.id,
+      ok: false,
+      detail: 'Could not enroll — save the blueprint first?',
+      batchNumber: batch.batch_number,
+    }
+  }
+
+  const log = await advanceBatchRun(batch.id, {
+    forceWake: true,
+    justProcessed: true,
+  })
+  return {
+    ...log,
+    batchNumber: batch.batch_number,
+    detail: `Batch ${batch.batch_number}: ${log.detail}`,
+  }
 }
 
 const handledProcessed = new Set<string>()

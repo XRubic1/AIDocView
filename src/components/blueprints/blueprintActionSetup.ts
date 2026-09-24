@@ -4,11 +4,23 @@ export type BlueprintDeliveryChannel = 'email' | 'app' | 'both'
 
 export type BlueprintTemplateAudience = 'broker' | 'carrier' | 'admin' | 'system'
 
+/** Which Credyx mailbox Then-do emails send From (legacy key — prefer fromEmail). */
+export type BlueprintFromMailbox = 'billing' | 'ops' | 'admin' | 'notifications'
+
 export type BlueprintActionTaskConfig = {
   message: string
   channel: BlueprintDeliveryChannel
   /** Links to Settings → Templates (`email_templates` id). */
   templateId?: string
+  /** @deprecated Prefer fromEmails — mailbox key. */
+  fromMailbox?: BlueprintFromMailbox | ''
+  /** @deprecated Prefer fromEmails[0]. */
+  fromEmail?: string
+  /**
+   * Ordered From/CC list for Then-do email.
+   * Index 0 = Resend From; index 1+ = CC.
+   */
+  fromEmails?: string[]
 }
 
 export type ActionSetupSpec = {
@@ -16,6 +28,8 @@ export type ActionSetupSpec = {
   needsChannel: boolean
   /** Offer picker from Settings → Templates. */
   needsTemplate: boolean
+  /** Offer From mailbox picker (billing / ops / …). */
+  needsFrom: boolean
   /** Which template audiences to offer (empty = all non-auth). */
   templateAudiences: BlueprintTemplateAudience[]
   messageLabel: string
@@ -27,6 +41,7 @@ const DEFAULT_SETUP: ActionSetupSpec = {
   needsMessage: false,
   needsChannel: false,
   needsTemplate: false,
+  needsFrom: false,
   templateAudiences: [],
   messageLabel: 'Details',
   messagePlaceholder: '',
@@ -38,6 +53,7 @@ export const ACTION_SETUP: Record<string, ActionSetupSpec> = {
     needsMessage: true,
     needsChannel: false,
     needsTemplate: false,
+    needsFrom: false,
     templateAudiences: [],
     messageLabel: 'Note text',
     messagePlaceholder: 'What should the note say?',
@@ -47,6 +63,7 @@ export const ACTION_SETUP: Record<string, ActionSetupSpec> = {
     needsMessage: true,
     needsChannel: true,
     needsTemplate: true,
+    needsFrom: true,
     templateAudiences: ['carrier'],
     messageLabel: 'Extra note (optional)',
     messagePlaceholder: 'Optional override text if you are not using a template…',
@@ -56,6 +73,7 @@ export const ACTION_SETUP: Record<string, ActionSetupSpec> = {
     needsMessage: true,
     needsChannel: false,
     needsTemplate: true,
+    needsFrom: true,
     templateAudiences: ['carrier'],
     messageLabel: 'Extra note (optional)',
     messagePlaceholder: 'Optional note — default uses the batch processed template…',
@@ -65,15 +83,27 @@ export const ACTION_SETUP: Record<string, ActionSetupSpec> = {
     needsMessage: true,
     needsChannel: true,
     needsTemplate: true,
+    needsFrom: false,
     templateAudiences: ['carrier', 'admin', 'system', 'broker'],
     messageLabel: 'Extra note (optional)',
     messagePlaceholder: 'Optional override if you are not using a template…',
     defaultChannel: 'app',
   },
+  email_broker_packet: {
+    needsMessage: true,
+    needsChannel: false,
+    needsTemplate: false,
+    needsFrom: true,
+    templateAudiences: ['broker'],
+    messageLabel: 'Extra note (optional)',
+    messagePlaceholder: 'Optional note included with the paperwork packet…',
+    defaultChannel: 'email',
+  },
   email_payment_status: {
     needsMessage: true,
     needsChannel: false,
     needsTemplate: true,
+    needsFrom: true,
     templateAudiences: ['broker'],
     messageLabel: 'Extra note (optional)',
     messagePlaceholder: 'Optional override if you are not using a template…',
@@ -83,6 +113,7 @@ export const ACTION_SETUP: Record<string, ActionSetupSpec> = {
     needsMessage: true,
     needsChannel: false,
     needsTemplate: true,
+    needsFrom: true,
     templateAudiences: ['broker'],
     messageLabel: 'Extra note (optional)',
     messagePlaceholder: 'Optional override if you are not using a template…',
@@ -92,6 +123,7 @@ export const ACTION_SETUP: Record<string, ActionSetupSpec> = {
     needsMessage: true,
     needsChannel: false,
     needsTemplate: false,
+    needsFrom: false,
     templateAudiences: [],
     messageLabel: 'Task details',
     messagePlaceholder: 'What should the staff task say?',
@@ -105,7 +137,15 @@ export function getActionSetup(actionId: string): ActionSetupSpec {
 
 export function defaultTaskConfig(actionId: string): BlueprintActionTaskConfig {
   const setup = getActionSetup(actionId)
-  return { message: '', channel: setup.defaultChannel, templateId: '' }
+  const billing = 'billing@credyx.net'
+  return {
+    message: '',
+    channel: setup.defaultChannel,
+    templateId: actionId === 'email_broker_packet' ? 'broker_packet' : '',
+    fromMailbox: setup.needsFrom ? 'billing' : '',
+    fromEmail: setup.needsFrom ? billing : '',
+    fromEmails: setup.needsFrom ? [billing] : [],
+  }
 }
 
 export function channelLabel(channel: BlueprintDeliveryChannel): string {
@@ -116,7 +156,7 @@ export function channelLabel(channel: BlueprintDeliveryChannel): string {
 
 export function isActionConfigurable(actionId: string): boolean {
   const s = getActionSetup(actionId)
-  return s.needsMessage || s.needsChannel || s.needsTemplate
+  return s.needsMessage || s.needsChannel || s.needsTemplate || s.needsFrom
 }
 
 /** True when a Then-do task has the content it needs (template and/or message). */
@@ -126,6 +166,8 @@ export function isTaskReady(
 ): boolean {
   const setup = getActionSetup(actionId)
   if (!isActionConfigurable(actionId)) return true
+  // Packet send is ready with From alone (message optional).
+  if (actionId === 'email_broker_packet') return true
   const config = cfg ?? defaultTaskConfig(actionId)
   if (setup.needsTemplate && config.templateId?.trim()) return true
   if (setup.needsMessage && config.message.trim()) return true
@@ -142,4 +184,70 @@ export function taskSetupHint(actionId: string): string {
   if (setup.needsTemplate) return 'Needs a template'
   if (setup.needsMessage) return 'Needs a message'
   return 'Not set up'
+}
+
+export const FROM_MAILBOX_OPTIONS: {
+  id: BlueprintFromMailbox
+  label: string
+}[] = [
+  { id: 'billing', label: 'Billing (broker / chase)' },
+  { id: 'ops', label: 'Ops (carrier)' },
+  { id: 'admin', label: 'Admin alerts' },
+  { id: 'notifications', label: 'Notifications' },
+]
+
+/** Resolve legacy fromMailbox → email using current Settings addresses. */
+export function emailFromMailboxKey(
+  mailbox: BlueprintFromMailbox | '' | undefined,
+  billing = 'billing@credyx.net',
+  ops = 'ops@credyx.net',
+  admin = 'ops@credyx.net',
+  notifications = 'notifications@credyx.net'
+): string {
+  if (mailbox === 'ops') return ops
+  if (mailbox === 'admin') return admin || ops
+  if (mailbox === 'notifications') return notifications
+  if (mailbox === 'billing' || !mailbox) return billing
+  return billing
+}
+
+/** Ordered From + CC list from task config (legacy fields supported). */
+export function resolveFromEmailsList(
+  config: {
+    fromEmails?: string[]
+    fromEmail?: string
+    fromMailbox?: BlueprintFromMailbox | ''
+  } | null | undefined,
+  fallbacks?: {
+    billing?: string
+    ops?: string
+    admin?: string
+    notifications?: string
+  }
+): string[] {
+  const billing = fallbacks?.billing ?? 'billing@credyx.net'
+  const ops = fallbacks?.ops ?? 'ops@credyx.net'
+  const admin = fallbacks?.admin ?? ops
+  const notifications = fallbacks?.notifications ?? 'notifications@credyx.net'
+
+  if (config?.fromEmails?.length) {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const raw of config.fromEmails) {
+      const e = raw.trim().toLowerCase()
+      if (!e || seen.has(e)) continue
+      seen.add(e)
+      out.push(e)
+    }
+    if (out.length) return out
+  }
+  const single =
+    config?.fromEmail?.trim().toLowerCase() ||
+    emailFromMailboxKey(config?.fromMailbox, billing, ops, admin, notifications)
+  return single ? [single] : [billing]
+}
+
+export function fromRoleLabel(index: number): string {
+  if (index === 0) return 'From'
+  return `CC ${index}`
 }

@@ -14,14 +14,25 @@ import { applyBlueprintBrokerRiskMark } from '../../services/blueprintBrokerRisk
 import { sendTransactionalEmail } from '../../services/emailService'
 import { isEmailLifecycleRuleEnabled } from '../../config/emailLifecycle'
 import { formatCurrency } from '../../utils/format'
-import { resolveBrokerPaperworkEmail } from '../../utils/paperworkSender'
+import {
+  resolveBrokerPaperworkEmail,
+  sendBrokerPacketForInvoice,
+} from '../../utils/paperworkSender'
 import {
   sendBrokerPaymentStatusFollowup,
   sendBrokerPaymentStatusInquiry,
 } from '../../utils/collectionsChase'
-import type { BlueprintActionTaskConfig } from './blueprintActionSetup'
-import { defaultTaskConfig } from './blueprintActionSetup'
+import type { BlueprintActionTaskConfig, BlueprintFromMailbox } from './blueprintActionSetup'
+import {
+  defaultTaskConfig,
+  resolveFromEmailsList,
+} from './blueprintActionSetup'
 import { lookupActionById } from './blueprintCatalog'
+import {
+  EMAIL_MAILBOXES,
+  displayNameForFromEmail,
+  formatResendFrom,
+} from '../../config/emailMailboxes'
 import type { Invoice } from '../../types/invoice'
 import type { Broker } from '../../types/broker'
 
@@ -30,6 +41,26 @@ export type BlueprintActionResult = {
   ok: boolean
   skipped?: boolean
   detail: string
+}
+
+function resolveFromAndCc(config: {
+  fromEmails?: string[]
+  fromEmail?: string
+  fromMailbox?: BlueprintFromMailbox | ''
+}): { fromOverride?: string; cc: string[] } {
+  const m = EMAIL_MAILBOXES
+  const list = resolveFromEmailsList(config, {
+    billing: m.billingEmail,
+    ops: m.opsEmail,
+    admin: m.adminEmail,
+    notifications: m.notificationsEmail,
+  })
+  if (!list.length) return { cc: [] }
+  const [fromEmail, ...cc] = list
+  return {
+    fromOverride: formatResendFrom(displayNameForFromEmail(fromEmail, m), fromEmail),
+    cc,
+  }
 }
 
 const STATUS_KIND_BY_ACTION: Partial<Record<string, InvoiceStatusNoteKind>> = {
@@ -66,15 +97,28 @@ async function sendCustomBrokerChaseEmail(input: {
   extraNote: string
   label: string
   actionId: string
+  fromEmail?: string
+  fromMailbox?: BlueprintFromMailbox | ''
+  fromEmails?: string[]
 }): Promise<BlueprintActionResult> {
   const { invoice, broker, to, templateId, extraNote, label, actionId } = input
-  const result = await sendTransactionalEmail(templateId, to, {
-    invoiceNumber: invoice.invoice_number,
-    loadNumber: invoice.load_number ?? '',
-    amount: formatCurrency(invoice.amount),
-    brokerName: broker.name,
-    extraNote,
+  const { fromOverride, cc } = resolveFromAndCc({
+    fromEmails: input.fromEmails,
+    fromEmail: input.fromEmail,
+    fromMailbox: input.fromMailbox,
   })
+  const result = await sendTransactionalEmail(
+    templateId,
+    to,
+    {
+      invoiceNumber: invoice.invoice_number,
+      loadNumber: invoice.load_number ?? '',
+      amount: formatCurrency(invoice.amount),
+      brokerName: broker.name,
+      extraNote,
+    },
+    { fromOverride, cc }
+  )
   if (result.ok) {
     try {
       const { recordOutboundMessage } = await import('../../services/emailLifecycleService')
@@ -101,13 +145,100 @@ async function sendCustomBrokerChaseEmail(input: {
   }
 }
 
+async function executeBrokerPacketThenDo(input: {
+  invoiceId: string
+  blueprintName: string
+  config: BlueprintActionTaskConfig
+  authorName: string
+  label: string
+  actionId: string
+}): Promise<BlueprintActionResult> {
+  const invoice = getInvoiceById(input.invoiceId)
+  if (!invoice) {
+    return {
+      actionId: input.actionId,
+      ok: false,
+      detail: `${input.label}: invoice not found.`,
+    }
+  }
+  const broker = getBrokerById(invoice.broker_id)
+  const to =
+    resolveBrokerChaseEmail(broker) || resolveBrokerPaperworkEmail(broker)
+  if (!to) {
+    return {
+      actionId: input.actionId,
+      ok: false,
+      detail: `${input.label}: no broker email on file.`,
+    }
+  }
+
+  const { fromOverride, cc } = resolveFromAndCc(input.config)
+  const result = await sendBrokerPacketForInvoice(invoice, {
+    recipientEmail: to,
+    collectMode: 'defaults',
+    message: withBlueprintTag(
+      input.config.message?.trim() || '',
+      input.blueprintName
+    ),
+    sentBy: input.authorName,
+    automatic: true,
+    skipIfAlreadySent: false,
+    fromOverride,
+    cc,
+  })
+
+  if (result.success) {
+    try {
+      const { onInvoicePpwSent } = await import('./blueprintRunner')
+      onInvoicePpwSent(invoice.id)
+    } catch {
+      /* optional */
+    }
+  }
+
+  if (result.skipped) {
+    return {
+      actionId: input.actionId,
+      ok: true,
+      skipped: true,
+      detail: `${input.label}: skipped (${result.error ?? 'already sent or disabled'}).`,
+    }
+  }
+
+  return {
+    actionId: input.actionId,
+    ok: result.success,
+    detail: result.success
+      ? `${input.label}: packet sent to ${to}${
+          result.partCount && result.partCount > 1
+            ? ` (${result.partCount} parts)`
+            : ''
+        }.`
+      : `${input.label}: ${result.error ?? 'packet send failed'}.`,
+  }
+}
+
 async function executeChaseEmailThenDo(input: {
   invoiceId: string
   actionId: 'email_payment_status' | 'email_followup'
   blueprintName: string
   config: BlueprintActionTaskConfig
   label: string
+  authorName: string
 }): Promise<BlueprintActionResult> {
+  const templateId = input.config.templateId?.trim()
+  // Selecting the packet template on a chase Then-do must use real PPW attach path.
+  if (templateId === 'broker_packet') {
+    return executeBrokerPacketThenDo({
+      invoiceId: input.invoiceId,
+      blueprintName: input.blueprintName,
+      config: input.config,
+      authorName: input.authorName,
+      label: input.label,
+      actionId: input.actionId,
+    })
+  }
+
   const invoice = getInvoiceById(input.invoiceId)
   if (!invoice) {
     return {
@@ -125,7 +256,6 @@ async function executeChaseEmailThenDo(input: {
     }
   }
 
-  const templateId = input.config.templateId?.trim()
   if (templateId) {
     const to = resolveBrokerChaseEmail(broker)
     if (!to) {
@@ -146,6 +276,9 @@ async function executeChaseEmailThenDo(input: {
       ),
       label: input.label,
       actionId: input.actionId,
+      fromEmail: input.config.fromEmail,
+      fromMailbox: input.config.fromMailbox,
+      fromEmails: input.config.fromEmails,
     })
   }
 
@@ -203,15 +336,21 @@ async function executeNotifyCarrierThenDo(input: {
         const summary =
           input.config.message?.trim() ||
           'Update from Credyx on your invoice.'
-        const result = await sendTransactionalEmail(templateId, to, {
-          contactName: client?.contact_person || 'there',
-          clientName: client?.name || invoice.client_name,
-          invoiceNumber: invoice.invoice_number,
-          loadNumber: invoice.load_number || 'N/A',
-          brokerName: invoice.broker_name,
-          summary: withBlueprintTag(summary, input.blueprintName),
-          portalLink: '/client/invoices',
-        })
+        const { fromOverride, cc } = resolveFromAndCc(input.config)
+        const result = await sendTransactionalEmail(
+          templateId,
+          to,
+          {
+            contactName: client?.contact_person || 'there',
+            clientName: client?.name || invoice.client_name,
+            invoiceNumber: invoice.invoice_number,
+            loadNumber: invoice.load_number || 'N/A',
+            brokerName: invoice.broker_name,
+            summary: withBlueprintTag(summary, input.blueprintName),
+            portalLink: '/client/invoices',
+          },
+          { fromOverride, cc }
+        )
         if (result.ok) {
           parts.push(`emailed ${to}`)
           try {
@@ -274,6 +413,17 @@ export async function executeBlueprintThenDo(input: {
   const action = lookupActionById(input.actionId)
   const label = action?.defaultTitle ?? input.actionId
 
+  if (input.actionId === 'email_broker_packet') {
+    return executeBrokerPacketThenDo({
+      invoiceId: input.invoiceId,
+      blueprintName: input.blueprintName,
+      config: cfg,
+      authorName: author,
+      label,
+      actionId: input.actionId,
+    })
+  }
+
   if (
     input.actionId === 'email_payment_status' ||
     input.actionId === 'email_followup'
@@ -284,6 +434,7 @@ export async function executeBlueprintThenDo(input: {
       blueprintName: input.blueprintName,
       config: cfg,
       label,
+      authorName: author,
     })
   }
 
@@ -489,11 +640,19 @@ export async function executeBlueprintBatchThenDo(input: {
     )
     const invoices = getInvoicesByBatchId(input.batchId)
     const held = invoices.filter((i) => i.status === 'hold')
+    const { fromOverride, cc } = resolveFromAndCc(cfg)
+    const fromAddr =
+      fromOverride?.match(/<([^>]+)>/)?.[1] ||
+      fromOverride?.match(/([^\s<>]+@[^\s<>]+)/)?.[1] ||
+      fromOverride ||
+      ''
     const result = await emailCarrierBatchProcessed({
       clientId: input.clientId,
       batchNumber: input.batchNumber,
       invoices,
       heldInvoices: held,
+      fromOverride,
+      cc,
     })
     if (result.skipped) {
       return {
@@ -503,12 +662,15 @@ export async function executeBlueprintBatchThenDo(input: {
         detail: `${label}: skipped (${result.error ?? 'disabled or no email'}).`,
       }
     }
+    const routeHint = fromAddr
+      ? ` From ${fromAddr}${cc.length ? ` · CC ${cc.join(', ')}` : ''}`
+      : ''
     return {
       actionId: input.actionId,
       ok: result.ok,
       detail: result.ok
-        ? `${label}: carrier emailed.`
-        : `${label}: ${result.error ?? 'email failed'}.`,
+        ? `${label}: carrier emailed.${routeHint}`
+        : `${label}: ${result.error ?? 'email failed'}.${routeHint}`,
     }
   }
 

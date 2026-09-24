@@ -63,7 +63,7 @@ function isBranch(data: BlueprintNodeData): boolean {
 function waitStepLine(node: BlueprintFlowNode): string {
   const wait = lookupWaitUntilById(node.data.waitUntilId)
   const line = wait
-    ? formatCatalogCardLine(wait, node.data.days)
+    ? formatCatalogCardLine(wait, node.data.days, node.data.waitUnit)
     : node.data.fieldKey?.trim() || 'Wait until…'
   return `Wait until · ${line}`
 }
@@ -85,7 +85,11 @@ export function assignedBlueprintMatchesPpw(filters: BlueprintTriggerFilters): b
   return !holdOnly
 }
 
-function evaluateWhenRaw(checkId: string | undefined, invoice: Invoice): boolean {
+function evaluateWhenRaw(
+  checkId: string | undefined,
+  invoice: Invoice,
+  meta?: { justProcessed?: boolean }
+): boolean {
   if (!checkId) return false
   switch (checkId) {
     case 'on_hold':
@@ -94,6 +98,14 @@ function evaluateWhenRaw(checkId: string | undefined, invoice: Invoice): boolean
       return (
         invoice.status === 'paid' ||
         getConfirmedPaymentTotal(invoice.id) > 0
+      )
+    case 'invoice_processed':
+      return (
+        Boolean(meta?.justProcessed) ||
+        invoice.status === 'approved' ||
+        invoice.status === 'hold' ||
+        invoice.status === 'paid' ||
+        invoice.status === 'force_closed'
       )
     case 'broker_replied':
     case 'no_reply':
@@ -109,8 +121,12 @@ function evaluateWhenRaw(checkId: string | undefined, invoice: Invoice): boolean
   }
 }
 
-function evaluateWhenNode(data: BlueprintNodeData, invoice: Invoice): boolean {
-  return whenNodePasses(data, evaluateWhenRaw(data.checkId, invoice))
+function evaluateWhenNode(
+  data: BlueprintNodeData,
+  invoice: Invoice,
+  meta?: { justProcessed?: boolean }
+): boolean {
+  return whenNodePasses(data, evaluateWhenRaw(data.checkId, invoice, meta))
 }
 
 function whenParkStepLine(data: BlueprintNodeData): string {
@@ -161,10 +177,11 @@ function pickNext(
   from: BlueprintFlowNode,
   nodes: BlueprintFlowNode[],
   edges: Edge[],
-  invoice: Invoice
+  invoice: Invoice,
+  meta?: { justProcessed?: boolean }
 ): BlueprintFlowNode | null {
   if (isWhen(from.data)) {
-    const matched = evaluateWhenNode(from.data, invoice)
+    const matched = evaluateWhenNode(from.data, invoice, meta)
     return nextAfterWhen(from.id, nodes, edges, matched)
   }
 
@@ -179,7 +196,9 @@ function pickNext(
   const otherTargets = targets.filter((t) => !isWhen(t.data))
 
   if (whenTargets.length > 0) {
-    const matched = whenTargets.find((t) => evaluateWhenNode(t.data, invoice))
+    const matched = whenTargets.find((t) =>
+      evaluateWhenNode(t.data, invoice, meta)
+    )
     if (matched) return matched
     // Enter the When so advance can park — never skip Whens (any blueprint)
     if (whenTargets[0]) return whenTargets[0]
@@ -247,7 +266,7 @@ function ensureEnrollment(
  */
 export async function advanceInvoiceRun(
   invoiceId: string,
-  options?: { forceWake?: boolean; authorName?: string }
+  options?: { forceWake?: boolean; authorName?: string; justProcessed?: boolean }
 ): Promise<BlueprintRunnerLog> {
   if (!isBlueprintsRunnerEnabled()) {
     return { invoiceId, ok: false, detail: 'Blueprint runner is off.' }
@@ -294,10 +313,11 @@ export async function advanceInvoiceRun(
 
   const details: string[] = []
   let guard = 0
+  const meta = { justProcessed: Boolean(options?.justProcessed) }
 
   // If waking from Wait, move to the next card first
   if (current.data.kind === 'wait' && (options?.forceWake || !run.waitUntil || new Date(run.waitUntil).getTime() <= Date.now())) {
-    const next = pickNext(current, bp.nodes, bp.edges, invoice)
+    const next = pickNext(current, bp.nodes, bp.edges, invoice, meta)
     if (!next) {
       run = upsertBlueprintRun({
         ...run,
@@ -332,7 +352,7 @@ export async function advanceInvoiceRun(
     }
 
     if (isWhen(current.data)) {
-      const ok = evaluateWhenNode(current.data, invoice)
+      const ok = evaluateWhenNode(current.data, invoice, meta)
       const next = nextAfterWhen(current.id, bp.nodes, bp.edges, ok)
       if (!ok) {
         // Always park unmatched Whens (every blueprint) until invoice state changes
@@ -386,7 +406,7 @@ export async function advanceInvoiceRun(
       if (ids.length === 0) {
         details.push('Then do card has no tasks — skipped.')
       }
-      const next = pickNext(current, bp.nodes, bp.edges, invoice)
+      const next = pickNext(current, bp.nodes, bp.edges, invoice, meta)
       if (!next) {
         run = upsertBlueprintRun({
           ...run,
@@ -414,7 +434,7 @@ export async function advanceInvoiceRun(
     }
 
     // Start / other — step forward
-    const next = pickNext(current, bp.nodes, bp.edges, invoice)
+    const next = pickNext(current, bp.nodes, bp.edges, invoice, meta)
     if (!next) {
       run = upsertBlueprintRun({
         ...run,
@@ -513,7 +533,8 @@ function resolveBlueprintForEvent(
 
 export async function enrollInvoiceIfNeeded(
   invoice: Invoice,
-  reason: string
+  reason: string,
+  options?: { justProcessed?: boolean }
 ): Promise<BlueprintRunnerLog> {
   if (!isBlueprintsRunnerEnabled()) {
     return { invoiceId: invoice.id, ok: false, detail: 'Blueprint runner is off.' }
@@ -533,7 +554,106 @@ export async function enrollInvoiceIfNeeded(
     }
   }
   // Always advance from Start until Wait / parked When / Done
-  return advanceInvoiceRun(invoice.id, { forceWake: true })
+  return advanceInvoiceRun(invoice.id, {
+    forceWake: true,
+    justProcessed: options?.justProcessed,
+  })
+}
+
+/** Look up invoice by id, invoice #, or load # (for editor test runs). */
+function findInvoiceByQuery(query: string): Invoice | undefined {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return undefined
+  const byId = getInvoiceById(query.trim())
+  if (byId) return byId
+  return (
+    mockInvoices.find((i) => i.invoice_number.toLowerCase() === needle) ||
+    mockInvoices.find((i) => (i.load_number || '').toLowerCase() === needle) ||
+    mockInvoices.find((i) => i.invoice_number.toLowerCase().includes(needle)) ||
+    mockInvoices.find((i) => (i.load_number || '').toLowerCase().includes(needle))
+  )
+}
+
+/**
+ * Editor test: assign this blueprint to an invoice (by # or load #) or batch
+ * (by id / batch #), restart enrollment, force-advance through Wait so Then-do runs now.
+ */
+export async function testRunBlueprintByQuery(opts: {
+  blueprintId: string
+  blueprintName: string
+  query: string
+}): Promise<
+  BlueprintRunnerLog & {
+    invoiceNumber?: string
+    loadNumber?: string
+    batchNumber?: string
+  }
+> {
+  if (!isBlueprintsRunnerEnabled()) {
+    return {
+      invoiceId: '',
+      ok: false,
+      detail: 'Turn on Live runner first.',
+    }
+  }
+  const invoice = findInvoiceByQuery(opts.query)
+  if (invoice) {
+    assignInvoiceBlueprint(invoice.id, opts.blueprintId, opts.blueprintName)
+
+    const existing = getPrimaryRunForInvoice(invoice)
+    if (
+      existing &&
+      (existing.status === 'waiting' ||
+        existing.status === 'active' ||
+        existing.status === 'paused')
+    ) {
+      upsertBlueprintRun({
+        ...existing,
+        status: 'stopped',
+        currentStep: 'Stopped · editor test re-run',
+        waitUntil: null,
+      })
+    }
+
+    const enrolled = ensureEnrollment(invoice, 'editor test run')
+    if (!enrolled) {
+      return {
+        invoiceId: invoice.id,
+        ok: false,
+        detail: 'Could not enroll — save the blueprint first?',
+        invoiceNumber: invoice.invoice_number,
+        loadNumber: invoice.load_number,
+      }
+    }
+
+    const log = await advanceInvoiceRun(invoice.id, {
+      forceWake: true,
+      justProcessed: true,
+    })
+    return {
+      ...log,
+      invoiceNumber: invoice.invoice_number,
+      loadNumber: invoice.load_number,
+      detail: `${invoice.invoice_number}${invoice.load_number ? ` · Load ${invoice.load_number}` : ''}: ${log.detail}`,
+    }
+  }
+
+  const { testRunBlueprintByBatchQuery } = await import('./blueprintBatchRunner')
+  const batchLog = await testRunBlueprintByBatchQuery(opts)
+  if (batchLog.batchId || batchLog.batchNumber) {
+    return {
+      invoiceId: batchLog.batchId,
+      ok: batchLog.ok,
+      detail: batchLog.detail,
+      batchNumber: batchLog.batchNumber,
+    }
+  }
+
+  return {
+    invoiceId: '',
+    ok: false,
+    detail: `No invoice or batch found for “${opts.query.trim()}”. Try invoice #, load #, or batch #.`,
+  }
 }
 
 /** Assign (if needed) + enroll for a live event. */
@@ -553,7 +673,9 @@ export async function enrollForEvent(
       detail: `No blueprint matches event “${event}”.`,
     }
   }
-  const log = await enrollInvoiceIfNeeded(invoice, reason)
+  const log = await enrollInvoiceIfNeeded(invoice, reason, {
+    justProcessed: event === 'invoice_processed',
+  })
   if (!log.ok) return log
   return {
     ...log,
@@ -593,7 +715,10 @@ function isParkedAtWhen(invoiceId: string): boolean {
  * If parked on a When that now matches, advance (Then-do / Wait / Done).
  * Works for every blueprint — not hold-specific.
  */
-export async function tryAdvanceParkedWhen(invoiceId: string): Promise<boolean> {
+export async function tryAdvanceParkedWhen(
+  invoiceId: string,
+  options?: { justProcessed?: boolean }
+): Promise<boolean> {
   if (!isBlueprintsRunnerEnabled()) return false
   const invoice = getInvoiceById(invoiceId)
   if (!invoice) return false
@@ -606,8 +731,12 @@ export async function tryAdvanceParkedWhen(invoiceId: string): Promise<boolean> 
   if (!loaded || !run.currentNodeId) return false
   const node = loaded.bp.nodes.find((n) => n.id === run.currentNodeId)
   if (!node || !isWhen(node.data)) return false
-  if (!evaluateWhenNode(node.data, invoice)) return false
-  await advanceInvoiceRun(invoiceId, { forceWake: true })
+  const meta = { justProcessed: Boolean(options?.justProcessed) }
+  if (!evaluateWhenNode(node.data, invoice, meta)) return false
+  await advanceInvoiceRun(invoiceId, {
+    forceWake: true,
+    justProcessed: options?.justProcessed,
+  })
   return true
 }
 
@@ -670,6 +799,27 @@ export function onInvoicePpwSent(invoiceId: string): void {
     })
   } catch (err) {
     console.warn('[blueprints] onInvoicePpwSent', err)
+  }
+}
+
+/** Invoice settled via batch Process (approved / hold). */
+export function onInvoiceProcessed(invoiceId: string): void {
+  try {
+    runBlueprintLifecycleHook(() => {
+      if (!isBlueprintsRunnerEnabled()) return
+      void (async () => {
+        const invoice = getInvoiceById(invoiceId)
+        if (!invoice) return
+
+        if (await tryAdvanceParkedWhen(invoiceId, { justProcessed: true })) {
+          return
+        }
+
+        await enrollForEvent(invoice, 'invoice_processed', 'invoice processed')
+      })().catch((err) => console.warn('[blueprints] onInvoiceProcessed', err))
+    })
+  } catch (err) {
+    console.warn('[blueprints] onInvoiceProcessed', err)
   }
 }
 

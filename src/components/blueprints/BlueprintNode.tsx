@@ -66,7 +66,7 @@ function subtitle(data: BlueprintNodeData): string {
   }
   if (data.kind === 'wait') {
     const wait = lookupWaitUntilById(data.waitUntilId)
-    if (wait) return formatCatalogCardLine(wait, data.days)
+    if (wait) return formatCatalogCardLine(wait, data.days, data.waitUnit)
     return data.fieldKey?.trim() || 'Choose when to continue…'
   }
   if (data.kind === 'if' || data.kind === 'elseif') {

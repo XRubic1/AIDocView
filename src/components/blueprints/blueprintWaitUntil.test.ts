@@ -81,6 +81,21 @@ describe('resolveBlueprintWaitUntil', () => {
     expect(result.detail).toMatch(/5 days from this step/i)
   })
 
+  it('pause_days with minutes wakes ≈ now + N minutes', () => {
+    const now = new Date(2026, 2, 10, 14, 30, 0)
+    const node = waitNode('pause_days', '10')
+    node.data.waitUnit = 'minutes'
+    const result = resolveBlueprintWaitUntil(
+      { kind: 'invoice', invoice: baseInvoice() },
+      node,
+      now
+    )
+    const delta = new Date(result.waitUntil).getTime() - now.getTime()
+    expect(delta).toBeGreaterThanOrEqual(10 * 60_000 - 1000)
+    expect(delta).toBeLessThanOrEqual(10 * 60_000 + 1000)
+    expect(result.detail).toMatch(/10 minutes/i)
+  })
+
   it('net_plus_late = invoice_date + Net + D', () => {
     const now = new Date(2026, 0, 1, 8, 0, 0) // before wake so no clamp
     const invoice = baseInvoice({ invoice_date: '2026-01-01' })

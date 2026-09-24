@@ -165,7 +165,19 @@ function resolveInvoiceWait(
   const D = parseDays(node.data.days, id === 'after_last_email' ? 5 : 15)
 
   if (id === 'pause_days' || !id) {
-    return { waitUntil: clampWake(daysFromNow(parseDays(node.data.days, 3), now), now), detail: `Wait ${parseDays(node.data.days, 3)}d from step` }
+    const amount = parseDays(node.data.days, 3)
+    const unit = String(node.data.waitUnit || 'days')
+    if (unit === 'minutes' || unit === 'hours') {
+      const ms = unit === 'minutes' ? amount * 60_000 : amount * 3_600_000
+      return {
+        waitUntil: clampWake(new Date(now.getTime() + ms).toISOString(), now),
+        detail: `Wait ${amount}${unit === 'minutes' ? 'm' : 'h'} from step`,
+      }
+    }
+    return {
+      waitUntil: clampWake(daysFromNow(amount, now), now),
+      detail: `Wait ${amount}d from step`,
+    }
   }
 
   if (id === 'net_plus_late') {

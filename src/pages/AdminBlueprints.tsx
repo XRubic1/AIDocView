@@ -45,7 +45,7 @@ import {
   isBlueprintsRunnerEnabled,
   setBlueprintsRunnerEnabled,
 } from '../config/blueprintsRuntime'
-import { syncAllOpenInvoiceBlueprints } from '../components/blueprints/blueprintRunner'
+import { syncAllOpenInvoiceBlueprints, testRunBlueprintByQuery } from '../components/blueprints/blueprintRunner'
 import '../styles/adminBlueprints.css'
 
 type BlueprintsPageTab = 'editor' | 'library' | 'activity'
@@ -86,6 +86,8 @@ export default function AdminBlueprints() {
   const [whenEvents, setWhenEvents] = useState(() => collectWhenEvents(initial.nodes))
   const [pageTab, setPageTab] = useState<BlueprintsPageTab>('editor')
   const [runnerOn, setRunnerOn] = useState(() => isBlueprintsRunnerEnabled())
+  const [testQuery, setTestQuery] = useState('')
+  const [testBusy, setTestBusy] = useState(false)
 
   useEffect(() => {
     const sync = () => setRunnerOn(isBlueprintsRunnerEnabled())
@@ -228,6 +230,45 @@ export default function AdminBlueprints() {
     showToast('Dry run finished — see the log below.', 'success')
   }, [showToast])
 
+  const handleTestLive = useCallback(async () => {
+    const q = testQuery.trim()
+    if (!q) {
+      showToast('Enter an invoice #, load #, or batch # to test.', 'error')
+      return
+    }
+    if (!isBlueprintsRunnerEnabled()) {
+      showToast('Turn on Live runner first.', 'error')
+      return
+    }
+    // Persist current graph so assignment loads the latest Then-do / Wait
+    const trimmed = name.trim() || 'Untitled blueprint'
+    const { nodes, edges } = graphRef.current
+    const saved = saveBlueprint({
+      id: activeId || newBlueprintId(),
+      name: trimmed,
+      priority: Number.isFinite(priority) ? priority : 0,
+      updatedAt: new Date().toISOString(),
+      nodes,
+      edges,
+    })
+    setActiveId(saved.id)
+    setName(saved.name)
+    setDirty(false)
+    refreshList()
+
+    setTestBusy(true)
+    try {
+      const log = await testRunBlueprintByQuery({
+        blueprintId: saved.id,
+        blueprintName: saved.name,
+        query: q,
+      })
+      showToast(log.detail, log.ok ? 'success' : 'error')
+    } finally {
+      setTestBusy(false)
+    }
+  }, [testQuery, name, activeId, priority, refreshList, showToast])
+
   const handleAssumptionChange = useCallback((checkId: string, value: boolean) => {
     setAssumptions((prev) => ({ ...prev, [checkId]: value }))
   }, [])
@@ -352,6 +393,27 @@ export default function AdminBlueprints() {
               <Trash2 size={14} aria-hidden />
               Delete
             </button>
+            <div className="admin-blueprints__test-run" title="Live test: assign + run Then-do on a real invoice or batch">
+              <input
+                type="text"
+                value={testQuery}
+                onChange={(e) => setTestQuery(e.target.value)}
+                placeholder="Invoice #, Load #, or Batch #"
+                aria-label="Test invoice, load, or batch number"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleTestLive()
+                }}
+              />
+              <button
+                type="button"
+                className="admin-blueprints__btn admin-blueprints__btn--run"
+                disabled={testBusy}
+                onClick={() => void handleTestLive()}
+              >
+                <Play size={14} aria-hidden />
+                {testBusy ? 'Testing…' : 'Test live'}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="admin-blueprints__toolbar">

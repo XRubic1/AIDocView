@@ -24,6 +24,8 @@ export type BlueprintMatchEvent =
   | 'broker_created'
   /** Confirmed payment posted on the invoice. */
   | 'payment_posted'
+  /** Invoice settled via batch Process (approved / hold). */
+  | 'invoice_processed'
   /** Batch Process completed (status → submitted). */
   | 'batch_processed'
 
@@ -82,6 +84,18 @@ function hasBatchProcessedWhen(nodes: BlueprintFlowNode[]): boolean {
       (n.data.kind === 'if' || n.data.kind === 'elseif') &&
       n.data.checkId === 'batch_processed'
   )
+}
+
+function hasInvoiceProcessedWhen(
+  nodes: BlueprintFlowNode[],
+  match: 'yes' | 'no' | 'any' = 'yes'
+): boolean {
+  return nodes.some((n) => {
+    if (n.data.kind !== 'if' && n.data.kind !== 'elseif') return false
+    if (n.data.checkId !== 'invoice_processed') return false
+    if (match === 'any') return true
+    return normalizeWhenMatch(n.data) === match
+  })
 }
 
 function holdOnly(filters: BlueprintTriggerFilters): boolean {
@@ -184,6 +198,20 @@ export function scoreBlueprintForEvent(
       blueprint: bp,
       score,
       reason: 'When · Payment posted',
+    }
+  }
+
+  if (event === 'invoice_processed') {
+    if (!isInvoiceBlueprint(bp)) return null
+    if (!hasInvoiceProcessedWhen(bp.nodes, 'yes')) return null
+    const start = getStartNode(bp.nodes)
+    if (!start) return null
+    let score = 80
+    if (getTriggerEntry(start.data) === 'event') score += 10
+    return {
+      blueprint: bp,
+      score,
+      reason: 'When · Invoice processed',
     }
   }
 

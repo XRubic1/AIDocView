@@ -172,6 +172,10 @@ export async function sendBrokerPacketForInvoice(
     batchNumber?: string
     /** Skip when PPW already logged successfully. */
     skipIfAlreadySent?: boolean
+    /** Optional Resend From override (e.g. blueprint From picker). */
+    fromOverride?: string
+    /** Optional CC addresses. */
+    cc?: string[]
   }
 ): Promise<BrokerPacketSendResult> {
   if (!isEmailLifecycleRuleEnabled('batch_processed_broker_ppw')) {
@@ -288,7 +292,13 @@ export async function sendBrokerPacketForInvoice(
         partSuffix,
         partNoteHtml,
       },
-      emailAttachments
+      {
+        attachments: emailAttachments,
+        ...(opts.fromOverride?.trim()
+          ? { fromOverride: opts.fromOverride.trim() }
+          : {}),
+        ...(opts.cc?.length ? { cc: opts.cc } : {}),
+      }
     )
 
     if (!emailResult.ok) {

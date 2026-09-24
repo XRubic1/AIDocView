@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Edge } from '@xyflow/react'
-import { Bookmark, Check, Plus, Trash2, X } from 'lucide-react'
+import { Bookmark, Check, ChevronDown, ChevronUp, Plus, Trash2, X } from 'lucide-react'
 import type { BlueprintFlowNode, BlueprintNodeData } from '../../types/blueprintGraph'
 import { BLUEPRINT_NODE_KIND_LABELS } from '../../types/blueprintGraph'
 import {
@@ -26,12 +26,26 @@ import { upsertCardByName } from './blueprintCardLibrary'
 import {
   channelLabel,
   defaultTaskConfig,
+  fromRoleLabel,
   getActionSetup,
   isActionConfigurable,
   isTaskReady,
+  resolveFromEmailsList,
   taskSetupHint,
   type BlueprintDeliveryChannel,
+  type BlueprintFromMailbox,
 } from './blueprintActionSetup'
+import {
+  EMAIL_MAILBOXES,
+  isValidMailboxEmail,
+  listBlueprintFromOptions,
+  type EmailMailboxSettings,
+} from '../../config/emailMailboxes'
+import {
+  applyEmailMailboxes,
+  loadEmailMailboxes,
+  saveEmailMailboxes,
+} from '../../services/platformSettingsService'
 import { useRevealMissingSetup } from './blueprintSetupUi'
 import {
   compileBlueprintIndex,
@@ -137,9 +151,24 @@ export default function BlueprintSidePanel({
   const [templatesLoading, setTemplatesLoading] = useState(false)
   const [showFullTemplate, setShowFullTemplate] = useState(false)
   const [sideWidth, setSideWidth] = useState(readStoredSideWidth)
+  const [mailboxes, setMailboxes] = useState<EmailMailboxSettings>(() => ({
+    ...EMAIL_MAILBOXES,
+  }))
+  const [newFromEmail, setNewFromEmail] = useState('')
+  const [fromBusy, setFromBusy] = useState(false)
   const revealMissing = useRevealMissingSetup()
   const addMenuRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void loadEmailMailboxes().then((m) => {
+      if (!cancelled) setMailboxes(m)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const onResizePointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -322,6 +351,9 @@ export default function BlueprintSidePanel({
       message: string
       channel: BlueprintDeliveryChannel
       templateId: string
+      fromMailbox: BlueprintFromMailbox | ''
+      fromEmail: string
+      fromEmails: string[]
     }>
   ) => {
     const current = data.actionConfigs?.[actionId] ?? defaultTaskConfig(actionId)
@@ -331,6 +363,97 @@ export default function BlueprintSidePanel({
         [actionId]: { ...current, ...patch },
       },
     })
+  }
+
+  const fromOptions = listBlueprintFromOptions(mailboxes)
+  const selectedFromEmails = resolveFromEmailsList(editingCfg, {
+    billing: mailboxes.billingEmail,
+    ops: mailboxes.opsEmail,
+    admin: mailboxes.adminEmail,
+    notifications: mailboxes.notificationsEmail,
+  })
+
+  const setFromEmailsOrdered = (emails: string[]) => {
+    if (!expandedTask) return
+    const cleaned = emails.map((e) => e.trim().toLowerCase()).filter(Boolean)
+    const unique: string[] = []
+    const seen = new Set<string>()
+    for (const e of cleaned) {
+      if (seen.has(e)) continue
+      seen.add(e)
+      unique.push(e)
+    }
+    const next = unique.length ? unique : [mailboxes.billingEmail.toLowerCase()]
+    updateTaskConfig(expandedTask, {
+      fromEmails: next,
+      fromEmail: next[0] ?? '',
+      fromMailbox: '',
+    })
+  }
+
+  const toggleFromEmail = (email: string) => {
+    const key = email.trim().toLowerCase()
+    if (!key) return
+    if (selectedFromEmails.includes(key)) {
+      setFromEmailsOrdered(selectedFromEmails.filter((e) => e !== key))
+      return
+    }
+    setFromEmailsOrdered([...selectedFromEmails, key])
+  }
+
+  const moveFromEmail = (index: number, dir: -1 | 1) => {
+    const next = [...selectedFromEmails]
+    const j = index + dir
+    if (j < 0 || j >= next.length) return
+    ;[next[index], next[j]] = [next[j], next[index]]
+    setFromEmailsOrdered(next)
+  }
+
+  const persistExtraFrom = async (nextExtras: string[]) => {
+    setFromBusy(true)
+    try {
+      const next = await saveEmailMailboxes({
+        ...mailboxes,
+        extraFromEmails: nextExtras,
+      })
+      applyEmailMailboxes(next)
+      setMailboxes(next)
+      return next
+    } finally {
+      setFromBusy(false)
+    }
+  }
+
+  const handleAddFromEmail = async () => {
+    const email = newFromEmail.trim().toLowerCase()
+    if (!isValidMailboxEmail(email)) return
+    if (!email.endsWith('@credyx.net')) {
+      window.alert('Use a @credyx.net address (must be verified in Resend).')
+      return
+    }
+    const extras = [...mailboxes.extraFromEmails]
+    const alreadyListed =
+      extras.some((e) => e.toLowerCase() === email) ||
+      fromOptions.some((o) => o.email.toLowerCase() === email)
+    if (!alreadyListed) {
+      extras.push(email)
+      await persistExtraFrom(extras)
+    }
+    setNewFromEmail('')
+    if (!selectedFromEmails.includes(email)) {
+      setFromEmailsOrdered([...selectedFromEmails, email])
+    }
+  }
+
+  const handleRemoveFromEmail = async (email: string) => {
+    const key = email.toLowerCase()
+    const nextExtras = mailboxes.extraFromEmails.filter(
+      (e) => e.toLowerCase() !== key
+    )
+    await persistExtraFrom(nextExtras)
+    if (selectedFromEmails.includes(key)) {
+      setFromEmailsOrdered(selectedFromEmails.filter((e) => e !== key))
+    }
   }
 
   const selectedTemplate =
@@ -412,6 +535,169 @@ export default function BlueprintSidePanel({
                   </span>
                 )}
               </label>
+            ) : null}
+
+            {expandedTask === 'email_broker_packet' ? (
+              <p className="bp-side__help">
+                Sends the real broker paperwork packet (invoice docs + vault
+                attachments), same path as Process / Send docs — not a template-only
+                email.
+              </p>
+            ) : null}
+
+            {editingSetup.needsFrom ? (
+              <div className="bp-side__field">
+                <span>Send from / CC</span>
+                {selectedFromEmails.length > 0 ? (
+                  <ol className="bp-side__from-order">
+                    {selectedFromEmails.map((email, index) => {
+                      const opt = fromOptions.find(
+                        (o) => o.email.toLowerCase() === email
+                      )
+                      return (
+                        <li key={email}>
+                          <span className="bp-side__from-role">{fromRoleLabel(index)}</span>
+                          <span className="bp-side__from-addr" title={email}>
+                            {opt?.label ? `${opt.label} — ${email}` : email}
+                          </span>
+                          <span className="bp-side__from-order-actions">
+                            <button
+                              type="button"
+                              className="bp-side__mini-btn"
+                              disabled={index === 0}
+                              aria-label="Move up (earlier = From)"
+                              onClick={() => moveFromEmail(index, -1)}
+                            >
+                              <ChevronUp size={12} aria-hidden />
+                            </button>
+                            <button
+                              type="button"
+                              className="bp-side__mini-btn"
+                              disabled={index === selectedFromEmails.length - 1}
+                              aria-label="Move down"
+                              onClick={() => moveFromEmail(index, 1)}
+                            >
+                              <ChevronDown size={12} aria-hidden />
+                            </button>
+                            <button
+                              type="button"
+                              className="bp-side__mini-btn bp-side__mini-btn--danger"
+                              disabled={selectedFromEmails.length <= 1}
+                              aria-label={`Remove ${email}`}
+                              onClick={() =>
+                                setFromEmailsOrdered(
+                                  selectedFromEmails.filter((e) => e !== email)
+                                )
+                              }
+                            >
+                              <X size={12} aria-hidden />
+                            </button>
+                          </span>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                ) : null}
+                <div className="bp-side__from-picks" role="group" aria-label="Mailbox options">
+                  {fromOptions.map((o) => {
+                    const key = o.email.toLowerCase()
+                    const selected = selectedFromEmails.includes(key)
+                    const orderIdx = selectedFromEmails.indexOf(key)
+                    return (
+                      <button
+                        key={o.email}
+                        type="button"
+                        className={`bp-side__from-pick${selected ? ' is-selected' : ''}`}
+                        aria-pressed={selected}
+                        onClick={() => toggleFromEmail(o.email)}
+                      >
+                        <span className="bp-side__from-pick-check" aria-hidden>
+                          {selected ? <Check size={12} /> : null}
+                        </span>
+                        <span className="bp-side__from-pick-body">
+                          <span className="bp-side__from-pick-label">
+                            {o.label}
+                            {selected ? (
+                              <em> · {fromRoleLabel(orderIdx)}</em>
+                            ) : null}
+                          </span>
+                          <span className="bp-side__from-pick-email">{o.email}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                  {selectedFromEmails
+                    .filter(
+                      (e) =>
+                        !fromOptions.some((o) => o.email.toLowerCase() === e)
+                    )
+                    .map((email) => (
+                      <button
+                        key={email}
+                        type="button"
+                        className="bp-side__from-pick is-selected"
+                        aria-pressed
+                        onClick={() => toggleFromEmail(email)}
+                      >
+                        <span className="bp-side__from-pick-check" aria-hidden>
+                          <Check size={12} />
+                        </span>
+                        <span className="bp-side__from-pick-body">
+                          <span className="bp-side__from-pick-label">
+                            Saved · {fromRoleLabel(selectedFromEmails.indexOf(email))}
+                          </span>
+                          <span className="bp-side__from-pick-email">{email}</span>
+                        </span>
+                      </button>
+                    ))}
+                </div>
+                <div className="bp-side__from-add">
+                  <input
+                    type="email"
+                    value={newFromEmail}
+                    placeholder="add@credyx.net"
+                    disabled={fromBusy}
+                    onChange={(e) => setNewFromEmail(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        void handleAddFromEmail()
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="bp-side__mini-btn"
+                    disabled={fromBusy || !newFromEmail.trim()}
+                    onClick={() => void handleAddFromEmail()}
+                  >
+                    Add
+                  </button>
+                </div>
+                {mailboxes.extraFromEmails.length > 0 ? (
+                  <ul className="bp-side__from-list">
+                    {mailboxes.extraFromEmails.map((email) => (
+                      <li key={email}>
+                        <span className="bp-side__from-addr">{email}</span>
+                        <button
+                          type="button"
+                          className="bp-side__mini-btn bp-side__mini-btn--danger"
+                          disabled={fromBusy}
+                          aria-label={`Remove ${email} from extras`}
+                          onClick={() => void handleRemoveFromEmail(email)}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <span className="bp-side__help">
+                  First selected address is From; 2nd+ go on CC. Use ↑↓ to reorder. Core
+                  addresses come from Settings → Addresses; extras must be verified in
+                  Resend.
+                </span>
+              </div>
             ) : null}
 
             {editingSetup.needsMessage ? (
@@ -818,23 +1104,53 @@ export default function BlueprintSidePanel({
           {selectedWait?.help ? <p className="bp-side__help">{selectedWait.help}</p> : null}
 
           {selectedWait?.needsDays ? (
-            <label className="bp-side__field">
-              <span>{selectedWait.daysHint ?? 'How many days?'}</span>
-              <input
-                type="number"
-                min={0}
-                inputMode="numeric"
-                value={data.days ?? ''}
-                placeholder={selectedWait.defaultDays ?? '15'}
-                onChange={(e) => {
-                  const days = e.target.value
-                  applyPatch({
-                    days,
-                    fieldKey: formatCatalogCardLine(selectedWait, days),
-                  })
-                }}
-              />
-            </label>
+            <>
+              {selectedWait.id === 'pause_days' ? (
+                <label className="bp-side__field">
+                  <span>Unit</span>
+                  <select
+                    value={data.waitUnit || 'days'}
+                    onChange={(e) => {
+                      const waitUnit = e.target.value as 'days' | 'hours' | 'minutes'
+                      const days = data.days ?? selectedWait.defaultDays ?? '3'
+                      applyPatch({
+                        waitUnit,
+                        days,
+                        fieldKey: formatCatalogCardLine(selectedWait, days, waitUnit),
+                      })
+                    }}
+                  >
+                    <option value="days">Days</option>
+                    <option value="hours">Hours</option>
+                    <option value="minutes">Minutes</option>
+                  </select>
+                  <span className="bp-side__help">
+                    Hours/minutes wake sooner (good for testing). Days still use ~9:00 local.
+                  </span>
+                </label>
+              ) : null}
+              <label className="bp-side__field">
+                <span>{selectedWait.daysHint ?? 'How long?'}</span>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  value={data.days ?? ''}
+                  placeholder={selectedWait.defaultDays ?? '15'}
+                  onChange={(e) => {
+                    const days = e.target.value
+                    applyPatch({
+                      days,
+                      fieldKey: formatCatalogCardLine(
+                        selectedWait,
+                        days,
+                        data.waitUnit
+                      ),
+                    })
+                  }}
+                />
+              </label>
+            </>
           ) : null}
         </>
       )}

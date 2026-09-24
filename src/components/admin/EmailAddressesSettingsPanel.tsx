@@ -157,6 +157,77 @@ export default function EmailAddressesSettingsPanel({
       </div>
 
       <div>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: c.primary }}>
+          Extra From addresses (Blueprints)
+        </h3>
+        <p className="text-xs mb-3 max-w-2xl" style={{ color: c.secondary }}>
+          Optional addresses shown in Then-do → Send from. Must be verified in Resend. You can
+          also add/remove these from the blueprint task panel.
+        </p>
+        <ul className="space-y-2 mb-3">
+          {settings.extraFromEmails.length === 0 ? (
+            <li className="text-xs" style={{ color: c.mutedLight }}>
+              No extras yet.
+            </li>
+          ) : (
+            settings.extraFromEmails.map((email) => (
+              <li
+                key={email}
+                className="flex items-center justify-between gap-2 text-sm font-mono"
+                style={{ color: c.primary }}
+              >
+                <span>{email}</span>
+                <button
+                  type="button"
+                  className="client-btn client-btn--ghost text-xs"
+                  onClick={() =>
+                    onChange({
+                      extraFromEmails: settings.extraFromEmails.filter((e) => e !== email),
+                    })
+                  }
+                >
+                  Remove
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+        <div className="flex flex-wrap gap-2 items-center">
+          <input
+            type="email"
+            id="extra-from-email"
+            placeholder="system@credyx.net"
+            className="client-input font-mono text-sm flex-1 min-w-[200px]"
+            style={{ backgroundColor: c.card, color: c.primary }}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              e.preventDefault()
+              const input = e.currentTarget
+              const email = input.value.trim().toLowerCase()
+              if (!email || settings.extraFromEmails.includes(email)) return
+              onChange({ extraFromEmails: [...settings.extraFromEmails, email] })
+              input.value = ''
+            }}
+          />
+          <button
+            type="button"
+            className="client-btn client-btn--secondary text-sm"
+            onClick={() => {
+              const input = document.getElementById(
+                'extra-from-email'
+              ) as HTMLInputElement | null
+              const email = input?.value.trim().toLowerCase() || ''
+              if (!email || settings.extraFromEmails.includes(email)) return
+              onChange({ extraFromEmails: [...settings.extraFromEmails, email] })
+              if (input) input.value = ''
+            }}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+
+      <div>
         <h3 className="text-sm font-semibold mb-2" style={{ color: c.primary }}>
           What uses which address
         </h3>

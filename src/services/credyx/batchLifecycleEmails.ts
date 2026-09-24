@@ -111,6 +111,8 @@ export async function emailCarrierBatchProcessed(opts: {
   invoices: Invoice[]
   heldInvoices: Invoice[]
   ppwDetails?: PpwSendDetail[]
+  fromOverride?: string
+  cc?: string[]
 }): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
   if (!isEmailLifecycleRuleEnabled('batch_processed_carrier')) {
     return { ok: true, skipped: true, error: 'Carrier batch emails disabled' }
@@ -125,13 +127,21 @@ export async function emailCarrierBatchProcessed(opts: {
 
   const holdList = buildHoldList(opts.heldInvoices)
 
-  const result = await sendTransactionalEmail('carrier_batch_processed', to, {
-    batchNumber: opts.batchNumber,
-    invoiceCount: String(opts.invoices.length),
-    holdCount: String(opts.heldInvoices.length),
-    holdList: holdList || 'None',
-    ppwSummary,
-  })
+  const result = await sendTransactionalEmail(
+    'carrier_batch_processed',
+    to,
+    {
+      batchNumber: opts.batchNumber,
+      invoiceCount: String(opts.invoices.length),
+      holdCount: String(opts.heldInvoices.length),
+      holdList: holdList || 'None',
+      ppwSummary,
+    },
+    {
+      ...(opts.fromOverride ? { fromOverride: opts.fromOverride } : {}),
+      ...(opts.cc?.length ? { cc: opts.cc } : {}),
+    }
+  )
 
   if (result.ok && opts.invoices[0]) {
     try {

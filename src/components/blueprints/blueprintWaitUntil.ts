@@ -1,6 +1,6 @@
 /**
- * Catalog-aware Wait until → wake ISO (local 09:00).
- * Shared by invoice / broker / batch live runners.
+ * Catalog-aware Wait until → wake ISO.
+ * Calendar-day waits use local 09:00; hours/minutes use now + duration (for testing).
  */
 
 import type { BlueprintFlowNode } from '../../types/blueprintGraph'
@@ -18,6 +18,8 @@ import {
 import { computeBrokerPaymentHistory } from '../../utils/brokerPaymentHistory'
 import { buildBrokerPaymentTiming } from '../../utils/brokerPaymentTiming'
 
+export type BlueprintWaitUnit = 'days' | 'hours' | 'minutes'
+
 export type BlueprintWaitSubject =
   | { kind: 'invoice'; invoice: Invoice }
   | { kind: 'broker'; broker: Broker }
@@ -31,6 +33,12 @@ export type BlueprintWaitResolveResult = {
 function parseWaitDays(node: BlueprintFlowNode, fallback = 3): number {
   const n = Number(node.data.days)
   return Number.isFinite(n) && n >= 0 ? n : fallback
+}
+
+export function parseWaitUnit(node: BlueprintFlowNode): BlueprintWaitUnit {
+  const u = node.data.waitUnit
+  if (u === 'hours' || u === 'minutes' || u === 'days') return u
+  return 'days'
 }
 
 /** Local calendar day @ 09:00 → ISO. */
@@ -74,14 +82,29 @@ function clampWake(iso: string, now = new Date()): string {
   return iso
 }
 
+function unitLabel(amount: number, unit: BlueprintWaitUnit): string {
+  if (unit === 'minutes') return amount === 1 ? 'minute' : 'minutes'
+  if (unit === 'hours') return amount === 1 ? 'hour' : 'hours'
+  return amount === 1 ? 'day' : 'days'
+}
+
 function pauseFromStep(
-  days: number,
-  now = new Date()
+  amount: number,
+  now = new Date(),
+  unit: BlueprintWaitUnit = 'days'
 ): BlueprintWaitResolveResult {
-  const waitUntil = clampWake(daysFromNow(days, now), now)
+  if (unit === 'minutes' || unit === 'hours') {
+    const ms = unit === 'minutes' ? amount * 60_000 : amount * 3_600_000
+    const waitUntil = clampWake(new Date(now.getTime() + ms).toISOString(), now)
+    return {
+      waitUntil,
+      detail: `Wait ${amount} ${unitLabel(amount, unit)} from this step`,
+    }
+  }
+  const waitUntil = clampWake(daysFromNow(amount, now), now)
   return {
     waitUntil,
-    detail: `Wait ${days} day${days === 1 ? '' : 's'} from this step`,
+    detail: `Wait ${amount} ${unitLabel(amount, 'days')} from this step`,
   }
 }
 
@@ -115,7 +138,7 @@ function resolveInvoiceWait(
   const D = parseWaitDays(node, id === 'after_last_email' ? 5 : 15)
 
   if (id === 'pause_days') {
-    return pauseFromStep(parseWaitDays(node, 3), now)
+    return pauseFromStep(parseWaitDays(node, 3), now, parseWaitUnit(node))
   }
 
   if (id === 'net_plus_late') {
@@ -177,7 +200,7 @@ function resolveBrokerWait(
   const D = parseWaitDays(node, id === 'no_payments_for' ? 30 : 15)
 
   if (id === 'pause_days') {
-    return pauseFromStep(parseWaitDays(node, 3), now)
+    return pauseFromStep(parseWaitDays(node, 3), now, parseWaitUnit(node))
   }
 
   if (id === 'no_payments_for') {
@@ -189,7 +212,6 @@ function resolveBrokerWait(
         detail: `Until ${D} day${D === 1 ? '' : 's'} with no confirmed payment`,
       }
     }
-    // Never paid — clock from broker create if present, else from this step
     const created =
       (broker as Broker & { created_at?: string }).created_at?.trim() || null
     if (created) {
@@ -216,7 +238,6 @@ function resolveBrokerWait(
       paymentTermsDays: broker.payment_terms_days,
       avgDaysInvoiceToPay: history.avgDaysToPay,
       paidSampleSize: history.lifetimeCount,
-      // Soften sample floor for blueprint gates so thin books can still evaluate
       minPaidSample: 1,
     })
     if (timing && timing.daysLate >= D) {
@@ -251,6 +272,5 @@ export function resolveBlueprintWaitUntil(
   if (subject.kind === 'broker') {
     return resolveBrokerWait(subject.broker, node, now)
   }
-  // batch — pause only
-  return pauseFromStep(parseWaitDays(node, 1), now)
+  return pauseFromStep(parseWaitDays(node, 1), now, parseWaitUnit(node))
 }

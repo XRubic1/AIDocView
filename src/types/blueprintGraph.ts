@@ -28,6 +28,11 @@ export interface BlueprintNodeData extends Record<string, unknown> {
   triggerFilters?: BlueprintTriggerFilters
   /** Catalog id for Wait until (clock). */
   waitUntilId?: string
+  /**
+   * Simple wait duration unit (`pause_days` only). Default days.
+   * Hours/minutes wake at now + N (not local 09:00).
+   */
+  waitUnit?: 'days' | 'hours' | 'minutes'
   /** Catalog id for When (event). */
   checkId?: string
   /**
