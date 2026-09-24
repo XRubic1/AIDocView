@@ -449,16 +449,17 @@ function pushCashStack(
  * collected / forecast ourselves so a lone bar sits on the month label.
  */
 function makeMonthBarShape(hatchFill: string) {
-  return function MonthBarShape(props: BarShapeProps) {
-    const { x = 0, y = 0, width = 0, height = 0, payload } = props
-    if (!payload || width <= 0 || height <= 0) return null
+  // Recharts ActiveShape types props as `unknown` — narrow locally.
+  return function MonthBarShape(props: unknown) {
+    const { x = 0, y = 0, width = 0, height = 0, payload } = props as BarShapeProps
+    if (!payload || width <= 0 || height <= 0) return <g />
 
     const invoiced = payload.invoiced ?? 0
     const collected = payload.collected ?? 0
     const forecast = payload.forecast ?? 0
     const cash = collected + forecast
     const chartMax = Math.max(payload.chartMax ?? 0, invoiced, cash)
-    if (chartMax <= 0) return null
+    if (chartMax <= 0) return <g />
 
     const baseline = y + height
     const toH = (value: number) => (value / chartMax) * height
@@ -516,16 +517,13 @@ function makeMonthBarShape(hatchFill: string) {
   }
 }
 
-function CashBarLabel(props: {
-  x?: number
-  y?: number
-  width?: number
-  value?: number
-  payload?: SparkPoint
-}) {
-  const { x = 0, y = 0, width = 0, payload } = props
+function CashBarLabel(props: Record<string, unknown>) {
+  const x = Number(props.x ?? 0)
+  const y = Number(props.y ?? 0)
+  const width = Number(props.width ?? 0)
+  const payload = props.payload as SparkPoint | undefined
   const total = payload?.total ?? 0
-  if (total <= 0) return null
+  if (total <= 0 || !Number.isFinite(x) || !Number.isFinite(y)) return <g />
 
   return (
     <text
@@ -817,7 +815,7 @@ export default function CashCollectedPanel({
                     shape={monthBarShape}
                     isAnimationActive={false}
                   >
-                    <LabelList dataKey="total" content={CashBarLabel} />
+                    <LabelList dataKey="total" content={CashBarLabel as never} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
