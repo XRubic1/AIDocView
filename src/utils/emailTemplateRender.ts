@@ -115,6 +115,7 @@ export function enrichEmailTemplateData(
 
   if (!next.contactName) next.contactName = 'there'
   if (!next.loadNumber) next.loadNumber = 'N/A'
+  if (!next.companyLogoHtml) next.companyLogoHtml = buildCompanyLogoHtml()
 
   if (templateId.startsWith('auth_')) {
     return enrichAuthEmailFields(templateId, next, buildCompanyLogoHtml())

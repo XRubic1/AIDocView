@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { mockBrokers, addBroker, updateBrokerAsync } from '../data/mockBrokers'
 import { mockInvoices } from '../data/mockInvoices'
 import { Broker, BrokerEmail, BrokerPhone } from '../types/broker'
-import { GitMerge, Phone, Mail, MapPin, Search, X, Plus, Trash2 } from 'lucide-react'
+import { GitMerge, Phone, Mail, MapPin, Search, X, Plus, Trash2, Loader2 } from 'lucide-react'
 import MergeBrokersModal from '../components/brokers/MergeBrokersModal'
 import { mergeDuplicateBrokers } from '../services/mergeBrokersService'
 import { useToast } from '../components/ui/ToastProvider'
@@ -12,6 +12,14 @@ import { listLatestBrokerRiskProfiles } from '../data/brokerRiskStore'
 import { hydrateAuditLogsFromSupabase } from '../services/supabase/hydrateStores'
 import { formatPhoneNumber } from '../utils/formatPhoneNumber'
 import { applyEmailDomain, canSuggestEmailDomain, extractEmailDomain } from '../utils/emailDomain'
+import { findBrokerByMc, normalizeMcQuery } from '../utils/clientBrokers'
+import { lookupBrokerSnapshotByMc } from '../services/brokerSnapshotService'
+import {
+  fillEmptyBrokerFieldsFromSnapshot,
+  type SnapshotFieldDiff,
+  type SnapshotSuggestField,
+} from '../utils/brokerSnapshotFormFill'
+import SnapshotFieldSwap from '../components/brokers/SnapshotFieldSwap'
 import '../styles/clientPortal.css'
 import '../styles/brokerPicker.css'
 
@@ -103,6 +111,12 @@ export default function Brokers() {
   const [emails, setEmails] = useState<BrokerEmail[]>([])
   const [phones, setPhones] = useState<BrokerPhone[]>([])
   const [isSaving, setIsSaving] = useState(false)
+  /** MC → Snapshot autofill while Add/Edit broker form is open. */
+  const [mcLookupLoading, setMcLookupLoading] = useState(false)
+  /** Snapshot values that differ from what’s already on the form. */
+  const [snapshotDiffs, setSnapshotDiffs] = useState<
+    Array<SnapshotFieldDiff & { usingProposed: boolean }>
+  >([])
   /** When on, extra emails show a gray `@domain` hint — Tab accepts it. */
   const [autoFillEmailDomain, setAutoFillEmailDomain] = useState(true)
 
@@ -236,6 +250,7 @@ export default function Brokers() {
     setEmails([])
     setPhones([])
     setAutoFillEmailDomain(true)
+    setSnapshotDiffs([])
     setShowFormModal(true)
   }
 
@@ -244,6 +259,7 @@ export default function Brokers() {
     setEditingBrokerId(selectedBroker.id)
     populateFormFromBroker(selectedBroker)
     setAutoFillEmailDomain(true)
+    setSnapshotDiffs([])
     setShowFormModal(true)
   }
 
@@ -254,10 +270,168 @@ export default function Brokers() {
     setEmails([])
     setPhones([])
     setAutoFillEmailDomain(true)
+    setMcLookupLoading(false)
+    setSnapshotDiffs([])
   }
 
   const handleInputChange = (field: keyof Broker, value: string | number | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const applySuggestFieldValue = (field: SnapshotSuggestField, value: string) => {
+    if (field === 'email') {
+      setFormData((prev) => ({ ...prev, email: value }))
+      setEmails(value.trim() ? [{ email: value, category: 'accounting' }] : [])
+      return
+    }
+    if (field === 'phone') {
+      setFormData((prev) => ({ ...prev, phone: value }))
+      setPhones(value.trim() ? [{ phone: value, category: 'accounts_payable' }] : [])
+      return
+    }
+    setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleUseSnapshotProposed = (field: SnapshotSuggestField) => {
+    const diff = snapshotDiffs.find((d) => d.field === field)
+    if (!diff) return
+    applySuggestFieldValue(field, diff.proposed)
+    setSnapshotDiffs((prev) =>
+      prev.map((d) => (d.field === field ? { ...d, usingProposed: true } : d))
+    )
+  }
+
+  const handleUseSnapshotPrevious = (field: SnapshotSuggestField) => {
+    const diff = snapshotDiffs.find((d) => d.field === field)
+    if (!diff) return
+    applySuggestFieldValue(field, diff.previous)
+    setSnapshotDiffs((prev) =>
+      prev.map((d) => (d.field === field ? { ...d, usingProposed: false } : d))
+    )
+  }
+
+  const renderSnapshotDiff = (field: SnapshotSuggestField) => {
+    const diff = snapshotDiffs.find((d) => d.field === field)
+    if (!diff) return null
+    return (
+      <SnapshotFieldSwap
+        label={diff.label}
+        previous={diff.previous}
+        proposed={diff.proposed}
+        usingProposed={diff.usingProposed}
+        onUseProposed={() => handleUseSnapshotProposed(field)}
+        onUsePrevious={() => handleUseSnapshotPrevious(field)}
+      />
+    )
+  }
+
+  /**
+   * MC search: Credyx hit loads that broker; Snapshot fills empty fields and
+   * surfaces “what’s new” under fields that already differ.
+   */
+  const handleMcSnapshotLookup = async () => {
+    const mcRaw = formData.mc_number?.trim() || ''
+    const normalized = normalizeMcQuery(mcRaw)
+    if (!normalized) {
+      showToast('Enter an MC number first', 'error')
+      return
+    }
+
+    setFormData((prev) => ({ ...prev, mc_number: normalized }))
+    setSnapshotDiffs([])
+
+    const mcKey = normalized.replace(/[^A-Z0-9]/g, '')
+    const existing =
+      brokers.find(
+        (b) => b.mc_number?.toUpperCase().replace(/[^A-Z0-9]/g, '') === mcKey
+      ) ?? findBrokerByMc(normalized)
+
+    let workingForm = { ...formData, mc_number: normalized }
+    let workingEmails = emails
+    let workingPhones = phones
+
+    if (existing && existing.id !== editingBrokerId) {
+      showToast(`MC ${normalized} already in Credyx — loaded ${existing.name}`, 'info')
+      setEditingBrokerId(existing.id)
+      populateFormFromBroker(existing)
+      setSelectedBroker(existing)
+      workingForm = {
+        name: existing.name,
+        contact_person: existing.contact_person || '',
+        email: existing.email || '',
+        phone: existing.phone || '',
+        fax: existing.fax ? formatPhoneNumber(existing.fax) : '',
+        address: existing.address || '',
+        city: existing.city || '',
+        state: existing.state || '',
+        zip: existing.zip || '',
+        mc_number: existing.mc_number || normalized,
+        dot_number: existing.dot_number || '',
+        notes: existing.notes || '',
+        carrier_notes: existing.carrier_notes || '',
+        is_new: Boolean(existing.is_new),
+        payment_terms_days: existing.payment_terms_days ?? 0,
+        paperwork_status_check_days: existing.paperwork_status_check_days ?? 7,
+        payment_status_inquiry_days: existing.payment_status_inquiry_days ?? 15,
+        preferred_contact: existing.preferred_contact ?? 'either',
+      }
+      workingEmails = existing.emails?.length
+        ? existing.emails.map((e) => ({ ...e }))
+        : existing.email
+          ? [{ email: existing.email, category: 'accounting' }]
+          : []
+      workingPhones = existing.phones?.length
+        ? existing.phones.map((p) => ({ ...p, phone: formatPhoneNumber(p.phone) }))
+        : existing.phone
+          ? [{ phone: formatPhoneNumber(existing.phone), category: 'accounts_payable' }]
+          : []
+    }
+
+    setMcLookupLoading(true)
+    try {
+      const snapshot = await lookupBrokerSnapshotByMc(normalized)
+      if (!snapshot.found) {
+        showToast(`No BrokerSnapshot match for ${normalized}`, 'error')
+        return
+      }
+
+      const result = fillEmptyBrokerFieldsFromSnapshot(workingForm, snapshot, {
+        emails: workingEmails,
+        phones: workingPhones,
+      })
+
+      if (result.formPatch && Object.keys(result.formPatch).length > 0) {
+        setFormData((prev) => ({
+          ...prev,
+          ...result.formPatch,
+          mc_number: result.formPatch.mc_number || normalized,
+        }))
+      }
+      if (result.emails) setEmails(result.emails)
+      if (result.phones) setPhones(result.phones)
+
+      if (result.diffs.length > 0) {
+        setSnapshotDiffs(result.diffs.map((d) => ({ ...d, usingProposed: false })))
+      }
+
+      const parts: string[] = []
+      if (result.filled.length > 0) parts.push(`filled ${result.filled.join(', ')}`)
+      if (result.diffs.length > 0) {
+        parts.push(`${result.diffs.length} new suggestion${result.diffs.length === 1 ? '' : 's'}`)
+      }
+      if (parts.length === 0) {
+        showToast('Snapshot matches what’s already on file', 'info')
+      } else {
+        showToast(`BrokerSnapshot: ${parts.join(' · ')}`, 'success')
+      }
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'BrokerSnapshot lookup failed',
+        'error'
+      )
+    } finally {
+      setMcLookupLoading(false)
+    }
   }
 
   const sharedEmailDomain = extractEmailDomain(emails[0]?.email ?? '')
@@ -854,7 +1028,7 @@ export default function Brokers() {
                 <p className="text-xs text-slate-500 mt-0.5 truncate">
                   {editingBrokerId
                     ? 'Update contact, address, and collections preferences'
-                    : 'Fill in each section — required fields are marked'}
+                    : 'Enter MC and search to autofill — or fill sections manually'}
                 </p>
               </div>
               <button
@@ -883,6 +1057,7 @@ export default function Brokers() {
                         onChange={(e) => handleInputChange('name', e.target.value)}
                         className={`${inputClass} mt-1`}
                       />
+                      {renderSnapshotDiff('name')}
                     </label>
                     <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
@@ -894,6 +1069,7 @@ export default function Brokers() {
                         onChange={(e) => handleInputChange('contact_person', e.target.value)}
                         className={`${inputClass} mt-1`}
                       />
+                      {renderSnapshotDiff('contact_person')}
                     </label>
                     <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">Fax</span>
@@ -904,6 +1080,7 @@ export default function Brokers() {
                         placeholder="(555) 123-4567"
                         className={`${inputClass} mt-1`}
                       />
+                      {renderSnapshotDiff('fax')}
                     </label>
                   </section>
 
@@ -917,6 +1094,7 @@ export default function Brokers() {
                         onChange={(e) => handleInputChange('address', e.target.value)}
                         className={`${inputClass} mt-1`}
                       />
+                      {renderSnapshotDiff('address')}
                     </label>
                     <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">City</span>
@@ -955,12 +1133,39 @@ export default function Brokers() {
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
                         MC number
                       </span>
-                      <input
-                        type="text"
-                        value={formData.mc_number || ''}
-                        onChange={(e) => handleInputChange('mc_number', e.target.value)}
-                        className={`${inputClass} mt-1`}
-                      />
+                      <div className="mt-1 flex items-stretch gap-1.5 min-w-0">
+                        <input
+                          type="text"
+                          value={formData.mc_number || ''}
+                          onChange={(e) => handleInputChange('mc_number', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              void handleMcSnapshotLookup()
+                            }
+                          }}
+                          placeholder="MC-123456"
+                          className={`${inputClass} flex-1 min-w-0`}
+                          disabled={mcLookupLoading}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleMcSnapshotLookup()}
+                          disabled={mcLookupLoading || !(formData.mc_number || '').trim()}
+                          className="shrink-0 inline-flex items-center justify-center w-9 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-[#1684FE] disabled:opacity-50 disabled:cursor-not-allowed"
+                          aria-label="Search MC in Credyx, then BrokerSnapshot"
+                          title="Search MC — Credyx first, then BrokerSnapshot autofill"
+                        >
+                          {mcLookupLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                          ) : (
+                            <Search className="w-4 h-4" aria-hidden />
+                          )}
+                        </button>
+                      </div>
+                      <span className="mt-1 block text-[10px] text-slate-500 leading-snug">
+                        Credyx first · empty fields autofill · differing fields show NEW swap below
+                      </span>
                     </label>
                     <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
@@ -972,6 +1177,7 @@ export default function Brokers() {
                         onChange={(e) => handleInputChange('dot_number', e.target.value)}
                         className={`${inputClass} mt-1`}
                       />
+                      {renderSnapshotDiff('dot_number')}
                     </label>
                   </section>
 
@@ -1170,6 +1376,7 @@ export default function Brokers() {
                       {emails.length === 0 ? (
                         <p className="text-xs text-slate-500">No emails yet.</p>
                       ) : null}
+                      {renderSnapshotDiff('email')}
                     </div>
                   </section>
 
@@ -1224,6 +1431,7 @@ export default function Brokers() {
                       {phones.length === 0 ? (
                         <p className="text-xs text-slate-500">No phones yet.</p>
                       ) : null}
+                      {renderSnapshotDiff('phone')}
                     </div>
                   </section>
 
@@ -1253,6 +1461,7 @@ export default function Brokers() {
                         placeholder="Shown to carriers — e.g. Limited remittance history; start with smaller loads…"
                         className={inputClass}
                       />
+                      {renderSnapshotDiff('carrier_notes')}
                     </label>
                   </section>
 

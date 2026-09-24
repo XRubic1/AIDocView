@@ -226,6 +226,77 @@ function renderTemplateString(template: string, data: Record<string, string>): s
   })
 }
 
+function isFullEmailDocument(html: string): boolean {
+  const t = html.trim().toLowerCase()
+  return t.startsWith('<!doctype') || t.startsWith('<html')
+}
+
+const EMAIL_SHELL_EYEBROW: Record<string, string> = {
+  carrier_batch_processed: 'Batch update',
+  carrier_batch_verified: 'Batch verified',
+  carrier_batch_holds: 'Holds',
+  admin_enrollment_alert: 'Enrollment',
+  waitlist_signup_alert: 'Waitlist',
+  waitlist_welcome: 'Waitlist',
+  credyx_batch_error: 'Batch error',
+  broker_payment_status_inquiry: 'Collections',
+  broker_payment_status_followup: 'Collections',
+  broker_paperwork_status_inquiry: 'Paperwork',
+  broker_paperwork_status_followup: 'Paperwork',
+  broker_claim_scope: 'Claim',
+  carrier_claim_or_hold_notice: 'Invoice update',
+  carrier_dispute_opened: 'Dispute',
+  calendar_event_notice: 'Calendar',
+  staff_calendar_digest: 'Staff calendar',
+}
+
+/** Wrap plain HTML snippets in the Credyx branded shell (matches frontend emailLayouts). */
+function ensureCredyxEmailShell(bodyHtml: string, templateId?: string): string {
+  if (isFullEmailDocument(bodyHtml)) return bodyHtml
+  const eyebrow = (templateId && EMAIL_SHELL_EYEBROW[templateId]) || 'Credyx'
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${eyebrow}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;-webkit-text-size-adjust:100%;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:28px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+          <tr>
+            <td style="background-color:#0f172a;padding:22px 28px;">
+              {{companyLogoHtml}}
+              <p style="margin:14px 0 0 0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;">
+                ${eyebrow}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 28px 24px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#475569;">
+              <div style="font-size:14px;line-height:1.6;color:#475569;">
+                ${bodyHtml}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 28px;background-color:#f8fafc;border-top:1px solid #e2e8f0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+              <p style="margin:0 0 4px 0;font-size:12px;font-weight:600;color:#334155;">Credyx · Paid on time</p>
+              <p style="margin:0;font-size:11px;line-height:1.45;color:#64748b;">
+                A/R Solutions. If you received this in error, please delete it and notify ops@credyx.net.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
+}
+
 function enrichData(template: EmailTemplate, data: Record<string, string>): Record<string, string> {
   const next = { ...data }
 
@@ -303,6 +374,11 @@ function enrichData(template: EmailTemplate, data: Record<string, string>): Reco
 
   if (!next.contactName) next.contactName = 'there'
   if (!next.loadNumber) next.loadNumber = 'N/A'
+  if (!next.companyLogoHtml) {
+    next.companyLogoHtml = `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.02em;line-height:1;">
+  <span style="color:#ffffff;">Cred</span><span style="color:#1684FE;">yx</span>
+</div>`
+  }
 
   if (String(template).startsWith('auth_')) {
     if (!next.companyLogoHtml) {
@@ -595,7 +671,10 @@ async function resolveEmail(
   if (overrides?.subject && overrides?.html) {
     return {
       subject: renderTemplateString(overrides.subject, enriched),
-      html: renderTemplateString(overrides.html, enriched),
+      html: renderTemplateString(
+        ensureCredyxEmailShell(overrides.html, template),
+        enriched
+      ),
     }
   }
 
@@ -612,7 +691,10 @@ async function resolveEmail(
       if (row?.subject && row?.body_html) {
         return {
           subject: renderTemplateString(row.subject, enriched),
-          html: renderTemplateString(row.body_html, enriched),
+          html: renderTemplateString(
+            ensureCredyxEmailShell(row.body_html, template),
+            enriched
+          ),
         }
       }
     }
@@ -620,7 +702,14 @@ async function resolveEmail(
     console.warn('[send-email] DB template load failed, using built-in', err)
   }
 
-  return builtInEmail(template, data)
+  const builtIn = builtInEmail(template, data)
+  return {
+    subject: builtIn.subject,
+    html: renderTemplateString(
+      ensureCredyxEmailShell(builtIn.html, template),
+      enrichData(template, data)
+    ),
+  }
 }
 
 function attachmentPayloadSize(attachments: EmailAttachment[] | undefined): number {

@@ -69,7 +69,13 @@ async function sendTemplate(
   if (!resendKey || !to) return
   const { data: row } = await admin.from('email_templates').select('subject, body_html').eq('id', templateId).maybeSingle()
   let subject = String(row?.subject ?? templateId)
-  let html = String(row?.body_html ?? `<p>${templateId}</p>`)
+  let html = ensureCredyxEmailShell(String(row?.body_html ?? `<p>${templateId}</p>`), templateId)
+  if (!data.companyLogoHtml) {
+    data = {
+      ...data,
+      companyLogoHtml: `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.02em;line-height:1;"><span style="color:#ffffff;">Cred</span><span style="color:#1684FE;">yx</span></div>`,
+    }
+  }
   for (const [k, v] of Object.entries(data)) {
     subject = subject.replaceAll(`{{${k}}}`, v)
     html = html.replaceAll(`{{${k}}}`, v)
@@ -80,6 +86,39 @@ async function sendTemplate(
     headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from, to: [to], subject, html }),
   })
+}
+
+function isFullEmailDocument(html: string): boolean {
+  const t = html.trim().toLowerCase()
+  return t.startsWith('<!doctype') || t.startsWith('<html')
+}
+
+const EMAIL_SHELL_EYEBROW: Record<string, string> = {
+  broker_payment_status_inquiry: 'Collections',
+  broker_payment_status_followup: 'Collections',
+  broker_paperwork_status_inquiry: 'Paperwork',
+  broker_paperwork_status_followup: 'Paperwork',
+}
+
+function ensureCredyxEmailShell(bodyHtml: string, templateId?: string): string {
+  if (isFullEmailDocument(bodyHtml)) return bodyHtml
+  const eyebrow = (templateId && EMAIL_SHELL_EYEBROW[templateId]) || 'Credyx'
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${eyebrow}</title></head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:28px 12px;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+<tr><td style="background-color:#0f172a;padding:22px 28px;">{{companyLogoHtml}}
+<p style="margin:14px 0 0 0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;">${eyebrow}</p></td></tr>
+<tr><td style="padding:28px 28px 24px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#475569;">${bodyHtml}</td></tr>
+<tr><td style="padding:16px 28px;background-color:#f8fafc;border-top:1px solid #e2e8f0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+<p style="margin:0 0 4px 0;font-size:12px;font-weight:600;color:#334155;">Credyx · Paid on time</p>
+<p style="margin:0;font-size:11px;line-height:1.45;color:#64748b;">A/R Solutions. If you received this in error, please delete it and notify ops@credyx.net.</p>
+</td></tr>
+</table></td></tr></table>
+</body></html>`
 }
 
 function ppwSentAt(invoice: Record<string, unknown>): string | undefined {

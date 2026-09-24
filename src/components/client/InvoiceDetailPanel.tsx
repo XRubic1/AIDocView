@@ -2124,7 +2124,7 @@ export default function InvoiceDetailPanel({
               </button>
             </div>
             <p id="admin-release-hold-modal-desc" className="text-sm mb-1" style={{ color: c.primary }}>
-              Confirm this action. The invoice stays in open A/R and returns to its prior invoiced/open status.
+              Confirm this action. The invoice stays in open A/R and returns to Open (approved). The carrier will see that the hold was released.
               The carrier will see that the hold was released.
             </p>
             <div className="invoice-dispute-modal-footer">

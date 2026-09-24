@@ -5,6 +5,7 @@ import {
   CARRIER_BILLING_INVOICE_BODY_HTML,
   CARRIER_DOCUMENT_ISSUE_BODY_HTML,
   CLIENT_WELCOME_BODY_HTML,
+  wrapCredyxEmailBodyHtml,
 } from './emailLayouts'
 
 /**
@@ -107,36 +108,46 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
     name: 'Carrier — batch processed',
     description: 'Sent to the carrier after Process: holds (if any) and broker paperwork summary.',
     audience: 'carrier',
-    placeholders: 'batchNumber, invoiceCount, holdCount, holdList, holdSection, holdSubjectSuffix, ppwSummary',
+    placeholders:
+      'companyLogoHtml, batchNumber, invoiceCount, holdCount, holdList, holdSection, holdSubjectSuffix, ppwSummary',
     subject: 'Batch {{batchNumber}} processed{{holdSubjectSuffix}}',
-    body_html: `<p>Batch <strong>{{batchNumber}}</strong> has been processed ({{invoiceCount}} invoice(s)).</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Batch update',
+      contentHtml: `<p>Batch <strong>{{batchNumber}}</strong> has been processed ({{invoiceCount}} invoice(s)).</p>
 {{holdSection}}
 <p><strong>Paperwork sent to brokers:</strong></p>
-<pre style="white-space:pre-wrap;font-family:sans-serif">{{ppwSummary}}</pre>
+<pre style="white-space:pre-wrap;font-family:sans-serif;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;color:#334155;">{{ppwSummary}}</pre>
 <p>This is an automatic email. Full details are available in your client portal.</p>`,
+    }),
   },
   {
     id: 'carrier_batch_verified',
     name: 'Carrier — batch verified (legacy)',
     description: 'Legacy template; Process now uses “batch processed”. Kept for compatibility.',
     audience: 'carrier',
-    placeholders: 'batchNumber, invoiceCount, ppwSummary',
+    placeholders: 'companyLogoHtml, batchNumber, invoiceCount, ppwSummary',
     subject: 'Batch {{batchNumber}} verified — no issues found',
-    body_html: `<p>All invoices in batch <strong>{{batchNumber}}</strong> were verified successfully ({{invoiceCount}} invoices). No issues were detected.</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Batch verified',
+      contentHtml: `<p>All invoices in batch <strong>{{batchNumber}}</strong> were verified successfully ({{invoiceCount}} invoices). No issues were detected.</p>
 <p><strong>Paperwork sent to brokers:</strong></p>
-<pre style="white-space:pre-wrap;font-family:sans-serif">{{ppwSummary}}</pre>
+<pre style="white-space:pre-wrap;font-family:sans-serif;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;color:#334155;">{{ppwSummary}}</pre>
 <p>This is an automatic email. Full details are available in your client portal.</p>`,
+    }),
   },
   {
     id: 'carrier_batch_holds',
     name: 'Carrier — holds (legacy)',
     description: 'Legacy template; Process now uses “batch processed”. Kept for compatibility.',
     audience: 'carrier',
-    placeholders: 'batchNumber, holdCount, holdList',
+    placeholders: 'companyLogoHtml, batchNumber, holdCount, holdList',
     subject: 'Batch {{batchNumber}} — {{holdCount}} invoice(s) on hold',
-    body_html: `<p>One or more invoices in batch <strong>{{batchNumber}}</strong> were placed on hold after verification.</p>
-<pre style="white-space:pre-wrap;font-family:sans-serif">{{holdList}}</pre>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Holds',
+      contentHtml: `<p>One or more invoices in batch <strong>{{batchNumber}}</strong> were placed on hold after verification.</p>
+<pre style="white-space:pre-wrap;font-family:sans-serif;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;color:#334155;">{{holdList}}</pre>
 <p>This is an automatic email. Full details and next steps are available in your client portal.</p>`,
+    }),
   },
   {
     id: 'client_invite',
@@ -154,19 +165,27 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
     name: 'Admin — new enrollment',
     description: 'Notifies Credyx ops when a carrier enrolls.',
     audience: 'admin',
-    placeholders: 'clientName, email',
+    placeholders: 'companyLogoHtml, clientName, email',
     subject: 'New enrollment — {{clientName}}',
-    body_html: `<p>A new client enrolled: <strong>{{clientName}}</strong> ({{email}}).</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Enrollment',
+      headline: 'New carrier enrollment',
+      contentHtml: `<p>A new client enrolled: <strong>{{clientName}}</strong> ({{email}}).</p>
 <p>Review in the admin portal.</p>`,
+    }),
   },
   {
     id: 'waitlist_signup_alert',
     name: 'Admin — waitlist signup',
     description: 'Notifies Credyx ops when a carrier joins the waitlist.',
     audience: 'admin',
-    placeholders: 'companyName, contactName, email, phone, fleetSize, hearAbout, notes',
+    placeholders:
+      'companyLogoHtml, companyName, contactName, email, phone, fleetSize, hearAbout, notes',
     subject: 'New waitlist signup — {{companyName}}',
-    body_html: `<p>A carrier joined the waitlist:</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Waitlist',
+      headline: 'New waitlist signup',
+      contentHtml: `<p>A carrier joined the waitlist:</p>
 <ul>
   <li><strong>Company:</strong> {{companyName}}</li>
   <li><strong>Contact:</strong> {{contactName}}</li>
@@ -176,117 +195,147 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
   <li><strong>Heard about us:</strong> {{hearAbout}}</li>
 </ul>
 <p><strong>Notes:</strong></p>
-<pre style="white-space:pre-wrap;font-family:sans-serif">{{notes}}</pre>`,
+<pre style="white-space:pre-wrap;font-family:sans-serif;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;color:#334155;">{{notes}}</pre>`,
+    }),
   },
   {
     id: 'waitlist_welcome',
     name: 'Waitlist — thank you',
     description: 'Sent automatically to the carrier when they join the Credyx waitlist.',
     audience: 'carrier',
-    placeholders: 'contactName, companyName',
+    placeholders: 'companyLogoHtml, contactName, companyName',
     subject: "You're on the Credyx waitlist",
-    body_html: `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
-  <p>Hi {{contactName}},</p>
-  <p>Thank you for joining the <strong>Credyx</strong> waitlist for <strong>{{companyName}}</strong>.</p>
-  <p>Founding access is reserved — we'll reach out when onboarding opens and keep you updated on next steps.</p>
-  <p style="color:#475569;font-size:14px;">Your back office, in one portal. Paid on time.</p>
-  <p style="margin-top:24px;">— The Credyx team<br/><span style="color:#64748b;font-size:13px;">Credyx A/R Solutions</span></p>
-</div>`,
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Waitlist',
+      headline: "You're on the list",
+      contentHtml: `<p>Hi {{contactName}},</p>
+<p>Thank you for joining the <strong>Credyx</strong> waitlist for <strong>{{companyName}}</strong>.</p>
+<p>Founding access is reserved — we'll reach out when onboarding opens and keep you updated on next steps.</p>
+<p>Your back office, in one portal. Paid on time.</p>
+<p>— The Credyx team</p>`,
+    }),
   },
   {
     id: 'credyx_batch_error',
     name: 'Admin — batch error',
     description: 'Internal alert when intake or verification fails.',
     audience: 'admin',
-    placeholders: 'batchNumber, clientName, scope, issueMessage',
+    placeholders: 'companyLogoHtml, batchNumber, clientName, scope, issueMessage',
     subject: 'Batch error — {{batchNumber}} ({{scope}})',
-    body_html: `<p>There was an error with batch <strong>{{batchNumber}}</strong>{{clientNameSuffix}}.</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Batch error',
+      headline: 'Batch needs attention',
+      contentHtml: `<p>There was an error with batch <strong>{{batchNumber}}</strong>{{clientNameSuffix}}.</p>
 <p><strong>Scope:</strong> {{scope}}</p>
-<pre style="white-space:pre-wrap;font-family:sans-serif">{{issueMessage}}</pre>
+<pre style="white-space:pre-wrap;font-family:sans-serif;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;color:#334155;">{{issueMessage}}</pre>
 <p>Please review in the Credyx admin portal (Batches → AI / Ready to Post / Verification).</p>`,
+    }),
   },
   {
     id: 'broker_payment_status_inquiry',
     name: 'Broker — payment status inquiry',
     description: 'Collections chase email to brokers.',
     audience: 'broker',
-    placeholders: 'brokerName, invoiceNumber, loadNumber, amount',
+    placeholders: 'companyLogoHtml, brokerName, invoiceNumber, loadNumber, amount',
     subject: 'Payment status inquiry — Invoice {{invoiceNumber}}',
-    body_html: `<p>Hello {{brokerName}},</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Collections',
+      contentHtml: `<p>Hello {{brokerName}},</p>
 <p>Please provide the payment status for invoice <strong>{{invoiceNumber}}</strong> (Load {{loadNumber}}, Amount {{amount}}).</p>
 <p>Reply to this email with the expected payment date or status.</p>
 <p>— Credyx Collections</p>`,
+    }),
   },
   {
     id: 'broker_payment_status_followup',
     name: 'Broker — payment status follow-up',
     description: 'Follow-up when a broker has not replied to a status inquiry.',
     audience: 'broker',
-    placeholders: 'brokerName, invoiceNumber',
+    placeholders: 'companyLogoHtml, brokerName, invoiceNumber',
     subject: 'Follow-up: Payment status — Invoice {{invoiceNumber}}',
-    body_html: `<p>Hello {{brokerName}},</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Collections',
+      contentHtml: `<p>Hello {{brokerName}},</p>
 <p>We have not received a response regarding invoice <strong>{{invoiceNumber}}</strong>. Please reply with payment status.</p>
 <p>— Credyx Collections</p>`,
+    }),
   },
   {
     id: 'broker_paperwork_status_inquiry',
     name: 'Broker — paperwork status inquiry',
     description: 'Ask if the paperwork packet is in order.',
     audience: 'broker',
-    placeholders: 'brokerName, invoiceNumber, loadNumber, clientName',
+    placeholders: 'companyLogoHtml, brokerName, invoiceNumber, loadNumber, clientName',
     subject: 'Paperwork status — Invoice {{invoiceNumber}}',
-    body_html: `<p>Hello {{brokerName}},</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Paperwork',
+      contentHtml: `<p>Hello {{brokerName}},</p>
 <p>Please confirm paperwork is in order for invoice <strong>{{invoiceNumber}}</strong> (Load {{loadNumber}}, {{clientName}}).</p>
 <p>— Credyx</p>`,
+    }),
   },
   {
     id: 'broker_paperwork_status_followup',
     name: 'Broker — paperwork status follow-up',
     description: 'Second paperwork status ask.',
     audience: 'broker',
-    placeholders: 'brokerName, invoiceNumber, loadNumber, clientName',
+    placeholders: 'companyLogoHtml, brokerName, invoiceNumber, loadNumber, clientName',
     subject: 'Follow-up: Paperwork status — Invoice {{invoiceNumber}}',
-    body_html: `<p>Hello {{brokerName}},</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Paperwork',
+      contentHtml: `<p>Hello {{brokerName}},</p>
 <p>Following up on paperwork for invoice <strong>{{invoiceNumber}}</strong> (Load {{loadNumber}}).</p>
 <p>— Credyx</p>`,
+    }),
   },
   {
     id: 'broker_claim_scope',
     name: 'Broker — claim scope',
     description: 'Ask if a claim is on the whole account.',
     audience: 'broker',
-    placeholders: 'brokerName, invoiceNumber, loadNumber, clientName, message',
+    placeholders: 'companyLogoHtml, brokerName, invoiceNumber, loadNumber, clientName, message',
     subject: 'Claim scope — Invoice {{invoiceNumber}}',
-    body_html: `<p>Hello {{brokerName}},</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Claim',
+      contentHtml: `<p>Hello {{brokerName}},</p>
 <p>Regarding invoice <strong>{{invoiceNumber}}</strong> (Load {{loadNumber}}, {{clientName}}).</p>
 <p>{{message}}</p>
 <p>Is this claim on the whole account?</p>
 <p>— Credyx</p>`,
+    }),
   },
   {
     id: 'carrier_claim_or_hold_notice',
     name: 'Carrier — hold or claim notice',
     description: 'Notify the carrier when a broker reply needs a hold or claim follow-up.',
     audience: 'carrier',
-    placeholders: 'contactName, clientName, invoiceNumber, loadNumber, brokerName, summary, portalLink',
+    placeholders:
+      'companyLogoHtml, contactName, clientName, invoiceNumber, loadNumber, brokerName, summary, portalLink',
     subject: 'Update — invoice {{invoiceNumber}}',
-    body_html: `<p>Hi {{contactName}},</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Invoice update',
+      contentHtml: `<p>Hi {{contactName}},</p>
 <p>{{summary}}</p>
 <p>Invoice {{invoiceNumber}} · Load {{loadNumber}} · {{brokerName}}</p>
-<p><a href="{{portalLink}}">Open in Credyx</a></p>`,
+<p><a href="{{portalLink}}" style="color:#1684FE;font-weight:600;">Open in Credyx</a></p>`,
+    }),
   },
   {
     id: 'carrier_dispute_opened',
     name: 'Carrier — account dispute',
     description: 'Carrier notice when a broker is placed in dispute.',
     audience: 'carrier',
-    placeholders: 'contactName, clientName, brokerName, summary, portalLink, brokerContact',
+    placeholders:
+      'companyLogoHtml, contactName, clientName, brokerName, summary, portalLink, brokerContact',
     subject: 'Dispute opened — {{brokerName}}',
-    body_html: `<p>Hi {{contactName}},</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Dispute',
+      contentHtml: `<p>Hi {{contactName}},</p>
 <p>A dispute was opened with {{brokerName}} for {{clientName}}.</p>
 <p>{{summary}}</p>
 <p>Broker contact: {{brokerContact}}</p>
-<p><a href="{{portalLink}}">Open in Credyx</a></p>`,
+<p><a href="{{portalLink}}" style="color:#1684FE;font-weight:600;">Open in Credyx</a></p>`,
+    }),
   },
   {
     id: 'calendar_event_notice',
@@ -295,16 +344,19 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
       'Sent to client and admin when a shared calendar event (meeting, reminder, etc.) is created.',
     audience: 'system',
     placeholders:
-      'clientName, eventTitle, eventType, whenLabel, brokerName, invoiceNumber, message, meetingUrl, meetingBlock, portalLink, recipientRole',
+      'companyLogoHtml, clientName, eventTitle, eventType, whenLabel, brokerName, invoiceNumber, message, meetingUrl, meetingBlock, portalLink, recipientRole',
     subject: 'Calendar: {{eventTitle}} — {{whenLabel}}',
-    body_html: `<p>Hi{{recipientRole}},</p>
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Calendar',
+      contentHtml: `<p>Hi{{recipientRole}},</p>
 <p>A calendar event was added for <strong>{{clientName}}</strong>.</p>
 <p><strong>{{eventTitle}}</strong><br/>
 Type: {{eventType}} · When: {{whenLabel}}<br/>
 Broker: {{brokerName}} · Invoice: {{invoiceNumber}}</p>
 {{meetingBlock}}
 <p style="white-space:pre-wrap">{{message}}</p>
-<p><a href="{{portalLink}}">Open in Credyx</a></p>`,
+<p><a href="{{portalLink}}" style="color:#1684FE;font-weight:600;">Open in Credyx</a></p>`,
+    }),
   },
   {
     id: 'staff_calendar_digest',
@@ -312,16 +364,15 @@ Broker: {{brokerName}} · Invoice: {{invoiceNumber}}</p>
     description:
       'Daily employee reminder of Credyx calendar tasks due today (due dates, call backs, Will Pay, chase).',
     audience: 'admin',
-    placeholders: 'recipientName, whenLabel, taskCount, taskListHtml, portalLink',
+    placeholders: 'companyLogoHtml, recipientName, whenLabel, taskCount, taskListHtml, portalLink',
     subject: 'Credyx today — {{taskCount}} task(s) · {{whenLabel}}',
-    body_html: `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#0f172a;">
-  <p style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;">Staff calendar</p>
-  <h1 style="font-size:20px;margin:8px 0 4px;">What you need to do today</h1>
-  <p style="color:#475569;font-size:14px;margin:0 0 16px;">Hi {{recipientName}} — {{taskCount}} item(s) for {{whenLabel}} from the Credyx calendar.</p>
-  {{taskListHtml}}
-  <p style="margin-top:24px;"><a href="{{portalLink}}" style="display:inline-block;background:#1684FE;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-size:13px;">Open calendar</a></p>
-  <p style="margin-top:20px;font-size:12px;color:#94a3b8;">Credyx · Paid on time</p>
-</div>`,
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Staff calendar',
+      headline: 'What you need to do today',
+      contentHtml: `<p>Hi {{recipientName}} — {{taskCount}} item(s) for {{whenLabel}} from the Credyx calendar.</p>
+{{taskListHtml}}
+<p style="margin-top:20px;"><a href="{{portalLink}}" style="display:inline-block;background:#1684FE;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">Open calendar</a></p>`,
+    }),
   },
 ]
 

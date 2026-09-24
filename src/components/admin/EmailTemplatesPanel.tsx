@@ -10,6 +10,7 @@ import type { EmailTemplateId } from '../../config/emailTemplateDefaults'
 import {
   buildCarrierDocumentIssueBodyHtml,
   CARRIER_DOCUMENT_ISSUE_COPY,
+  ensureCredyxEmailShell,
   type CarrierDocumentIssueCopy,
 } from '../../config/emailLayouts'
 import { getEmailPreviewSampleData } from '../../config/emailPreviewSampleData'
@@ -120,7 +121,10 @@ export default function EmailTemplatesPanel() {
         : bodyHtml
     return {
       subject: renderEmailTemplateString(subject, data),
-      html: renderEmailTemplateString(htmlSource, data),
+      html: renderEmailTemplateString(
+        ensureCredyxEmailShell(htmlSource, selectedId),
+        data
+      ),
     }
   }, [selectedId, subject, bodyHtml, simpleMode, easyCopy])
 

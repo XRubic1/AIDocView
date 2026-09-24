@@ -103,7 +103,13 @@ function candidateFromStatusNote(note: InvoiceNote, seq: number): Candidate | nu
   return null
 }
 
-function candidateFromHoldNote(note: InvoiceNote, seq: number): Candidate | null {
+function candidateFromHoldNote(
+  note: InvoiceNote,
+  seq: number,
+  invoiceStatus: Invoice['status']
+): Candidate | null {
+  // Stale hold_reason notes must not keep the UI on hold after status is cleared.
+  if (invoiceStatus !== 'hold') return null
   if (note.type !== 'hold_reason') return null
   const text = note.note?.trim() || ''
   if (!text) return null
@@ -155,7 +161,7 @@ export function getInvoiceStatusHeadline(
   for (const note of notes) {
     seq += 1
     if (note.visibility === 'internal') continue
-    const fromHold = candidateFromHoldNote(note, seq)
+    const fromHold = candidateFromHoldNote(note, seq, invoice.status)
     if (fromHold) {
       candidates.push(fromHold)
       continue

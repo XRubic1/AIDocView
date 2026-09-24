@@ -127,4 +127,46 @@ describe('invoiceStatusHeadline', () => {
     })
     expect(getInvoiceNoteStatusDisplay(inv)).toBe('will_pay')
   })
+
+  it('does not keep On Hold from stale hold_reason notes after status is approved', () => {
+    const inv = invoice({
+      status: 'approved',
+      hold_reason: undefined,
+      notes_history: [
+        {
+          id: 'n-hold',
+          note: 'Missing POD page 2',
+          created_by: 'Credyx',
+          created_at: '2026-09-10T20:00:00Z',
+          type: 'hold_reason',
+        },
+        {
+          id: 'n-released',
+          note: 'Hold released.',
+          created_by: 'Credyx',
+          created_at: '2026-09-11T12:00:00Z',
+          type: 'status_update',
+        },
+      ],
+    })
+    expect(getInvoiceStatusHeadline(inv)?.kind).toBe('released')
+    expect(getInvoiceNoteStatusDisplay(inv)).toBeNull()
+  })
+
+  it('ignores hold_reason notes when status is no longer hold (even without release note)', () => {
+    const inv = invoice({
+      status: 'approved',
+      notes_history: [
+        {
+          id: 'n-hold',
+          note: 'Broker asked for revised rate con',
+          created_by: 'Credyx',
+          created_at: '2026-09-12T00:00:00Z',
+          type: 'hold_reason',
+        },
+      ],
+    })
+    expect(getInvoiceStatusHeadline(inv)?.kind).not.toBe('hold')
+    expect(getInvoiceNoteStatusDisplay(inv)).not.toBe('on_hold')
+  })
 })

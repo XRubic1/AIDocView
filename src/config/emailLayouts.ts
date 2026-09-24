@@ -443,3 +443,114 @@ export const CARRIER_BILLING_INVOICE_BODY_HTML = `<!DOCTYPE html>
   </table>
 </body>
 </html>`
+
+/** True when body is already a full HTML email document (not a snippet). */
+export function isFullEmailDocument(html: string): boolean {
+  const t = html.trim().toLowerCase()
+  return t.startsWith('<!doctype') || t.startsWith('<html')
+}
+
+/**
+ * Credyx branded shell for simple body snippets (chase, notices, alerts).
+ * Full custom layouts (packet, document issue, etc.) should not use this.
+ */
+export function wrapCredyxEmailBodyHtml(opts: {
+  eyebrow: string
+  headline?: string
+  contentHtml: string
+  footerNote?: string
+}): string {
+  const eyebrow = escapeEmailAttr(opts.eyebrow)
+  const headline = opts.headline?.trim()
+    ? `<p style="margin:0 0 12px 0;font-size:20px;font-weight:600;line-height:1.35;color:#0f172a;">${escapeEmailAttr(opts.headline.trim())}</p>`
+    : ''
+  const footerNote =
+    opts.footerNote?.trim() ||
+    'A/R Solutions. If you received this in error, please delete it and notify ops@credyx.net.'
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${eyebrow}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;-webkit-text-size-adjust:100%;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:28px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+          <tr>
+            <td style="background-color:#0f172a;padding:22px 28px;">
+              {{companyLogoHtml}}
+              <p style="margin:14px 0 0 0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;">
+                ${eyebrow}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 28px 24px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#475569;">
+              ${headline}
+              <div style="font-size:14px;line-height:1.6;color:#475569;">
+                ${opts.contentHtml}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 28px;background-color:#f8fafc;border-top:1px solid #e2e8f0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+              <p style="margin:0 0 4px 0;font-size:12px;font-weight:600;color:#334155;">Credyx · Paid on time</p>
+              <p style="margin:0;font-size:11px;line-height:1.45;color:#64748b;">
+                ${escapeEmailAttr(footerNote)}
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
+}
+
+/** Eyebrow labels when wrapping legacy/snippet bodies at preview or send time. */
+export const EMAIL_SHELL_EYEBROW: Record<string, string> = {
+  carrier_batch_processed: 'Batch update',
+  carrier_batch_verified: 'Batch verified',
+  carrier_batch_holds: 'Holds',
+  admin_enrollment_alert: 'Enrollment',
+  waitlist_signup_alert: 'Waitlist',
+  waitlist_welcome: 'Waitlist',
+  credyx_batch_error: 'Batch error',
+  broker_payment_status_inquiry: 'Collections',
+  broker_payment_status_followup: 'Collections',
+  broker_paperwork_status_inquiry: 'Paperwork',
+  broker_paperwork_status_followup: 'Paperwork',
+  broker_claim_scope: 'Claim',
+  carrier_claim_or_hold_notice: 'Invoice update',
+  carrier_dispute_opened: 'Dispute',
+  calendar_event_notice: 'Calendar',
+  staff_calendar_digest: 'Staff calendar',
+}
+
+/**
+ * If `bodyHtml` is already a full document, return as-is.
+ * Otherwise wrap it in the Credyx shell (covers old DB snippet rows).
+ */
+export function ensureCredyxEmailShell(
+  bodyHtml: string,
+  templateId?: string
+): string {
+  if (isFullEmailDocument(bodyHtml)) return bodyHtml
+  return wrapCredyxEmailBodyHtml({
+    eyebrow: (templateId && EMAIL_SHELL_EYEBROW[templateId]) || 'Credyx',
+    contentHtml: bodyHtml,
+  })
+}
+
+function escapeEmailAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
