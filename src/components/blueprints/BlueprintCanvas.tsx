@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   ReactFlow,
   Background,
@@ -9,6 +9,7 @@ import {
   useEdgesState,
   useReactFlow,
   ReactFlowProvider,
+  MarkerType,
   type Connection,
   type OnConnect,
   type Node,
@@ -21,6 +22,7 @@ import BlueprintContextMenu, {
   type BlueprintContextMenuState,
 } from './BlueprintContextMenu'
 import BlueprintSidePanel from './BlueprintSidePanel'
+import BlueprintStepPalette from './BlueprintStepPalette'
 import {
   BLUEPRINT_NODE_KIND_DEFAULTS,
   type BlueprintFlowNode,
@@ -35,6 +37,32 @@ import {
 } from './blueprintConnectionRules'
 
 const nodeTypes = { blueprint: BlueprintNode }
+
+const EDGE_COLOR = '#111827'
+const EDGE_ARROW_SIZE = 4 // ~80% smaller than prior 18
+
+/** Class by source kind; stroke/arrow always black. */
+function edgeStyleForSource(source: BlueprintFlowNode | undefined): {
+  className: string
+} {
+  if (!source) return { className: 'bp-edge bp-edge--neutral' }
+  const kind = source.data.kind
+  if (kind === 'branch_false') {
+    return { className: 'bp-edge bp-edge--fail' }
+  }
+  if (kind === 'branch_true') {
+    return { className: 'bp-edge bp-edge--ok' }
+  }
+  if (kind === 'if' || kind === 'elseif') {
+    return source.data.whenMatch === 'no'
+      ? { className: 'bp-edge bp-edge--fail' }
+      : { className: 'bp-edge bp-edge--ok' }
+  }
+  if (kind === 'wait' || kind === 'stop') {
+    return { className: 'bp-edge bp-edge--neutral' }
+  }
+  return { className: 'bp-edge bp-edge--ok' }
+}
 
 function newNodeId(): string {
   return `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -129,6 +157,27 @@ function BlueprintCanvasInner({
   const selectedNode =
     (nodes as BlueprintFlowNode[]).find((n) => n.id === selectedId) ?? null
 
+  const paintedEdges = useMemo(
+    () =>
+      edges.map((e) => {
+        const src = (nodes as BlueprintFlowNode[]).find((n) => n.id === e.source)
+        const { className } = edgeStyleForSource(src)
+        return {
+          ...e,
+          type: 'default',
+          className,
+          style: { stroke: EDGE_COLOR, strokeWidth: 2 },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: EDGE_ARROW_SIZE,
+            height: EDGE_ARROW_SIZE,
+            color: EDGE_COLOR,
+          },
+        }
+      }),
+    [edges, nodes]
+  )
+
   useEffect(() => {
     if (selectedId) chainTipIdRef.current = selectedId
   }, [selectedId])
@@ -196,6 +245,18 @@ function BlueprintCanvasInner({
       })
     },
     [linkFromTip]
+  )
+
+  const addFromPalette = useCallback(
+    (kind: BlueprintNodeKind) => {
+      const tip = selectedId
+        ? (nodes as BlueprintFlowNode[]).find((n) => n.id === selectedId)
+        : null
+      const x = (tip?.position.x ?? 60) + 220
+      const y = tip?.position.y ?? 140
+      addNode(kind, x, y)
+    },
+    [selectedId, nodes, addNode]
   )
 
   const addSavedCard = useCallback(
@@ -325,7 +386,7 @@ function BlueprintCanvasInner({
       <div className="bp-canvas">
         <ReactFlow
           nodes={nodes}
-          edges={edges}
+          edges={paintedEdges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -342,8 +403,18 @@ function BlueprintCanvasInner({
           fitViewOptions={{ padding: 0.2 }}
           deleteKeyCode={['Backspace', 'Delete']}
           proOptions={{ hideAttribution: true }}
+          defaultEdgeOptions={{
+            type: 'default',
+            style: { stroke: EDGE_COLOR, strokeWidth: 2 },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              width: EDGE_ARROW_SIZE,
+              height: EDGE_ARROW_SIZE,
+              color: EDGE_COLOR,
+            },
+          }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1.1} color="#cbd5e1" />
           <Controls />
           <MiniMap pannable zoomable />
         </ReactFlow>
@@ -358,6 +429,10 @@ function BlueprintCanvasInner({
           />
         ) : null}
       </div>
+      <BlueprintStepPalette
+        tipKind={selectedNode?.data.kind ?? null}
+        onAdd={addFromPalette}
+      />
       <BlueprintSidePanel
         node={selectedNode}
         nodes={nodes as BlueprintFlowNode[]}

@@ -29,33 +29,25 @@ const LEVEL_META: Record<
   DryRunLogLevel,
   { label: string; Icon: LucideIcon }
 > = {
-  info: { label: 'Note', Icon: Info },
+  info: { label: 'Start', Icon: Info },
   wait: { label: 'Wait', Icon: Clock },
   branch: { label: 'When', Icon: GitBranch },
   action: { label: 'Do', Icon: Zap },
-  warn: { label: 'Heads up', Icon: AlertTriangle },
-  done: { label: 'Done', Icon: CheckCircle2 },
+  warn: { label: 'Gap', Icon: AlertTriangle },
+  done: { label: 'End', Icon: CheckCircle2 },
 }
 
-/** Drop noisy prefixes already shown by the badge. */
-function cleanTitle(title: string, level: DryRunLogLevel): string {
-  let t = title.trim()
-  if (level === 'action') t = t.replace(/^Then do:\s*/i, '')
-  if (level === 'wait') t = t.replace(/^Wait until:\s*/i, '')
-  if (level === 'branch') {
-    t = t.replace(/^When:\s*/i, '')
-    t = t.replace(/^Skipped When:\s*/i, 'Skipped · ')
-  }
-  if (level === 'done') t = t.replace(/^Done:\s*/i, '')
-  if (level === 'info') t = t.replace(/^Start:\s*/i, '')
-  return t
-}
-
-function isQuiet(entry: DryRunLogEntry): boolean {
+function isMetaEntry(entry: DryRunLogEntry): boolean {
   return (
-    entry.level === 'info' &&
-    (entry.title.startsWith('Dry run') || entry.title.includes('Scenario'))
+    entry.level === 'done' &&
+    (entry.title === 'End of preview' || entry.title === 'Finished')
   )
+}
+
+function isStoryStep(entry: DryRunLogEntry): boolean {
+  if (isMetaEntry(entry)) return false
+  if (entry.level === 'info' && entry.title.startsWith('Path from')) return true
+  return entry.level !== 'info' || !entry.title.startsWith('Simulation')
 }
 
 export default function BlueprintRunLog({
@@ -84,8 +76,9 @@ export default function BlueprintRunLog({
 
   if (!open) return null
 
-  const storySteps = log.filter((e) => !isQuiet(e) || e.step === 1)
-  const actionCount = log.filter((e) => e.level === 'action').length
+  const story = log.filter(isStoryStep)
+  const actionCount = story.filter((e) => e.level === 'action').length
+  const waitCount = story.filter((e) => e.level === 'wait').length
 
   const panel = (
     <div className="bp-run" role="dialog" aria-modal="true" aria-label="What would happen">
@@ -95,10 +88,16 @@ export default function BlueprintRunLog({
           <div>
             <h2 className="bp-run__title">What would happen</h2>
             <p className="bp-run__sub">
-              Preview only
-              {log.length > 0
-                ? ` · ${storySteps.length} steps${actionCount ? ` · ${actionCount} action${actionCount === 1 ? '' : 's'}` : ''}`
-                : ' · press Run to simulate'}
+              Timeline preview — no emails or status changes
+              {story.length > 0
+                ? ` · ${story.length} step${story.length === 1 ? '' : 's'}${
+                    waitCount ? ` · ${waitCount} wait` : ''
+                  }${
+                    actionCount
+                      ? ` · ${actionCount} action${actionCount === 1 ? '' : 's'}`
+                      : ''
+                  }`
+                : ' · press Simulate'}
               {' · Esc to close'}
             </p>
           </div>
@@ -110,7 +109,7 @@ export default function BlueprintRunLog({
             onClick={onRunAgain}
           >
             <Play size={14} aria-hidden />
-            Run again
+            Simulate again
           </button>
           <button type="button" className="admin-blueprints__btn" onClick={onClear}>
             Clear
@@ -128,7 +127,7 @@ export default function BlueprintRunLog({
 
       {events.length > 0 ? (
         <div className="bp-run__scenario">
-          <div className="bp-run__scenario-label">Pretend this happened</div>
+          <div className="bp-run__scenario-label">Pretend these events</div>
           <div className="bp-run__toggles">
             {events.map((ev) => {
               const yes = assumptions[ev.checkId] === true
@@ -155,55 +154,68 @@ export default function BlueprintRunLog({
               )
             })}
           </div>
-          <p className="bp-run__scenario-hint">Change Yes/No, then Run again.</p>
+          <p className="bp-run__scenario-hint">
+            Changes update the timeline — flip Yes/No to see the other branch.
+          </p>
         </div>
       ) : null}
 
-      <ol className="bp-run__log">
-        {log.length === 0 ? (
-          <li className="bp-run__empty">
-            <Play size={18} aria-hidden />
-            <span>Press <strong>Run</strong> to walk through this blueprint.</span>
-          </li>
-        ) : (
-          log.map((entry, index) => {
-            const meta = LEVEL_META[entry.level]
-            const Icon = meta.Icon
-            const quiet =
-              entry.level === 'info' &&
-              (entry.title.startsWith('Dry run') || entry.title === 'Dry run finished')
-            const isLast = index === log.length - 1
+      <div className="bp-run__timeline-wrap">
+        {story.length > 0 ? (
+          <div className="bp-run__col-heads" aria-hidden>
+            <span className="bp-run__col-when">When</span>
+            <span className="bp-run__col-what">What happens</span>
+          </div>
+        ) : null}
+        <ol className="bp-run__log">
+          {log.length === 0 ? (
+            <li className="bp-run__empty">
+              <Play size={18} aria-hidden />
+              <span>
+                Press <strong>Simulate</strong> to see when each step would run and what it would
+                do.
+              </span>
+            </li>
+          ) : (
+            story.map((entry, index) => {
+              const meta = LEVEL_META[entry.level]
+              const Icon = meta.Icon
+              const isLast = index === story.length - 1
 
-            return (
-              <li
-                key={`${entry.step}-${entry.title}`}
-                className={`bp-run__entry bp-run__entry--${entry.level}${quiet ? ' bp-run__entry--quiet' : ''}${isLast ? ' bp-run__entry--last' : ''}`}
-              >
-                <div className="bp-run__rail" aria-hidden>
-                  <span className={`bp-run__dot bp-run__dot--${entry.level}`}>
-                    <Icon size={13} strokeWidth={2.4} />
-                  </span>
-                  {!isLast ? <span className="bp-run__line" /> : null}
-                </div>
-                <div className="bp-run__body">
-                  <div className="bp-run__meta">
+              return (
+                <li
+                  key={`${entry.step}-${entry.title}-${entry.whenLabel}`}
+                  className={`bp-run__entry bp-run__entry--${entry.level}${isLast ? ' bp-run__entry--last' : ''}`}
+                >
+                  <div className="bp-run__rail" aria-hidden>
+                    <span className={`bp-run__dot bp-run__dot--${entry.level}`}>
+                      <Icon size={13} strokeWidth={2.4} />
+                    </span>
+                    {!isLast ? <span className="bp-run__line" /> : null}
+                  </div>
+                  <div className="bp-run__when">
+                    <span className="bp-run__when-label">{entry.whenLabel || '—'}</span>
                     <span className={`bp-run__badge bp-run__badge--${entry.level}`}>
                       {meta.label}
                     </span>
-                    <span className="bp-run__step-num">Step {entry.step}</span>
                   </div>
-                  <div className="bp-run__entry-title">
-                    {cleanTitle(entry.title, entry.level)}
+                  <div className="bp-run__body">
+                    <div className="bp-run__entry-title">{entry.title}</div>
+                    {entry.detail ? (
+                      <div className="bp-run__entry-detail">{entry.detail}</div>
+                    ) : null}
                   </div>
-                  {entry.detail ? (
-                    <div className="bp-run__entry-detail">{entry.detail}</div>
-                  ) : null}
-                </div>
-              </li>
-            )
-          })
-        )}
-      </ol>
+                </li>
+              )
+            })
+          )}
+        </ol>
+        {story.length > 0 ? (
+          <p className="bp-run__footer-note">
+            Preview only — nothing was emailed or saved.
+          </p>
+        ) : null}
+      </div>
     </div>
   )
 

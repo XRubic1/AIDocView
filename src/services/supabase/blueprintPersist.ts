@@ -4,6 +4,7 @@
  */
 import type { SavedBlueprint } from '../../types/blueprintGraph'
 import type {
+  BlueprintRunHistoryEvent,
   BlueprintRunRow,
   BlueprintRunStatus,
   BlueprintRunSubject,
@@ -46,6 +47,7 @@ export type BlueprintRunDbRow = {
   wait_until: string | null
   started_at: string
   updated_at: string
+  history?: unknown
 }
 
 export function savedBlueprintToRow(bp: SavedBlueprint): BlueprintRow {
@@ -70,6 +72,29 @@ export function blueprintRowToSaved(row: BlueprintRow): SavedBlueprint {
   }
 }
 
+function parseHistory(raw: unknown): BlueprintRunHistoryEvent[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: BlueprintRunHistoryEvent[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const e = item as Partial<BlueprintRunHistoryEvent>
+    if (typeof e.id !== 'string' || typeof e.at !== 'string' || typeof e.title !== 'string') {
+      continue
+    }
+    out.push({
+      id: e.id,
+      at: e.at,
+      kind: (e.kind as BlueprintRunHistoryEvent['kind']) || 'note',
+      title: e.title,
+      detail: typeof e.detail === 'string' ? e.detail : undefined,
+      blueprintName:
+        typeof e.blueprintName === 'string' ? e.blueprintName : undefined,
+      blueprintId: typeof e.blueprintId === 'string' ? e.blueprintId : undefined,
+    })
+  }
+  return out
+}
+
 export function blueprintRunToRow(run: BlueprintRunRow): BlueprintRunDbRow {
   return {
     id: run.id,
@@ -85,6 +110,7 @@ export function blueprintRunToRow(run: BlueprintRunRow): BlueprintRunDbRow {
     wait_until: run.waitUntil,
     started_at: run.startedAt,
     updated_at: run.updatedAt,
+    history: run.history ?? [],
   }
 }
 
@@ -103,6 +129,7 @@ export function blueprintRunRowToApp(row: BlueprintRunDbRow): BlueprintRunRow {
     waitUntil: row.wait_until,
     startedAt: row.started_at,
     updatedAt: row.updated_at,
+    history: parseHistory(row.history),
   }
 }
 

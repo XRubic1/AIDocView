@@ -28,7 +28,7 @@ import type {
   ProposedAction,
 } from '../types/emailLifecycle'
 import { classifyInboundBrokerReply } from '../utils/classifyInboundBrokerReply'
-import { shouldSkipEmailLifecyclePaymentChase } from '../components/blueprints/blueprintChaseSkip'
+import { shouldSkipEmailLifecyclePaymentChase, shouldSkipEmailLifecyclePaperworkChase } from '../components/blueprints/blueprintChaseSkip'
 import { brokerEmailAccept, daysBetween, resolveTrackClock } from '../utils/emailLifecycleClocks'
 import {
   isEmailLifecycleRuleEnabled,
@@ -575,6 +575,13 @@ export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
     const paperworkGood = lifecycle.paperwork_status === 'good'
 
     if (!paperworkGood && ppwAt) {
+      // Blueprint Wait + follow-up owns post-PPW paperwork reminders
+      if (
+        lifecycle.blueprint_owns_paperwork === true ||
+        shouldSkipEmailLifecyclePaperworkChase(invoice.id)
+      ) {
+        /* fall through to payment track */
+      } else {
       const clock = resolveTrackClock('paperwork', broker)
       const started = lifecycle.paperwork?.startedAt || ppwAt
       const daysSinceStart = daysBetween(started, nowMs) ?? 0
@@ -622,6 +629,7 @@ export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
             },
           }, { collections_needs_attention: true })
         }
+      }
       }
     }
 

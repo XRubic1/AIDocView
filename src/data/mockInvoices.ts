@@ -11,7 +11,11 @@ function queueBlueprintStatusSync(invoiceId: string): void {
   queueMicrotask(() => {
     try {
       // Lazy import avoids circular deps (runner → mockInvoices → runner)
-      void import('../components/blueprints/blueprintRunner').then((mod) => {
+      void import('../components/blueprints/blueprintRunner').then(async (mod) => {
+        // Hold/PPW hooks may still be in flight — wait briefly instead of double-enrolling
+        for (let i = 0; i < 20 && mod.isBlueprintLifecycleHookActive(); i += 1) {
+          await new Promise((r) => setTimeout(r, 25))
+        }
         if (mod.isBlueprintLifecycleHookActive()) return
         void mod.syncInvoiceBlueprints(invoiceId, 'status change')
       })

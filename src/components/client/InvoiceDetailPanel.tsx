@@ -17,6 +17,7 @@ import {
   Menu,
   PauseCircle,
   PlayCircle,
+  GitBranch,
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
@@ -1461,6 +1462,24 @@ export default function InvoiceDetailPanel({
             >
               {navIndex >= 0 ? navIndex + 1 : 1}/{navigationInvoices.length || 1}
             </span>
+            {isAdminPortal && !notesAsPrimaryTab ? (
+              <button
+                type="button"
+                className={`payment-confirmation-panel__icon-btn${
+                  detailSurface === 'blueprints'
+                    ? ' payment-confirmation-panel__icon-btn--active'
+                    : ''
+                }`}
+                onClick={() =>
+                  setDetailSurface((s) => (s === 'blueprints' ? 'overview' : 'blueprints'))
+                }
+                aria-label="Blueprints"
+                aria-pressed={detailSurface === 'blueprints'}
+                title="Blueprints"
+              >
+                <GitBranch className="w-4 h-4" />
+              </button>
+            ) : null}
             <button
               type="button"
               className="payment-confirmation-panel__icon-btn payment-confirmation-panel__mobile-menu-btn"
@@ -1547,6 +1566,24 @@ export default function InvoiceDetailPanel({
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
+              {isAdminPortal && !notesAsPrimaryTab ? (
+                <button
+                  type="button"
+                  className={`payment-confirmation-panel__icon-btn${
+                    detailSurface === 'blueprints'
+                      ? ' payment-confirmation-panel__icon-btn--active'
+                      : ''
+                  }`}
+                  onClick={() =>
+                    setDetailSurface((s) => (s === 'blueprints' ? 'overview' : 'blueprints'))
+                  }
+                  aria-label="Blueprints"
+                  aria-pressed={detailSurface === 'blueprints'}
+                  title="Blueprints"
+                >
+                  <GitBranch className="w-4 h-4" />
+                </button>
+              ) : null}
               {onPopOut && detailSurface === 'overview' ? (
                 <button
                   type="button"
@@ -1651,8 +1688,10 @@ export default function InvoiceDetailPanel({
                   : ''
               }`}
               onClick={() => setDetailSurface('blueprints')}
+              title="Blueprints"
             >
-              Blueprints
+              <GitBranch className="w-3.5 h-3.5" aria-hidden />
+              <span className="sr-only">Blueprints</span>
             </button>
           ) : null}
         </div>

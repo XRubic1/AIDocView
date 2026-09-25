@@ -205,6 +205,10 @@ Deno.serve(async (req) => {
       }
 
       if (!paperworkGood) {
+        // Live blueprint owns post-PPW paperwork reminders (Wait + follow-up)
+        if (life.blueprint_owns_paperwork === true) {
+          // fall through — payment track may still run unless owns_chase
+        } else {
         const started = pwState.startedAt || ppwSentAt(invoice)
         if (!started) continue
         const clock = mergeClock(
@@ -282,6 +286,7 @@ Deno.serve(async (req) => {
           }
         }
         continue
+        }
       }
 
       // Blueprint owns payment chase — skip payment track (paperwork already handled)

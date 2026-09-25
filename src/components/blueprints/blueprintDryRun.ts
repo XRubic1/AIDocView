@@ -25,8 +25,12 @@ export type DryRunLogLevel = 'info' | 'wait' | 'branch' | 'action' | 'warn' | 'd
 export type DryRunLogEntry = {
   step: number
   level: DryRunLogLevel
+  /** Short “what” headline */
   title: string
+  /** Extra detail under the headline */
   detail: string
+  /** When this step would fire on the timeline */
+  whenLabel: string
   nodeId?: string
 }
 
@@ -90,86 +94,40 @@ export function defaultWhenAssumptions(
   return assumptions
 }
 
-function describeNode(data: BlueprintNodeData): { title: string; detail: string; level: DryRunLogLevel } {
-  if (data.kind === 'trigger') {
-    const line = formatTriggerCardLine(data)
-    const entry = data.triggerEntry === 'event' ? 'event' : 'filter'
-    return {
-      level: 'info',
-      title: nodeTitle(data),
-      detail:
-        entry === 'event'
-          ? `Would wake when a matching event happens (${line}).`
-          : `Would apply to records that match: ${line}.`,
-    }
-  }
-  if (data.kind === 'wait') {
-    const wait = lookupWaitUntilById(data.waitUntilId)
-    const line = wait
-      ? formatCatalogCardLine(wait, data.days)
-      : data.fieldKey || 'Wait condition not set'
-    return {
-      level: 'wait',
-      title: nodeTitle(data),
-      detail: `${line}. Clock reached (pretend).`,
-    }
-  }
-  if (isWhen(data)) {
-    return {
-      level: 'branch',
-      title: nodeTitle(data),
-      detail: formatWhenCardLine(data),
-    }
-  }
-  if (isBranchTrue(data) || isBranchFalse(data)) {
-    return {
-      level: 'branch',
-      title: nodeTitle(data),
-      detail: isBranchTrue(data)
-        ? 'Taking the True path.'
-        : 'Taking the False path.',
-    }
-  }
-  if (data.kind === 'action') {
-    const ids = getActionIds(data)
-    if (ids.length === 0) {
-      return {
-        level: 'action',
-        title: nodeTitle(data),
-        detail: 'No tasks on this card yet.',
-      }
-    }
-    if (ids.length === 1) {
-      const action = lookupActionById(ids[0])
-      return {
-        level: 'action',
-        title: nodeTitle(data),
-        detail: action?.cardLine ?? data.status ?? 'Action not set',
-      }
-    }
-    return {
-      level: 'action',
-      title: nodeTitle(data),
-      detail: `${ids.length} tasks on this card`,
-    }
-  }
-  if (data.kind === 'stop') {
-    return {
-      level: 'done',
-      title: nodeTitle(data),
-      detail: 'Path ends here.',
-    }
-  }
-  return {
-    level: 'info',
-    title: nodeTitle(data),
-    detail: '',
-  }
+type SimClock = { minutes: number }
+
+function formatDurationParts(totalMinutes: number): string {
+  if (totalMinutes <= 0) return 'Right away'
+  const days = Math.floor(totalMinutes / (24 * 60))
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60)
+  const mins = totalMinutes % 60
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days} day${days === 1 ? '' : 's'}`)
+  if (hours > 0) parts.push(`${hours} hour${hours === 1 ? '' : 's'}`)
+  if (mins > 0 && days === 0) parts.push(`${mins} min`)
+  return `After ${parts.join(', ')}`
+}
+
+function waitDeltaMinutes(data: BlueprintNodeData): number | null {
+  const wait = lookupWaitUntilById(data.waitUntilId)
+  const id = wait?.id ?? data.waitUntilId
+  if (id !== 'pause_days') return null
+  const n = Math.max(0, Number(data.days) || 0)
+  const unit = data.waitUnit || 'days'
+  if (unit === 'minutes') return n
+  if (unit === 'hours') return n * 60
+  return n * 24 * 60
+}
+
+function waitUntilPlain(data: BlueprintNodeData): string {
+  const wait = lookupWaitUntilById(data.waitUntilId)
+  if (!wait) return data.fieldKey || 'wait condition not set'
+  return formatCatalogCardLine(wait, data.days, data.waitUnit)
 }
 
 /**
  * Walk the graph from Start, using When assumptions to pick branches.
- * Pure simulation — no side effects.
+ * Pure simulation — no side effects. Each step gets a When + What.
  */
 export function runBlueprintDryRun(
   nodes: BlueprintFlowNode[],
@@ -182,48 +140,50 @@ export function runBlueprintDryRun(
     level: DryRunLogLevel,
     title: string,
     detail: string,
+    whenLabel: string,
     nodeId?: string
   ) => {
     step += 1
-    log.push({ step, level, title, detail, nodeId })
+    log.push({ step, level, title, detail, whenLabel, nodeId })
   }
 
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const starts = nodes.filter((n) => n.data.kind === 'trigger')
 
   if (nodes.length === 0) {
-    push('warn', 'Empty blueprint', 'Add a Start with card and connect steps, then Run again.')
+    push(
+      'warn',
+      'Empty blueprint',
+      'Add a Start card and connect steps, then Simulate again.',
+      '—'
+    )
     return log
   }
 
   if (starts.length === 0) {
-    push('warn', 'No Start with card', 'Add a Start with (All invoices / All brokers) to begin.')
+    push(
+      'warn',
+      'No Start card',
+      'Add a Start with (All invoices / All brokers) to begin.',
+      '—'
+    )
     return log
   }
 
-  const assumptionSummary = Object.entries(assumptions)
-    .map(([id, v]) => {
-      const ev = lookupEventById(id)
-      return `${ev?.label ?? id} = ${v ? 'YES' : 'NO'}`
-    })
-    .join(' · ')
-
-  push(
-    'info',
-    'Dry run started',
-    assumptionSummary
-      ? `Using: ${assumptionSummary}`
-      : 'No When forks — one straight path.'
-  )
-
   for (const start of starts) {
     if (starts.length > 1) {
-      push('info', `Path from “${nodeTitle(start.data)}”`, 'Multiple Start cards — simulating each.')
+      push(
+        'info',
+        `Path from “${nodeTitle(start.data)}”`,
+        'This blueprint has more than one Start — simulating each path.',
+        'Right away'
+      )
     }
 
     let current: BlueprintFlowNode | null = start
     const visited = new Set<string>()
     let guard = 0
+    let clock: SimClock = { minutes: 0 }
 
     while (current && guard < 80) {
       guard += 1
@@ -231,25 +191,73 @@ export function runBlueprintDryRun(
         push(
           'warn',
           'Loop detected',
-          `Stopped at “${nodeTitle(current.data)}” to avoid repeating forever.`,
+          `Stopped at “${nodeTitle(current.data)}” so it doesn’t repeat forever.`,
+          formatDurationParts(clock.minutes),
           current.id
         )
         break
       }
       visited.add(current.id)
 
-      const desc = describeNode(current.data)
+      const whenNow = formatDurationParts(clock.minutes)
       let whenMatched: boolean | null = null
-      if (isWhen(current.data)) {
+
+      if (current.data.kind === 'trigger') {
+        const line = formatTriggerCardLine(current.data)
+        const entry = current.data.triggerEntry === 'event' ? 'event' : 'filter'
+        push(
+          'info',
+          'Starts here',
+          entry === 'event'
+            ? `Would enroll when this event fires: ${line}.`
+            : `Would enroll records that match: ${line}.`,
+          'Right away',
+          current.id
+        )
+      } else if (current.data.kind === 'wait') {
+        const until = waitUntilPlain(current.data)
+        const delta = waitDeltaMinutes(current.data)
+        if (delta !== null) {
+          push(
+            'wait',
+            'Pause the clock',
+            `Would wait ${until.replace(/^Wait\s+/i, '')}, then continue.`,
+            whenNow,
+            current.id
+          )
+          clock = { minutes: clock.minutes + delta }
+        } else {
+          push(
+            'wait',
+            'Wait for a condition',
+            `Would stay here until: ${until}. Next steps run only after that is true.`,
+            whenNow,
+            current.id
+          )
+        }
+      } else if (isWhen(current.data)) {
         const checkId = current.data.checkId ?? ''
         const raw = checkId ? assumptions[checkId] === true : false
         whenMatched = whenNodePasses(current.data, raw)
+        const eventLabel =
+          lookupEventById(checkId)?.label ?? formatWhenCardLine(current.data)
         push(
           'branch',
-          desc.title,
+          whenMatched ? 'When matches — continue' : 'When does not match — stop',
           whenMatched
-            ? `${desc.detail} → matched — continue.`
-            : `${desc.detail} → did not match — path ends (flip Match when or scenario).`,
+            ? `Pretending “${eventLabel}” is YES. Path continues on the Yes branch.`
+            : `Pretending “${eventLabel}” is NO. Path ends here (flip Yes/No above to try the other branch).`,
+          whenNow,
+          current.id
+        )
+      } else if (isBranchTrue(current.data) || isBranchFalse(current.data)) {
+        push(
+          'branch',
+          isBranchTrue(current.data) ? 'Take Yes path' : 'Take No path',
+          isBranchTrue(current.data)
+            ? 'Following the Yes / True branch from the When above.'
+            : 'Following the No / False branch from the When above.',
+          whenNow,
           current.id
         )
       } else if (current.data.kind === 'action') {
@@ -261,36 +269,70 @@ export function runBlueprintDryRun(
           if (!isTaskReady(id, cfg)) {
             push(
               'warn',
-              action?.defaultTitle ?? id,
-              `Not set up — ${taskSetupHint(id)}. Open the task and finish setup before this can run.`,
+              `Would skip: ${action?.defaultTitle ?? id}`,
+              `Not set up yet — ${taskSetupHint(id)}. Open the task and finish setup.`,
+              whenNow,
               current!.id
             )
             return
           }
-          const bits = [action?.cardLine ?? 'Task']
+          const bits: string[] = []
           if (cfg.templateId?.trim()) {
             const tpl = getDefaultEmailTemplate(cfg.templateId)
-            bits.push(`template: ${tpl?.name ?? cfg.templateId}`)
+            bits.push(`template “${tpl?.name ?? cfg.templateId}”`)
           }
-          if (cfg.message?.trim()) bits.push(`“${cfg.message.trim()}”`)
+          if (cfg.message?.trim()) bits.push(`note: “${cfg.message.trim()}”`)
           if (cfg.channel) bits.push(channelLabel(cfg.channel))
-          push('action', action?.defaultTitle ?? id, bits.join(' · '), current!.id)
+          const from = cfg.fromEmails?.[0]
+          if (from) {
+            const cc = (cfg.fromEmails ?? []).slice(1)
+            bits.push(
+              cc.length > 0
+                ? `from ${from} (CC ${cc.join(', ')})`
+                : `from ${from}`
+            )
+          }
+          push(
+            'action',
+            `Would: ${action?.defaultTitle ?? id}`,
+            bits.length > 0
+              ? bits.join(' · ')
+              : action?.cardLine ?? 'This task would run.',
+            whenNow,
+            current!.id
+          )
         }
         if (ids.length === 0) {
-          push(desc.level, desc.title, desc.detail, current.id)
+          push(
+            'warn',
+            'Empty Then-do card',
+            'No tasks on this card yet — add one in the side panel.',
+            whenNow,
+            current.id
+          )
         } else if (ids.length === 1) {
           logOne(ids[0])
         } else {
           push(
             'info',
-            desc.title,
-            `Running ${ids.length} tasks on this card:`,
+            `Then-do · ${ids.length} tasks`,
+            'These would run in order on this card:',
+            whenNow,
             current.id
           )
           for (const id of ids) logOne(id)
         }
+      } else if (current.data.kind === 'stop') {
+        push(
+          'done',
+          'Path ends',
+          'Done — nothing more runs on this branch.',
+          whenNow,
+          current.id
+        )
+        break
       } else {
-        push(desc.level, desc.title, desc.detail, current.id)
+        push('info', nodeTitle(current.data), '', whenNow, current.id)
       }
 
       if (current.data.kind === 'stop') break
@@ -301,6 +343,7 @@ export function runBlueprintDryRun(
           'warn',
           'Dead end',
           `“${nodeTitle(current.data)}” has no next step. Connect another card or add Done.`,
+          formatDurationParts(clock.minutes),
           current.id
         )
         break
@@ -325,8 +368,9 @@ export function runBlueprintDryRun(
               'warn',
               'Branch missing',
               whenMatched
-                ? 'Legacy True card missing — or connect When → Then do.'
-                : 'Legacy False card missing — or use Match when · False on the When card.',
+                ? 'Yes path is not connected — link When → Then do.'
+                : 'No path is not connected — link the False branch or flip Match when.',
+              formatDurationParts(clock.minutes),
               current.id
             )
             break
@@ -338,6 +382,7 @@ export function runBlueprintDryRun(
               'warn',
               'Dead end',
               'Connect When → Then do (or Done).',
+              formatDurationParts(clock.minutes),
               current.id
             )
             break
@@ -346,7 +391,8 @@ export function runBlueprintDryRun(
           push(
             'warn',
             'When did not match',
-            'This When’s Match when switch did not match the scenario. Flip the scenario toggle or the Match when switch.',
+            'Flip a Yes/No toggle above (or the Match when switch) and Simulate again.',
+            formatDurationParts(clock.minutes),
             current.id
           )
           break
@@ -368,10 +414,14 @@ export function runBlueprintDryRun(
           const skipped = whenTargets.filter((t) => !matched.includes(t))
 
           for (const s of skipped) {
+            const id = s.node.data.checkId ?? ''
+            const eventLabel =
+              lookupEventById(id)?.label ?? formatWhenCardLine(s.node.data)
             push(
               'branch',
-              `Skipped · ${nodeTitle(s.node.data)}`,
-              `${formatWhenCardLine(s.node.data)} did not match this scenario.`,
+              `Skip: ${eventLabel}`,
+              'This When is NO in the scenario — not taken.',
+              formatDurationParts(clock.minutes),
               s.node.id
             )
           }
@@ -380,7 +430,8 @@ export function runBlueprintDryRun(
             push(
               'warn',
               'No matching When',
-              'None of the When cards match this scenario. Path ends here. Flip a scenario toggle and Run again.',
+              'None of the When cards match. Flip a Yes/No toggle and Simulate again.',
+              formatDurationParts(clock.minutes),
               current.id
             )
             break
@@ -388,9 +439,10 @@ export function runBlueprintDryRun(
 
           if (matched.length > 1) {
             push(
-              'warn',
-              'Multiple When cards matched',
+              'info',
+              'Several Whens match',
               `Following “${nodeTitle(matched[0].node.data)}” first.`,
+              formatDurationParts(clock.minutes),
               matched[0].node.id
             )
           }
@@ -403,6 +455,7 @@ export function runBlueprintDryRun(
             'info',
             'Multiple next steps',
             `Following “${nodeTitle(otherTargets[0].node.data)}” (${otherTargets.length} options).`,
+            formatDurationParts(clock.minutes),
             otherTargets[0].node.id
           )
           next = otherTargets[0].node
@@ -413,6 +466,11 @@ export function runBlueprintDryRun(
     }
   }
 
-  push('done', 'Finished', 'Preview only — nothing was emailed or saved.')
+  push(
+    'done',
+    'End of preview',
+    'Nothing was emailed or saved — this was a simulation only.',
+    '—'
+  )
   return log
 }

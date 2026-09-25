@@ -321,6 +321,9 @@ export function scoreBlueprintForEvent(
     // Realtime assign: Start filters must pass for the invoice as it is now
     if (!invoicePassesGate(invoice, filters)) return null
     if (holdOnly(filters) && invoice.status !== 'hold') return null
+    // Event-only graphs — wait for the real event, not status sync after hold clear
+    if (hasInvoiceProcessedWhen(bp.nodes, 'yes')) return null
+    if (hasWhenPaymentPosted(bp.nodes, 'yes')) return null
     // Removed-from-hold-only graphs: assign while on hold (park); release uses hold_cleared
     if (hasWhenOnHold(bp.nodes, 'no') && !hasWhenOnHold(bp.nodes, 'yes')) {
       if (invoice.status !== 'hold') return null

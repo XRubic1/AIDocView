@@ -43,6 +43,11 @@ export interface InvoiceEmailLifecycle {
    * (Then-do payment / follow-up emails). Cron + Run chase skip payment track.
    */
   blueprint_owns_chase?: boolean
+  /**
+   * When true, paperwork-status chase after PPW is owned by a Live blueprint
+   * (Wait + follow-up Then-do). Cron + Run chase skip paperwork track.
+   */
+  blueprint_owns_paperwork?: boolean
 }
 
 export interface EmailThread {

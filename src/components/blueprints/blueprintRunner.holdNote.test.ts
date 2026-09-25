@@ -138,10 +138,10 @@ describe('blueprintRunner hold → clear → note', () => {
     saveBlueprint(holdClearedBlueprint())
   })
 
-  it('parks on place-hold and posts Then-do note when hold is cleared', () => {
+  it('parks on place-hold and posts Then-do note when hold is cleared', async () => {
     hydrateInvoices([makeInvoice('hold')])
 
-    onInvoiceHeld(INV_ID)
+    await onInvoiceHeld(INV_ID)
 
     const parked = getPrimaryRunForInvoice(getInvoiceById(INV_ID)!)
     expect(parked?.status).toBe('waiting')
@@ -154,7 +154,7 @@ describe('blueprintRunner hold → clear → note', () => {
         notes_history: [],
       },
     ])
-    onInvoiceHoldCleared(INV_ID)
+    await onInvoiceHoldCleared(INV_ID)
 
     const notes = getInvoiceById(INV_ID)?.notes_history ?? []
     expect(notes.some((n) => /Hold cleared/i.test(n.note))).toBe(true)

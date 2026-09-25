@@ -69,18 +69,18 @@ export function approveAdminInvoice(
   if (updated && 'hold_reason' in updated) {
     delete updated.hold_reason
   }
-  if (updated && wasHold) {
-    try {
-      onInvoiceHoldCleared(invoiceId)
-    } catch {
-      /* runner optional */
+  const finishPersist = () => {
+    const finalInv = getInvoiceById(invoiceId) ?? updated
+    if (finalInv) {
+      void persistWithFeedback('Invoice save', () => persistInvoice(finalInv))
     }
+    return finalInv
   }
-  const finalInv = getInvoiceById(invoiceId) ?? updated
-  if (finalInv) {
-    void persistWithFeedback('Invoice save', () => persistInvoice(finalInv))
+  if (updated && wasHold) {
+    void onInvoiceHoldCleared(invoiceId).then(finishPersist)
+    return getInvoiceById(invoiceId) ?? updated
   }
-  return finalInv
+  return finishPersist()
 }
 
 /**
@@ -139,16 +139,21 @@ export function holdAdminInvoice(
   }
 
   try {
-    onInvoiceHeld(invoiceId)
+    void onInvoiceHeld(invoiceId).then(() => {
+      const finalInv = getInvoiceById(invoiceId)
+      if (finalInv) {
+        void persistWithFeedback('Invoice save', () => persistInvoice(finalInv))
+      }
+    })
   } catch {
     /* runner optional */
+    const finalInv = getInvoiceById(invoiceId) ?? updated
+    if (finalInv) {
+      void persistWithFeedback('Invoice save', () => persistInvoice(finalInv))
+    }
   }
 
-  const finalInv = getInvoiceById(invoiceId) ?? updated
-  if (finalInv) {
-    void persistWithFeedback('Invoice save', () => persistInvoice(finalInv))
-  }
-  return finalInv
+  return getInvoiceById(invoiceId) ?? updated
 }
 
 const AI_AUTO_NOTE =

@@ -19505,6 +19505,11 @@
   color: var(--cp-text);
 }
 
+.client-portal .payment-confirmation-panel__icon-btn--active {
+  background: color-mix(in srgb, #1684fe 16%, transparent);
+  color: #1684fe;
+}
+
 .client-portal .payment-confirmation-panel__icon-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;

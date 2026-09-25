@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Edge } from '@xyflow/react'
-import { Bookmark, Check, ChevronDown, ChevronUp, Plus, Trash2, X } from 'lucide-react'
+import { Bookmark, Check, Plus, Trash2, X } from 'lucide-react'
 import type { BlueprintFlowNode, BlueprintNodeData } from '../../types/blueprintGraph'
 import { BLUEPRINT_NODE_KIND_LABELS } from '../../types/blueprintGraph'
 import {
@@ -26,7 +26,6 @@ import { upsertCardByName } from './blueprintCardLibrary'
 import {
   channelLabel,
   defaultTaskConfig,
-  fromRoleLabel,
   getActionSetup,
   isActionConfigurable,
   isTaskReady,
@@ -401,14 +400,6 @@ export default function BlueprintSidePanel({
     setFromEmailsOrdered([...selectedFromEmails, key])
   }
 
-  const moveFromEmail = (index: number, dir: -1 | 1) => {
-    const next = [...selectedFromEmails]
-    const j = index + dir
-    if (j < 0 || j >= next.length) return
-    ;[next[index], next[j]] = [next[j], next[index]]
-    setFromEmailsOrdered(next)
-  }
-
   const persistExtraFrom = async (nextExtras: string[]) => {
     setFromBusy(true)
     try {
@@ -547,109 +538,69 @@ export default function BlueprintSidePanel({
 
             {editingSetup.needsFrom ? (
               <div className="bp-side__field">
-                <span>Send from / CC</span>
-                {selectedFromEmails.length > 0 ? (
-                  <ol className="bp-side__from-order">
-                    {selectedFromEmails.map((email, index) => {
-                      const opt = fromOptions.find(
-                        (o) => o.email.toLowerCase() === email
-                      )
-                      return (
-                        <li key={email}>
-                          <span className="bp-side__from-role">{fromRoleLabel(index)}</span>
-                          <span className="bp-side__from-addr" title={email}>
-                            {opt?.label ? `${opt.label} — ${email}` : email}
-                          </span>
-                          <span className="bp-side__from-order-actions">
-                            <button
-                              type="button"
-                              className="bp-side__mini-btn"
-                              disabled={index === 0}
-                              aria-label="Move up (earlier = From)"
-                              onClick={() => moveFromEmail(index, -1)}
-                            >
-                              <ChevronUp size={12} aria-hidden />
-                            </button>
-                            <button
-                              type="button"
-                              className="bp-side__mini-btn"
-                              disabled={index === selectedFromEmails.length - 1}
-                              aria-label="Move down"
-                              onClick={() => moveFromEmail(index, 1)}
-                            >
-                              <ChevronDown size={12} aria-hidden />
-                            </button>
-                            <button
-                              type="button"
-                              className="bp-side__mini-btn bp-side__mini-btn--danger"
-                              disabled={selectedFromEmails.length <= 1}
-                              aria-label={`Remove ${email}`}
-                              onClick={() =>
-                                setFromEmailsOrdered(
-                                  selectedFromEmails.filter((e) => e !== email)
-                                )
-                              }
-                            >
-                              <X size={12} aria-hidden />
-                            </button>
-                          </span>
-                        </li>
-                      )
-                    })}
-                  </ol>
-                ) : null}
-                <div className="bp-side__from-picks" role="group" aria-label="Mailbox options">
+                <span>From / CC</span>
+                <div className="bp-side__from-chips" role="group" aria-label="Mailbox options">
                   {fromOptions.map((o) => {
                     const key = o.email.toLowerCase()
                     const selected = selectedFromEmails.includes(key)
-                    const orderIdx = selectedFromEmails.indexOf(key)
+                    const isFrom = selected && selectedFromEmails[0] === key
                     return (
                       <button
                         key={o.email}
                         type="button"
-                        className={`bp-side__from-pick${selected ? ' is-selected' : ''}`}
+                        className={`bp-side__from-chip${selected ? ' is-selected' : ''}${isFrom ? ' is-from' : ''}`}
                         aria-pressed={selected}
+                        title={
+                          isFrom
+                            ? `From · ${o.email}`
+                            : selected
+                              ? `CC · ${o.email}`
+                              : o.email
+                        }
                         onClick={() => toggleFromEmail(o.email)}
                       >
-                        <span className="bp-side__from-pick-check" aria-hidden>
-                          {selected ? <Check size={12} /> : null}
+                        <span className="bp-side__from-chip-check" aria-hidden>
+                          {selected ? <Check size={11} /> : null}
                         </span>
-                        <span className="bp-side__from-pick-body">
-                          <span className="bp-side__from-pick-label">
-                            {o.label}
-                            {selected ? (
-                              <em> · {fromRoleLabel(orderIdx)}</em>
-                            ) : null}
+                        <span className="bp-side__from-chip-email">{o.email}</span>
+                        {isFrom ? <span className="bp-side__from-chip-tag">From</span> : null}
+                        {selected && !isFrom ? (
+                          <span className="bp-side__from-chip-tag bp-side__from-chip-tag--cc">
+                            CC
                           </span>
-                          <span className="bp-side__from-pick-email">{o.email}</span>
-                        </span>
+                        ) : null}
                       </button>
                     )
                   })}
                   {selectedFromEmails
                     .filter(
-                      (e) =>
-                        !fromOptions.some((o) => o.email.toLowerCase() === e)
+                      (e) => !fromOptions.some((o) => o.email.toLowerCase() === e)
                     )
-                    .map((email) => (
-                      <button
-                        key={email}
-                        type="button"
-                        className="bp-side__from-pick is-selected"
-                        aria-pressed
-                        onClick={() => toggleFromEmail(email)}
-                      >
-                        <span className="bp-side__from-pick-check" aria-hidden>
-                          <Check size={12} />
-                        </span>
-                        <span className="bp-side__from-pick-body">
-                          <span className="bp-side__from-pick-label">
-                            Saved · {fromRoleLabel(selectedFromEmails.indexOf(email))}
+                    .map((email) => {
+                      const isFrom = selectedFromEmails[0] === email
+                      return (
+                        <button
+                          key={email}
+                          type="button"
+                          className={`bp-side__from-chip is-selected${isFrom ? ' is-from' : ''}`}
+                          aria-pressed
+                          title={email}
+                          onClick={() => toggleFromEmail(email)}
+                        >
+                          <span className="bp-side__from-chip-check" aria-hidden>
+                            <Check size={11} />
                           </span>
-                          <span className="bp-side__from-pick-email">{email}</span>
-                        </span>
-                      </button>
-                    ))}
+                          <span className="bp-side__from-chip-email">{email}</span>
+                          {isFrom ? (
+                            <span className="bp-side__from-chip-tag">From</span>
+                          ) : (
+                            <span className="bp-side__from-chip-tag bp-side__from-chip-tag--cc">
+                              CC
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
                 </div>
                 <div className="bp-side__from-add">
                   <input
@@ -693,9 +644,7 @@ export default function BlueprintSidePanel({
                   </ul>
                 ) : null}
                 <span className="bp-side__help">
-                  First selected address is From; 2nd+ go on CC. Use ↑↓ to reorder. Core
-                  addresses come from Settings → Addresses; extras must be verified in
-                  Resend.
+                  First pick is From; more picks go on CC. Extras must be verified in Resend.
                 </span>
               </div>
             ) : null}

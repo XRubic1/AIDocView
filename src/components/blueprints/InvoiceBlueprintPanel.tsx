@@ -15,8 +15,11 @@ import { getSavedBlueprint, listSavedBlueprints } from './blueprintStore'
 import {
   BLUEPRINT_RUN_STATUS_LABELS,
   BLUEPRINT_RUNS_CHANGED_EVENT,
+  clearInvoiceBlueprintHistory,
   getPrimaryRunForInvoice,
+  listInvoiceBlueprintHistory,
   startInvoiceRun,
+  type BlueprintRunHistoryKind,
   type BlueprintRunRow,
   type BlueprintRunStatus,
 } from './blueprintRuns'
@@ -147,6 +150,29 @@ function stepKindLabel(kind: UpcomingStepKind): string {
   }
 }
 
+function historyKindLabel(kind: BlueprintRunHistoryKind): string {
+  switch (kind) {
+    case 'enrolled':
+      return 'Start'
+    case 'wait':
+      return 'Wait'
+    case 'when':
+      return 'When'
+    case 'action':
+      return 'Do'
+    case 'advance':
+      return 'Next'
+    case 'paused':
+      return 'Paused'
+    case 'completed':
+      return 'Done'
+    case 'stopped':
+      return 'Stopped'
+    default:
+      return 'Note'
+  }
+}
+
 interface InvoiceBlueprintPanelProps {
   invoice: Invoice
 }
@@ -157,11 +183,13 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
     getInvoiceBlueprintAssignment(invoice.id)
   )
   const [run, setRun] = useState(() => getPrimaryRunForInvoice(invoice))
+  const [history, setHistory] = useState(() => listInvoiceBlueprintHistory(invoice))
 
   useEffect(() => {
     const refresh = () => {
       setAssignment(getInvoiceBlueprintAssignment(invoice.id))
       setRun(getPrimaryRunForInvoice(invoice))
+      setHistory(listInvoiceBlueprintHistory(invoice))
     }
     refresh()
     window.addEventListener(BLUEPRINT_RUNS_CHANGED_EVENT, refresh)
@@ -403,6 +431,56 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
           )}
         </section>
       ) : null}
+
+      <section className="inv-bp__card">
+        <div className="inv-bp__card-head inv-bp__card-head--row">
+          <span>Run history</span>
+          {history.length > 0 ? (
+            <button
+              type="button"
+              className="inv-bp__link-btn"
+              onClick={() => {
+                if (!window.confirm('Clear run history for this invoice?')) return
+                clearInvoiceBlueprintHistory(invoice)
+                setHistory(listInvoiceBlueprintHistory(invoice))
+              }}
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+        <p className="inv-bp__meta" style={{ marginTop: 0, marginBottom: '0.35rem' }}>
+          Oldest → newest · what actually ran on this invoice
+        </p>
+        {history.length === 0 ? (
+          <p className="inv-bp__meta" style={{ marginTop: 0 }}>
+            Nothing has run on this invoice yet. When Live runner advances Wait / When / Then-do,
+            each step will show up here.
+          </p>
+        ) : (
+          <ol className="inv-bp__history">
+            {history.map((ev) => (
+              <li key={ev.id} className={`inv-bp__history-item inv-bp__history-item--${ev.kind}`}>
+                <div className="inv-bp__history-when">
+                  <time dateTime={ev.at}>{formatWhen(ev.at)}</time>
+                  <span
+                    className={`inv-bp__history-kind inv-bp__history-kind--${ev.kind}`}
+                  >
+                    {historyKindLabel(ev.kind)}
+                  </span>
+                </div>
+                <div className="inv-bp__history-body">
+                  <div className="inv-bp__history-title">{ev.title}</div>
+                  {ev.detail ? (
+                    <div className="inv-bp__history-detail">{ev.detail}</div>
+                  ) : null}
+                  <div className="inv-bp__history-bp">{ev.blueprintName}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
     </div>
   )
 }

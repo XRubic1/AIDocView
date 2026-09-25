@@ -178,6 +178,43 @@ describe('blueprintAutoMatch', () => {
     expect(m!.score).toBeGreaterThan(0)
   })
 
+  it('does not match invoice_processed graphs on generic sync (hold clear)', () => {
+    const bp: SavedBlueprint = {
+      id: 'bp-processed',
+      name: 'Send docs on process',
+      updatedAt: '2026-09-24T00:00:00.000Z',
+      nodes: [
+        {
+          id: 'n-start',
+          type: 'blueprint',
+          position: { x: 0, y: 0 },
+          data: {
+            kind: 'trigger',
+            label: 'Start',
+            triggerSubject: 'invoices',
+            triggerEntry: 'event',
+            triggerFilters: defaultTriggerFilters(),
+          },
+        },
+        {
+          id: 'n-when',
+          type: 'blueprint',
+          position: { x: 0, y: 0 },
+          data: {
+            kind: 'if',
+            label: 'Processed',
+            checkId: 'invoice_processed',
+            whenMatch: 'yes',
+          },
+        },
+      ],
+      edges: [{ id: 'e1', source: 'n-start', target: 'n-when' }],
+    }
+    expect(scoreBlueprintForEvent(bp, 'sync', makeInvoice('approved'))).toBeNull()
+    expect(scoreBlueprintForEvent(bp, 'hold_cleared', makeInvoice('approved'))).toBeNull()
+    expect(scoreBlueprintForEvent(bp, 'invoice_processed', makeInvoice('approved'))).not.toBeNull()
+  })
+
   it('matches payment_posted to When · Payment posted graphs', () => {
     const bp: SavedBlueprint = {
       id: 'bp-pay',

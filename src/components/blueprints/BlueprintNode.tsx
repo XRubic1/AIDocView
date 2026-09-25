@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
+import { User } from 'lucide-react'
 import type { BlueprintNodeData } from '../../types/blueprintGraph'
-import { BLUEPRINT_NODE_KIND_LABELS } from '../../types/blueprintGraph'
 import {
   formatCatalogCardLine,
   lookupActionById,
@@ -61,23 +61,13 @@ function cardFailMessage(todos: ActionTodoLine[]): string {
 }
 
 function subtitle(data: BlueprintNodeData): string {
-  if (data.kind === 'trigger') {
-    return formatTriggerCardLine(data)
-  }
+  if (data.kind === 'trigger') return formatTriggerCardLine(data)
   if (data.kind === 'wait') {
     const wait = lookupWaitUntilById(data.waitUntilId)
     if (wait) return formatCatalogCardLine(wait, data.days, data.waitUnit)
-    return data.fieldKey?.trim() || 'Choose when to continue…'
+    return data.fieldKey?.trim() || 'Choose when…'
   }
-  if (data.kind === 'if' || data.kind === 'elseif') {
-    return formatWhenCardLine(data)
-  }
-  if (data.kind === 'branch_true' || data.kind === 'branch_false') {
-    return ''
-  }
-  if (data.kind === 'action') {
-    return ''
-  }
+  if (data.kind === 'if' || data.kind === 'elseif') return formatWhenCardLine(data)
   return ''
 }
 
@@ -89,22 +79,33 @@ function BlueprintNodeComponent({ data, selected }: NodeProps<BlueprintRfNode>) 
   const showSource = kind !== 'stop'
   const sub = subtitle(nodeData)
   const todos = kind === 'action' ? actionLines(nodeData) : []
+  const isCapsule =
+    kind === 'trigger' ||
+    kind === 'wait' ||
+    kind === 'if' ||
+    kind === 'elseif' ||
+    kind === 'stop' ||
+    kind === 'branch_true' ||
+    kind === 'branch_false'
+  const showUserIcon = kind === 'action' || kind === 'branch_true' || kind === 'branch_false'
   const failed =
     kind === 'action' &&
     revealMissing &&
     (todos.length === 0 || todos.some((t) => !t.ready))
   const failMsg = failed ? cardFailMessage(todos) : ''
+  // Capsules: title only (screenshot style). Then-do keeps description / todos.
+  const showSub = kind === 'action' && Boolean(sub)
 
   return (
     <div
-      className={`bp-node bp-node--${kind}${selected ? ' bp-node--selected' : ''}${todos.length > 1 ? ' bp-node--multi' : ''}${failed ? ' bp-node--failed' : ''}`}
+      className={`bp-node bp-node--${kind}${isCapsule ? ' bp-node--capsule' : ' bp-node--card'}${selected ? ' bp-node--selected' : ''}${todos.length > 1 ? ' bp-node--multi' : ''}${failed ? ' bp-node--failed' : ''}`}
     >
       {failed ? (
         <div className="bp-node__fail-chip" title={failMsg}>
           <span className="bp-node__fail-chip-mark" aria-hidden>
             !
           </span>
-          <span className="bp-node__fail-chip-label">Failed</span>
+          <span className="bp-node__fail-chip-label">Setup</span>
           <span className="bp-node__fail-tip" role="tooltip">
             {failMsg}
           </span>
@@ -113,11 +114,24 @@ function BlueprintNodeComponent({ data, selected }: NodeProps<BlueprintRfNode>) 
       {showTarget ? (
         <Handle type="target" position={Position.Left} className="bp-node__handle" />
       ) : null}
-      {kind === 'branch_true' || kind === 'branch_false' ? null : (
-        <div className="bp-node__kind">{BLUEPRINT_NODE_KIND_LABELS[kind]}</div>
-      )}
-      <div className="bp-node__label">{nodeData.label || 'Untitled'}</div>
-      {sub ? <div className="bp-node__sub">{sub}</div> : null}
+
+      <div className="bp-node__body">
+        {showUserIcon ? (
+          <span className="bp-node__icon" aria-hidden>
+            <User size={12} strokeWidth={2.25} />
+          </span>
+        ) : null}
+        <div className="bp-node__text">
+          <div
+            className="bp-node__label"
+            title={isCapsule && sub ? sub : undefined}
+          >
+            {nodeData.label || 'Untitled'}
+          </div>
+          {showSub ? <div className="bp-node__sub">{sub}</div> : null}
+        </div>
+      </div>
+
       {todos.length > 0 ? (
         <ul className="bp-node__todos">
           {todos.map((todo, i) => {
@@ -142,6 +156,7 @@ function BlueprintNodeComponent({ data, selected }: NodeProps<BlueprintRfNode>) 
       ) : kind === 'action' ? (
         <div className="bp-node__sub">Add tasks on the right…</div>
       ) : null}
+
       {showSource ? (
         <Handle type="source" position={Position.Right} className="bp-node__handle" />
       ) : null}

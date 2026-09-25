@@ -12,6 +12,31 @@ export type BlueprintRunStatus =
 
 export type BlueprintRunSubject = 'invoice' | 'broker' | 'batch'
 
+export type BlueprintRunHistoryKind =
+  | 'enrolled'
+  | 'wait'
+  | 'when'
+  | 'action'
+  | 'advance'
+  | 'paused'
+  | 'completed'
+  | 'stopped'
+  | 'note'
+
+/** One step that actually ran (or parked) on an enrollment. */
+export type BlueprintRunHistoryEvent = {
+  id: string
+  at: string
+  /** Monotonic order within a run (preferred over timestamp for display). */
+  seq?: number
+  kind: BlueprintRunHistoryKind
+  title: string
+  detail?: string
+  /** Blueprint name at the time of the event (survives later switches). */
+  blueprintName?: string
+  blueprintId?: string
+}
+
 export interface BlueprintRunRow {
   id: string
   /** Invoice or broker display subject. */
@@ -33,6 +58,8 @@ export interface BlueprintRunRow {
   waitUntil: string | null
   startedAt: string
   updatedAt: string
+  /** Chronological log of everything that ran on this enrollment. */
+  history?: BlueprintRunHistoryEvent[]
 }
 
 export const BLUEPRINT_RUN_STATUS_LABELS: Record<BlueprintRunStatus, string> = {
@@ -273,9 +300,91 @@ export function getPrimaryRunForInvoice(invoice: {
   return live ?? runs[0] ?? null
 }
 
-export function upsertBlueprintRun(row: BlueprintRunRow): BlueprintRunRow {
+function newHistoryEventId(): string {
+  return `ev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+}
+
+function inferHistoryKind(
+  prev: BlueprintRunRow | undefined,
+  next: BlueprintRunRow
+): BlueprintRunHistoryKind {
+  if (!prev) return 'enrolled'
+  if (next.status === 'waiting') {
+    return /when/i.test(next.currentStep) ? 'when' : 'wait'
+  }
+  if (next.status === 'completed') return 'completed'
+  if (next.status === 'stopped') return 'stopped'
+  if (next.status === 'paused') return 'paused'
+  if (/then do|email|notify|packet|follow/i.test(next.currentStep)) return 'action'
+  if (/when/i.test(next.currentStep)) return 'when'
+  return 'advance'
+}
+
+export type UpsertBlueprintRunOpts = {
+  /** Explicit history line (preferred when the runner has richer detail). */
+  historyEvent?: Omit<BlueprintRunHistoryEvent, 'id' | 'at'>
+  /** Extra lines after the primary event (e.g. each Then-do result). */
+  extraHistory?: Array<Omit<BlueprintRunHistoryEvent, 'id' | 'at'>>
+  /** Skip auto history when nothing meaningful changed. */
+  silent?: boolean
+}
+
+export function upsertBlueprintRun(
+  row: BlueprintRunRow,
+  opts?: UpsertBlueprintRunOpts
+): BlueprintRunRow {
   ensureBlueprintRunsSeeded()
-  const next = { ...row, updatedAt: new Date().toISOString() }
+  const prev = readAll().find((r) => r.id === row.id)
+  const at = new Date().toISOString()
+  const history = [...(row.history ?? prev?.history ?? [])]
+
+  if (!opts?.silent) {
+    const events: Array<Omit<BlueprintRunHistoryEvent, 'id' | 'at'>> = []
+    if (opts?.historyEvent) {
+      events.push(opts.historyEvent)
+    } else if (
+      !prev ||
+      prev.currentStep !== row.currentStep ||
+      prev.status !== row.status
+    ) {
+      events.push({
+        kind: inferHistoryKind(prev, row),
+        title: row.currentStep || BLUEPRINT_RUN_STATUS_LABELS[row.status],
+        detail:
+          row.status === 'waiting' && row.waitUntil
+            ? `Wake ${new Date(row.waitUntil).toLocaleString()}`
+            : undefined,
+      })
+    }
+    if (opts?.extraHistory?.length) events.push(...opts.extraHistory)
+    // Stable order: wall clock + monotonic seq (avoids Done sorting before Then-do)
+    let seq = 0
+    const baseSeq =
+      history.reduce((max, ev) => Math.max(max, ev.seq ?? 0), 0) + 1
+    for (const ev of events) {
+      history.push({
+        id: newHistoryEventId(),
+        at: new Date(Date.parse(at) + seq).toISOString(),
+        seq: baseSeq + seq,
+        kind: ev.kind,
+        title: ev.title,
+        detail: ev.detail,
+        blueprintName: ev.blueprintName ?? row.blueprintName,
+        blueprintId: ev.blueprintId ?? row.blueprintId,
+      })
+      seq += 1
+    }
+  }
+
+  // Cap so localStorage / jsonb stays bounded
+  const capped =
+    history.length > 200 ? history.slice(history.length - 200) : history
+
+  const next: BlueprintRunRow = {
+    ...row,
+    history: capped,
+    updatedAt: at,
+  }
   const list = readAll().filter((r) => r.id !== next.id)
   writeAll([next, ...list])
   try {
@@ -291,6 +400,82 @@ export function upsertBlueprintRun(row: BlueprintRunRow): BlueprintRunRow {
     m.persistBlueprintRun(next)
   )
   return next
+}
+
+/** Collapse noisy duplicate lines (same step within 3s from double enroll). */
+function dedupeHistoryEvents(
+  events: Array<BlueprintRunHistoryEvent & { blueprintName: string; runId: string }>
+): Array<BlueprintRunHistoryEvent & { blueprintName: string; runId: string }> {
+  const out: Array<BlueprintRunHistoryEvent & { blueprintName: string; runId: string }> =
+    []
+  for (const ev of events) {
+    const prev = out[out.length - 1]
+    if (
+      prev &&
+      prev.kind === ev.kind &&
+      prev.title === ev.title &&
+      (prev.detail || '') === (ev.detail || '') &&
+      prev.blueprintName === ev.blueprintName &&
+      Math.abs(Date.parse(ev.at) - Date.parse(prev.at)) < 3000
+    ) {
+      continue
+    }
+    // Drop per-task "Ran · …" lines when the previous Then-do already lists them
+    if (
+      prev &&
+      prev.kind === 'action' &&
+      ev.kind === 'action' &&
+      /^Ran · /i.test(ev.title) &&
+      Math.abs(Date.parse(ev.at) - Date.parse(prev.at)) < 3000
+    ) {
+      continue
+    }
+    out.push(ev)
+  }
+  return out
+}
+
+/** All history events for an invoice (oldest first), across matching runs. */
+export function listInvoiceBlueprintHistory(invoice: {
+  id: string
+  invoice_number: string
+}): Array<BlueprintRunHistoryEvent & { blueprintName: string; runId: string }> {
+  const runs = findRunsForInvoice(invoice)
+  const out: Array<
+    BlueprintRunHistoryEvent & { blueprintName: string; runId: string }
+  > = []
+  for (const run of runs) {
+    for (const ev of run.history ?? []) {
+      out.push({
+        ...ev,
+        blueprintName: ev.blueprintName || run.blueprintName,
+        runId: run.id,
+      })
+    }
+  }
+  out.sort((a, b) => {
+    const sa = a.seq
+    const sb = b.seq
+    if (typeof sa === 'number' && typeof sb === 'number' && a.runId === b.runId) {
+      return sa - sb
+    }
+    const t = a.at.localeCompare(b.at)
+    if (t !== 0) return t
+    if (typeof sa === 'number' && typeof sb === 'number') return sa - sb
+    return a.id.localeCompare(b.id)
+  })
+  return dedupeHistoryEvents(out)
+}
+
+/** Wipe history on all runs for an invoice (keeps current enrollment status). */
+export function clearInvoiceBlueprintHistory(invoice: {
+  id: string
+  invoice_number: string
+}): void {
+  const runs = findRunsForInvoice(invoice)
+  for (const run of runs) {
+    upsertBlueprintRun({ ...run, history: [] }, { silent: true })
+  }
 }
 
 /** Enroll an invoice on a Wait (or start) step — used by the live runner. */
@@ -309,27 +494,40 @@ export function startInvoiceRun(input: {
   const waitDays = input.waitDays ?? 5
   const now = new Date().toISOString()
   const status = input.status ?? 'waiting'
-  return upsertBlueprintRun({
-    id: `run-inv-${input.invoiceId}`,
-    subject: 'invoice',
-    subjectId: input.invoiceId,
-    subjectLabel: input.invoiceNumber,
-    clientLabel: input.clientLabel,
-    blueprintId: input.blueprintId,
-    blueprintName: input.blueprintName,
-    status,
-    currentStep:
-      input.currentStep ?? `Wait until · ${waitDays} days from this step`,
-    currentNodeId: input.currentNodeId,
-    waitUntil:
-      input.waitUntil !== undefined
-        ? input.waitUntil
-        : status === 'waiting'
-          ? daysFromNow(waitDays)
-          : null,
-    startedAt: now,
-    updatedAt: now,
-  })
+  const runId = `run-inv-${input.invoiceId}`
+  const existing = readAll().find((r) => r.id === runId)
+  const step =
+    input.currentStep ?? `Wait until · ${waitDays} days from this step`
+  return upsertBlueprintRun(
+    {
+      id: runId,
+      subject: 'invoice',
+      subjectId: input.invoiceId,
+      subjectLabel: input.invoiceNumber,
+      clientLabel: input.clientLabel,
+      blueprintId: input.blueprintId,
+      blueprintName: input.blueprintName,
+      status,
+      currentStep: step,
+      currentNodeId: input.currentNodeId,
+      waitUntil:
+        input.waitUntil !== undefined
+          ? input.waitUntil
+          : status === 'waiting'
+            ? daysFromNow(waitDays)
+            : null,
+      startedAt: existing?.startedAt ?? now,
+      updatedAt: now,
+      history: existing?.history,
+    },
+    {
+      historyEvent: {
+        kind: 'enrolled',
+        title: existing ? 'Re-enrolled' : 'Enrolled',
+        detail: `${input.blueprintName} · ${step}`,
+      },
+    }
+  )
 }
 
 /** Enroll a broker on a blueprint run. */
