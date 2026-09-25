@@ -52,6 +52,11 @@ export interface Invoice {
   fee_terms?: import('./feeTerms').FeeTermsSnapshot
   created_at: string
   updated_at?: string
+  /** Staff invoice workspace lock (Admin Invoice Workspace). */
+  in_use?: boolean
+  in_use_by?: string
+  in_use_by_user_id?: string | null
+  in_use_at?: string | null
   reviewed_at?: string
   reviewed_by?: string
   approved_by?: string

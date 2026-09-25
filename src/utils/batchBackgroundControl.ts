@@ -88,9 +88,14 @@ export async function stopAllBatchBackgroundWork(
   }
 
   const batch = getBatchById(batchId)
-  if (batch?.in_use) {
+  if (batch?.in_use && !batch.in_use_by_user_id) {
     try {
-      updateBatch(batchId, { in_use: false, in_use_by: undefined })
+      updateBatch(batchId, {
+        in_use: false,
+        in_use_by: undefined,
+        in_use_by_user_id: null,
+        in_use_at: null,
+      })
       notifyTenantDataUpdated(['batches'], batch.client_id)
     } catch (err) {
       console.warn('[stopAllBatchBackgroundWork] clear in_use failed', err)

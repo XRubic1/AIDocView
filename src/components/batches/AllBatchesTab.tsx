@@ -23,6 +23,11 @@ import {
 } from '../../services/batchReworkService'
 import { useToast } from '../ui/ToastProvider'
 import BatchDebugPanel from './BatchDebugPanel'
+import { useAuth } from '../../context/AuthContext'
+import {
+  forceReleaseLock,
+  isSuperAdminUser,
+} from '../../services/resourceLockService'
 
 interface AllBatchesTabProps {
   /** Pre-filtered batches from page-level display chips. */
@@ -43,6 +48,7 @@ interface Batch extends PendingBatch {
   rejected_count?: number
   in_use?: boolean
   in_use_by?: string
+  in_use_by_user_id?: string | null
 }
 
 export default function AllBatchesTab({
@@ -55,7 +61,9 @@ export default function AllBatchesTab({
   const c = useClientTheme()
   const { resolvedTheme } = useTheme()
   const { showToast } = useToast()
+  const { resolved } = useAuth()
   const { capabilities } = useAdminCapabilities()
+  const canKickLocks = isSuperAdminUser(resolved.user)
   const canDeleteBatches = capabilities.canDeleteBatches
   const tenantRevision = useTenantDataRevision()
   const [listVersion, setListVersion] = useState(0)
@@ -90,6 +98,7 @@ export default function AllBatchesTab({
       sort_status: batch.sort_status,
       in_use: batch.in_use,
       in_use_by: batch.in_use_by,
+      in_use_by_user_id: batch.in_use_by_user_id ?? null,
       processing_error: batch.processing_error,
       reviewed_at: batch.reviewed_at ?? null,
       reviewed_by: batch.reviewed_by,
@@ -230,6 +239,33 @@ export default function AllBatchesTab({
     }
   }
 
+  /** Super admin — kick a human workspace lock. */
+  const handleKickUserLock = (item: AdminBatchListItem, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!canKickLocks) {
+      showToast('Only a Super Admin can kick a user lock.', 'error')
+      return
+    }
+    const holder = item.in_use_by || 'another user'
+    const confirmed = window.confirm(
+      `Kick ${holder} out of batch ${item.batch_number}?\n\nThey will lose the workspace lock and you (or anyone) can open it.`
+    )
+    if (!confirmed) return
+    const result = forceReleaseLock('batch', item.id, resolved.user)
+    if (!result.ok) {
+      showToast(
+        result.reason === 'forbidden'
+          ? 'Only a Super Admin can kick a user lock.'
+          : 'Could not clear lock.',
+        'error'
+      )
+      return
+    }
+    setListVersion((v) => v + 1)
+    onBatchesChanged?.()
+    showToast(`Cleared lock held by ${holder}`, 'success')
+  }
+
   /** Right-click → open lifecycle debug panel. */
   const handleDebugClick = (batch: AdminBatchListItem, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -295,6 +331,7 @@ export default function AllBatchesTab({
         onDeleteBatch={canDeleteBatches ? handleDeleteBatch : undefined}
         onManualCreation={handleManualCreation}
         onOverrideProcessing={handleOverrideProcessing}
+        onKickUserLock={canKickLocks ? handleKickUserLock : undefined}
         onDebugClick={handleDebugClick}
         actionLabel="View"
         emptyTitle="No batches found"

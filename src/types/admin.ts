@@ -34,6 +34,10 @@ export interface PendingBatch {
   submitted_at: string
   in_use?: boolean
   in_use_by?: string
+  /** Auth uid when a staff member holds the workspace lock; null/omit for AI Doc Split. */
+  in_use_by_user_id?: string | null
+  /** Last acquire/heartbeat ISO time for stale lock reclaim. */
+  in_use_at?: string | null
   /** Last pipeline / override error shown next to Failed (!). */
   processing_error?: string | null
   fee_calculation?: {

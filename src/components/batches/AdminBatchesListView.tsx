@@ -23,6 +23,8 @@ import {
   type SortDir,
 } from '../../utils/clientListPage'
 import { getAdminBatchStatusBadge } from './adminBatchStatus'
+import InUseBubble from '../ui/InUseBubble'
+import { AI_DOC_SPLIT_LOCK } from '../../services/resourceLockService'
 
 export interface AdminBatchListItem {
   id: string
@@ -40,6 +42,7 @@ export interface AdminBatchListItem {
   sort_status?: string
   in_use?: boolean
   in_use_by?: string
+  in_use_by_user_id?: string | null
   reviewed_at?: string | null
   reviewed_by?: string
   /** AI review progress, e.g. "4 of 6 docs reviewed" */
@@ -94,6 +97,8 @@ interface AdminBatchesListViewProps {
   onManualCreation?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   /** Cancel locked AI Doc Split / packet pipeline (Credyx Override). */
   onOverrideProcessing?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
+  /** Super admin only — kick a human workspace lock holder. */
+  onKickUserLock?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
   /** Open batch lifecycle debug panel (right-click). */
   onDebugClick?: (batch: AdminBatchListItem, e: React.MouseEvent) => void
 }
@@ -192,6 +197,7 @@ export default function AdminBatchesListView({
   onDeleteBatch,
   onManualCreation,
   onOverrideProcessing,
+  onKickUserLock,
   onDebugClick,
 }: AdminBatchesListViewProps) {
   const c = useClientTheme()
@@ -213,9 +219,19 @@ export default function AdminBatchesListView({
       const canDocSplit = Boolean(onDocSplitterClick)
       const canPackets = Boolean(onPreviewClick)
       const canManual = Boolean(onManualCreation && batchIsStuckCreating(batch))
+      const humanLock = Boolean(batch.in_use && batch.in_use_by_user_id)
+      const aiOrPipelineLock = Boolean(
+        batch.in_use &&
+          !batch.in_use_by_user_id &&
+          (batch.in_use_by === AI_DOC_SPLIT_LOCK ||
+            batch.status === 'ai_splitting' ||
+            batch.status === 'creating_packets' ||
+            batchIsStuckCreating(batch))
+      )
+      const canKick = Boolean(onKickUserLock && humanLock)
       const canOverride = Boolean(
         onOverrideProcessing &&
-          (batch.in_use ||
+          (aiOrPipelineLock ||
             batch.status === 'ai_splitting' ||
             batch.status === 'creating_packets' ||
             batchIsStuckCreating(batch))
@@ -227,6 +243,7 @@ export default function AdminBatchesListView({
         !canPackets &&
         !canManual &&
         !canOverride &&
+        !canKick &&
         !canDelete &&
         !canDebug
       ) {
@@ -240,6 +257,7 @@ export default function AdminBatchesListView({
       onDebugClick,
       onDeleteBatch,
       onDocSplitterClick,
+      onKickUserLock,
       onManualCreation,
       onOverrideProcessing,
       onPreviewClick,
@@ -462,11 +480,9 @@ export default function AdminBatchesListView({
           </ClientListTd>
           <ClientListTd variant="desktop" label="In use" style={{ color: c.secondary }}>
             {batch.in_use ? (
-              <span>
-                <span className="status-pill status-pill--review">In use</span>
-                {batch.in_use_by && (
-                  <span className="block text-xs mt-0.5 truncate">{batch.in_use_by}</span>
-                )}
+              <span className="inline-flex flex-col gap-0.5 min-w-0">
+                <span className="status-pill status-pill--review w-fit">In use</span>
+                <InUseBubble name={batch.in_use_by} />
               </span>
             ) : (
               'Available'
@@ -897,11 +913,29 @@ export default function AdminBatchesListView({
                 Manual creation
               </button>
             ) : null}
+            {onKickUserLock &&
+            contextMenu.batch.in_use &&
+            contextMenu.batch.in_use_by_user_id ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="client-ai-doc-menu__item client-ai-doc-menu__item--danger"
+                onClick={(e) => {
+                  const batch = contextMenu.batch
+                  closeContextMenu()
+                  onKickUserLock(batch, e)
+                }}
+              >
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                Kick user lock…
+              </button>
+            ) : null}
             {onOverrideProcessing &&
-            (contextMenu.batch.in_use ||
-              contextMenu.batch.status === 'ai_splitting' ||
+            (contextMenu.batch.status === 'ai_splitting' ||
               contextMenu.batch.status === 'creating_packets' ||
-              batchIsStuckCreating(contextMenu.batch)) ? (
+              batchIsStuckCreating(contextMenu.batch) ||
+              (contextMenu.batch.in_use &&
+                !contextMenu.batch.in_use_by_user_id)) ? (
               <button
                 type="button"
                 role="menuitem"

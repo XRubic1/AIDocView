@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ExternalLink, FileText, X } from 'lucide-react'
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
 import DocumentViewer from '../components/DocumentViewer'
 import EmptyState from '../components/ui/EmptyState'
+import InUseBubble from '../components/ui/InUseBubble'
 import { useToast } from '../components/ui/ToastProvider'
 import { getBatchById } from '../data/mockBatches'
 import { mockInvoices } from '../data/mockInvoices'
@@ -11,12 +12,21 @@ import { mockPayments } from '../data/mockPayments'
 import { addAdminInvoiceNote, removeAdminInvoiceNote } from '../services/adminInvoiceNoteActions'
 import { useClientTheme, useTheme } from '../theme/ThemeContext'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
+import { useOwnedResourceLockHeartbeat } from '../hooks/useOwnedResourceLockHeartbeat'
 import { useAuth } from '../context/AuthContext'
 import { getAdminUserDisplayName } from '../config/adminNav'
 import { enrichAdminInvoices } from '../utils/adminInvoiceQueue'
 import { formatCurrency, formatDate } from '../utils/format'
 import { resolveInvoiceDocumentsAsync } from '../utils/resolveInvoiceDocuments'
 import type { Invoice } from '../types/invoice'
+import {
+  forceReleaseLock,
+  getLockState,
+  isSuperAdminUser,
+  resolveStaffLockDisplayName,
+  tryAcquireLock,
+  type ResourceLockType,
+} from '../services/resourceLockService'
 import '../styles/clientPortal.css'
 import '../styles/clientPortalDark.css'
 
@@ -64,11 +74,130 @@ export default function AdminInvoiceWorkspace() {
   const bump = () => setRefreshKey((k) => k + 1)
   const dataRevision = refreshKey + tenantRevision
 
-  const invoices = useMemo(() => enrichAdminInvoices([...mockInvoices]), [dataRevision])
-  const payments = useMemo(() => [...mockPayments], [dataRevision])
-
   const invoiceParam = searchParams.get('invoice')
   const batchParam = searchParams.get('batch')
+
+  /** Batch review locks the batch; single-invoice mode locks the invoice. */
+  const lockTarget = useMemo((): { type: ResourceLockType; id: string } | null => {
+    if (batchParam) return { type: 'batch', id: batchParam }
+    if (invoiceParam) {
+      const byId = mockInvoices.find((i) => i.id === invoiceParam)
+      if (byId) return { type: 'invoice', id: byId.id }
+      const byNumber = mockInvoices.find((i) => i.invoice_number === invoiceParam)
+      if (byNumber) return { type: 'invoice', id: byNumber.id }
+      return { type: 'invoice', id: invoiceParam }
+    }
+    return null
+  }, [batchParam, invoiceParam, dataRevision])
+
+  const [lockDenied, setLockDenied] = useState<{
+    holderName: string
+  } | null>(null)
+  const [lockAcquiredId, setLockAcquiredId] = useState<string | null>(null)
+
+  const attemptAcquire = useCallback(() => {
+    if (!lockTarget) {
+      setLockDenied(null)
+      setLockAcquiredId(null)
+      return
+    }
+    const user = resolved.user
+    const userId = user?.id
+    if (!userId) {
+      setLockDenied({ holderName: 'Sign-in required' })
+      setLockAcquiredId(null)
+      return
+    }
+    const actor = {
+      userId,
+      displayName: resolveStaffLockDisplayName(user),
+    }
+    const result = tryAcquireLock(lockTarget.type, lockTarget.id, actor)
+    if (result.ok) {
+      setLockDenied(null)
+      setLockAcquiredId(lockTarget.id)
+      return
+    }
+    setLockAcquiredId(null)
+    setLockDenied((prev) =>
+      prev?.holderName === result.holderName ? prev : { holderName: result.holderName }
+    )
+  }, [lockTarget, resolved.user])
+
+  // Acquire when the workspace target changes.
+  useEffect(() => {
+    attemptAcquire()
+  }, [lockTarget?.type, lockTarget?.id, resolved.user?.id, attemptAcquire])
+
+  const lockDeniedRef = useRef(lockDenied)
+  lockDeniedRef.current = lockDenied
+
+  // While blocked, retry when realtime updates (holder may have left).
+  useEffect(() => {
+    if (!lockDeniedRef.current || !lockTarget) return
+    attemptAcquire()
+  }, [dataRevision, lockTarget, attemptAcquire])
+
+  useOwnedResourceLockHeartbeat(
+    lockTarget?.type ?? 'invoice',
+    lockDenied ? null : lockAcquiredId,
+    resolved.user
+  )
+
+  // Detect super-admin kick while this window holds the lock.
+  useEffect(() => {
+    if (!lockTarget || !lockAcquiredId || !resolved.user?.id || lockDenied) return
+    const state = getLockState(lockTarget.type, lockTarget.id)
+    if (
+      state?.in_use &&
+      state.in_use_by_user_id &&
+      state.in_use_by_user_id !== resolved.user.id
+    ) {
+      setLockAcquiredId(null)
+      setLockDenied({ holderName: state.in_use_by || 'another user' })
+      showToast(
+        `You were removed — now in use by ${state.in_use_by || 'another user'}`,
+        'info'
+      )
+    }
+  }, [
+    dataRevision,
+    lockTarget?.type,
+    lockTarget?.id,
+    lockAcquiredId,
+    lockDenied,
+    resolved.user?.id,
+    showToast,
+  ])
+
+  const handleKickAndOpen = () => {
+    if (!lockTarget || !resolved.user) return
+    if (!isSuperAdminUser(resolved.user)) {
+      showToast('Only a Super Admin can kick a user lock.', 'error')
+      return
+    }
+    const forced = forceReleaseLock(lockTarget.type, lockTarget.id, resolved.user)
+    if (!forced.ok) {
+      showToast('Could not clear lock.', 'error')
+      return
+    }
+    const actor = {
+      userId: resolved.user.id,
+      displayName: resolveStaffLockDisplayName(resolved.user),
+    }
+    const result = tryAcquireLock(lockTarget.type, lockTarget.id, actor)
+    if (!result.ok) {
+      setLockDenied({ holderName: result.holderName })
+      showToast(`Still in use by ${result.holderName}`, 'error')
+      return
+    }
+    setLockDenied(null)
+    setLockAcquiredId(lockTarget.id)
+    showToast('Took over workspace lock', 'success')
+  }
+
+  const invoices = useMemo(() => enrichAdminInvoices([...mockInvoices]), [dataRevision])
+  const payments = useMemo(() => [...mockPayments], [dataRevision])
 
   const batch = useMemo(
     () => (batchParam ? getBatchById(batchParam) : undefined),
@@ -395,7 +524,35 @@ export default function AdminInvoiceWorkspace() {
         </div>
       )}
 
-      {!batchMode && !selectedInvoice ? (
+      {lockDenied ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
+          <EmptyState
+            icon={FileText}
+            title="In use"
+            hint={`This workspace is locked by another user.`}
+          />
+          <InUseBubble name={lockDenied.holderName} />
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {isSuperAdminUser(resolved.user) ? (
+              <button
+                type="button"
+                className="dashboard-btn-primary"
+                onClick={handleKickAndOpen}
+              >
+                Kick & open
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded border transition-colors"
+              style={{ borderColor: c.border, color: c.primary }}
+              onClick={handleCloseWindow}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      ) : !batchMode && !selectedInvoice ? (
         <div className="flex-1 flex items-center justify-center p-8">
           <EmptyState
             icon={FileText}

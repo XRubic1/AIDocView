@@ -54,6 +54,8 @@ export async function markBatchNeedsRework(
     processing_error: errorMessage,
     in_use: false,
     in_use_by: undefined,
+    in_use_by_user_id: null,
+    in_use_at: null,
   })
   notifyTenantDataUpdated(['batches'], batch.client_id)
 

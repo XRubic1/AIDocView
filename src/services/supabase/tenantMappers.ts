@@ -60,6 +60,10 @@ export interface InvoiceRow {
   document_storage_paths: Record<string, string> | null
   write_off_request: Invoice['write_off_request'] | null
   fee_terms: FeeTermsSnapshot | null
+  in_use: boolean | null
+  in_use_by: string | null
+  in_use_by_user_id: string | null
+  in_use_at: string | null
   created_at: string
   updated_at: string | null
 }
@@ -113,6 +117,8 @@ export interface BatchRow {
   submitted_at: string
   in_use: boolean
   in_use_by: string | null
+  in_use_by_user_id: string | null
+  in_use_at: string | null
   fee_calculation: Batch['fee_calculation'] | null
   fee_terms: FeeTermsSnapshot | null
   upload_mode: Batch['upload_mode'] | null
@@ -185,6 +191,10 @@ export function invoiceRowToInvoice(row: InvoiceRow): Invoice {
     document_doc_ids: row.document_doc_ids ?? undefined,
     document_storage_paths: row.document_storage_paths ?? undefined,
     write_off_request: row.write_off_request ?? undefined,
+    in_use: row.in_use ?? false,
+    in_use_by: row.in_use_by ?? undefined,
+    in_use_by_user_id: row.in_use_by_user_id ?? null,
+    in_use_at: row.in_use_at ?? null,
   }
 }
 
@@ -238,6 +248,8 @@ export function batchRowToBatch(row: BatchRow): Batch {
     submitted_at: row.submitted_at,
     in_use: row.in_use,
     in_use_by: row.in_use_by ?? undefined,
+    in_use_by_user_id: row.in_use_by_user_id ?? null,
+    in_use_at: row.in_use_at ?? null,
     fee_calculation: row.fee_calculation ?? undefined,
     fee_terms: row.fee_terms ?? undefined,
     upload_mode: row.upload_mode ?? undefined,
@@ -302,6 +314,10 @@ export function invoiceToRow(invoice: Invoice): InvoiceRow {
     document_storage_paths: invoice.document_storage_paths ?? null,
     write_off_request: invoice.write_off_request ?? null,
     fee_terms: invoice.fee_terms ?? null,
+    in_use: invoice.in_use ?? false,
+    in_use_by: invoice.in_use_by ?? null,
+    in_use_by_user_id: invoice.in_use_by_user_id ?? null,
+    in_use_at: invoice.in_use_at ?? null,
     created_at: invoice.created_at,
     updated_at: invoice.updated_at ?? null,
   }
@@ -321,6 +337,8 @@ export function batchToRow(batch: Batch): BatchRow {
     submitted_at: batch.submitted_at,
     in_use: batch.in_use ?? false,
     in_use_by: batch.in_use_by ?? null,
+    in_use_by_user_id: batch.in_use_by_user_id ?? null,
+    in_use_at: batch.in_use_at ?? null,
     fee_calculation: batch.fee_calculation ?? null,
     fee_terms: batch.fee_terms ?? null,
     upload_mode: batch.upload_mode ?? null,

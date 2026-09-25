@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { formatCurrency } from '../../utils/format'
 import { PendingBatch } from '../../types/admin'
 import { getAllBatches } from '../../data/mockBatches'
+import InUseBubble from '../ui/InUseBubble'
 
 interface PendingBatchesTabProps {
   onBatchSelect: (batchId: string) => void
@@ -179,7 +180,9 @@ export default function PendingBatchesTab({ onBatchSelect }: PendingBatchesTabPr
                           >
                             In Use
                           </span>
-                          <div className="text-xs mt-1" style={{ color: '#819291' }}>{batch.in_use_by}</div>
+                          <div className="mt-1">
+                            <InUseBubble name={batch.in_use_by} />
+                          </div>
                         </div>
                       ) : (
                         <span className="text-sm" style={{ color: '#819291' }}>Available</span>

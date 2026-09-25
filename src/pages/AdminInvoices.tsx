@@ -14,6 +14,7 @@ import ClientListTd from '../components/client/ClientListTd'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import DocumentViewer from '../components/DocumentViewer'
 import EmptyState from '../components/ui/EmptyState'
+import InUseBubble from '../components/ui/InUseBubble'
 import { useToast } from '../components/ui/ToastProvider'
 import {
   INVOICE_BLUEPRINT_CHANGED_EVENT,
@@ -1226,6 +1227,9 @@ function AdminInvoiceCarrierBlock({
                     </span>
                     {queueLabel ? (
                       <span className="status-pill status-pill--pending text-[10px]">{queueLabel}</span>
+                    ) : null}
+                    {invoice.in_use ? (
+                      <InUseBubble name={invoice.in_use_by} />
                     ) : null}
                   </div>
                 </ClientListTd>

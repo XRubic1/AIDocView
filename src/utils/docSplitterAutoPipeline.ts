@@ -50,8 +50,10 @@ import {
   startBatchLiveActivity,
   updateBatchLiveActivity,
 } from './batchLiveActivity'
-
-const AI_DOC_SPLIT_LOCK = 'AI Doc Split'
+import {
+  clearAiDocSplitLock,
+  setAiDocSplitLock,
+} from '../services/resourceLockService'
 
 /** In-flight abort controllers so Credyx Override can cancel the pipeline. */
 const abortByBatch = new Map<string, AbortController>()
@@ -92,27 +94,14 @@ function isAbortError(err: unknown): boolean {
   )
 }
 
-/** Lock batch for AI Doc Split (Credyx can Override). */
+/** Lock batch for AI Doc Split (Credyx can Override). Skips if a live human holds it. */
 export function lockBatchForDocSplit(batchId: string): void {
-  const batch = getBatchById(batchId)
-  if (!batch) return
-  updateBatch(batchId, {
-    in_use: true,
-    in_use_by: AI_DOC_SPLIT_LOCK,
-  })
-  notifyTenantDataUpdated(['batches'], batch.client_id)
+  setAiDocSplitLock(batchId)
 }
 
 /** Clear in_use lock after pipeline finishes or Override. */
 export function unlockBatchAfterDocSplit(batchId: string): void {
-  const batch = getBatchById(batchId)
-  if (!batch) return
-  if (batch.in_use_by && batch.in_use_by !== AI_DOC_SPLIT_LOCK) return
-  updateBatch(batchId, {
-    in_use: false,
-    in_use_by: undefined,
-  })
-  notifyTenantDataUpdated(['batches'], batch.client_id)
+  clearAiDocSplitLock(batchId)
 }
 
 async function setDocSplitPhase(
@@ -752,6 +741,8 @@ export async function runDocSplitterAutoPipeline(
       processing_error: null,
       in_use: false,
       in_use_by: undefined,
+      in_use_by_user_id: null,
+      in_use_at: null,
     })
     notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
     await markJobMessage(

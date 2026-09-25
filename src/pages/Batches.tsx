@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { CalendarDays, Plus } from 'lucide-react'
 import AdminCreateBatchPanel from '../components/batches/AdminCreateBatchPanel'
 import AllBatchesTab from '../components/batches/AllBatchesTab'
@@ -8,7 +8,14 @@ import BatchAiVerificationWorkspace from '../components/batches/BatchAiVerificat
 import { getAllBatches } from '../data/mockBatches'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
+import { useOwnedResourceLockHeartbeat } from '../hooks/useOwnedResourceLockHeartbeat'
 import { drainPendingBatchProcessingJobs } from '../services/credyx/batchProcessingJobs'
+import {
+  forceReleaseLock,
+  isSuperAdminUser,
+  resolveStaffLockDisplayName,
+  tryAcquireLock,
+} from '../services/resourceLockService'
 import {
   ADMIN_BATCH_CHIP_FILTERS,
   adminBatchFilterLabel,
@@ -25,6 +32,7 @@ import {
 } from '../utils/adminBatchQueue'
 import { batchNeedsDocSplit } from '../utils/batchDocSplit'
 import { useToast } from '../components/ui/ToastProvider'
+import { useAuth } from '../context/AuthContext'
 
 /**
  * Admin Batches — list + workspaces:
@@ -33,6 +41,7 @@ import { useToast } from '../components/ui/ToastProvider'
 export default function Batches() {
   const c = useClientTheme()
   const { showToast } = useToast()
+  const { resolved } = useAuth()
   const tenantRevision = useTenantDataRevision()
   const today = toLocalDateKey()
   const [packetReworkBatchId, setPacketReworkBatchId] = useState<string | null>(null)
@@ -46,6 +55,62 @@ export default function Batches() {
   )
   const [dateFrom, setDateFrom] = useState(today)
   const [dateTo, setDateTo] = useState(today)
+
+  const openWorkspaceBatchId =
+    docSplitterBatchId || packetReworkBatchId || aiVerifyBatchId || null
+
+  useOwnedResourceLockHeartbeat('batch', openWorkspaceBatchId, resolved.user)
+
+  // If a super admin kicks this session, close the workspace.
+  useEffect(() => {
+    if (!openWorkspaceBatchId || !resolved.user?.id) return
+    const batch = getAllBatches().find((b) => b.id === openWorkspaceBatchId)
+    if (!batch?.in_use) return
+    if (batch.in_use_by_user_id && batch.in_use_by_user_id !== resolved.user.id) {
+      setDocSplitterBatchId(null)
+      setPacketReworkBatchId(null)
+      setAiVerifyBatchId(null)
+      showToast(
+        `You were removed from this batch — now in use by ${batch.in_use_by || 'another user'}`,
+        'info'
+      )
+    }
+  }, [openWorkspaceBatchId, resolved.user?.id, tenantRevision, showToast])
+
+  const acquireBatchOrNotify = useCallback(
+    (batchId: string): boolean => {
+      const user = resolved.user
+      const userId = user?.id
+      if (!userId) {
+        showToast('Sign in required to open a batch workspace.', 'error')
+        return false
+      }
+      const actor = {
+        userId,
+        displayName: resolveStaffLockDisplayName(user),
+      }
+      let result = tryAcquireLock('batch', batchId, actor)
+      if (result.ok) return true
+
+      if (isSuperAdminUser(user)) {
+        const kick = window.confirm(
+          `In use by ${result.holderName}.\n\nKick them out and open this batch?`
+        )
+        if (kick) {
+          const forced = forceReleaseLock('batch', batchId, user)
+          if (forced.ok) {
+            result = tryAcquireLock('batch', batchId, actor)
+            if (result.ok) return true
+          }
+        }
+        return false
+      }
+
+      showToast(`In use by ${result.holderName}`, 'info')
+      return false
+    },
+    [resolved.user, showToast]
+  )
 
   // Drain queued DocSort / AI jobs + stuck-creation timeout when Batches is open.
   useEffect(() => {
@@ -122,6 +187,7 @@ export default function Batches() {
   }
 
   const openDocSplitter = (batchId: string) => {
+    if (!acquireBatchOrNotify(batchId)) return
     setShowCreateBatch(false)
     setResumeDraftBatchId(null)
     setAiVerifyBatchId(null)
@@ -145,6 +211,7 @@ export default function Batches() {
       openAiVerification(batchId)
       return
     }
+    if (!acquireBatchOrNotify(batchId)) return
     setShowCreateBatch(false)
     setResumeDraftBatchId(null)
     setAiVerifyBatchId(null)
@@ -153,6 +220,7 @@ export default function Batches() {
   }
 
   const openAiVerification = (batchId: string) => {
+    if (!acquireBatchOrNotify(batchId)) return
     setShowCreateBatch(false)
     setResumeDraftBatchId(null)
     setPacketReworkBatchId(null)
