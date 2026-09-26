@@ -35,6 +35,7 @@ export const ClientAttention = lazy(() => import('../pages/ClientAttention'))
 // ——— Admin portal ———
 export const AdminDashboard = lazy(() => import('../pages/AdminDashboard'))
 export const AdminWaitlist = lazy(() => import('../pages/AdminWaitlist'))
+export const AdminSales = lazy(() => import('../pages/AdminSales'))
 export const AdminNotifications = lazy(() => import('../pages/AdminNotifications'))
 export const AdminWorkQueue = lazy(() => import('../pages/AdminWorkQueue'))
 export const AdminBrokerRisk = lazy(() => import('../pages/AdminBrokerRisk'))

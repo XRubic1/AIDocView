@@ -15,6 +15,7 @@ import {
   Accounting,
   AdminDashboard,
   AdminWaitlist,
+  AdminSales,
   AdminNotifications,
   AdminWorkQueue,
   AdminBrokerRisk,
@@ -158,6 +159,7 @@ function App() {
               <Route element={<AdminProtectedLayout />}>
                 <Route path="/admin/dashboard" element={withRouteSuspense(AdminDashboard)} />
                 <Route path="/admin/waitlist" element={withRouteSuspense(AdminWaitlist)} />
+                <Route path="/admin/sales" element={withRouteSuspense(AdminSales)} />
                 <Route path="/admin/notifications" element={withRouteSuspense(AdminNotifications)} />
                 <Route path="/admin/work-queue" element={withRouteSuspense(AdminWorkQueue)} />
                 <Route path="/admin/broker-risk" element={withRouteSuspense(AdminBrokerRisk)} />

@@ -29,7 +29,7 @@
   "dependencies": {
     "@kenjiuno/msgreader": "^1.28.0",
     "@supabase/supabase-js": "^2.110.0",
-    "@xyflow/react": "^12.11.6",
+    "@xyflow/react": "^12.12.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.4",
     "jszip": "^3.10.1",
