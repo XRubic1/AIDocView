@@ -113,6 +113,32 @@ export default function HandoffBatchWorkspace({
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
 
+  /**
+   * Drop queue rows whose invoice numbers already exist on the batch.
+   * Prevents Ready + "(new)" duplicates if the store updates mid-submit
+   * (realtime / parent re-render) before the local queue is cleared.
+   */
+  useEffect(() => {
+    const existingNums = new Set(
+      existingInvoices.map((inv) => inv.invoice_number.trim().toLowerCase())
+    )
+    if (existingNums.size === 0) return
+
+    setQueue((prev) => {
+      if (prev.length === 0) return prev
+      const next = prev.filter(
+        (inv) => !existingNums.has(inv.invoice_number.trim().toLowerCase())
+      )
+      return next.length === prev.length ? prev : next
+    })
+  }, [existingInvoices])
+
+  // Keep queue edit index valid after reconcile/remove.
+  useEffect(() => {
+    if (editingQueueIndex == null) return
+    if (editingQueueIndex >= queue.length) setEditingQueueIndex(null)
+  }, [queue, editingQueueIndex])
+
   // Pull existing carrier invoice numbers from Supabase before auto-assigning.
   useEffect(() => {
     let cancelled = false
@@ -602,6 +628,9 @@ export default function HandoffBatchWorkspace({
     submittingRef.current = true
     setSubmitting(true)
     const queuedSnapshot = [...queue]
+    // Clear immediately so a parent re-render mid-persist cannot paint Ready + (new).
+    setQueue([])
+    setEditingQueueIndex(null)
     try {
       await submitHandoffInvoices({
         batchId,
@@ -610,9 +639,6 @@ export default function HandoffBatchWorkspace({
         invoices: queuedSnapshot,
         storagePathsByDocId,
       })
-      // Clear queue immediately so remount/refresh cannot double-render the same invoices.
-      setQueue([])
-      setEditingQueueIndex(null)
       setForm(emptyDraft(clientId, knownInvoiceNumbers))
       setSelectedDocIds([])
       showToast(
@@ -621,6 +647,19 @@ export default function HandoffBatchWorkspace({
       )
       onInvoicesCreated()
     } catch (err) {
+      // Restore only drafts that were not actually created (rollback or pre-persist failure).
+      setQueue((prev) => {
+        const stillQueued = new Set(
+          prev.map((inv) => inv.invoice_number.trim().toLowerCase())
+        )
+        const restored = queuedSnapshot.filter((inv) => {
+          const key = inv.invoice_number.trim().toLowerCase()
+          if (stillQueued.has(key)) return false
+          if (isInvoiceNumberTaken(clientId, inv.invoice_number, [])) return false
+          return true
+        })
+        return [...prev, ...restored]
+      })
       showToast(err instanceof Error ? err.message : 'Could not create invoices', 'error')
     } finally {
       submittingRef.current = false
