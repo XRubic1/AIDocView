@@ -110,6 +110,26 @@ export const INVOICE_WAIT_UNTIL_OPTIONS: BlueprintCatalogOption[] = [
     cardTemplate: 'Wait {days} days from this step',
     help: 'Not tied to due dates or Net. Wait days, hours, or minutes from this step. Hours/minutes are best for testing.',
   },
+  {
+    id: 'after_ppw',
+    label: 'X days after paperwork was sent',
+    needsDays: true,
+    daysHint: 'Days after PPW (broker confirm window overrides this when set)',
+    defaultDays: '7',
+    defaultTitle: 'After PPW',
+    cardTemplate: 'Until {days} days after PPW was sent',
+    help: 'Counts from the paperwork packet send. If this broker has paperwork confirm days set, that number is used instead of the days on this card.',
+  },
+  {
+    id: 'payment_clock',
+    label: 'Due date + inquiry days',
+    needsDays: true,
+    daysHint: 'Days after the due date (broker inquiry days override this when set)',
+    defaultDays: '15',
+    defaultTitle: 'Payment inquiry clock',
+    cardTemplate: 'Until {days} days after the due date, or from today if already due',
+    help: 'If the due date is still ahead, wake is due date plus these days. If the due date has passed, wake is these days from now. A broker payment-inquiry day count replaces the days on this card.',
+  },
 ]
 
 /**
@@ -191,6 +211,22 @@ export const INVOICE_EVENT_OPTIONS: BlueprintCatalogOption[] = [
     needsDays: false,
     defaultTitle: 'On hold',
     cardTemplate: 'Invoice is on hold',
+  },
+  {
+    id: 'ppw_sent',
+    label: 'Paperwork packet was sent',
+    needsDays: false,
+    defaultTitle: 'Paperwork sent',
+    cardTemplate: 'PPW packet was sent to the broker',
+    help: 'True after Credyx has sent the paperwork packet. The run waits here until that send is on file.',
+  },
+  {
+    id: 'paperwork_good',
+    label: 'Paperwork status is good',
+    needsDays: false,
+    defaultTitle: 'Paperwork good',
+    cardTemplate: 'Paperwork status is logged good',
+    help: 'True when staff (or a confirmed broker reply, later) has logged paperwork as good. Payment chase waits here until then.',
   },
 ]
 

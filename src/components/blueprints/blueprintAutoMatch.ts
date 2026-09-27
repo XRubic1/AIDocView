@@ -141,6 +141,39 @@ function invoicePassesGate(invoice: Invoice, filters: BlueprintTriggerFilters): 
   return true
 }
 
+function waitsOnReply(nodes: BlueprintFlowNode[]): boolean {
+  return nodes.some(
+    (n) =>
+      (n.data.kind === 'if' || n.data.kind === 'elseif') &&
+      (n.data.checkId === 'broker_replied' || n.data.checkId === 'no_reply')
+  )
+}
+
+function hasCheck(
+  nodes: BlueprintFlowNode[],
+  checkId: string,
+  match: 'yes' | 'no' = 'yes'
+): boolean {
+  return nodes.some((n) => {
+    if (n.data.kind !== 'if' && n.data.kind !== 'elseif') return false
+    if (n.data.checkId !== checkId) return false
+    return normalizeWhenMatch(n.data) === match
+  })
+}
+
+/** One live chase: payment graphs wait until paperwork is good; paperwork graphs stop once it is. */
+function chaseTrackFitsInvoice(
+  bp: SavedBlueprint,
+  invoice: Invoice,
+  event: BlueprintMatchEvent
+): boolean {
+  if (event === 'hold' || event === 'hold_cleared') return true
+  const good = invoice.email_lifecycle?.paperwork_status === 'good'
+  if (hasCheck(bp.nodes, 'paperwork_good') && !good) return false
+  if (hasCheck(bp.nodes, 'ppw_sent') && !hasCheck(bp.nodes, 'paperwork_good') && good) return false
+  return true
+}
+
 /**
  * Score how well a saved invoice blueprint fits this event.
  * Higher = more specific / preferred. 0 = no match.
@@ -216,8 +249,10 @@ export function scoreBlueprintForEvent(
   }
 
   if (!isInvoiceBlueprint(bp)) return null
+  if (waitsOnReply(bp.nodes)) return null
   const start = getStartNode(bp.nodes)
   if (!start) return null
+  if (!chaseTrackFitsInvoice(bp, invoice, event)) return null
   const filters = normalizeTriggerFilters(start.data.triggerFilters)
   const entry = getTriggerEntry(start.data)
 

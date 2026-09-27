@@ -11,6 +11,7 @@ import { mockInvoices } from '../../data/mockInvoices'
 import { mockPayments } from '../../data/mockPayments'
 import { resolveLastChaseFollowup } from '../../utils/adminCollections'
 import { getEffectiveInvoiceDueDate } from '../../utils/invoiceAging'
+import { hasPpwBeenSent, getPpwSentAt } from '../../utils/ppwSent'
 import {
   addDaysToYmd,
   getBrokerPaymentTermsDays,
@@ -186,6 +187,44 @@ function resolveInvoiceWait(
       waitUntil,
       detail: `Until ${days} day${days === 1 ? '' : 's'} after last chase email`,
     }
+  }
+
+  if (id === 'after_ppw') {
+    const broker = mockBrokers.find((b) => b.id === invoice.broker_id)
+    const override = broker?.paperwork_status_check_days
+    const days =
+      typeof override === 'number' && override > 0 ? Math.floor(override) : parseWaitDays(node, 7)
+    const sent = getPpwSentAt(invoice)
+    if (!sent || !hasPpwBeenSent(invoice)) {
+      const fallback = pauseFromStep(days, now)
+      return { waitUntil: fallback.waitUntil, detail: `No PPW yet — ${fallback.detail}` }
+    }
+    return {
+      waitUntil: clampWake(addDaysToIso(sent, days), now),
+      detail: `Until ${days} day${days === 1 ? '' : 's'} after PPW`,
+    }
+  }
+
+  if (id === 'payment_clock') {
+    const broker = mockBrokers.find((b) => b.id === invoice.broker_id)
+    const override = broker?.payment_status_inquiry_days
+    const days =
+      typeof override === 'number' && override > 0 ? Math.floor(override) : parseWaitDays(node, 15)
+    const due =
+      getEffectiveInvoiceDueDate(invoice) ||
+      invoice.due_date?.trim() ||
+      invoice.expected_payment_date?.trim()
+    const dueMs = due ? Date.parse(`${due.slice(0, 10)}T12:00:00`) : NaN
+    if (due && Number.isFinite(dueMs) && dueMs > now.getTime()) {
+      const target = addDaysToYmd(due.slice(0, 10), days)
+      if (target) {
+        return {
+          waitUntil: clampWake(atLocalNine(target), now),
+          detail: `Until ${days} day${days === 1 ? '' : 's'} after the due date`,
+        }
+      }
+    }
+    return pauseFromStep(days, now)
   }
 
   return pauseFromStep(parseWaitDays(node, 3), now)

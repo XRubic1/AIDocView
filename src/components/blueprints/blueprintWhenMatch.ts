@@ -34,6 +34,10 @@ export function whenMatchSwitchLabels(checkId: string | undefined): {
       return { yes: 'No reply yet', no: 'Broker replied' }
     case 'payment_posted':
       return { yes: 'Payment posted', no: 'Not paid yet' }
+    case 'ppw_sent':
+      return { yes: 'Paperwork sent', no: 'Paperwork not sent' }
+    case 'paperwork_good':
+      return { yes: 'Paperwork good', no: 'Paperwork not confirmed' }
     default:
       return { yes: 'If true', no: 'If false' }
   }

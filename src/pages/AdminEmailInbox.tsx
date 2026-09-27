@@ -362,7 +362,10 @@ export default function AdminEmailInbox() {
               setBusy(true)
               void runEmailLifecycleChase()
                 .then((r) => {
-                  showToast(`Chase ran — ${r.sent} sent, ${r.actions} staff items`, 'success')
+                  showToast(
+                    `Blueprints ran — ${r.sent} emails, ${r.actions} staff items`,
+                    'success'
+                  )
                   setTick((n) => n + 1)
                 })
                 .finally(() => setBusy(false))

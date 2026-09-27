@@ -4,6 +4,10 @@ import { blueprintPriority } from '../../types/blueprintGraph'
 import type { Invoice } from '../../types/invoice'
 import { scoreBlueprintForEvent } from './blueprintAutoMatch'
 import { defaultTriggerFilters } from './blueprintTriggerFilters'
+import {
+  STANDARD_PAPERWORK_CHASE,
+  STANDARD_PAYMENT_CHASE,
+} from '../../../supabase/functions/_shared/standardBlueprints'
 
 function makeInvoice(status: Invoice['status'] = 'hold'): Invoice {
   return {
@@ -250,5 +254,16 @@ describe('blueprintAutoMatch', () => {
     const m = scoreBlueprintForEvent(bp, 'payment_posted', makeInvoice('approved'))
     expect(m).not.toBeNull()
     expect(m!.reason).toMatch(/Payment posted/i)
+  })
+
+  it('keeps payment chase parked until paperwork is logged good', () => {
+    const open = makeInvoice('approved')
+    expect(scoreBlueprintForEvent(STANDARD_PAPERWORK_CHASE as SavedBlueprint, 'sync', open)).not.toBeNull()
+    expect(scoreBlueprintForEvent(STANDARD_PAYMENT_CHASE as SavedBlueprint, 'sync', open)).toBeNull()
+
+    const good = makeInvoice('approved')
+    good.email_lifecycle = { paperwork_status: 'good' }
+    expect(scoreBlueprintForEvent(STANDARD_PAPERWORK_CHASE as SavedBlueprint, 'sync', good)).toBeNull()
+    expect(scoreBlueprintForEvent(STANDARD_PAYMENT_CHASE as SavedBlueprint, 'sync', good)).not.toBeNull()
   })
 })

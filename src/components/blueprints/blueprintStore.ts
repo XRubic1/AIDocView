@@ -1,4 +1,5 @@
 import type { SavedBlueprint } from '../../types/blueprintGraph'
+import { STANDARD_CHASE_BLUEPRINTS } from '../../../supabase/functions/_shared/standardBlueprints'
 import {
   BATCH_PROCESSED_NOTICE_BLUEPRINT,
   LEGACY_DEMO_BLUEPRINT_IDS,
@@ -53,14 +54,20 @@ export function ensureDemoBlueprintSeeded(): void {
   const hasBatchProcessed = withoutLegacy.some(
     (b) => b.id === BATCH_PROCESSED_NOTICE_BLUEPRINT.id
   )
+  const missingStandard = STANDARD_CHASE_BLUEPRINTS.some(
+    (bp) => !withoutLegacy.some((b) => b.id === bp.id)
+  )
   const removedLegacy = withoutLegacy.length !== existing.length
 
-  if (hasChase && hasNewBroker && hasBatchProcessed && !removedLegacy) return
+  if (hasChase && hasNewBroker && hasBatchProcessed && !missingStandard && !removedLegacy) return
 
   let next = withoutLegacy
   if (!hasChase) next = [RISK_LADDER_DEMO_BLUEPRINT, ...next]
   if (!hasNewBroker) next = [NEW_BROKER_ONBOARDING_BLUEPRINT, ...next]
   if (!hasBatchProcessed) next = [BATCH_PROCESSED_NOTICE_BLUEPRINT, ...next]
+  for (const bp of STANDARD_CHASE_BLUEPRINTS) {
+    if (!next.some((b) => b.id === bp.id)) next = [bp as SavedBlueprint, ...next]
+  }
   writeAll(next)
 }
 

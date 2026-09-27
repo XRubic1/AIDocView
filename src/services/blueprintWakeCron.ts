@@ -6,6 +6,9 @@ import { hydrateBlueprintsFromSupabase } from './supabase/blueprintPersist'
 
 export type BlueprintWakeResult = {
   advanced: number
+  enrolled?: number
+  sent?: number
+  actions?: number
   source: 'server' | 'local'
   details?: string[]
 }
@@ -25,8 +28,14 @@ export async function invokeBlueprintWakeCron(
     console.warn('[blueprintWakeCron] invoke failed', error.message)
     return null
   }
-  const advanced = Number((data as { advanced?: number } | null)?.advanced ?? 0)
-  const details = (data as { details?: string[] } | null)?.details
+  const body = (data ?? {}) as {
+    advanced?: number
+    enrolled?: number
+    sent?: number
+    actions?: number
+    details?: string[]
+  }
+  const advanced = Number(body.advanced ?? 0)
   try {
     await hydrateBlueprintsFromSupabase()
   } catch (err) {
@@ -34,7 +43,10 @@ export async function invokeBlueprintWakeCron(
   }
   return {
     advanced: Number.isFinite(advanced) ? advanced : 0,
+    enrolled: Number(body.enrolled ?? 0),
+    sent: Number(body.sent ?? 0),
+    actions: Number(body.actions ?? 0),
     source: 'server',
-    details,
+    details: body.details,
   }
 }

@@ -7,6 +7,7 @@ import type { Edge } from '@xyflow/react'
 import { isBlueprintsRunnerEnabled } from '../../config/blueprintsRuntime'
 import { getInvoiceById, mockInvoices } from '../../data/mockInvoices'
 import { getConfirmedPaymentTotal } from '../../data/mockPayments'
+import { hasPpwBeenSent } from '../../utils/ppwSent'
 import type { Invoice } from '../../types/invoice'
 import type { BlueprintFlowNode, BlueprintNodeData } from '../../types/blueprintGraph'
 import { findBestMatchingBlueprint, scoreBlueprintForEvent, type BlueprintMatchEvent } from './blueprintAutoMatch'
@@ -108,9 +109,13 @@ function evaluateWhenRaw(
         invoice.status === 'paid' ||
         invoice.status === 'force_closed'
       )
+    case 'ppw_sent':
+      return hasPpwBeenSent(invoice)
+    case 'paperwork_good':
+      return invoice.email_lifecycle?.paperwork_status === 'good'
     case 'broker_replied':
     case 'no_reply':
-      // Phase 1: no live reply signal — treat as false so path doesn't invent mail.
+      // Reply reading is not in this MVP — never invent a reply.
       return false
     default:
       return (

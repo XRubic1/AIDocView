@@ -229,4 +229,37 @@ describe('resolveBlueprintWaitUntil', () => {
     )
     expect(ymdLocal(result.waitUntil)).toBe('2026-03-12')
   })
+
+  it('after_ppw counts from the packet send and honors broker confirm days', () => {
+    hydrateBrokers([baseBroker({ paperwork_status_check_days: 10 })])
+    const now = new Date(2026, 2, 10, 14, 30, 0)
+    const result = resolveBlueprintWaitUntil(
+      {
+        kind: 'invoice',
+        invoice: baseInvoice({
+          document_send_history: [
+            {
+              email_address: 'ap@broker.test',
+              sent_at: '2026-03-08T15:00:00.000Z',
+              status: 'sent',
+            },
+          ],
+        }),
+      },
+      waitNode('after_ppw', '7'),
+      now
+    )
+    expect(ymdLocal(result.waitUntil)).toBe('2026-03-18')
+    expect(result.detail).toMatch(/10 day/)
+  })
+
+  it('payment_clock waits until due date plus inquiry days', () => {
+    const now = new Date(2026, 0, 10, 14, 30, 0)
+    const result = resolveBlueprintWaitUntil(
+      { kind: 'invoice', invoice: baseInvoice() },
+      waitNode('payment_clock', '15'),
+      now
+    )
+    expect(ymdLocal(result.waitUntil)).toBe('2026-02-15')
+  })
 })

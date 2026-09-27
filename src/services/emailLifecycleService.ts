@@ -548,11 +548,21 @@ function maybeStaffAction(
   })
 }
 
-/** Advance paperwork then payment clocks; send or create call tasks. */
+/** Advance paperwork then payment clocks via the server blueprint runner. */
 export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
   sent: number
   actions: number
 }> {
+  const { isSupabaseConfigured } = await import('../lib/supabase')
+  if (isSupabaseConfigured()) {
+    const { invokeBlueprintWakeCron } = await import('./blueprintWakeCron')
+    const remote = await invokeBlueprintWakeCron(80)
+    return {
+      sent: remote?.sent ?? 0,
+      actions: remote?.actions ?? 0,
+    }
+  }
+
   let sent = 0
   let actions = 0
   const brokerById = new Map(mockBrokers.map((b) => [b.id, b]))

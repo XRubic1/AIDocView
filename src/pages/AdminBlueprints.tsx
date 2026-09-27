@@ -1,6 +1,6 @@
 /**
- * Admin Blueprints — graph editor + Activity; optional live runner (notes/status + Then-do emails).
- * Old email-lifecycle chase cron is unchanged.
+ * Admin Blueprints — graph editor + Activity.
+ * Chase runs on the server (blueprint-wake-cron), including when this tab is closed.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
