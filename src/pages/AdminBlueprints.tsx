@@ -43,8 +43,8 @@ import { useToast } from '../components/ui/ToastProvider'
 import {
   BLUEPRINTS_RUNNER_CHANGED_EVENT,
   isBlueprintsRunnerEnabled,
-  setBlueprintsRunnerEnabled,
 } from '../config/blueprintsRuntime'
+import { saveBlueprintsRunnerEnabled } from '../services/platformSettingsService'
 import { syncAllOpenInvoiceBlueprints } from '../components/blueprints/blueprintRunner'
 import '../styles/adminBlueprints.css'
 
@@ -86,12 +86,44 @@ export default function AdminBlueprints() {
   const [whenEvents, setWhenEvents] = useState(() => collectWhenEvents(initial.nodes))
   const [pageTab, setPageTab] = useState<BlueprintsPageTab>('editor')
   const [runnerOn, setRunnerOn] = useState(() => isBlueprintsRunnerEnabled())
+  const [runnerSaving, setRunnerSaving] = useState(false)
 
   useEffect(() => {
     const sync = () => setRunnerOn(isBlueprintsRunnerEnabled())
     window.addEventListener(BLUEPRINTS_RUNNER_CHANGED_EVENT, sync)
     return () => window.removeEventListener(BLUEPRINTS_RUNNER_CHANGED_EVENT, sync)
   }, [])
+
+  const handleRunnerToggle = useCallback(
+    async (checked: boolean) => {
+      if (runnerSaving) return
+      setRunnerOn(checked)
+      setRunnerSaving(true)
+      try {
+        await saveBlueprintsRunnerEnabled(checked)
+        if (checked) {
+          const { assigned } = await syncAllOpenInvoiceBlueprints('Live runner on')
+          showToast(
+            assigned > 0
+              ? `Live runner on — ${assigned} open invoice(s) assigned.`
+              : 'Live runner on — Then-do can send broker/carrier emails (Settings toggles still apply).',
+            'success'
+          )
+        } else {
+          showToast('Live runner off — old chase only (server-wide).', 'success')
+        }
+      } catch (err) {
+        setRunnerOn(isBlueprintsRunnerEnabled())
+        showToast(
+          err instanceof Error ? err.message : 'Could not save Live runner setting.',
+          'error'
+        )
+      } finally {
+        setRunnerSaving(false)
+      }
+    },
+    [runnerSaving, showToast]
+  )
 
   const graphRef = useRef<{ nodes: BlueprintFlowNode[]; edges: Edge[] }>({
     nodes: initial.nodes,
@@ -366,21 +398,9 @@ export default function AdminBlueprints() {
               <input
                 type="checkbox"
                 checked={runnerOn}
+                disabled={runnerSaving}
                 onChange={(e) => {
-                  setBlueprintsRunnerEnabled(e.target.checked)
-                  setRunnerOn(e.target.checked)
-                  if (e.target.checked) {
-                    void syncAllOpenInvoiceBlueprints('Live runner on').then(({ assigned }) => {
-                      showToast(
-                        assigned > 0
-                          ? `Live runner on — ${assigned} open invoice(s) assigned.`
-                          : 'Live runner on — Then-do can send broker/carrier emails (Settings toggles still apply).',
-                        'success'
-                      )
-                    })
-                  } else {
-                    showToast('Live runner off — old chase only.', 'success')
-                  }
+                  void handleRunnerToggle(e.target.checked)
                 }}
               />
               <span>Live runner</span>
@@ -425,21 +445,9 @@ export default function AdminBlueprints() {
             <input
               type="checkbox"
               checked={runnerOn}
+              disabled={runnerSaving}
               onChange={(e) => {
-                setBlueprintsRunnerEnabled(e.target.checked)
-                setRunnerOn(e.target.checked)
-                if (e.target.checked) {
-                  void syncAllOpenInvoiceBlueprints('Live runner on').then(({ assigned }) => {
-                    showToast(
-                      assigned > 0
-                        ? `Live runner on — ${assigned} open invoice(s) assigned.`
-                        : 'Live runner on — Then-do can send broker/carrier emails (Settings toggles still apply).',
-                      'success'
-                    )
-                  })
-                } else {
-                  showToast('Live runner off — old chase only.', 'success')
-                }
+                void handleRunnerToggle(e.target.checked)
               }}
             />
             <span>Live runner</span>

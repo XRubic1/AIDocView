@@ -18,10 +18,12 @@ import {
   PauseCircle,
   PlayCircle,
   GitBranch,
+  Zap,
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { Payment } from '../../types/payment'
 import InvoiceBlueprintPanel from '../blueprints/InvoiceBlueprintPanel'
+import InvoiceActionsPanel from '../blueprints/InvoiceActionsPanel'
 import { formatCurrency } from '../../utils/format'
 import {
   addClientInvoiceNote,
@@ -279,9 +281,9 @@ export default function InvoiceDetailPanel({
   const notesEnabled = enableNotes ?? enableClientActions
   const authorName = noteAuthorName?.trim() || clientName
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all')
-  /** Overview vs activity / notes / blueprints surface (mobile + sidebar). */
+  /** Overview vs activity / notes / blueprints / actions surface (mobile + sidebar). */
   const [detailSurface, setDetailSurface] = useState<
-    'overview' | 'activity' | 'notes' | 'blueprints'
+    'overview' | 'activity' | 'notes' | 'blueprints' | 'actions'
   >('overview')
   const notesAsPrimaryTab = detailTabs === 'details_notes'
   /**
@@ -1419,6 +1421,22 @@ export default function InvoiceDetailPanel({
             ? 'No payment activity on this invoice yet.'
             : 'No documents sent yet.'
 
+  const onSubSurface =
+    detailSurface === 'activity' ||
+    detailSurface === 'notes' ||
+    detailSurface === 'blueprints' ||
+    detailSurface === 'actions'
+  const surfaceEyebrow =
+    detailSurface === 'notes'
+      ? 'Notes'
+      : detailSurface === 'activity'
+        ? 'Activity & notes'
+        : detailSurface === 'blueprints'
+          ? 'Blueprints'
+          : detailSurface === 'actions'
+            ? 'Actions'
+            : 'Invoice details'
+
   const panelBody = (
     <>
       <header
@@ -1430,11 +1448,7 @@ export default function InvoiceDetailPanel({
           <button
             type="button"
             onClick={() => {
-              if (
-                detailSurface === 'activity' ||
-                detailSurface === 'notes' ||
-                detailSurface === 'blueprints'
-              ) {
+              if (onSubSurface) {
                 setDetailSurface('overview')
                 return
               }
@@ -1442,11 +1456,7 @@ export default function InvoiceDetailPanel({
             }}
             className="payment-confirmation-panel__icon-btn"
             aria-label={
-              detailSurface === 'activity' ||
-              detailSurface === 'notes' ||
-              detailSurface === 'blueprints'
-                ? 'Back to invoice overview'
-                : 'Back to invoices'
+              onSubSurface ? 'Back to invoice overview' : 'Back to invoices'
             }
           >
             <ArrowLeft className="w-4 h-4" />
@@ -1463,6 +1473,7 @@ export default function InvoiceDetailPanel({
               {navIndex >= 0 ? navIndex + 1 : 1}/{navigationInvoices.length || 1}
             </span>
             {isAdminPortal && !notesAsPrimaryTab ? (
+              <>
               <button
                 type="button"
                 className={`payment-confirmation-panel__icon-btn${
@@ -1479,6 +1490,23 @@ export default function InvoiceDetailPanel({
               >
                 <GitBranch className="w-4 h-4" />
               </button>
+              <button
+                type="button"
+                className={`payment-confirmation-panel__icon-btn${
+                  detailSurface === 'actions'
+                    ? ' payment-confirmation-panel__icon-btn--active'
+                    : ''
+                }`}
+                onClick={() =>
+                  setDetailSurface((s) => (s === 'actions' ? 'overview' : 'actions'))
+                }
+                aria-label="Actions"
+                aria-pressed={detailSurface === 'actions'}
+                title="Actions"
+              >
+                <Zap className="w-4 h-4" />
+              </button>
+              </>
             ) : null}
             <button
               type="button"
@@ -1492,13 +1520,7 @@ export default function InvoiceDetailPanel({
         ) : hidePanelChrome ? (
           <div className="payment-confirmation-panel__header-main min-w-0 px-1">
             <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
-              {detailSurface === 'notes'
-                ? 'Notes'
-                : detailSurface === 'activity'
-                  ? 'Activity & notes'
-                  : detailSurface === 'blueprints'
-                    ? 'Blueprints'
-                    : 'Invoice details'}
+              {surfaceEyebrow}
             </p>
             <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
               {visibleInvoice.invoice_number}
@@ -1507,9 +1529,7 @@ export default function InvoiceDetailPanel({
           </div>
         ) : (
           <>
-            {detailSurface === 'activity' ||
-            detailSurface === 'notes' ||
-            detailSurface === 'blueprints' ? (
+            {onSubSurface ? (
               <button
                 type="button"
                 onClick={() => setDetailSurface('overview')}
@@ -1521,17 +1541,9 @@ export default function InvoiceDetailPanel({
             ) : null}
             <div className="payment-confirmation-panel__header-main min-w-0">
               <p className="payment-confirmation-panel__eyebrow" style={{ color: c.secondary }}>
-                {detailSurface === 'notes'
-                  ? 'Notes'
-                  : detailSurface === 'activity'
-                    ? 'Activity & notes'
-                    : detailSurface === 'blueprints'
-                      ? 'Blueprints'
-                      : 'Invoice details'}
+                {surfaceEyebrow}
               </p>
-              {detailSurface === 'activity' ||
-              detailSurface === 'notes' ||
-              detailSurface === 'blueprints' ? (
+              {onSubSurface ? (
                 <p className="payment-confirmation-panel__context-line" style={{ color: c.primary }}>
                   Invoice {visibleInvoice.invoice_number}
                   {visibleInvoice.load_number ? ` · Load ${visibleInvoice.load_number}` : ''}
@@ -1567,6 +1579,7 @@ export default function InvoiceDetailPanel({
                 </button>
               </div>
               {isAdminPortal && !notesAsPrimaryTab ? (
+                <>
                 <button
                   type="button"
                   className={`payment-confirmation-panel__icon-btn${
@@ -1583,6 +1596,23 @@ export default function InvoiceDetailPanel({
                 >
                   <GitBranch className="w-4 h-4" />
                 </button>
+                <button
+                  type="button"
+                  className={`payment-confirmation-panel__icon-btn${
+                    detailSurface === 'actions'
+                      ? ' payment-confirmation-panel__icon-btn--active'
+                      : ''
+                  }`}
+                  onClick={() =>
+                    setDetailSurface((s) => (s === 'actions' ? 'overview' : 'actions'))
+                  }
+                  aria-label="Actions"
+                  aria-pressed={detailSurface === 'actions'}
+                  title="Actions"
+                >
+                  <Zap className="w-4 h-4" />
+                </button>
+                </>
               ) : null}
               {onPopOut && detailSurface === 'overview' ? (
                 <button
@@ -1678,6 +1708,7 @@ export default function InvoiceDetailPanel({
             </button>
           )}
           {isAdminPortal && !notesAsPrimaryTab ? (
+            <>
             <button
               type="button"
               role="tab"
@@ -1693,6 +1724,22 @@ export default function InvoiceDetailPanel({
               <GitBranch className="w-3.5 h-3.5" aria-hidden />
               <span className="sr-only">Blueprints</span>
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={detailSurface === 'actions'}
+              className={`payment-confirmation-panel__mobile-surface-tab${
+                detailSurface === 'actions'
+                  ? ' payment-confirmation-panel__mobile-surface-tab--active'
+                  : ''
+              }`}
+              onClick={() => setDetailSurface('actions')}
+              title="Actions"
+            >
+              <Zap className="w-3.5 h-3.5" aria-hidden />
+              <span className="sr-only">Actions</span>
+            </button>
+            </>
           ) : null}
         </div>
 
@@ -1780,6 +1827,20 @@ export default function InvoiceDetailPanel({
             }`}
           >
             <InvoiceBlueprintPanel invoice={visibleInvoice} />
+          </section>
+        ) : detailSurface === 'actions' ? (
+          <section
+            className={`payment-confirmation-panel__notes ${
+              isMobile
+                ? 'payment-confirmation-panel__notes--mobile-surface'
+                : 'payment-confirmation-panel__notes--sidebar-surface payment-confirmation-panel__notes--sidebar-matches-mobile'
+            }`}
+          >
+            <InvoiceActionsPanel
+              invoice={visibleInvoice}
+              authorName={authorName}
+              onInvoiceUpdated={onInvoiceUpdated}
+            />
           </section>
         ) : (
           <section

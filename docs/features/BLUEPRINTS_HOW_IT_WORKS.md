@@ -266,9 +266,10 @@ Same shape; different Start event and Then-do target (carrier vs broker).
 
 ### Phase 1–2 live runner
 
-- Toggle **Live runner** on Admin → Blueprints (default **off**).
+- Toggle **Live runner** on Admin → Blueprints (default **off**). Stored in `platform_settings.blueprints_runtime` so every admin and Edge cron share the same value (localStorage is only a pre-hydrate mirror).
 - Then-do → notes/status **and** broker payment / carrier notify emails when Live runner is on (Settings lifecycle toggles still apply).
-- **Double-chase guard:** if Live runner is on and the invoice’s assigned blueprint includes Then-do `email_payment_status` or `email_followup`, **Run chase** / email-lifecycle cron **skip the payment track** for that invoice (paperwork track still runs). Hold/note-only blueprints do not skip. Assign stamps `email_lifecycle.blueprint_owns_chase` for the server cron.
+- **Double-chase guard:** if Live runner is on and the invoice’s assigned blueprint includes Then-do `email_payment_status` or `email_followup`, **Run chase** / email-lifecycle cron **skip the payment track** for that invoice (paperwork track still runs unless the graph also owns paperwork). Hold/note-only blueprints do not skip. Assign stamps `email_lifecycle.blueprint_owns_chase` / `blueprint_owns_paperwork` for the server cron; stamps are ignored when Live is off.
+- **Wake cron** (`blueprint-wake-cron`) no-ops when Live is off.
 - **Phase 2:** place on hold / send PPW / invoice purchased / hold cleared → find matching Start (or keep staff assignment if it still matches) → assign + enroll. **Priority** (editor toolbar) decides the winner when several match — higher number wins.
 - Prefer more specific matches (e.g. hold-only / When · On hold over a broad chase).
 - **Batches:** Process (`verification` → `submitted`) emits `batch.processed` → **Batch processed notice** seed (carrier email Then-do + admin alerts). When Live runner is on and that graph includes `email_carrier_batch_processed`, Settings · Email sends (`batch_processed_carrier`) is skipped so Process does not double-email. Live off → Settings send as before.

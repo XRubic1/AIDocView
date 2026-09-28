@@ -586,12 +586,104 @@ export async function saveSalesLeadRatingPolicy(
   return normalized
 }
 
+const BLUEPRINTS_RUNTIME_KEY = 'blueprints_runtime'
+
+export type BlueprintsRuntimeSettings = {
+  /** When true, Live blueprint runner is on for all admins + Edge crons. */
+  enabled: boolean
+}
+
+function normalizeBlueprintsRuntime(
+  value: Partial<BlueprintsRuntimeSettings> | null | undefined
+): BlueprintsRuntimeSettings {
+  return { enabled: value?.enabled === true }
+}
+
+/** Load Live runner flag from platform_settings (shared across admins). */
+export async function loadBlueprintsRunnerEnabled(): Promise<boolean> {
+  const { applyBlueprintsRunnerEnabled } = await import('../config/blueprintsRuntime')
+
+  if (!isSupabaseConfigured()) {
+    const { isBlueprintsRunnerEnabled } = await import('../config/blueprintsRuntime')
+    const local = isBlueprintsRunnerEnabled()
+    applyBlueprintsRunnerEnabled(local, { fromServer: true })
+    return local
+  }
+
+  const supabase = getSupabase()
+  if (!supabase) {
+    const { isBlueprintsRunnerEnabled } = await import('../config/blueprintsRuntime')
+    const local = isBlueprintsRunnerEnabled()
+    applyBlueprintsRunnerEnabled(local, { fromServer: true })
+    return local
+  }
+
+  const { data, error } = await supabase
+    .from('platform_settings')
+    .select('value')
+    .eq('key', BLUEPRINTS_RUNTIME_KEY)
+    .maybeSingle()
+
+  if (error || !data?.value) {
+    // First time: seed from this browser's local mirror so turning Live on once sticks.
+    const { isBlueprintsRunnerEnabled } = await import('../config/blueprintsRuntime')
+    const seeded = isBlueprintsRunnerEnabled()
+    applyBlueprintsRunnerEnabled(seeded, { fromServer: true })
+    if (seeded) {
+      try {
+        await saveBlueprintsRunnerEnabled(true)
+      } catch {
+        /* ignore seed write */
+      }
+    }
+    return seeded
+  }
+
+  const enabled = normalizeBlueprintsRuntime(
+    data.value as Partial<BlueprintsRuntimeSettings>
+  ).enabled
+  applyBlueprintsRunnerEnabled(enabled, { fromServer: true })
+  return enabled
+}
+
+/** Persist Live runner flag for all admins and Edge crons. */
+export async function saveBlueprintsRunnerEnabled(enabled: boolean): Promise<boolean> {
+  const { applyBlueprintsRunnerEnabled, isBlueprintsRunnerEnabled } = await import(
+    '../config/blueprintsRuntime'
+  )
+  const prev = isBlueprintsRunnerEnabled()
+  applyBlueprintsRunnerEnabled(enabled, { fromServer: true })
+
+  if (!isSupabaseConfigured()) return enabled
+
+  const supabase = getSupabase()
+  if (!supabase) return enabled
+
+  const value: BlueprintsRuntimeSettings = { enabled }
+  try {
+    await persistOrThrow('blueprints_runtime', async () => {
+      const { error } = await supabase.from('platform_settings').upsert({
+        key: BLUEPRINTS_RUNTIME_KEY,
+        value,
+        updated_at: new Date().toISOString(),
+      })
+      if (error) throw new Error(error.message)
+    })
+  } catch (err) {
+    applyBlueprintsRunnerEnabled(prev, { fromServer: true })
+    throw err
+  }
+
+  return enabled
+}
+
 export {
   BROKER_SNAPSHOT_TTL_KEY,
   COLLECTIONS_POLICY_KEY,
   BROKER_RISK_POLICY_KEY,
   EMAIL_MAILBOXES_KEY,
   SALES_LEAD_RATING_KEY,
+  BLUEPRINTS_RUNTIME_KEY,
   DEFAULT_EMAIL_MAILBOXES,
   DEFAULT_SALES_LEAD_RATING_POLICY,
 }

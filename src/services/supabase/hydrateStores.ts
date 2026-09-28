@@ -48,6 +48,7 @@ import {
   applyEmailLifecycleSettings,
   loadEmailMailboxes,
   applyEmailMailboxes,
+  loadBlueprintsRunnerEnabled,
 } from '../platformSettingsService'
 import { applyAiPolicy, loadAiPolicy } from '../aiSpendService'
 import { resolveSession } from '../sessionService'
@@ -209,6 +210,12 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
       await hydrateBrokerRiskFromSupabase()
     } catch (err) {
       errors.push(`broker_risk: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    try {
+      await loadBlueprintsRunnerEnabled()
+    } catch (err) {
+      errors.push(`blueprints_runtime: ${err instanceof Error ? err.message : String(err)}`)
     }
 
     try {

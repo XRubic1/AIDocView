@@ -904,22 +904,6 @@ export default function Brokers() {
                   </div>
                   <div className="bg-white px-3 py-2">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
-                      PPW confirm
-                    </p>
-                    <p className="text-sm font-medium text-slate-900 mt-0.5 tabular-nums">
-                      {selectedBroker.paperwork_status_check_days ?? 7} days after PPW
-                    </p>
-                  </div>
-                  <div className="bg-white px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
-                      Pay verify (no Net)
-                    </p>
-                    <p className="text-sm font-medium text-slate-900 mt-0.5 tabular-nums">
-                      {selectedBroker.payment_status_inquiry_days ?? 15} days after PPW
-                    </p>
-                  </div>
-                  <div className="bg-white px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
                       Preferred contact
                     </p>
                     <p className="text-sm font-medium text-slate-900 mt-0.5 capitalize">
@@ -1200,46 +1184,9 @@ export default function Brokers() {
                         0 = no automatic invoice due date
                       </span>
                     </label>
-                    <label className={labelClass}>
-                      <span className="font-medium text-slate-600 uppercase tracking-wide">
-                        Paperwork confirm (days after PPW)
-                      </span>
-                      <input
-                        type="number"
-                        min={1}
-                        value={formData.paperwork_status_check_days ?? 7}
-                        onChange={(e) =>
-                          handleInputChange(
-                            'paperwork_status_check_days',
-                            parseInt(e.target.value, 10) || 7
-                          )
-                        }
-                        className={`${inputClass} mt-1 tabular-nums`}
-                      />
-                      <span className="mt-1 block text-[10px] text-slate-500 leading-snug">
-                        Default 7. Use 10–15 if this broker is slow to confirm they received the packet.
-                      </span>
-                    </label>
-                    <label className={labelClass}>
-                      <span className="font-medium text-slate-600 uppercase tracking-wide">
-                        Payment verify if no Net (days after PPW)
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={formData.payment_status_inquiry_days ?? 15}
-                        onChange={(e) =>
-                          handleInputChange(
-                            'payment_status_inquiry_days',
-                            parseInt(e.target.value, 10) || 0
-                          )
-                        }
-                        className={`${inputClass} mt-1 tabular-nums`}
-                      />
-                      <span className="mt-1 block text-[10px] text-slate-500 leading-snug">
-                        Only used when Due by is 0. With Net terms, payment verify starts on the due date.
-                      </span>
-                    </label>
+                    <p className="text-[10px] text-slate-500 leading-snug m-0">
+                      Timed paperwork/payment chase days moved to Blueprints (Wait + Then-do).
+                    </p>
                     <label className={labelClass}>
                       <span className="font-medium text-slate-600 uppercase tracking-wide">
                         Preferred contact

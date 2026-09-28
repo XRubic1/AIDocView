@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { GitBranch } from 'lucide-react'
 import { useClientTheme } from '../../theme/ThemeContext'
 
 export type CollectionsSettingsForm = {
@@ -113,38 +115,6 @@ function RuleRow({
   )
 }
 
-function Step({
-  n,
-  label,
-  info,
-  children,
-}: {
-  n: number
-  label: string
-  info: string
-  children: ReactNode
-}) {
-  const c = useClientTheme()
-  return (
-    <li className="collections-chase-step">
-      <span className="collections-chase-step__n tabular-nums" style={{ color: c.info }}>
-        {n}
-      </span>
-      <span className="collections-chase-step__main">
-        <span className="collections-chase-step__head">
-          <span className="collections-chase-step__label" style={{ color: c.primary }}>
-            {label}
-          </span>
-          <InfoTip text={info} />
-        </span>
-        <span className="collections-chase-step__copy" style={{ color: c.secondary }}>
-          {children}
-        </span>
-      </span>
-    </li>
-  )
-}
-
 function Section({
   eyebrow,
   title,
@@ -209,84 +179,21 @@ export default function CollectionsSettingsPanel({
       <Section
         eyebrow="Chase"
         title="Broker follow-up clock"
-        info="This is the email/call cadence after paperwork is sent. It does not change the invoice due date. Due date is still invoice date + broker Net terms. Status inquiry is a check-in, not a demand for payment."
-        lead="After PPW is sent, wait for the broker to confirm they have the packet. After they confirm, wait until Net terms, then call to verify payment. Past that window, it is urgent collection."
+        info="Timed paperwork and payment follow-ups are configured as Wait + Then-do on Blueprints when Live runner is on."
+        lead="Email/call cadence after PPW moved to Blueprints. Collections still uses saved defaults for queue labels until Standard Chase owns the queue."
       >
-        <ol className="collections-chase-steps">
-          <Step
-            n={1}
-            label="PPW status check"
-            info="After the packet is emailed, wait this many days, then confirm the broker received paperwork. Each broker can override this (7 default, some want 10–15). Until they confirm, the invoice stays on PPW status check."
-          >
-            Wait{' '}
-            <DaysInput
-              label="Days after PPW before paperwork check"
-              value={s.defaultPaperworkCheckDays}
-              onChange={(v) => onChange({ defaultPaperworkCheckDays: v })}
-            />{' '}
-            days after PPW (broker record can override), then check that paperwork was received.
-          </Step>
-          <Step
-            n={2}
-            label="Payment waiting"
-            info="Once paperwork is broker-confirmed, do not chase payment until Net terms (due date). The invoice sits in payment waiting."
-          >
-            After broker confirmed, wait until the invoice reaches Net terms (due by days on the broker).
-            If the broker has no due date, wait{' '}
-            <DaysInput
-              label="Days after PPW before payment verify when no Net terms"
-              value={s.defaultInquiryDays}
-              onChange={(v) => onChange({ defaultInquiryDays: v })}
-            />{' '}
-            days after PPW instead.
-          </Step>
-          <Step
-            n={3}
-            label="Payment verify"
-            info="On the due date, the invoice enters the verification queue. Someone must call or email the broker for payment status."
-          >
-            At Net terms, place it in the payment-verify queue so Credyx can call the broker.
-          </Step>
-          <Step
-            n={4}
-            label="Urgent collection"
-            info="If verification is still open this many days after Net terms, the invoice is past due and moves to the urgent collection queue (marked separately from ordinary chase)."
-          >
-            If still unpaid{' '}
-            <DaysInput
-              label="Days after Net terms before urgent collection"
-              value={s.paymentVerifyUrgentDays}
-              onChange={(v) => onChange({ paymentVerifyUrgentDays: v })}
-            />{' '}
-            days after Net terms, mark past due and urgent collection.
-          </Step>
-          <Step
-            n={5}
-            label="Follow-up if they go quiet"
-            info="Counted from the day the inquiry was sent — not from PPW. A second email if they never answered the first."
-          >
-            If they don’t reply, send a follow-up{' '}
-            <DaysInput
-              label="Days after inquiry before follow-up"
-              value={s.followupAfterDays}
-              onChange={(v) => onChange({ followupAfterDays: v })}
-            />{' '}
-            days after that inquiry.
-          </Step>
-          <Step
-            n={6}
-            label="Call the broker"
-            info="Counted from the inquiry date. Collections shows “Call broker.” This is a person task — Credyx does not auto-dial."
-          >
-            If they’re still quiet{' '}
-            <DaysInput
-              label="Days after inquiry before a call"
-              value={s.needsAttentionAfterDays}
-              onChange={(v) => onChange({ needsAttentionAfterDays: v })}
-            />{' '}
-            days after the inquiry, someone should call.
-          </Step>
-        </ol>
+        <div className="collections-moved">
+          <GitBranch className="collections-moved__icon" aria-hidden />
+          <div>
+            <p className="collections-moved__body">
+              Build chase timing on Blueprints (Wait until · Then do). Turn on Live under Blueprints
+              → Activity so graphs run instead of the old day ladder.
+            </p>
+            <Link to="/admin/blueprints" className="collections-moved__link">
+              Open Blueprints →
+            </Link>
+          </div>
+        </div>
       </Section>
 
       <Section

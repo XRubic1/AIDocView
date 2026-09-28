@@ -28,6 +28,7 @@ import type {
   ProposedAction,
 } from '../types/emailLifecycle'
 import { shouldSkipEmailLifecyclePaymentChase, shouldSkipEmailLifecyclePaperworkChase } from '../components/blueprints/blueprintChaseSkip'
+import { isBlueprintsRunnerEnabled } from '../config/blueprintsRuntime'
 import { brokerEmailAccept, daysBetween, resolveTrackClock } from '../utils/emailLifecycleClocks'
 import {
   isEmailLifecycleRuleEnabled,
@@ -621,7 +622,7 @@ export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
     if (!paperworkGood && ppwAt) {
       // Blueprint Wait + follow-up owns post-PPW paperwork reminders
       if (
-        lifecycle.blueprint_owns_paperwork === true ||
+        (isBlueprintsRunnerEnabled() && lifecycle.blueprint_owns_paperwork === true) ||
         shouldSkipEmailLifecyclePaperworkChase(invoice.id)
       ) {
         /* fall through to payment track */
@@ -683,7 +684,7 @@ export async function runEmailLifecycleChase(nowMs = Date.now()): Promise<{
 
     // Blueprint Then-do owns payment / follow-up emails — skip old payment track
     if (
-      life.blueprint_owns_chase === true ||
+      (isBlueprintsRunnerEnabled() && life.blueprint_owns_chase === true) ||
       shouldSkipEmailLifecyclePaymentChase(latest.id)
     ) {
       continue

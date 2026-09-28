@@ -287,12 +287,17 @@ export function findRunsForInvoice(invoice: {
   return all.filter((r) => !r.subjectId && normLabel(r.subjectLabel) === num)
 }
 
+/** Manual action log — not an enrollment the Blueprints tab should treat as current. */
+function isManualActionLogRun(run: BlueprintRunRow): boolean {
+  return run.id.startsWith('run-inv-actions-')
+}
+
 /** Latest non-terminal run preferred; else most recently updated. */
 export function getPrimaryRunForInvoice(invoice: {
   id: string
   invoice_number: string
 }): BlueprintRunRow | null {
-  const runs = findRunsForInvoice(invoice)
+  const runs = findRunsForInvoice(invoice).filter((r) => !isManualActionLogRun(r))
   if (runs.length === 0) return null
   const live = runs.find((r) =>
     r.status === 'waiting' || r.status === 'active' || r.status === 'paused'
@@ -476,6 +481,50 @@ export function clearInvoiceBlueprintHistory(invoice: {
   for (const run of runs) {
     upsertBlueprintRun({ ...run, history: [] }, { silent: true })
   }
+}
+
+/** Record a staff-triggered Then-do on this invoice without moving the live enrollment. */
+export function appendInvoiceActionHistory(input: {
+  invoiceId: string
+  invoiceNumber: string
+  clientLabel: string
+  blueprintId: string
+  blueprintName: string
+  title: string
+  detail?: string
+}): void {
+  const invoice = { id: input.invoiceId, invoice_number: input.invoiceNumber }
+  const event = {
+    kind: 'action' as const,
+    title: input.title,
+    detail: input.detail,
+    blueprintName: input.blueprintName,
+    blueprintId: input.blueprintId,
+  }
+  const existing = getPrimaryRunForInvoice(invoice)
+  if (existing) {
+    upsertBlueprintRun(existing, { historyEvent: event })
+    return
+  }
+
+  const now = new Date().toISOString()
+  upsertBlueprintRun(
+    {
+      id: `run-inv-actions-${input.invoiceId}`,
+      subject: 'invoice',
+      subjectId: input.invoiceId,
+      subjectLabel: input.invoiceNumber,
+      clientLabel: input.clientLabel,
+      blueprintId: input.blueprintId,
+      blueprintName: input.blueprintName,
+      status: 'completed',
+      currentStep: 'Manual actions',
+      waitUntil: null,
+      startedAt: now,
+      updatedAt: now,
+    },
+    { historyEvent: event }
+  )
 }
 
 /** Enroll an invoice on a Wait (or start) step — used by the live runner. */
