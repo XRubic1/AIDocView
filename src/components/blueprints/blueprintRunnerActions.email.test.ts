@@ -121,4 +121,27 @@ describe('executeBlueprintThenDo emails', () => {
     expect(sendTransactionalEmail).toHaveBeenCalled()
     expect(sendBrokerPaymentStatusInquiry).not.toHaveBeenCalled()
   })
+
+  it('sends a staff recipient list instead of the broker address on file', async () => {
+    const result = await executeBlueprintThenDo({
+      invoiceId: INV_ID,
+      actionId: 'email_payment_status',
+      blueprintName: 'Test chase',
+      config: {
+        message: '',
+        channel: 'email',
+        templateId: 'broker_payment_status_inquiry',
+      },
+      toEmails: ['custom@broker.com', 'ap2@broker.com'],
+    })
+    expect(result.ok).toBe(true)
+    expect(result.detail).toMatch(/custom@broker.com/)
+    expect(result.detail).toMatch(/ap2@broker.com/)
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(
+      'broker_payment_status_inquiry',
+      'custom@broker.com',
+      expect.any(Object),
+      expect.objectContaining({ cc: expect.arrayContaining(['ap2@broker.com']) })
+    )
+  })
 })

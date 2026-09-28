@@ -660,6 +660,11 @@ export default function BlueprintSidePanel({
                     updateTaskConfig(expandedTask, { message: e.target.value })
                   }
                 />
+                <span className="bp-side__help">
+                  Quoted fields fill in on the note: "broker-email", "broker-name",
+                  "invoice-number", "load-number". "broker-email" is the address the
+                  email went to. A custom Send to from Actions is used instead.
+                </span>
               </label>
             ) : null}
 

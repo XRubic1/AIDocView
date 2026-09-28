@@ -56,7 +56,8 @@ export const ACTION_SETUP: Record<string, ActionSetupSpec> = {
     needsFrom: false,
     templateAudiences: [],
     messageLabel: 'Note text',
-    messagePlaceholder: 'What should the note say?',
+    messagePlaceholder:
+      'Paperwork sent to broker via @ "broker-email" - "broker-name", "invoice-number", "load-number"',
     defaultChannel: 'app',
   },
   notify_carrier: {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { SavedBlueprint } from '../../types/blueprintGraph'
-import { collectInvoiceBlueprintActions } from './invoiceBlueprintActions'
+import {
+  collectInvoiceBlueprintActions,
+  parseActionRecipientEmails,
+} from './invoiceBlueprintActions'
 
 function bp(
   id: string,
@@ -42,6 +45,15 @@ function bp(
     ],
   }
 }
+
+describe('parseActionRecipientEmails', () => {
+  it('keeps valid addresses and reports the rest', () => {
+    expect(parseActionRecipientEmails(' ap@broker.com, AP@broker.com; not-an-email\nops@credyx.net ')).toEqual({
+      emails: ['ap@broker.com', 'ops@credyx.net'],
+      invalid: ['not-an-email'],
+    })
+  })
+})
 
 describe('collectInvoiceBlueprintActions', () => {
   it('keeps distinct Then-do cards and skips batch graphs', () => {

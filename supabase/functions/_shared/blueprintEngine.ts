@@ -4,6 +4,7 @@
  * Broker replied / no reply stay false (reply reading is not in this MVP).
  */
 import { STANDARD_CHASE_BLUEPRINTS } from './standardBlueprints.ts'
+import { fillBlueprintNoteTokens } from './blueprintNoteTokens.ts'
 
 // Untyped service client — same pattern as the other Credyx edge functions.
 // deno-lint-ignore no-explicit-any
@@ -554,7 +555,15 @@ export async function runBlueprintServerTick(
         const life = lifeOf(invoice)
         const pw = trackState(life, 'paperwork')
         const pay = trackState(life, 'payment')
-        const msg = cfg?.message?.trim() || `Blueprint action: ${actionId}`
+        const msg = fillBlueprintNoteTokens(
+          cfg?.message?.trim() || `Blueprint action: ${actionId}`,
+          {
+            brokerEmail: brokerEmail(broker),
+            brokerName: String(broker?.name ?? invoice.broker_name ?? ''),
+            invoiceNumber: String(invoice.invoice_number ?? ''),
+            loadNumber: String(invoice.load_number ?? ''),
+          }
+        )
         await appendNote(admin, invoice, `${msg}\n\n${tag}`)
         if (actionId === 'mark_urgent') {
           const field = paperworkGood(invoice) ? 'payment' : 'paperwork'
@@ -623,6 +632,12 @@ export async function runBlueprintServerTick(
         const fromEmail = fromList[0] || cfg?.fromEmail?.trim() || ''
         const from = fromEmail ? `Credyx <${fromEmail}>` : undefined
         const cc = fromList.slice(1)
+        const noteMessage = fillBlueprintNoteTokens(cfg?.message?.trim() || '', {
+          brokerEmail: to,
+          brokerName: String(broker?.name ?? invoice.broker_name ?? ''),
+          invoiceNumber: String(invoice.invoice_number ?? ''),
+          loadNumber: String(invoice.load_number ?? ''),
+        })
         const ok = await sendTemplate(
           admin,
           templateId,
@@ -633,7 +648,7 @@ export async function runBlueprintServerTick(
             loadNumber: String(invoice.load_number ?? 'N/A'),
             amount: String(invoice.amount ?? ''),
             clientName: String(invoice.client_name ?? ''),
-            extraNote: cfg?.message?.trim() || '',
+            extraNote: noteMessage,
           },
           from,
           cc
@@ -650,7 +665,11 @@ export async function runBlueprintServerTick(
           life.blueprint_owns_paperwork = true
           life.blueprint_owns_chase = true
           await saveLife(admin, invoice, life, extra)
-          await appendNote(admin, invoice, `${templateId}: emailed ${to}.\n\n${tag}`)
+          await appendNote(
+            admin,
+            invoice,
+            `${noteMessage || `${templateId}: emailed ${to}.`}\n\n${tag}`
+          )
           lines.push(`email:${templateId}`)
         } else {
           await appendNote(admin, invoice, `${templateId}: email failed.\n\n${tag}`)

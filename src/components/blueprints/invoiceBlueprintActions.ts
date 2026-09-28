@@ -20,6 +20,44 @@ export type InvoiceBlueprintAction = {
 
 const INVOICE_ACTION_IDS = new Set(INVOICE_ACTION_OPTIONS.map((a) => a.id))
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** True when running this Then-do can send an email. */
+export function invoiceActionSendsEmail(action: {
+  actionId: string
+  config?: BlueprintActionTaskConfig
+}): boolean {
+  if (action.actionId === 'notify_carrier') {
+    const channel = action.config?.channel || 'both'
+    return channel === 'email' || channel === 'both'
+  }
+  return (
+    action.actionId === 'email_broker_packet' ||
+    action.actionId === 'email_payment_status' ||
+    action.actionId === 'email_followup'
+  )
+}
+
+/** Split a send-to box into addresses. Duplicates are dropped. */
+export function parseActionRecipientEmails(raw: string): {
+  emails: string[]
+  invalid: string[]
+} {
+  const emails: string[] = []
+  const invalid: string[] = []
+  const seen = new Set<string>()
+  for (const part of raw.split(/[,;\n]+/)) {
+    const value = part.trim()
+    if (!value) continue
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    if (EMAIL_RE.test(value)) emails.push(value)
+    else invalid.push(value)
+  }
+  return { emails, invalid }
+}
+
 function triggerSubject(bp: SavedBlueprint): string | undefined {
   const trigger = bp.nodes.find((n) => n.data?.kind === 'trigger')
   return trigger?.data?.triggerSubject

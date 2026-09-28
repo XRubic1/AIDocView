@@ -558,3 +558,66 @@
   line-height: 1.35;
   color: var(--cp-text-muted, #64748b);
 }
+
+.inv-actions__sendto {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.inv-actions__sendto-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--cp-text, #0f172a);
+}
+
+.inv-actions__sendto-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 2.6rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--cp-border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--cp-card, #fff);
+  color: var(--cp-text, #0f172a);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.inv-actions__sendto-input:focus {
+  outline: 2px solid color-mix(in srgb, #1684fe 45%, transparent);
+  border-color: #1684fe;
+}
+
+.inv-actions__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.inv-actions__chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+  max-width: 100%;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--cp-border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--cp-card, #fff);
+  color: var(--cp-text, #0f172a);
+  font-size: 0.72rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inv-actions__chip--on {
+  border-color: color-mix(in srgb, #1684fe 50%, var(--cp-border, #e2e8f0));
+  background: color-mix(in srgb, #1684fe 12%, var(--cp-card, #fff));
+  color: #1d4ed8;
+}
+
+.inv-actions__chip-label {
+  font-size: 0.65rem;
+  color: var(--cp-text-muted, #64748b);
+}
