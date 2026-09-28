@@ -14,10 +14,7 @@ import { getPpwSentAt, hasPpwBeenSent } from './ppwSent'
 import { applyAssistantCompletions } from './assistantTaskStore'
 import { isCollectionsWorkInvoice } from './adminCollections'
 import { isPlaceholderPaymentDueDate } from './invoiceDueDate'
-import {
-  getNextBrokerFollowup,
-  toBrokerFollowupCalendarEvent,
-} from './nextBrokerFollowup'
+import { projectBlueprintChaseEmails } from './blueprintChaseCalendar'
 
 function toDateKey(d: Date): string {
   const y = d.getFullYear()
@@ -369,23 +366,15 @@ export function deriveAdminCalendarEvents(
   for (const inv of invoices) {
     if (!isCollectionsWorkInvoice(inv)) continue
     const broker = brokerById.get(inv.broker_id)
-    const followup = getNextBrokerFollowup({ invoice: inv, broker, asOf })
-    if (!followup) continue
-    const evt = toBrokerFollowupCalendarEvent({
-      invoice: inv,
-      followup,
-      asOf,
-      audience: 'admin',
-    })
-    if (evt) events.push(evt)
+    events.push(...projectBlueprintChaseEmails({ invoice: inv, broker, asOf }))
   }
 
+  const blueprintChaseIds = new Set(
+    events.filter((e) => e.id.startsWith('live-chase-email-')).map((e) => e.invoiceId)
+  )
+
   for (const item of chase.slice(0, 60)) {
-    // Dated follow-up already on the calendar — keep call/escalate when chase needs attention.
-    if (
-      item.status !== 'needs_attention' &&
-      events.some((e) => e.id === `live-broker-followup-${item.invoice.id}`)
-    ) {
+    if (item.status !== 'needs_attention' && blueprintChaseIds.has(item.invoice.id)) {
       continue
     }
     events.push(mapChaseItem(item, asOf))

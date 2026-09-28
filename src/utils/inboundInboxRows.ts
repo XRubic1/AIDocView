@@ -9,6 +9,7 @@ import {
 import { getInvoiceById } from '../data/mockInvoices'
 import type { EmailMessage, EmailReviewItem } from '../types/emailLifecycle'
 import { guessInboundInvoiceMatch } from '../utils/guessInboundInvoiceMatch'
+import { replyStatusFromClassification } from './brokerReplyReading'
 
 export type InboundInboxRow = {
   id: string
@@ -28,15 +29,19 @@ export type InboundInboxRow = {
   matchConfirmed: boolean
   reviewId: string | null
   pendingReview: boolean
+  replyStatus: 'confirmed' | 'rejected' | 'unknown' | null
 }
 
 export function listInboundInboxRows(): InboundInboxRow[] {
   const messages = listInboundEmailMessages()
-  const pending = listEmailReviews('pending_review')
-  const reviewByThread = new Map<string, EmailReviewItem>()
-  for (const r of pending) {
-    if (r.thread_id) reviewByThread.set(r.thread_id, r)
+  const reviews = listEmailReviews()
+  const latestByThread = new Map<string, EmailReviewItem>()
+  for (const review of reviews) {
+    if (review.thread_id && !latestByThread.has(review.thread_id)) {
+      latestByThread.set(review.thread_id, review)
+    }
   }
+  const pending = reviews.filter((r) => r.status === 'pending_review')
 
   const rows: InboundInboxRow[] = []
   const coveredReviewIds = new Set<string>()
@@ -44,7 +49,7 @@ export function listInboundInboxRows(): InboundInboxRow[] {
   for (const m of messages) {
     const thread = getEmailThreadById(m.thread_id)
     const inv = thread?.invoice_id ? getInvoiceById(thread.invoice_id) : undefined
-    const review = reviewByThread.get(m.thread_id) ?? null
+    const review = latestByThread.get(m.thread_id) ?? null
     if (review) coveredReviewIds.add(review.id)
     rows.push(rowFromMessage(m, inv, review))
   }
@@ -75,6 +80,7 @@ export function listInboundInboxRows(): InboundInboxRow[] {
       matchConfirmed: guess.matched,
       reviewId: r.id,
       pendingReview: true,
+      replyStatus: r.reply_status ?? replyStatusFromClassification(r.classification),
     })
   }
 
@@ -117,6 +123,9 @@ function rowFromMessage(
     matchLabel: guess.label,
     matchConfirmed: guess.matched,
     reviewId: review?.id ?? null,
-    pendingReview: Boolean(review),
+    pendingReview: review?.status === 'pending_review',
+    replyStatus: review
+      ? review.reply_status ?? replyStatusFromClassification(review.classification)
+      : null,
   }
 }

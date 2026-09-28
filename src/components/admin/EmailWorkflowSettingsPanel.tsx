@@ -27,15 +27,14 @@ const RULE_GROUPS: {
   {
     id: 'carriers',
     title: 'Carriers',
-    info: 'Emails to the carrier account after you Process a batch, place holds/claims, or open a dispute. Turn these off to keep Process quiet for carriers.',
-    ids: ['batch_processed_carrier', 'carrier_claim_or_hold_notice', 'carrier_dispute_opened'],
+    info: 'Emails to the carrier after you Process a batch or place a hold/claim. Account-dispute notices run from Blueprints.',
+    ids: ['batch_processed_carrier', 'carrier_claim_or_hold_notice'],
   },
   {
     id: 'chasing',
     title: 'Chasing',
-    info: 'Broker paperwork packet (PPW) after Process, plus timed paperwork/payment status follow-ups. Disable to pause collections chase mail without changing clocks.',
+    info: 'Timed paperwork and payment status follow-ups. Packet send and ops alerts run from Blueprints.',
     ids: [
-      'batch_processed_broker_ppw',
       'broker_paperwork_status_inquiry',
       'broker_paperwork_status_followup',
       'broker_payment_status_inquiry',
@@ -48,26 +47,17 @@ const RULE_GROUPS: {
     info: 'Staff-triggered “is this claim on the whole account?” email from Inbox. Does not send on a timer.',
     ids: ['broker_claim_scope'],
   },
-  {
-    id: 'issues',
-    title: 'Issues',
-    info: 'Internal ops@ alerts when batch intake or AI verification fails. Carriers and brokers never receive these.',
-    ids: ['credyx_ops_issues'],
-  },
 ]
 
 /** Short labels for dense rows (full detail lives in the info tip). */
 const SHORT_LABELS: Partial<Record<EmailLifecycleRule['id'], string>> = {
   batch_processed_carrier: 'Batch processed (skipped if Live blueprint Then-do owns it)',
   carrier_claim_or_hold_notice: 'Hold / claim notice',
-  carrier_dispute_opened: 'Dispute opened',
-  batch_processed_broker_ppw: 'Paperwork packet (PPW)',
   broker_paperwork_status_inquiry: 'Paperwork status (1st)',
   broker_paperwork_status_followup: 'Paperwork status (2nd)',
   broker_payment_status_inquiry: 'Payment status (1st)',
   broker_payment_status_followup: 'Payment status (2nd)',
   broker_claim_scope: 'Claim scope ask',
-  credyx_ops_issues: 'Intake / verify alerts',
 }
 
 function InfoTip({ text }: { text: string }) {

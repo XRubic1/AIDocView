@@ -67,6 +67,7 @@ function parseDateKey(key: string): Date {
 
 function typeShortLabel(evt: SharedCalendarEvent): string {
   if (/payment chase follow-up/i.test(evt.title)) return 'Pay follow-up'
+  if (/ppw chase follow-up/i.test(evt.title)) return 'PPW follow-up'
   if (/ppw chase email/i.test(evt.title)) return 'PPW email'
   if (/payment chase email/i.test(evt.title)) return 'Pay email'
   if (/broker follow-up/i.test(evt.title)) return 'Follow-up'

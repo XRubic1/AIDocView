@@ -99,6 +99,36 @@ export const ACTION_SETUP: Record<string, ActionSetupSpec> = {
     messagePlaceholder: 'Optional note included with the paperwork packet…',
     defaultChannel: 'email',
   },
+  email_carrier_dispute: {
+    needsMessage: true,
+    needsChannel: false,
+    needsTemplate: true,
+    needsFrom: true,
+    templateAudiences: ['carrier'],
+    messageLabel: 'Extra note (optional)',
+    messagePlaceholder: 'Optional note — default uses the dispute opened template…',
+    defaultChannel: 'email',
+  },
+  apply_broker_reply: {
+    needsMessage: true,
+    needsChannel: false,
+    needsTemplate: false,
+    needsFrom: false,
+    templateAudiences: [],
+    messageLabel: 'Extra note (optional)',
+    messagePlaceholder: 'Optional note stored with the broker reply…',
+    defaultChannel: 'app',
+  },
+  email_ops_alert: {
+    needsMessage: true,
+    needsChannel: false,
+    needsTemplate: true,
+    needsFrom: true,
+    templateAudiences: ['admin', 'system'],
+    messageLabel: 'Issue details',
+    messagePlaceholder: 'What should ops see…',
+    defaultChannel: 'email',
+  },
   email_payment_status: {
     needsMessage: true,
     needsChannel: false,
@@ -141,7 +171,12 @@ export function defaultTaskConfig(actionId: string): BlueprintActionTaskConfig {
   return {
     message: '',
     channel: setup.defaultChannel,
-    templateId: actionId === 'email_broker_packet' ? 'broker_packet' : '',
+    templateId:
+      actionId === 'email_broker_packet'
+        ? 'broker_packet'
+        : actionId === 'email_carrier_dispute'
+          ? 'carrier_dispute_opened'
+          : '',
     fromMailbox: setup.needsFrom ? 'billing' : '',
     fromEmail: setup.needsFrom ? billing : '',
     fromEmails: setup.needsFrom ? [billing] : [],

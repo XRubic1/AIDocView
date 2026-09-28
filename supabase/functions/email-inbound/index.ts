@@ -18,51 +18,63 @@ const corsHeaders = {
 
 const BODY_MAX = 80_000
 
-function classify(subject: string, body: string) {
-  const text = `${subject}\n${body}`.toLowerCase()
-  if (
-    /missing.{0,48}(pod|bol|docs?|paperwork|lumper|scale)|on hold.{0,40}missing|hold due to|incomplete\s+(packet|paperwork)/.test(
+function outboundKind(templateId: string, subject: string, body: string): 'paperwork' | 'payment' | 'other' {
+  const template = templateId.toLowerCase()
+  if (template.includes('payment')) return 'payment'
+  if (template.includes('paperwork') || template.includes('packet')) return 'paperwork'
+  const text = `${subject} ${body}`.toLowerCase()
+  if (/payment status|when will you pay|remit|pay date/.test(text)) return 'payment'
+  if (/paperwork|ppw|packet|pod|bol|rate con/.test(text)) return 'paperwork'
+  return 'other'
+}
+
+function readReply(subject: string, body: string, kind: 'paperwork' | 'payment' | 'other') {
+  const text = `${subject}\n${body}`
+  const rejected =
+    /not\s+received|did\s*n[o']t\s+receive|never\s+received|missing|lumper|missing\s+pages?|incomplete|short\s*pay|will\s+not\s+pay|not\s+paying/i.test(
       text
     )
-  ) {
-    return {
-      classification: 'missing_docs',
-      proposed_actions: ['hold_invoice', 'add_note', 'notify_carrier', 'notify_credyx'],
-      summary: 'Broker indicated a hold or missing paperwork.',
-    }
-  }
-  if (/\bclaim\b|cargo claim|freight claim/.test(text)) {
-    return {
-      classification: 'claim',
-      proposed_actions: ['hold_invoice', 'add_note', 'notify_carrier', 'notify_credyx', 'compose_claim_scope'],
-      summary: 'Broker mentioned a claim.',
-    }
-  }
-  if (/paperwork\s+(is\s+)?(good|fine|complete|in order|ok)|packet\s+(is\s+)?(good|complete)/.test(text)) {
-    return {
-      classification: 'paperwork_ok',
-      proposed_actions: ['log_paperwork_good', 'add_note'],
-      summary: 'Broker indicated paperwork is in order.',
-    }
-  }
-  if (/will pay|check (was )?mailed|ach (was )?sent|paid on|expect(ed)? pay/.test(text)) {
-    return {
-      classification: 'payment_ok',
-      proposed_actions: ['log_payment_ok', 'add_note'],
-      summary: 'Broker indicated payment status.',
-    }
-  }
-  if (/short.?pay|not paying|dispute|deduct|refuse/.test(text)) {
-    return {
-      classification: 'negative',
-      proposed_actions: ['hold_invoice', 'add_note', 'notify_carrier', 'notify_credyx'],
-      summary: 'Negative language in broker reply.',
-    }
+  const confirmed =
+    /good\s+to\s+go|\bg2g\b|all\s+set|looks\s+good|paperwork\s+(is\s+)?(good|ok|okay|complete|received)|will\s+pay|check\s+(was\s+)?mailed|ach\s+(sent|processed)/i.test(
+      text
+    ) || /^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s*$/.test(body.trim())
+  const dateInReply = /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(text)
+  const status = rejected
+    ? 'rejected'
+    : confirmed || (kind === 'payment' && dateInReply)
+      ? 'confirmed'
+      : 'unknown'
+  const asked = kind === 'paperwork' ? 'paperwork status' : kind === 'payment' ? 'payment status' : 'a Credyx email'
+  const label = status === 'confirmed' ? 'Confirmed' : status === 'rejected' ? 'Rejected' : 'Unknown'
+  const classification =
+    status === 'unknown'
+      ? 'unclear'
+      : status === 'rejected'
+        ? 'missing_docs'
+        : kind === 'payment'
+          ? 'payment_ok'
+          : 'paperwork_ok'
+  const proposed_actions =
+    status === 'confirmed'
+      ? kind === 'payment'
+        ? ['log_payment_ok', 'add_note']
+        : ['log_paperwork_good', 'add_note']
+      : status === 'rejected'
+        ? ['hold_invoice', 'add_note', 'notify_carrier']
+        : ['add_note']
+  const date = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/)
+  let payDate: string | null = null
+  if (date) {
+    const year = date[3].length === 2 ? `20${date[3]}` : date[3]
+    payDate = `${year}-${date[1].padStart(2, '0')}-${date[2].padStart(2, '0')}`
   }
   return {
-    classification: 'unclear',
-    proposed_actions: ['add_note'],
-    summary: '',
+    status,
+    kind,
+    classification,
+    proposed_actions,
+    summary: `${label} · Credyx asked ${asked}.`,
+    payDate,
   }
 }
 
@@ -308,9 +320,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    const classified = classify(subject, bodyText)
     const now = new Date().toISOString()
     let threadId: string | null = null
+    let classified = readReply(subject, bodyText, 'other')
 
     // Tokens for review row when DB match missed (UI can still show a guess)
     const invToken =
@@ -356,31 +368,62 @@ Deno.serve(async (req) => {
         sent_at: now,
       })
 
-      // Stamp lastInboundAt on open chase tracks (signal for later When · replied)
-      const life = (invoice.email_lifecycle ?? { paperwork_status: 'unknown' }) as Record<
-        string,
-        unknown
-      >
+      const { data: outbound } = await admin
+        .from('email_messages')
+        .select('subject, body_text, template_id')
+        .eq('thread_id', threadId)
+        .eq('direction', 'outbound')
+        .order('sent_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const kind = outboundKind(
+        String(outbound?.template_id ?? ''),
+        String(outbound?.subject ?? ''),
+        String(outbound?.body_text ?? '')
+      )
+      const reading = readReply(subject, bodyText, kind)
+      const life = (invoice.email_lifecycle ?? { paperwork_status: 'unknown' }) as Record<string, unknown>
       const paperwork = { ...((life.paperwork as Record<string, unknown>) ?? {}) }
       const payment = { ...((life.payment as Record<string, unknown>) ?? {}) }
-      let touched = false
-      if (paperwork.firstAskedAt || paperwork.startedAt) {
-        paperwork.lastInboundAt = now
-        touched = true
+      if (paperwork.firstAskedAt || paperwork.startedAt) paperwork.lastInboundAt = now
+      if (payment.firstAskedAt || payment.startedAt) payment.lastInboundAt = now
+      const nextLife: Record<string, unknown> = {
+        ...life,
+        paperwork,
+        payment,
+        last_reply_status: reading.status,
       }
-      if (payment.firstAskedAt || payment.startedAt) {
-        payment.lastInboundAt = now
-        touched = true
+      const invoicePatch: Record<string, unknown> = {
+        email_lifecycle: nextLife,
+        updated_at: now,
       }
-      if (touched) {
+      if (reading.status === 'confirmed' && reading.classification === 'paperwork_ok') {
+        nextLife.paperwork_status = 'good'
+      }
+      if (reading.status === 'confirmed' && reading.payDate) {
+        invoicePatch.collection_status = 'W/P'
+        invoicePatch.collection_date = reading.payDate
+      }
+      if (reading.status === 'rejected') {
+        nextLife.paperwork_status = 'issue'
+        invoicePatch.status = 'hold'
+        invoicePatch.hold_reason = reading.summary
+      }
+      await admin.from('invoices').update(invoicePatch).eq('id', invoice.id)
+      if (reading.status === 'confirmed' || reading.status === 'rejected') {
         await admin
-          .from('invoices')
+          .from('blueprint_runs')
           .update({
-            email_lifecycle: { ...life, paperwork, payment },
+            status: 'stopped',
+            current_step: `Stopped · broker ${reading.status}`,
+            wait_until: null,
             updated_at: now,
           })
-          .eq('id', invoice.id)
+          .eq('subject', 'invoice')
+          .eq('subject_id', invoice.id)
+          .in('status', ['waiting', 'active'])
       }
+      classified = reading
     }
 
     const { error } = await admin.from('email_review_items').insert({
@@ -389,10 +432,10 @@ Deno.serve(async (req) => {
       invoice_id: invoice?.id ?? null,
       broker_id: invoice?.broker_id ?? null,
       client_id: invoice?.client_id ?? null,
-      status: 'pending_review',
+      status: classified.status === 'unknown' ? 'pending_review' : 'confirmed',
       classification: classified.classification,
       proposed_actions: classified.proposed_actions,
-      summary: classified.summary,
+      summary: classified.summary || 'Unknown · Could not read this reply.',
       body_text: bodyText,
       from_address: from,
       to_address: to || 'system@credyx.net',
@@ -400,6 +443,8 @@ Deno.serve(async (req) => {
       load_number: guessedLoadNumber,
       invoice_number: guessedInvoiceNumber,
       created_at: now,
+      confirmed_at: classified.status === 'unknown' ? null : now,
+      confirmed_by: classified.status === 'unknown' ? null : 'Reply reader',
     })
 
     if (error) {

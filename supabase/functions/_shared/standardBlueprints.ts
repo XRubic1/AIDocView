@@ -23,17 +23,23 @@ export type StandardBlueprint = {
 
 function trigger(
   id: string,
-  subject: 'invoices' | 'batches',
+  subject: 'invoices' | 'batches' | 'brokers',
   entry: 'filter' | 'event',
   statuses: string[]
 ): StandardBlueprint['nodes'][number] {
+  const label =
+    subject === 'batches'
+      ? 'Batches that match'
+      : subject === 'brokers'
+        ? 'Brokers that match'
+        : 'Invoices that match'
   return {
     id,
     type: 'blueprint',
     position: { x: 20, y: 160 },
     data: {
       kind: 'trigger',
-      label: subject === 'batches' ? 'Batches that match' : 'Invoices that match',
+      label,
       triggerSubject: subject,
       triggerEntry: entry,
       triggerFilters: {
@@ -292,7 +298,7 @@ export const STANDARD_HOLD_NOTICE: StandardBlueprint = {
   edges: chain(['n-start', 'n-when-hold', 'n-notify', 'n-done']),
 }
 
-/** Carrier “batch processed” email. Server sends once; Process in the portal does not double-send. */
+/** Carrier batch-processed email. Server sends once; Process in the portal does not double-send. */
 export const STANDARD_BATCH_NOTICE: StandardBlueprint = {
   id: 'bp-batch-processed-notice-v1',
   name: 'Batch processed notice',
@@ -327,9 +333,174 @@ export const STANDARD_BATCH_NOTICE: StandardBlueprint = {
   edges: chain(['n-start', 'n-when-processed', 'n-email-carrier', 'n-done']),
 }
 
+/**
+ * Broker paperwork packet at Process. Attachments are sent from the portal
+ * Then-do (the server cron does not rebuild the packet).
+ */
+export const STANDARD_BROKER_PACKET: StandardBlueprint = {
+  id: 'bp-standard-broker-packet',
+  name: 'Standard paperwork packet',
+  updatedAt: '2026-09-27T00:00:00.000Z',
+  priority: 75,
+  nodes: [
+    trigger('n-start', 'invoices', 'event', ['approved', 'review']),
+    when('n-when-processed', 260, 'invoice_processed', 'Invoice processed', 'This invoice was just processed'),
+    emailAction(
+      'n-packet',
+      500,
+      'email_broker_packet',
+      'Send packet to broker',
+      'Send invoice docs / PPW packet to the broker',
+      'broker_packet'
+    ),
+    done('n-done', 740),
+  ],
+  edges: chain(['n-start', 'n-when-processed', 'n-packet', 'n-done']),
+}
+
+/** Carrier notice when Credyx opens a carrier × broker account dispute. */
+export const STANDARD_DISPUTE_NOTICE: StandardBlueprint = {
+  id: 'bp-standard-dispute-notice',
+  name: 'Standard account dispute',
+  updatedAt: '2026-09-27T00:00:00.000Z',
+  priority: 80,
+  nodes: [
+    trigger('n-start', 'brokers', 'event', []),
+    when('n-when-dispute', 260, 'dispute_opened', 'Dispute opened', 'A carrier × broker dispute was opened'),
+    emailAction(
+      'n-email-carrier',
+      500,
+      'email_carrier_dispute',
+      'Email carrier',
+      'Tell the carrier a dispute was opened with this broker',
+      'carrier_dispute_opened'
+    ),
+    done('n-done', 740),
+  ],
+  edges: chain(['n-start', 'n-when-dispute', 'n-email-carrier', 'n-done']),
+}
+
+/** Internal ops alert for intake, verification, and doc-split issues. */
+export const STANDARD_OPS_ALERT: StandardBlueprint = {
+  id: 'bp-standard-ops-alert',
+  name: 'Standard ops alert',
+  updatedAt: '2026-09-27T00:00:00.000Z',
+  priority: 40,
+  nodes: [
+    trigger('n-start', 'batches', 'event', []),
+    when('n-when-issue', 260, 'batch_processed', 'Batch issue', 'Credyx should review this batch'),
+    {
+      id: 'n-ops',
+      type: 'blueprint',
+      position: { x: 500, y: 160 },
+      data: {
+        kind: 'action',
+        label: 'Email ops',
+        actionId: 'email_ops_alert',
+        actionIds: ['email_ops_alert'],
+        status: 'Email Credyx ops about an intake or verification issue',
+        actionConfigs: {
+          email_ops_alert: {
+            message: '',
+            channel: 'email',
+            templateId: 'credyx_batch_error',
+            fromEmail: 'ops@credyx.net',
+            fromEmails: ['ops@credyx.net'],
+          },
+        },
+      },
+    },
+    done('n-done', 740),
+  ],
+  edges: chain(['n-start', 'n-when-issue', 'n-ops', 'n-done']),
+}
+
+function replyAction(
+  id: string,
+  x: number,
+  actionId: string,
+  label: string,
+  line: string,
+  message = ''
+): StandardBlueprint['nodes'][number] {
+  return {
+    id,
+    type: 'blueprint',
+    position: { x, y: 160 },
+    data: {
+      kind: 'action',
+      label,
+      actionId,
+      actionIds: [actionId],
+      status: line,
+      actionConfigs: {
+        [actionId]: { message, channel: 'app', templateId: '' },
+      },
+    },
+  }
+}
+
+/** Broker said good to go, will pay, or sent a date. */
+export const STANDARD_BROKER_CONFIRMED: StandardBlueprint = {
+  id: 'bp-standard-broker-confirmed',
+  name: 'Broker confirmed',
+  updatedAt: '2026-09-27T00:00:00.000Z',
+  priority: 85,
+  nodes: [
+    trigger('n-start', 'invoices', 'event', ['approved', 'review']),
+    when('n-when', 260, 'broker_confirmed', 'Broker confirmed', 'Broker confirmed this invoice'),
+    replyAction('n-apply', 500, 'apply_broker_reply', 'Log confirmed', 'Log the broker confirmation on the invoice'),
+    done('n-done', 740),
+  ],
+  edges: chain(['n-start', 'n-when', 'n-apply', 'n-done']),
+}
+
+/** Broker said not received, missing pages, missing lumper, or otherwise rejected. */
+export const STANDARD_BROKER_REJECTED: StandardBlueprint = {
+  id: 'bp-standard-broker-rejected',
+  name: 'Broker rejected',
+  updatedAt: '2026-09-27T00:00:00.000Z',
+  priority: 85,
+  nodes: [
+    trigger('n-start', 'invoices', 'event', ['approved', 'review', 'hold']),
+    when('n-when', 260, 'broker_rejected', 'Broker rejected', 'Broker rejected this invoice'),
+    replyAction('n-apply', 500, 'apply_broker_reply', 'Log rejected', 'Log the broker rejection and hold the invoice'),
+    done('n-done', 740),
+  ],
+  edges: chain(['n-start', 'n-when', 'n-apply', 'n-done']),
+}
+
+/** Reply could not be read. Edit this graph to decide what happens. */
+export const STANDARD_BROKER_UNKNOWN: StandardBlueprint = {
+  id: 'bp-standard-broker-unknown',
+  name: 'Broker reply unknown',
+  updatedAt: '2026-09-27T00:00:00.000Z',
+  priority: 85,
+  nodes: [
+    trigger('n-start', 'invoices', 'event', ['approved', 'review', 'hold']),
+    when('n-when', 260, 'broker_unknown', 'Reply unknown', 'Credyx could not read this broker reply'),
+    replyAction(
+      'n-task',
+      500,
+      'create_task',
+      'Needs a look',
+      'Staff task for a reply Credyx could not read',
+      'Broker reply could not be read. Check it in the inbox.'
+    ),
+    done('n-done', 740),
+  ],
+  edges: chain(['n-start', 'n-when', 'n-task', 'n-done']),
+}
+
 export const STANDARD_CHASE_BLUEPRINTS: StandardBlueprint[] = [
   STANDARD_PAPERWORK_CHASE,
   STANDARD_PAYMENT_CHASE,
   STANDARD_HOLD_NOTICE,
   STANDARD_BATCH_NOTICE,
+  STANDARD_BROKER_PACKET,
+  STANDARD_OPS_ALERT,
+  STANDARD_DISPUTE_NOTICE,
+  STANDARD_BROKER_CONFIRMED,
+  STANDARD_BROKER_REJECTED,
+  STANDARD_BROKER_UNKNOWN,
 ]

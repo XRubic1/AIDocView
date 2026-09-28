@@ -7,16 +7,12 @@ export type { EmailTrackClockDefaults }
 
 export type EmailLifecycleRuleId =
   | 'batch_processed_carrier'
-  | 'batch_processed_broker_ppw'
   | 'broker_paperwork_status_inquiry'
   | 'broker_paperwork_status_followup'
   | 'broker_payment_status_inquiry'
   | 'broker_payment_status_followup'
   | 'broker_claim_scope'
   | 'carrier_claim_or_hold_notice'
-  | 'carrier_dispute_opened'
-  /** Ops alerts: intake / verification failures. */
-  | 'credyx_ops_issues'
 
 export type EmailLifecycleTrack = 'paperwork' | 'payment'
 
@@ -39,12 +35,6 @@ export const EMAIL_LIFECYCLE_RULES: EmailLifecycleRule[] = [
     name: 'Carrier — batch processed',
     description: 'After Process: all-good summary or holds listed.',
     audience: 'carrier',
-  },
-  {
-    id: 'batch_processed_broker_ppw',
-    name: 'Broker — paperwork packet (PPW)',
-    description: 'PPW packet after Process (skipped if broker does not accept packet email).',
-    audience: 'broker',
   },
   {
     id: 'broker_paperwork_status_inquiry',
@@ -81,18 +71,6 @@ export const EMAIL_LIFECYCLE_RULES: EmailLifecycleRule[] = [
     name: 'Carrier — hold or claim notice',
     description: 'After staff confirms a negative, missing-docs, or claim reply.',
     audience: 'carrier',
-  },
-  {
-    id: 'carrier_dispute_opened',
-    name: 'Carrier — account dispute opened',
-    description: 'When Credyx opens a carrier × broker dispute.',
-    audience: 'carrier',
-  },
-  {
-    id: 'credyx_ops_issues',
-    name: 'Ops — intake / verification issues',
-    description: 'Internal alerts to ops when batch intake or AI verification fails.',
-    audience: 'ops',
   },
 ]
 

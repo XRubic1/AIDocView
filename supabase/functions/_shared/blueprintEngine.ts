@@ -159,11 +159,29 @@ function waitsOnReply(nodes: FlowNode[]): boolean {
   )
 }
 
-function trackOf(bp: BlueprintRow): 'paperwork' | 'payment' | 'hold' | 'batch' | 'other' {
-  if (bp.nodes.some((n) => n.data.triggerSubject === 'batches')) return 'batch'
+function hasAction(nodes: FlowNode[], actionId: string): boolean {
+  return nodes.some((n) => n.data.kind === 'action' && getActionIds(n.data).includes(actionId))
+}
+
+function trackOf(bp: BlueprintRow): 'paperwork' | 'payment' | 'hold' | 'batch' | 'packet' | 'ops' | 'dispute' | 'reply' | 'other' {
+  if (
+    hasCheck(bp.nodes, 'broker_confirmed') ||
+    hasCheck(bp.nodes, 'broker_rejected') ||
+    hasCheck(bp.nodes, 'broker_unknown')
+  ) {
+    return 'reply'
+  }
+  if (hasAction(bp.nodes, 'email_carrier_dispute')) return 'dispute'
+  if (hasAction(bp.nodes, 'email_ops_alert') && !hasAction(bp.nodes, 'email_carrier_batch_processed')) {
+    return 'ops'
+  }
+  if (bp.nodes.some((n) => n.data.triggerSubject === 'batches') || hasAction(bp.nodes, 'email_carrier_batch_processed')) {
+    return 'batch'
+  }
   if (hasCheck(bp.nodes, 'on_hold')) return 'hold'
   if (hasCheck(bp.nodes, 'paperwork_good')) return 'payment'
   if (hasCheck(bp.nodes, 'ppw_sent')) return 'paperwork'
+  if (hasAction(bp.nodes, 'email_broker_packet')) return 'packet'
   return 'other'
 }
 
@@ -281,6 +299,10 @@ function evaluateWhen(checkId: string | undefined, invoice: InvoiceRow): boolean
     return invoice.status === 'approved' || invoice.status === 'hold' || invoice.status === 'review'
   }
   if (checkId === 'broker_replied' || checkId === 'no_reply') return false
+  const reply = String((lifeOf(invoice).last_reply_status as string | undefined) ?? '')
+  if (checkId === 'broker_confirmed') return reply === 'confirmed'
+  if (checkId === 'broker_rejected') return reply === 'rejected'
+  if (checkId === 'broker_unknown') return reply === 'unknown'
   return false
 }
 
@@ -860,7 +882,7 @@ async function enrollRecentBatches(
   settings: { rules?: Record<string, { enabled?: boolean }> }
 ): Promise<void> {
   const batchBp = blueprints
-    .filter((bp) => trackOf(bp) === 'batch')
+    .filter((bp) => trackOf(bp) === 'batch' && hasAction(bp.nodes, 'email_carrier_batch_processed'))
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))[0]
   if (!batchBp) return
   const since = new Date(now.getTime() - 36 * 60 * 60 * 1000).toISOString()

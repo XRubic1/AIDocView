@@ -183,8 +183,33 @@ export function scoreBlueprintForEvent(
   event: BlueprintMatchEvent,
   invoice: Invoice
 ): BlueprintMatch | null {
+  if (
+    bp.nodes.some(
+      (n) =>
+        (n.data.kind === 'if' || n.data.kind === 'elseif') &&
+        (n.data.checkId === 'broker_confirmed' ||
+          n.data.checkId === 'broker_rejected' ||
+          n.data.checkId === 'broker_unknown')
+    )
+  ) {
+    return null
+  }
   if (event === 'broker_created') {
     if (!isBrokerBlueprint(bp)) return null
+    if (bp.nodes.some((n) => n.data.kind === 'if' && n.data.checkId === 'dispute_opened')) return null
+    if (
+      bp.nodes.some((n) => {
+        if (n.data.kind !== 'action') return false
+        const ids = n.data.actionIds?.length
+          ? n.data.actionIds
+          : n.data.actionId
+            ? [n.data.actionId]
+            : []
+        return ids.includes('email_carrier_dispute')
+      })
+    ) {
+      return null
+    }
     const start = getStartNode(bp.nodes)
     if (!start) return null
     const entry = getTriggerEntry(start.data)

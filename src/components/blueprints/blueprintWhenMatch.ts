@@ -38,6 +38,14 @@ export function whenMatchSwitchLabels(checkId: string | undefined): {
       return { yes: 'Paperwork sent', no: 'Paperwork not sent' }
     case 'paperwork_good':
       return { yes: 'Paperwork good', no: 'Paperwork not confirmed' }
+    case 'dispute_opened':
+      return { yes: 'Dispute opened', no: 'No dispute opened' }
+    case 'broker_confirmed':
+      return { yes: 'Broker confirmed', no: 'Not confirmed' }
+    case 'broker_rejected':
+      return { yes: 'Broker rejected', no: 'Not rejected' }
+    case 'broker_unknown':
+      return { yes: 'Reply unknown', no: 'Reply was read' }
     default:
       return { yes: 'If true', no: 'If false' }
   }

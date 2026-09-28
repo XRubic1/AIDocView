@@ -160,6 +160,14 @@ export const BROKER_EVENT_OPTIONS: BlueprintCatalogOption[] = [
     cardTemplate: 'Still no reply from the broker',
   },
   {
+    id: 'dispute_opened',
+    label: 'Account dispute was opened',
+    needsDays: false,
+    defaultTitle: 'Dispute opened',
+    cardTemplate: 'A carrier × broker dispute was opened',
+    help: 'Fires when Credyx opens an account dispute with this broker. The Then-do emails the carrier.',
+  },
+  {
     id: 'broker_cancelled',
     label: 'Broker cancelled',
     needsDays: false,
@@ -228,6 +236,30 @@ export const INVOICE_EVENT_OPTIONS: BlueprintCatalogOption[] = [
     cardTemplate: 'Paperwork status is logged good',
     help: 'True when staff (or a confirmed broker reply, later) has logged paperwork as good. Payment chase waits here until then.',
   },
+  {
+    id: 'broker_confirmed',
+    label: 'Broker confirmed',
+    needsDays: false,
+    defaultTitle: 'Broker confirmed',
+    cardTemplate: 'Broker confirmed this invoice',
+    help: 'Good to go, will pay, or a date. The reply reader sets this.',
+  },
+  {
+    id: 'broker_rejected',
+    label: 'Broker rejected',
+    needsDays: false,
+    defaultTitle: 'Broker rejected',
+    cardTemplate: 'Broker rejected this invoice',
+    help: 'Not received, missing pages, missing lumper, or another rejection.',
+  },
+  {
+    id: 'broker_unknown',
+    label: 'Reply could not be read',
+    needsDays: false,
+    defaultTitle: 'Reply unknown',
+    cardTemplate: 'Credyx could not read this broker reply',
+    help: 'The reply reader could not tell. Use this graph to decide what happens.',
+  },
 ]
 
 /** One action per card — never combine email + mark urgent in one pick. */
@@ -267,6 +299,12 @@ export const BROKER_ACTION_OPTIONS: BlueprintActionOption[] = [
     label: 'Send a push notification',
     defaultTitle: 'Notify team',
     cardLine: 'Send a push notification',
+  },
+  {
+    id: 'email_carrier_dispute',
+    label: 'Email: dispute opened (carrier)',
+    defaultTitle: 'Email carrier',
+    cardLine: 'Tell the carrier a dispute was opened with this broker',
   },
 ]
 
@@ -320,6 +358,12 @@ export const BATCH_ACTION_OPTIONS: BlueprintActionOption[] = [
     defaultTitle: 'Notify team',
     cardLine: 'Send a push notification to the team',
   },
+  {
+    id: 'email_ops_alert',
+    label: 'Email: ops alert',
+    defaultTitle: 'Email ops',
+    cardLine: 'Email Credyx ops about an intake or verification issue',
+  },
 ]
 
 export const INVOICE_ACTION_OPTIONS: BlueprintActionOption[] = [
@@ -370,6 +414,12 @@ export const INVOICE_ACTION_OPTIONS: BlueprintActionOption[] = [
     label: 'Send a push notification',
     defaultTitle: 'Notify team',
     cardLine: 'Send a push notification',
+  },
+  {
+    id: 'apply_broker_reply',
+    label: 'Apply broker reply',
+    defaultTitle: 'Apply reply',
+    cardLine: 'Log confirmed or rejected from this broker reply',
   },
 ]
 

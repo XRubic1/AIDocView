@@ -48,6 +48,8 @@ export interface InvoiceEmailLifecycle {
    * (Wait + follow-up Then-do). Cron + Run chase skip paperwork track.
    */
   blueprint_owns_paperwork?: boolean
+  /** Latest broker reply reading: confirmed, rejected, or unknown. */
+  last_reply_status?: 'confirmed' | 'rejected' | 'unknown'
 }
 
 export interface EmailThread {
@@ -91,6 +93,10 @@ export interface EmailReviewItem {
   invoice_number?: string
   confirmed_at?: string
   confirmed_by?: string
+  /** Simple reply reading. Derived from classification when older rows omit it. */
+  reply_status?: 'confirmed' | 'rejected' | 'unknown'
+  /** What Credyx had sent: paperwork status, payment status, or something else. */
+  outbound_kind?: 'paperwork' | 'payment' | 'other'
 }
 
 export interface EmailTrackClockDefaults {

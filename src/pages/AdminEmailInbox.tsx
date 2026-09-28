@@ -19,8 +19,13 @@ import {
   reclassifyEmailReview,
   runEmailLifecycleChase,
 } from '../services/emailLifecycleService'
-import type { EmailReviewItem, InboundClassification } from '../types/emailLifecycle'
+import type { EmailReviewItem } from '../types/emailLifecycle'
 import { proposedActionsForClassification } from '../utils/classifyInboundBrokerReply'
+import {
+  classificationForReply,
+  replyStatusFromClassification,
+  type BrokerReplyStatus,
+} from '../utils/brokerReplyReading'
 import {
   parseDroppedEmailFile,
   parseDroppedEmailText,
@@ -37,25 +42,11 @@ import { resendOutboundInboxEmail } from '../utils/resendOutboundInboxEmail'
 import { tickBlueprintRuns } from '../components/blueprints/blueprintRunner'
 import { isBlueprintsRunnerEnabled } from '../config/blueprintsRuntime'
 
-const CLASS_LABEL: Record<InboundClassification, string> = {
-  paperwork_ok: 'Paperwork good',
-  payment_ok: 'Payment status',
-  negative: 'Negative',
-  missing_docs: 'Missing docs / hold',
-  claim: 'Claim',
-  unclear: 'Unclear',
-  non_response_paperwork: 'No reply — paperwork',
-  non_response_payment: 'No reply — payment',
+const REPLY_STATUS_LABEL: Record<BrokerReplyStatus, string> = {
+  confirmed: 'Confirmed',
+  rejected: 'Rejected',
+  unknown: 'Unknown',
 }
-
-const STAFF_CLASSIFICATIONS: InboundClassification[] = [
-  'missing_docs',
-  'paperwork_ok',
-  'payment_ok',
-  'claim',
-  'negative',
-  'unclear',
-]
 
 const KIND_TABS: Array<{ id: 'all' | OutboundInboxKind; label: string }> = [
   { id: 'all', label: 'All' },
@@ -116,7 +107,7 @@ export default function AdminEmailInbox() {
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [composeInvoiceId, setComposeInvoiceId] = useState<string | null>(null)
-  const [cardClass, setCardClass] = useState<Record<string, InboundClassification>>({})
+  const [cardStatus, setCardStatus] = useState<Record<string, BrokerReplyStatus>>({})
   const [cardInvoice, setCardInvoice] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -235,13 +226,14 @@ export default function AdminEmailInbox() {
       showToast('That drop had no readable email body', 'error')
       return
     }
-    await ingestBrokerReply({
+    const review = await ingestBrokerReply({
       invoiceId: invoiceId || pasteInvoiceId || undefined,
       fromAddress: fromAddress || 'broker@unknown',
       subject: subject || '(no subject)',
       bodyText,
     })
     setTick((n) => n + 1)
+    return review
   }
 
   const ingest = () => {
@@ -251,10 +243,11 @@ export default function AdminEmailInbox() {
     }
     setBusy(true)
     void queueParsed(pasteFrom, pasteSubject, pasteBody, pasteInvoiceId || undefined)
-      .then(() => {
+      .then((review) => {
         setPasteBody('')
-        showToast('Queued for review', 'success')
-        setTab('review')
+        const status = review?.reply_status ?? 'unknown'
+        showToast(review?.summary || 'Reply logged', status === 'unknown' ? 'info' : 'success')
+        setTab(status === 'unknown' ? 'review' : 'received')
       })
       .finally(() => setBusy(false))
   }
@@ -317,21 +310,42 @@ export default function AdminEmailInbox() {
   }
 
   const confirm = async (item: EmailReviewItem) => {
-    const classification = cardClass[item.id] ?? item.classification
+    const status =
+      cardStatus[item.id] ?? item.reply_status ?? replyStatusFromClassification(item.classification)
+    const outboundKind = item.outbound_kind ?? 'other'
+    const classification = classificationForReply(status, outboundKind, item.body_text)
     const invoiceId = cardInvoice[item.id] || item.invoice_id || undefined
     setBusy(true)
     try {
+      if (invoiceId) {
+        const invoice = mockInvoices.find((inv) => inv.id === invoiceId)
+        if (invoice) {
+          const { findReplyDate } = await import('../utils/brokerReplyReading')
+          const { runBrokerReplyBlueprint } = await import('../components/blueprints/blueprintReplyOutcome')
+          await runBrokerReplyBlueprint(invoice, {
+            status,
+            outboundKind,
+            summary: item.summary,
+            classification,
+            proposed_actions: proposedActionsForClassification(classification),
+            payDate: findReplyDate(item.body_text),
+          })
+        }
+      }
       const result = await confirmEmailReview(item.id, {
         actorName: actor,
         classification,
         invoiceId,
-        actions: proposedActionsForClassification(classification),
+        actions: [],
       })
       if (!result.ok) {
         showToast(result.error ?? 'Could not confirm', 'error')
         return
       }
-      showToast('Applied', 'success')
+      showToast(
+        status === 'unknown' ? 'Left as unknown' : status === 'confirmed' ? 'Broker confirmed' : 'Broker rejected',
+        'success'
+      )
       setTick((n) => n + 1)
     } finally {
       setBusy(false)
@@ -502,7 +516,19 @@ export default function AdminEmailInbox() {
                             {row.matchLabel}
                           </td>
                           <td>
-                            {row.pendingReview ? (
+                            {row.replyStatus === 'confirmed' ? (
+                              <span className="status-pill status-pill--compact status-pill--paid">
+                                Confirmed
+                              </span>
+                            ) : row.replyStatus === 'rejected' ? (
+                              <span className="status-pill status-pill--compact status-pill--overdue">
+                                Rejected
+                              </span>
+                            ) : row.replyStatus === 'unknown' ? (
+                              <span className="status-pill status-pill--compact status-pill--pending">
+                                Unknown
+                              </span>
+                            ) : row.pendingReview ? (
                               <span className="status-pill status-pill--compact status-pill--pending">
                                 Needs review
                               </span>
@@ -955,7 +981,10 @@ export default function AdminEmailInbox() {
           ) : (
             <ul className="space-y-3">
               {pending.map((item) => {
-                const classification = cardClass[item.id] ?? item.classification
+                const status =
+                  cardStatus[item.id] ??
+                  item.reply_status ??
+                  replyStatusFromClassification(item.classification)
                 const invoiceId = cardInvoice[item.id] ?? item.invoice_id ?? ''
                 return (
                   <li
@@ -965,7 +994,7 @@ export default function AdminEmailInbox() {
                   >
                     <div className="flex flex-wrap gap-2 items-center">
                       <span className="status-pill status-pill--compact status-pill--pending">
-                        {CLASS_LABEL[classification]}
+                        {REPLY_STATUS_LABEL[status]}
                       </span>
                       <span className="text-sm font-medium" style={{ color: c.primary }}>
                         {item.invoice_number ?? 'Unmatched'}
@@ -989,21 +1018,21 @@ export default function AdminEmailInbox() {
                     ) : null}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <label className="text-xs" style={{ color: c.secondary }}>
-                        Type
+                        Status
                         <select
                           className="client-input w-full text-sm mt-1"
-                          value={classification}
+                          value={status}
                           style={inputStyle}
                           onChange={(e) =>
-                            setCardClass((prev) => ({
+                            setCardStatus((prev) => ({
                               ...prev,
-                              [item.id]: e.target.value as InboundClassification,
+                              [item.id]: e.target.value as BrokerReplyStatus,
                             }))
                           }
                         >
-                          {STAFF_CLASSIFICATIONS.map((k) => (
+                          {(Object.keys(REPLY_STATUS_LABEL) as BrokerReplyStatus[]).map((k) => (
                             <option key={k} value={k}>
-                              {CLASS_LABEL[k]}
+                              {REPLY_STATUS_LABEL[k]}
                             </option>
                           ))}
                         </select>

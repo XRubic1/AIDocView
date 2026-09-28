@@ -5,7 +5,6 @@
 import { updateBatch, updateBatchStatus } from '../../data/mockBatches'
 import { mockInvoices } from '../../data/mockInvoices'
 import { logAuditEvent } from '../../utils/auditLogger'
-import { sendPaperworkForBatch } from '../../utils/paperworkSender'
 import { hasPpwBeenSent } from '../../utils/ppwSent'
 import { lockBatchFeeTermsFromClient } from '../../utils/feeTermsLock'
 import { getClientById } from '../clientRegistry'
@@ -13,6 +12,7 @@ import { approveAdminInvoice, notifyClientHoldsAfterBatchProcess } from '../admi
 import { notifyTenantDataUpdated } from '../supabase/tenantDataLiveSync'
 import { emailCarrierBatchProcessed } from './batchLifecycleEmails'
 import { emitCredyxEvent } from '../credyxEvents'
+import { sendBrokerPacketsFromBlueprint } from '../../components/blueprints/blueprintPacketSend'
 
 export interface ProcessBatchResult {
   ok: boolean
@@ -74,23 +74,11 @@ export async function processVerifiedBatch(opts: {
   const approved = liveInvoices.filter((inv) => inv.status === 'approved')
   const held = liveInvoices.filter((inv) => inv.status === 'hold')
 
-  // Only send PPW for approved invoices that have not been sent yet (unless force).
-  // Skip when a Live invoice blueprint Then-do owns the packet (avoids double-send).
-  const { shouldSkipProcessPpwForInvoice } = await import(
-    '../../components/blueprints/blueprintBrokerPacketOwnership'
-  )
-  const toSend = (
-    opts.forceResendPpw
-      ? approved
-      : approved.filter((inv) => !hasPpwBeenSent(inv))
-  ).filter((inv) => !shouldSkipProcessPpwForInvoice(inv))
+  // PPW goes out from the paperwork-packet blueprint (attachments included).
+  const toSend = opts.forceResendPpw
+    ? approved
+    : approved.filter((inv) => !hasPpwBeenSent(inv))
   const alreadySentSkipped = approved.length - toSend.length
-  const blueprintOwnedSkipped = approved.filter(
-    (inv) =>
-      !toSend.some((s) => s.id === inv.id) &&
-      shouldSkipProcessPpwForInvoice(inv) &&
-      (opts.forceResendPpw || !hasPpwBeenSent(inv))
-  ).length
 
   logAuditEvent(
     'batch_status_changed',
@@ -114,14 +102,10 @@ export async function processVerifiedBatch(opts: {
 
   const paperworkResults =
     toSend.length > 0
-      ? await sendPaperworkForBatch(
-          toSend,
-          opts.batchNumber,
-          opts.adminUserId,
-          opts.adminUserName,
-          'Admin',
-          { skipAlreadySent: !opts.forceResendPpw }
-        )
+      ? await sendBrokerPacketsFromBlueprint(toSend, {
+          sentBy: opts.adminUserName,
+          forceResend: opts.forceResendPpw,
+        })
       : { success: 0, failed: 0, skipped: 0, details: [] }
 
   // Include already-sent approved invoices in the carrier PPW summary.
@@ -136,8 +120,7 @@ export async function processVerifiedBatch(opts: {
     }))
 
   const ppwDetails = [...preSkippedDetails, ...paperworkResults.details]
-  const totalSkipped =
-    alreadySentSkipped + blueprintOwnedSkipped + paperworkResults.skipped
+  const totalSkipped = alreadySentSkipped + paperworkResults.skipped
 
   // Submitted + clear AI/rework attention so the batch leaves the AI Verify queue.
   const moved = updateBatch(opts.batchId, {

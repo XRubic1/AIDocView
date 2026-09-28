@@ -27,7 +27,6 @@ import type {
   InvoiceEmailLifecycle,
   ProposedAction,
 } from '../types/emailLifecycle'
-import { classifyInboundBrokerReply } from '../utils/classifyInboundBrokerReply'
 import { shouldSkipEmailLifecyclePaymentChase, shouldSkipEmailLifecyclePaperworkChase } from '../components/blueprints/blueprintChaseSkip'
 import { brokerEmailAccept, daysBetween, resolveTrackClock } from '../utils/emailLifecycleClocks'
 import {
@@ -37,6 +36,7 @@ import {
 import { getPpwSentAt } from '../utils/ppwSent'
 import { resolveBrokerPaperworkEmail } from '../utils/paperworkSender'
 import { defaultPortalLink } from '../utils/carrierAttentionLink'
+import { sendBlueprintDisputeNotice } from '../components/blueprints/blueprintDisputeNotice'
 import { formatCurrency } from '../utils/format'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { getEffectiveInvoiceDueDate } from '../utils/invoiceAging'
@@ -131,21 +131,17 @@ function createReview(partial: Omit<EmailReviewItem, 'id' | 'created_at' | 'stat
   return row
 }
 
-/** Staff paste or inbound webhook body → pending review. */
-export function ingestBrokerReply(opts: {
+/** Staff paste or inbound webhook body → read the reply and run the matching blueprint. */
+export async function ingestBrokerReply(opts: {
   invoiceId?: string
   fromAddress: string
   subject: string
   bodyText: string
   toAddress?: string
-}): EmailReviewItem {
+}): Promise<EmailReviewItem> {
   const invoice = opts.invoiceId
     ? getInvoiceById(opts.invoiceId)
     : matchInvoiceFromText(opts.subject, opts.bodyText)
-  const classified = classifyInboundBrokerReply({
-    subject: opts.subject,
-    bodyText: opts.bodyText,
-  })
   const toAddress = opts.toAddress?.trim() || 'billing@credyx.net'
   if (invoice) {
     const thread = getOrCreateThread(invoice)
@@ -166,38 +162,74 @@ export function ingestBrokerReply(opts: {
         await persistEmailMessage(message)
       })
       .catch((err) => console.warn('[emailLifecycle] persist inbound failed', err))
-
-    // Soft stamp lastInboundAt for open tracks (same as edge webhook)
-    const life = ensureLifecycle(invoice)
-    const now = new Date().toISOString()
-    const next = { ...life }
-    let touched = false
-    if (life.paperwork?.firstAskedAt || life.paperwork?.startedAt) {
-      next.paperwork = { ...(life.paperwork ?? {}), lastInboundAt: now }
-      touched = true
-    }
-    if (life.payment?.firstAskedAt || life.payment?.startedAt) {
-      next.payment = { ...(life.payment ?? {}), lastInboundAt: now }
-      touched = true
-    }
-    if (touched) {
-      void persistInvoiceLifecycle(invoice.id, next)
-    }
   }
-  return createReview({
+
+  const outbound = invoice
+    ? listEmailMessagesForInvoice(invoice.id).filter((m) => m.direction === 'outbound').at(-1)
+    : undefined
+  const { readBrokerReplyWithAi } = await import('../utils/brokerReplyReadingAi')
+  const reading = invoice
+    ? await readBrokerReplyWithAi({
+        replySubject: opts.subject,
+        replyBody: opts.bodyText,
+        outboundSubject: outbound?.subject,
+        outboundBody: outbound?.body_text,
+        templateId: outbound?.template_id,
+      })
+    : {
+        status: 'unknown' as const,
+        outboundKind: 'other' as const,
+        summary: 'Unknown · Could not match an invoice.',
+        classification: 'unclear' as const,
+        proposed_actions: ['add_note' as const],
+        payDate: null,
+      }
+
+  const review = createReview({
     thread_id: invoice ? findThreadForInvoice(invoice.id)?.id : null,
     invoice_id: invoice?.id ?? null,
     broker_id: invoice?.broker_id ?? null,
     client_id: invoice?.client_id ?? null,
-    classification: classified.classification,
-    proposed_actions: classified.proposed_actions,
-    summary: classified.summary,
+    classification: reading.classification,
+    proposed_actions: reading.proposed_actions,
+    summary: reading.summary,
     body_text: opts.bodyText,
     from_address: opts.fromAddress,
+    to_address: toAddress,
     subject: opts.subject,
     load_number: invoice?.load_number,
     invoice_number: invoice?.invoice_number,
+    reply_status: reading.status,
+    outbound_kind: reading.outboundKind,
   })
+
+  if (invoice && reading.status !== 'unknown') {
+    const { runBrokerReplyBlueprint } = await import('../components/blueprints/blueprintReplyOutcome')
+    await runBrokerReplyBlueprint(invoice, reading)
+    const now = new Date().toISOString()
+    upsertEmailReview({
+      ...review,
+      status: 'confirmed',
+      confirmed_at: now,
+      confirmed_by: 'Reply reader',
+    })
+    void import('./supabase/tenantPersist')
+      .then(({ persistEmailReview }) =>
+        persistEmailReview({
+          ...review,
+          status: 'confirmed',
+          confirmed_at: now,
+          confirmed_by: 'Reply reader',
+        })
+      )
+      .catch((err) => console.warn('[emailLifecycle] persist reply status failed', err))
+  } else if (invoice && reading.status === 'unknown') {
+    const { runBrokerReplyBlueprint } = await import('../components/blueprints/blueprintReplyOutcome')
+    await runBrokerReplyBlueprint(invoice, reading)
+    upsertEmailReview({ ...review, confirmed_by: 'Reply reader' })
+  }
+
+  return getEmailReviewById(review.id) ?? review
 }
 
 function matchInvoiceFromText(subject: string, body: string): Invoice | undefined {
@@ -384,14 +416,16 @@ export async function openBrokerAccountDispute(opts: {
     const nextNotes = broker.carrier_notes ? `${broker.carrier_notes}\n${line}` : line
     await updateBrokerAsync(broker.id, { carrier_notes: nextNotes })
   }
-  if (isEmailLifecycleRuleEnabled('carrier_dispute_opened') && client?.email) {
-    await sendTransactionalEmail('carrier_dispute_opened', client.email, {
-      contactName: client.contact_person || 'there',
+  if (client?.email) {
+    await sendBlueprintDisputeNotice({
+      clientId: opts.clientId,
+      brokerId: opts.brokerId,
       clientName: client.name,
+      contactName: client.contact_person || 'there',
+      clientEmail: client.email,
       brokerName: broker?.name || 'Broker',
-      summary: opts.reason,
-      portalLink: `${defaultPortalLink()}/client/brokers`,
       brokerContact: resolveBrokerPaperworkEmail(broker) || broker?.phone || 'See portal',
+      summary: opts.reason,
     })
   }
   return { ok: true, count: open.length }
@@ -739,20 +773,30 @@ export async function hydrateEmailInboxFromSupabase(): Promise<void> {
   })
 }
 
-/** Re-run AI/rules classification on a pending review. */
+/** Re-run the reply reader on a pending review. */
 export async function reclassifyEmailReview(reviewId: string): Promise<EmailReviewItem | undefined> {
   const review = getEmailReviewById(reviewId)
   if (!review) return undefined
-  const { classifyInboundNoteWithAi } = await import('../utils/classifyInboundNoteAi')
-  const result = await classifyInboundNoteWithAi({
-    subject: review.subject ?? '',
-    bodyText: review.body_text || review.summary,
+  const invoice = review.invoice_id ? getInvoiceById(review.invoice_id) : undefined
+  const outbound = invoice
+    ? listEmailMessagesForInvoice(invoice.id).filter((m) => m.direction === 'outbound').at(-1)
+    : undefined
+  const { readBrokerReplyWithAi } = await import('../utils/brokerReplyReadingAi')
+  const reading = await readBrokerReplyWithAi({
+    replySubject: review.subject,
+    replyBody: review.body_text || review.summary,
+    outboundSubject: outbound?.subject,
+    outboundBody: outbound?.body_text,
+    templateId: outbound?.template_id,
   })
   const next = upsertEmailReview({
     ...review,
-    classification: result.classification,
-    proposed_actions: result.proposed_actions,
-    summary: result.summary,
+    classification: reading.classification,
+    proposed_actions: reading.proposed_actions,
+    summary: reading.summary,
+    reply_status: reading.status,
+    outbound_kind: reading.outboundKind,
+    confirmed_by: undefined,
   })
   void import('./supabase/tenantPersist')
     .then(({ persistEmailReview }) => persistEmailReview(next))

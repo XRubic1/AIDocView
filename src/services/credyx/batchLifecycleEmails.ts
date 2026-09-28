@@ -7,8 +7,7 @@ import type { Invoice } from '../../types/invoice'
 import { hasPpwBeenSent } from '../../utils/ppwSent'
 import { getAllClients } from '../clientRegistry'
 import { isEmailLifecycleRuleEnabled } from '../../config/emailLifecycle'
-
-const CREDYX_OPS_EMAIL = 'ops@credyx.net'
+import { sendBlueprintOpsAlert } from '../../components/blueprints/blueprintOpsAlert'
 
 /** Resolve carrier/client contact email for outcome notices. */
 export function getClientContactEmail(clientId: string): string | null {
@@ -23,12 +22,9 @@ export async function emailCredyxIntakeError(opts: {
   clientName?: string
   issueMessage: string
 }): Promise<{ ok: boolean; error?: string }> {
-  if (!isEmailLifecycleRuleEnabled('credyx_ops_issues')) {
-    return { ok: true, error: 'Ops issue emails disabled' }
-  }
-  return sendTransactionalEmail('credyx_batch_error', CREDYX_OPS_EMAIL, {
+  return sendBlueprintOpsAlert({
     batchNumber: opts.batchNumber,
-    clientName: opts.clientName ?? '',
+    clientName: opts.clientName,
     issueMessage: opts.issueMessage,
     scope: 'intake',
   })
@@ -39,16 +35,13 @@ export async function emailCredyxVerificationError(opts: {
   batchNumber: string
   issues: Array<{ invoiceNumber: string; loadNumber?: string; message: string }>
 }): Promise<{ ok: boolean; error?: string }> {
-  if (!isEmailLifecycleRuleEnabled('credyx_ops_issues')) {
-    return { ok: true, error: 'Ops issue emails disabled' }
-  }
   const issueMessage = opts.issues
     .map(
       (i) =>
         `Inv# ${i.invoiceNumber}${i.loadNumber ? ` · Load# ${i.loadNumber}` : ''}: ${i.message}`
     )
     .join('\n')
-  return sendTransactionalEmail('credyx_batch_error', CREDYX_OPS_EMAIL, {
+  return sendBlueprintOpsAlert({
     batchNumber: opts.batchNumber,
     issueMessage,
     scope: 'verification',
@@ -202,12 +195,9 @@ export async function emailCredyxDocSplitReady(opts: {
   clientName?: string
   packetCount: number
 }): Promise<{ ok: boolean; error?: string }> {
-  if (!isEmailLifecycleRuleEnabled('credyx_ops_issues')) {
-    return { ok: true, error: 'Ops issue emails disabled' }
-  }
-  return sendTransactionalEmail('credyx_batch_error', CREDYX_OPS_EMAIL, {
+  return sendBlueprintOpsAlert({
     batchNumber: opts.batchNumber,
-    clientName: opts.clientName ?? '',
+    clientName: opts.clientName,
     issueMessage: `Doc Split ready: ${opts.packetCount} packet(s) created for ${opts.batchNumber}. Gate cleared — continue verify / Packet Rework if needed.`,
     scope: 'doc_split_ready',
   })
@@ -219,12 +209,9 @@ export async function emailCredyxDocSplitStuck(opts: {
   clientName?: string
   issueMessage: string
 }): Promise<{ ok: boolean; error?: string }> {
-  if (!isEmailLifecycleRuleEnabled('credyx_ops_issues')) {
-    return { ok: true, error: 'Ops issue emails disabled' }
-  }
-  return sendTransactionalEmail('credyx_batch_error', CREDYX_OPS_EMAIL, {
+  return sendBlueprintOpsAlert({
     batchNumber: opts.batchNumber,
-    clientName: opts.clientName ?? '',
+    clientName: opts.clientName,
     issueMessage: `Doc Split stuck/failed for ${opts.batchNumber}:\n${opts.issueMessage}\nOpen Batches → Doc Split or Packet Rework.`,
     scope: 'doc_split_stuck',
   })

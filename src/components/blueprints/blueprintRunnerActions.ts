@@ -152,6 +152,7 @@ async function executeBrokerPacketThenDo(input: {
   authorName: string
   label: string
   actionId: string
+  skipIfAlreadySent?: boolean
 }): Promise<BlueprintActionResult> {
   const invoice = getInvoiceById(input.invoiceId)
   if (!invoice) {
@@ -182,7 +183,7 @@ async function executeBrokerPacketThenDo(input: {
     ),
     sentBy: input.authorName,
     automatic: true,
-    skipIfAlreadySent: false,
+    skipIfAlreadySent: input.skipIfAlreadySent !== false,
     fromOverride,
     cc,
   })
@@ -407,6 +408,8 @@ export async function executeBlueprintThenDo(input: {
   blueprintName: string
   config?: BlueprintActionTaskConfig
   authorName?: string
+  /** Default true so Process and a later enroll do not send the packet twice. */
+  skipIfAlreadySent?: boolean
 }): Promise<BlueprintActionResult> {
   const author = input.authorName?.trim() || 'Credyx Blueprint'
   const cfg = input.config ?? defaultTaskConfig(input.actionId)
@@ -421,6 +424,7 @@ export async function executeBlueprintThenDo(input: {
       authorName: author,
       label,
       actionId: input.actionId,
+      skipIfAlreadySent: input.skipIfAlreadySent,
     })
   }
 
