@@ -204,7 +204,7 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
   notifyTenantDataUpdated(['batches'], batch.client_id)
 
   const { getPdfPageCount, isPdfFile } = await import('../../utils/pdfPageExtract')
-  const { isPageSplitFileName } = await import('../../utils/docSplitterExplode')
+  const { isPageSplitFileName } = await import('../../utils/pageSplitDraftHelpers')
   const hasPageSplits = files.some((file) => isPageSplitFileName(file.name))
   let multiPageCount = 0
   if (!hasPageSplits) {
@@ -358,10 +358,17 @@ export async function runBatchBackgroundPipeline(opts: {
 }): Promise<void> {
   const { batchId } = opts
   if (inflight.has(batchId)) return
+
+  const jobKind = opts.kind ?? 'sort_and_verify'
+  if (jobKind === 'sort_and_verify') {
+    const { acquirePacketCreationIfNeeded } = await import('./batchProcessingJobs')
+    const acquired = await acquirePacketCreationIfNeeded(batchId)
+    if (!acquired) return
+  }
+
   inflight.add(batchId)
   const signal = beginBackgroundPipelineAbort(batchId)
 
-  const jobKind = opts.kind ?? 'sort_and_verify'
   startBatchLiveActivity(batchId, {
     jobLabel: 'Background batch pipeline',
     jobKind,
@@ -588,5 +595,12 @@ export async function runBatchBackgroundPipeline(opts: {
     setOpenAiSpendContext(null)
     clearBackgroundPipelineAbort(batchId)
     inflight.delete(batchId)
+    if (jobKind === 'sort_and_verify') {
+      const finishedId = batchId
+      void import('./batchProcessingJobs').then(({ releasePacketCreation, drainNextPacketCreation }) => {
+        releasePacketCreation(finishedId)
+        return drainNextPacketCreation()
+      })
+    }
   }
 }

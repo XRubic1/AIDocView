@@ -86,6 +86,11 @@ export interface ExtractedDocumentData {
   notes?: string
   totalPagesInFile?: number
   pagesReviewed?: number
+  /** Pages the rate-con walk sent to the model as PDF text vs a page image. */
+  rateConRead?: {
+    textPages: number
+    imagePages: number
+  }
   pageLegibility?: PageLegibility[]
   isFullyLegible?: boolean
   /** Per-page classification for multi-page packets. */

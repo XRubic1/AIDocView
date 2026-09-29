@@ -73,6 +73,16 @@ export function refinePageClassifications(pages: PageClassification[]): PageClas
     return reclassify(page, 'lumper', 'Adjusted: warehouse/lumper receipt (not freight invoice)')
   })
 
+  // 1b) The carrier invoice is the first page. A later "invoice" is a lumper.
+  if (refined.length >= 2) {
+    const firstPageNumber = Math.min(...refined.map((page) => page.pageNumber))
+    refined = refined.map((page) => {
+      if (page.pageType !== 'invoice') return page
+      if (page.pageNumber <= firstPageNumber) return page
+      return reclassify(page, 'lumper', 'Adjusted: invoice after the first page is a lumper receipt')
+    })
+  }
+
   // 2) Unknown/other → rate con when notes describe carrier/load/broker content
   refined = refined.map((page) => {
     if (page.pageType !== 'other' && page.pageType !== 'invoice') return page
@@ -106,10 +116,13 @@ export function refinePageClassifications(pages: PageClassification[]): PageClas
     )
   }
 
-  // 4) Cover page(s) before first rate con page — only mis-tagged broker forms, not carrier invoices
+  // 4) Cover page(s) before first rate con page — only mis-tagged broker forms, not carrier invoices.
+  // The first page stays an invoice: that is the carrier bill, not a rate-con cover.
   if (minRate > 0) {
+    const firstPageNumber = Math.min(...refined.map((page) => page.pageNumber))
     for (let index = 0; index < minRate; index += 1) {
       const page = refined[index]
+      if (page.pageNumber <= firstPageNumber && page.pageType === 'invoice') continue
       if (isDeliveryDocument(page) || looksLikeLumper(page) || isCarrierFreightInvoice(page)) {
         continue
       }

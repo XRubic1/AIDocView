@@ -34,7 +34,10 @@ import { persistPageSplitFilesToStorage, persistSourceBinderFilesToStorage } fro
 import { collapsePageSplitsIntoBinders } from './collapsePagesToBinders'
 import {
   isSourceBinderFileName,
+  packetsFromSameUploadPages,
+  parseUploadPageFileName,
   partitionSourceBinders,
+  sameUploadPacketDocIds,
 } from '../../supabase/functions/_shared/sourceDocBinders'
 import { matchSortedDocuments } from '../products/docSort/services/docSortMatcher'
 import { invoiceDraftGroupsFromSort } from '../products/docSort/utils/invoiceDraftGroups'
@@ -516,6 +519,26 @@ async function extractRcBolFingerprints(
   return { draft: next, fingerprints }
 }
 
+/** Write the lumper rule onto the saved page kind, not only the packet group. */
+function persistLaterPageLumpers(draft: BatchIntakeDraft): BatchIntakeDraft {
+  let next = draft
+  for (const fp of listAllSupportingFingerprints(draft)) {
+    const pageNumber = parseUploadPageFileName(fp.fileName)?.page ?? 1
+    if (fp.kind !== 'invoice' || pageNumber <= 1) continue
+    next = placeUnmatchedFingerprint(next, { ...fp, kind: 'lumper' })
+  }
+  return next
+}
+
+function savedPacketsMissingUploadDocs(batchId: string, draft: BatchIntakeDraft): boolean {
+  const required = sameUploadPacketDocIds(listAllSupportingFingerprints(draft))
+  if (required.length === 0) return false
+  const assigned = new Set(
+    getInvoicesByBatchId(batchId).flatMap((inv) => inv.document_doc_ids ?? [])
+  )
+  return required.some((docId) => !assigned.has(docId))
+}
+
 /**
  * Run full Doc Split auto pipeline for a batch (hydrate → explode → classify → packets).
  * Safe to call from background jobs; respects AbortSignal via Override.
@@ -628,9 +651,24 @@ export async function runDocSplitterAutoPipeline(
 
     throwIfAborted(signal)
     draft = await classifyPendingPages(draft, batchId, batch.client_id, signal)
+    draft = persistLaterPageLumpers(draft)
+    persistDraftSnapshot(batchId, draft)
 
     // Packets already saved still reference the page files. Do not collapse
-    // those pages out from under them.
+    // those pages out from under them. A packet that left this upload's BOL
+    // unassigned is replaced — load-number matching is not used for page splits.
+    if (
+      getInvoicesByBatchId(batchId).length > 0 &&
+      savedPacketsMissingUploadDocs(batchId, draft)
+    ) {
+      const { clearBatchInvoicesForRecreate } = await import('../services/batchReworkService')
+      clearBatchInvoicesForRecreate(batchId)
+      logBatchDocAction(batchId, {
+        type: 'auto_pipeline',
+        title: 'Replaced packets that left same-upload BOLs unassigned',
+      })
+    }
+
     if (getInvoicesByBatchId(batchId).length > 0) {
       clearBatchNeedsDocSplit(batchId)
       unlockBatchAfterDocSplit(batchId)
@@ -702,19 +740,21 @@ export async function runDocSplitterAutoPipeline(
     // Uploads already collapsed into binders become one packet each.
     // Loose docs (never page-split) still go through RC↔BOL matching.
     const partitioned = partitionSourceBinders(fingerprints)
-    const forMatch = partitioned.loose.filter((fp) => shouldExtractForDocSplitPackets(fp.kind))
-    const invAndOther = partitioned.loose.filter((fp) => !shouldExtractForDocSplitPackets(fp.kind))
+    const fromPages = packetsFromSameUploadPages(partitioned.loose)
+    const uploadPackets = [...partitioned.packets, ...fromPages.packets]
+    const forMatch = fromPages.loose.filter((fp) => shouldExtractForDocSplitPackets(fp.kind))
+    const invAndOther = fromPages.loose.filter((fp) => !shouldExtractForDocSplitPackets(fp.kind))
     const binderInvoices = [
-      ...partitioned.packets.flatMap((packet) => packet.invoices),
+      ...uploadPackets.flatMap((packet) => packet.invoices),
       ...partitioned.unassigned,
     ]
 
     updateBatchLiveActivity(batchId, {
       phase: 'matching',
-      thinking: `${partitioned.packets.length} upload binder packet(s). Match ${forMatch.filter((f) => f.kind === 'rate_confirmation').length} loose RC(s) to ${forMatch.filter((f) => f.kind === 'bill_of_lading').length} loose BOL(s). Invoice binders stay unassigned.`,
+      thinking: `${uploadPackets.length} upload packet(s). Each upload keeps its own RC and BOL together. Match ${forMatch.filter((f) => f.kind === 'rate_confirmation').length} loose RC(s) to ${forMatch.filter((f) => f.kind === 'bill_of_lading').length} loose BOL(s). Invoices stay unassigned.`,
       doing:
-        partitioned.packets.length > 0
-          ? `Creating packets from ${partitioned.packets.length} upload binder(s)…`
+        uploadPackets.length > 0
+          ? `Creating packets from ${uploadPackets.length} upload(s)…`
           : 'Matching loose RC ↔ BOL…',
       progressPercent: 75,
       progressLabel: 'Match',
@@ -728,7 +768,7 @@ export async function runDocSplitterAutoPipeline(
     }
 
     const grouped = invoiceDraftGroupsFromSort(sortResult)
-    const binderGroups = partitioned.packets.map((packet) => {
+    const binderGroups = uploadPackets.map((packet) => {
       const anchor = packet.rateCons[0] ?? packet.bols[0]
       return {
         groupId: `source-${packet.stem}`,
@@ -800,7 +840,16 @@ export async function runDocSplitterAutoPipeline(
       return { ok: false, error: message, packetCount: 0 }
     }
 
-    // Avoid duplicate packets if another path already created invoices.
+    // Avoid duplicate packets if another path already created a complete set.
+    // An incomplete set (BOL from this upload left unassigned) is replaced.
+    if (
+      getInvoicesByBatchId(batchId).length > 0 &&
+      savedPacketsMissingUploadDocs(batchId, draft)
+    ) {
+      const { clearBatchInvoicesForRecreate } = await import('../services/batchReworkService')
+      clearBatchInvoicesForRecreate(batchId)
+    }
+
     if (getInvoicesByBatchId(batchId).length > 0) {
       clearBatchNeedsDocSplit(batchId)
       unlockBatchAfterDocSplit(batchId)

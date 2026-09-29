@@ -13,8 +13,9 @@ import { matchBrokerCarrierFromExcel } from './brokerCarrierExcelMatch'
 import { formatLocationsCompactLine, formatRateConStop, formatStopsForSummary } from './locationMatch'
 import { documentHasBolEvidence } from './requiredDocuments'
 import { getPerPacketCrossValidation } from './perPacketVerification'
-import { CHECK_LABELS, humanizeReviewMessage } from './reviewMessages'
+import { CHECK_LABELS, humanizeReviewMessage, REQUIRED_PACKET_CHECK_COUNT } from './reviewMessages'
 import {
+  ensureRequiredPacketChecks,
   overlayPacketOnFileChecks,
   type PacketOnFileContext,
   type PaperworkFields,
@@ -51,16 +52,18 @@ export function getApprovalGateMessage(
   total: number
 ): { headline: string; detail: string; ready: boolean } {
   const failCount = Math.max(0, total - passCount)
-  if (failCount === 0) {
+  const complete = total === REQUIRED_PACKET_CHECK_COUNT && failCount === 0
+  if (complete) {
     return {
       headline: 'Ready to approve',
-      detail: `All ${total} required checks passed.`,
+      detail: `All ${REQUIRED_PACKET_CHECK_COUNT} required checks passed.`,
       ready: true,
     }
   }
+  const stillNeeded = Math.max(failCount, REQUIRED_PACKET_CHECK_COUNT - passCount)
   return {
-    headline: `${failCount} more check${failCount === 1 ? '' : 's'} must pass to approve`,
-    detail: `${passCount} of ${total} required checks passing · ${total} total required for approval`,
+    headline: `${stillNeeded} more check${stillNeeded === 1 ? '' : 's'} must pass to approve`,
+    detail: `${passCount} of ${REQUIRED_PACKET_CHECK_COUNT} required checks passing · ${REQUIRED_PACKET_CHECK_COUNT} total required for approval`,
     ready: false,
   }
 }
@@ -386,6 +389,18 @@ export function buildStructuredLoadReview(
         { documentValue: stopsDisplay }
       )
     )
+  } else {
+    required.push(
+      row(
+        'req_stops',
+        CHECK_LABELS.multiStop,
+        'issue',
+        stopsDisplay
+          ? `Rate con delivery: ${stopsDisplay}. The BOL is on the packet and was not read, so this stop is not confirmed.`
+          : 'The BOL is on the packet and was not read, so delivery stops are not confirmed.',
+        { documentValue: stopsDisplay || 'BOL not read' }
+      )
+    )
   }
 
   // 6. Carrier name — Excel file name is the carrier account
@@ -489,9 +504,11 @@ export function buildStructuredLoadReview(
     destinations: deliveryCompact || undefined,
   }
 
-  const scored = options?.packet
-    ? overlayPacketOnFileChecks(required, options.packet, paperwork)
-    : required
+  const scored = ensureRequiredPacketChecks(
+    options?.packet
+      ? overlayPacketOnFileChecks(required, options.packet, paperwork)
+      : required
+  )
 
   const requiredFailed = scored.filter((check) => check.status !== 'ok')
   const requiredPassed = scored.filter((check) => check.status === 'ok')

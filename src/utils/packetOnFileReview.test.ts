@@ -40,6 +40,15 @@ describe('packetOnFileReview', () => {
     expect(checks.find((c) => c.id === 'req_broker')?.status).toBe('ok')
     expect(checks.find((c) => c.id === 'req_carrier')?.status).toBe('issue')
     expect(checks.find((c) => c.id === 'req_carrier')?.summary).toMatch(/does not match/i)
+    expect(checks.map((c) => c.id)).toEqual([
+      'req_load',
+      'req_broker',
+      'req_amount',
+      'req_bol',
+      'req_stops',
+      'req_carrier',
+      'req_page_count',
+    ])
   })
 
   it('passes carrier when paperwork matches the account on file', () => {

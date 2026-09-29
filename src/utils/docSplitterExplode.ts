@@ -15,6 +15,7 @@ import {
   withPrunedUnmatched,
 } from './aiDraftDocOps'
 import { getPdfPageCount, isPdfFile } from './pdfPageExtract'
+export { isPageSplitFileName } from './pageSplitDraftHelpers'
 import {
   draftHasPageSplitChildren,
   isPageSplitFileName,

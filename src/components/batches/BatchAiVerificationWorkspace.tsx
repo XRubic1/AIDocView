@@ -41,6 +41,7 @@ import { isAIReviewEnabled } from '../../config/aiReview'
 import {
   rerunInvoiceAiReview,
   runBatchAiReview,
+  scoreInvoiceFromSavedExtracts,
   settleBatchAiGate,
   type AiReviewLiveCheck,
   type AiReviewLiveExtract,
@@ -606,6 +607,24 @@ export default function BatchAiVerificationWorkspace({
   )
 
   const selected = invoices.find((inv) => inv.id === selectedId) ?? null
+
+  // Empty checklists happen when the BOL binder has no extract and the review
+  // skipped the saved rate con. Score from that extract without another model call.
+  useEffect(() => {
+    if (!selectedId) return
+    const invoice = getInvoiceById(selectedId)
+    if (!invoice || invoice.ai_review_status === 'running') return
+    const snap = invoiceAiReviewSnapshotFor(invoice)
+    if ((snap?.requiredAll?.length ?? 0) > 0) return
+    const next = scoreInvoiceFromSavedExtracts(invoice)
+    if (!next?.requiredAll.length) return
+    setInvoiceAiReviewCache(invoice.id, { snapshot: next })
+    updateInvoice(invoice.id, {
+      ai_review_status: next.ready ? 'ready' : 'needs_work',
+      ai_review_summary: next.headline,
+      ai_review_snapshot: JSON.stringify(next),
+    })
+  }, [selectedId, selected?.ai_review_snapshot])
   const selectedDraft = selected
     ? draft?.invoices.find((d) => d.draftId === selected.id) ?? null
     : null

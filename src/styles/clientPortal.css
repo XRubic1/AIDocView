@@ -10407,7 +10407,7 @@
 
 .client-portal .client-ai-verify__check {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   font-size: 11px;
   line-height: 1.25;

@@ -2,6 +2,8 @@ import {
   estimateBatchProcessingEta,
   getRememberedBatchFileCount,
 } from './batchProcessingEta'
+import { getBatchLiveActivity } from './batchLiveActivity'
+import { isPacketCreationQueued } from './packetCreationQueue'
 
 export type ClientBatchAiPhase = 'idle' | 'processing' | 'done' | 'rework'
 
@@ -206,6 +208,22 @@ export function getClientBatchAiProgress(input: {
     (sortStatus === 'sorting' || batchStatus === 'creating')
 
   if (jobActive || sorting || anyRunning || optimisticProcessing) {
+    const activity = batchId ? getBatchLiveActivity(batchId) : null
+    const queued =
+      job?.status !== 'running' &&
+      ((activity?.phase === 'queued' && activity.doing === 'Queued') ||
+        (batchId ? isPacketCreationQueued(batchId) : false))
+    if (queued) {
+      return withEta({
+        phase: 'processing',
+        label: 'Waiting in line',
+        detail: 'Another batch is being created. Yours will start when that finishes.',
+        completed,
+        total,
+        percent: 0,
+        show: true,
+      })
+    }
     return withEta({
       phase: 'processing',
       label: total > 0 ? 'Creating and checking invoices…' : 'Creating invoices from your paperwork…',

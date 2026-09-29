@@ -6,6 +6,8 @@ import { getUserTpmLimit } from '../utils/aiReviewUserSettings'
 
 const DEFAULT_PRIMARY_MODEL = 'gpt-4.1-2025-04-14'
 const DEFAULT_FALLBACK_MODEL = 'gpt-4o-2024-08-06'
+/** Text-layer rate cons. Same family as the vision model, about 5× cheaper. */
+const DEFAULT_RATE_CON_TEXT_MODEL = 'gpt-4.1-mini-2025-04-14'
 const DEFAULT_OPENAI_SEED = 42_001_337
 
 type ModelEnvKey =
@@ -13,6 +15,7 @@ type ModelEnvKey =
   | 'VITE_AI_FALLBACK_MODEL'
   | 'VITE_AI_CLASSIFY_MODEL'
   | 'VITE_AI_CHAT_MODEL'
+  | 'VITE_AI_RATE_CON_TEXT_MODEL'
 
 function readEnvModel(key: ModelEnvKey, fallback: string): string {
   return getRuntimeEnvString(key) || fallback
@@ -89,9 +92,13 @@ export const AI_REVIEW_CONFIG = {
   SIGNATURE_CROP_DETAIL: 'low' as const,
   /** Fixed padding around signature boxes for crop verification (fraction of box size). */
   SIGNATURE_CROP_PADDING: 0.12,
-  /** Rate con + BOL extraction — pin via VITE_AI_PRIMARY_MODEL (dated snapshot recommended). */
+  /** Image reads (scanned rate cons, BOL). Pin via VITE_AI_PRIMARY_MODEL. */
   get PRIMARY_MODEL() {
     return readEnvModel('VITE_AI_PRIMARY_MODEL', DEFAULT_PRIMARY_MODEL)
+  },
+  /** Rate cons that have a PDF text layer. Pin via VITE_AI_RATE_CON_TEXT_MODEL. */
+  get RATE_CON_TEXT_MODEL() {
+    return readEnvModel('VITE_AI_RATE_CON_TEXT_MODEL', DEFAULT_RATE_CON_TEXT_MODEL)
   },
   /** Re-run extraction when confidence is below threshold (if fallback enabled). */
   get FALLBACK_MODEL() {
@@ -216,7 +223,7 @@ export function isAIReviewEnabled(): boolean {
 /** Labels shown in the UI for the active model setup. */
 export function getReviewModelSummary(): string {
   const classify = `${AI_REVIEW_CONFIG.CLASSIFY_MODEL} (batch ${AI_REVIEW_CONFIG.CLASSIFY_BATCH_SIZE}, ${AI_REVIEW_CONFIG.PAGE_CLASSIFY_DETAIL} detail)`
-  const extract = `${AI_REVIEW_CONFIG.PRIMARY_MODEL} (${AI_REVIEW_CONFIG.DEEP_REVIEW_DETAIL} detail)`
+  const extract = `${AI_REVIEW_CONFIG.RATE_CON_TEXT_MODEL} text, ${AI_REVIEW_CONFIG.PRIMARY_MODEL} image (${AI_REVIEW_CONFIG.DEEP_REVIEW_DETAIL} detail)`
   const fallback = AI_REVIEW_CONFIG.ENABLE_MODEL_FALLBACK
     ? ` → ${AI_REVIEW_CONFIG.FALLBACK_MODEL} if <${Math.round(AI_REVIEW_CONFIG.CONFIDENCE_THRESHOLD * 100)}%`
     : ', no fallback'

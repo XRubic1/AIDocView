@@ -1,18 +1,16 @@
 /**
  * Client-facing ETA for AI paperwork processing.
  * Uses file count (early) or remaining invoice reviews (later).
+ *
+ * Each upload is classified page by page, then the rate con is read until the
+ * load fields are filled. Those calls share one token limit, so wall time
+ * grows with the number of packets. A batch of 16 takes more than 20 minutes.
  */
 
-/** Effective seconds per file wave with ~4-way parallel DocSort. */
-const SECONDS_PER_FILE = 28
-/** Assemble / finalize per invoice after extracts exist. */
-const SECONDS_PER_INVOICE_REVIEW = 10
-const MIN_SECONDS = 45
-const MAX_SECONDS = 20 * 60
-const PARALLEL_WORKERS = 4
-
-/** Extra wait after the ETA before stuck AI creation → manual rework. */
-export const AI_CREATION_TIMEOUT_GRACE_MS = 10 * 60 * 1000
+/** About 2 minutes of vision + rate-limit wait per uploaded packet. */
+const SECONDS_PER_PACKET = 2 * 60
+const MIN_SECONDS = 3 * 60
+const MAX_SECONDS = 4 * 60 * 60
 
 export type BatchEtaInput = {
   fileCount?: number | null
@@ -47,9 +45,12 @@ export function formatDurationMinutes(totalSeconds: number): string {
 }
 
 function formatShortRemaining(remainingSeconds: number): string {
-  if (remainingSeconds <= 45) return '~1 min left'
-  const mins = Math.ceil(remainingSeconds / 60)
-  return `~${mins} min left`
+  const mins = Math.max(1, Math.ceil(remainingSeconds / 60))
+  if (mins < 60) return `~${mins} min left`
+  const hours = Math.floor(mins / 60)
+  const rem = mins % 60
+  if (rem === 0) return hours === 1 ? '~1 hr left' : `~${hours} hr left`
+  return `~${hours} hr ${rem} min left`
 }
 
 /**
@@ -64,51 +65,30 @@ export function estimateBatchProcessingEta(input: BatchEtaInput): BatchEta | nul
   const invoiceTotal = input.invoiceTotal ?? 0
   const invoiceCompleted = input.invoiceCompleted ?? 0
   const fileCount = Math.max(0, input.fileCount ?? 0)
+  const packets = Math.max(fileCount, invoiceTotal)
 
-  let totalSeconds: number
-  if (invoiceTotal > 0) {
-    totalSeconds = clamp(
-      invoiceTotal * SECONDS_PER_INVOICE_REVIEW + Math.max(45, fileCount * 8),
-      MIN_SECONDS,
-      MAX_SECONDS
-    )
-  } else if (fileCount > 0) {
-    // Parallel DocSort: wall time ≈ ceil(files / workers) * per-wave work.
-    const waves = Math.ceil(fileCount / PARALLEL_WORKERS)
-    totalSeconds = clamp(waves * SECONDS_PER_FILE + 25, MIN_SECONDS, MAX_SECONDS)
-  } else {
-    totalSeconds = MIN_SECONDS * 2
-  }
+  const totalSeconds =
+    packets > 0
+      ? clamp(packets * SECONDS_PER_PACKET, MIN_SECONDS, MAX_SECONDS)
+      : MIN_SECONDS
 
-  let remainingSeconds: number
+  const stillWorking = invoiceTotal === 0 || invoiceCompleted < invoiceTotal
+  let remainingSeconds = totalSeconds
   if (invoiceTotal > 0) {
     const remainingInvoices = Math.max(0, invoiceTotal - invoiceCompleted)
-    remainingSeconds = clamp(
-      remainingInvoices * SECONDS_PER_INVOICE_REVIEW + (remainingInvoices > 0 ? 20 : 0),
-      remainingInvoices === 0 ? 0 : 20,
-      MAX_SECONDS
-    )
-  } else {
-    remainingSeconds = totalSeconds
+    const notYetInvoiced = Math.max(0, fileCount - invoiceTotal)
+    const left = remainingInvoices + notYetInvoiced
+    remainingSeconds =
+      left === 0 ? 0 : clamp(left * SECONDS_PER_PACKET, MIN_SECONDS, MAX_SECONDS)
   }
 
-  // Account for time already spent so the ETA moves even before invoice counts exist.
-  if (input.startedAt) {
+  // Count down from submit, but keep a few minutes on screen while work is still running.
+  if (input.startedAt && stillWorking) {
     const started = new Date(input.startedAt).getTime()
     if (Number.isFinite(started)) {
       const elapsedSec = Math.max(0, (Date.now() - started) / 1000)
-      const byElapsed = Math.max(0, totalSeconds - elapsedSec)
-      remainingSeconds = Math.min(remainingSeconds, byElapsed)
-
-      // Still processing: keep a small floor, but don't stick at the initial 11-min estimate.
-      const stillWorking = invoiceTotal === 0 || invoiceCompleted < invoiceTotal
-      if (stillWorking && remainingSeconds < 20) {
-        remainingSeconds = 20
-      }
-      // If we've already burned most of the estimate, show a tighter remaining window.
-      if (stillWorking && elapsedSec > totalSeconds * 0.6) {
-        remainingSeconds = Math.min(remainingSeconds, Math.max(20, totalSeconds * 0.25))
-      }
+      remainingSeconds = Math.min(remainingSeconds, Math.max(0, totalSeconds - elapsedSec))
+      if (remainingSeconds < 2 * 60) remainingSeconds = 2 * 60
     }
   }
 
@@ -121,46 +101,26 @@ export function estimateBatchProcessingEta(input: BatchEtaInput): BatchEta | nul
 }
 
 /**
- * Absolute deadline: submitted/start + estimated total + 10 minute grace.
- * Unknown size uses the max ETA so we don't false-timeout large piles.
+ * Packet creation has no deadline. A long rate-limit wait is still in progress.
  */
-export function getBatchAiCreationTimeoutAt(input: {
+export function getBatchAiCreationTimeoutAt(_input: {
   startedAt?: string | null
   fileCount?: number | null
   invoiceTotal?: number | null
 }): number | null {
-  const startedAt = input.startedAt?.trim()
-  if (!startedAt) return null
-  const started = new Date(startedAt).getTime()
-  if (!Number.isFinite(started)) return null
-
-  const hasSizeHint =
-    (input.fileCount != null && input.fileCount > 0) ||
-    (input.invoiceTotal != null && input.invoiceTotal > 0)
-
-  const eta = estimateBatchProcessingEta({
-    fileCount: input.fileCount,
-    invoiceTotal: input.invoiceTotal,
-    invoiceCompleted: 0,
-    startedAt,
-    phase: 'processing',
-  })
-  const totalSeconds = hasSizeHint ? (eta?.totalSeconds ?? MAX_SECONDS) : MAX_SECONDS
-  return started + totalSeconds * 1000 + AI_CREATION_TIMEOUT_GRACE_MS
+  return null
 }
 
-/** True when AI creating/sorting has passed ETA + grace. */
+/** Packet creation is never failed because a clock ran out. */
 export function isBatchAiCreationTimedOut(
-  input: {
+  _input: {
     startedAt?: string | null
     fileCount?: number | null
     invoiceTotal?: number | null
   },
-  nowMs: number = Date.now()
+  _nowMs: number = Date.now()
 ): boolean {
-  const deadline = getBatchAiCreationTimeoutAt(input)
-  if (deadline == null) return false
-  return nowMs >= deadline
+  return false
 }
 
 const ETA_FILE_COUNT_KEY = 'credyx:batch-eta-files'

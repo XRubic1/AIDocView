@@ -2,6 +2,7 @@ import {
   DOCUMENT_CLASSIFIER_PROMPT,
   buildMultiPageClassifierPrompt,
   buildRateConExtractorPrompt,
+  buildRateConTextExtractorPrompt,
   buildBolValidatorPrompt,
   buildInvoiceExtractorPrompt,
   buildLumperExtractorPrompt,
@@ -10,6 +11,7 @@ import {
   buildDispatcherRulePrompt,
 } from '../config/documentAiPrompts'
 import { pipelineDocTypeToPageType } from '../utils/classifierMapping'
+import { isUsablePdfText, readPdfPageTexts } from '../utils/pdfPageText'
 import { getShipperRulesForPrompt } from '../utils/shipperRulesStore'
 import { getBolAiRulesForPrompt } from '../utils/reviewRulesStore'
 import { buildBolRateConJson, buildCompactRateConContext } from '../utils/promptContext'
@@ -790,7 +792,8 @@ async function extractWithModel(
   images: ReviewImageInfo[],
   model: ReviewModel,
   detail: 'low' | 'high' = 'low',
-  budget?: ReviewCostBudget
+  budget?: ReviewCostBudget,
+  textOnly = false
 ): Promise<ModelExtractionResult> {
   const apiKey = getOpenAIApiKey()
   if (!apiKey && !isAIReviewEnabled()) {
@@ -806,7 +809,12 @@ async function extractWithModel(
     temperature: AI_REVIEW_CONFIG.OPENAI_TEMPERATURE,
     seed: AI_REVIEW_CONFIG.OPENAI_SEED,
     response_format: { type: 'json_object' },
-    messages: [{ role: 'user', content: buildVisionContent(prompt, images, detail) }],
+    messages: [
+      {
+        role: 'user',
+        content: textOnly ? prompt : buildVisionContent(prompt, images, detail),
+      },
+    ],
   })
 
   if (!response.ok) {
@@ -839,7 +847,9 @@ async function runWithFallback(
   images: ReviewImageInfo[],
   promptKind: DocumentReviewAttempt['promptKind'],
   detail: 'low' | 'high' = AI_REVIEW_CONFIG.DEEP_REVIEW_DETAIL,
-  budget?: ReviewCostBudget
+  budget?: ReviewCostBudget,
+  textOnly = false,
+  model: ReviewModel = AI_REVIEW_CONFIG.PRIMARY_MODEL
 ): Promise<{
   extraction: ExtractedDocumentData
   rateConFields?: RateConFields
@@ -852,12 +862,13 @@ async function runWithFallback(
   let primary = await extractWithModel(
     prompt,
     images,
-    AI_REVIEW_CONFIG.PRIMARY_MODEL,
+    model,
     detail,
-    budget
+    budget,
+    textOnly
   )
   attempts.push({
-    model: AI_REVIEW_CONFIG.PRIMARY_MODEL,
+    model,
     confidence: primary.extraction.confidence,
     rawResponse: primary.rawResponse,
     usage: usageForAttempt(primary.usage),
@@ -868,12 +879,15 @@ async function runWithFallback(
 
   let extraction = primary.extraction
   let rateConFields = primary.rateConFields
-  let modelUsed: ReviewModel = AI_REVIEW_CONFIG.PRIMARY_MODEL
+  let modelUsed: ReviewModel = model
   let upgradedFromMini = false
 
+  const strongerModel =
+    textOnly && model !== AI_REVIEW_CONFIG.PRIMARY_MODEL
+      ? AI_REVIEW_CONFIG.PRIMARY_MODEL
+      : AI_REVIEW_CONFIG.FALLBACK_MODEL
   const canFallback =
-    AI_REVIEW_CONFIG.ENABLE_MODEL_FALLBACK &&
-    AI_REVIEW_CONFIG.FALLBACK_MODEL !== AI_REVIEW_CONFIG.PRIMARY_MODEL
+    AI_REVIEW_CONFIG.ENABLE_MODEL_FALLBACK && strongerModel !== model
 
   if (
     canFallback &&
@@ -884,12 +898,13 @@ async function runWithFallback(
     const fallback = await extractWithModel(
       prompt,
       images,
-      AI_REVIEW_CONFIG.FALLBACK_MODEL,
+      strongerModel,
       detail,
-      budget
+      budget,
+      textOnly
     )
     attempts.push({
-      model: AI_REVIEW_CONFIG.FALLBACK_MODEL,
+      model: strongerModel,
       confidence: fallback.extraction.confidence,
       rawResponse: fallback.rawResponse,
       usage: usageForAttempt(fallback.usage),
@@ -899,7 +914,7 @@ async function runWithFallback(
     })
     extraction = fallback.extraction
     rateConFields = fallback.rateConFields
-    modelUsed = AI_REVIEW_CONFIG.FALLBACK_MODEL
+    modelUsed = strongerModel
     upgradedFromMini = true
   }
 
@@ -1071,7 +1086,11 @@ async function reviewBolDocument(
   }
 }
 
-async function reviewRateConPages(pages: ReviewImageInfo[], budget?: ReviewCostBudget) {
+async function reviewRateConPages(
+  pages: ReviewImageInfo[],
+  budget?: ReviewCostBudget,
+  pageTexts?: string[]
+) {
   const attempts: DocumentReviewAttempt[] = []
   let modelUsed: ReviewModel = AI_REVIEW_CONFIG.PRIMARY_MODEL
   let upgradedFromMini = false
@@ -1085,14 +1104,22 @@ async function reviewRateConPages(pages: ReviewImageInfo[], budget?: ReviewCostB
     pageClassifications: [] as PageClassification[],
   }
   const reviewed: ReviewImageInfo[] = []
+  let textPages = 0
+  let imagePages = 0
 
   for (const page of pages) {
+    const pageText = pageTexts?.[page.pageNumber - 1] ?? ''
+    const useText = isUsablePdfText(pageText)
+    if (useText) textPages += 1
+    else imagePages += 1
     const result = await runWithFallback(
-      buildRateConExtractorPrompt(),
+      useText ? buildRateConTextExtractorPrompt(pageText) : buildRateConExtractorPrompt(),
       [page],
       'rate_con_deep_review',
       AI_REVIEW_CONFIG.DEEP_REVIEW_DETAIL,
-      budget
+      budget,
+      useText,
+      useText ? AI_REVIEW_CONFIG.RATE_CON_TEXT_MODEL : AI_REVIEW_CONFIG.PRIMARY_MODEL
     )
     attempts.push(...result.attempts)
     modelUsed = result.modelUsed
@@ -1141,6 +1168,7 @@ async function reviewRateConPages(pages: ReviewImageInfo[], budget?: ReviewCostB
     confidence: Number(finalParse.confidence ?? extraction.confidence),
     totalPagesInFile: pages[0]?.totalPages ?? pages.length,
     pagesReviewed: reviewed.length || pages.length,
+    rateConRead: { textPages, imagePages },
   }
 
   return {
@@ -1152,9 +1180,34 @@ async function reviewRateConPages(pages: ReviewImageInfo[], budget?: ReviewCostB
   }
 }
 
+function stubPdfPage(file: File, pageNumber: number, totalPages: number): ReviewImageInfo {
+  return {
+    previewDataUrl: '',
+    sourceType: 'pdf_page',
+    pageNumber,
+    totalPages,
+    imageWidth: 0,
+    imageHeight: 0,
+    fileName: file.name,
+    fileSize: file.size,
+    mimeType: file.type || 'application/pdf',
+  }
+}
+
 /** Rate-con binder only: page 1, then 2, then 3, until load / broker / rate / lane are filled. */
 export async function extractRateConBinderFile(file: File): Promise<ExtractedDocumentData> {
-  const pages = await fileToReviewImages(file)
+  const pageTexts = await readPdfPageTexts(file)
+  const textUsable = pageTexts.map((text) => isUsablePdfText(text))
+  let pages: ReviewImageInfo[]
+  if (pageTexts.length > 0 && textUsable.some(Boolean)) {
+    pages = pageTexts.map((_, index) => stubPdfPage(file, index + 1, pageTexts.length))
+    if (textUsable.some((ok) => !ok)) {
+      const rendered = await fileToReviewImages(file)
+      pages = pages.map((stub, index) => (textUsable[index] ? stub : rendered[index] ?? stub))
+    }
+  } else {
+    pages = await fileToReviewImages(file)
+  }
   if (pages.length === 0) {
     return {
       documentType: 'rate_confirmation',
@@ -1163,7 +1216,7 @@ export async function extractRateConBinderFile(file: File): Promise<ExtractedDoc
       fieldsFound: [],
     }
   }
-  const result = await reviewRateConPages(pages)
+  const result = await reviewRateConPages(pages, undefined, pageTexts)
   return {
     ...result.extraction,
     documentType: 'rate_confirmation',
@@ -1618,7 +1671,8 @@ export async function reviewDocumentFile(
     let rateConParse: RateConParse | undefined = options?.batchRateConParse
 
     if (rateConPages.length > 0 && !budget?.isAtOrOverLimit()) {
-      const rateConResult = await reviewRateConPages(rateConPages, budget)
+      const pageTexts = await readPdfPageTexts(file)
+      const rateConResult = await reviewRateConPages(rateConPages, budget, pageTexts)
       rateConParse = rateConResult.extraction.rateConParse
       extraction = {
         ...rateConResult.extraction,

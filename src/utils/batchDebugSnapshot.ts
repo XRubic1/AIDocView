@@ -22,6 +22,10 @@ import {
   type BatchLiveActivity,
 } from './batchLiveActivity'
 import { isDocSplitPipelineRunning } from './docSplitterAutoPipeline'
+import {
+  estimatePacketPipelineCost,
+  type PacketPipelineCostEstimate,
+} from './estimateReviewTokens'
 
 export type BatchDebugSeverity = 'info' | 'warning' | 'error' | 'success'
 
@@ -56,6 +60,11 @@ export type BatchDebugDocRow = {
   broker?: string
   invoiceNumber?: string
   needsSplitPages: boolean
+  /** Set on rate cons after the walk records how each page was read. */
+  rateConRead?: {
+    textPages: number
+    imagePages: number
+  }
 }
 
 export type BatchDebugSnapshot = {
@@ -85,6 +94,8 @@ export type BatchDebugSnapshot = {
   liveActivity: BatchLiveActivity | null
   /** True when this browser tab owns an in-flight background run. */
   backgroundRunningInThisTab: boolean
+  /** Estimated OpenAI spend for split, classify, rate-con extract, packet create, and verify. */
+  costEstimate: PacketPipelineCostEstimate
   timeline: BatchDebugTimelineEvent[]
   jobs: BatchProcessingJobDebug[]
   invoices: BatchDebugInvoiceRow[]
@@ -346,6 +357,7 @@ export function buildBatchDebugSnapshot(
     broker: fp.broker,
     invoiceNumber: fp.invoiceNumber,
     needsSplitPages: docNeedsSplitPages(fp),
+    rateConRead: fp.extract?.rateConRead,
   }))
 
   const auditLogs = collectBatchAuditLogs(
@@ -394,6 +406,20 @@ export function buildBatchDebugSnapshot(
     doc_sort_snapshot_length: batch.doc_sort_snapshot?.length ?? 0,
   }
 
+  const costEstimate = estimatePacketPipelineCost(
+    [...catalog.values()].map((fp) => ({
+      fileName: fp.fileName,
+      kind: fp.kind,
+      extract: fp.extract
+        ? {
+            totalPagesInFile: fp.extract.totalPagesInFile,
+            pagesReviewed: fp.extract.pagesReviewed,
+            rateConRead: fp.extract.rateConRead,
+          }
+        : null,
+    }))
+  )
+
   const liveActivity = getBatchLiveActivity(batchId)
   const backgroundRunningInThisTab =
     isDocSplitPipelineRunning(batchId) ||
@@ -425,6 +451,7 @@ export function buildBatchDebugSnapshot(
     },
     liveActivity,
     backgroundRunningInThisTab,
+    costEstimate,
     timeline,
     jobs,
     invoices: invoiceRows,

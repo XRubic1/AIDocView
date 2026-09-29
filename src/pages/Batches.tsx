@@ -112,7 +112,7 @@ export default function Batches() {
     [resolved.user, showToast]
   )
 
-  // Drain queued DocSort / AI jobs + stuck-creation timeout when Batches is open.
+  // Drain queued DocSort / AI jobs when Batches is open.
   // Do NOT depend on tenantRevision — each pipeline tick notifies tenant data,
   // which would restart this effect and kick packet creation again immediately.
   useEffect(() => {
@@ -125,22 +125,6 @@ export default function Batches() {
         .catch(() => {
           /* non-blocking */
         })
-      void import('../services/credyx/sweepStuckAiBatches')
-        .then(({ sweepStuckAiBatchCreations }) => sweepStuckAiBatchCreations())
-        .then((moved) => {
-          if (!cancelled && moved.length > 0) {
-            setRefreshKey((k) => k + 1)
-            showToast(
-              moved.length === 1
-                ? 'AI batch timed out — moved to Packet Rework. Ops emailed.'
-                : `${moved.length} AI batches timed out — moved to Packet Rework. Ops emailed.`,
-              'info'
-            )
-          }
-        })
-        .catch(() => {
-          /* non-blocking */
-        })
     }
     run()
     const id = window.setInterval(run, 60_000)
@@ -148,7 +132,7 @@ export default function Batches() {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [showToast])
+  }, [])
 
   const allBatches = useMemo(() => getAllBatches(), [refreshKey, tenantRevision])
 

@@ -2,9 +2,10 @@ import { AI_REVIEW_CONFIG } from '../config/aiReview'
 
 /** Per-model pricing (USD per 1M tokens) — override via env if needed. */
 const MODEL_PRICING: Record<string, { inputPer1M: number; outputPer1M: number }> = {
+  'gpt-4.1-mini': { inputPer1M: 0.4, outputPer1M: 1.6 },
   'gpt-4.1': { inputPer1M: 2.0, outputPer1M: 8.0 },
-  'gpt-4o': { inputPer1M: 2.5, outputPer1M: 10.0 },
   'gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.6 },
+  'gpt-4o': { inputPer1M: 2.5, outputPer1M: 10.0 },
   'gpt-4-turbo': { inputPer1M: 10.0, outputPer1M: 30.0 },
 }
 
@@ -35,7 +36,9 @@ export interface ReviewCostSummary {
 
 function getModelPricing(model: string): { inputPer1M: number; outputPer1M: number } {
   if (MODEL_PRICING[model]) return MODEL_PRICING[model]
-  const prefix = Object.keys(MODEL_PRICING).find((key) => model.startsWith(key))
+  const prefix = Object.keys(MODEL_PRICING)
+    .filter((key) => model.startsWith(key))
+    .sort((a, b) => b.length - a.length)[0]
   if (prefix) return MODEL_PRICING[prefix]
   return { inputPer1M: 2.5, outputPer1M: 10.0 }
 }

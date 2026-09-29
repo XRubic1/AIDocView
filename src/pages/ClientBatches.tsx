@@ -75,7 +75,10 @@ import {
   type BatchProcessingJobSnapshot,
   type ClientBatchAiProgress,
 } from '../utils/clientBatchAiProgress'
-import { fetchClientBatchProcessingJobs } from '../services/credyx/batchProcessingJobs'
+import {
+  fetchClientBatchProcessingJobs,
+  nudgePacketCreationQueue,
+} from '../services/credyx/batchProcessingJobs'
 import { settleBatchAiGate } from '../services/credyx/batchAiReviewService'
 
 type ClientBatchRow = {
@@ -222,6 +225,7 @@ export default function ClientBatches() {
     if (!clientId) return
     const jobs = await fetchClientBatchProcessingJobs(clientId)
     setJobByBatchId(jobs)
+    nudgePacketCreationQueue(Object.values(jobs), clientId)
   }, [clientId])
 
   useEffect(() => {
@@ -269,12 +273,6 @@ export default function ClientBatches() {
       }
       refreshBatches()
       void refreshProcessingJobs()
-      void import('../services/credyx/sweepStuckAiBatches')
-        .then(({ sweepStuckAiBatchCreations }) => sweepStuckAiBatchCreations())
-        .then((moved) => {
-          if (moved.length > 0) refreshBatches()
-        })
-        .catch(() => undefined)
     }
     const id = window.setInterval(tick, 3000)
     return () => window.clearInterval(id)

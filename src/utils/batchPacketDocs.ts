@@ -55,6 +55,17 @@ export function packetCategoryLabel(category: PacketDocCategory): string {
   return PACKET_CATEGORY_LABEL[category]
 }
 
+/** Short rail badge. Carrier invoices are INV, not OTH. */
+export function packetDocKindBadge(category: PacketDocCategory, generated = false): string {
+  if (generated || category === 'invoice') return 'INV'
+  if (category === 'rate_confirmation') return 'RC'
+  if (category === 'bol') return 'BOL'
+  if (category === 'lumper') return 'LMP'
+  if (category === 'pod') return 'POD'
+  if (category === 'scale') return 'SCL'
+  return 'OTH'
+}
+
 export function invoiceFingerprints(inv: CredyxInvoiceDraft): DocSortFingerprint[] {
   return [
     ...inv.fingerprints.rateCons,

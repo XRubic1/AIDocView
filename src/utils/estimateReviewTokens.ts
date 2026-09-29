@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 import { AI_REVIEW_CONFIG, getEffectiveTpmBudget } from '../config/aiReview'
 import { estimateCostUsd } from './reviewCost'
+import {
+  isSourceBinderFileName,
+  parseSourceBinderFileName,
+  parseUploadPageFileName,
+  uploadFileStem,
+} from '../../supabase/functions/_shared/sourceDocBinders'
 import { getReviewPageCount } from './fileToReviewImage'
 import {
   estimateReviewSecondsForFiles,
@@ -259,6 +265,286 @@ function visionCallCost(
   const promptTokens = Math.round(promptBase + vision)
   const completionTokens = COMPLETION_TOKENS_AVG
   return estimateCostUsd(model, promptTokens, completionTokens)
+}
+
+/** Rate-con walk usually finishes by page 2 (load, broker, rate, and lane). */
+const TYPICAL_RC_WALK_PAGES = 2
+
+function pageCountLabel(count: number): string {
+  return count === 1 ? '1 page' : `${count} pages`
+}
+
+function describeRateConRead(input: {
+  textPages: number
+  imagePages: number
+  textIsEstimate: boolean
+  textModel: string
+  imageModel: string
+}): string {
+  if (input.textPages + input.imagePages === 0) return 'No rate con to read'
+  const parts: string[] = []
+  if (input.textPages > 0) {
+    parts.push(
+      `${pageCountLabel(input.textPages)} as text${input.textIsEstimate ? ' (estimated)' : ''} · ${input.textModel}`
+    )
+  }
+  if (input.imagePages > 0) {
+    parts.push(`${pageCountLabel(input.imagePages)} as image · ${input.imageModel}`)
+  }
+  parts.push(
+    input.textIsEstimate
+      ? 'stops once load, broker, rate, and lane are filled'
+      : 'pages actually read'
+  )
+  return parts.join(' · ')
+}
+
+export type PacketPipelineCostDoc = {
+  fileName: string
+  kind: string
+  extract?: {
+    totalPagesInFile?: number
+    pagesReviewed?: number
+    rateConRead?: {
+      textPages?: number
+      imagePages?: number
+    }
+  } | null
+}
+
+export type PacketPipelineCostStepId = 'split' | 'classify' | 'extract' | 'create' | 'verify'
+
+export type PacketPipelineCostStep = {
+  id: PacketPipelineCostStepId
+  label: string
+  detail: string
+  calls: number
+  estimatedUsd: number
+}
+
+export type PacketPipelineCostEstimate = {
+  steps: PacketPipelineCostStep[]
+  totalUsd: number
+  perPacketUsd: number
+  packetCount: number
+}
+
+function pageCountOf(doc: PacketPipelineCostDoc): number {
+  const recorded = doc.extract?.totalPagesInFile
+  if (recorded && recorded > 0) return recorded
+  return 1
+}
+
+/**
+ * Estimated OpenAI spend for split → classify → rate-con walk → packet → verify.
+ * Split, packet creation, and verify do not call the model.
+ * Classify is one call per page. The rate con is read page by page and stops early.
+ */
+export function estimatePacketPipelineCost(
+  docs: PacketPipelineCostDoc[]
+): PacketPipelineCostEstimate {
+  const classifyDetail = AI_REVIEW_CONFIG.PAGE_CLASSIFY_DETAIL
+  const oneClassify = visionCallCost(
+    1,
+    classifyDetail,
+    PROMPT_TOKENS_CLASSIFY,
+    AI_REVIEW_CONFIG.CLASSIFY_MODEL
+  )
+  const oneTextExtract = estimateCostUsd(
+    AI_REVIEW_CONFIG.RATE_CON_TEXT_MODEL,
+    PROMPT_TOKENS_EXTRACT,
+    COMPLETION_TOKENS_AVG
+  )
+  const oneImageExtract = visionCallCost(
+    1,
+    AI_REVIEW_CONFIG.DEEP_REVIEW_DETAIL,
+    PROMPT_TOKENS_EXTRACT,
+    AI_REVIEW_CONFIG.PRIMARY_MODEL
+  )
+  let textPages = 0
+  let imagePages = 0
+  let textIsEstimate = false
+
+  const addRecordedRead = (doc: PacketPipelineCostDoc | undefined, fallbackPages: number) => {
+    const read = doc?.extract?.rateConRead
+    const text = Math.max(0, Math.round(read?.textPages ?? 0))
+    const image = Math.max(0, Math.round(read?.imagePages ?? 0))
+    if (text + image > 0) {
+      textPages += text
+      imagePages += image
+      return
+    }
+    const reviewed = doc?.extract?.pagesReviewed ?? 0
+    if (reviewed > 0) {
+      imagePages += reviewed
+      return
+    }
+    textPages += fallbackPages
+    textIsEstimate = true
+  }
+
+  const pageSplits = docs.filter((doc) => parseUploadPageFileName(doc.fileName))
+  const binders = docs.filter((doc) => isSourceBinderFileName(doc.fileName))
+  const stemsWithPages = new Set(
+    pageSplits
+      .map((doc) => parseUploadPageFileName(doc.fileName)?.stem.toLowerCase())
+      .filter((stem): stem is string => Boolean(stem))
+  )
+  const loose = docs.filter(
+    (doc) => !parseUploadPageFileName(doc.fileName) && !isSourceBinderFileName(doc.fileName)
+  )
+  const stemsWithBinders = new Set(
+    binders
+      .map((doc) => parseSourceBinderFileName(doc.fileName)?.stem.toLowerCase())
+      .filter((stem): stem is string => Boolean(stem))
+  )
+
+  let classifyCalls = pageSplits.length
+  let classifyPageCountIncomplete = false
+  for (const binder of binders) {
+    const parsed = parseSourceBinderFileName(binder.fileName)
+    if (!parsed || stemsWithPages.has(parsed.stem.toLowerCase())) continue
+    if (!binder.extract?.totalPagesInFile) classifyPageCountIncomplete = true
+    classifyCalls += pageCountOf(binder)
+  }
+  for (const doc of loose) {
+    const stem = uploadFileStem(doc.fileName).toLowerCase()
+    if (stemsWithPages.has(stem) || stemsWithBinders.has(stem)) continue
+    classifyCalls += pageCountOf(doc)
+  }
+
+  const rcStems = new Set<string>()
+
+  for (const binder of binders) {
+    const parsed = parseSourceBinderFileName(binder.fileName)
+    if (!parsed || parsed.kind !== 'rate_confirmation') continue
+    rcStems.add(parsed.stem.toLowerCase())
+    const reviewed = binder.extract?.pagesReviewed ?? 0
+    const recorded =
+      (binder.extract?.rateConRead?.textPages ?? 0) + (binder.extract?.rateConRead?.imagePages ?? 0)
+    addRecordedRead(
+      binder,
+      reviewed > 0 || recorded > 0
+        ? 0
+        : Math.min(TYPICAL_RC_WALK_PAGES, pageCountOf(binder))
+    )
+  }
+
+  const rcPagesByStem = new Map<string, number>()
+  for (const page of pageSplits) {
+    if (page.kind !== 'rate_confirmation') continue
+    const parsed = parseUploadPageFileName(page.fileName)
+    if (!parsed) continue
+    const stem = parsed.stem.toLowerCase()
+    if (rcStems.has(stem)) continue
+    rcPagesByStem.set(stem, (rcPagesByStem.get(stem) ?? 0) + 1)
+  }
+  for (const [, pageCount] of rcPagesByStem) {
+    textPages += Math.min(TYPICAL_RC_WALK_PAGES, pageCount)
+    textIsEstimate = true
+  }
+  for (const stem of rcPagesByStem.keys()) rcStems.add(stem)
+
+  for (const doc of loose) {
+    if (doc.kind !== 'rate_confirmation') continue
+    const stem = uploadFileStem(doc.fileName).toLowerCase()
+    if (stemsWithPages.has(stem) || rcStems.has(stem)) continue
+    const reviewed = doc.extract?.pagesReviewed ?? 0
+    const recorded =
+      (doc.extract?.rateConRead?.textPages ?? 0) + (doc.extract?.rateConRead?.imagePages ?? 0)
+    addRecordedRead(
+      doc,
+      reviewed > 0 || recorded > 0 ? 0 : Math.min(TYPICAL_RC_WALK_PAGES, pageCountOf(doc))
+    )
+  }
+
+  const extractCalls = textPages + imagePages
+  const extractUsd = textPages * oneTextExtract + imagePages * oneImageExtract
+  const extractDetail = describeRateConRead({
+    textPages,
+    imagePages,
+    textIsEstimate,
+    textModel: AI_REVIEW_CONFIG.RATE_CON_TEXT_MODEL,
+    imageModel: AI_REVIEW_CONFIG.PRIMARY_MODEL,
+  })
+
+  const packetStems = new Set<string>()
+  for (const doc of docs) {
+    const binder = parseSourceBinderFileName(doc.fileName)
+    if (
+      binder &&
+      (binder.kind === 'rate_confirmation' || binder.kind === 'bill_of_lading')
+    ) {
+      packetStems.add(binder.stem.toLowerCase())
+      continue
+    }
+    const page = parseUploadPageFileName(doc.fileName)
+    if (
+      page &&
+      (doc.kind === 'rate_confirmation' || doc.kind === 'bill_of_lading')
+    ) {
+      packetStems.add(page.stem.toLowerCase())
+    }
+  }
+
+  const classifyUsd = classifyCalls * oneClassify
+  const packetCount = packetStems.size
+  const steps: PacketPipelineCostStep[] = [
+    {
+      id: 'split',
+      label: 'Split pages',
+      detail: 'Local PDF split',
+      calls: 0,
+      estimatedUsd: 0,
+    },
+    {
+      id: 'classify',
+      label: 'Classify',
+      detail: [
+        classifyCalls === 1 ? '1 page call' : `${classifyCalls} page calls`,
+        classifyPageCountIncomplete
+          ? 'binder page totals were not recorded, so collapsed files count as 1 page each'
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      calls: classifyCalls,
+      estimatedUsd: classifyUsd,
+    },
+    {
+      id: 'extract',
+      label: 'Extract rate con',
+      detail: extractDetail,
+      calls: extractCalls,
+      estimatedUsd: extractUsd,
+    },
+    {
+      id: 'create',
+      label: 'Create packets',
+      detail:
+        packetCount === 0
+          ? 'No model call'
+          : packetCount === 1
+            ? '1 packet · no model call'
+            : `${packetCount} packets · no model call`,
+      calls: 0,
+      estimatedUsd: 0,
+    },
+    {
+      id: 'verify',
+      label: 'Verify',
+      detail: 'Uses the saved extract',
+      calls: 0,
+      estimatedUsd: 0,
+    },
+  ]
+  const totalUsd = classifyUsd + extractUsd
+  return {
+    steps,
+    totalUsd,
+    perPacketUsd: packetCount > 0 ? totalUsd / packetCount : 0,
+    packetCount,
+  }
 }
 
 function assessTpmRisk(

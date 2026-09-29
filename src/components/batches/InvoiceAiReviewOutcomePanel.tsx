@@ -3,7 +3,8 @@ import { Check, X, AlertTriangle } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
 import type { InvoiceAiReviewSnapshot } from '../../types/invoiceAiReview'
 import type { LoadCheckRow } from '../../utils/loadReviewSummary'
-import { isResolvablePacketCheck } from '../../utils/packetOnFileReview'
+import { ensureRequiredPacketChecks, isResolvablePacketCheck } from '../../utils/packetOnFileReview'
+import { REQUIRED_PACKET_CHECK_COUNT } from '../../utils/reviewMessages'
 import InvoiceAiReviewDetailModal from './InvoiceAiReviewDetailModal'
 
 interface InvoiceAiReviewOutcomePanelProps {
@@ -38,9 +39,17 @@ export default function InvoiceAiReviewOutcomePanel({
   onResolve,
 }: InvoiceAiReviewOutcomePanelProps) {
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const checks = snapshot?.requiredAll ?? []
-  const passCount = snapshot?.passCount ?? checks.filter(checkPassed).length
-  const total = snapshot?.requiredTotal || checks.length
+  const checks = snapshot
+    ? ensureRequiredPacketChecks(
+        (snapshot.requiredAll ?? []).map((row, index) =>
+          typeof row === 'string'
+            ? { id: `legacy_${index}`, label: row, status: 'ok' as const, summary: row }
+            : row
+        )
+      )
+    : []
+  const passCount = checks.filter(checkPassed).length
+  const total = REQUIRED_PACKET_CHECK_COUNT
 
   return (
     <section className="client-ai-verify__outcome">
@@ -87,7 +96,12 @@ export default function InvoiceAiReviewOutcomePanel({
                   : row
               const ok = checkPassed(normalized)
               const resolvable = isResolvablePacketCheck(normalized)
-              const label = resolvable ? resolvableCheckLabel(normalized) : normalized.label
+              const detail = normalized.summary?.trim()
+              const label = resolvable
+                ? resolvableCheckLabel(normalized)
+                : !ok && detail && detail !== normalized.label
+                  ? `${normalized.label} · ${detail}`
+                  : normalized.label
               return (
                 <li
                   key={normalized.id || `check-${index}`}

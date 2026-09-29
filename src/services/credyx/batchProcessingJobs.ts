@@ -2,6 +2,7 @@ import { getSupabase, isSupabaseConfigured } from '../../lib/supabase'
 import { notifyTenantDataUpdated } from '../supabase/tenantDataLiveSync'
 import type { BatchProcessingJobSnapshot } from '../../utils/clientBatchAiProgress'
 import { withOpenAiJobAuth } from '../../utils/openaiAuthContext'
+import { markPacketCreationQueued } from '../../utils/packetCreationQueue'
 
 export type BatchProcessingJobKind = 'verify_only' | 'sort_and_verify'
 
@@ -96,16 +97,13 @@ export async function enqueueBatchProcessing(opts: {
   const kind = opts.kind ?? 'verify_only'
 
   if (!isSupabaseConfigured()) {
-    // Local / mock mode — still run the in-browser pipeline.
-    void kickBatchProcessingLocal(opts.batchId, kind, null)
-    if (kind === 'sort_and_verify') scheduleAiCreationTimeoutWatch(opts.batchId)
+    startBatchProcessing(opts.batchId, kind, null)
     return { jobId: null }
   }
 
   const supabase = getSupabase()
   if (!supabase) {
-    void kickBatchProcessingLocal(opts.batchId, kind, null)
-    if (kind === 'sort_and_verify') scheduleAiCreationTimeoutWatch(opts.batchId)
+    startBatchProcessing(opts.batchId, kind, null)
     return { jobId: null }
   }
 
@@ -122,49 +120,9 @@ export async function enqueueBatchProcessing(opts: {
     console.warn('[enqueueBatchProcessing] rpc failed', err)
   }
 
-  // Fire-and-forget: edge worker (survives tab close) + local pipeline (full DocSort).
-  void kickBatchProcessingEdge(opts.batchId)
-  void kickBatchProcessingLocal(opts.batchId, kind, jobId)
-
-  // Packet creation only — schedule ETA + 10m timeout → manual rework + ops email.
-  if (kind === 'sort_and_verify') {
-    scheduleAiCreationTimeoutWatch(opts.batchId)
-  }
+  startBatchProcessing(opts.batchId, kind, jobId)
 
   return { jobId }
-}
-
-/** Fire timeout watch at ETA + grace (also swept when Batches / Client Batches are open). */
-function scheduleAiCreationTimeoutWatch(batchId: string): void {
-  if (typeof window === 'undefined') return
-  void (async () => {
-    try {
-      const { getBatchById } = await import('../../data/mockBatches')
-      const { getInvoicesByBatchId } = await import('../../data/mockInvoices')
-      const { getRememberedBatchFileCount, getBatchAiCreationTimeoutAt } = await import(
-        '../../utils/batchProcessingEta'
-      )
-      const batch = getBatchById(batchId)
-      if (!batch) return
-      const deadline = getBatchAiCreationTimeoutAt({
-        startedAt: batch.submitted_at,
-        fileCount:
-          getRememberedBatchFileCount(batchId) ??
-          batch.unmatched_doc_ids?.length ??
-          null,
-        invoiceTotal: getInvoicesByBatchId(batchId).length || batch.total_invoices || 0,
-      })
-      if (deadline == null) return
-      const delay = Math.max(15_000, deadline - Date.now())
-      window.setTimeout(() => {
-        void import('./sweepStuckAiBatches').then(({ maybeTimeoutStuckAiBatch }) =>
-          maybeTimeoutStuckAiBatch(batchId)
-        )
-      }, delay)
-    } catch (err) {
-      console.warn('[scheduleAiCreationTimeoutWatch]', err)
-    }
-  })()
 }
 
 /** Invoke the Edge worker; ignores errors so submit UX never blocks. */
@@ -204,6 +162,233 @@ async function kickBatchProcessingLocal(
   }
 }
 
+/** One packet-creation run at a time. Later submits stay pending until it finishes. */
+let activePacketCreationId: string | null = null
+
+export function isPacketCreationRunning(): boolean {
+  return activePacketCreationId != null
+}
+
+/** Claim the single creation slot. Same batch may reserve again; a different batch waits. */
+export function reservePacketCreation(batchId: string): boolean {
+  if (activePacketCreationId && activePacketCreationId !== batchId) return false
+  activePacketCreationId = batchId
+  return true
+}
+
+export function releasePacketCreation(batchId: string): void {
+  if (activePacketCreationId === batchId) activePacketCreationId = null
+}
+
+/** True when this tab already owns the creation slot for the batch. */
+export function holdsPacketCreation(batchId: string): boolean {
+  return activePacketCreationId === batchId
+}
+
+/**
+ * Direct pipeline entry (admin drain) must take the same cross-client slot.
+ * A start that already reserved this batch does not claim twice.
+ */
+export async function acquirePacketCreationIfNeeded(batchId: string): Promise<boolean> {
+  if (holdsPacketCreation(batchId)) return true
+  if (!reservePacketCreation(batchId)) return false
+  const turn = await claimPacketCreationTurn(batchId)
+  if (turn === 'started') {
+    markPacketCreationQueued(batchId, false)
+    waitingCreations.delete(batchId)
+    return true
+  }
+  releasePacketCreation(batchId)
+  if (turn === 'queued') {
+    showPacketCreationQueued(batchId)
+    rememberWaitingCreation(batchId, null)
+  }
+  return false
+}
+
+const waitingCreations = new Map<string, string | null>()
+let queueTimer: ReturnType<typeof setInterval> | null = null
+let drainingQueue = false
+
+function showPacketCreationQueued(batchId: string): void {
+  markPacketCreationQueued(batchId, true)
+  void import('../../utils/batchLiveActivity').then(({ startBatchLiveActivity }) => {
+    startBatchLiveActivity(batchId, {
+      jobLabel: 'Background packet creation',
+      jobKind: 'sort_and_verify',
+      background: true,
+      phase: 'queued',
+      thinking: 'Another batch is being created. This one starts when that finishes.',
+      doing: 'Queued',
+    })
+  })
+}
+
+function rememberWaitingCreation(batchId: string, jobId: string | null): void {
+  waitingCreations.set(batchId, jobId)
+  if (queueTimer != null) return
+  queueTimer = setInterval(() => {
+    void drainNextPacketCreation()
+  }, 8_000)
+}
+
+function stopQueueTimerIfIdle(): void {
+  if (waitingCreations.size > 0 || queueTimer == null) return
+  clearInterval(queueTimer)
+  queueTimer = null
+}
+
+type CreationTurn = 'started' | 'queued' | 'busy'
+
+const CREATION_LOCK_FRESH_MS = 5 * 60 * 1000
+
+/** Another packet creation this client can see (same portal, other tab, or other batch). */
+async function anotherPacketCreationIsActive(batchId: string): Promise<boolean> {
+  if (activePacketCreationId && activePacketCreationId !== batchId) return true
+  if (!isSupabaseConfigured()) return false
+  const supabase = getSupabase()
+  if (!supabase) return false
+  try {
+    const { data, error } = await supabase
+      .from('batch_processing_jobs')
+      .select('batch_id, status, locked_at')
+      .eq('kind', 'sort_and_verify')
+      .eq('status', 'running')
+      .limit(10)
+    if (error || !data?.length) return false
+    const now = Date.now()
+    return data.some((row) => {
+      if (String(row.batch_id) === batchId) return false
+      const lockedAt = row.locked_at ? new Date(String(row.locked_at)).getTime() : 0
+      if (!lockedAt) return true
+      return now - lockedAt < CREATION_LOCK_FRESH_MS
+    })
+  } catch (err) {
+    console.warn('[anotherPacketCreationIsActive]', err)
+    return false
+  }
+}
+
+/** Cross-client slot. One sort_and_verify runs at a time so OpenAI is not shared. */
+async function claimPacketCreationTurn(batchId: string): Promise<CreationTurn> {
+  if (await anotherPacketCreationIsActive(batchId)) return 'queued'
+  if (!isSupabaseConfigured()) return 'started'
+  const supabase = getSupabase()
+  if (!supabase) return 'started'
+  try {
+    const { data, error } = await supabase.rpc('claim_packet_creation_turn', {
+      p_batch_id: batchId,
+    })
+    if (error) {
+      console.warn('[claim_packet_creation_turn]', error.message || error)
+      if (await anotherPacketCreationIsActive(batchId)) return 'queued'
+      return 'started'
+    }
+    if (data === 'queued' || data === 'busy') return data
+    if (data === 'started') {
+      if (await anotherPacketCreationIsActive(batchId)) return 'queued'
+      return 'started'
+    }
+    return 'started'
+  } catch (err) {
+    console.warn('[claim_packet_creation_turn]', err)
+    if (await anotherPacketCreationIsActive(batchId)) return 'queued'
+    return 'started'
+  }
+}
+
+/**
+ * Start this batch now, or leave its job pending when a creation is already running.
+ * Packet creation is one-at-a-time so two clients do not share the OpenAI token limit.
+ */
+async function startBatchProcessing(
+  batchId: string,
+  kind: BatchProcessingJobKind,
+  jobId: string | null
+): Promise<void> {
+  if (kind === 'sort_and_verify') {
+    if (activePacketCreationId === batchId) return
+    if (!reservePacketCreation(batchId)) {
+      showPacketCreationQueued(batchId)
+      rememberWaitingCreation(batchId, jobId)
+      return
+    }
+    const turn = await claimPacketCreationTurn(batchId)
+    if (turn !== 'started') {
+      releasePacketCreation(batchId)
+      if (turn === 'queued') {
+        showPacketCreationQueued(batchId)
+        rememberWaitingCreation(batchId, jobId)
+      } else {
+        markPacketCreationQueued(batchId, false)
+      }
+      return
+    }
+    markPacketCreationQueued(batchId, false)
+    waitingCreations.delete(batchId)
+  }
+  // Packet creation stays in this browser. The deployed edge worker still
+  // matches BOLs by load number and leaves same-upload BOLs unassigned.
+  if (kind !== 'sort_and_verify' && isSupabaseConfigured() && getSupabase()) {
+    void kickBatchProcessingEdge(batchId)
+  }
+  void kickBatchProcessingLocal(batchId, kind, jobId)
+}
+
+/** Start the oldest waiting packet creation after the current one finishes. */
+export async function drainNextPacketCreation(): Promise<void> {
+  if (drainingQueue || isPacketCreationRunning()) return
+  drainingQueue = true
+  try {
+    const next = waitingCreations.entries().next()
+    if (!next.done) {
+      const [batchId, jobId] = next.value
+      waitingCreations.delete(batchId)
+      await startBatchProcessing(batchId, 'sort_and_verify', jobId)
+    }
+  } catch (err) {
+    console.warn('[drainNextPacketCreation]', err)
+  } finally {
+    drainingQueue = false
+    stopQueueTimerIfIdle()
+  }
+}
+
+/**
+ * While a client is watching their batches, try again to start a creation
+ * that was left pending behind another client.
+ */
+const revivedFailedCreations = new Set<string>()
+
+export function nudgePacketCreationQueue(
+  jobs: BatchProcessingJobSnapshot[],
+  clientId?: string
+): void {
+  if (isPacketCreationRunning() || drainingQueue) return
+  const pending = jobs.find(
+    (job) => job.status === 'pending' && job.kind === 'sort_and_verify'
+  )
+  if (pending) {
+    rememberWaitingCreation(pending.batch_id, pending.id)
+    void drainNextPacketCreation()
+    return
+  }
+  // A creation that crashed on startup (instead of waiting) is still pending work.
+  const failed = jobs.find(
+    (job) =>
+      job.status === 'failed' &&
+      job.kind === 'sort_and_verify' &&
+      !revivedFailedCreations.has(job.batch_id)
+  )
+  if (!failed || !clientId) return
+  revivedFailedCreations.add(failed.batch_id)
+  void enqueueBatchProcessing({
+    batchId: failed.batch_id,
+    clientId,
+    kind: 'sort_and_verify',
+  })
+}
+
 /** Avoid re-kicking the same batch on every tenant tick (pipeline notifies when it starts). */
 const recentlyKickedAt = new Map<string, number>()
 const KICK_COOLDOWN_MS = 45_000
@@ -225,6 +410,32 @@ export async function drainPendingBatchProcessingJobs(limit = 3): Promise<number
   }
   const supabase = getSupabase()
   if (!supabase) return resumeStuckDocSplitBatches(limit)
+
+  // Creations that crashed instead of waiting stay on the batch as "creating".
+  try {
+    const { data: failedCreations } = await supabase
+      .from('batch_processing_jobs')
+      .select('batch_id, client_id')
+      .eq('status', 'failed')
+      .eq('kind', 'sort_and_verify')
+      .order('created_at', { ascending: true })
+      .limit(5)
+    const { getBatchById } = await import('../../data/mockBatches')
+    for (const row of failedCreations ?? []) {
+      const batchId = String(row.batch_id)
+      if (revivedFailedCreations.has(batchId)) continue
+      const batch = getBatchById(batchId)
+      if (!batch || (batch.status !== 'creating' && batch.sort_status !== 'sorting')) continue
+      revivedFailedCreations.add(batchId)
+      void enqueueBatchProcessing({
+        batchId,
+        clientId: String(row.client_id),
+        kind: 'sort_and_verify',
+      })
+    }
+  } catch (err) {
+    console.warn('[drainPendingBatchProcessingJobs] revive failed creation', err)
+  }
 
   const { data, error } = await supabase
     .from('batch_processing_jobs')
@@ -288,7 +499,7 @@ export async function drainPendingBatchProcessingJobs(limit = 3): Promise<number
     try {
       markBatchKicked(batchId)
       await kickBatchProcessingLocal(batchId, kind, jobId)
-      void kickBatchProcessingEdge(batchId)
+      if (kind !== 'sort_and_verify') void kickBatchProcessingEdge(batchId)
       done += 1
     } catch (err) {
       console.warn('[drainPendingBatchProcessingJobs]', batchId, err)

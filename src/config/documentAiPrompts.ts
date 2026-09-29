@@ -33,6 +33,31 @@ JSON only:
 }
 
 /** Prompt 2 — Rate Con Extractor. */
+/** Rate con fields from the PDF text layer. Same JSON as the image extractor. */
+export function buildRateConTextExtractorPrompt(pageText: string): string {
+  const clipped = pageText.slice(0, 14_000)
+  return `Extract fields from this rate confirmation. The page text below is the PDF text layer, in reading order. JSON only. Copy values exactly as printed. Use null when a field is not in the text. Do not guess. Do not invent numbers, names, or dates.
+
+Carrier vs broker: carrier = motor carrier; broker = who arranged the load. Landstar-branded docs → broker Landstar, not agency office names.
+Also: rate_line_items (linehaul/fuel/unloading/detention/other), bol_reference_numbers.
+emailDomain: domain only from a broker contact email on the page (e.g. werner.com from ap@werner.com). Never invent.
+
+{
+  "load_number":"","broker_name":"","broker_mc":"","carrier_name":"","carrier_mc":"",
+  "rate_total":null,"rate_currency":"USD",
+  "origin":{"name":"","address":"","city":"","state":"","zip":"","pickup_date":"","pickup_time_open":"","pickup_time_close":""},
+  "destinations":[{"stop_number":1,"name":"","address":"","city":"","state":"","zip":"","delivery_date":"","delivery_time_open":"","delivery_time_close":""}],
+  "commodity":"","weight":"","temperature":"","special_instructions":"",
+  "rate_line_items":[{"description":"","amount":null,"category":"linehaul"}],
+  "bol_reference_numbers":[],
+  "confidence":0.9,
+  "fields":{"carrier":{"value":"","confidence":0.9,"reasoning":"","source_region":null},"broker":{"value":"","confidence":0.9,"reasoning":"","source_region":null},"rate":{"value":null,"confidence":0.9,"reasoning":"","source_region":null},"emailDomain":{"value":"","confidence":0.9,"reasoning":"","source_region":null},"loadNumber":{"value":"","confidence":0.9,"reasoning":"","source_region":null},"pickup":{"value":"","confidence":0.9,"reasoning":"","source_region":null},"drop":{"value":"","confidence":0.9,"reasoning":"","source_region":null}}
+}
+
+PAGE TEXT:
+${clipped}`
+}
+
 export function buildRateConExtractorPrompt(): string {
   return `Extract fields from this rate confirmation. JSON only; null if not visible; do not guess.
 

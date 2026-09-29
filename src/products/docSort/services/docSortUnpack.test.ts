@@ -130,6 +130,16 @@ describe('refinePageClassifications carrier order', () => {
     expect(refined[0].pageType).toBe('rate_confirmation')
   })
 
+  it('classifies an invoice after the first page as a lumper', () => {
+    const refined = refinePageClassifications([
+      page(1, 'invoice'),
+      page(2, 'rate_confirmation'),
+      page(6, 'invoice'),
+    ])
+    expect(refined.find((row) => row.pageNumber === 1)?.pageType).toBe('invoice')
+    expect(refined.find((row) => row.pageNumber === 6)?.pageType).toBe('lumper')
+  })
+
   it('still rewrites page 1 to invoice when BOL follows in the same file', () => {
     const refined = refinePageClassifications([
       page(1, 'rate_confirmation'),

@@ -127,6 +127,15 @@ function namesAlign(a?: string | null, b?: string | null): boolean {
   return left === right || left.includes(right) || right.includes(left)
 }
 
+function laneCityOnBol(lane: string, bolDelivery: string): boolean {
+  const hay = bolDelivery.toLowerCase()
+  return lane
+    .split(/→|->|\||;/)
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part.length > 2)
+    .some((part) => hay.includes(part) || namesAlign(part, bolDelivery))
+}
+
 function loadKeysAlign(a?: string | null, b?: string | null): boolean {
   if (!a?.trim() || !b?.trim()) return false
   const left = normalizeId(a)
@@ -284,6 +293,70 @@ function verifyInvoiceFromCatalog(
   const carrierPaper = (paperwork.carrierName || '').trim()
   const carrierOk = !carrierPaper || !carrierOnFile || namesAlign(carrierOnFile, carrierPaper)
 
+  const bolFp = fps.find(
+    (f) => f.kind === 'bol' || f.kind === 'bill_of_lading' || /bol/i.test(f.kind)
+  )
+  const bolExtract = (bolFp?.extract ?? {}) as Record<string, unknown>
+  const bolAudit = (bolExtract.bolAudit ?? bolExtract) as Record<string, unknown>
+  const bolDelivery = String(bolAudit.ship_to ?? bolFp?.delivery ?? '').trim()
+  const receiver = String(
+    (bolAudit.signatures as { receiver?: string } | undefined)?.receiver ??
+      bolAudit.receiver_signature ??
+      ''
+  ).toUpperCase()
+  const signatureMissing = receiver === 'MISSING' || receiver === 'ABSENT' || receiver === 'FAIL'
+  const bolOk = hasBol && !signatureMissing && (Boolean(bolDelivery) || hasRc)
+  const bolSummary = !hasBol
+    ? 'Missing bill of lading.'
+    : signatureMissing
+      ? 'Receiver signature is missing or unclear.'
+      : bolDelivery
+        ? 'Signed and delivery address is on the bill of lading.'
+        : 'Bill of lading is in the packet. Delivery address was not read.'
+
+  const lane = (paperwork.destinations || '').trim()
+  const stopsOk =
+    hasBol &&
+    Boolean(lane) &&
+    (bolDelivery ? namesAlign(lane, bolDelivery) || laneCityOnBol(lane, bolDelivery) : false)
+  const stopsSummary = !hasBol
+    ? 'No bill of lading. Delivery stops cannot be verified.'
+    : !lane
+      ? 'Delivery stops were not found on the rate confirmation.'
+      : !bolDelivery
+        ? 'Delivery stop on the rate confirmation was not confirmed on the bill of lading.'
+        : stopsOk
+          ? 'Delivery stops on the rate confirmation are covered by the bill of lading.'
+          : 'Delivery address on the bill of lading does not match the rate confirmation.'
+
+  const pageNotes = [
+    String(bolAudit.page_count_notes ?? ''),
+    ...(Array.isArray(bolAudit.flags) ? (bolAudit.flags as string[]) : []),
+  ].join(' ')
+  const printed = pageNotes.match(/(\d+)\s*(?:of|\/)\s*(\d+)/i)
+  const printedCurrent = printed ? Number(printed[1]) : 0
+  const printedTotal = printed ? Number(printed[2]) : 0
+  const pageStatus = String(bolAudit.page_count ?? '').toUpperCase()
+  const pageIncomplete =
+    hasBol &&
+    (pageStatus === 'INCOMPLETE' || pageStatus === 'FAIL') &&
+    printedTotal > 1
+  const pageOk = hasBol && !pageIncomplete
+  const pageSummary = !hasBol
+    ? 'No bill of lading found on this packet.'
+    : pageIncomplete
+      ? `Form shows page ${printedCurrent} of ${printedTotal} — missing BOL page(s).`
+      : printedTotal > 1
+        ? `Printed pagination ${printedCurrent} of ${printedTotal} — complete set on file.`
+        : printedTotal === 1
+          ? 'BOL shows page 1 of 1.'
+          : 'No printed page count on BOL — assumed complete.'
+  const pageValue = !hasBol
+    ? 'Not found'
+    : printedTotal > 0
+      ? `${printedCurrent}/${printedTotal}`
+      : 'No page mark'
+
   const requiredAll: LoadCheckRow[] = [
     checkRow(
       'req_load',
@@ -318,10 +391,18 @@ function verifyInvoiceFromCatalog(
     checkRow(
       'req_bol',
       'Bill of lading (signed & delivery address)',
-      hasBol ? 'ok' : 'issue',
-      hasBol ? 'BOL is present in the packet.' : 'Missing BOL',
+      bolOk ? 'ok' : 'issue',
+      bolSummary,
       hasBol ? 'present' : 'missing',
-      hasBol ? 'present' : 'missing'
+      hasBol ? bolDelivery || 'present' : 'missing'
+    ),
+    checkRow(
+      'req_stops',
+      'All delivery stops covered',
+      stopsOk ? 'ok' : 'issue',
+      stopsSummary,
+      paperwork.destinations,
+      bolDelivery || undefined
     ),
     checkRow(
       'req_carrier',
@@ -334,12 +415,12 @@ function verifyInvoiceFromCatalog(
       carrierPaper || undefined
     ),
     checkRow(
-      'req_rc',
-      'Rate confirmation',
-      hasRc ? 'ok' : 'issue',
-      hasRc ? 'Rate confirmation is present in the packet.' : 'Missing rate confirmation',
-      hasRc ? 'present' : 'missing',
-      hasRc ? 'present' : 'missing'
+      'req_page_count',
+      'BOL page count',
+      pageOk ? 'ok' : 'issue',
+      pageSummary,
+      pageValue,
+      pageValue
     ),
   ]
 
@@ -461,6 +542,15 @@ Deno.serve(async (req) => {
           .eq('id', jobs[0].id)
         jobs[0].status = 'pending'
       }
+    } else if (body.source === 'queue-drain') {
+      const { data } = await admin
+        .from('batch_processing_jobs')
+        .select('id, batch_id, client_id, kind, status, attempts, max_attempts, locked_at, locked_by')
+        .eq('status', 'pending')
+        .eq('kind', 'sort_and_verify')
+        .order('created_at', { ascending: true })
+        .limit(1)
+      jobs = (data as JobRow[]) ?? []
     } else {
       // Include running jobs so we can reclaim zombies from closed browser tabs.
       const { data } = await admin
@@ -487,17 +577,39 @@ Deno.serve(async (req) => {
         }
       }
 
-      await admin
-        .from('batch_processing_jobs')
-        .update({
-          status: 'running',
-          attempts: (job.attempts ?? 0) + 1,
-          started_at: new Date().toISOString(),
-          locked_at: new Date().toISOString(),
-          locked_by: isCron ? 'cron' : 'edge-invoke',
-          updated_at: new Date().toISOString(),
+      let claimedCreation = false
+      if (job.kind === 'sort_and_verify') {
+        const { data: turn, error: turnErr } = await admin.rpc('claim_packet_creation_turn', {
+          p_batch_id: job.batch_id,
         })
-        .eq('id', job.id)
+        if (!turnErr && turn !== 'started') {
+          results.push({
+            jobId: job.id,
+            batchId: job.batch_id,
+            skipped: true,
+            reason: turn === 'queued' ? 'queued_behind_creation' : 'already_running',
+          })
+          continue
+        }
+        if (!turnErr && turn === 'started') claimedCreation = true
+        else if (turnErr) {
+          console.warn('[batch-ai-process] claim_packet_creation_turn', turnErr.message)
+        }
+      }
+
+      if (!claimedCreation) {
+        await admin
+          .from('batch_processing_jobs')
+          .update({
+            status: 'running',
+            attempts: (job.attempts ?? 0) + 1,
+            started_at: new Date().toISOString(),
+            locked_at: new Date().toISOString(),
+            locked_by: isCron ? 'cron' : 'edge-invoke',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', job.id)
+      }
 
       try {
         const { data: batch, error: batchErr } = await admin

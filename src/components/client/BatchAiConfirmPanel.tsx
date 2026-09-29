@@ -35,6 +35,7 @@ import {
 import { invoiceDraftBlocker, isInvoiceDraftReady } from '../../utils/invoiceDraftReady'
 import {
   classifyPacketDoc,
+  packetDocKindBadge,
   groupPacketDocuments,
   type PacketDocRow,
 } from '../../utils/batchPacketDocs'
@@ -990,13 +991,7 @@ export default function BatchAiConfirmPanel({
                               title={doc.fileName}
                             >
                               <span className="client-ai-packet__acc-doc-kind">
-                                {doc.generated
-                                  ? 'INV'
-                                  : doc.category === 'rate_confirmation'
-                                    ? 'RC'
-                                    : doc.category === 'bol'
-                                      ? 'BOL'
-                                      : doc.category.slice(0, 3).toUpperCase()}
+                                {packetDocKindBadge(doc.category, doc.generated)}
                               </span>
                               {shortFileName(doc.fileName, 26)}
                             </button>
@@ -1100,13 +1095,7 @@ export default function BatchAiConfirmPanel({
                             title={doc.fileName}
                           >
                             <span className="client-ai-packet__acc-doc-kind">
-                              {doc.generated
-                                ? 'INV'
-                                : doc.category === 'rate_confirmation'
-                                  ? 'RC'
-                                  : doc.category === 'bol'
-                                    ? 'BOL'
-                                    : doc.category.slice(0, 3).toUpperCase()}
+                              {packetDocKindBadge(doc.category, doc.generated)}
                             </span>
                             {shortFileName(doc.fileName, 26)}
                           </button>
@@ -1207,7 +1196,11 @@ export default function BatchAiConfirmPanel({
                                   })
                                 }}
                               />
-                              <span className="client-ai-packet__acc-doc-kind">{group.label}</span>
+                              <span className="client-ai-packet__acc-doc-kind">
+                                {packetDocKindBadge(
+                                  classifyPacketDoc({ kind: fp.kind, fileName: fp.fileName })
+                                )}
+                              </span>
                               <span title={fp.fileName}>{shortFileName(fp.fileName, 22)}</span>
                             </button>
                             <button

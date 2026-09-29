@@ -144,9 +144,14 @@ export function planSourceBinders<T extends { fileName: string; kind: string }>(
     })
     const byKind = new Map<SourceBinderKind, T[]>()
     for (const page of sorted) {
-      const kind = normalizeSourceBinderKind(page.kind)
+      const pageNumber = parseUploadPageFileName(page.fileName)?.page ?? 1
+      // The carrier invoice is page 1. A later page the model calls an invoice
+      // is almost always a lumper receipt.
+      const adjusted: T =
+        page.kind === 'invoice' && pageNumber > 1 ? { ...page, kind: 'lumper' } : page
+      const kind = normalizeSourceBinderKind(adjusted.kind)
       const list = byKind.get(kind) ?? []
-      list.push(page)
+      list.push(adjusted)
       byKind.set(kind, list)
     }
     const buckets = KIND_ORDER.filter((kind) => (byKind.get(kind)?.length ?? 0) > 0).map(
@@ -213,4 +218,82 @@ export function partitionSourceBinders<T extends { fileName: string; kind: strin
   }
 
   return { packets, unassigned, loose }
+}
+
+/** Page 1 is the carrier invoice. A later page called an invoice is a lumper. */
+export function withLaterPageInvoicesAsLumpers<T extends { fileName: string; kind: string }>(
+  pages: T[]
+): T[] {
+  return pages.map((page) => {
+    const pageNumber = parseUploadPageFileName(page.fileName)?.page ?? 1
+    if (page.kind === 'invoice' && pageNumber > 1) return { ...page, kind: 'lumper' }
+    return page
+  })
+}
+
+/**
+ * Doc ids that must sit on the packet for a page-split upload: the RC pages,
+ * the BOL pages, and lumper/other support. The carrier invoice (page 1) is not
+ * included — it stays unassigned.
+ */
+export function sameUploadPacketDocIds<
+  T extends { fileName: string; kind: string; docId: string },
+>(pages: T[]): string[] {
+  const { packets } = packetsFromSameUploadPages(pages)
+  return packets.flatMap((packet) =>
+    [...packet.rateCons, ...packet.bols, ...packet.support].map((page) => page.docId)
+  )
+}
+
+/**
+ * Page-split files from one upload stay one packet: every RC page with every
+ * BOL page from that upload. The carrier invoice is pulled out. No cross-match.
+ */
+export function packetsFromSameUploadPages<T extends { fileName: string; kind: string }>(
+  fingerprints: T[]
+): { packets: SourceBinderPacket<T>[]; loose: T[] } {
+  const loose: T[] = []
+  const byStem = new Map<string, T[]>()
+
+  for (const fp of fingerprints) {
+    const parsed = parseUploadPageFileName(fp.fileName)
+    if (!parsed) {
+      loose.push(fp)
+      continue
+    }
+    const list = byStem.get(parsed.stem) ?? []
+    list.push(fp)
+    byStem.set(parsed.stem, list)
+  }
+
+  const packets: SourceBinderPacket<T>[] = []
+  for (const [stem, pages] of byStem) {
+    if (pages.length < 2) {
+      loose.push(...pages)
+      continue
+    }
+    const adjusted = pages.map((page) => {
+      const pageNumber = parseUploadPageFileName(page.fileName)?.page ?? 1
+      if (page.kind === 'invoice' && pageNumber > 1) {
+        return { ...page, kind: 'lumper' }
+      }
+      return page
+    })
+    const rateCons = adjusted.filter((page) => page.kind === 'rate_confirmation')
+    const bols = adjusted.filter((page) => page.kind === 'bill_of_lading')
+    const invoices = adjusted.filter((page) => page.kind === 'invoice')
+    const support = adjusted.filter(
+      (page) =>
+        page.kind !== 'rate_confirmation' &&
+        page.kind !== 'bill_of_lading' &&
+        page.kind !== 'invoice'
+    )
+    if (rateCons.length === 0 && bols.length === 0) {
+      loose.push(...adjusted)
+      continue
+    }
+    packets.push({ stem, rateCons, bols, support, invoices })
+  }
+
+  return { packets, loose }
 }

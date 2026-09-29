@@ -14,6 +14,8 @@ interface ImportMetaEnv {
   readonly VITE_AI_SIGNATURE_CONSENSUS_MIXED?: string
   /** Optional max PDF pages per file; omit or 0 = review all pages */
   readonly VITE_AI_MAX_PDF_PAGES?: string
+  /** Rate-con text extraction (default: gpt-4.1-mini-2025-04-14). Image reads stay on the primary model. */
+  readonly VITE_AI_RATE_CON_TEXT_MODEL?: string
   /** Page classification model (default: same as VITE_AI_PRIMARY_MODEL, gpt-4.1) */
   readonly VITE_AI_CLASSIFY_MODEL?: string
   /** Pages per classify API call (default 5) */

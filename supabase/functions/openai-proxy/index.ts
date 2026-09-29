@@ -212,11 +212,15 @@ async function resolveClientIdForSpend(
 
 function estimateCostUsd(model: string, promptTokens: number, completionTokens: number): number {
   const pricing: Record<string, { in: number; out: number }> = {
+    'gpt-4.1-mini': { in: 0.4, out: 1.6 },
     'gpt-4.1': { in: 2.0, out: 8.0 },
-    'gpt-4o': { in: 2.5, out: 10.0 },
     'gpt-4o-mini': { in: 0.15, out: 0.6 },
+    'gpt-4o': { in: 2.5, out: 10.0 },
   }
-  const key = Object.keys(pricing).find((k) => model.startsWith(k)) ?? 'gpt-4.1'
+  const key =
+    Object.keys(pricing)
+      .filter((k) => model.startsWith(k))
+      .sort((a, b) => b.length - a.length)[0] ?? 'gpt-4.1'
   const p = pricing[key] ?? pricing['gpt-4.1']
   return (promptTokens / 1_000_000) * p.in + (completionTokens / 1_000_000) * p.out
 }

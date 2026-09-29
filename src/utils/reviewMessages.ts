@@ -111,6 +111,19 @@ export const CHECK_LABELS = {
   pageCount: 'BOL page count',
 } as const
 
+/** Every packet is scored on these 7 checks, in this order. */
+export const REQUIRED_PACKET_CHECKS = [
+  { id: 'req_load', label: CHECK_LABELS.loadNumber },
+  { id: 'req_broker', label: CHECK_LABELS.broker },
+  { id: 'req_amount', label: CHECK_LABELS.amount },
+  { id: 'req_bol', label: CHECK_LABELS.bol },
+  { id: 'req_stops', label: CHECK_LABELS.multiStop },
+  { id: 'req_carrier', label: CHECK_LABELS.carrier },
+  { id: 'req_page_count', label: CHECK_LABELS.pageCount },
+] as const
+
+export const REQUIRED_PACKET_CHECK_COUNT = REQUIRED_PACKET_CHECKS.length
+
 /** Human-readable load # mismatch across documents. */
 export function loadNumberMismatchMessage(
   sources: Array<{ label: string; value: string }>

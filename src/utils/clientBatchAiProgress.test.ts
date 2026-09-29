@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { getClientBatchAiProgress } from './clientBatchAiProgress'
 import { estimateBatchProcessingEta, formatDurationMinutes } from './batchProcessingEta'
+import { markPacketCreationQueued } from './packetCreationQueue'
 
 describe('getClientBatchAiProgress', () => {
   it('hides progress for manual batches', () => {
@@ -145,6 +146,37 @@ describe('getClientBatchAiProgress', () => {
     })
     expect(result.phase).toBe('done')
   })
+
+  it('shows waiting in line while another batch is being created', () => {
+    const mem = new Map<string, string>()
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => mem.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        mem.set(key, value)
+      },
+      removeItem: (key: string) => {
+        mem.delete(key)
+      },
+    })
+    markPacketCreationQueued('batch-q', true)
+    const result = getClientBatchAiProgress({
+      batchId: 'batch-q',
+      uploadMode: 'handoff',
+      batchStatus: 'creating',
+      sortStatus: 'sorting',
+      invoices: [],
+      job: {
+        id: 'j-q',
+        batch_id: 'batch-q',
+        status: 'pending',
+        kind: 'sort_and_verify',
+      },
+    })
+    expect(result.label).toBe('Waiting in line')
+    expect(result.detail).toContain('Another batch is being created')
+    markPacketCreationQueued('batch-q', false)
+    vi.unstubAllGlobals()
+  })
 })
 
 describe('estimateBatchProcessingEta', () => {
@@ -153,46 +185,33 @@ describe('estimateBatchProcessingEta', () => {
     expect(formatDurationMinutes(180)).toBe('about 3 minutes')
   })
 
-  it('estimates from file count', () => {
+  it('estimates 16 packets at more than 20 minutes', () => {
     const eta = estimateBatchProcessingEta({
-      fileCount: 4,
+      fileCount: 16,
+      invoiceTotal: 16,
       phase: 'processing',
       startedAt: new Date().toISOString(),
     })
     expect(eta).not.toBeNull()
-    expect(eta!.remainingSeconds).toBeGreaterThan(40)
-    expect(eta!.remainingSeconds).toBeLessThan(10 * 60)
+    expect(eta!.remainingSeconds).toBeGreaterThan(20 * 60)
+    expect(eta!.remainingSeconds).toBeLessThan(45 * 60)
+    expect(eta!.label).toMatch(/about \d+ minutes/)
     expect(eta!.shortLabel).toMatch(/min left/)
   })
 })
 
 describe('AI creation timeout', () => {
-  it('is not timed out before ETA + grace', async () => {
-    const { isBatchAiCreationTimedOut, AI_CREATION_TIMEOUT_GRACE_MS } = await import(
+  it('never marks a batch timed out', async () => {
+    const { isBatchAiCreationTimedOut, getBatchAiCreationTimeoutAt } = await import(
       './batchProcessingEta'
     )
-    const startedAt = new Date().toISOString()
-    expect(
-      isBatchAiCreationTimedOut({
-        startedAt,
-        fileCount: 4,
-        invoiceTotal: 0,
-      })
-    ).toBe(false)
-    const started = Date.parse(startedAt)
-    // Just after start — still within window.
+    const startedAt = new Date(Date.now() - 3 * 60 * 60_000).toISOString()
+    expect(getBatchAiCreationTimeoutAt({ startedAt, fileCount: 4 })).toBeNull()
     expect(
       isBatchAiCreationTimedOut(
-        { startedAt, fileCount: 4 },
-        started + 60_000
+        { startedAt, fileCount: 16, invoiceTotal: 0 },
+        Date.now()
       )
     ).toBe(false)
-    // Far past ETA + grace.
-    expect(
-      isBatchAiCreationTimedOut(
-        { startedAt, fileCount: 4 },
-        started + 60 * 60_000 + AI_CREATION_TIMEOUT_GRACE_MS
-      )
-    ).toBe(true)
   })
 })

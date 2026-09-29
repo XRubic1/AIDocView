@@ -1,7 +1,7 @@
 import type { Invoice } from '../types/invoice'
 import type { InvoiceAiReviewSnapshot } from '../types/invoiceAiReview'
 import type { LoadCheckRow, LoadCheckStatus } from './loadReviewSummary'
-import { CHECK_LABELS } from './reviewMessages'
+import { CHECK_LABELS, REQUIRED_PACKET_CHECKS } from './reviewMessages'
 import { amountsMatchCents } from './extractBatchFields'
 import { freightAmountsMatch } from './amountMatching'
 import { matchBrokerByName } from './brokerResolve'
@@ -307,24 +307,23 @@ export function overlayPacketOnFileChecks(
   byId.set('req_amount', amountRow(packet, paperwork))
   byId.set('req_carrier', carrierRow(packet, paperwork))
 
-  const order = [
-    'req_load',
-    'req_broker',
-    'req_amount',
-    'req_bol',
-    'req_stops',
-    'req_carrier',
-    'req_page_count',
-  ]
-  const ordered: LoadCheckRow[] = []
-  for (const id of order) {
+  return ensureRequiredPacketChecks([...byId.values()])
+}
+
+/** Always the same 7 checks. A missing row does not pass. */
+export function ensureRequiredPacketChecks(required: LoadCheckRow[]): LoadCheckRow[] {
+  const byId = new Map(required.map((row) => [row.id, row]))
+  return REQUIRED_PACKET_CHECKS.map(({ id, label }) => {
     const row = byId.get(id)
-    if (row) ordered.push(row)
-  }
-  for (const row of required) {
-    if (!order.includes(row.id)) ordered.push(row)
-  }
-  return ordered
+    if (row) return { ...row, id, label }
+    return {
+      id,
+      label,
+      status: 'missing',
+      summary: `${label} was not checked.`,
+      detail: `${label} must pass before this invoice can be processed.`,
+    }
+  })
 }
 
 /** True when Resolve issues can copy paperwork load / amount / broker onto the packet. */

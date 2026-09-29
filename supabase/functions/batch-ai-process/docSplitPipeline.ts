@@ -13,6 +13,7 @@
  * - Broker matching is best-effort by name; unmatched brokers stay pending.
  */
 import { PDFDocument } from 'https://esm.sh/pdf-lib@1.17.1'
+import { extractText, getDocumentProxy } from 'https://esm.sh/unpdf@0.12.2'
 import {
   invoiceDraftGroupsFromSort,
   matchSortedDocuments,
@@ -27,6 +28,7 @@ import {
   isSourceBinderFileName,
   parseSourceBinderFileName,
   parseUploadPageFileName,
+  packetsFromSameUploadPages,
   partitionSourceBinders,
   planSourceBinders,
   sourceBinderFileName,
@@ -48,6 +50,8 @@ const HANDOFF_FOLDER = 'handoff-documents'
 /** Stop starting new AI work after this much wall time; re-queue for the next tick. */
 const TIME_BUDGET_MS = 100_000
 const MODEL = Deno.env.get('AI_PRIMARY_MODEL') ?? 'gpt-4.1-2025-04-14'
+const RATE_CON_TEXT_MODEL =
+  Deno.env.get('AI_RATE_CON_TEXT_MODEL') ?? 'gpt-4.1-mini-2025-04-14'
 const OPENAI_SEED = 42_001_337
 
 const MARK_KINDS: DocSortKind[] = ['rate_confirmation', 'bill_of_lading', 'invoice']
@@ -296,33 +300,59 @@ function parseRetrySeconds(body: string): number | undefined {
   return Number.isFinite(seconds) ? seconds : undefined
 }
 
+function rateConPageHasText(text: string): boolean {
+  return text.replace(/[^A-Za-z0-9]/g, '').length >= 40
+}
+
+function rateConTextPrompt(pageText: string): string {
+  return `${RATE_CON_PROMPT}
+
+The page text below is the PDF text layer, in reading order. Copy values exactly as printed. Use null when a field is not in the text. Do not guess.
+
+PAGE TEXT:
+${pageText.slice(0, 14_000)}`
+}
+
+async function readServerPdfPageTexts(bytes: Uint8Array): Promise<string[]> {
+  const pdf = await getDocumentProxy(bytes)
+  const extracted = await extractText(pdf, { mergePages: false })
+  const text = extracted.text
+  if (Array.isArray(text)) return text.map((page) => String(page ?? ''))
+  return text ? [String(text)] : []
+}
+
 async function callOpenAiJson(
   prompt: string,
-  doc: { fileName: string; bytes: Uint8Array },
-  deadline: number
+  doc: { fileName: string; bytes: Uint8Array } | null,
+  deadline: number,
+  model = MODEL
 ): Promise<Record<string, unknown>> {
   const apiKey = Deno.env.get('OPENAI_API_KEY')
   if (!apiKey) throw new Error('OPENAI_API_KEY not configured for batch-ai-process')
 
-  const mime = guessMime(doc.fileName)
-  const base64 = bytesToBase64(doc.bytes)
-  const filePart =
-    mime === 'application/pdf'
-      ? {
-          type: 'file',
-          file: { filename: doc.fileName, file_data: `data:application/pdf;base64,${base64}` },
-        }
-      : {
-          type: 'image_url',
-          image_url: { url: `data:${mime};base64,${base64}`, detail: 'high' },
-        }
+  const content: Array<Record<string, unknown>> = [{ type: 'text', text: prompt }]
+  if (doc) {
+    const mime = guessMime(doc.fileName)
+    const base64 = bytesToBase64(doc.bytes)
+    content.push(
+      mime === 'application/pdf'
+        ? {
+            type: 'file',
+            file: { filename: doc.fileName, file_data: `data:application/pdf;base64,${base64}` },
+          }
+        : {
+            type: 'image_url',
+            image_url: { url: `data:${mime};base64,${base64}`, detail: 'high' },
+          }
+    )
+  }
 
   const body = JSON.stringify({
-    model: MODEL,
+    model,
     temperature: 0,
     seed: OPENAI_SEED,
     response_format: { type: 'json_object' },
-    messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, filePart] }],
+    messages: [{ role: 'user', content }],
   })
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -760,18 +790,35 @@ export async function runServerDocSplitPipeline(
         }
         let walked: WalkableRateCon = {}
         let raw: Record<string, unknown> = {}
+        let textPages = 0
+        let imagePages = 0
+        let pageTexts: string[] = []
+        try {
+          pageTexts = await readServerPdfPageTexts(bytes)
+        } catch (err) {
+          console.warn('[docSplitPipeline] rate con text layer', fp.fileName, err)
+        }
         for (let pageIndex = 0; pageIndex < pdfPageCount; pageIndex += 1) {
           if (pageIndex > 0 && outOfBudget()) {
             await checkpoint(`Rate con ${fp.fileName} paused after page ${pageIndex}`)
             return { done: false, progress: 'Extracting fields…' }
           }
-          const slice =
-            pdfPageCount === 1 ? bytes : await pdfSinglePageBytes(bytes, pageIndex)
-          const pageRaw = (await callOpenAiJson(
-            RATE_CON_PROMPT,
-            { fileName: `${fp.fileName}#p${pageIndex + 1}`, bytes: slice },
-            deadline
-          )) as Record<string, unknown>
+          const pageText = pageTexts[pageIndex] ?? ''
+          const asText = rateConPageHasText(pageText)
+          if (asText) textPages += 1
+          else imagePages += 1
+          const pageRaw = (
+            asText
+              ? await callOpenAiJson(rateConTextPrompt(pageText), null, deadline, RATE_CON_TEXT_MODEL)
+              : await callOpenAiJson(
+                  RATE_CON_PROMPT,
+                  {
+                    fileName: `${fp.fileName}#p${pageIndex + 1}`,
+                    bytes: pdfPageCount === 1 ? bytes : await pdfSinglePageBytes(bytes, pageIndex),
+                  },
+                  deadline
+                )
+          ) as Record<string, unknown>
           walked = mergeRateConWalk(walked, rateConFromUnknown(pageRaw))
           raw = rateConWalkToRaw(walked, pageRaw)
           if (rateConWalkComplete(walked)) break
@@ -799,6 +846,9 @@ export async function runServerDocSplitPipeline(
           loadNumbers: [...new Set(loadNumbers.filter(Boolean))],
           extract: {
             documentType: 'rate_confirmation',
+            totalPagesInFile: pdfPageCount,
+            pagesReviewed: textPages + imagePages,
+            rateConRead: { textPages, imagePages },
             loadNumber: raw.load_number ? String(raw.load_number) : undefined,
             rateConParse: {
               load_number: raw.load_number ? String(raw.load_number) : undefined,
@@ -857,25 +907,31 @@ export async function runServerDocSplitPipeline(
   // ---- 4. MATCH + CREATE invoices ------------------------------------------
   // Binder uploads are one packet each (RC binder + BOL binder). The carrier
   // invoice stays unassigned. Loose docs still go through RC↔BOL matching.
-  const all = [...catalog.values()]
+  const all = [...catalog.values()].map((fp) => {
+    const pageNumber = parseUploadPageFileName(fp.fileName)?.page ?? 1
+    if (fp.kind === 'invoice' && pageNumber > 1) return { ...fp, kind: 'lumper' as const }
+    return fp
+  })
   const partitioned = partitionSourceBinders(all)
-  const forMatch = partitioned.loose.filter(
+  const fromPages = packetsFromSameUploadPages(partitioned.loose)
+  const uploadPackets = [...partitioned.packets, ...fromPages.packets]
+  const forMatch = fromPages.loose.filter(
     (fp) => fp.kind === 'rate_confirmation' || fp.kind === 'bill_of_lading'
   )
   const binderInvoices = [
-    ...partitioned.packets.flatMap((packet) => packet.invoices),
+    ...uploadPackets.flatMap((packet) => packet.invoices),
     ...partitioned.unassigned,
   ]
   const sortResult = matchSortedDocuments(forMatch)
   sortResult.otherDocuments = [
     ...sortResult.otherDocuments,
-    ...partitioned.loose.filter(
+    ...fromPages.loose.filter(
       (fp) => fp.kind !== 'rate_confirmation' && fp.kind !== 'bill_of_lading'
     ),
   ]
   sortResult.totalDocuments = all.length
   const grouped = invoiceDraftGroupsFromSort(sortResult)
-  const binderGroups: MatchLoadGroup[] = partitioned.packets.map((packet) => {
+  const binderGroups: MatchLoadGroup[] = uploadPackets.map((packet) => {
     const anchor = packet.rateCons[0] ?? packet.bols[0]
     return {
       groupId: `source-${packet.stem}`,

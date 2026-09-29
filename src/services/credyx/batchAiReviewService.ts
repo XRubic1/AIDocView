@@ -12,7 +12,7 @@ import {
   reviewUploadedDocuments,
 } from '../documentReviewService'
 import { parseFingerprintCatalog } from '../../products/docSort/utils/docSortSnapshot'
-import { reviewResultFromFingerprint } from '../../products/docSort/utils/docExtractJson'
+import { packetReviewsFromCatalog } from '../../utils/packetCatalogReview'
 import { buildInvoiceAiReviewSnapshot } from '../../utils/buildInvoiceAiReviewSnapshot'
 import { buildStructuredLoadReview, getApprovalGateMessage } from '../../utils/loadReviewSummary'
 import {
@@ -141,26 +141,41 @@ function reviewsFromCatalog(
   inv: Invoice,
   catalog: ReturnType<typeof parseFingerprintCatalog>
 ): DocumentReviewResult[] | null {
-  const docIds = paperworkDocIds(inv)
-  if (docIds.length === 0) return null
+  return packetReviewsFromCatalog(paperworkDocIds(inv), catalog)
+}
 
-  const reviews: DocumentReviewResult[] = []
-  for (const docId of docIds) {
-    const saved = catalog.get(docId)
-    if (!saved?.extract) return null
-    const rebuilt = reviewResultFromFingerprint({
-      docId,
-      fileName: saved.fileName || docId,
-      kind: saved.kind,
-      confidence: 0.9,
-      loadNumbers: saved.loadNumbers ?? [],
-      broker: saved.broker,
-      extract: saved.extract,
-    })
-    if (!rebuilt) return null
-    reviews.push(rebuilt)
-  }
-  return reviews
+/** Score a packet from the saved rate-con extract. No model call. */
+export function scoreInvoiceFromSavedExtracts(inv: Invoice): InvoiceAiReviewSnapshot | null {
+  const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
+  if (!batch) return null
+  const catalog = parseFingerprintCatalog(batch.doc_sort_snapshot)
+  const fromExtracts = reviewsFromCatalog(inv, catalog)
+  if (!fromExtracts) return null
+  const result = applyPacketKindHints(
+    assembleBatchReviewFromDocuments(fromExtracts, { singlePacket: true }),
+    catalog
+  )
+  const primaryDoc =
+    result.documents.find((d) => /rate|confirmation|\.RC\./i.test(d.fileName)) ??
+    result.documents[0]
+  if (!primaryDoc) return null
+  const structured = buildStructuredLoadReview(primaryDoc, result, {
+    packet: {
+      loadNumber: inv.load_number,
+      amount: inv.amount,
+      brokerName: inv.broker_name,
+      carrierName: inv.client_name,
+    },
+  })
+  const gate = getApprovalGateMessage(structured.requiredPassed.length, structured.requiredTotal)
+  return buildInvoiceAiReviewSnapshot(
+    primaryDoc,
+    result,
+    structured,
+    gate.ready ? 'Good to go' : 'Needs additional work',
+    gate.detail,
+    gate.ready
+  )
 }
 
 const PENDING_CHECK_DEFS: AiReviewLiveCheck[] = [

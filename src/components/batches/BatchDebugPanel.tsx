@@ -16,6 +16,8 @@ import {
   subscribeBatchLiveActivity,
   type BatchLiveActivity,
 } from '../../utils/batchLiveActivity'
+import { AI_REVIEW_CONFIG } from '../../config/aiReview'
+import type { PacketPipelineCostEstimate } from '../../utils/estimateReviewTokens'
 
 interface BatchDebugPanelProps {
   batchId: string
@@ -292,6 +294,79 @@ function resolvedBarTrack(c: ReturnType<typeof useClientTheme>): string {
   return typeof c.border === 'string' ? c.border : '#e2e8f0'
 }
 
+function rateConReadLabel(
+  read: { textPages: number; imagePages: number } | undefined
+): string {
+  if (!read) return ''
+  const text = read.textPages ?? 0
+  const image = read.imagePages ?? 0
+  if (text + image === 0) return ''
+  if (text > 0 && image === 0) {
+    return text === 1 ? ' · read as text' : ` · ${text} pages read as text`
+  }
+  if (image > 0 && text === 0) {
+    return image === 1 ? ' · read as image' : ` · ${image} pages read as image`
+  }
+  return ` · ${text} text · ${image} image`
+}
+
+function formatAiCostUsd(usd: number): string {
+  if (usd <= 0) return '$0'
+  if (usd < 0.1) return `~$${usd.toFixed(3)}`
+  return `~$${usd.toFixed(2)}`
+}
+
+function CostEstimateCard({
+  estimate,
+  theme,
+}: {
+  estimate: PacketPipelineCostEstimate
+  theme: ReturnType<typeof useClientTheme>
+}) {
+  const c = theme
+  return (
+    <div
+      className="rounded-xl border px-4 py-3 mb-3"
+      style={{ borderColor: c.border, backgroundColor: c.card }}
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+        <div>
+          <div className="text-[10px] uppercase tracking-wide" style={{ color: c.muted }}>
+            AI cost estimate
+          </div>
+          <div className="text-sm font-semibold tabular-nums" style={{ color: c.primary }}>
+            {formatAiCostUsd(estimate.totalUsd)}
+            {estimate.packetCount > 0 ? (
+              <span className="font-normal text-xs" style={{ color: c.secondary }}>
+                {' '}
+                · {formatAiCostUsd(estimate.perPacketUsd)} per packet
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <span className="text-[10px]" style={{ color: c.muted }}>
+          {AI_REVIEW_CONFIG.CLASSIFY_MODEL} · {AI_REVIEW_CONFIG.PAGE_CLASSIFY_DETAIL} detail
+        </span>
+      </div>
+      <ul className="space-y-1.5">
+        {estimate.steps.map((step) => (
+          <li key={step.id} className="flex items-baseline justify-between gap-3 text-xs">
+            <div className="min-w-0">
+              <span className="font-medium" style={{ color: c.primary }}>
+                {step.label}
+              </span>
+              <span style={{ color: c.muted }}> · {step.detail}</span>
+            </div>
+            <span className="shrink-0 tabular-nums" style={{ color: c.secondary }}>
+              {formatAiCostUsd(step.estimatedUsd)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 /** Admin batch lifecycle debugger — timeline, jobs, invoices, docs, audit. */
 export default function BatchDebugPanel({ batchId, onClose }: BatchDebugPanelProps) {
   const c = useClientTheme()
@@ -566,6 +641,7 @@ export default function BatchDebugPanel({ batchId, onClose }: BatchDebugPanelPro
 
         {snapshot ? (
           <div className="flex-shrink-0 px-5 py-3 border-b" style={{ borderColor: c.border }}>
+            <CostEstimateCard estimate={snapshot.costEstimate} theme={c} />
             <CurrentJobCard
               activity={snapshot.liveActivity}
               backgroundRunningInThisTab={snapshot.backgroundRunningInThisTab}
@@ -812,6 +888,7 @@ export default function BatchDebugPanel({ batchId, onClose }: BatchDebugPanelPro
                       {doc.loadNumbers.length ? ` · ${doc.loadNumbers.join(', ')}` : ''}
                       {doc.broker ? ` · ${doc.broker}` : ''}
                       {doc.invoiceNumber ? ` · Inv ${doc.invoiceNumber}` : ''}
+                      {rateConReadLabel(doc.rateConRead)}
                     </div>
                   </div>
                 ))
