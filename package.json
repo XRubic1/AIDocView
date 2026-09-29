@@ -19,6 +19,7 @@
     "seed-30day": "tsx scripts/seed30DayBatch.ts --days 30 --count 10",
     "seed-45day": "tsx scripts/seed30DayBatch.ts --days 45 --count 5",
     "legal:pdf": "tsx scripts/generateLegalPdfs.ts",
+    "sales:pdf": "tsx scripts/generateSalesPlaybookPdf.ts",
     "preview": "vite preview",
     "lint": "tsc --noEmit"
   },
