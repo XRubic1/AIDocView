@@ -136,6 +136,14 @@ describe('blueprintAutoMatch', () => {
     expect(scoreBlueprintForEvent(agingChaseBlueprint(), 'hold', makeInvoice('hold'))).toBeNull()
   })
 
+  it('does not enroll an On hold graph when the invoice is open', () => {
+    const open = makeInvoice('approved')
+    expect(scoreBlueprintForEvent(holdBlueprint(), 'ppw', open)).toBeNull()
+    expect(scoreBlueprintForEvent(holdBlueprint(), 'sync', open)).toBeNull()
+    expect(scoreBlueprintForEvent(holdBlueprint(), 'invoice_processed', open)).toBeNull()
+    expect(scoreBlueprintForEvent(holdBlueprint(), 'hold', makeInvoice('hold'))).not.toBeNull()
+  })
+
   it('does not match hold-only graph to ppw', () => {
     const holdOnly: SavedBlueprint = {
       ...holdBlueprint(),

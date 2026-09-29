@@ -143,8 +143,12 @@ export function declutterActivityEntries<T extends ActivityNoteListEntry>(
     }
 
     // Document sent: keep recipient email, capitalize delivery status
-    if (e.kind === 'send' || e.kind === 'send_failed' || /^document sent/i.test(e.title)) {
+    if (e.kind === 'send_failed') {
+      title = 'Failed to send'
+    } else if (e.kind === 'send' || /^document sent/i.test(e.title)) {
       title = 'Sent to broker'
+    }
+    if (e.kind === 'send' || e.kind === 'send_failed' || /^document sent/i.test(e.title)) {
       if (detail) {
         // "ap@tql.example · delivered" → "ap@tql.example · Delivered"
         const sep = detail.lastIndexOf(' · ')

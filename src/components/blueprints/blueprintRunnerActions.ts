@@ -95,6 +95,18 @@ function fillBlueprintMessage(message: string, invoiceId: string, sentTo?: strin
   })
 }
 
+function recordFailedPacketSend(invoice: Invoice, sentBy: string, reason: string): void {
+  const history = [...(invoice.document_send_history ?? [])]
+  history.push({
+    email_address: '',
+    sent_at: new Date().toISOString(),
+    sent_by: sentBy,
+    status: 'failed',
+    note: reason,
+  })
+  updateInvoice(invoice.id, { document_send_history: history })
+}
+
 function withBlueprintTag(body: string, blueprintName: string): string {
   const tag = `(Blueprint: ${blueprintName})`
   const trimmed = body.trim()
@@ -212,6 +224,7 @@ async function executeBrokerPacketThenDo(input: {
     resolveBrokerChaseEmail(broker) ||
     resolveBrokerPaperworkEmail(broker)
   if (!to) {
+    recordFailedPacketSend(invoice, input.authorName, 'No broker email on file.')
     return {
       actionId: input.actionId,
       ok: false,

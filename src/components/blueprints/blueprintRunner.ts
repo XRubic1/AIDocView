@@ -548,7 +548,9 @@ export async function advanceInvoiceRun(
     if (current.data.kind === 'action') {
       const ids = getActionIds(current.data)
       const actionResults: string[] = []
+      let sendFailed = false
       for (const actionId of ids) {
+        if (sendFailed) break
         const result = await executeBlueprintThenDo({
           invoiceId,
           actionId,
@@ -560,6 +562,35 @@ export async function advanceInvoiceRun(
         })
         details.push(result.detail)
         actionResults.push(result.detail)
+        if (
+          !result.ok &&
+          !result.skipped &&
+          (actionId === 'email_broker_packet' ||
+            actionId === 'email_payment_status' ||
+            actionId === 'email_followup')
+        ) {
+          sendFailed = true
+        }
+      }
+      if (sendFailed) {
+        run = upsertBlueprintRun(
+          {
+            ...run,
+            status: 'stopped',
+            currentNodeId: current.id,
+            currentStep: 'Stopped · send failed',
+            waitUntil: null,
+          },
+          {
+            historyEvent: {
+              kind: 'stopped',
+              title: 'Stopped · send failed',
+              detail: actionResults.join(' · ') || undefined,
+            },
+          }
+        )
+        details.push('Stopped — the send did not go out, so later steps were not run.')
+        break
       }
       if (ids.length === 0) {
         details.push('Then do card has no tasks — skipped.')

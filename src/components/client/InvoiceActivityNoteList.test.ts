@@ -72,4 +72,19 @@ describe('declutterActivityEntries', () => {
     expect(send?.detail).toBe('ap@tql.example · Delivered')
     expect(send?.meta).toBe('4 files')
   })
+
+  it('labels a failed packet send as failed', () => {
+    const out = declutterActivityEntries([
+      {
+        id: 'send-fail',
+        title: 'Document sent',
+        detail: 'No broker email on file.',
+        kind: 'send_failed',
+        timestamp: '2026-09-29',
+        tone: 'error',
+      },
+    ])
+    expect(out[0]?.title).toBe('Failed to send')
+    expect(out[0]?.detail).toMatch(/no broker email/i)
+  })
 })

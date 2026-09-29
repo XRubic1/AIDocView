@@ -357,6 +357,7 @@ export function scoreBlueprintForEvent(
   if (event === 'ppw') {
     // Hold-track blueprints are for hold, not PPW
     if (holdOnly(filters)) return null
+    if (hasWhenOnHold(bp.nodes, 'yes') && !hasCheck(bp.nodes, 'ppw_sent')) return null
     if (hasWhenOnHold(bp.nodes, 'yes') && !includesOpen) return null
     if (!includesOpen && statuses.length > 0 && !includesHold) {
       // weird filter set — skip
@@ -378,6 +379,8 @@ export function scoreBlueprintForEvent(
   }
 
   if (event === 'sync') {
+    // A graph that waits for On hold stays unassigned until the invoice is on hold.
+    if (hasWhenOnHold(bp.nodes, 'yes') && invoice.status !== 'hold') return null
     // Realtime assign: Start filters must pass for the invoice as it is now
     if (!invoicePassesGate(invoice, filters)) return null
     if (holdOnly(filters) && invoice.status !== 'hold') return null
@@ -414,6 +417,7 @@ export function scoreBlueprintForEvent(
   }
 
   // purchased — new invoice entered Credyx
+  if (hasWhenOnHold(bp.nodes, 'yes') && invoice.status !== 'hold') return null
   if (!includesOpen && !statuses.includes('pending')) {
     // Broad default filters include pending — if only hold, not purchase
     if (holdOnly(filters)) return null

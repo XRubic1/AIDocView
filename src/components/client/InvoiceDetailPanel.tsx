@@ -757,9 +757,9 @@ export default function InvoiceDetailPanel({
       return {
         id: `send-${idx}-${send.sent_at}`,
         title: partLabel ? `Document sent · ${partLabel}` : 'Document sent',
-        detail: send.status
-          ? `${send.email_address} · ${send.status}`
-          : send.email_address,
+        detail: send.email_address?.trim()
+          ? [send.email_address.trim(), send.status].filter(Boolean).join(' · ')
+          : send.note?.trim() || send.status || '',
         timestamp: send.sent_at,
         tone: sendTone,
         kind: send.status === 'failed' ? 'send_failed' : 'send',
