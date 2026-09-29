@@ -202,6 +202,42 @@ async function createInvoicesFromHandoffDocs(batchId: string): Promise<boolean> 
 
   updateBatch(batchId, { status: 'creating', sort_status: 'sorting' })
   notifyTenantDataUpdated(['batches'], batch.client_id)
+
+  const { getPdfPageCount, isPdfFile } = await import('../../utils/pdfPageExtract')
+  const { isPageSplitFileName } = await import('../../utils/docSplitterExplode')
+  const hasPageSplits = files.some((file) => isPageSplitFileName(file.name))
+  let multiPageCount = 0
+  if (!hasPageSplits) {
+    for (const file of files) {
+      if (!isPdfFile(file)) continue
+      if ((await getPdfPageCount(file)) > 1) multiPageCount += 1
+    }
+  }
+  // Combined uploads (or pages already split from them) skip the full DocSort
+  // review. Classify → binders → read each rate con from page 1 until filled.
+  if (hasPageSplits || multiPageCount > 0) {
+    updateBatchLiveActivity(batchId, {
+      phase: 'doc_split',
+      thinking:
+        'Split each combined upload into an invoice, an RC binder, and a BOL binder, then read the rate con from page 1 until the load fields are filled.',
+      doing: hasPageSplits
+        ? 'Building binders from split pages…'
+        : `Preparing ${multiPageCount} combined upload(s)…`,
+      progressPercent: 20,
+      progressLabel: 'Binders',
+    })
+    const { runDocSplitterAutoPipeline } = await import('../../utils/docSplitterAutoPipeline')
+    await markJob(batchId, 'running', 'AI splitting docs…')
+    const splitResult = await runDocSplitterAutoPipeline(batchId)
+    if (splitResult.aborted) return false
+    if (!splitResult.ok) {
+      await markJob(batchId, 'failed', splitResult.error ?? 'Doc Split pipeline failed')
+      return false
+    }
+    notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
+    return true
+  }
+
   updateBatchLiveActivity(batchId, {
     phase: 'doc_sort',
     thinking: 'Group uploaded PDFs into loads (RC + BOL) and build invoice packets.',

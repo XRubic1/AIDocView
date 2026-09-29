@@ -46,6 +46,27 @@ export async function extractPdfPages(
   return new File([saved as BlobPart], name, { type: 'application/pdf' })
 }
 
+/** Merge PDF files in order into one binder File. */
+export async function mergePdfFiles(sources: Array<File | Uint8Array>, outFileName: string): Promise<File> {
+  if (sources.length === 0) {
+    throw new Error('No PDFs to merge.')
+  }
+  const out = await PDFDocument.create()
+  for (const source of sources) {
+    const bytes = source instanceof File ? new Uint8Array(await source.arrayBuffer()) : source
+    const src = await PDFDocument.load(bytes, { ignoreEncryption: true })
+    if (src.getPageCount() === 0) continue
+    const copied = await out.copyPages(src, src.getPageIndices())
+    copied.forEach((page) => out.addPage(page))
+  }
+  if (out.getPageCount() === 0) {
+    throw new Error('Merged PDF is empty.')
+  }
+  const saved = await out.save()
+  const name = outFileName.toLowerCase().endsWith('.pdf') ? outFileName : `${outFileName}.pdf`
+  return new File([saved as BlobPart], name, { type: 'application/pdf' })
+}
+
 /** Page count for a PDF File (0 when unreadable). */
 export async function getPdfPageCount(source: File | ArrayBuffer | Uint8Array): Promise<number> {
   try {

@@ -18,6 +18,7 @@ import {
   PauseCircle,
   PlayCircle,
   GitBranch,
+  StickyNote,
   Zap,
 } from 'lucide-react'
 import type { Invoice } from '../../types/invoice'
@@ -1477,6 +1478,23 @@ export default function InvoiceDetailPanel({
               <button
                 type="button"
                 className={`payment-confirmation-panel__icon-btn${
+                  detailSurface === 'notes'
+                    ? ' payment-confirmation-panel__icon-btn--active'
+                    : ''
+                }`}
+                onClick={() => {
+                  setTimelineFilter('notes')
+                  setDetailSurface((s) => (s === 'notes' ? 'overview' : 'notes'))
+                }}
+                aria-label="Notes"
+                aria-pressed={detailSurface === 'notes'}
+                title="Notes"
+              >
+                <StickyNote className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                className={`payment-confirmation-panel__icon-btn${
                   detailSurface === 'blueprints'
                     ? ' payment-confirmation-panel__icon-btn--active'
                     : ''
@@ -1583,6 +1601,23 @@ export default function InvoiceDetailPanel({
                 <button
                   type="button"
                   className={`payment-confirmation-panel__icon-btn${
+                    detailSurface === 'notes'
+                      ? ' payment-confirmation-panel__icon-btn--active'
+                      : ''
+                  }`}
+                  onClick={() => {
+                    setTimelineFilter('notes')
+                    setDetailSurface((s) => (s === 'notes' ? 'overview' : 'notes'))
+                  }}
+                  aria-label="Notes"
+                  aria-pressed={detailSurface === 'notes'}
+                  title="Notes"
+                >
+                  <StickyNote className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  className={`payment-confirmation-panel__icon-btn${
                     detailSurface === 'blueprints'
                       ? ' payment-confirmation-panel__icon-btn--active'
                       : ''
@@ -1647,102 +1682,6 @@ export default function InvoiceDetailPanel({
       ) : null}
 
       <div className="payment-confirmation-panel__body">
-        <div
-          className="payment-confirmation-panel__mobile-surface-tabs"
-          role="tablist"
-          aria-label="Invoice detail views"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={detailSurface === 'overview'}
-            className={`payment-confirmation-panel__mobile-surface-tab${
-              detailSurface === 'overview'
-                ? ' payment-confirmation-panel__mobile-surface-tab--active'
-                : ''
-            }`}
-            onClick={() => setDetailSurface('overview')}
-          >
-            {notesAsPrimaryTab ? 'Invoice details' : 'Overview'}
-          </button>
-          {notesAsPrimaryTab ? (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={detailSurface === 'notes'}
-              className={`payment-confirmation-panel__mobile-surface-tab${
-                detailSurface === 'notes'
-                  ? ' payment-confirmation-panel__mobile-surface-tab--active'
-                  : ''
-              }`}
-              onClick={() => {
-                setTimelineFilter('all')
-                setDetailSurface('notes')
-              }}
-            >
-              Notes
-              {allTimelineEntries.length > 0 ? (
-                <span className="payment-confirmation-panel__mobile-surface-tab-count">
-                  {allTimelineEntries.length}
-                </span>
-              ) : null}
-            </button>
-          ) : (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={detailSurface === 'activity'}
-              className={`payment-confirmation-panel__mobile-surface-tab${
-                detailSurface === 'activity'
-                  ? ' payment-confirmation-panel__mobile-surface-tab--active'
-                  : ''
-              }`}
-              onClick={() => setDetailSurface('activity')}
-            >
-              Activity
-              {allTimelineEntries.length > 0 ? (
-                <span className="payment-confirmation-panel__mobile-surface-tab-count">
-                  {allTimelineEntries.length}
-                </span>
-              ) : null}
-            </button>
-          )}
-          {isAdminPortal && !notesAsPrimaryTab ? (
-            <>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={detailSurface === 'blueprints'}
-              className={`payment-confirmation-panel__mobile-surface-tab${
-                detailSurface === 'blueprints'
-                  ? ' payment-confirmation-panel__mobile-surface-tab--active'
-                  : ''
-              }`}
-              onClick={() => setDetailSurface('blueprints')}
-              title="Blueprints"
-            >
-              <GitBranch className="w-3.5 h-3.5" aria-hidden />
-              <span className="sr-only">Blueprints</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={detailSurface === 'actions'}
-              className={`payment-confirmation-panel__mobile-surface-tab${
-                detailSurface === 'actions'
-                  ? ' payment-confirmation-panel__mobile-surface-tab--active'
-                  : ''
-              }`}
-              onClick={() => setDetailSurface('actions')}
-              title="Actions"
-            >
-              <Zap className="w-3.5 h-3.5" aria-hidden />
-              <span className="sr-only">Actions</span>
-            </button>
-            </>
-          ) : null}
-        </div>
-
         {detailSurface === 'overview' ? (
           <MobileInvoiceOverview
             invoice={visibleInvoice}
@@ -1817,6 +1756,7 @@ export default function InvoiceDetailPanel({
                     navigate(`/client/brokers?broker=${encodeURIComponent(key)}`)
                   }
             }
+            showBlueprintChase={isAdminPortal}
           />
         ) : detailSurface === 'blueprints' ? (
           <section

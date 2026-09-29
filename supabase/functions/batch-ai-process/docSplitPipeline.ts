@@ -2,8 +2,9 @@
  * Server-side Doc Split pipeline — browser-free packet creation.
  *
  * Split multi-page PDFs (pdf-lib) → classify pages (OpenAI, PDF file input)
- * → extract RC/BOL fields → match RC↔BOL (shared port of browser rules)
- * → create invoices. Checkpoints every step into batch.doc_sort_snapshot so
+ * → collapse each upload into Invoice / RC binder / BOL binder
+ * → extract RC/BOL fields from the binders → one packet per upload
+ * (loose docs still match RC↔BOL). Checkpoints every step into batch.doc_sort_snapshot so
  * each invocation does bounded work and cron resumes from where it stopped.
  *
  * Differences vs the browser pipeline (intentional):
@@ -22,6 +23,22 @@ import {
   type MatchFingerprint,
   type MatchLoadGroup,
 } from '../_shared/docSortMatch.ts'
+import {
+  isSourceBinderFileName,
+  parseSourceBinderFileName,
+  parseUploadPageFileName,
+  partitionSourceBinders,
+  planSourceBinders,
+  sourceBinderFileName,
+  stemHasSourceBinder,
+} from '../_shared/sourceDocBinders.ts'
+import {
+  mergeRateConWalk,
+  rateConFromUnknown,
+  rateConWalkComplete,
+  rateConWalkToRaw,
+  type WalkableRateCon,
+} from '../_shared/rateConWalk.ts'
 
 // deno-lint-ignore no-explicit-any
 type Supa = any
@@ -232,6 +249,32 @@ async function uploadBytes(
     contentType,
   })
   return !error
+}
+
+async function mergePdfPageBytes(parts: Uint8Array[]): Promise<Uint8Array> {
+  const out = await PDFDocument.create()
+  for (const bytes of parts) {
+    let src: PDFDocument
+    try {
+      src = await PDFDocument.load(bytes, { ignoreEncryption: true })
+    } catch {
+      continue
+    }
+    if (src.getPageCount() === 0) continue
+    const copied = await out.copyPages(src, src.getPageIndices())
+    for (const page of copied) out.addPage(page)
+  }
+  if (out.getPageCount() === 0) throw new Error('Binder PDF is empty')
+  return out.save()
+}
+
+async function pdfSinglePageBytes(source: Uint8Array, pageIndex: number): Promise<Uint8Array> {
+  const src = await PDFDocument.load(source, { ignoreEncryption: true })
+  if (src.getPageCount() <= 1) return source
+  const out = await PDFDocument.create()
+  const [page] = await out.copyPages(src, [pageIndex])
+  out.addPage(page)
+  return out.save()
 }
 
 // ---------------------------------------------------------------------------
@@ -453,10 +496,29 @@ export async function runServerDocSplitPipeline(
     return false
   }
 
-  // Register storage docs missing from the catalog (skip already-split parents).
+  // Register storage docs missing from the catalog (skip already-split parents
+  // and uploads that were already collapsed into binders).
+  const catalogNames = () => [...catalog.values()].map((fp) => fp.fileName)
   for (const doc of stored) {
     if (catalog.has(doc.docId)) continue
-    if (!isPageSplitFileName(doc.fileName) && catalogHasChildrenOf(doc.fileName)) continue
+    if (isSourceBinderFileName(doc.fileName) || doc.docId.startsWith('binder-')) {
+      const parsed = parseSourceBinderFileName(doc.fileName)
+      catalog.set(doc.docId, {
+        docId: doc.docId,
+        fileName: doc.fileName,
+        kind: parsed?.kind ?? 'other',
+        confidence: 0.9,
+        loadNumbers: [],
+        classified: true,
+      })
+      continue
+    }
+    if (
+      !isPageSplitFileName(doc.fileName) &&
+      (catalogHasChildrenOf(doc.fileName) || stemHasSourceBinder(catalogNames(), doc.fileName))
+    ) {
+      continue
+    }
     catalog.set(doc.docId, {
       docId: doc.docId,
       fileName: doc.fileName,
@@ -474,9 +536,12 @@ export async function runServerDocSplitPipeline(
     (fp) =>
       /\.pdf$/i.test(fp.fileName) &&
       !isPageSplitFileName(fp.fileName) &&
+      !isSourceBinderFileName(fp.fileName) &&
       !fp.docId.startsWith('page-split-') &&
+      !fp.docId.startsWith('binder-') &&
       !MARK_KINDS.includes(fp.kind) &&
       !catalogHasChildrenOf(fp.fileName) &&
+      !stemHasSourceBinder(catalogNames(), fp.fileName) &&
       pathByDocId.has(fp.docId)
   )
 
@@ -558,11 +623,121 @@ export async function runServerDocSplitPipeline(
     }
   }
 
+  // ---- 2b. COLLAPSE each upload into Invoice / RC binder / BOL binder ------
+  // Do not rewrite storage once packets exist — their docs still point at the
+  // page files from the run that created them.
+  const { data: existingBeforeCollapse } = await admin
+    .from('invoices')
+    .select('id')
+    .eq('batch_id', batch.id)
+    .limit(1)
+  if ((existingBeforeCollapse ?? []).length > 0) {
+    return { done: true, progress: 'Packets already exist — skipped create', invoicesCreated: 0 }
+  }
+
+  // Pages stay split only long enough to classify. Matching individual RC
+  // pages created extra packets from continuation pages of the same upload.
+  const existingBinderNames = () =>
+    new Set([...catalog.values()].map((fp) => fp.fileName.toLowerCase()))
+
+  const collapsePlans = planSourceBinders([...catalog.values()])
+  for (const plan of collapsePlans) {
+    if (outOfBudget()) {
+      await checkpoint('Building binders — resuming next tick')
+      return { done: false, progress: 'Building binders…' }
+    }
+
+    const pageIds = plan.buckets.flatMap((bucket) => bucket.pages.map((page) => page.docId))
+    const missing = pageIds.some((docId) => !pathByDocId.has(docId))
+    if (missing) {
+      const stemHasBinder = plan.buckets.some((bucket) =>
+        existingBinderNames().has(bucket.fileName.toLowerCase())
+      )
+      if (!stemHasBinder) continue
+      for (const docId of pageIds) {
+        catalog.delete(docId)
+        pathByDocId.delete(docId)
+      }
+      await checkpoint(`Dropped split pages for ${plan.stem} — binders already stored`)
+      continue
+    }
+
+    const created: CatalogFp[] = []
+    const createdPaths: Array<{ docId: string; path: string; bytes: Uint8Array }> = []
+    let failed = false
+
+    for (const bucket of plan.buckets) {
+      if (existingBinderNames().has(bucket.fileName.toLowerCase())) continue
+      const parts: Uint8Array[] = []
+      const ordered = [...bucket.pages].sort((a, b) => {
+        const left = parseUploadPageFileName(a.fileName)?.page ?? 0
+        const right = parseUploadPageFileName(b.fileName)?.page ?? 0
+        return left - right
+      })
+      for (const page of ordered) {
+        const bytes = await downloadBytes(admin, pathByDocId.get(page.docId)!)
+        if (!bytes) {
+          failed = true
+          break
+        }
+        parts.push(bytes)
+      }
+      if (failed || parts.length === 0) {
+        failed = true
+        break
+      }
+      try {
+        const merged = await mergePdfPageBytes(parts)
+        const docId = `binder-${Date.now()}-${bucket.kind}-${Math.random().toString(36).slice(2, 7)}`
+        const path = `${batch.client_id}/${batch.id}/${HANDOFF_FOLDER}/${docId}/${bucket.fileName}`
+        created.push({
+          docId,
+          fileName: sourceBinderFileName(plan.stem, bucket.kind),
+          kind: bucket.kind,
+          confidence: 1,
+          loadNumbers: [],
+          classified: true,
+        })
+        createdPaths.push({ docId, path, bytes: merged })
+      } catch (err) {
+        console.warn('[docSplitPipeline] binder merge failed', plan.stem, bucket.kind, err)
+        failed = true
+        break
+      }
+    }
+
+    if (failed) continue
+
+    for (const item of createdPaths) {
+      const uploaded = await uploadBytes(admin, item.path, item.bytes, 'application/pdf')
+      if (!uploaded) throw new Error(`Failed to upload binder ${item.path}`)
+      pathByDocId.set(item.docId, item.path)
+    }
+    for (const fp of created) catalog.set(fp.docId, fp)
+
+    const pagePaths = pageIds
+      .map((docId) => pathByDocId.get(docId))
+      .filter((path): path is string => Boolean(path))
+    if (pagePaths.length > 0) {
+      const { error: removeError } = await admin.storage.from(BUCKET).remove(pagePaths)
+      if (removeError) {
+        throw new Error(`Failed to remove split pages for ${plan.stem}: ${removeError.message}`)
+      }
+    }
+    for (const docId of pageIds) {
+      catalog.delete(docId)
+      pathByDocId.delete(docId)
+    }
+    await checkpoint(`Collapsed ${plan.stem} into binders`)
+  }
+
   // ---- 3. EXTRACT RC / BOL fields ------------------------------------------
   const pendingExtract = () =>
     [...catalog.values()].filter(
       (fp) =>
-        (fp.kind === 'rate_confirmation' || fp.kind === 'bill_of_lading') && !fp.extract
+        (fp.kind === 'rate_confirmation' ||
+          (fp.kind === 'bill_of_lading' && !isSourceBinderFileName(fp.fileName))) &&
+        !fp.extract
     )
 
   for (const fp of pendingExtract()) {
@@ -576,24 +751,37 @@ export async function runServerDocSplitPipeline(
     if (!bytes) continue
     try {
       if (fp.kind === 'rate_confirmation') {
-        const raw = (await callOpenAiJson(
-          RATE_CON_PROMPT,
-          { fileName: fp.fileName, bytes },
-          deadline
-        )) as Record<string, unknown> & {
-          load_number?: string
-          broker_name?: string
-          carrier_name?: string
-          rate_total?: number
-          origin?: Record<string, string>
-          destinations?: Array<Record<string, string>>
-          bol_reference_numbers?: string[]
+        let pdfPageCount = 1
+        try {
+          const loaded = await PDFDocument.load(bytes, { ignoreEncryption: true })
+          pdfPageCount = Math.max(1, loaded.getPageCount())
+        } catch {
+          pdfPageCount = 1
+        }
+        let walked: WalkableRateCon = {}
+        let raw: Record<string, unknown> = {}
+        for (let pageIndex = 0; pageIndex < pdfPageCount; pageIndex += 1) {
+          if (pageIndex > 0 && outOfBudget()) {
+            await checkpoint(`Rate con ${fp.fileName} paused after page ${pageIndex}`)
+            return { done: false, progress: 'Extracting fields…' }
+          }
+          const slice =
+            pdfPageCount === 1 ? bytes : await pdfSinglePageBytes(bytes, pageIndex)
+          const pageRaw = (await callOpenAiJson(
+            RATE_CON_PROMPT,
+            { fileName: `${fp.fileName}#p${pageIndex + 1}`, bytes: slice },
+            deadline
+          )) as Record<string, unknown>
+          walked = mergeRateConWalk(walked, rateConFromUnknown(pageRaw))
+          raw = rateConWalkToRaw(walked, pageRaw)
+          if (rateConWalkComplete(walked)) break
         }
         const destinations = Array.isArray(raw.destinations) ? raw.destinations : []
-        const lastStop = destinations[destinations.length - 1]
+        const lastStop = destinations[destinations.length - 1] as Record<string, string> | undefined
+        const origin = (raw.origin ?? undefined) as Record<string, string> | undefined
         const loadNumbers = [
           ...(raw.load_number ? [String(raw.load_number)] : []),
-          ...(raw.bol_reference_numbers ?? []).map(String),
+          ...((raw.bol_reference_numbers as string[] | undefined) ?? []).map(String),
           ...fp.loadNumbers,
         ]
         catalog.set(fp.docId, {
@@ -604,9 +792,9 @@ export async function runServerDocSplitPipeline(
             typeof raw.rate_total === 'number' && raw.rate_total > 0
               ? raw.rate_total
               : fp.rateAmount,
-          pickup: formatStop(raw.origin) ?? fp.pickup,
+          pickup: formatStop(origin) ?? fp.pickup,
           delivery: formatStop(lastStop) ?? fp.delivery,
-          pickupDate: String(raw.origin?.pickup_date ?? '') || fp.pickupDate,
+          pickupDate: String(origin?.pickup_date ?? '') || fp.pickupDate,
           deliveryDate: String(lastStop?.delivery_date ?? '') || fp.deliveryDate,
           loadNumbers: [...new Set(loadNumbers.filter(Boolean))],
           extract: {
@@ -617,9 +805,11 @@ export async function runServerDocSplitPipeline(
               broker_name: raw.broker_name ? String(raw.broker_name) : undefined,
               carrier_name: raw.carrier_name ? String(raw.carrier_name) : undefined,
               rate_total: typeof raw.rate_total === 'number' ? raw.rate_total : undefined,
-              bol_reference_numbers: (raw.bol_reference_numbers ?? []).map(String),
+              bol_reference_numbers: ((raw.bol_reference_numbers as string[] | undefined) ?? []).map(
+                String
+              ),
               destinations,
-              origin: raw.origin,
+              origin,
             },
           },
         })
@@ -665,17 +855,40 @@ export async function runServerDocSplitPipeline(
   }
 
   // ---- 4. MATCH + CREATE invoices ------------------------------------------
+  // Binder uploads are one packet each (RC binder + BOL binder). The carrier
+  // invoice stays unassigned. Loose docs still go through RC↔BOL matching.
   const all = [...catalog.values()]
-  const forMatch = all.filter(
+  const partitioned = partitionSourceBinders(all)
+  const forMatch = partitioned.loose.filter(
     (fp) => fp.kind === 'rate_confirmation' || fp.kind === 'bill_of_lading'
   )
+  const binderInvoices = [
+    ...partitioned.packets.flatMap((packet) => packet.invoices),
+    ...partitioned.unassigned,
+  ]
   const sortResult = matchSortedDocuments(forMatch)
   sortResult.otherDocuments = [
     ...sortResult.otherDocuments,
-    ...all.filter((fp) => fp.kind !== 'rate_confirmation' && fp.kind !== 'bill_of_lading'),
+    ...partitioned.loose.filter(
+      (fp) => fp.kind !== 'rate_confirmation' && fp.kind !== 'bill_of_lading'
+    ),
   ]
   sortResult.totalDocuments = all.length
   const grouped = invoiceDraftGroupsFromSort(sortResult)
+  const binderGroups: MatchLoadGroup[] = partitioned.packets.map((packet) => {
+    const anchor = packet.rateCons[0] ?? packet.bols[0]
+    return {
+      groupId: `source-${packet.stem}`,
+      label: anchor ? primaryLoadLabel(anchor) : packet.stem,
+      rateCons: packet.rateCons,
+      bols: packet.bols,
+      others: packet.support,
+      matchReason: 'uploaded packet binders',
+      matchScore: 100,
+    }
+  })
+  grouped.groups = [...binderGroups, ...grouped.groups]
+  grouped.unmatched.other = [...grouped.unmatched.other, ...binderInvoices]
 
   if (grouped.groups.length === 0) {
     return {

@@ -7,7 +7,7 @@ import {
   type InvoiceStatusNoteKind,
 } from '../../services/adminInvoiceNoteActions'
 import { getBrokerById, updateBroker } from '../../data/mockBrokers'
-import { getInvoiceById } from '../../data/mockInvoices'
+import { getInvoiceById, updateInvoice } from '../../data/mockInvoices'
 import { getClientById } from '../../services/clientRegistry'
 import { notifyAdminBlueprintAlert } from '../../services/adminNotificationService'
 import { applyBlueprintBrokerRiskMark } from '../../services/blueprintBrokerRiskActions'
@@ -591,6 +591,9 @@ export async function executeBlueprintThenDo(input: {
       input.blueprintName
     )
     const updated = addAdminInvoiceNote(input.invoiceId, body, author, { visibility })
+    if (input.actionId === 'mark_urgent') {
+      updateInvoice(input.invoiceId, { collections_needs_attention: true })
+    }
     return {
       actionId: input.actionId,
       ok: Boolean(updated),

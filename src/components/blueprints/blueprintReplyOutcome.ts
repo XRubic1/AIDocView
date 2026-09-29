@@ -5,10 +5,12 @@ import type { Invoice } from '../../types/invoice'
 import type { InvoiceEmailLifecycle } from '../../types/emailLifecycle'
 import type { SavedBlueprint } from '../../types/blueprintGraph'
 import {
+  BROKER_CONFIRMED_NOTE,
   STANDARD_BROKER_CONFIRMED,
   STANDARD_BROKER_REJECTED,
   STANDARD_BROKER_UNKNOWN,
 } from '../../../supabase/functions/_shared/standardBlueprints'
+import { startPaymentChaseAfterConfirm } from './blueprintRunner'
 import { getSavedBlueprint } from './blueprintStore'
 import { getActionIds } from './blueprintSubject'
 import { executeBlueprintThenDo } from './blueprintRunnerActions'
@@ -97,12 +99,24 @@ export async function runBrokerReplyBlueprint(
     last_reply_status: reading.status,
   }
   await persistInvoiceLifecycle(invoice.id, existing)
+  const paperworkConfirmed = reading.status === 'confirmed' && confirmedTrack(reading) === 'paperwork'
   const details: string[] = []
+  let noted = false
   for (const node of bp.nodes) {
     if (node.data.kind !== 'action') continue
     for (const actionId of getActionIds(node.data)) {
       if (actionId === 'apply_broker_reply') {
         details.push(await applyReading(invoice, reading, bp.name))
+        continue
+      }
+      if (actionId === 'add_note' && paperworkConfirmed) {
+        const cfg = node.data.actionConfigs?.[actionId]
+        const body = cfg?.message?.trim() || BROKER_CONFIRMED_NOTE
+        addAdminInvoiceNote(invoice.id, `${body}\n\n(Blueprint: ${bp.name})`, 'Credyx', {
+          visibility: 'internal',
+        })
+        noted = true
+        details.push('Confirmed note')
         continue
       }
       const cfg = node.data.actionConfigs?.[actionId]
@@ -118,6 +132,12 @@ export async function runBrokerReplyBlueprint(
   }
   if (!details.length) {
     details.push(await applyReading(invoice, reading, bp.name))
+  }
+  if (paperworkConfirmed && !noted) {
+    addAdminInvoiceNote(invoice.id, `${BROKER_CONFIRMED_NOTE}\n\n(Blueprint: ${bp.name})`, 'Credyx', {
+      visibility: 'internal',
+    })
+    details.push('Confirmed note')
   }
 
   const now = new Date().toISOString()
@@ -145,6 +165,11 @@ export async function runBrokerReplyBlueprint(
       },
     }
   )
+
+  if (paperworkConfirmed) {
+    const chase = await startPaymentChaseAfterConfirm(invoice.id)
+    details.push(chase.detail)
+  }
 
   return { ok: true, detail: details.join(' · ') }
 }

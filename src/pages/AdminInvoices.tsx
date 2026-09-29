@@ -21,6 +21,7 @@ import {
   isInvoiceBlueprintAssigned,
 } from '../components/blueprints/invoiceBlueprintAssignment'
 import { mockInvoices } from '../data/mockInvoices'
+import { mockBrokers } from '../data/mockBrokers'
 import { mockPayments } from '../data/mockPayments'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
 import { addAdminInvoiceNote, removeAdminInvoiceNote } from '../services/adminInvoiceNoteActions'
@@ -76,6 +77,7 @@ import {
   getOpenDisputedStatusLabel,
 } from '../utils/clientInvoiceDisputeStatus'
 import { getInvoiceNoteStatusDisplay } from '../utils/invoiceStatusHeadline'
+import { isInvoiceListUrgent } from '../utils/invoiceListUrgent'
 import { getInvoiceOpenArBalance } from '../utils/paymentVariance'
 import {
   getInitialListPageSize,
@@ -1200,6 +1202,7 @@ function AdminInvoiceCarrierBlock({
                 </ClientListTd>
                 <ClientListTd className="client-list-td--status-col">
                   <div className="flex flex-col gap-1 items-start">
+                    <div className="flex flex-wrap items-center gap-1">
                     <span
                       className={
                         noteStatus === 'on_hold'
@@ -1225,6 +1228,18 @@ function AdminInvoiceCarrierBlock({
                             ? 'Open'
                             : invoice.status.replace(/_/g, ' ')}
                     </span>
+                    {isInvoiceListUrgent(
+                      invoice,
+                      mockBrokers.find((broker) => broker.id === invoice.broker_id)
+                    ) ? (
+                      <span
+                        className="status-pill status-pill--overdue"
+                        title="Needs a person. The broker has not answered inside the configured days."
+                      >
+                        Urgent
+                      </span>
+                    ) : null}
+                    </div>
                     {queueLabel ? (
                       <span className="status-pill status-pill--pending text-[10px]">{queueLabel}</span>
                     ) : null}

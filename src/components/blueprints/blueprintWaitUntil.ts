@@ -206,25 +206,22 @@ function resolveInvoiceWait(
   }
 
   if (id === 'payment_clock') {
-    const broker = mockBrokers.find((b) => b.id === invoice.broker_id)
-    const override = broker?.payment_status_inquiry_days
-    const days =
-      typeof override === 'number' && override > 0 ? Math.floor(override) : parseWaitDays(node, 15)
     const due =
       getEffectiveInvoiceDueDate(invoice) ||
       invoice.due_date?.trim() ||
       invoice.expected_payment_date?.trim()
-    const dueMs = due ? Date.parse(`${due.slice(0, 10)}T12:00:00`) : NaN
-    if (due && Number.isFinite(dueMs) && dueMs > now.getTime()) {
-      const target = addDaysToYmd(due.slice(0, 10), days)
-      if (target) {
-        return {
-          waitUntil: clampWake(atLocalNine(target), now),
-          detail: `Until ${days} day${days === 1 ? '' : 's'} after the due date`,
-        }
+    const dueYmd = due?.slice(0, 10) ?? ''
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dueYmd)) {
+      return {
+        waitUntil: clampWake(atLocalNine(dueYmd), now),
+        detail: 'Until the broker net due date',
       }
     }
-    return pauseFromStep(days, now)
+    const broker = mockBrokers.find((b) => b.id === invoice.broker_id)
+    const net = broker?.payment_terms_days
+    const days = typeof net === 'number' && net > 0 ? Math.floor(net) : parseWaitDays(node, 30)
+    const paused = pauseFromStep(days, now)
+    return { waitUntil: paused.waitUntil, detail: `No due date — ${paused.detail}` }
   }
 
   return pauseFromStep(parseWaitDays(node, 3), now)

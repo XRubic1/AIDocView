@@ -253,13 +253,14 @@ describe('resolveBlueprintWaitUntil', () => {
     expect(result.detail).toMatch(/10 day/)
   })
 
-  it('payment_clock waits until due date plus inquiry days', () => {
+  it('payment_clock waits until the broker net due date', () => {
     const now = new Date(2026, 0, 10, 14, 30, 0)
     const result = resolveBlueprintWaitUntil(
       { kind: 'invoice', invoice: baseInvoice() },
       waitNode('payment_clock', '15'),
       now
     )
-    expect(ymdLocal(result.waitUntil)).toBe('2026-02-15')
+    expect(ymdLocal(result.waitUntil)).toBe('2026-01-31')
+    expect(result.detail).toMatch(/broker net due date/i)
   })
 })

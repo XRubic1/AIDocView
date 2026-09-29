@@ -3,7 +3,7 @@
  * Chase emails use the Wait / Then-do rules on the saved blueprint.
  * Broker replied / no reply stay false (reply reading is not in this MVP).
  */
-import { STANDARD_CHASE_BLUEPRINTS } from './standardBlueprints.ts'
+import { BROKER_CONFIRMED_NOTE, STANDARD_CHASE_BLUEPRINTS } from './standardBlueprints.ts'
 import { fillBlueprintNoteTokens } from './blueprintNoteTokens.ts'
 
 // Untyped service client — same pattern as the other Credyx edge functions.
@@ -325,15 +325,13 @@ function resolveWait(
   }
 
   if (id === 'payment_clock') {
-    const override = Number(broker?.payment_status_inquiry_days)
-    const days = Number.isFinite(override) && override > 0 ? Math.floor(override) : cardDays
-    const due = String(invoice.due_date || invoice.expected_payment_date || '').trim()
-    const dueMs = due ? Date.parse(`${due.slice(0, 10)}T12:00:00`) : NaN
-    if (Number.isFinite(dueMs) && dueMs > now.getTime()) {
-      const target = addDaysToYmd(due.slice(0, 10), days)
-      if (target) return { waitUntil: clampWake(atLocalNine(target), now), detail: `due + ${days}d` }
+    const due = String(invoice.due_date || invoice.expected_payment_date || '').trim().slice(0, 10)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(due)) {
+      return { waitUntil: clampWake(atLocalNine(due), now), detail: 'broker net due date' }
     }
-    return { waitUntil: clampWake(daysFromNow(days, now), now), detail: `inquiry ${days}d from now` }
+    const net = Number(broker?.payment_terms_days)
+    const days = Number.isFinite(net) && net > 0 ? Math.floor(net) : cardDays
+    return { waitUntil: clampWake(daysFromNow(days, now), now), detail: `net ${days}d from now` }
   }
 
   if (id === 'pause_days' || !id) {
@@ -369,6 +367,119 @@ async function ensureStandardBlueprints(admin: Admin): Promise<void> {
     updated_at: bp.updatedAt,
   }))
   await admin.from('blueprints').upsert(rows, { onConflict: 'id', ignoreDuplicates: true })
+  await upgradeBrokerConfirmedNote(admin)
+}
+
+/** Saved copies are not overwritten on seed. Add the confirmation note if this standard id lacks it. */
+async function upgradeBrokerConfirmedNote(admin: Admin): Promise<void> {
+  const standard = STANDARD_CHASE_BLUEPRINTS.find((bp) => bp.id === 'bp-standard-broker-confirmed')
+  if (!standard) return
+  const { data } = await admin.from('blueprints').select('nodes').eq('id', standard.id).maybeSingle()
+  if (!data) return
+  const nodes = (Array.isArray(data.nodes) ? data.nodes : []) as FlowNode[]
+  if (hasAction(nodes, 'add_note')) return
+  await admin.from('blueprints').update({
+    nodes: standard.nodes,
+    edges: standard.edges,
+    name: standard.name,
+    priority: standard.priority,
+    updated_at: new Date().toISOString(),
+  }).eq('id', standard.id)
+}
+
+const INVOICE_HANDOFF_COLUMNS =
+  'id, status, broker_id, client_id, invoice_number, load_number, client_name, broker_name, amount, paid_amount, email_lifecycle, document_send_history, due_date, expected_payment_date, invoice_date, collections_needs_attention, notes_history, updated_at'
+
+/**
+ * Paperwork confirmation: internal note, stop the paperwork chase, enroll payment chase on its clock.
+ */
+export async function beginPaymentChaseAfterConfirm(admin: Admin, invoiceId: string): Promise<void> {
+  await ensureStandardBlueprints(admin)
+  const { data: row } = await admin.from('invoices').select(INVOICE_HANDOFF_COLUMNS).eq('id', invoiceId).maybeSingle()
+  const invoice = row as InvoiceRow | null
+  if (!invoice || !paperworkGood(invoice)) return
+
+  await appendNote(admin, invoice, `${BROKER_CONFIRMED_NOTE}\n\n(Blueprint: Broker confirmed)`)
+
+  const { data: bpRows } = await admin.from('blueprints').select('id, name, priority, nodes, edges')
+  const blueprints: BlueprintRow[] = (bpRows ?? []).map((bp: { id: string; name?: string; priority?: number; nodes?: unknown; edges?: unknown }) => ({
+    id: String(bp.id),
+    name: String(bp.name ?? ''),
+    priority: Number(bp.priority ?? 0),
+    nodes: (Array.isArray(bp.nodes) ? bp.nodes : []) as FlowNode[],
+    edges: (Array.isArray(bp.edges) ? bp.edges : []) as FlowEdge[],
+  }))
+
+  const { data: liveRows } = await admin
+    .from('blueprint_runs')
+    .select('*')
+    .eq('subject', 'invoice')
+    .eq('subject_id', invoiceId)
+    .in('status', ['waiting', 'active', 'paused'])
+  const live = (liveRows ?? []) as RunRow[]
+  const paymentBp = pickBlueprint(invoice, blueprints)
+  const paymentId = paymentBp && trackOf(paymentBp) === 'payment' ? paymentBp.id : null
+
+  for (const run of live) {
+    const bp = blueprints.find((item) => item.id === run.blueprint_id)
+    if (paymentId && (run.blueprint_id === paymentId || (bp && trackOf(bp) === 'payment'))) continue
+    await updateRun(admin, run, {
+      status: 'stopped',
+      current_step: 'Stopped · broker confirmed',
+      wait_until: null,
+    })
+  }
+
+  if (!paymentBp || !paymentId) return
+  const alreadyOnPayment = live.some((run) => {
+    if (run.blueprint_id === paymentId) return true
+    const bp = blueprints.find((item) => item.id === run.blueprint_id)
+    return Boolean(bp && trackOf(bp) === 'payment')
+  })
+  if (alreadyOnPayment) return
+
+  const brokerId = String(invoice.broker_id ?? '')
+  const { data: brokerRow } = brokerId
+    ? await admin
+        .from('brokers')
+        .select('id, name, email, emails, email_lifecycle, paperwork_status_check_days, payment_status_inquiry_days, payment_terms_days')
+        .eq('id', brokerId)
+        .maybeSingle()
+    : { data: null }
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const waitNode = paymentBp.nodes.find((node) => node.data.kind === 'wait') ?? null
+  const resolved = waitNode ? resolveWait(waitNode, invoice, (brokerRow as BrokerRow | null) ?? undefined, now) : null
+  const run: RunRow = {
+    id: `run-${crypto.randomUUID()}`,
+    subject: 'invoice',
+    subject_id: String(invoice.id),
+    subject_label: String(invoice.invoice_number ?? invoice.id),
+    client_label: String(invoice.client_name ?? ''),
+    blueprint_id: paymentBp.id,
+    blueprint_name: paymentBp.name,
+    status: waitNode ? 'waiting' : 'active',
+    current_step: waitNode ? `Wait until · ${waitNode.data.label || 'Payment inquiry clock'}` : 'Start',
+    current_node_id: waitNode?.id ?? paymentBp.nodes.find((node) => node.data.kind === 'trigger')?.id ?? null,
+    wait_until: resolved?.waitUntil ?? null,
+    started_at: nowIso,
+    updated_at: nowIso,
+  }
+  await updateRun(admin, run, {})
+  await admin.from('invoice_blueprint_assignments').upsert(
+    {
+      invoice_id: String(invoice.id),
+      blueprint_id: paymentBp.id,
+      blueprint_name: paymentBp.name,
+      assigned_at: nowIso,
+    },
+    { onConflict: 'invoice_id' }
+  )
+  await saveLife(admin, invoice, {
+    ...lifeOf(invoice),
+    blueprint_owns_paperwork: true,
+    blueprint_owns_chase: true,
+  })
 }
 
 function pickBlueprint(invoice: InvoiceRow, blueprints: BlueprintRow[]): BlueprintRow | null {
@@ -499,7 +610,7 @@ export async function runBlueprintServerTick(
   const { data: brokerRows } = brokerIds.length
     ? await admin
         .from('brokers')
-        .select('id, name, email, emails, email_lifecycle, paperwork_status_check_days, payment_status_inquiry_days')
+        .select('id, name, email, emails, email_lifecycle, paperwork_status_check_days, payment_status_inquiry_days, payment_terms_days')
         .in('id', brokerIds)
     : { data: [] }
   const brokerById = new Map<string, BrokerRow>(

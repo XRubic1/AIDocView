@@ -12,6 +12,7 @@ import { invoiceListPriorityStatusLabel } from './invoiceListPriority'
 import { getInvoiceDisputeOverviewNote } from './clientInvoiceDisputeStatus'
 import { getCallBackOverviewNote, getWillPayOverviewNote } from './invoiceStatusHeadline'
 import { resolveLastBrokerContact } from './adminCollections'
+import { getInvoiceBlueprintChaseInsight } from './invoiceBlueprintChaseInsight'
 
 export type InvoiceInsightTone = 'default' | 'alert' | 'success' | 'info'
 export type InvoiceInsightIcon =
@@ -73,6 +74,8 @@ export interface InvoiceMobileInsightsInput {
   paymentDisputed?: boolean
   /** Carrier-visible Credyx Broker Risk — overview row only for medium/high. */
   brokerRiskLevel?: BrokerRiskLevel | null
+  /** Admin invoice overview: live blueprint wait / next chase. */
+  includeBlueprintChase?: boolean
 }
 
 /** Medium date for insight subtitles (e.g. May 15, 2024). */
@@ -164,6 +167,7 @@ export function getInvoiceMobileInsights(
     paymentDisputeDescription = null,
     paymentDisputed = false,
     brokerRiskLevel = null,
+    includeBlueprintChase = false,
   } = input
 
   const insights: InvoiceMobileInsight[] = []
@@ -397,6 +401,11 @@ export function getInvoiceMobileInsights(
         action: 'activity',
       })
     }
+  }
+
+  if (includeBlueprintChase) {
+    const chase = getInvoiceBlueprintChaseInsight(invoice)
+    if (chase) insights.push(chase)
   }
 
   if (invoice.status === 'paid') {

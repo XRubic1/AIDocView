@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import {
   AlertTriangle,
   ArrowDown,
@@ -33,6 +34,10 @@ import {
   type InvoiceMobileInsight,
 } from '../../utils/invoiceMobileInsights'
 import { getDocumentUploadOverviewMessage } from '../../utils/holdPaperworkReview'
+import { getInvoiceBlueprintChaseTrack } from '../../utils/invoiceBlueprintChaseInsight'
+import { getCarrierInvoiceJourney } from '../../utils/carrierInvoiceJourney'
+import InvoiceBlueprintChaseTrackView from './InvoiceBlueprintChaseTrack'
+import { BLUEPRINT_RUNS_CHANGED_EVENT, getStoredPrimaryRunForInvoice } from '../blueprints/blueprintRuns'
 import type { BrokerRiskLevel } from '../../types/brokerRisk'
 import {
   invoiceListPriorityStatusKey,
@@ -92,6 +97,8 @@ interface MobileInvoiceOverviewProps {
   brokerRiskLevel?: BrokerRiskLevel | null
   /** Opens the Brokers tab for this invoice's broker. */
   onOpenBrokerRisk?: () => void
+  /** Admin only: show the live blueprint's next chase on the overview. */
+  showBlueprintChase?: boolean
 }
 
 /** Icon for a mobile insight row. */
@@ -218,7 +225,29 @@ export default function MobileInvoiceOverview({
   onConfirmAdminPendingPayment,
   brokerRiskLevel = null,
   onOpenBrokerRisk,
+  showBlueprintChase = false,
 }: MobileInvoiceOverviewProps) {
+  const [chaseRev, setChaseRev] = useState(0)
+  useEffect(() => {
+    if (!showBlueprintChase) return
+    const refresh = () => setChaseRev((n) => n + 1)
+    window.addEventListener(BLUEPRINT_RUNS_CHANGED_EVENT, refresh)
+    return () => window.removeEventListener(BLUEPRINT_RUNS_CHANGED_EVENT, refresh)
+  }, [showBlueprintChase])
+  const chaseInvoiceId = invoice.id
+  const chaseInvoiceNumber = invoice.invoice_number
+  const chasePaperwork = invoice.email_lifecycle?.paperwork_status
+  useEffect(() => {
+    if (!showBlueprintChase || chasePaperwork !== 'good') return
+    const run = getStoredPrimaryRunForInvoice({
+      id: chaseInvoiceId,
+      invoice_number: chaseInvoiceNumber,
+    })
+    if (!run || run.status === 'waiting' || run.status === 'active' || run.status === 'paused') return
+    if (!/stopped · broker confirmed/i.test(run.currentStep)) return
+    if (run.blueprintId === 'bp-standard-payment-chase' || /payment chase/i.test(run.blueprintName)) return
+    void import('../blueprints/blueprintRunner').then((m) => m.startPaymentChaseAfterConfirm(chaseInvoiceId))
+  }, [showBlueprintChase, chaseInvoiceId, chaseInvoiceNumber, chasePaperwork])
   const hasAdminPending = Boolean(
     adminPendingPayment && adminPendingPayment.amount > AMOUNT_EPSILON
   )
@@ -386,7 +415,15 @@ export default function MobileInvoiceOverview({
     paymentDisputeDescription,
     paymentDisputed: hasPaymentDispute,
     brokerRiskLevel,
+    includeBlueprintChase: showBlueprintChase && chaseRev >= 0,
   })
+  const chaseTrack = showBlueprintChase ? getInvoiceBlueprintChaseTrack(invoice) : null
+  const carrierJourney = showBlueprintChase
+    ? null
+    : getCarrierInvoiceJourney(invoice, { dueDate: visibleDueDate })
+  const chaseInsight = chaseTrack
+    ? insights.find((insight) => insight.id === 'blueprint-chase')
+    : null
 
   const handleInsight = (insight: InvoiceMobileInsight) => {
     if (insight.action === 'confirm_payment' && onConfirmPayment) {
@@ -525,7 +562,18 @@ export default function MobileInvoiceOverview({
           </button>
         </li>
       ) : null}
-      {insights.map((insight) => {
+      {chaseTrack && chaseTrack.steps.length > 0 ? (
+        <li>
+          <InvoiceBlueprintChaseTrackView
+            track={chaseTrack}
+            title={chaseInsight?.title || 'Next status'}
+            subtitle={chaseInsight?.subtitle || chaseTrack.blueprintName}
+          />
+        </li>
+      ) : null}
+      {insights
+        .filter((insight) => insight.id !== 'blueprint-chase' || !chaseTrack)
+        .map((insight) => {
         const interactive =
           insight.action !== 'none' &&
           !(insight.action === 'confirm_payment' && !onConfirmPayment) &&
@@ -715,6 +763,20 @@ export default function MobileInvoiceOverview({
           }
         />
       </article>
+
+      {carrierJourney ? (
+        <section className="inv-carrier-journey" aria-label="What happens next">
+          <p className="inv-carrier-journey__headline">{carrierJourney.headline}</p>
+          <ol className="inv-carrier-journey__steps">
+            {carrierJourney.steps.map((step, index) => (
+              <li key={step.id} className={`inv-carrier-journey__step is-${step.state}`}>
+                <span className="inv-carrier-journey__index">{index + 1}</span>
+                <span>{step.label}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
 
       {insightList}
 

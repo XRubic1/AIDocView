@@ -57,9 +57,23 @@ export function ensureDemoBlueprintSeeded(): void {
   const missingStandard = STANDARD_CHASE_BLUEPRINTS.some(
     (bp) => !withoutLegacy.some((b) => b.id === bp.id)
   )
+  const confirmedStandard = STANDARD_CHASE_BLUEPRINTS.find((bp) => bp.id === 'bp-standard-broker-confirmed')
+  const savedConfirmed = withoutLegacy.find((b) => b.id === 'bp-standard-broker-confirmed')
+  const staleConfirmed = Boolean(
+    confirmedStandard &&
+      savedConfirmed &&
+      !savedConfirmed.nodes.some((node) => {
+        const ids = node.data.actionIds?.length
+          ? node.data.actionIds
+          : node.data.actionId
+            ? [node.data.actionId]
+            : []
+        return node.data.kind === 'action' && ids.includes('add_note')
+      })
+  )
   const removedLegacy = withoutLegacy.length !== existing.length
 
-  if (hasChase && hasNewBroker && hasBatchProcessed && !missingStandard && !removedLegacy) return
+  if (hasChase && hasNewBroker && hasBatchProcessed && !missingStandard && !removedLegacy && !staleConfirmed) return
 
   let next = withoutLegacy
   if (!hasChase) next = [RISK_LADDER_DEMO_BLUEPRINT, ...next]
@@ -68,7 +82,16 @@ export function ensureDemoBlueprintSeeded(): void {
   for (const bp of STANDARD_CHASE_BLUEPRINTS) {
     if (!next.some((b) => b.id === bp.id)) next = [bp as SavedBlueprint, ...next]
   }
+  if (staleConfirmed && confirmedStandard) {
+    next = next.map((b) => (b.id === confirmedStandard.id ? (confirmedStandard as SavedBlueprint) : b))
+  }
   writeAll(next)
+  if (staleConfirmed && confirmedStandard) {
+    const upgraded = next.find((b) => b.id === confirmedStandard.id)
+    if (upgraded) {
+      void import('../../services/supabase/blueprintPersist').then((m) => m.persistBlueprint(upgraded))
+    }
+  }
 }
 
 export function listSavedBlueprints(): SavedBlueprint[] {

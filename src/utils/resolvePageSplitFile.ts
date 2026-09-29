@@ -6,6 +6,7 @@ import { HANDOFF_PLACEHOLDER_INVOICE_ID, addBatchFile, getBatchFile } from '../d
 import type { BatchIntakeDraft } from '../types/credyxBatch'
 import { isSupabaseConfigured } from '../lib/supabase'
 import { uploadBatchInvoiceDocuments } from '../services/supabase/tenantPersist'
+import { isSourceBinderFileName } from '../../supabase/functions/_shared/sourceDocBinders'
 import { extractPdfPages, isPdfFile } from './pdfPageExtract'
 import { ensureStoredBatchFile } from './resolveHandoffDocuments'
 
@@ -66,6 +67,46 @@ export async function persistPageSplitFilesToStorage(
     }
   } catch (err) {
     console.warn('[persistPageSplitFilesToStorage] upload failed', err)
+    return draft
+  }
+}
+
+/** Upload collapsed Invoice / RC binder / BOL binder files that are not in storage yet. */
+export async function persistSourceBinderFilesToStorage(
+  draft: BatchIntakeDraft,
+  batchId: string,
+  clientId: string
+): Promise<BatchIntakeDraft> {
+  if (!isSupabaseConfigured() || !clientId.trim()) return draft
+
+  const toUpload = new Map<string, File>()
+  for (const [docId, file] of draft.fileById) {
+    if (!isPdfFile(file)) continue
+    if (!isSourceBinderFileName(file.name) && !docId.startsWith('binder-')) continue
+    if (draft.storagePathsByDocId?.[docId]) continue
+    toUpload.set(docId, file)
+  }
+  if (toUpload.size === 0) return draft
+
+  try {
+    const paths = await uploadBatchInvoiceDocuments(
+      clientId,
+      batchId,
+      HANDOFF_PLACEHOLDER_INVOICE_ID,
+      toUpload
+    )
+    for (const [docId, file] of toUpload) {
+      addBatchFile(batchId, docId, file)
+    }
+    return {
+      ...draft,
+      storagePathsByDocId: {
+        ...(draft.storagePathsByDocId ?? {}),
+        ...paths,
+      },
+    }
+  } catch (err) {
+    console.warn('[persistSourceBinderFilesToStorage] upload failed', err)
     return draft
   }
 }

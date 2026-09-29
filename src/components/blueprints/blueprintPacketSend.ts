@@ -36,8 +36,19 @@ function packetConfig(): BlueprintActionTaskConfig {
     message: '',
     channel: 'email',
     templateId: 'broker_packet',
-    fromEmail: 'billing@credyx.net',
-    fromEmails: ['billing@credyx.net'],
+    fromEmail: 'system@credyx.net',
+    fromEmails: ['system@credyx.net'],
+  }
+}
+
+/** PPW leaves from the mailbox that receives broker replies. */
+function packetFrom(config: BlueprintActionTaskConfig): BlueprintActionTaskConfig {
+  const from = config.fromEmail?.trim().toLowerCase() ?? ''
+  if (from && from !== 'billing@credyx.net') return config
+  return {
+    ...config,
+    fromEmail: 'system@credyx.net',
+    fromEmails: ['system@credyx.net'],
   }
 }
 
@@ -72,7 +83,7 @@ export async function sendBrokerPacketsFromBlueprint(
   opts: { sentBy: string; forceResend?: boolean }
 ): Promise<{ success: number; failed: number; skipped: number; details: PacketSendDetail[] }> {
   const results = { success: 0, failed: 0, skipped: 0, details: [] as PacketSendDetail[] }
-  const config = packetConfig()
+  const config = packetFrom(packetConfig())
   const blueprintName =
     getSavedBlueprint(STANDARD_BROKER_PACKET.id)?.name ?? STANDARD_BROKER_PACKET.name
 

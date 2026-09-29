@@ -19,6 +19,7 @@ import {
   draftHasPageSplitChildren,
   isPageSplitFileName,
 } from './pageSplitDraftHelpers'
+import { isSourceBinderFileName } from '../../supabase/functions/_shared/sourceDocBinders'
 
 /** RC / BOL / INV mark categories used by Doc Splitter. */
 export type DocSplitMarkCategory = 'rc' | 'bol' | 'inv'
@@ -219,9 +220,10 @@ export async function explodeMultiPagePdfs(
     if (signal?.aborted) {
       throw new DOMException('Doc Split aborted', 'AbortError')
     }
-    if (docId.startsWith('page-split-')) continue
+    if (docId.startsWith('page-split-') || docId.startsWith('binder-')) continue
     const file = next.fileById.get(docId)
     if (!file || !isPdfFile(file)) continue
+    if (isSourceBinderFileName(file.name)) continue
     if (shouldSkipExplodeParent(next, file.name)) {
       logBatchDocAction(batchId, {
         type: 'skip_split',

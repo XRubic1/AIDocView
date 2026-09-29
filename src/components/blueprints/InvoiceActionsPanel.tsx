@@ -4,14 +4,16 @@ import { getBrokerById } from '../../data/mockBrokers'
 import { getClientById } from '../../services/clientRegistry'
 import { useToast } from '../ui/ToastProvider'
 import { executeBlueprintThenDo } from './blueprintRunnerActions'
+import { runInvoiceBlueprintManual } from './blueprintRunner'
 import {
   BLUEPRINT_RUNS_CHANGED_EVENT,
   appendInvoiceActionHistory,
   listInvoiceBlueprintHistory,
 } from './blueprintRuns'
 import {
-  listInvoiceBlueprintActions,
+  listInvoiceActionBlueprints,
   parseActionRecipientEmails,
+  type InvoiceActionBlueprintCard,
   type InvoiceBlueprintAction,
 } from './invoiceBlueprintActions'
 import '../../styles/invoiceBlueprintTab.css'
@@ -44,12 +46,18 @@ export default function InvoiceActionsPanel({
 }: InvoiceActionsPanelProps) {
   const { showToast } = useToast()
   const [pane, setPane] = useState<ActionsPane>('actions')
-  const [actions, setActions] = useState(() => listInvoiceBlueprintActions())
+  const [cards, setCards] = useState(() => listInvoiceActionBlueprints())
   const [history, setHistory] = useState(() =>
     listInvoiceBlueprintHistory(invoice).filter((ev) => ev.kind === 'action')
   )
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [sendTo, setSendTo] = useState('')
+  const [runTarget, setRunTarget] = useState<InvoiceActionBlueprintCard | null>(null)
+  const [pickedStepKeys, setPickedStepKeys] = useState<string[]>([])
+
+  const stepKey = (step: InvoiceBlueprintAction) => `${step.nodeId}|${step.actionId}`
+
+  const runSteps = runTarget?.steps ?? []
 
   const suggestions = useMemo(() => {
     const broker = getBrokerById(invoice.broker_id)
@@ -84,7 +92,8 @@ export default function InvoiceActionsPanel({
 
   useEffect(() => {
     setSendTo('')
-    setActions(listInvoiceBlueprintActions())
+    setRunTarget(null)
+    setCards(listInvoiceActionBlueprints())
     refreshHistory()
     const onRuns = () => refreshHistory()
     window.addEventListener(BLUEPRINT_RUNS_CHANGED_EVENT, onRuns)
@@ -108,40 +117,103 @@ export default function InvoiceActionsPanel({
     })
   }
 
-  const runAction = async (action: InvoiceBlueprintAction) => {
-    if (busyKey) return
-    let toEmails: string[] | undefined
-    if (sendTo.trim()) {
-      const parsed = parseActionRecipientEmails(sendTo)
-      if (parsed.invalid.length > 0) {
-        showToast(`Check these addresses: ${parsed.invalid.join(', ')}`, 'error')
-        return
-      }
-      if (parsed.emails.length > 0) toEmails = parsed.emails
+  const readRecipients = (): string[] | undefined | null => {
+    if (!sendTo.trim()) return undefined
+    const parsed = parseActionRecipientEmails(sendTo)
+    if (parsed.invalid.length > 0) {
+      showToast(`Check these addresses: ${parsed.invalid.join(', ')}`, 'error')
+      return null
     }
-    setBusyKey(action.key)
+    return parsed.emails.length > 0 ? parsed.emails : undefined
+  }
+
+  const openRunOptions = (card: InvoiceActionBlueprintCard) => {
+    if (busyKey) return
+    if (runTarget?.key === card.key) {
+      setRunTarget(null)
+      return
+    }
+    setRunTarget(card)
+    setPickedStepKeys([])
+  }
+
+  const finishRun = (title: string, detail: string, ok: boolean, blueprintId: string, blueprintName: string) => {
+    appendInvoiceActionHistory({
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoice_number,
+      clientLabel: invoice.client_name,
+      blueprintId,
+      blueprintName,
+      title,
+      detail,
+    })
+    refreshHistory()
+    onInvoiceUpdated?.()
+    showToast(detail, ok ? 'success' : 'error')
+    setRunTarget(null)
+  }
+
+  const runGraph = async (mode: 'normal' | 'skip_waits') => {
+    if (!runTarget || busyKey) return
+    const toEmails = readRecipients()
+    if (toEmails === null) return
+    setBusyKey(runTarget.key)
     try {
-      const result = await executeBlueprintThenDo({
+      const result = await runInvoiceBlueprintManual({
         invoiceId: invoice.id,
-        actionId: action.actionId,
-        blueprintName: action.blueprintName,
-        config: action.config,
+        blueprintId: runTarget.blueprintId,
+        mode,
         authorName,
-        skipIfAlreadySent: false,
         toEmails,
       })
-      appendInvoiceActionHistory({
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoice_number,
-        clientLabel: invoice.client_name,
-        blueprintId: action.blueprintId,
-        blueprintName: action.blueprintName,
-        title: action.blueprintName,
-        detail: result.detail,
-      })
-      refreshHistory()
-      onInvoiceUpdated?.()
-      showToast(result.detail, result.ok && !result.skipped ? 'success' : 'error')
+      finishRun(
+        runTarget.blueprintName,
+        result.detail,
+        result.ok,
+        runTarget.blueprintId,
+        runTarget.blueprintName
+      )
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Action failed'
+      showToast(message, 'error')
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  const runSelectedSteps = async () => {
+    if (!runTarget || busyKey) return
+    const toEmails = readRecipients()
+    if (toEmails === null) return
+    const selected = runSteps.filter((step) => pickedStepKeys.includes(stepKey(step)))
+    if (selected.length === 0) {
+      showToast('Pick at least one step.', 'error')
+      return
+    }
+    setBusyKey(runTarget.key)
+    try {
+      const lines: string[] = []
+      let ok = true
+      for (const step of selected) {
+        const result = await executeBlueprintThenDo({
+          invoiceId: invoice.id,
+          actionId: step.actionId,
+          blueprintName: step.blueprintName,
+          config: step.config,
+          authorName,
+          skipIfAlreadySent: false,
+          toEmails,
+        })
+        lines.push(`${step.label}: ${result.detail}`)
+        if (!result.ok) ok = false
+      }
+      finishRun(
+        runTarget.blueprintName,
+        lines.join(' '),
+        ok,
+        runTarget.blueprintId,
+        runTarget.blueprintName
+      )
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Action failed'
       showToast(message, 'error')
@@ -227,27 +299,99 @@ export default function InvoiceActionsPanel({
             </div>
           ) : null}
           <p className="inv-bp__meta" style={{ marginTop: 0 }}>
-            Pulled from invoice blueprints. Running one sends it for this invoice now.
+            One card per blueprint. Open it to run the whole graph or pick steps.
           </p>
-          {actions.length === 0 ? (
+          {cards.length === 0 ? (
             <p className="inv-bp__meta">No invoice actions on your blueprints yet.</p>
           ) : (
             <div className="inv-actions__list">
-              {actions.map((action) => (
-                <button
-                  key={action.key}
-                  type="button"
-                  className="inv-actions__item"
-                  disabled={busyKey !== null}
-                  onClick={() => void runAction(action)}
-                >
-                  <span className="inv-actions__item-title">
-                    {busyKey === action.key ? 'Running…' : action.blueprintName}
-                  </span>
-                  {action.label ? (
-                    <span className="inv-actions__item-detail">{action.label}</span>
+              {cards.map((card) => (
+                <div key={card.key} className="inv-actions__row">
+                  <button
+                    type="button"
+                    className={`inv-actions__item${
+                      runTarget?.key === card.key ? ' inv-actions__item--open' : ''
+                    }`}
+                    disabled={busyKey !== null}
+                    onClick={() => openRunOptions(card)}
+                  >
+                    <span className="inv-actions__item-title">
+                      {busyKey === card.key ? 'Running…' : card.blueprintName}
+                    </span>
+                    <span className="inv-actions__item-detail">
+                      {card.steps.map((step) => step.label).join(' · ')}
+                    </span>
+                  </button>
+                  {runTarget?.key === card.key ? (
+                    <div className="inv-actions__run" aria-label={`Run ${runTarget.blueprintName}`}>
+                      <button
+                        type="button"
+                        className="inv-actions__choice"
+                        disabled={busyKey !== null}
+                        onClick={() => void runGraph('skip_waits')}
+                      >
+                        <span className="inv-actions__choice-title">Skip waits, run every step</span>
+                        <span className="inv-actions__choice-detail">
+                          Start at the beginning and run each step now. Wait cards are skipped.
+                        </span>
+                      </button>
+                      <div className="inv-actions__steps">
+                        <div className="inv-actions__choice-title">Run individual steps</div>
+                        {runSteps.map((step) => {
+                          const key = stepKey(step)
+                          const checked = pickedStepKeys.includes(key)
+                          return (
+                            <label key={key} className="inv-actions__step">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={busyKey !== null}
+                                onChange={() =>
+                                  setPickedStepKeys((prev) =>
+                                    prev.includes(key)
+                                      ? prev.filter((id) => id !== key)
+                                      : [...prev, key]
+                                  )
+                                }
+                              />
+                              <span>{step.label}</span>
+                            </label>
+                          )
+                        })}
+                        <button
+                          type="button"
+                          className="inv-actions__choice"
+                          disabled={busyKey !== null}
+                          onClick={() => void runSelectedSteps()}
+                        >
+                          <span className="inv-actions__choice-title">Run selected steps</span>
+                          <span className="inv-actions__choice-detail">
+                            Only the steps you check. Waits in the blueprint are not used.
+                          </span>
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="inv-actions__choice"
+                        disabled={busyKey !== null}
+                        onClick={() => void runGraph('normal')}
+                      >
+                        <span className="inv-actions__choice-title">Run normally</span>
+                        <span className="inv-actions__choice-detail">
+                          Enroll this invoice and honor each Wait.
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="inv-actions__cancel"
+                        disabled={busyKey !== null}
+                        onClick={() => setRunTarget(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   ) : null}
-                </button>
+                </div>
               ))}
             </div>
           )}

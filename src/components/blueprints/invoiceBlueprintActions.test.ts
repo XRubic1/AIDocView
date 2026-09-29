@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SavedBlueprint } from '../../types/blueprintGraph'
 import {
   collectInvoiceBlueprintActions,
+  listInvoiceActionBlueprints,
   parseActionRecipientEmails,
 } from './invoiceBlueprintActions'
 
@@ -105,5 +106,58 @@ describe('collectInvoiceBlueprintActions', () => {
     ])
     expect(actions[0]?.config?.templateId).toBe('broker_packet')
     expect(actions[1]?.blueprintName).toBe('Standard paperwork chase')
+  })
+})
+
+describe('listInvoiceActionBlueprints', () => {
+  it('shows one card per blueprint name and lists each step once', () => {
+    const chaseSteps = [
+      {
+        actionId: 'email_followup',
+        label: 'Paperwork status',
+        templateId: 'broker_paperwork_status_inquiry',
+        line: 'Email the broker about paperwork status',
+      },
+      {
+        actionId: 'email_followup',
+        label: 'Paperwork follow-up',
+        templateId: 'broker_paperwork_status_followup',
+        line: 'Send a paperwork follow-up to the broker',
+      },
+      {
+        actionId: 'mark_urgent',
+        label: 'Needs attention',
+        line: 'Needs attention',
+      },
+    ]
+    const older = bp('pw-old', 'Standard paperwork chase', 'invoices', chaseSteps)
+    const newer = bp('pw-new', 'Standard paperwork chase', 'invoices', [
+      ...chaseSteps,
+      ...chaseSteps,
+    ])
+    newer.updatedAt = '2026-09-28T00:00:00.000Z'
+    const cards = listInvoiceActionBlueprints([
+      older,
+      newer,
+      bp('pay', 'Standard payment chase', 'invoices', [
+        {
+          actionId: 'email_payment_status',
+          label: 'Payment status',
+          templateId: 'broker_payment_status_inquiry',
+          line: 'Email the broker about payment status',
+        },
+      ]),
+    ])
+
+    expect(cards.map((card) => card.blueprintName)).toEqual([
+      'Standard paperwork chase',
+      'Standard payment chase',
+    ])
+    expect(cards[0]?.blueprintId).toBe('pw-new')
+    expect(cards[0]?.steps.map((step) => step.label)).toEqual([
+      'Paperwork status',
+      'Paperwork follow-up',
+      'Needs attention',
+    ])
   })
 })

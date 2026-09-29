@@ -9,7 +9,7 @@ import { getInvoiceById, mockInvoices } from '../../data/mockInvoices'
 import { getConfirmedPaymentTotal } from '../../data/mockPayments'
 import { hasPpwBeenSent } from '../../utils/ppwSent'
 import type { Invoice } from '../../types/invoice'
-import type { BlueprintFlowNode, BlueprintNodeData } from '../../types/blueprintGraph'
+import type { BlueprintFlowNode, BlueprintNodeData, SavedBlueprint } from '../../types/blueprintGraph'
 import { findBestMatchingBlueprint, scoreBlueprintForEvent, type BlueprintMatchEvent } from './blueprintAutoMatch'
 import { blueprintPriority } from '../../types/blueprintGraph'
 import {
@@ -29,13 +29,15 @@ import {
   upsertBlueprintRun,
   type BlueprintRunRow,
 } from './blueprintRuns'
-import { getSavedBlueprint } from './blueprintStore'
+import { getSavedBlueprint, listSavedBlueprints } from './blueprintStore'
 import { getActionIds } from './blueprintSubject'
 import {
   normalizeTriggerFilters,
   type BlueprintTriggerFilters,
 } from './blueprintTriggerFilters'
 import { executeBlueprintThenDo } from './blueprintRunnerActions'
+import { addAdminInvoiceNote } from '../../services/adminInvoiceNoteActions'
+import { BROKER_CONFIRMED_NOTE } from '../../../supabase/functions/_shared/standardBlueprints'
 import { resolveBlueprintWaitUntil } from './blueprintWaitUntil'
 import { notifyTenantDataUpdated } from '../../services/supabase/tenantDataLiveSync'
 import { whenNodePasses } from './blueprintWhenMatch'
@@ -293,9 +295,18 @@ function ensureEnrollment(
  */
 export async function advanceInvoiceRun(
   invoiceId: string,
-  options?: { forceWake?: boolean; authorName?: string; justProcessed?: boolean }
+  options?: {
+    forceWake?: boolean
+    authorName?: string
+    justProcessed?: boolean
+    /** Staff run from the invoice Actions panel. Ignores the Live runner switch. */
+    manual?: boolean
+    /** Do not park on Wait cards — continue into the next step. */
+    skipWaits?: boolean
+    toEmails?: string[]
+  }
 ): Promise<BlueprintRunnerLog> {
-  if (!isBlueprintsRunnerEnabled()) {
+  if (!options?.manual && !isBlueprintsRunnerEnabled()) {
     return { invoiceId, ok: false, detail: 'Blueprint runner is off.' }
   }
 
@@ -343,7 +354,13 @@ export async function advanceInvoiceRun(
   const meta = { justProcessed: Boolean(options?.justProcessed) }
 
   // If waking from Wait, move to the next card first
-  if (current.data.kind === 'wait' && (options?.forceWake || !run.waitUntil || new Date(run.waitUntil).getTime() <= Date.now())) {
+  if (
+    current.data.kind === 'wait' &&
+    (options?.skipWaits ||
+      options?.forceWake ||
+      !run.waitUntil ||
+      new Date(run.waitUntil).getTime() <= Date.now())
+  ) {
     const next = pickNext(current, bp.nodes, bp.edges, invoice, meta)
     if (!next) {
       run = upsertBlueprintRun(
@@ -386,6 +403,29 @@ export async function advanceInvoiceRun(
     guard += 1
 
     if (current.data.kind === 'wait') {
+      if (options?.skipWaits) {
+        const next = pickNext(current, bp.nodes, bp.edges, invoice, meta)
+        details.push(`Skipped wait · ${current.data.label || 'Wait'}`)
+        if (!next) {
+          run = upsertBlueprintRun(
+            {
+              ...run,
+              status: 'completed',
+              currentStep: 'Done · after skipped wait',
+              waitUntil: null,
+            },
+            {
+              historyEvent: {
+                kind: 'completed',
+                title: 'Done · waits skipped',
+              },
+            }
+          )
+          break
+        }
+        current = next
+        continue
+      }
       const resolved = resolveBlueprintWaitUntil(
         { kind: 'invoice', invoice },
         current
@@ -416,6 +456,32 @@ export async function advanceInvoiceRun(
       const ok = evaluateWhenNode(current.data, invoice, meta)
       const next = nextAfterWhen(current.id, bp.nodes, bp.edges, ok)
       if (!ok) {
+        if (options?.skipWaits) {
+          const forced = nextNodes(current.id, bp.nodes, bp.edges)[0] ?? null
+          details.push(
+            `When not matched — continued (${current.data.label || 'When'})`
+          )
+          if (!forced) {
+            run = upsertBlueprintRun(
+              {
+                ...run,
+                status: 'completed',
+                currentStep: 'Done',
+                waitUntil: null,
+              },
+              {
+                historyEvent: {
+                  kind: 'completed',
+                  title: 'Done',
+                  detail: 'When did not match and nothing follows it.',
+                },
+              }
+            )
+            break
+          }
+          current = forced
+          continue
+        }
         // Always park unmatched Whens (every blueprint) until invoice state changes
         run = upsertBlueprintRun(
           {
@@ -489,6 +555,8 @@ export async function advanceInvoiceRun(
           blueprintName: assignment.blueprintName,
           config: current.data.actionConfigs?.[actionId],
           authorName: options?.authorName,
+          skipIfAlreadySent: options?.skipWaits ? false : undefined,
+          toEmails: options?.toEmails,
         })
         details.push(result.detail)
         actionResults.push(result.detail)
@@ -594,6 +662,64 @@ export async function advanceInvoiceRun(
   }
 }
 
+/**
+ * Staff run from the invoice Actions panel.
+ * `normal` enrolls and stops on each Wait. `skip_waits` restarts and runs every step now.
+ */
+export async function runInvoiceBlueprintManual(input: {
+  invoiceId: string
+  blueprintId: string
+  mode: 'normal' | 'skip_waits'
+  authorName?: string
+  toEmails?: string[]
+}): Promise<BlueprintRunnerLog> {
+  const invoice = getInvoiceById(input.invoiceId)
+  if (!invoice) return { invoiceId: input.invoiceId, ok: false, detail: 'Invoice not found.' }
+  const bp = getSavedBlueprint(input.blueprintId)
+  if (!bp) return { invoiceId: input.invoiceId, ok: false, detail: 'Blueprint not found.' }
+
+  assignInvoiceBlueprint(invoice.id, bp.id, bp.name)
+
+  if (input.mode === 'skip_waits') {
+    const existing = getPrimaryRunForInvoice(invoice)
+    if (
+      existing &&
+      (existing.status === 'waiting' ||
+        existing.status === 'active' ||
+        existing.status === 'paused')
+    ) {
+      upsertBlueprintRun(
+        {
+          ...existing,
+          status: 'stopped',
+          currentStep: 'Stopped · run every step',
+          waitUntil: null,
+        },
+        {
+          historyEvent: {
+            kind: 'stopped',
+            title: 'Stopped · run every step',
+            detail: 'Restarting from the start with waits skipped.',
+          },
+        }
+      )
+    }
+  }
+
+  const enrolled = ensureEnrollment(invoice, 'Actions panel')
+  if (!enrolled) {
+    return { invoiceId: invoice.id, ok: false, detail: 'Could not enroll this blueprint.' }
+  }
+
+  return advanceInvoiceRun(invoice.id, {
+    manual: true,
+    forceWake: input.mode === 'skip_waits',
+    skipWaits: input.mode === 'skip_waits',
+    authorName: input.authorName,
+    toEmails: input.toEmails,
+  })
+}
+
 export function stopInvoiceRun(
   invoiceId: string,
   reason: string
@@ -669,6 +795,55 @@ function resolveBlueprintForEvent(
     blueprintName: best.blueprint.name,
     via: 'auto',
   }
+}
+
+function paymentChaseBlueprint(): SavedBlueprint | null {
+  const standard = getSavedBlueprint('bp-standard-payment-chase')
+  if (standard) return standard
+  return (
+    listSavedBlueprints().find((bp) =>
+      bp.nodes.some(
+        (node) =>
+          (node.data.kind === 'if' || node.data.kind === 'elseif') &&
+          node.data.checkId === 'paperwork_good' &&
+          node.data.whenMatch !== 'no'
+      )
+    ) ?? null
+  )
+}
+
+/** After paperwork is confirmed, stop the paperwork chase and park on the payment clock. */
+export async function startPaymentChaseAfterConfirm(invoiceId: string): Promise<BlueprintRunnerLog> {
+  const invoice = getInvoiceById(invoiceId)
+  if (!invoice) return { invoiceId, ok: false, detail: 'Invoice not found.' }
+  if (invoice.email_lifecycle?.paperwork_status !== 'good') {
+    return { invoiceId, ok: false, detail: 'Paperwork is not logged good.' }
+  }
+  const hasConfirmNote = (invoice.notes_history ?? []).some((row) =>
+    row.note.includes('Payment chase started')
+  )
+  if (!hasConfirmNote) {
+    addAdminInvoiceNote(invoice.id, `${BROKER_CONFIRMED_NOTE}\n\n(Blueprint: Broker confirmed)`, 'Credyx', {
+      visibility: 'internal',
+    })
+  }
+  const bp = paymentChaseBlueprint()
+  if (!bp) return { invoiceId, ok: false, detail: 'No payment chase blueprint.' }
+  const existing = getPrimaryRunForInvoice(invoice)
+  if (
+    existing &&
+    existing.blueprintId === bp.id &&
+    (existing.status === 'waiting' || existing.status === 'active' || existing.status === 'paused')
+  ) {
+    return { invoiceId, ok: true, detail: 'Payment chase already running.' }
+  }
+  assignInvoiceBlueprint(invoice.id, bp.id, bp.name)
+  const enrolled = ensureEnrollment(invoice, 'broker confirmed')
+  if (!enrolled) return { invoiceId, ok: false, detail: 'Could not enroll payment chase.' }
+  if (!enrolled.created) {
+    return { invoiceId, ok: true, detail: 'Payment chase already running.' }
+  }
+  return advanceInvoiceRun(invoice.id, { manual: true, forceWake: true })
 }
 
 export async function enrollInvoiceIfNeeded(

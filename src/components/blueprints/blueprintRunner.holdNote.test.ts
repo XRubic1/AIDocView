@@ -49,7 +49,7 @@ function holdClearedBlueprint(): SavedBlueprint {
     id: BP_ID,
     name: 'Note when hold cleared',
     updatedAt: '2026-09-23T00:00:00.000Z',
-    priority: 50,
+    priority: 100,
     nodes: [
       {
         id: 'n-start',

@@ -9,6 +9,7 @@
  * via GET /emails/receiving/:id when RESEND_API_KEY is set.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { beginPaymentChaseAfterConfirm } from '../_shared/blueprintEngine.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -410,7 +411,25 @@ Deno.serve(async (req) => {
         invoicePatch.hold_reason = reading.summary
       }
       await admin.from('invoices').update(invoicePatch).eq('id', invoice.id)
-      if (reading.status === 'confirmed' || reading.status === 'rejected') {
+      const paperworkConfirmed = reading.status === 'confirmed' && reading.classification === 'paperwork_ok'
+      if (paperworkConfirmed) {
+        try {
+          await beginPaymentChaseAfterConfirm(admin, String(invoice.id))
+        } catch (err) {
+          console.error('[email-inbound] payment chase handoff', err)
+          await admin
+            .from('blueprint_runs')
+            .update({
+              status: 'stopped',
+              current_step: 'Stopped · broker confirmed',
+              wait_until: null,
+              updated_at: now,
+            })
+            .eq('subject', 'invoice')
+            .eq('subject_id', invoice.id)
+            .in('status', ['waiting', 'active'])
+        }
+      } else if (reading.status === 'confirmed' || reading.status === 'rejected') {
         await admin
           .from('blueprint_runs')
           .update({

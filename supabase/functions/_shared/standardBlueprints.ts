@@ -104,7 +104,8 @@ function emailAction(
   actionId: string,
   label: string,
   line: string,
-  templateId: string
+  templateId: string,
+  fromEmail = BILLING
 ): StandardBlueprint['nodes'][number] {
   return {
     id,
@@ -121,8 +122,8 @@ function emailAction(
           message: '',
           channel: 'email',
           templateId,
-          fromEmail: BILLING,
-          fromEmails: [BILLING],
+            fromEmail,
+            fromEmails: [fromEmail],
         },
       },
     },
@@ -235,7 +236,7 @@ export const STANDARD_PAYMENT_CHASE: StandardBlueprint = {
       'payment_clock',
       '15',
       'Payment inquiry clock',
-      'Until due date plus inquiry days (or inquiry days from now if already due)'
+      'Until the broker net due date (or net days from now if there is no due date)'
     ),
     emailAction(
       'n-ask',
@@ -351,7 +352,8 @@ export const STANDARD_BROKER_PACKET: StandardBlueprint = {
       'email_broker_packet',
       'Send packet to broker',
       'Send invoice docs / PPW packet to the broker',
-      'broker_packet'
+      'broker_packet',
+      'system@credyx.net'
     ),
     done('n-done', 740),
   ],
@@ -440,19 +442,23 @@ function replyAction(
   }
 }
 
+/** Internal note posted when a broker confirms paperwork, before payment chase starts. */
+export const BROKER_CONFIRMED_NOTE = 'Broker confirmed paperwork. Payment chase started.'
+
 /** Broker said good to go, will pay, or sent a date. */
 export const STANDARD_BROKER_CONFIRMED: StandardBlueprint = {
   id: 'bp-standard-broker-confirmed',
   name: 'Broker confirmed',
-  updatedAt: '2026-09-27T00:00:00.000Z',
+  updatedAt: '2026-09-29T00:00:00.000Z',
   priority: 85,
   nodes: [
     trigger('n-start', 'invoices', 'event', ['approved', 'review']),
     when('n-when', 260, 'broker_confirmed', 'Broker confirmed', 'Broker confirmed this invoice'),
     replyAction('n-apply', 500, 'apply_broker_reply', 'Log confirmed', 'Log the broker confirmation on the invoice'),
-    done('n-done', 740),
+    noteAction('n-note', 740, 'add_note', 'Confirmed note', BROKER_CONFIRMED_NOTE),
+    done('n-done', 980),
   ],
-  edges: chain(['n-start', 'n-when', 'n-apply', 'n-done']),
+  edges: chain(['n-start', 'n-when', 'n-apply', 'n-note', 'n-done']),
 }
 
 /** Broker said not received, missing pages, missing lumper, or otherwise rejected. */

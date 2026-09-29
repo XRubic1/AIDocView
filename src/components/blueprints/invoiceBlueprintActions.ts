@@ -10,6 +10,7 @@ import { getActionIds } from './blueprintSubject'
 export type InvoiceBlueprintAction = {
   /** Stable key for this card (action + template + label). */
   key: string
+  nodeId: string
   actionId: string
   label: string
   detail: string
@@ -65,7 +66,8 @@ function triggerSubject(bp: SavedBlueprint): string | undefined {
 
 /** Invoice graphs only. First copy of the same action + template + label wins. */
 export function collectInvoiceBlueprintActions(
-  blueprints: SavedBlueprint[]
+  blueprints: SavedBlueprint[],
+  options?: { perNode?: boolean }
 ): InvoiceBlueprintAction[] {
   const out: InvoiceBlueprintAction[] = []
   const seen = new Set<string>()
@@ -82,11 +84,14 @@ export function collectInvoiceBlueprintActions(
         const config = node.data.actionConfigs?.[actionId]
         const label = (node.data.label || catalog?.defaultTitle || actionId).trim()
         const detail = (node.data.status || catalog?.cardLine || '').trim()
-        const key = `${actionId}|${config?.templateId?.trim() || ''}|${label}`
+        const key = options?.perNode
+          ? `${bp.id}|${node.id}|${actionId}`
+          : `${actionId}|${config?.templateId?.trim() || ''}|${label}`
         if (seen.has(key)) continue
         seen.add(key)
         out.push({
           key,
+          nodeId: node.id,
           actionId,
           label,
           detail,
@@ -99,6 +104,55 @@ export function collectInvoiceBlueprintActions(
   }
 
   return out
+}
+
+function stepIdentity(step: InvoiceBlueprintAction): string {
+  const template = step.config?.templateId?.trim() || ''
+  const message = step.config?.message?.trim() || ''
+  return `${step.actionId}|${template}|${step.label}|${message}`
+}
+
+/** Every distinct Then-do on one saved blueprint, in graph order. */
+export function listBlueprintActionSteps(blueprint: SavedBlueprint): InvoiceBlueprintAction[] {
+  const steps = collectInvoiceBlueprintActions([blueprint], { perNode: true })
+  const seen = new Set<string>()
+  return steps.filter((step) => {
+    const id = stepIdentity(step)
+    if (seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+}
+
+export type InvoiceActionBlueprintCard = {
+  key: string
+  blueprintId: string
+  blueprintName: string
+  steps: InvoiceBlueprintAction[]
+}
+
+/**
+ * One card per blueprint name. A second saved copy of the same name stays hidden.
+ * Newest copy wins.
+ */
+export function listInvoiceActionBlueprints(
+  blueprints: SavedBlueprint[] = listSavedBlueprints()
+): InvoiceActionBlueprintCard[] {
+  const byName = new Map<string, InvoiceActionBlueprintCard>()
+  const ordered = [...blueprints].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  for (const bp of ordered) {
+    const steps = listBlueprintActionSteps(bp)
+    if (steps.length === 0) continue
+    const nameKey = bp.name.trim().toLowerCase()
+    if (byName.has(nameKey)) continue
+    byName.set(nameKey, {
+      key: bp.id,
+      blueprintId: bp.id,
+      blueprintName: bp.name,
+      steps,
+    })
+  }
+  return [...byName.values()]
 }
 
 export function listInvoiceBlueprintActions(): InvoiceBlueprintAction[] {

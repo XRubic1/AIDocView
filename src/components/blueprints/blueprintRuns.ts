@@ -292,6 +292,36 @@ function isManualActionLogRun(run: BlueprintRunRow): boolean {
   return run.id.startsWith('run-inv-actions-')
 }
 
+/** Runs already saved. Does not write the demo Activity seed. */
+export function listStoredBlueprintRuns(): BlueprintRunRow[] {
+  return readAll()
+}
+
+/**
+ * Same pick as getPrimaryRunForInvoice, but only rows already stored.
+ * Used by the invoice overview so opening an invoice does not seed demo runs.
+ */
+export function getStoredPrimaryRunForInvoice(invoice: {
+  id: string
+  invoice_number: string
+}): BlueprintRunRow | null {
+  const all = listStoredBlueprintRuns().filter(
+    (r) => r.subject === 'invoice' && !isManualActionLogRun(r)
+  )
+  const byId = all.filter((r) => r.subjectId && r.subjectId === invoice.id)
+  const runs =
+    byId.length > 0
+      ? byId
+      : all.filter(
+          (r) => !r.subjectId && normLabel(r.subjectLabel) === normLabel(invoice.invoice_number)
+        )
+  if (runs.length === 0) return null
+  const live = runs.find(
+    (r) => r.status === 'waiting' || r.status === 'active' || r.status === 'paused'
+  )
+  return live ?? runs[0] ?? null
+}
+
 /** Latest non-terminal run preferred; else most recently updated. */
 export function getPrimaryRunForInvoice(invoice: {
   id: string

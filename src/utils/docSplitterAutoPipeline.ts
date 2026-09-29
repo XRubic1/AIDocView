@@ -27,10 +27,19 @@ import {
   classifyDocSplitterPage,
   fingerprintDocSortFile,
 } from '../products/docSort/services/docSortVision'
+import { fingerprintFromExtraction } from '../products/docSort/utils/docExtractJson'
+import { extractRateConBinderFile } from '../services/documentReviewService'
 import { parseFingerprintCatalog } from '../products/docSort/utils/docSortSnapshot'
-import { persistPageSplitFilesToStorage } from './resolvePageSplitFile'
+import { persistPageSplitFilesToStorage, persistSourceBinderFilesToStorage } from './resolvePageSplitFile'
+import { collapsePageSplitsIntoBinders } from './collapsePagesToBinders'
+import {
+  isSourceBinderFileName,
+  partitionSourceBinders,
+} from '../../supabase/functions/_shared/sourceDocBinders'
 import { matchSortedDocuments } from '../products/docSort/services/docSortMatcher'
 import { invoiceDraftGroupsFromSort } from '../products/docSort/utils/invoiceDraftGroups'
+import { primaryLoadLabel } from '../products/docSort/utils/matchKeys'
+import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { buildDocSortSnapshot } from '../products/docSort/utils/docSortSnapshot'
 import { buildCredyxDraftFromGroup, fingerprintDocIds } from '../integrations/docSortToCredyx'
 import { DocScanRateLimiter } from './docScanRateLimiter'
@@ -214,7 +223,7 @@ export async function overrideDocSplitPipeline(
 
 function listPendingFingerprints(draft: BatchIntakeDraft): DocSortFingerprint[] {
   return listAllSupportingFingerprints(draft).filter(
-    (fp) => !markCategoryForKind(fp.kind)
+    (fp) => !markCategoryForKind(fp.kind) && !isSourceBinderFileName(fp.fileName)
   )
 }
 
@@ -416,7 +425,7 @@ async function extractRcBolFingerprints(
     phase: 'extracting',
     thinking:
       toExtract.length > 0
-        ? `Pull full load / broker / rate JSON from ${toExtract.length} RC/BOL page(s).${skippedNote} Skipping ${invoices.length} invoice page(s).`
+        ? `Read each rate-con binder from page 1 until load, broker, rate, and lane are filled. ${toExtract.length} doc(s) left.${skippedNote} Skipping ${invoices.length} invoice page(s).`
         : alreadyExtracted.length > 0
           ? `All ${alreadyExtracted.length} RC/BOL page(s) already extracted — resuming from checkpoint.`
           : 'No RC/BOL pages to extract — packets may be empty.',
@@ -457,17 +466,33 @@ async function extractRcBolFingerprints(
           continue
         }
         try {
-          const full = await fingerprintDocSortFile(file, fp.docId)
-          const row: DocSortFingerprint = {
-            ...full,
-            fileName: fp.fileName || full.fileName,
-            kind: fp.kind,
+          const useBinderWalk =
+            fp.kind === 'rate_confirmation' &&
+            (isSourceBinderFileName(fp.fileName) || isSourceBinderFileName(file.name))
+          const skipBolBinder =
+            fp.kind === 'bill_of_lading' &&
+            (isSourceBinderFileName(fp.fileName) || isSourceBinderFileName(file.name))
+          if (skipBolBinder) {
+            extracted.push(fp)
+          } else {
+            const full = useBinderWalk
+              ? fingerprintFromExtraction(
+                  fp.docId,
+                  fp.fileName || file.name,
+                  await extractRateConBinderFile(file)
+                )
+              : await fingerprintDocSortFile(file, fp.docId)
+            const row: DocSortFingerprint = {
+              ...full,
+              fileName: fp.fileName || full.fileName,
+              kind: fp.kind,
+            }
+            extracted.push(row)
+            next = placeUnmatchedFingerprint(next, row)
+            // Checkpoint per doc: extract JSON lands in the snapshot immediately,
+            // so a rerun never pays for this extraction again.
+            persistDraftSnapshot(batchId, next)
           }
-          extracted.push(row)
-          next = placeUnmatchedFingerprint(next, row)
-          // Checkpoint per doc: extract JSON lands in the snapshot immediately,
-          // so a rerun never pays for this extraction again.
-          persistDraftSnapshot(batchId, next)
         } catch (err) {
           console.warn('[docSplitterAutoPipeline] extract failed', fp.docId, err)
           extracted.push(fp)
@@ -475,7 +500,7 @@ async function extractRcBolFingerprints(
         doneExtract += 1
         updateBatchLiveActivity(batchId, {
           phase: 'extracting',
-          thinking: `Pull full load / broker / rate JSON from ${toExtract.length} RC/BOL page(s).`,
+          thinking: `Read the rate confirmation from page 1 until load, broker, rate, and lane are filled.`,
           doing: `Extracted ${doneExtract} / ${toExtract.length}`,
           progressPercent: 50 + Math.round((doneExtract / Math.max(1, toExtract.length)) * 20),
           progressLabel: `${doneExtract} / ${toExtract.length}`,
@@ -538,7 +563,7 @@ export async function runDocSplitterAutoPipeline(
     jobKind: 'doc_split_and_packets',
     background: true,
     phase: 'doc_split',
-    thinking: 'Split combined PDFs into pages, classify, match RC↔BOL, create packets.',
+    thinking: 'Split combined PDFs, classify pages, merge each upload into Invoice / RC binder / BOL binder, then create one packet per upload.',
     doing: 'Starting Doc Split pipeline',
   })
 
@@ -604,6 +629,64 @@ export async function runDocSplitterAutoPipeline(
     throwIfAborted(signal)
     draft = await classifyPendingPages(draft, batchId, batch.client_id, signal)
 
+    // Packets already saved still reference the page files. Do not collapse
+    // those pages out from under them.
+    if (getInvoicesByBatchId(batchId).length > 0) {
+      clearBatchNeedsDocSplit(batchId)
+      unlockBatchAfterDocSplit(batchId)
+      updateBatch(batchId, {
+        status: 'ready_to_post',
+        sort_status: 'ready',
+        needs_doc_split: false,
+        processing_error: null,
+      })
+      notifyTenantDataUpdated(['batches', 'invoices'], batch.client_id)
+      const existingCount = getInvoicesByBatchId(batchId).length
+      finishBatchLiveActivity(batchId, {
+        phase: 'succeeded',
+        thinking: 'Packets already existed — skipped re-create.',
+        doing: `Ready · ${existingCount} existing packet(s)`,
+      })
+      return { ok: true, packetCount: existingCount }
+    }
+
+    throwIfAborted(signal)
+    updateBatchLiveActivity(batchId, {
+      phase: 'doc_split',
+      thinking:
+        'Merge classified pages of each upload into one invoice, one RC binder, and one BOL binder.',
+      doing: 'Building Invoice / RC / BOL binders…',
+      progressPercent: 45,
+      progressLabel: 'Binders',
+    })
+    const collapsed = await collapsePageSplitsIntoBinders(draft)
+    draft = collapsed.draft
+    if (collapsed.collapsedStems.length > 0) {
+      logBatchDocAction(batchId, {
+        type: 'auto_pipeline',
+        title: `Collapsed ${collapsed.collapsedStems.length} upload(s) into binders`,
+        detail: collapsed.collapsedStems.slice(0, 8).join(', '),
+      })
+      try {
+        draft = await persistSourceBinderFilesToStorage(draft, batchId, batch.client_id)
+        setBatchFiles(batchId, draft.fileById)
+      } catch (err) {
+        console.warn('[docSplitterAutoPipeline] binder upload failed', err)
+      }
+      if (isSupabaseConfigured() && collapsed.removedStoragePaths.length > 0) {
+        const supabase = getSupabase()
+        if (supabase) {
+          const { error } = await supabase.storage
+            .from('batch-documents')
+            .remove(collapsed.removedStoragePaths)
+          if (error) {
+            console.warn('[docSplitterAutoPipeline] page cleanup failed', error.message)
+          }
+        }
+      }
+      persistDraftSnapshot(batchId, draft)
+    }
+
     await setDocSplitPhase(batchId, 'creating_packets', 'Creating packets…')
     throwIfAborted(signal)
 
@@ -616,13 +699,23 @@ export async function runDocSplitterAutoPipeline(
 
     // Final mark sync before matching — user marks always beat AI kinds.
     const fingerprints = overlayUserMarksOnFingerprints(batchId, extractedFps)
-    const forMatch = fingerprints.filter((fp) => shouldExtractForDocSplitPackets(fp.kind))
-    const invAndOther = fingerprints.filter((fp) => !shouldExtractForDocSplitPackets(fp.kind))
+    // Uploads already collapsed into binders become one packet each.
+    // Loose docs (never page-split) still go through RC↔BOL matching.
+    const partitioned = partitionSourceBinders(fingerprints)
+    const forMatch = partitioned.loose.filter((fp) => shouldExtractForDocSplitPackets(fp.kind))
+    const invAndOther = partitioned.loose.filter((fp) => !shouldExtractForDocSplitPackets(fp.kind))
+    const binderInvoices = [
+      ...partitioned.packets.flatMap((packet) => packet.invoices),
+      ...partitioned.unassigned,
+    ]
 
     updateBatchLiveActivity(batchId, {
       phase: 'matching',
-      thinking: `Match ${forMatch.filter((f) => f.kind === 'rate_confirmation').length} RC(s) to ${forMatch.filter((f) => f.kind === 'bill_of_lading').length} BOL(s). INV stays unassigned.`,
-      doing: 'Matching RC ↔ BOL…',
+      thinking: `${partitioned.packets.length} upload binder packet(s). Match ${forMatch.filter((f) => f.kind === 'rate_confirmation').length} loose RC(s) to ${forMatch.filter((f) => f.kind === 'bill_of_lading').length} loose BOL(s). Invoice binders stay unassigned.`,
+      doing:
+        partitioned.packets.length > 0
+          ? `Creating packets from ${partitioned.packets.length} upload binder(s)…`
+          : 'Matching loose RC ↔ BOL…',
       progressPercent: 75,
       progressLabel: 'Match',
     })
@@ -635,6 +728,20 @@ export async function runDocSplitterAutoPipeline(
     }
 
     const grouped = invoiceDraftGroupsFromSort(sortResult)
+    const binderGroups = partitioned.packets.map((packet) => {
+      const anchor = packet.rateCons[0] ?? packet.bols[0]
+      return {
+        groupId: `source-${packet.stem}`,
+        label: anchor ? primaryLoadLabel(anchor) : packet.stem,
+        rateCons: packet.rateCons,
+        bols: packet.bols,
+        others: packet.support,
+        matchReason: 'uploaded packet binders',
+        matchScore: 100,
+      }
+    })
+    grouped.groups = [...binderGroups, ...grouped.groups]
+    grouped.unmatched.other = [...grouped.unmatched.other, ...binderInvoices]
     updateBatchLiveActivity(batchId, {
       phase: 'creating_packets',
       thinking: `Build ${grouped.groups.length} invoice packet(s) from matched loads.`,

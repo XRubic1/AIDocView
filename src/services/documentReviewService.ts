@@ -51,6 +51,12 @@ import {
 } from '../utils/multiStopBolValidation'
 import { refinePageClassifications, mergeTrainingPageClassifications } from '../utils/refinePageClassifications'
 import {
+  mergeRateConWalk,
+  rateConFromUnknown,
+  rateConWalkComplete,
+  rateConWalkToRaw,
+} from '../../supabase/functions/_shared/rateConWalk'
+import {
   BolAuditContext,
   finalizeBolAudit,
   sanitizeBolPageCountAudit,
@@ -1066,28 +1072,53 @@ async function reviewBolDocument(
 }
 
 async function reviewRateConPages(pages: ReviewImageInfo[], budget?: ReviewCostBudget) {
-  const result = await runWithFallback(
-    buildRateConExtractorPrompt(),
-    pages,
-    'rate_con_deep_review',
-    AI_REVIEW_CONFIG.DEEP_REVIEW_DETAIL,
-    budget
-  )
+  const attempts: DocumentReviewAttempt[] = []
+  let modelUsed: ReviewModel = AI_REVIEW_CONFIG.PRIMARY_MODEL
+  let upgradedFromMini = false
+  let merged: ReturnType<typeof rateConFromUnknown> = {}
+  let raw: Record<string, unknown> = {}
+  let extraction = {
+    documentType: 'rate_confirmation' as DocumentType,
+    hasSignature: false,
+    confidence: 0,
+    fieldsFound: [] as string[],
+    pageClassifications: [] as PageClassification[],
+  }
+  const reviewed: ReviewImageInfo[] = []
 
-  const usedAttempt = result.attempts.find((attempt) => attempt.usedForResult)
-  const raw = (usedAttempt?.rawResponse ?? {}) as Record<string, unknown>
+  for (const page of pages) {
+    const result = await runWithFallback(
+      buildRateConExtractorPrompt(),
+      [page],
+      'rate_con_deep_review',
+      AI_REVIEW_CONFIG.DEEP_REVIEW_DETAIL,
+      budget
+    )
+    attempts.push(...result.attempts)
+    modelUsed = result.modelUsed
+    upgradedFromMini = upgradedFromMini || result.upgradedFromMini
+    extraction = result.extraction
+    const usedAttempt = result.attempts.find((attempt) => attempt.usedForResult)
+    const pageRaw = (usedAttempt?.rawResponse ?? {}) as Record<string, unknown>
+    merged = mergeRateConWalk(merged, rateConFromUnknown(pageRaw))
+    raw = rateConWalkToRaw(merged, pageRaw)
+    reviewed.push(page)
+    if (rateConWalkComplete(merged)) break
+  }
+
   const rateConParse = parseRateConParse(raw)
   const flat = rateConParseToFlat(rateConParse)
 
   const rawFields = raw.fields as Record<string, RawExtractedField> | undefined
-  const sourcePage = pages[0]?.pageNumber ?? 1
+  const sourcePage = reviewed[0]?.pageNumber ?? pages[0]?.pageNumber ?? 1
+  const reviewedPages = reviewed.length > 0 ? reviewed : pages
 
-  let rateConFields = parseRateConFields(rawFields, sourcePage, pages)
+  let rateConFields = parseRateConFields(rawFields, sourcePage, reviewedPages)
   if (!rateConFields || !rateConFields.carrier?.value) {
     rateConFields = rateConParseToFields(rateConParse, rawFields, sourcePage)
   }
 
-  const normalizedFields = normalizeRateConFieldRegions(rateConFields, pages, sourcePage)
+  const normalizedFields = normalizeRateConFieldRegions(rateConFields, reviewedPages, sourcePage)
   const finalized = finalizeRateConExtraction(
     rateConParse,
     applyLoadNumberPrompt(normalizedFields),
@@ -1096,7 +1127,6 @@ async function reviewRateConPages(pages: ReviewImageInfo[], budget?: ReviewCostB
   const finalParse = finalized.parse
   rateConFields = finalized.fields
 
-  let extraction = result.extraction
   if (rateConFields) {
     extraction = mergeRateConIntoExtraction(extraction, rateConFields, finalParse)
   }
@@ -1110,13 +1140,35 @@ async function reviewRateConPages(pages: ReviewImageInfo[], budget?: ReviewCostB
     destination: flat.destination ?? extraction.destination,
     confidence: Number(finalParse.confidence ?? extraction.confidence),
     totalPagesInFile: pages[0]?.totalPages ?? pages.length,
-    pagesReviewed: pages.length,
+    pagesReviewed: reviewed.length || pages.length,
   }
 
   return {
-    ...result,
     extraction,
     rateConFields,
+    modelUsed,
+    upgradedFromMini,
+    attempts,
+  }
+}
+
+/** Rate-con binder only: page 1, then 2, then 3, until load / broker / rate / lane are filled. */
+export async function extractRateConBinderFile(file: File): Promise<ExtractedDocumentData> {
+  const pages = await fileToReviewImages(file)
+  if (pages.length === 0) {
+    return {
+      documentType: 'rate_confirmation',
+      hasSignature: false,
+      confidence: 0,
+      fieldsFound: [],
+    }
+  }
+  const result = await reviewRateConPages(pages)
+  return {
+    ...result.extraction,
+    documentType: 'rate_confirmation',
+    totalPagesInFile: pages.length,
+    pagesReviewed: result.extraction.pagesReviewed ?? pages.length,
   }
 }
 
