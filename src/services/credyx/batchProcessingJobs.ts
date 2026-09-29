@@ -204,6 +204,19 @@ async function kickBatchProcessingLocal(
   }
 }
 
+/** Avoid re-kicking the same batch on every tenant tick (pipeline notifies when it starts). */
+const recentlyKickedAt = new Map<string, number>()
+const KICK_COOLDOWN_MS = 45_000
+
+function markBatchKicked(batchId: string): void {
+  recentlyKickedAt.set(batchId, Date.now())
+}
+
+function batchKickedRecently(batchId: string): boolean {
+  const at = recentlyKickedAt.get(batchId)
+  return at != null && Date.now() - at < KICK_COOLDOWN_MS
+}
+
 /** Drain pending jobs when an admin opens Batches (covers handoff DocSort). */
 export async function drainPendingBatchProcessingJobs(limit = 3): Promise<number> {
   if (!isSupabaseConfigured()) {
@@ -264,7 +277,16 @@ export async function drainPendingBatchProcessingJobs(limit = 3): Promise<number
       continue
     }
 
+    if (batchKickedRecently(batchId)) continue
+
+    const { isBatchBackgroundPipelineRunning } = await import('./batchBackgroundPipeline')
+    const { isDocSplitPipelineRunning } = await import('../../utils/docSplitterAutoPipeline')
+    if (isBatchBackgroundPipelineRunning(batchId) || isDocSplitPipelineRunning(batchId)) {
+      continue
+    }
+
     try {
+      markBatchKicked(batchId)
       await kickBatchProcessingLocal(batchId, kind, jobId)
       void kickBatchProcessingEdge(batchId)
       done += 1
@@ -305,7 +327,10 @@ export async function resumeStuckDocSplitBatches(limit = 3): Promise<number> {
       const zombieLock = batch.in_use === true && batch.in_use_by === 'AI Doc Split'
       if (!zombieLock && !batchShouldRunDocSplitPipeline(batch)) continue
 
+      if (batchKickedRecently(batch.id)) continue
+
       try {
+        markBatchKicked(batch.id)
         await kickBatchProcessingLocal(batch.id, 'sort_and_verify', null)
         done += 1
       } catch (err) {

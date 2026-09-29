@@ -113,6 +113,8 @@ export default function Batches() {
   )
 
   // Drain queued DocSort / AI jobs + stuck-creation timeout when Batches is open.
+  // Do NOT depend on tenantRevision — each pipeline tick notifies tenant data,
+  // which would restart this effect and kick packet creation again immediately.
   useEffect(() => {
     let cancelled = false
     const run = () => {
@@ -146,7 +148,7 @@ export default function Batches() {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [tenantRevision, showToast])
+  }, [showToast])
 
   const allBatches = useMemo(() => getAllBatches(), [refreshKey, tenantRevision])
 

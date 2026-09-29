@@ -238,18 +238,17 @@ export default function BatchAiVerificationWorkspace({
   useEffect(() => {
     let cancelled = false
     const isFirstLoad = !draftRef.current
-    if (isFirstLoad) {
-      setLoading(true)
-      setError(null)
-    }
+    // Later tenant ticks only refresh invoice rows (effect above). Re-hydrating
+    // here reloads every packet document on each pipeline checkpoint.
+    if (!isFirstLoad) return
+    setLoading(true)
+    setError(null)
     void hydrateIntakeDraftFromBatch(batchId)
       .then((next) => {
         if (cancelled) return
         if (!next) {
-          if (isFirstLoad) {
-            setError('Could not load this batch for AI verification.')
-            setDraft(null)
-          }
+          setError('Could not load this batch for AI verification.')
+          setDraft(null)
           return
         }
         setDraft(next)
@@ -257,17 +256,17 @@ export default function BatchAiVerificationWorkspace({
         refreshInvoices()
       })
       .catch((err) => {
-        if (!cancelled && isFirstLoad) {
+        if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to load packet documents')
         }
       })
       .finally(() => {
-        if (!cancelled && isFirstLoad) setLoading(false)
+        if (!cancelled) setLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [batchId, tenantRevision, refreshInvoices])
+  }, [batchId, refreshInvoices])
 
   const storagePathsKey = draft?.storagePathsByDocId
     ? Object.keys(draft.storagePathsByDocId).sort().join('\0')

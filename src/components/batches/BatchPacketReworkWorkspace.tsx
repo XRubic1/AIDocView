@@ -150,34 +150,25 @@ export default function BatchPacketReworkWorkspace({
     }
   }, [])
 
+  const hydrateInflightRef = useRef(false)
+
   useEffect(() => {
-    let cancelled = false
-    const draftIsEmpty =
-      !draft ||
-      (draft.invoices.length === 0 &&
-        draft.fileById.size === 0 &&
-        Object.keys(draft.storagePathsByDocId ?? {}).length === 0)
+    // Already showing packets, or a fetch is in flight — live tenant ticks must not restart it.
+    if (draftRef.current || hydrateInflightRef.current || dirtyRef.current) return
 
-    // Avoid wiping in-progress edits; still retry when the first load came back empty.
-    if (dirty && !draftIsEmpty) return
-
-    if (!dirty) {
-      setLoading(true)
-      setError(null)
-    }
-
+    hydrateInflightRef.current = true
+    setLoading(true)
+    setError(null)
     void hydrateIntakeDraftFromBatch(batchId)
       .then((next) => {
-        if (cancelled) return
         if (!next) {
-          if (!draft) {
+          if (!draftRef.current) {
             setError('Could not load this batch for packet rework.')
             setDraft(null)
           }
           return
         }
-        // Keep local edits when a late tenant sync fires with less data.
-        if (dirtyRef.current && draft && draft.invoices.length > next.invoices.length) return
+        if (dirtyRef.current) return
         setDraft({
           ...next,
           unmatched: pruneUnmatchedAgainstAssigned(next.unmatched, next.invoices),
@@ -185,18 +176,15 @@ export default function BatchPacketReworkWorkspace({
         setError(null)
       })
       .catch((err) => {
-        if (cancelled) return
-        if (!draft) {
+        if (!draftRef.current) {
           setError(err instanceof Error ? err.message : 'Failed to load batch packets')
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        hydrateInflightRef.current = false
+        setLoading(false)
       })
-    return () => {
-      cancelled = true
-    }
-    // Re-run when tenant data arrives after an empty first paint.
+    // Retry only while the workspace is still empty (invoices not in memory yet).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId, tenantRevision])
 
