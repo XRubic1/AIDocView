@@ -36,6 +36,21 @@ const BROWSER_LOCK_FRESH_MS = 2 * 60_000
 /** Stale edge lock = a previous invocation crashed; safe to reclaim. */
 const EDGE_LOCK_FRESH_MS = 5 * 60_000
 
+const AI_INVOICE_CREATION_SETTINGS_KEY = 'ai_invoice_creation'
+
+/** Missing setting means creation stays on, matching the admin default. */
+async function isAutoInvoiceCreationEnabled(
+  admin: ReturnType<typeof createClient>
+): Promise<boolean> {
+  const { data, error } = await admin
+    .from('platform_settings')
+    .select('value')
+    .eq('key', AI_INVOICE_CREATION_SETTINGS_KEY)
+    .maybeSingle()
+  if (error || !data?.value || typeof data.value !== 'object') return true
+  return (data.value as { enabled?: boolean }).enabled !== false
+}
+
 function lockAgeMs(job: JobRow): number {
   if (!job.locked_at) return Number.MAX_SAFE_INTEGER
   const at = new Date(job.locked_at).getTime()
@@ -650,6 +665,32 @@ Deno.serve(async (req) => {
               })
               .eq('id', job.id)
             results.push({ jobId: job.id, batchId: job.batch_id, skipped: true, reason: 'rework' })
+            continue
+          }
+
+          if (!(await isAutoInvoiceCreationEnabled(admin))) {
+            const message = 'Automatic AI invoice creation is turned off.'
+            await admin
+              .from('batches')
+              .update({ status: 'rework', sort_status: 'failed' })
+              .eq('id', job.batch_id)
+            await admin
+              .from('batch_processing_jobs')
+              .update({
+                status: 'failed',
+                last_error: message,
+                finished_at: new Date().toISOString(),
+                locked_at: null,
+                locked_by: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', job.id)
+            results.push({
+              jobId: job.id,
+              batchId: job.batch_id,
+              skipped: true,
+              reason: 'auto_invoice_creation_off',
+            })
             continue
           }
 

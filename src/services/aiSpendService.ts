@@ -73,6 +73,22 @@ type AiPolicyRow = {
   default_client_monthly_cap_usd: number | null
 }
 
+/** Shared with the batch-ai-process edge worker. Missing row means creation stays on. */
+export const AI_INVOICE_CREATION_SETTINGS_KEY = 'ai_invoice_creation'
+
+async function loadAutoInvoiceCreationEnabled(): Promise<boolean> {
+  if (!isSupabaseConfigured()) return AI_POLICY.autoInvoiceCreationEnabled !== false
+  const supabase = getSupabase()
+  if (!supabase) return true
+  const { data, error } = await supabase
+    .from('platform_settings')
+    .select('value')
+    .eq('key', AI_INVOICE_CREATION_SETTINGS_KEY)
+    .maybeSingle()
+  if (error || !data?.value || typeof data.value !== 'object') return true
+  return (data.value as { enabled?: boolean }).enabled !== false
+}
+
 /** Start of current UTC calendar month. */
 export function startOfUtcMonth(date = new Date()): string {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)).toISOString()
@@ -91,11 +107,18 @@ export async function loadAiPolicy(): Promise<AiPolicySettings> {
   if (!supabase) return normalizeAiPolicy(AI_POLICY)
 
   const { data, error } = await supabase.from('ai_policy').select('*').eq('id', 1).maybeSingle()
-  if (error || !data) return normalizeAiPolicy(DEFAULT_AI_POLICY)
+  if (error || !data) {
+    return normalizeAiPolicy({
+      ...DEFAULT_AI_POLICY,
+      autoInvoiceCreationEnabled: await loadAutoInvoiceCreationEnabled(),
+    })
+  }
 
   const row = data as AiPolicyRow
+  const autoInvoiceCreationEnabled = await loadAutoInvoiceCreationEnabled()
   return normalizeAiPolicy({
     aiEnabled: row.ai_enabled !== false,
+    autoInvoiceCreationEnabled,
     monthlySpendCapUsd: row.monthly_spend_cap_usd,
     defaultClientMonthlyCapUsd: row.default_client_monthly_cap_usd,
   })
@@ -119,6 +142,13 @@ export async function saveAiPolicy(settings: AiPolicySettings): Promise<AiPolicy
     updated_at: new Date().toISOString(),
   })
   if (error) throw new Error(error.message)
+
+  const { error: creationError } = await supabase.from('platform_settings').upsert({
+    key: AI_INVOICE_CREATION_SETTINGS_KEY,
+    value: { enabled: normalized.autoInvoiceCreationEnabled },
+    updated_at: new Date().toISOString(),
+  })
+  if (creationError) throw new Error(creationError.message)
   return normalized
 }
 

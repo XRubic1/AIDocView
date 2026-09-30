@@ -7,6 +7,7 @@ import { getBatchById, updateBatch } from '../../data/mockBatches'
 import { getInvoicesByBatchId, updateInvoice } from '../../data/mockInvoices'
 import { downloadBatchDocument } from '../supabase/tenantPersist'
 import { isSupabaseConfigured, getSupabase } from '../../lib/supabase'
+import { isAutoInvoiceCreationEnabled } from '../../config/aiPolicy'
 import { isAIReviewEnabled } from '../../config/aiReview'
 import { runBatchAiReview, settleBatchAiGate } from './batchAiReviewService'
 import { runHappyPathAfterAiReview } from './batchHappyPath'
@@ -403,6 +404,21 @@ export async function runBatchBackgroundPipeline(opts: {
         thinking: 'Batch missing from store.',
         doing: 'Batch not found',
         error: 'Batch not found',
+      })
+      return
+    }
+
+    if (getInvoicesByBatchId(batchId).length === 0 && !isAutoInvoiceCreationEnabled()) {
+      await releaseBatchForAiPolicyBlock(
+        batchId,
+        { message: 'Automatic AI invoice creation is turned off.' },
+        { aiConfigured: true }
+      )
+      finishBatchLiveActivity(batchId, {
+        phase: 'failed',
+        thinking: 'Automatic AI invoice creation is turned off.',
+        doing: 'Stopped — create packets manually',
+        error: 'Automatic AI invoice creation is turned off',
       })
       return
     }

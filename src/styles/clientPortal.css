@@ -10551,6 +10551,38 @@
   gap: 8px;
 }
 
+.client-portal .client-ai-verify__rate-email {
+  margin-top: 8px;
+  width: 100%;
+  height: 28px;
+  border: 1px solid #1684fe;
+  background: #fff;
+  color: #1684fe;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.client-portal .client-ai-verify__rate-email:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.client-portal .client-ai-verify__rate-email-skip {
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.client-portal .client-ai-verify__rate-email-skip a {
+  color: #1684fe;
+  font-weight: 700;
+}
+
 .client-portal .client-ai-verify__unsaved-hint {
   font-size: 10px;
   font-weight: 600;

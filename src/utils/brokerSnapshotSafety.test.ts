@@ -36,6 +36,18 @@ describe('brokerSnapshotSafety', () => {
     expect(shouldShowCancellationHistory(data)).toBe(false)
   })
 
+  it('treats broker-of-property operating status as active authority', () => {
+    const data = summary({
+      operatingStatus: 'AUTHORIZED FOR: Broker of Property (Except Household Goods)',
+      brokerAuthority: null,
+      commonAuthority: 'None',
+      contractAuthority: 'None',
+      insuranceVerdict: 'ok',
+      activeInsuranceCount: 1,
+    })
+    expect(hasActiveFreightAuthority(data)).toBe(true)
+    expect(isDoNotWorkBroker(data)).toBe(false)
+  })
   it('blocks when no authority is active', () => {
     const data = summary({
       operatingStatus: 'Not Authorized',

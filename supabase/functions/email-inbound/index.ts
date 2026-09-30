@@ -10,6 +10,7 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { beginPaymentChaseAfterConfirm } from '../_shared/blueprintEngine.ts'
+import { readRateVerificationReply } from '../_shared/rateVerificationReply.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -19,8 +20,13 @@ const corsHeaders = {
 
 const BODY_MAX = 80_000
 
-function outboundKind(templateId: string, subject: string, body: string): 'paperwork' | 'payment' | 'other' {
+function outboundKind(
+  templateId: string,
+  subject: string,
+  body: string
+): 'paperwork' | 'payment' | 'other' | 'rate_verification' {
   const template = templateId.toLowerCase()
+  if (template.includes('rate_verification')) return 'rate_verification'
   if (template.includes('payment')) return 'payment'
   if (template.includes('paperwork') || template.includes('packet')) return 'paperwork'
   const text = `${subject} ${body}`.toLowerCase()
@@ -29,7 +35,7 @@ function outboundKind(templateId: string, subject: string, body: string): 'paper
   return 'other'
 }
 
-function readReply(subject: string, body: string, kind: 'paperwork' | 'payment' | 'other') {
+function readReply(subject: string, body: string, kind: 'paperwork' | 'payment' | 'other' | 'rate_verification') {
   const text = `${subject}\n${body}`
   const rejected =
     /not\s+received|did\s*n[o']t\s+receive|never\s+received|missing|lumper|missing\s+pages?|incomplete|short\s*pay|will\s+not\s+pay|not\s+paying/i.test(
@@ -297,12 +303,15 @@ Deno.serve(async (req) => {
       invoice_number: string
       load_number: string | null
       email_lifecycle: Record<string, unknown> | null
+      status?: string | null
+      notes?: string | null
+      notes_history?: unknown
     } | null = null
     if (invMatch) {
       const token = invMatch[1]
       const { data: row } = await admin
         .from('invoices')
-        .select('id, broker_id, client_id, invoice_number, load_number, email_lifecycle')
+        .select('id, broker_id, client_id, invoice_number, load_number, email_lifecycle, status, notes, notes_history')
         .ilike('invoice_number', `%${token}%`)
         .limit(1)
         .maybeSingle()
@@ -313,7 +322,7 @@ Deno.serve(async (req) => {
       if (loadMatch) {
         const { data: row } = await admin
           .from('invoices')
-          .select('id, broker_id, client_id, invoice_number, load_number, email_lifecycle')
+          .select('id, broker_id, client_id, invoice_number, load_number, email_lifecycle, status, notes, notes_history')
           .ilike('load_number', loadMatch[1])
           .limit(1)
           .maybeSingle()
@@ -382,6 +391,63 @@ Deno.serve(async (req) => {
         String(outbound?.subject ?? ''),
         String(outbound?.body_text ?? '')
       )
+      if (kind === 'rate_verification') {
+        const rate = readRateVerificationReply(subject, bodyText)
+        const note = `${rate.summary}\n\n(Blueprint: Rate verification)`
+        const history = Array.isArray(invoice.notes_history) ? [...invoice.notes_history] : []
+        history.push({
+          id: `note-${crypto.randomUUID()}`,
+          note,
+          created_by: 'Credyx',
+          created_at: now,
+          type: rate.outcome === 'hold' ? 'hold_reason' : 'note',
+          visibility: 'internal',
+        })
+        const patch: Record<string, unknown> = {
+          notes_history: history,
+          verification_status: 'Email',
+          updated_at: now,
+          email_lifecycle: {
+            ...((invoice.email_lifecycle ?? {}) as Record<string, unknown>),
+            last_reply_status: rate.outcome === 'ok' ? 'confirmed' : rate.outcome === 'hold' ? 'rejected' : 'unknown',
+          },
+        }
+        const open = !invoice.status || ['pending', 'review', 'approved', 'hold'].includes(invoice.status)
+        if (rate.outcome === 'ok' && open) {
+          patch.status = 'approved'
+          patch.approved_by = 'Credyx'
+          patch.approved_at = now
+          patch.hold_reason = null
+        } else if (rate.outcome === 'hold' && open) {
+          patch.status = 'hold'
+          patch.hold_reason = rate.summary
+        }
+        await admin.from('invoices').update(patch).eq('id', invoice.id)
+        const { error: runErr } = await admin.from('blueprint_runs').insert({
+          id: `run-rate-${invoice.id}-${Date.now()}`,
+          subject: 'invoice',
+          subject_id: invoice.id,
+          subject_label: invoice.invoice_number,
+          client_label: '',
+          blueprint_id: 'bp-standard-rate-verification',
+          blueprint_name: 'Rate verification',
+          status: 'completed',
+          current_step: `Done · ${rate.outcome}`,
+          current_node_id: 'n-done',
+          wait_until: null,
+          started_at: now,
+          updated_at: now,
+        })
+        if (runErr) console.warn('[email-inbound] rate verification run', runErr.message)
+        classified = {
+          status: rate.outcome === 'ok' ? 'confirmed' : rate.outcome === 'hold' ? 'rejected' : 'unknown',
+          kind,
+          classification: rate.outcome === 'hold' ? 'negative' : rate.outcome === 'ok' ? 'paperwork_ok' : 'unclear',
+          proposed_actions: rate.outcome === 'hold' ? ['hold_invoice', 'add_note'] : ['add_note'],
+          summary: rate.summary,
+          payDate: null,
+        }
+      } else {
       const reading = readReply(subject, bodyText, kind)
       const life = (invoice.email_lifecycle ?? { paperwork_status: 'unknown' }) as Record<string, unknown>
       const paperwork = { ...((life.paperwork as Record<string, unknown>) ?? {}) }
@@ -443,6 +509,7 @@ Deno.serve(async (req) => {
           .in('status', ['waiting', 'active'])
       }
       classified = reading
+      }
     }
 
     const { error } = await admin.from('email_review_items').insert({

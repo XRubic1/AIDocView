@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertCircle, ArrowLeft, Check, ChevronDown, ChevronUp, Loader2, RefreshCw, Save, Sparkles } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Check, ChevronDown, ChevronUp, Loader2, Mail, RefreshCw, Save, Sparkles } from 'lucide-react'
 import CompactPacketDocPane, { type CompactDocItem } from '../client/CompactPacketDocPane'
 import InvoiceAiReviewOutcomePanel from './InvoiceAiReviewOutcomePanel'
 import {
@@ -50,6 +50,12 @@ import {
 import { regenerateInvoicePdfForInvoice } from '../../integrations/docSortToCredyx'
 import { approveAdminInvoice, holdAdminInvoice, isAiAutoReviewNote } from '../../services/adminInvoiceActions'
 import { processVerifiedBatch } from '../../services/credyx/processBatch'
+import { sendBrokerRateVerification } from '../../services/credyx/rateVerificationEmail'
+import {
+  loadVerificationWebsites,
+  verificationWebsiteById,
+  websiteHref,
+} from '../../services/verificationWebsites'
 import {
   ensureStoredBatchFile,
   prefetchStoredBatchFiles,
@@ -154,6 +160,14 @@ export default function BatchAiVerificationWorkspace({
   const [spokeWithName, setSpokeWithName] = useState('')
   const [spokeWithEmail, setSpokeWithEmail] = useState('')
   const [savingEdits, setSavingEdits] = useState(false)
+  const [sendingRateEmail, setSendingRateEmail] = useState(false)
+  const [verificationSitesReady, setVerificationSitesReady] = useState(0)
+
+  useEffect(() => {
+    void loadVerificationWebsites()
+      .then(() => setVerificationSitesReady((n) => n + 1))
+      .catch((err) => console.warn('[BatchAiVerificationWorkspace] verification websites', err))
+  }, [])
   /** Party info card above verification actions. */
   const [partyTab, setPartyTab] = useState<'broker' | 'client'>('broker')
   const [partyExpanded, setPartyExpanded] = useState(false)
@@ -680,6 +694,11 @@ export default function BatchAiVerificationWorkspace({
     ? selectedBroker?.name || selected.broker_name || '—'
     : '—'
 
+  const verificationWebsite = useMemo(() => {
+    void verificationSitesReady
+    return verificationWebsiteById(selectedBroker?.verification_website_id)
+  }, [selectedBroker?.verification_website_id, verificationSitesReady])
+
   const onFileBrokerDomain = useMemo(
     () => primaryBrokerEmailDomain(selectedBroker),
     [selectedBroker]
@@ -831,6 +850,31 @@ export default function BatchAiVerificationWorkspace({
 
   const setVerifyChannel = (invoice: Invoice, channel: Invoice['verification_status']) => {
     patchInvoice(updateInvoice(invoice.id, { verification_status: channel }))
+  }
+
+  const sendRateCheck = async (invoice: Invoice) => {
+    if (sendingRateEmail) return
+    setSendingRateEmail(true)
+    try {
+      saveVerificationFields(invoice)
+      const result = await sendBrokerRateVerification({
+        invoice: getInvoiceById(invoice.id) ?? invoice,
+        broker: selectedBroker,
+        toOverride: spokeWithEmail,
+      })
+      if (!result.ok || !result.invoice) {
+        showToast(result.error || 'Could not email the broker', 'error')
+        return
+      }
+      patchInvoice(result.invoice)
+      setVerifyChannel(result.invoice, 'Email')
+      showToast(`Rate check sent to ${result.to}`, 'success')
+    } catch (err) {
+      console.warn('[BatchAiVerificationWorkspace] rate check failed', err)
+      showToast('Could not email the broker', 'error')
+    } finally {
+      setSendingRateEmail(false)
+    }
   }
 
   const resolvePacketIssues = async (invoice: Invoice) => {
@@ -1645,6 +1689,15 @@ export default function BatchAiVerificationWorkspace({
                         <dt>Prefer</dt>
                         <dd>{selectedBroker?.preferred_contact || '—'}</dd>
                       </div>
+                      <div>
+                        <dt>Verify</dt>
+                        <dd className="capitalize">
+                          {selectedBroker?.verification_type || 'email'}
+                          {selectedBroker?.verification_type === 'web'
+                            ? ` · ${verificationWebsite?.name || 'website not set'}`
+                            : ''}
+                        </dd>
+                      </div>
                       {selectedBroker?.notes ? (
                         <div className="client-ai-verify__party-span">
                           <dt>Notes</dt>
@@ -1829,6 +1882,43 @@ export default function BatchAiVerificationWorkspace({
                     <span className="client-ai-verify__unsaved-hint">Unsaved changes</span>
                   ) : null}
                 </div>
+                {selectedBroker?.verification_type === 'web' ? (
+                  <p className="client-ai-verify__rate-email-skip">
+                    {verificationWebsite ? (
+                      <>
+                        Verify on{' '}
+                        {websiteHref(verificationWebsite.url) ? (
+                          <a
+                            href={websiteHref(verificationWebsite.url) || undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {verificationWebsite.name}
+                          </a>
+                        ) : (
+                          verificationWebsite.name
+                        )}
+                        . No email is sent.
+                      </>
+                    ) : (
+                      'Web verification — set the website on the broker profile. No email is sent.'
+                    )}
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    className="client-ai-verify__rate-email"
+                    disabled={sendingRateEmail}
+                    onClick={() => void sendRateCheck(selected)}
+                  >
+                    {sendingRateEmail ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Mail className="w-3 h-3" />
+                    )}
+                    Email broker to confirm rate
+                  </button>
+                )}
               </>
             ) : (
               <p className="client-ai-verify__footer-empty">Select an invoice to verify.</p>

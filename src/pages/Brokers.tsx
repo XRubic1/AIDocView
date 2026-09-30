@@ -20,6 +20,13 @@ import {
   type SnapshotSuggestField,
 } from '../utils/brokerSnapshotFormFill'
 import SnapshotFieldSwap from '../components/brokers/SnapshotFieldSwap'
+import {
+  addVerificationWebsite,
+  listVerificationWebsites,
+  loadVerificationWebsites,
+  verificationWebsiteById,
+  type VerificationWebsite,
+} from '../services/verificationWebsites'
 import '../styles/clientPortal.css'
 import '../styles/brokerPicker.css'
 
@@ -107,6 +114,7 @@ export default function Brokers() {
     paperwork_status_check_days: 7,
     payment_status_inquiry_days: 15,
     preferred_contact: 'either',
+    verification_type: 'email',
   })
   const [emails, setEmails] = useState<BrokerEmail[]>([])
   const [phones, setPhones] = useState<BrokerPhone[]>([])
@@ -119,6 +127,18 @@ export default function Brokers() {
   >([])
   /** When on, extra emails show a gray `@domain` hint — Tab accepts it. */
   const [autoFillEmailDomain, setAutoFillEmailDomain] = useState(true)
+  const [verificationWebsites, setVerificationWebsites] = useState<VerificationWebsite[]>(() =>
+    listVerificationWebsites()
+  )
+  const [newWebsiteName, setNewWebsiteName] = useState('')
+  const [newWebsiteUrl, setNewWebsiteUrl] = useState('')
+  const [addingWebsite, setAddingWebsite] = useState(false)
+
+  useEffect(() => {
+    void loadVerificationWebsites()
+      .then(setVerificationWebsites)
+      .catch((err) => console.warn('[Brokers] verification websites', err))
+  }, [])
 
   const filteredBrokers = brokers.filter((broker) => {
     if (searchTerm === '') return true
@@ -204,6 +224,7 @@ export default function Brokers() {
     paperwork_status_check_days: 7,
     payment_status_inquiry_days: 15,
     preferred_contact: 'either',
+    verification_type: 'email',
   })
 
   /** Prefill form fields from an existing broker (edit mode). */
@@ -227,6 +248,8 @@ export default function Brokers() {
       paperwork_status_check_days: broker.paperwork_status_check_days ?? 7,
       payment_status_inquiry_days: broker.payment_status_inquiry_days ?? 15,
       preferred_contact: broker.preferred_contact ?? 'either',
+      verification_type: broker.verification_type ?? 'email',
+      verification_website_id: broker.verification_website_id ?? '',
     })
     setEmails(
       broker.emails?.length
@@ -276,6 +299,23 @@ export default function Brokers() {
 
   const handleInputChange = (field: keyof Broker, value: string | number | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleAddVerificationWebsite = async () => {
+    if (addingWebsite) return
+    setAddingWebsite(true)
+    try {
+      const site = await addVerificationWebsite(newWebsiteName, newWebsiteUrl)
+      setVerificationWebsites(listVerificationWebsites())
+      setFormData((prev) => ({ ...prev, verification_website_id: site.id }))
+      setNewWebsiteName('')
+      setNewWebsiteUrl('')
+      showToast(`Added ${site.name} to the verification list.`, 'success')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not add website', 'error')
+    } finally {
+      setAddingWebsite(false)
+    }
   }
 
   const applySuggestFieldValue = (field: SnapshotSuggestField, value: string) => {
@@ -374,6 +414,8 @@ export default function Brokers() {
         paperwork_status_check_days: existing.paperwork_status_check_days ?? 7,
         payment_status_inquiry_days: existing.payment_status_inquiry_days ?? 15,
         preferred_contact: existing.preferred_contact ?? 'either',
+        verification_type: existing.verification_type ?? 'email',
+        verification_website_id: existing.verification_website_id ?? '',
       }
       workingEmails = existing.emails?.length
         ? existing.emails.map((e) => ({ ...e }))
@@ -517,6 +559,11 @@ export default function Brokers() {
       paperwork_status_check_days: formData.paperwork_status_check_days ?? 7,
       payment_status_inquiry_days: formData.payment_status_inquiry_days ?? 15,
       preferred_contact: formData.preferred_contact ?? 'either',
+      verification_type: formData.verification_type ?? 'email',
+      verification_website_id:
+        formData.verification_type === 'web'
+          ? formData.verification_website_id?.trim() || undefined
+          : undefined,
     }
   }
 
@@ -910,6 +957,25 @@ export default function Brokers() {
                       {selectedBroker.preferred_contact ?? 'either'}
                     </p>
                   </div>
+                  <div className="bg-white px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                      Verification type
+                    </p>
+                    <p className="text-sm font-medium text-slate-900 mt-0.5 capitalize">
+                      {selectedBroker.verification_type ?? 'email'}
+                    </p>
+                  </div>
+                  {selectedBroker.verification_type === 'web' ? (
+                    <div className="bg-white px-3 py-2 sm:col-span-2">
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                        Where to verify
+                      </p>
+                      <p className="text-sm font-medium text-slate-900 mt-0.5">
+                        {verificationWebsiteById(selectedBroker.verification_website_id)?.name ||
+                          'Not set'}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               </section>
 
@@ -1206,6 +1272,83 @@ export default function Brokers() {
                         <option value="phone">Phone only</option>
                       </select>
                     </label>
+                    <label className={labelClass}>
+                      <span className="font-medium text-slate-600 uppercase tracking-wide">
+                        Verification type
+                      </span>
+                      <select
+                        value={formData.verification_type ?? 'email'}
+                        onChange={(e) =>
+                          handleInputChange(
+                            'verification_type',
+                            e.target.value as 'email' | 'phone' | 'web'
+                          )
+                        }
+                        className={`${inputClass} mt-1`}
+                      >
+                        <option value="email">Email</option>
+                        <option value="phone">Phone</option>
+                        <option value="web">Web</option>
+                      </select>
+                      <span className="mt-1 block text-[10px] text-slate-500 leading-snug">
+                        Web means Credyx does not email this broker to confirm the rate.
+                      </span>
+                    </label>
+                    {formData.verification_type === 'web' ? (
+                      <div className="space-y-2">
+                        <label className={labelClass}>
+                          <span className="font-medium text-slate-600 uppercase tracking-wide">
+                            Where to verify
+                          </span>
+                          <select
+                            value={formData.verification_website_id ?? ''}
+                            onChange={(e) =>
+                              handleInputChange('verification_website_id', e.target.value)
+                            }
+                            className={`${inputClass} mt-1`}
+                          >
+                            <option value="">Select a website</option>
+                            {verificationWebsites.map((site) => (
+                              <option key={site.id} value={site.id}>
+                                {site.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="rounded-lg border border-slate-200 p-2.5 space-y-2 bg-slate-50/70">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 m-0">
+                            Add a website
+                          </p>
+                          <input
+                            type="text"
+                            value={newWebsiteName}
+                            onChange={(e) => setNewWebsiteName(e.target.value)}
+                            placeholder="Name"
+                            className={inputClass}
+                          />
+                          <input
+                            type="text"
+                            value={newWebsiteUrl}
+                            onChange={(e) => setNewWebsiteUrl(e.target.value)}
+                            placeholder="https://"
+                            className={inputClass}
+                          />
+                          <button
+                            type="button"
+                            className="dashboard-btn-secondary dashboard-btn-compact inline-flex items-center gap-1"
+                            disabled={addingWebsite || !newWebsiteName.trim()}
+                            onClick={() => void handleAddVerificationWebsite()}
+                          >
+                            {addingWebsite ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Plus className="w-3 h-3" />
+                            )}
+                            Add to list
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </section>
 
                   <section className={`${sectionClass} broker-form-section--tall`}>

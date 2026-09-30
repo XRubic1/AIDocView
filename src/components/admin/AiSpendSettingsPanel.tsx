@@ -59,9 +59,11 @@ export default function AiSpendSettingsPanel() {
       const saved = await saveAiPolicy(policy)
       setPolicy(saved)
       setMessage(
-        saved.aiEnabled
-          ? 'AI processing enabled. Caps saved.'
-          : 'AI processing disabled platform-wide. Uploads still work.'
+        !saved.aiEnabled
+          ? 'AI processing disabled platform-wide. Uploads still work.'
+          : saved.autoInvoiceCreationEnabled
+            ? 'AI processing enabled. Automatic invoice creation is on.'
+            : 'Automatic AI invoice creation is off. Uploads still work; existing invoices can still be reviewed.'
       )
       await refresh()
     } catch (err) {
@@ -118,6 +120,31 @@ export default function AiSpendSettingsPanel() {
             </span>
             <span className="block text-xs mt-0.5" style={{ color: c.secondary }}>
               Uncheck to stop AI packet creation and review spend. Uploads stay open.
+            </span>
+          </span>
+        </label>
+
+        <label
+          className="flex items-start gap-3 rounded border px-3 py-3"
+          style={{ borderColor: c.border }}
+        >
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={policy.autoInvoiceCreationEnabled}
+            disabled={!policy.aiEnabled}
+            onChange={(e) =>
+              setPolicy((p) => ({ ...p, autoInvoiceCreationEnabled: e.target.checked }))
+            }
+          />
+          <span>
+            <span className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: c.primary }}>
+              <Power className="w-3.5 h-3.5" />
+              Automatic AI invoice creation
+            </span>
+            <span className="block text-xs mt-0.5" style={{ color: c.secondary }}>
+              Uncheck to keep uploads, and stop AI from creating invoices. Review of invoices
+              that already exist still runs. Turn this back on before retrying Packet Rework.
             </span>
           </span>
         </label>
@@ -186,7 +213,11 @@ export default function AiSpendSettingsPanel() {
           <div className="p-3 border rounded" style={{ borderColor: c.border }}>
             <dt style={{ color: c.secondary }}>Status</dt>
             <dd className="mt-1 font-semibold" style={{ color: c.primary }}>
-              {policy.aiEnabled ? 'AI on' : 'AI off — uploads only'}
+              {!policy.aiEnabled
+                ? 'AI off — uploads only'
+                : policy.autoInvoiceCreationEnabled
+                  ? 'AI on'
+                  : 'Review on — automatic invoices off'}
             </dd>
           </div>
         </dl>

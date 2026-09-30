@@ -523,6 +523,7 @@ export const EMAIL_SHELL_EYEBROW: Record<string, string> = {
   credyx_batch_error: 'Batch error',
   broker_payment_status_inquiry: 'Collections',
   broker_payment_status_followup: 'Collections',
+  broker_rate_verification: 'Rate check',
   broker_paperwork_status_inquiry: 'Paperwork',
   broker_paperwork_status_followup: 'Paperwork',
   broker_claim_scope: 'Claim',

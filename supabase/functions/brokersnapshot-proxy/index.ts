@@ -1,4 +1,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import {
+  collectInsuranceRows,
+  companyRecordScore,
+  extractCompanyRecord,
+  extractCompanyRecords,
+  normalizeSnapshotCompany,
+} from '../_shared/snapshotCompany.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -6,6 +13,7 @@ const corsHeaders = {
 }
 
 const API_BASE = 'https://brokersnapshot.com/api/v2'
+const API_V3 = 'https://brokersnapshot.com/api/v3'
 
 /** Admin staff or authenticated carrier portal user. */
 function isAllowedUser(user: {
@@ -36,12 +44,55 @@ function extractDocketDigits(raw: unknown): string {
 
 function authorityLabel(code: unknown): string | null {
   if (code == null || code === '') return null
-  const c = String(code).toUpperCase()
-  if (c === 'A' || c === 'Y') return 'Active'
-  if (c === 'I') return 'Inactive'
-  if (c === 'N') return 'None'
-  if (c === 'P') return 'Pending'
-  return String(code)
+  const c = String(code).trim().toUpperCase()
+  if (c === 'A' || c === 'Y' || c === 'ACTIVE' || c === 'AUTHORIZED') return 'Active'
+  if (c === 'I' || c === 'INACTIVE') return 'Inactive'
+  if (c === 'N' || c === 'NONE') return 'None'
+  if (c === 'P' || c === 'PENDING') return 'Pending'
+  return String(code).trim()
+}
+
+function recordField(obj: Record<string, unknown> | null | undefined, names: string[]): unknown {
+  if (!obj) return null
+  const wanted = new Set(names.map((name) => name.toLowerCase()))
+  for (const [key, value] of Object.entries(obj)) {
+    if (!wanted.has(key.toLowerCase())) continue
+    if (value == null || String(value).trim() === '') continue
+    return value
+  }
+  return null
+}
+
+function inferAuthorityFromStatus(status: string | null): {
+  broker?: string
+  common?: string
+  contract?: string
+} {
+  if (!status) return {}
+  const text = status.toLowerCase()
+  if (
+    text.includes('not authorized') ||
+    text.includes('unauthorized') ||
+    text.includes('out of service') ||
+    text.includes('revoked') ||
+    text.includes('inactive')
+  ) {
+    return {}
+  }
+  if (!text.includes('authorized') && !/\bactive\b/.test(text)) return {}
+  const found: { broker?: string; common?: string; contract?: string } = {}
+  if (text.includes('broker')) found.broker = 'Active'
+  if (text.includes('common')) found.common = 'Active'
+  if (text.includes('contract')) found.contract = 'Active'
+  if (text.includes('property') && !found.broker && !found.common && !found.contract) {
+    found.common = 'Active'
+  }
+  return found
+}
+
+function preferAuthority(explicit: string | null, inferred?: string): string | null {
+  if (explicit && explicit.toLowerCase() !== 'none') return explicit
+  return inferred ?? explicit
 }
 
 function formatPhyAddress(address: Record<string, unknown> | null | undefined): string | null {
@@ -122,7 +173,6 @@ function isCurrentlyOperating(operatingStatus: string | null, statusCode: string
   return /\bactive\b/.test(op) || op.includes('authorized')
 }
 
-/** Map BrokerSnapshot Company payload → UI-safe summary (no raw dump). */
 function summarizeCompany(data: Record<string, unknown>) {
   const general = (data.General ?? {}) as Record<string, unknown>
   const authority = (data.Authority ?? {}) as Record<string, unknown>
@@ -134,9 +184,7 @@ function summarizeCompany(data: Record<string, unknown>) {
   const mileage = (data.Mileage ?? {}) as Record<string, unknown>
   const cargo = (data.CargoTransported ?? {}) as Record<string, unknown>
   const safety = (data.SafetyRating ?? {}) as Record<string, unknown>
-  const activeInsurances = Array.isArray(data.ActiveInsurances)
-    ? (data.ActiveInsurances as Record<string, unknown>[])
-    : []
+  const activeInsurances = collectInsuranceRows(data)
   const historyInsurances = Array.isArray(data.HistoryInsurances)
     ? (data.HistoryInsurances as Record<string, unknown>[])
     : []
@@ -149,20 +197,30 @@ function summarizeCompany(data: Record<string, unknown>) {
 
   const mcNumber = extractMcNumber(data)
 
-  const common = authorityLabel(authority.common_stat)
-  const contract = authorityLabel(authority.contract_stat)
-  const broker = authorityLabel(authority.broker_stat)
-  const operatingStatus =
-    authority.OperatingStatus != null
-      ? String(authority.OperatingStatus)
-      : general.status_code != null
-        ? String(general.status_code)
-        : null
+  const common = preferAuthority(
+    authorityLabel(recordField(authority, ['common_stat', 'common', 'common_authority', 'commonAuthority'])),
+    undefined
+  )
+  const contract = preferAuthority(
+    authorityLabel(recordField(authority, ['contract_stat', 'contract', 'contract_authority', 'contractAuthority'])),
+    undefined
+  )
+  const brokerExplicit = authorityLabel(
+    recordField(authority, ['broker_stat', 'broker', 'broker_authority', 'brokerAuthority'])
+  )
+  const operatingStatusRaw =
+    recordField(authority, ['OperatingStatus', 'operating_status', 'operatingStatus']) ??
+    recordField(general, ['operating_status', 'OperatingStatus', 'status'])
+  const operatingStatus = operatingStatusRaw != null ? String(operatingStatusRaw) : null
+  const inferred = inferAuthorityFromStatus(operatingStatus)
+  const broker = preferAuthority(brokerExplicit, inferred.broker)
+  const commonAuthority = preferAuthority(common, inferred.common)
+  const contractAuthority = preferAuthority(contract, inferred.contract)
   const statusCode = general.status_code != null ? String(general.status_code) : null
 
   const riskFlags: string[] = []
   const hasActiveAuthority =
-    common === 'Active' || contract === 'Active' || broker === 'Active'
+    commonAuthority === 'Active' || contractAuthority === 'Active' || broker === 'Active'
   const currentlyOperating = isCurrentlyOperating(operatingStatus, statusCode)
 
   if (operatingStatus) {
@@ -251,6 +309,8 @@ function summarizeCompany(data: Record<string, unknown>) {
     effectiveDate: row.effective_date != null ? String(row.effective_date) : null,
     maxLimit: asNumber(row.bi_pd_maximum_limit),
     formCode: asNumber(row.form_code),
+    phone: row.phone != null ? String(row.phone) : null,
+    email: row.email != null ? String(row.email) : null,
   }))
 
   const cargoPolicy = activeInsurances.find((row) => Number(row.bi_pd_maximum_limit ?? 0) > 0)
@@ -294,8 +354,8 @@ function summarizeCompany(data: Record<string, unknown>) {
     carrierOperation:
       general.carrier_operation != null ? String(general.carrier_operation) : null,
     operatingStatus,
-    commonAuthority: common,
-    contractAuthority: contract,
+    commonAuthority,
+    contractAuthority,
     brokerAuthority: broker,
     propertyAuthorized:
       typeof authority.property_chk === 'boolean' ? authority.property_chk : null,
@@ -336,6 +396,7 @@ function summarizeCompany(data: Record<string, unknown>) {
       typeof cargo.genfreight === 'boolean' ? cargo.genfreight : null,
     cargoHazmat: typeof cargo.hm_ind === 'boolean' ? cargo.hm_ind : null,
     riskFlags,
+    summaryVersion: 2,
   }
 }
 
@@ -627,41 +688,73 @@ function buildBrokerDiffs(
   return diffs
 }
 
+function summaryFromBody(body: unknown): Record<string, unknown> | null {
+  const record = extractCompanyRecord(body)
+  if (!record) return null
+  const summary = summarizeCompany(normalizeSnapshotCompany(record)) as Record<string, unknown>
+  const named =
+    summary.name != null ||
+    summary.dotNumber != null ||
+    summary.mcNumber != null ||
+    summary.brokerAuthority != null ||
+    summary.operatingStatus != null
+  return named ? summary : null
+}
+
 async function fetchSnapshotCompany(
   apiKey: string,
   prefix: string,
   digits: string
 ): Promise<Record<string, unknown> | null> {
-  const params = new URLSearchParams({
-    prefix,
-    docket: digits,
-    include: '3',
-    includeInsurance: '23',
-    includeSos: '0',
-    includeSms: '0',
-    includeReview: '0',
-  })
-  const result = await fetchCompany(apiKey, params)
-  if (result.ok && result.body.Data) {
-    return summarizeCompany(result.body.Data as Record<string, unknown>) as Record<
-      string,
-      unknown
-    >
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    Accept: 'application/json',
+    'X-Default-Value': 'include',
+    'X-Enum-Format': 'code',
+  }
+  // v3: include 15 = general + details + authority + insurance filings.
+  const urls = [
+    `${API_V3}/Companies?Prefix=${encodeURIComponent(prefix)}&Docket=${encodeURIComponent(digits)}&include=15&limit=5`,
+    `${API_V3}/Companies?prefix=${encodeURIComponent(prefix)}&docket=${encodeURIComponent(digits)}&include=15&limit=5`,
+  ]
+
+  let best: Record<string, unknown> | null = null
+  let bestScore = Number.NEGATIVE_INFINITY
+  const consider = (body: unknown) => {
+    for (const record of extractCompanyRecords(body)) {
+      const score = companyRecordScore(record, digits)
+      if (score <= bestScore) continue
+      const summary = summaryFromBody(record)
+      if (!summary) continue
+      best = summary
+      bestScore = score
+    }
   }
 
-  const listUrl = `${API_BASE}/Companies?prefix=${encodeURIComponent(prefix)}&docket=${encodeURIComponent(digits)}&include=3&includeInsurance=1&limit=1`
-  const listRes = await fetch(listUrl, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      Accept: 'application/json',
-      'X-Null-Value': 'include',
-    },
-  })
-  const listBody = (await listRes.json().catch(() => ({}))) as Record<string, unknown>
-  const rows = Array.isArray(listBody.Data) ? listBody.Data : []
-  if (!listRes.ok || rows.length === 0) return null
-  return summarizeCompany(rows[0] as Record<string, unknown>) as Record<string, unknown>
+  for (const url of urls) {
+    const response = await fetch(url, { method: 'GET', headers })
+    consider(await response.json().catch(() => ({})))
+  }
+
+  const dot = best?.dotNumber != null ? String(best.dotNumber).replace(/\D/g, '') : ''
+  if (dot) {
+    const response = await fetch(`${API_V3}/Company?dot=${encodeURIComponent(dot)}&include=15`, {
+      method: 'GET',
+      headers,
+    })
+    consider(await response.json().catch(() => ({})))
+  }
+
+  // A name-only list row must not win over a later record that has filings.
+  if (bestScore < 200) {
+    const legacy = `${API_BASE}/Company?prefix=${encodeURIComponent(prefix)}&docket=${encodeURIComponent(digits)}&include=3&includeInsurance=23`
+    const legacyResponse = await fetch(legacy, {
+      method: 'GET',
+      headers: { ...headers, 'X-Null-Value': 'include' },
+    })
+    consider(await legacyResponse.json().catch(() => ({})))
+  }
+  return best
 }
 
 async function persistSnapshotAndDiffs(
@@ -842,12 +935,26 @@ Deno.serve(async (req) => {
         needs_broker_add: boolean
       } | null
 
+      const cachedPayload = (cacheRow?.payload ?? {}) as Record<string, unknown>
+      const cacheAuthority =
+        ['active', 'authorized'].includes(String(cachedPayload.brokerAuthority ?? '').trim().toLowerCase()) ||
+        ['active', 'authorized'].includes(String(cachedPayload.commonAuthority ?? '').trim().toLowerCase()) ||
+        ['active', 'authorized'].includes(String(cachedPayload.contractAuthority ?? '').trim().toLowerCase())
+      const cacheOperating = String(cachedPayload.operatingStatus ?? '').toLowerCase()
+      const cacheAuthorized =
+        cacheOperating.includes('authorized') && !cacheOperating.includes('not authorized')
+      const cacheInsurance =
+        Number(cachedPayload.activeInsuranceCount ?? 0) > 0 ||
+        String(cachedPayload.insuranceVerdict ?? '').toLowerCase() === 'ok'
       const cacheFresh =
         cacheRow &&
         !forceRefresh &&
         cacheRow.next_review_at &&
         cacheRow.next_review_at > nowIso &&
-        cacheRow.payload?.found === true
+        cachedPayload.found === true &&
+        cacheInsurance &&
+        Number(cachedPayload.summaryVersion ?? 0) >= 2 &&
+        (cacheAuthority || cacheAuthorized || cacheOperating.length > 0)
 
       if (cacheFresh && cacheRow) {
         await admin
@@ -976,26 +1083,23 @@ Deno.serve(async (req) => {
     if (action === 'lookupByDot') {
       const dot = String(payload.dot ?? '').replace(/\D/g, '')
       if (!dot) return jsonResponse({ error: 'Provide a DOT number' }, 400)
-      const params = new URLSearchParams({
-        dot,
-        include: '3',
-        includeInsurance: '23',
-        includeSos: '0',
-        includeSms: '0',
-        includeReview: '0',
+      const response = await fetch(`${API_V3}/Company?dot=${encodeURIComponent(dot)}&include=15`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: 'application/json',
+          'X-Default-Value': 'include',
+          'X-Enum-Format': 'code',
+        },
       })
-      const result = await fetchCompany(apiKey, params)
-      if (!result.ok || !result.body.Data) {
+      const body = await response.json().catch(() => ({}))
+      let summary = summaryFromBody(body)
+      if (!summary) {
         return jsonResponse({
           Success: true,
           Data: { found: false, dotNumber: Number(dot), riskFlags: [] },
         })
       }
-
-      let summary = summarizeCompany(result.body.Data as Record<string, unknown>) as Record<
-        string,
-        unknown
-      >
 
       // Company-by-DOT sometimes omits docket — resolve MC from Companies list.
       if (!summary.mcNumber) {

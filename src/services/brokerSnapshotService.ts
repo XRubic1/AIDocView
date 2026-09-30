@@ -57,7 +57,9 @@ export async function lookupBrokerSnapshotByMc(
     riskFlags: [],
   }
 
-  cache.set(key, { at: Date.now(), data: summary })
+  if (summary.found && summary.insuranceVerdict !== 'missing') {
+    cache.set(key, { at: Date.now(), data: summary })
+  }
   return summary
 }
 

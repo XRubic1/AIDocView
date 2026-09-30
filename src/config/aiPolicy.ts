@@ -6,6 +6,11 @@
 export type AiPolicySettings = {
   /** When false, no client AI DocSort / review spend (uploads still allowed). */
   aiEnabled: boolean
+  /**
+   * When false, client uploads are not turned into invoices by AI.
+   * Review of invoices that already exist can still run.
+   */
+  autoInvoiceCreationEnabled: boolean
   /** Optional org-wide soft monthly USD cap (null = no org cap). */
   monthlySpendCapUsd: number | null
   /** Default per-carrier monthly USD cap when client has no override (null = none). */
@@ -14,6 +19,7 @@ export type AiPolicySettings = {
 
 export const DEFAULT_AI_POLICY: AiPolicySettings = {
   aiEnabled: true,
+  autoInvoiceCreationEnabled: true,
   monthlySpendCapUsd: null,
   defaultClientMonthlyCapUsd: null,
 }
@@ -35,6 +41,7 @@ export function normalizeAiPolicy(
       : Number(value.defaultClientMonthlyCapUsd)
   return {
     aiEnabled: value?.aiEnabled !== false,
+    autoInvoiceCreationEnabled: value?.autoInvoiceCreationEnabled !== false,
     monthlySpendCapUsd:
       monthly != null && Number.isFinite(monthly) && monthly > 0 ? monthly : null,
     defaultClientMonthlyCapUsd:
@@ -52,6 +59,11 @@ export type ClientAiSettings = {
   limitEnabled?: boolean
   /** Monthly USD cap when limitEnabled. */
   monthlyCapUsd?: number | null
+}
+
+/** True when new uploads may be turned into invoices by AI. */
+export function isAutoInvoiceCreationEnabled(): boolean {
+  return AI_POLICY.autoInvoiceCreationEnabled !== false
 }
 
 export function normalizeClientAiSettings(

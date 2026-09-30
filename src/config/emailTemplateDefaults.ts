@@ -38,6 +38,7 @@ export type EmailTemplateId =
   | 'auth_reauthentication'
   | 'auth_password_changed'
   | 'auth_email_changed'
+  | 'broker_rate_verification'
   | 'broker_paperwork_status_inquiry'
   | 'broker_paperwork_status_followup'
   | 'broker_claim_scope'
@@ -258,6 +259,22 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
       contentHtml: `<p>Hello {{brokerName}},</p>
 <p>We have not received a response regarding invoice <strong>{{invoiceNumber}}</strong>. Please reply with payment status.</p>
 <p>— Credyx Collections</p>`,
+    }),
+  },
+  {
+    id: 'broker_rate_verification',
+    name: 'Broker — rate verification',
+    description:
+      'Ask the broker to confirm the rate and whether there are advances or deductions. Sent from AI Verification.',
+    audience: 'broker',
+    placeholders: 'companyLogoHtml, brokerName, invoiceNumber, loadNumber, clientName, amount',
+    subject: 'Rate confirmation — Invoice {{invoiceNumber}} · Load {{loadNumber}}',
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Rate check',
+      contentHtml: `<p>Hello {{brokerName}},</p>
+<p>Please confirm the rate of <strong>{{amount}}</strong> on invoice <strong>{{invoiceNumber}}</strong> (Load {{loadNumber}}, {{clientName}}).</p>
+<p>Are there any advances or deductions on this rate? Reply with <strong>no advances or deductions</strong>, or list them.</p>
+<p>— Credyx</p>`,
     }),
   },
   {

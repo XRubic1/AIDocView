@@ -498,6 +498,36 @@ export const STANDARD_BROKER_UNKNOWN: StandardBlueprint = {
   edges: chain(['n-start', 'n-when', 'n-task', 'n-done']),
 }
 
+/**
+ * Broker reply to the rate check (advances / deductions).
+ * The inbox reader runs this graph and sets the invoice OK or Hold.
+ */
+export const STANDARD_RATE_VERIFICATION: StandardBlueprint = {
+  id: 'bp-standard-rate-verification',
+  name: 'Rate verification',
+  updatedAt: '2026-09-30T00:00:00.000Z',
+  priority: 90,
+  nodes: [
+    trigger('n-start', 'invoices', 'event', ['pending', 'review', 'approved', 'hold']),
+    when(
+      'n-when',
+      260,
+      'rate_verification_reply',
+      'Rate check reply',
+      'Broker replied to the rate verification email'
+    ),
+    replyAction(
+      'n-apply',
+      500,
+      'apply_rate_verification',
+      'Apply rate check',
+      'Post the reply and mark the invoice OK or Hold'
+    ),
+    done('n-done', 740),
+  ],
+  edges: chain(['n-start', 'n-when', 'n-apply', 'n-done']),
+}
+
 export const STANDARD_CHASE_BLUEPRINTS: StandardBlueprint[] = [
   STANDARD_PAPERWORK_CHASE,
   STANDARD_PAYMENT_CHASE,
@@ -509,4 +539,5 @@ export const STANDARD_CHASE_BLUEPRINTS: StandardBlueprint[] = [
   STANDARD_BROKER_CONFIRMED,
   STANDARD_BROKER_REJECTED,
   STANDARD_BROKER_UNKNOWN,
+  STANDARD_RATE_VERIFICATION,
 ]

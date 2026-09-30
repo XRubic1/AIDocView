@@ -80,6 +80,7 @@ Deploy functions under `supabase/functions/`:
 - `openai-proxy` — server-side OpenAI (requires `OPENAI_API_KEY`)
 - `send-email` — Resend transactional email (requires `RESEND_API_KEY`, recommended `RESEND_FROM_EMAIL`)
 - `provision-client-auth` — client invite on approval (`SUPABASE_SERVICE_ROLE_KEY`)
+- `mc-lookup` — carrier broker credit check at `/mclookup` (`COMPASS_EMAIL`, `COMPASS_PASSWORD`, `TRUFUNDING_USERNAME`, `TRUFUNDING_PASSWORD`, `FACTORSNETWORK_USERNAME`, `FACTORSNETWORK_PASSWORD`)
 
 #### Email (`send-email`)
 

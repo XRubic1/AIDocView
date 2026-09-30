@@ -1,6 +1,7 @@
 /**
  * Managed-tier “Send docs”: upload PPW quickly, then AI creates invoices in the background.
  */
+import { isAutoInvoiceCreationEnabled } from '../../config/aiPolicy'
 import { isAIReviewEnabled } from '../../config/aiReview'
 import { HANDOFF_PLACEHOLDER_INVOICE_ID, setBatchFiles } from '../../data/batchFileStore'
 import { addBatch, generateBatchNumber } from '../../data/mockBatches'
@@ -82,7 +83,8 @@ export async function submitManagedDocHandoff(
   // Start in creating so the client sees Processing until packets exist or Credyx reworks.
   const spend = await evaluateAiSpendAllow(clientId)
   const aiConfigured = isAIReviewEnabled()
-  const aiOn = aiConfigured && spend.allowed
+  const autoCreate = isAutoInvoiceCreationEnabled()
+  const aiOn = aiConfigured && spend.allowed && autoCreate
   const batch = addBatch({
     batch_number: batchNumber,
     client_name: clientName,
@@ -159,12 +161,15 @@ export async function submitManagedDocHandoff(
   const etaLabel = eta?.label ?? `about ${etaMinutes} minutes`
 
   if (!aiOn) {
-    // Cap / AI off / AI down → Packet Rework + ops email; client still sees Processing.
+    // Cap / AI off / creation switch off → Packet Rework + ops email; client still sees Processing.
+    const creationOff = aiConfigured && spend.allowed && !autoCreate
     await releaseBatchForAiPolicyBlock(
       batch.id,
-      spend.allowed
-        ? { message: 'AI review is not configured.', reason: undefined }
-        : spend,
+      creationOff
+        ? { message: 'Automatic AI invoice creation is turned off.' }
+        : spend.allowed
+          ? { message: 'AI review is not configured.', reason: undefined }
+          : spend,
       { aiConfigured }
     )
     return {

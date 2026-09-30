@@ -19,6 +19,7 @@ type EmailTemplate =
   | 'carrier_batch_verified'
   | 'carrier_batch_holds'
   | 'carrier_batch_processed'
+  | 'broker_rate_verification'
   | 'broker_payment_status_inquiry'
   | 'broker_payment_status_followup'
   | 'calendar_event_notice'
@@ -247,6 +248,7 @@ const EMAIL_SHELL_EYEBROW: Record<string, string> = {
   credyx_batch_error: 'Batch error',
   broker_payment_status_inquiry: 'Collections',
   broker_payment_status_followup: 'Collections',
+  broker_rate_verification: 'Rate check',
   broker_paperwork_status_inquiry: 'Paperwork',
   broker_paperwork_status_followup: 'Paperwork',
   broker_claim_scope: 'Claim',
@@ -656,6 +658,20 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
             d
           ),
         }
+      }
+    case 'broker_rate_verification':
+      return {
+        subject: renderTemplateString(
+          'Rate confirmation — Invoice {{invoiceNumber}} · Load {{loadNumber}}',
+          d
+        ),
+        html: renderTemplateString(
+          `<p>Hello {{brokerName}},</p>
+<p>Please confirm the rate of <strong>{{amount}}</strong> on invoice <strong>{{invoiceNumber}}</strong> (Load {{loadNumber}}, {{clientName}}).</p>
+<p>Are there any advances or deductions on this rate? Reply with <strong>no advances or deductions</strong>, or list them.</p>
+<p>— Credyx</p>`,
+          d
+        ),
       }
       throw new Error('Unknown template')
   }

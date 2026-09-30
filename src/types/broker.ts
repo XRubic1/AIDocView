@@ -16,6 +16,9 @@ export interface BrokerPhone {
 /** Preferred way Credyx contacts this broker for collections. */
 export type BrokerPreferredContact = 'email' | 'phone' | 'either'
 
+/** How Credyx confirms the rate with this broker. Web means no verification email. */
+export type BrokerVerificationType = 'email' | 'phone' | 'web'
+
 export interface Broker {
   id: string
   name: string
@@ -45,6 +48,10 @@ export interface Broker {
   payment_status_inquiry_days?: number
   /** How Credyx should chase payment status. */
   preferred_contact?: BrokerPreferredContact
+  /** How this broker confirms a rate. Web skips the verification email. */
+  verification_type?: BrokerVerificationType
+  /** Which site on the admin verification-website list to use when type is web. */
+  verification_website_id?: string
   /**
    * Credyx marks this broker NEW for carriers (thin / no payment history).
    * Surfaces as elevated risk until enough pays are on file.

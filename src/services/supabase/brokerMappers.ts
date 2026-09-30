@@ -1,4 +1,4 @@
-import type { Broker, BrokerPreferredContact } from '../../types/broker'
+import type { Broker, BrokerPreferredContact, BrokerVerificationType } from '../../types/broker'
 
 export interface BrokerRow {
   id: string
@@ -20,6 +20,8 @@ export interface BrokerRow {
   paperwork_status_check_days?: number | null
   payment_status_inquiry_days?: number | null
   preferred_contact?: string | null
+  verification_type?: string | null
+  verification_website_id?: string | null
   is_new?: boolean | null
   carrier_notes?: string | null
   created_at?: string
@@ -28,6 +30,11 @@ export interface BrokerRow {
 
 function asPreferredContact(v: string | null | undefined): BrokerPreferredContact | undefined {
   if (v === 'email' || v === 'phone' || v === 'either') return v
+  return undefined
+}
+
+function asVerificationType(v: string | null | undefined): BrokerVerificationType | undefined {
+  if (v === 'email' || v === 'phone' || v === 'web') return v
   return undefined
 }
 
@@ -52,6 +59,8 @@ export function brokerRowToBroker(row: BrokerRow): Broker {
     paperwork_status_check_days: row.paperwork_status_check_days ?? undefined,
     payment_status_inquiry_days: row.payment_status_inquiry_days ?? undefined,
     preferred_contact: asPreferredContact(row.preferred_contact),
+    verification_type: asVerificationType(row.verification_type),
+    verification_website_id: row.verification_website_id ?? undefined,
     is_new: Boolean(row.is_new),
     carrier_notes: row.carrier_notes ?? undefined,
   }
@@ -68,7 +77,7 @@ export function brokerRowToPublicBroker(row: BrokerRow): Broker {
 
 /** Columns safe to select for carrier portal hydrate (excludes internal notes). */
 export const BROKER_PUBLIC_SELECT =
-  'id, name, contact_person, email, emails, phone, phones, fax, address, city, state, zip, mc_number, dot_number, payment_terms_days, paperwork_status_check_days, payment_status_inquiry_days, preferred_contact, is_new, carrier_notes, created_at, updated_at'
+  'id, name, contact_person, email, emails, phone, phones, fax, address, city, state, zip, mc_number, dot_number, payment_terms_days, paperwork_status_check_days, payment_status_inquiry_days, preferred_contact, verification_type, verification_website_id, is_new, carrier_notes, created_at, updated_at'
 
 export function brokerToRow(broker: Broker): BrokerRow {
   return {
@@ -91,6 +100,8 @@ export function brokerToRow(broker: Broker): BrokerRow {
     paperwork_status_check_days: broker.paperwork_status_check_days ?? null,
     payment_status_inquiry_days: broker.payment_status_inquiry_days ?? null,
     preferred_contact: broker.preferred_contact ?? null,
+    verification_type: broker.verification_type ?? 'email',
+    verification_website_id: broker.verification_website_id ?? null,
     is_new: Boolean(broker.is_new),
     carrier_notes: broker.carrier_notes ?? null,
   }

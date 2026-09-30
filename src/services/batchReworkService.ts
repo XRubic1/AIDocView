@@ -3,6 +3,7 @@
  * never a dead "failed" workflow state. Docs stay uploaded for Credyx.
  */
 
+import { isAutoInvoiceCreationEnabled } from '../config/aiPolicy'
 import { getBatchById, updateBatch, updateBatchTotals } from '../data/mockBatches'
 import { getBatchFiles } from '../data/batchFileStore'
 import { deleteInvoice, getInvoicesByBatchId } from '../data/mockInvoices'
@@ -181,6 +182,9 @@ export function clearBatchInvoicesForRecreate(batchId: string): void {
  * Clears existing invoices first so retry never appends duplicates.
  */
 export async function retryBatchPacketCreation(batchId: string): Promise<void> {
+  if (!isAutoInvoiceCreationEnabled()) {
+    throw new Error('Automatic AI invoice creation is turned off in Settings → AI.')
+  }
   const batch = getBatchById(batchId)
   if (!batch) throw new Error('Batch not found')
 

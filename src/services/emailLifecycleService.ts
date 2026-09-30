@@ -168,6 +168,50 @@ export async function ingestBrokerReply(opts: {
   const outbound = invoice
     ? listEmailMessagesForInvoice(invoice.id).filter((m) => m.direction === 'outbound').at(-1)
     : undefined
+
+  if (invoice && outbound?.template_id === 'broker_rate_verification') {
+    const { readRateVerificationReply } = await import(
+      '../../supabase/functions/_shared/rateVerificationReply'
+    )
+    const rate = readRateVerificationReply(opts.subject, opts.bodyText)
+    const confirmed = rate.outcome !== 'unknown'
+    const review = createReview({
+      thread_id: findThreadForInvoice(invoice.id)?.id ?? null,
+      invoice_id: invoice.id,
+      broker_id: invoice.broker_id ?? null,
+      client_id: invoice.client_id ?? null,
+      classification:
+        rate.outcome === 'hold' ? 'negative' : rate.outcome === 'ok' ? 'paperwork_ok' : 'unclear',
+      proposed_actions: rate.outcome === 'hold' ? ['hold_invoice', 'add_note'] : ['add_note'],
+      summary: rate.summary,
+      body_text: opts.bodyText,
+      from_address: opts.fromAddress,
+      to_address: toAddress,
+      subject: opts.subject,
+      load_number: invoice.load_number,
+      invoice_number: invoice.invoice_number,
+      reply_status: rate.outcome === 'ok' ? 'confirmed' : rate.outcome === 'hold' ? 'rejected' : 'unknown',
+      outbound_kind: 'other',
+      status: confirmed ? 'confirmed' : 'pending_review',
+    })
+    const { runRateVerificationBlueprint } = await import(
+      '../components/blueprints/blueprintRateVerification'
+    )
+    await runRateVerificationBlueprint(invoice, rate)
+    const now = new Date().toISOString()
+    const saved = {
+      ...review,
+      status: confirmed ? ('confirmed' as const) : ('pending_review' as const),
+      confirmed_at: confirmed ? now : undefined,
+      confirmed_by: 'Rate verification',
+    }
+    upsertEmailReview(saved)
+    void import('./supabase/tenantPersist')
+      .then(({ persistEmailReview }) => persistEmailReview(saved))
+      .catch((err) => console.warn('[emailLifecycle] persist rate verification failed', err))
+    return getEmailReviewById(review.id) ?? review
+  }
+
   const { readBrokerReplyWithAi } = await import('../utils/brokerReplyReadingAi')
   const reading = invoice
     ? await readBrokerReplyWithAi({

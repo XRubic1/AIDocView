@@ -5,18 +5,71 @@
 import type { BrokerSnapshotSummary } from '../types/brokerSnapshot'
 
 function isActiveAuthority(value?: string | null): boolean {
-  return (value ?? '').trim().toLowerCase() === 'active'
+  const text = (value ?? '').trim().toLowerCase()
+  return text === 'active' || text === 'authorized' || text === 'a'
+}
+
+/** Active broker/common/contract wording inside an operating-status sentence. */
+export function authorityFromOperatingStatus(status?: string | null): {
+  broker?: string
+  common?: string
+  contract?: string
+} {
+  if (!status) return {}
+  const text = status.toLowerCase()
+  if (
+    text.includes('not authorized') ||
+    text.includes('unauthorized') ||
+    text.includes('out of service') ||
+    text.includes('revoked') ||
+    text.includes('inactive')
+  ) {
+    return {}
+  }
+  if (!text.includes('authorized') && !/\bactive\b/.test(text)) return {}
+  const found: { broker?: string; common?: string; contract?: string } = {}
+  if (text.includes('broker')) found.broker = 'Active'
+  if (text.includes('common')) found.common = 'Active'
+  if (text.includes('contract')) found.contract = 'Active'
+  if (text.includes('property') && !found.broker && !found.common && !found.contract) {
+    found.common = 'Active'
+  }
+  return found
+}
+
+function usableAuthority(value?: string | null): string | null {
+  const text = (value ?? '').trim()
+  if (!text || text === '—' || text === '-') return null
+  if (['none', 'n', 'null'].includes(text.toLowerCase())) return null
+  return text
+}
+
+/** Prefer explicit stats, then authority named in the operating status. */
+export function displayAuthorities(
+  summary: Pick<
+    BrokerSnapshotSummary,
+    'brokerAuthority' | 'commonAuthority' | 'contractAuthority' | 'operatingStatus'
+  >
+): { broker: string; common: string; contract: string } {
+  const inferred = authorityFromOperatingStatus(summary.operatingStatus)
+  return {
+    broker: usableAuthority(summary.brokerAuthority) ?? inferred.broker ?? (summary.brokerAuthority?.trim() || '—'),
+    common: usableAuthority(summary.commonAuthority) ?? inferred.common ?? (summary.commonAuthority?.trim() || '—'),
+    contract:
+      usableAuthority(summary.contractAuthority) ?? inferred.contract ?? (summary.contractAuthority?.trim() || '—'),
+  }
 }
 
 /** True when common, contract, or broker authority is Active. */
 export function hasActiveFreightAuthority(summary: Pick<
   BrokerSnapshotSummary,
-  'commonAuthority' | 'contractAuthority' | 'brokerAuthority'
+  'commonAuthority' | 'contractAuthority' | 'brokerAuthority' | 'operatingStatus'
 >): boolean {
+  const shown = displayAuthorities(summary)
   return (
-    isActiveAuthority(summary.commonAuthority) ||
-    isActiveAuthority(summary.contractAuthority) ||
-    isActiveAuthority(summary.brokerAuthority)
+    isActiveAuthority(shown.broker) ||
+    isActiveAuthority(shown.common) ||
+    isActiveAuthority(shown.contract)
   )
 }
 

@@ -253,6 +253,14 @@ export const INVOICE_EVENT_OPTIONS: BlueprintCatalogOption[] = [
     help: 'Not received, missing pages, missing lumper, or another rejection.',
   },
   {
+    id: 'rate_verification_reply',
+    label: 'Broker replied to the rate check',
+    needsDays: false,
+    defaultTitle: 'Rate check reply',
+    cardTemplate: 'Broker replied to the rate verification email',
+    help: 'Fires when a reply arrives for the rate verification email. OK if there are no advances or deductions. Hold when the broker reports them.',
+  },
+  {
     id: 'broker_unknown',
     label: 'Reply could not be read',
     needsDays: false,
@@ -420,6 +428,12 @@ export const INVOICE_ACTION_OPTIONS: BlueprintActionOption[] = [
     label: 'Apply broker reply',
     defaultTitle: 'Apply reply',
     cardLine: 'Log confirmed or rejected from this broker reply',
+  },
+  {
+    id: 'apply_rate_verification',
+    label: 'Apply rate verification',
+    defaultTitle: 'Apply rate check',
+    cardLine: 'Post the reply and mark the invoice OK or Hold',
   },
 ]
 

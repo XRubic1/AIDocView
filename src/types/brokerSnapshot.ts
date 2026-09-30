@@ -5,6 +5,8 @@ export interface BrokerSnapshotInsurance {
   effectiveDate: string | null
   maxLimit: number | null
   formCode: number | null
+  phone?: string | null
+  email?: string | null
 }
 
 /** Cancelled / historical insurance row. */
