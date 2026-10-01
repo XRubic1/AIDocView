@@ -6,7 +6,10 @@ import type { SavedBlueprint } from '../../types/blueprintGraph'
 import { getSavedBlueprint } from './blueprintStore'
 import { getActionIds } from './blueprintSubject'
 import { upsertBlueprintRun } from './blueprintRuns'
+import { getInvoiceById } from '../../data/mockInvoices'
 import { addAdminInvoiceNote } from '../../services/adminInvoiceNoteActions'
+import { persistInvoiceLifecycle } from '../../services/emailLifecycleService'
+import { notifyAdminBlueprintIssue } from '../../services/adminNotificationService'
 import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
 import {
   STANDARD_RATE_VERIFICATION,
@@ -26,27 +29,44 @@ export async function runRateVerificationBlueprint(
   const details: string[] = []
   let applied = false
 
-  const apply = () => {
+  const apply = async () => {
     if (reading.outcome === 'ok') {
       approveAdminInvoice(invoice.id, 'Credyx')
-      addAdminInvoiceNote(
-        invoice.id,
-        `${reading.summary}\n\n(Blueprint: ${bp.name})`,
-        'Credyx',
-        { visibility: 'internal' }
-      )
+      addAdminInvoiceNote(invoice.id, reading.summary, 'Credyx', { visibility: 'internal' })
+      const current = getInvoiceById(invoice.id) ?? invoice
+      await persistInvoiceLifecycle(invoice.id, {
+        ...(current.email_lifecycle ?? {}),
+        paperwork_status: 'good',
+        last_reply_status: 'confirmed',
+      })
+      const { startPaymentChaseAfterConfirm } = await import('./blueprintRunner')
+      const chase = await startPaymentChaseAfterConfirm(invoice.id)
+      details.push(chase.detail)
       details.push('Marked OK')
     } else if (reading.outcome === 'hold') {
       holdAdminInvoice(invoice.id, reading.summary, 'Credyx')
       details.push('Placed on Hold')
+      notifyAdminBlueprintIssue({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        code: 'paperwork-issue',
+        title: 'Rate check needs attention',
+        message: reading.summary,
+        blueprintName: bp.name,
+        brokerName: invoice.broker_name,
+      })
     } else {
-      addAdminInvoiceNote(
-        invoice.id,
-        `${reading.summary}\n\n(Blueprint: ${bp.name})`,
-        'Credyx',
-        { visibility: 'internal' }
-      )
+      addAdminInvoiceNote(invoice.id, reading.summary, 'Credyx', { visibility: 'internal' })
       details.push('Reply needs a look')
+      notifyAdminBlueprintIssue({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        code: 'reply-unclear',
+        title: 'Rate check could not be read',
+        message: reading.summary,
+        blueprintName: bp.name,
+        brokerName: invoice.broker_name,
+      })
     }
     applied = true
   }
@@ -55,14 +75,14 @@ export async function runRateVerificationBlueprint(
     if (node.data.kind !== 'action') continue
     for (const actionId of getActionIds(node.data)) {
       if (actionId === 'apply_rate_verification') {
-        apply()
+        await apply()
         continue
       }
       if (actionId === 'add_note') {
         const cfg = node.data.actionConfigs?.[actionId]
         const extra = cfg?.message?.trim()
         const body = extra ? `${extra}\n${reading.summary}` : reading.summary
-        addAdminInvoiceNote(invoice.id, `${body}\n\n(Blueprint: ${bp.name})`, 'Credyx', {
+        addAdminInvoiceNote(invoice.id, body, 'Credyx', {
           visibility: 'internal',
         })
         details.push('Note posted')
@@ -70,7 +90,7 @@ export async function runRateVerificationBlueprint(
     }
   }
 
-  if (!applied) apply()
+  if (!applied) await apply()
 
   const now = new Date().toISOString()
   const title =

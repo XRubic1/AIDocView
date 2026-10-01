@@ -2,19 +2,20 @@
  * Credyx Inbox — outbound send log + inbound review queue.
  * Layout matches Collections / Work Queue (toolbar, page tabs, compact table).
  */
-import { useEffect, useMemo, useState } from 'react'
-import { Inbox, GitBranch, RefreshCw, Search, Send, Upload } from 'lucide-react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { ChevronRight, Inbox, GitBranch, RefreshCw, Search, Send } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useToast } from '../components/ui/ToastProvider'
 import EmptyState from '../components/ui/EmptyState'
-import { mockInvoices } from '../data/mockInvoices'
+import { mockInvoices, updateInvoice } from '../data/mockInvoices'
+import { getBrokerById, updateBrokerAsync } from '../data/mockBrokers'
 import { getAdminUserDisplayName } from '../config/adminNav'
 import { useAuth } from '../context/AuthContext'
 import {
   confirmEmailReview,
+  getEmailReviewById,
   hydrateEmailInboxFromSupabase,
-  ingestBrokerReply,
   listEmailReviews,
   reclassifyEmailReview,
   runEmailLifecycleChase,
@@ -26,10 +27,6 @@ import {
   replyStatusFromClassification,
   type BrokerReplyStatus,
 } from '../utils/brokerReplyReading'
-import {
-  parseDroppedEmailFile,
-  parseDroppedEmailText,
-} from '../utils/parseDroppedEmail'
 import SendLifecycleEmailModal from '../components/admin/SendLifecycleEmailModal'
 import {
   listOutboundInboxRows,
@@ -56,6 +53,7 @@ const KIND_TABS: Array<{ id: 'all' | OutboundInboxKind; label: string }> = [
 ]
 
 type InboxTab = 'received' | 'review' | 'sent'
+type ReviewFileAs = 'broker_verification' | 'paperwork' | 'payment' | 'remittance'
 
 function formatWhen(iso: string): string {
   try {
@@ -96,19 +94,16 @@ export default function AdminEmailInbox() {
   const [sentQuery, setSentQuery] = useState('')
   const [receivedQuery, setReceivedQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [selectedReceivedId, setSelectedReceivedId] = useState<string | null>(null)
+  const [expandedReceivedId, setExpandedReceivedId] = useState<string | null>(null)
+  const [fileAs, setFileAs] = useState<Record<string, ReviewFileAs>>({})
+  const [fileStatus, setFileStatus] = useState<Record<string, 'confirmed' | 'rejected'>>({})
+  const [filePayDate, setFilePayDate] = useState<Record<string, string>>({})
   const [resendTo, setResendTo] = useState('')
   const [resending, setResending] = useState(false)
 
-  const [pasteInvoiceId, setPasteInvoiceId] = useState('')
-  const [pasteFrom, setPasteFrom] = useState('')
-  const [pasteSubject, setPasteSubject] = useState('')
-  const [pasteBody, setPasteBody] = useState('')
   const [busy, setBusy] = useState(false)
-  const [dragging, setDragging] = useState(false)
   const [composeInvoiceId, setComposeInvoiceId] = useState<string | null>(null)
-  const [cardStatus, setCardStatus] = useState<Record<string, BrokerReplyStatus>>({})
-  const [cardInvoice, setCardInvoice] = useState<Record<string, string>>({})
+  const [expandedReviewId, setExpandedReviewId] = useState<string | null>(null)
 
   useEffect(() => {
     void hydrateEmailInboxFromSupabase().then(() => setTick((n) => n + 1))
@@ -133,11 +128,6 @@ export default function AdminEmailInbox() {
         (r.body || '').toLowerCase().includes(q)
     )
   }, [allReceived, receivedQuery])
-
-  const selectedReceived = useMemo(
-    () => receivedRows.find((r) => r.id === selectedReceivedId) ?? null,
-    [receivedRows, selectedReceivedId]
-  )
 
   const clients = useMemo(() => {
     const map = new Map<string, string>()
@@ -216,136 +206,89 @@ export default function AdminEmailInbox() {
     }
   }
 
-  const queueParsed = async (
-    fromAddress: string,
-    subject: string,
-    bodyText: string,
-    invoiceId?: string
-  ) => {
-    if (!bodyText.trim() && !subject.trim()) {
-      showToast('That drop had no readable email body', 'error')
-      return
-    }
-    const review = await ingestBrokerReply({
-      invoiceId: invoiceId || pasteInvoiceId || undefined,
-      fromAddress: fromAddress || 'broker@unknown',
-      subject: subject || '(no subject)',
-      bodyText,
-    })
-    setTick((n) => n + 1)
-    return review
-  }
-
-  const ingest = () => {
-    if (!pasteBody.trim()) {
-      showToast('Paste or drop the broker email', 'error')
-      return
-    }
-    setBusy(true)
-    void queueParsed(pasteFrom, pasteSubject, pasteBody, pasteInvoiceId || undefined)
-      .then((review) => {
-        setPasteBody('')
-        const status = review?.reply_status ?? 'unknown'
-        showToast(review?.summary || 'Reply logged', status === 'unknown' ? 'info' : 'success')
-        setTab(status === 'unknown' ? 'review' : 'received')
-      })
-      .finally(() => setBusy(false))
-  }
-
-  const handleFiles = async (files: FileList | File[]) => {
-    const list = Array.from(files)
-    if (list.length === 0) return
-    setBusy(true)
-    try {
-      let ok = 0
-      for (const file of list) {
-        try {
-          const parsed = await parseDroppedEmailFile(file)
-          await queueParsed(parsed.fromAddress, parsed.subject, parsed.bodyText)
-          ok += 1
-        } catch (err) {
-          showToast(
-            err instanceof Error
-              ? `Could not read ${file.name}: ${err.message}`
-              : 'Could not read that file',
-            'error'
-          )
-        }
-      }
-      if (ok > 0) {
-        showToast(`Queued ${ok} email${ok === 1 ? '' : 's'}`, 'success')
-        setTab('review')
-      }
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const onDrop = async (e: React.DragEvent) => {
-    e.preventDefault()
-    setDragging(false)
-    if (e.dataTransfer.files.length > 0) {
-      await handleFiles(e.dataTransfer.files)
-      return
-    }
-    const parsed = parseDroppedEmailText(
-      e.dataTransfer.getData('text/plain'),
-      e.dataTransfer.getData('text/html')
-    )
-    if (!parsed) {
-      showToast(
-        'Outlook did not attach a file. Try dragging the message onto this box, or save as .eml first.',
-        'error'
-      )
-      return
-    }
-    setBusy(true)
-    try {
-      await queueParsed(parsed.fromAddress, parsed.subject, parsed.bodyText)
-      showToast('Queued for review', 'success')
-      setTab('review')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const confirm = async (item: EmailReviewItem) => {
-    const status =
-      cardStatus[item.id] ?? item.reply_status ?? replyStatusFromClassification(item.classification)
-    const outboundKind = item.outbound_kind ?? 'other'
+    const kind = fileAs[item.id]
+    if (!kind) {
+      showToast('Choose how to file this reply', 'error')
+      return
+    }
+    const fromEmail = item.from_address?.trim() ?? ''
+    const replyStatus = fileStatus[item.id] ?? 'confirmed'
+    const payDate = (filePayDate[item.id] ?? '').trim()
+    if (kind === 'broker_verification' && !fromEmail.includes('@')) {
+      showToast('This email has no from address to use as the confirmation email', 'error')
+      return
+    }
+    if (kind === 'payment' && !payDate) {
+      showToast('Payment date is required', 'error')
+      return
+    }
+
+    const status: BrokerReplyStatus =
+      kind === 'broker_verification' || kind === 'remittance' ? 'confirmed' : replyStatus
+    const outboundKind =
+      kind === 'paperwork' ? 'paperwork' : kind === 'payment' || kind === 'remittance' ? 'payment' : 'other'
     const classification = classificationForReply(status, outboundKind, item.body_text)
-    const invoiceId = cardInvoice[item.id] || item.invoice_id || undefined
+    const invoiceId = item.invoice_id || undefined
+    const kindLabel =
+      kind === 'broker_verification'
+        ? 'Broker verification'
+        : kind === 'paperwork'
+          ? 'Paperwork status'
+          : kind === 'payment'
+            ? 'Payment status'
+            : 'Remittance'
+    const summary =
+      kind === 'broker_verification'
+        ? `Broker verification · confirmation email ${fromEmail}`
+        : `${kindLabel} · ${status === 'confirmed' ? 'Confirmed' : 'Rejected'}${payDate ? ` · ${payDate}` : ''}`
+
     setBusy(true)
     try {
-      if (invoiceId) {
-        const invoice = mockInvoices.find((inv) => inv.id === invoiceId)
-        if (invoice) {
-          const { findReplyDate } = await import('../utils/brokerReplyReading')
-          const { runBrokerReplyBlueprint } = await import('../components/blueprints/blueprintReplyOutcome')
-          await runBrokerReplyBlueprint(invoice, {
-            status,
-            outboundKind,
-            summary: item.summary,
-            classification,
-            proposed_actions: proposedActionsForClassification(classification),
-            payDate: findReplyDate(item.body_text),
+      const invoice = invoiceId ? mockInvoices.find((inv) => inv.id === invoiceId) : undefined
+      if (kind === 'broker_verification') {
+        const brokerId = item.broker_id || invoice?.broker_id
+        const broker = brokerId ? getBrokerById(brokerId) : undefined
+        if (broker) {
+          const emails = broker.emails ?? []
+          const already = emails.some((entry) => entry.email.trim().toLowerCase() === fromEmail.toLowerCase())
+          await updateBrokerAsync(broker.id, {
+            verification_type: 'email',
+            email: fromEmail,
+            emails: already ? emails : [{ email: fromEmail, category: 'accounting' }, ...emails],
           })
         }
+      }
+      if (invoice && payDate && (kind === 'paperwork' || kind === 'payment' || kind === 'remittance')) {
+        updateInvoice(invoice.id, { expected_payment_date: payDate })
+      }
+      if (invoice && kind !== 'broker_verification') {
+        const { runBrokerReplyBlueprint } = await import('../components/blueprints/blueprintReplyOutcome')
+        await runBrokerReplyBlueprint(
+          invoice,
+          {
+            status,
+            outboundKind,
+            summary,
+            classification,
+            proposed_actions: proposedActionsForClassification(classification),
+            payDate: payDate || null,
+          },
+          fromEmail
+        )
       }
       const result = await confirmEmailReview(item.id, {
         actorName: actor,
         classification,
         invoiceId,
         actions: [],
+        extraNote: summary,
       })
       if (!result.ok) {
         showToast(result.error ?? 'Could not confirm', 'error')
         return
       }
-      showToast(
-        status === 'unknown' ? 'Left as unknown' : status === 'confirmed' ? 'Broker confirmed' : 'Broker rejected',
-        'success'
-      )
+      showToast(summary, 'success')
       setTick((n) => n + 1)
     } finally {
       setBusy(false)
@@ -470,149 +413,212 @@ export default function AdminEmailInbox() {
               />
             </div>
           </div>
-          <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
-            <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
-              <div className="client-table-scroll">
-                {receivedRows.length === 0 ? (
-                  <div className="flex items-center justify-center p-8 min-h-[200px]">
-                    <EmptyState
-                      title="No received emails yet"
-                      hint="Inbound mail to system@credyx.net (test) or billing@ lands here after Cloudflare → Resend Receiving → email-inbound. You can also paste/drop on Needs review."
-                    />
-                  </div>
-                ) : (
-                  <table className="dashboard-table dashboard-table--compact">
-                    <thead>
-                      <tr>
-                        <th>When</th>
-                        <th>From</th>
-                        <th>To</th>
-                        <th>Subject</th>
-                        <th>Match</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {receivedRows.map((row) => (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {receivedRows.length === 0 ? (
+              <div className="flex items-center justify-center p-8 min-h-[200px]">
+                <EmptyState
+                  title="No received emails yet"
+                  hint="Inbound mail to system@credyx.net (test) or billing@ lands here after Cloudflare → Resend Receiving → email-inbound."
+                />
+              </div>
+            ) : (
+              <table className="dashboard-table dashboard-table--compact">
+                <thead>
+                  <tr>
+                    <th className="w-8" />
+                    <th>When</th>
+                    <th>From</th>
+                    <th>Classified as</th>
+                    <th>Pulled</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receivedRows.map((row) => {
+                    const open = expandedReceivedId === row.id
+                    const review = row.reviewId ? getEmailReviewById(row.reviewId) : undefined
+                    const statusLabel =
+                      row.replyStatus === 'confirmed'
+                        ? 'Confirmed'
+                        : row.replyStatus === 'rejected'
+                          ? 'Rejected'
+                          : row.replyStatus === 'unknown'
+                            ? 'Unknown'
+                            : row.pendingReview
+                              ? 'Needs review'
+                              : 'Logged'
+                    const statusClass =
+                      row.replyStatus === 'confirmed'
+                        ? 'status-pill status-pill--compact status-pill--paid'
+                        : row.replyStatus === 'rejected'
+                          ? 'status-pill status-pill--compact status-pill--overdue'
+                          : row.pendingReview || row.replyStatus === 'unknown'
+                            ? 'status-pill status-pill--compact status-pill--pending'
+                            : 'status-pill status-pill--compact status-pill--open'
+                    return (
+                      <Fragment key={row.id}>
                         <tr
-                          key={row.id}
-                          className={
-                            selectedReceivedId === row.id ? 'is-selected' : undefined
-                          }
-                          onClick={() => setSelectedReceivedId(row.id)}
+                          onClick={() => setExpandedReceivedId(open ? null : row.id)}
+                          className={open ? 'is-selected' : undefined}
                           style={{ cursor: 'pointer' }}
                         >
+                          <td>
+                            <ChevronRight
+                              className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-90' : ''}`}
+                              style={{ color: c.secondary }}
+                            />
+                          </td>
                           <td className="whitespace-nowrap">{formatWhen(row.sentAt)}</td>
-                          <td className="truncate max-w-[140px]" title={row.from}>
+                          <td className="truncate max-w-[160px]" title={row.from}>
                             {row.from}
                           </td>
-                          <td className="truncate max-w-[120px]" title={row.to}>
-                            {row.to}
-                          </td>
-                          <td className="truncate max-w-[220px]" title={row.subject}>
-                            {row.subject}
-                          </td>
-                          <td className="truncate max-w-[260px]" title={row.matchLabel}>
-                            {row.matchLabel}
+                          <td className="whitespace-nowrap">{row.classifiedAs}</td>
+                          <td className="truncate max-w-[360px]" title={row.pulled}>
+                            {row.pulled}
                           </td>
                           <td>
-                            {row.replyStatus === 'confirmed' ? (
-                              <span className="status-pill status-pill--compact status-pill--paid">
-                                Confirmed
-                              </span>
-                            ) : row.replyStatus === 'rejected' ? (
-                              <span className="status-pill status-pill--compact status-pill--overdue">
-                                Rejected
-                              </span>
-                            ) : row.replyStatus === 'unknown' ? (
-                              <span className="status-pill status-pill--compact status-pill--pending">
-                                Unknown
-                              </span>
-                            ) : row.pendingReview ? (
-                              <span className="status-pill status-pill--compact status-pill--pending">
-                                Needs review
-                              </span>
-                            ) : (
-                              <span className="status-pill status-pill--compact status-pill--open">
-                                Logged
-                              </span>
-                            )}
+                            <span className={statusClass}>{statusLabel}</span>
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-            <aside
-              className="lg:w-[360px] shrink-0 border-t lg:border-t-0 lg:border-l overflow-y-auto p-4 space-y-3"
-              style={{ borderColor: c.border, backgroundColor: c.card }}
-            >
-              {!selectedReceived ? (
-                <p className="text-sm" style={{ color: c.secondary }}>
-                  Select a received email.
-                </p>
-              ) : (
-                <>
-                  <div>
-                    <div className="text-xs uppercase tracking-wide" style={{ color: c.secondary }}>
-                      From
-                    </div>
-                    <div className="text-sm font-medium break-all">{selectedReceived.from}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs uppercase tracking-wide" style={{ color: c.secondary }}>
-                      To
-                    </div>
-                    <div className="text-sm break-all">{selectedReceived.to || '—'}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs uppercase tracking-wide" style={{ color: c.secondary }}>
-                      Subject
-                    </div>
-                    <div className="text-sm font-medium break-words">
-                      {selectedReceived.subject || '(no subject)'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs uppercase tracking-wide" style={{ color: c.secondary }}>
-                      Match
-                    </div>
-                    <div className="text-sm font-medium break-words">
-                      {selectedReceived.matchLabel}
-                    </div>
-                    {!selectedReceived.matchConfirmed &&
-                    selectedReceived.matchLabel &&
-                    selectedReceived.matchLabel !== '—' ? (
-                      <div className="text-xs mt-0.5" style={{ color: c.secondary }}>
-                        Guess from subject/body — not linked in system yet
-                      </div>
-                    ) : null}
-                  </div>
-                  <div>
-                    <div className="text-xs uppercase tracking-wide" style={{ color: c.secondary }}>
-                      Body
-                    </div>
-                    <pre
-                      className="text-xs whitespace-pre-wrap break-words p-3 rounded border max-h-[50vh] overflow-y-auto mt-1"
-                      style={{ borderColor: c.border, backgroundColor: c.background }}
-                    >
-                      {selectedReceived.body?.trim() || '(empty body — send a new test after deploy)'}
-                    </pre>
-                  </div>
-                  {selectedReceived.pendingReview && selectedReceived.reviewId ? (
-                    <button
-                      type="button"
-                      className="client-btn client-btn--primary text-sm"
-                      onClick={() => setTab('review')}
-                    >
-                      Open in Needs review
-                    </button>
-                  ) : null}
-                </>
-              )}
-            </aside>
+                        {open ? (
+                          <tr>
+                            <td colSpan={6} style={{ backgroundColor: c.background }}>
+                              <div className="py-2 space-y-2">
+                                <p className="text-sm font-medium" style={{ color: c.primary }}>
+                                  {row.subject || '(no subject)'}
+                                </p>
+                                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs max-w-3xl">
+                                  <div>
+                                    <dt style={{ color: c.secondary }}>Classified as</dt>
+                                    <dd className="font-medium" style={{ color: c.primary }}>
+                                      {row.classifiedAs}
+                                      {row.replyStatus ? ` · ${REPLY_STATUS_LABEL[row.replyStatus]}` : ''}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt style={{ color: c.secondary }}>Invoice</dt>
+                                    <dd style={{ color: c.primary }}>{row.invoiceNumber || '—'}</dd>
+                                  </div>
+                                  <div>
+                                    <dt style={{ color: c.secondary }}>Load</dt>
+                                    <dd style={{ color: c.primary }}>{row.loadNumber || '—'}</dd>
+                                  </div>
+                                  <div>
+                                    <dt style={{ color: c.secondary }}>From</dt>
+                                    <dd className="break-all" style={{ color: c.primary }}>
+                                      {row.from || '—'}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt style={{ color: c.secondary }}>Payment date</dt>
+                                    <dd style={{ color: c.primary }}>{row.payDate || '—'}</dd>
+                                  </div>
+                                  <div className="sm:col-span-2">
+                                    <dt style={{ color: c.secondary }}>Pulled</dt>
+                                    <dd style={{ color: c.primary }}>{row.pulled}</dd>
+                                  </div>
+                                </dl>
+                                <pre
+                                  className="text-xs whitespace-pre-wrap break-words rounded border p-3 max-h-64 overflow-auto"
+                                  style={{
+                                    color: c.primary,
+                                    backgroundColor: c.card,
+                                    borderColor: c.border,
+                                  }}
+                                >
+                                  {row.body?.trim() || '(empty response)'}
+                                </pre>
+                                {review && row.pendingReview ? (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl">
+                                    <label className="text-xs sm:col-span-2" style={{ color: c.secondary }}>
+                                      Classify
+                                      <select
+                                        className="client-input w-full text-sm mt-1"
+                                        style={inputStyle}
+                                        value={fileAs[review.id] ?? ''}
+                                        onChange={(e) =>
+                                          setFileAs((prev) => ({
+                                            ...prev,
+                                            [review.id]: e.target.value as ReviewFileAs,
+                                          }))
+                                        }
+                                      >
+                                        <option value="">Choose…</option>
+                                        <option value="broker_verification">Broker verification</option>
+                                        <option value="paperwork">Paperwork status</option>
+                                        <option value="payment">Payment status</option>
+                                        <option value="remittance">Remittance</option>
+                                      </select>
+                                    </label>
+                                    {fileAs[review.id] === 'broker_verification' ? (
+                                      <div className="sm:col-span-2">
+                                        <div className="text-xs" style={{ color: c.secondary }}>
+                                          Confirmation email
+                                        </div>
+                                        <div className="text-sm font-medium break-all" style={{ color: c.primary }}>
+                                          {review.from_address?.trim() || row.from || 'No from address on this email'}
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                    {fileAs[review.id] === 'paperwork' || fileAs[review.id] === 'payment' ? (
+                                      <>
+                                        <label className="text-xs" style={{ color: c.secondary }}>
+                                          Result
+                                          <select
+                                            className="client-input w-full text-sm mt-1"
+                                            style={inputStyle}
+                                            value={fileStatus[review.id] ?? 'confirmed'}
+                                            onChange={(e) =>
+                                              setFileStatus((prev) => ({
+                                                ...prev,
+                                                [review.id]: e.target.value as 'confirmed' | 'rejected',
+                                              }))
+                                            }
+                                          >
+                                            <option value="confirmed">Confirmed</option>
+                                            <option value="rejected">Rejected</option>
+                                          </select>
+                                        </label>
+                                        <label className="text-xs" style={{ color: c.secondary }}>
+                                          Payment date
+                                          {fileAs[review.id] === 'payment' ? ' (required)' : ' (optional)'}
+                                          <input
+                                            type="date"
+                                            className="client-input w-full text-sm mt-1"
+                                            style={inputStyle}
+                                            value={filePayDate[review.id] ?? ''}
+                                            onChange={(e) =>
+                                              setFilePayDate((prev) => ({
+                                                ...prev,
+                                                [review.id]: e.target.value,
+                                              }))
+                                            }
+                                          />
+                                        </label>
+                                      </>
+                                    ) : null}
+                                    <div className="sm:col-span-2">
+                                      <button
+                                        type="button"
+                                        className="dashboard-btn-primary !h-8 text-sm"
+                                        disabled={busy || !fileAs[review.id]}
+                                        onClick={() => void confirm(review)}
+                                      >
+                                        Confirm
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </>
       ) : null}
@@ -881,217 +887,191 @@ export default function AdminEmailInbox() {
       ) : null}
 
       {tab === 'review' ? (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
-          <section
-            className={`rounded-lg border-2 border-dashed p-4 space-y-3 transition-colors ${
-              dragging ? 'bg-sky-50/60' : ''
-            }`}
-            style={{
-              borderColor: dragging ? '#1684FE' : c.border,
-              backgroundColor: dragging ? undefined : c.card,
-            }}
-            onDragEnter={(e) => {
-              e.preventDefault()
-              setDragging(true)
-            }}
-            onDragOver={(e) => {
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'copy'
-              setDragging(true)
-            }}
-            onDragLeave={(e) => {
-              if (e.currentTarget.contains(e.relatedTarget as Node)) return
-              setDragging(false)
-            }}
-            onDrop={(e) => void onDrop(e)}
-          >
-            <div className="text-center py-2">
-              <Upload className="w-5 h-5 mx-auto mb-2" style={{ color: '#1684FE' }} />
-              <p className="text-sm font-semibold" style={{ color: c.primary }}>
-                Drop Outlook emails here
-              </p>
-              <p className="text-xs mt-1" style={{ color: c.secondary }}>
-                .msg / .eml — AI classifies; you confirm before hold
-              </p>
-              <label className="mt-2 inline-block text-sm font-medium text-[#1684FE] cursor-pointer">
-                Choose files
-                <input
-                  type="file"
-                  className="sr-only"
-                  accept=".msg,.eml,message/rfc822,application/vnd.ms-outlook"
-                  multiple
-                  onChange={(e) => {
-                    if (e.target.files) void handleFiles(e.target.files)
-                    e.target.value = ''
-                  }}
-                />
-              </label>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <select
-                className="client-input w-full text-sm sm:col-span-2"
-                value={pasteInvoiceId}
-                onChange={(e) => setPasteInvoiceId(e.target.value)}
-                style={inputStyle}
-              >
-                <option value="">Match invoice from the email…</option>
-                {mockInvoices.slice(0, 80).map((inv) => (
-                  <option key={inv.id} value={inv.id}>
-                    {inv.invoice_number} · {inv.broker_name} · {inv.client_name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="client-input w-full text-sm"
-                placeholder="From"
-                value={pasteFrom}
-                onChange={(e) => setPasteFrom(e.target.value)}
-                style={inputStyle}
-              />
-              <input
-                className="client-input w-full text-sm"
-                placeholder="Subject"
-                value={pasteSubject}
-                onChange={(e) => setPasteSubject(e.target.value)}
-                style={inputStyle}
-              />
-              <textarea
-                className="client-input w-full text-sm min-h-[72px] sm:col-span-2"
-                placeholder="Or paste the email body"
-                value={pasteBody}
-                onChange={(e) => setPasteBody(e.target.value)}
-                style={inputStyle}
-              />
-            </div>
-            <button
-              type="button"
-              className="dashboard-btn-primary !h-8 text-sm"
-              disabled={busy}
-              onClick={ingest}
-            >
-              Classify and queue
-            </button>
-          </section>
-
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {pending.length === 0 ? (
-            <EmptyState
-              title="Nothing waiting for confirm"
-              hint="Inbound broker replies you drop or paste show up here."
-            />
+            <div className="flex items-center justify-center p-8 min-h-[200px]">
+              <EmptyState
+                title="Nothing waiting for confirm"
+                hint="Broker replies that still need a look show up here."
+              />
+            </div>
           ) : (
-            <ul className="space-y-3">
-              {pending.map((item) => {
-                const status =
-                  cardStatus[item.id] ??
-                  item.reply_status ??
-                  replyStatusFromClassification(item.classification)
-                const invoiceId = cardInvoice[item.id] ?? item.invoice_id ?? ''
-                return (
-                  <li
-                    key={item.id}
-                    className="rounded-lg border p-3 space-y-2"
-                    style={{ borderColor: c.border, backgroundColor: c.card }}
-                  >
-                    <div className="flex flex-wrap gap-2 items-center">
-                      <span className="status-pill status-pill--compact status-pill--pending">
-                        {REPLY_STATUS_LABEL[status]}
-                      </span>
-                      <span className="text-sm font-medium" style={{ color: c.primary }}>
-                        {item.invoice_number ?? 'Unmatched'}
-                        {item.load_number ? ` · Load ${item.load_number}` : ''}
-                      </span>
-                    </div>
-                    <p className="text-sm" style={{ color: c.primary }}>
-                      {item.summary}
-                    </p>
-                    {item.body_text ? (
-                      <pre
-                        className="text-xs whitespace-pre-wrap rounded p-2 max-h-28 overflow-auto border"
-                        style={{
-                          color: c.secondary,
-                          backgroundColor: c.background,
-                          borderColor: c.border,
-                        }}
+            <table className="dashboard-table dashboard-table--compact">
+              <thead>
+                <tr>
+                  <th className="w-8" />
+                  <th>When</th>
+                  <th>From</th>
+                  <th>Invoice</th>
+                  <th>Overview</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pending.map((item) => {
+                  const status =
+                    item.reply_status ?? replyStatusFromClassification(item.classification)
+                  const open = expandedReviewId === item.id
+                  const overview =
+                    item.summary?.trim() || item.subject?.trim() || 'No overview'
+                  return (
+                    <Fragment key={item.id}>
+                      <tr
+                        onClick={() => setExpandedReviewId(open ? null : item.id)}
+                        className={open ? 'is-selected' : undefined}
+                        style={{ cursor: 'pointer' }}
                       >
-                        {item.body_text}
-                      </pre>
-                    ) : null}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <label className="text-xs" style={{ color: c.secondary }}>
-                        Status
-                        <select
-                          className="client-input w-full text-sm mt-1"
-                          value={status}
-                          style={inputStyle}
-                          onChange={(e) =>
-                            setCardStatus((prev) => ({
-                              ...prev,
-                              [item.id]: e.target.value as BrokerReplyStatus,
-                            }))
-                          }
-                        >
-                          {(Object.keys(REPLY_STATUS_LABEL) as BrokerReplyStatus[]).map((k) => (
-                            <option key={k} value={k}>
-                              {REPLY_STATUS_LABEL[k]}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="text-xs" style={{ color: c.secondary }}>
-                        Invoice
-                        <select
-                          className="client-input w-full text-sm mt-1"
-                          value={invoiceId}
-                          style={inputStyle}
-                          onChange={(e) =>
-                            setCardInvoice((prev) => ({ ...prev, [item.id]: e.target.value }))
-                          }
-                        >
-                          <option value="">Select invoice…</option>
-                          {mockInvoices.slice(0, 80).map((inv) => (
-                            <option key={inv.id} value={inv.id}>
-                              {inv.invoice_number} · {inv.client_name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="dashboard-btn-primary !h-8 text-sm"
-                        disabled={busy}
-                        onClick={() => void confirm(item)}
-                      >
-                        Confirm
-                      </button>
-                      <button
-                        type="button"
-                        className="dashboard-btn-secondary !h-8 text-sm"
-                        disabled={busy}
-                        onClick={() => {
-                          setBusy(true)
-                          void reclassifyEmailReview(item.id)
-                            .then(() => setTick((n) => n + 1))
-                            .finally(() => setBusy(false))
-                        }}
-                      >
-                        Reclassify
-                      </button>
-                      <button
-                        type="button"
-                        className="dashboard-btn-secondary !h-8 text-sm"
-                        onClick={() =>
-                          setComposeInvoiceId(invoiceId || item.invoice_id || null)
-                        }
-                      >
-                        Compose
-                      </button>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
+                        <td>
+                          <ChevronRight
+                            className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-90' : ''}`}
+                            style={{ color: c.secondary }}
+                          />
+                        </td>
+                        <td className="whitespace-nowrap">{formatWhen(item.created_at)}</td>
+                        <td className="truncate max-w-[160px]" title={item.from_address}>
+                          {item.from_address || '—'}
+                        </td>
+                        <td className="whitespace-nowrap">
+                          {item.invoice_number ?? 'Unmatched'}
+                          {item.load_number ? ` · ${item.load_number}` : ''}
+                        </td>
+                        <td className="truncate max-w-[360px]" title={overview}>
+                          {overview}
+                        </td>
+                        <td>
+                          <span className="status-pill status-pill--compact status-pill--pending">
+                            {REPLY_STATUS_LABEL[status]}
+                          </span>
+                        </td>
+                      </tr>
+                      {open ? (
+                        <tr>
+                          <td colSpan={6} style={{ backgroundColor: c.background }}>
+                            <div className="py-2 space-y-2">
+                              {item.subject ? (
+                                <p className="text-sm font-medium" style={{ color: c.primary }}>
+                                  {item.subject}
+                                </p>
+                              ) : null}
+                              <pre
+                                className="text-xs whitespace-pre-wrap break-words rounded border p-3 max-h-64 overflow-auto"
+                                style={{
+                                  color: c.primary,
+                                  backgroundColor: c.card,
+                                  borderColor: c.border,
+                                }}
+                              >
+                                {item.body_text?.trim() || '(empty response)'}
+                              </pre>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl">
+                                <label className="text-xs sm:col-span-2" style={{ color: c.secondary }}>
+                                  File as
+                                  <select
+                                    className="client-input w-full text-sm mt-1"
+                                    style={inputStyle}
+                                    value={fileAs[item.id] ?? ''}
+                                    onChange={(e) =>
+                                      setFileAs((prev) => ({
+                                        ...prev,
+                                        [item.id]: e.target.value as ReviewFileAs,
+                                      }))
+                                    }
+                                  >
+                                    <option value="">Choose…</option>
+                                    <option value="broker_verification">Broker verification</option>
+                                    <option value="paperwork">Paperwork status</option>
+                                    <option value="payment">Payment status</option>
+                                    <option value="remittance">Remittance</option>
+                                  </select>
+                                </label>
+                                {fileAs[item.id] === 'broker_verification' ? (
+                                  <div className="sm:col-span-2">
+                                    <div className="text-xs" style={{ color: c.secondary }}>
+                                      Confirmation email
+                                    </div>
+                                    <div className="text-sm font-medium break-all" style={{ color: c.primary }}>
+                                      {item.from_address?.trim() || 'No from address on this email'}
+                                    </div>
+                                  </div>
+                                ) : null}
+                                {fileAs[item.id] === 'paperwork' || fileAs[item.id] === 'payment' ? (
+                                  <>
+                                    <label className="text-xs" style={{ color: c.secondary }}>
+                                      Result
+                                      <select
+                                        className="client-input w-full text-sm mt-1"
+                                        style={inputStyle}
+                                        value={fileStatus[item.id] ?? 'confirmed'}
+                                        onChange={(e) =>
+                                          setFileStatus((prev) => ({
+                                            ...prev,
+                                            [item.id]: e.target.value as 'confirmed' | 'rejected',
+                                          }))
+                                        }
+                                      >
+                                        <option value="confirmed">Confirmed</option>
+                                        <option value="rejected">Rejected</option>
+                                      </select>
+                                    </label>
+                                    <label className="text-xs" style={{ color: c.secondary }}>
+                                      Payment date
+                                      {fileAs[item.id] === 'payment' ? ' (required)' : ' (optional)'}
+                                      <input
+                                        type="date"
+                                        className="client-input w-full text-sm mt-1"
+                                        style={inputStyle}
+                                        value={filePayDate[item.id] ?? ''}
+                                        onChange={(e) =>
+                                          setFilePayDate((prev) => ({
+                                            ...prev,
+                                            [item.id]: e.target.value,
+                                          }))
+                                        }
+                                      />
+                                    </label>
+                                  </>
+                                ) : null}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  className="dashboard-btn-primary !h-8 text-sm"
+                                  disabled={busy || !fileAs[item.id]}
+                                  onClick={() => void confirm(item)}
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  className="dashboard-btn-secondary !h-8 text-sm"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    setBusy(true)
+                                    void reclassifyEmailReview(item.id)
+                                      .then(() => setTick((n) => n + 1))
+                                      .finally(() => setBusy(false))
+                                  }}
+                                >
+                                  Reclassify
+                                </button>
+                                <button
+                                  type="button"
+                                  className="dashboard-btn-secondary !h-8 text-sm"
+                                  disabled={!item.invoice_id}
+                                  onClick={() => setComposeInvoiceId(item.invoice_id)}
+                                >
+                                  Compose
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
           )}
         </div>
       ) : null}

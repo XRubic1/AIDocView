@@ -44,7 +44,7 @@ export default function McLookupReviewLog({
   clientId,
   refreshKey,
   onSelectMc,
-  emptyHint = 'Lookups you run are saved here with the broker’s status at that time.',
+  emptyHint = 'Lookups you run are saved here with the credit score and status from that check.',
   compact = false,
   maxItems = 40,
 }: McLookupReviewLogProps) {
@@ -117,6 +117,7 @@ export default function McLookupReviewLog({
                 {formatMc(row)}
                 {' · '}
                 {formatDateTime(row.created_at)}
+                {row.credit_score ? ` · Score ${row.credit_score}` : ''}
               </p>
             </div>
             <span

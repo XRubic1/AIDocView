@@ -9,7 +9,7 @@ import {
 import { getInvoiceById } from '../data/mockInvoices'
 import type { EmailMessage, EmailReviewItem } from '../types/emailLifecycle'
 import { guessInboundInvoiceMatch } from '../utils/guessInboundInvoiceMatch'
-import { replyStatusFromClassification } from './brokerReplyReading'
+import { findReplyDate, replyStatusFromClassification } from './brokerReplyReading'
 
 export type InboundInboxRow = {
   id: string
@@ -30,6 +30,57 @@ export type InboundInboxRow = {
   reviewId: string | null
   pendingReview: boolean
   replyStatus: 'confirmed' | 'rejected' | 'unknown' | null
+  /** Broker verification, paperwork status, payment status, remittance, or not classified. */
+  classifiedAs: string
+  /** Invoice, load, sender, pay date, and the reader summary. */
+  pulled: string
+  payDate: string | null
+}
+
+function classifiedAsLabel(review: EmailReviewItem | null): string {
+  if (!review) return 'Not classified'
+  const summary = review.summary ?? ''
+  if (
+    review.confirmed_by === 'Rate verification' ||
+    /broker verification|rate verification|rate confirmation/i.test(summary)
+  ) {
+    return 'Broker verification'
+  }
+  if (/remittance/i.test(summary)) return 'Remittance'
+  if (
+    review.outbound_kind === 'paperwork' ||
+    review.classification === 'paperwork_ok' ||
+    review.classification === 'missing_docs' ||
+    review.classification === 'non_response_paperwork'
+  ) {
+    return 'Paperwork status'
+  }
+  if (
+    review.outbound_kind === 'payment' ||
+    review.classification === 'payment_ok' ||
+    review.classification === 'non_response_payment'
+  ) {
+    return 'Payment status'
+  }
+  if (review.classification === 'unclear') return 'Unclear'
+  return 'Not classified'
+}
+
+function pulledLine(input: {
+  invoiceNumber?: string
+  loadNumber?: string
+  from?: string
+  payDate?: string | null
+  summary?: string
+}): string {
+  const bits = [
+    input.invoiceNumber && input.invoiceNumber !== '—' ? `Invoice ${input.invoiceNumber}` : '',
+    input.loadNumber ? `Load ${input.loadNumber}` : '',
+    input.from?.trim() ?? '',
+    input.payDate ? `Pay ${input.payDate}` : '',
+    input.summary?.trim() ?? '',
+  ].filter(Boolean)
+  return bits.join(' · ') || 'Nothing pulled'
 }
 
 export function listInboundInboxRows(): InboundInboxRow[] {
@@ -63,6 +114,7 @@ export function listInboundInboxRows(): InboundInboxRow[] {
       invoiceNumber: r.invoice_number,
       loadNumber: r.load_number,
     })
+    const payDate = findReplyDate(`${r.subject ?? ''} ${r.body_text ?? ''}`)
     rows.push({
       id: `review:${r.id}`,
       kind: 'review_only',
@@ -81,6 +133,15 @@ export function listInboundInboxRows(): InboundInboxRow[] {
       reviewId: r.id,
       pendingReview: true,
       replyStatus: r.reply_status ?? replyStatusFromClassification(r.classification),
+      classifiedAs: classifiedAsLabel(r),
+      payDate,
+      pulled: pulledLine({
+        invoiceNumber: guess.invoiceNumber,
+        loadNumber: guess.loadNumber,
+        from: r.from_address,
+        payDate,
+        summary: r.summary,
+      }),
     })
   }
 
@@ -107,6 +168,9 @@ function rowFromMessage(
     invoiceNumber: inv?.invoice_number ?? review?.invoice_number,
     loadNumber: inv?.load_number ?? review?.load_number,
   })
+  const payDate = findReplyDate(`${m.subject} ${m.body_text}`)
+  const invoiceNumber = guess.invoiceNumber
+  const loadNumber = guess.loadNumber
   return {
     id: m.id,
     kind: 'message',
@@ -127,5 +191,14 @@ function rowFromMessage(
     replyStatus: review
       ? review.reply_status ?? replyStatusFromClassification(review.classification)
       : null,
+    classifiedAs: classifiedAsLabel(review),
+    payDate,
+    pulled: pulledLine({
+      invoiceNumber,
+      loadNumber,
+      from: m.from_address,
+      payDate,
+      summary: review?.summary,
+    }),
   }
 }

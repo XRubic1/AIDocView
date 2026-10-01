@@ -119,6 +119,7 @@ export default function AdminBrokerMcChecks({
                 <strong>{ev.clientName}</strong>
                 <span>
                   {formatDate(ev.created_at)}
+                  {ev.credit_score ? ` · Score ${ev.credit_score}` : ''}
                   {ev.from_cache ? ' · cache' : ' · live Snapshot'}
                   {ev.status_label
                     ? ` · ${ev.status_label}`

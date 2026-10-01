@@ -83,6 +83,21 @@ function healthFromRun(run: BlueprintRunRow | null, hasAssignment: boolean): {
   }
   switch (run.status) {
     case 'waiting':
+      if (/no broker email/i.test(run.currentStep)) {
+        return {
+          kind: 'attention',
+          label: 'Needs a broker email',
+          detail:
+            'The packet did not send. Add an accounting or paperwork email on the broker. This step tries again in one hour.',
+        }
+      }
+      if (/no carrier email/i.test(run.currentStep)) {
+        return {
+          kind: 'attention',
+          label: 'Needs a carrier email',
+          detail: 'The carrier notice did not send. Add an email on the carrier. This step tries again in one hour.',
+        }
+      }
       return {
         kind: 'ok',
         label: 'On track',

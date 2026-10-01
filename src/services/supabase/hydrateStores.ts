@@ -49,6 +49,7 @@ import {
   loadEmailMailboxes,
   applyEmailMailboxes,
   loadBlueprintsRunnerEnabled,
+  loadBlueprintHandoffMap,
 } from '../platformSettingsService'
 import { applyAiPolicy, loadAiPolicy } from '../aiSpendService'
 import { resolveSession } from '../sessionService'
@@ -214,6 +215,7 @@ export async function hydrateStoresForSession(session: Session | null): Promise<
 
     try {
       await loadBlueprintsRunnerEnabled()
+      await loadBlueprintHandoffMap()
     } catch (err) {
       errors.push(`blueprints_runtime: ${err instanceof Error ? err.message : String(err)}`)
     }

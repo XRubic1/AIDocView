@@ -69,6 +69,8 @@ export interface BrokerSnapshotSummary {
   cargoGeneralFreight?: boolean | null
   cargoHazmat?: boolean | null
   riskFlags: string[]
+  /** Raw insurance slice from the lookup, shown only in the debug panel. */
+  insuranceDebug?: unknown
   /** Server cache metadata from brokersnapshot-proxy. */
   _meta?: {
     fromCache?: boolean
@@ -98,5 +100,7 @@ export type BrokerSnapshotLookupLogRow = {
   operating_status: string | null
   broker_authority: string | null
   status_label: string | null
+  /** Score frozen on the check that created this row. Older rows have none. */
+  credit_score: string | null
   created_at: string
 }

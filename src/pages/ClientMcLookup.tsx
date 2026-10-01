@@ -1,15 +1,17 @@
-import { FormEvent, ReactNode, useMemo, useState } from 'react'
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
+  Bug,
   CheckCircle2,
   HelpCircle,
   Loader2,
   Search,
   ShieldAlert,
+  X,
 } from 'lucide-react'
 import { useClientTheme } from '../theme/ThemeContext'
 import { lookupMcCredit } from '../services/mcCreditLookupService'
-import { lookupBrokerSnapshotByMc } from '../services/brokerSnapshotService'
+import { lookupBrokerSnapshotByMc, recordLookupCreditScore } from '../services/brokerSnapshotService'
 import { extractEmailDomain } from '../utils/emailDomain'
 import { formatPhoneNumber } from '../utils/formatPhoneNumber'
 import { assessMcCredit, creditMetrics, redactVendorText } from '../utils/mcCreditAssessment'
@@ -174,7 +176,8 @@ function ratingTone(rating: string) {
 
 function insuranceLabel(summary: BrokerSnapshotSummary): { label: string; ok: boolean } {
   const covered = (summary.activeInsuranceCount ?? 0) > 0 || (summary.insurances?.length ?? 0) > 0
-  if (covered || summary.insuranceVerdict === 'ok') return { label: 'Insurance on file', ok: true }
+  const brokerActive = (summary.brokerAuthority ?? '').trim().toLowerCase() === 'active'
+  if (covered || summary.insuranceVerdict === 'ok' || brokerActive) return { label: 'Insurance on file', ok: true }
   if (summary.insuranceVerdict === 'cancelled') return { label: 'Insurance cancelled', ok: false }
   if (summary.insuranceVerdict === 'missing') return { label: 'Insurance missing', ok: false }
   return { label: 'Insurance needs review', ok: false }
@@ -278,9 +281,17 @@ function headlineFor(
   }
 }
 
-export default function ClientMcLookup() {
+export default function ClientMcLookup({
+  initialMc = '',
+  autoLookup = false,
+  embedded = false,
+}: {
+  initialMc?: string
+  autoLookup?: boolean
+  embedded?: boolean
+}) {
   const c = useClientTheme()
-  const [mc, setMc] = useState('')
+  const [mc, setMc] = useState(initialMc)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [credit, setCredit] = useState<McCreditSearchResponse | null>(null)
@@ -292,19 +303,19 @@ export default function ClientMcLookup() {
   const authorityFound = Boolean(authority?.found)
   const headline = searched ? headlineFor(assessment, authority) : null
 
-  async function onSearch(event?: FormEvent) {
-    event?.preventDefault()
-    const cleaned = mc.trim()
+  async function runSearch(raw: string) {
+    const cleaned = raw.trim()
     if (!cleaned) {
       setError('Enter an MC number.')
       return
     }
+    setMc(cleaned)
     setLoading(true)
     setError(null)
     setSearched(false)
     const [creditResult, authorityResult] = await Promise.allSettled([
       lookupMcCredit(cleaned),
-      lookupBrokerSnapshotByMc(cleaned),
+      lookupBrokerSnapshotByMc(cleaned, { fresh: true }),
     ])
     const nextCredit = creditResult.status === 'fulfilled' ? creditResult.value : null
     const nextAuthority = authorityResult.status === 'fulfilled' ? authorityResult.value : null
@@ -312,11 +323,29 @@ export default function ClientMcLookup() {
     setAuthority(nextAuthority)
     setSearched(true)
     if (nextCredit?.mc) setMc(nextCredit.mc)
+    const score = nextCredit ? buildCreditProfile(nextCredit.results)?.score : null
+    if (score && score !== '—') {
+      void recordLookupCreditScore(nextCredit?.mc || cleaned, score).catch(() => undefined)
+    }
     if (!nextCredit && !nextAuthority) {
       setError('MC lookup failed. Try again in a moment.')
     }
     setLoading(false)
   }
+
+  function onSearch(event?: FormEvent) {
+    event?.preventDefault()
+    void runSearch(mc)
+  }
+
+  useEffect(() => {
+    if (!autoLookup) return
+    const cleaned = initialMc.trim()
+    if (!cleaned) return
+    void runSearch(cleaned)
+    // Prefill from the brokers tab should run once when this panel opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoLookup, initialMc])
 
   const company =
     (authorityFound ? authority?.name : null) || profile?.company || assessment?.company || 'Broker'
@@ -330,20 +359,11 @@ export default function ClientMcLookup() {
   const showBoard = !error && (showResult || !searched)
 
   return (
-    <div className="h-full overflow-y-auto" style={{ backgroundColor: c.background }}>
+    <div
+      className={embedded ? 'min-h-0 flex-1 overflow-y-auto' : 'h-full overflow-y-auto'}
+      style={{ backgroundColor: c.background }}
+    >
       <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-5 md:px-6 md:py-6">
-        <header>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: c.accent }}>
-            Broker check
-          </p>
-          <h1 className="mt-1 text-[28px] font-semibold leading-tight" style={{ color: c.primary }}>
-            MC Lookup
-          </h1>
-          <p className="mt-1 max-w-xl text-sm leading-relaxed" style={{ color: c.secondary }}>
-            Credit, payment pace, authority, and insurance in one check before you book.
-          </p>
-        </header>
-
         <form
           onSubmit={onSearch}
           className="rounded-2xl border p-4"
@@ -675,19 +695,83 @@ function AuthorityBody({ summary }: { summary: BrokerSnapshotSummary | null }) {
   )
 }
 
+function InsuranceDebugButton({ payload }: { payload: unknown }) {
+  const c = useClientTheme()
+  const [open, setOpen] = useState(false)
+  const text = payload == null ? 'No insurance payload was attached to this check.' : JSON.stringify(payload, null, 2)
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border"
+        style={{ borderColor: c.border, color: c.secondary }}
+        aria-label="Show insurance debug"
+        title="Show what the insurance check pulled"
+      >
+        <Bug className="h-3.5 w-3.5" />
+      </button>
+      {open ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(15, 23, 42, 0.45)' }}
+          onClick={() => setOpen(false)}
+        >
+          <section
+            className="flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border shadow-xl"
+            style={{ backgroundColor: c.card, borderColor: c.border }}
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-label="Insurance debug"
+          >
+            <header
+              className="flex items-center justify-between gap-3 border-b px-4 py-3"
+              style={{ borderColor: c.border }}
+            >
+              <p className="text-sm font-semibold" style={{ color: c.primary }}>
+                Insurance pull
+              </p>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md"
+                style={{ color: c.secondary }}
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+            <pre
+              className="m-0 min-h-0 flex-1 overflow-auto px-4 py-3 text-xs leading-relaxed"
+              style={{ color: c.primary }}
+            >
+              {text}
+            </pre>
+          </section>
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 function InsuranceBody({ summary }: { summary: BrokerSnapshotSummary | null }) {
   const c = useClientTheme()
   if (!summary) {
     return <Placeholder>No insurance details for this MC.</Placeholder>
   }
   const insurance = insuranceLabel(summary)
-  const policies = (summary.insurances ?? []).slice(0, 2)
+  const policies = (summary.insurances ?? [])
+    .filter((policy) => policy.companyName && !/^(surety bond|insurer|unknown insurer)$/i.test(policy.companyName))
+    .slice(0, 2)
   const showCancel = shouldShowCancellationHistory(summary)
   return (
     <div>
-      <p className="text-sm font-semibold" style={{ color: insurance.ok ? c.primary : '#B91C1C' }}>
-        {insurance.label}
-      </p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold" style={{ color: insurance.ok ? c.primary : '#B91C1C' }}>
+          {insurance.label}
+        </p>
+        <InsuranceDebugButton payload={summary.insuranceDebug} />
+      </div>
       <div className="mt-2 space-y-2">
         {policies.map((policy) => (
           <div key={`${policy.companyName}-${policy.policyNumber ?? ''}`}>

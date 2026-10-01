@@ -124,7 +124,7 @@ describe('snapshot company payload', () => {
     expect(policies.some((row) => row.company_name === 'Surety bond')).toBe(false)
   })
 
-  it('uses the broker bond amount only when no active filing is listed', () => {
+  it('does not invent an insurer when an active broker filing has no carrier name', () => {
     const company = extractCompanyRecord({
       Success: true,
       Data: {
@@ -134,15 +134,37 @@ describe('snapshot company payload', () => {
       },
     })
     const normalized = normalizeSnapshotCompany(company!)
+    const authority = normalized.Authority as Record<string, unknown>
     const policies = normalized.ActiveInsurances as Record<string, unknown>[]
-    expect(policies).toEqual([
-      {
-        company_name: 'Surety bond',
-        policy_number: null,
-        bi_pd_maximum_limit: 75000,
-        form_code: 7,
+    expect(authority.broker_stat).toBe('Active')
+    expect(policies ?? []).toEqual([])
+  })
+
+  it('treats an active broker as covered and keeps a real surety filing', () => {
+    const company = extractCompanyRecord({
+      Success: true,
+      Data: {
+        DotNumber: 2328674,
+        Status: { Status: 1 },
+        Name: { LegalName: 'FREIGHT MANAGEMENT TEAM INC' },
+        Type: 'Broker',
+        Insurances: [
+          {
+            Carrier: 'ALLEGHENY CASUALTY COMPANY',
+            PolicyNumber: 'ACC006006227',
+            Form: '84',
+            Status: 'Active',
+            MaxCovAmount: 75000,
+          },
+        ],
       },
-    ])
+    })
+    const normalized = normalizeSnapshotCompany(company!)
+    const authority = normalized.Authority as Record<string, unknown>
+    const policies = normalized.ActiveInsurances as Record<string, unknown>[]
+    expect(authority.broker_stat).toBe('Active')
+    expect(policies.map((row) => row.company_name)).toEqual(['ALLEGHENY CASUALTY COMPANY'])
+    expect(policies[0]?.policy_number).toBe('ACC006006227')
   })
 
   it('keeps the classic company payload', () => {
@@ -257,5 +279,111 @@ describe('snapshot company payload', () => {
     expect(normalized.dot_number).toBe(2214472)
     expect(policies[0]?.company_name).toBe('WESTCHESTER FIRE INSURANCE COMPANY')
     expect(companyRecordScore(records[0]!, '218094')).toBeLessThan(companyRecordScore(records[1]!, '218094'))
+  })
+
+  it('reads a v3 Companies list and keeps the broker whose docket matches the MC', () => {
+    const records = extractCompanyRecords({
+      Companies: [
+        {
+          DotNumber: 793115,
+          Status: { Status: 2 },
+          Name: { LegalName: 'MICHAEL D SCHUPP' },
+          Auths: [{ DocketNumber: 'MC353732', Type: { Type: 1 }, Status: { Status: 2 } }],
+        },
+        {
+          DotNumber: 2328674,
+          Status: { Status: 1 },
+          Name: { LegalName: 'FREIGHT MANAGEMENT TEAM INC' },
+          Auths: [
+            {
+              DocketNumber: 'MC793115',
+              Type: { Type: 8, Description: 'Broker' },
+              Status: { Status: 1, Description: 'Active' },
+              Insurances: [
+                {
+                  PolicyNumber: 'ACC006006227',
+                  Form: 7,
+                  Status: { Status: 1 },
+                  MaxCovAmount: 75000,
+                  EffectiveDate: '2025-07-22',
+                  Filer: { Name: 'ALLEGHENY CASUALTY COMPANY' },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    const best = records.reduce((winner, record) =>
+      companyRecordScore(record, '793115') > companyRecordScore(winner, '793115') ? record : winner
+    )
+    const normalized = normalizeSnapshotCompany(best)
+    const general = normalized.General as Record<string, unknown>
+    const authority = normalized.Authority as Record<string, unknown>
+    const policies = normalized.ActiveInsurances as Record<string, unknown>[]
+    expect(general.name).toBe('FREIGHT MANAGEMENT TEAM INC')
+    expect(normalized.dot_number).toBe(2328674)
+    expect(authority.broker_stat).toBe('Active')
+    expect(authority.docket_number).toBe('MC793115')
+    expect(policies[0]?.company_name).toBe('ALLEGHENY CASUALTY COMPANY')
+    expect(policies[0]?.policy_number).toBe('ACC006006227')
+  })
+
+  it('reads census broker authority when Auths is null', () => {
+    const company = extractCompanyRecord({
+      Data: {
+        DotNumber: 2328674,
+        Status: { Status: 1 },
+        Name: { LegalName: 'FREIGHT MANAGEMENT TEAM INC' },
+        Auths: null,
+        CensusAuths: [{ DocketNumber: 'MC793115', Broker: 2, Common: 1, Contract: 1 }],
+      },
+    })
+    const normalized = normalizeSnapshotCompany(company!)
+    const authority = normalized.Authority as Record<string, unknown>
+    expect(authority.broker_stat).toBe('Active')
+    expect(authority.docket_number).toBe('MC793115')
+  })
+
+  it('keeps a named filing when registration Auths is null', () => {
+    const normalized = normalizeSnapshotCompany({
+      DotNumber: 2328674,
+      Status: { Status: 1 },
+      Name: { LegalName: 'FREIGHT MANAGEMENT TEAM INC' },
+      Auths: null,
+      CensusAuths: [{ DocketNumber: 'MC793115', Broker: 2, Common: 1, Contract: 1 }],
+      ActiveInsurances: [
+        {
+          company_name: 'ALLEGHENY CASUALTY COMPANY',
+          policy_number: 'ACC006006227',
+          form_code: '84',
+          bi_pd_maximum_limit: 75000,
+        },
+      ],
+    })
+    const policies = normalized.ActiveInsurances as Record<string, unknown>[]
+    expect(policies[0]?.company_name).toBe('ALLEGHENY CASUALTY COMPANY')
+    expect(policies[0]?.policy_number).toBe('ACC006006227')
+  })
+
+  it('reads a filing nested outside Auths', () => {
+    const normalized = normalizeSnapshotCompany({
+      DotNumber: 2328674,
+      Name: { LegalName: 'FREIGHT MANAGEMENT TEAM INC' },
+      Auths: null,
+      Census: {
+        Dockets: [
+          {
+            PolicyNumber: 'ACC006006227',
+            Form: 7,
+            Status: 1,
+            MaxCovAmount: 75000,
+            Filer: { Name: 'ALLEGHENY CASUALTY COMPANY' },
+          },
+        ],
+      },
+    })
+    const policies = normalized.ActiveInsurances as Record<string, unknown>[]
+    expect(policies[0]?.company_name).toBe('ALLEGHENY CASUALTY COMPANY')
   })
 })

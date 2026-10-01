@@ -406,8 +406,8 @@ export function notifyAdminBrokerRequested(
     message: `${input.clientName} requested broker(s) on ${input.batchNumber}: ${names}`,
     timestamp: new Date().toISOString(),
     read: false,
-    link: `/batches?batchId=${encodeURIComponent(input.batchId)}`,
-    link_label: 'Open batch',
+    link: '/brokers?tab=new',
+    link_label: 'Review new brokers',
     batch_id: input.batchId,
     batch_number: input.batchNumber,
     metadata: {
@@ -708,6 +708,90 @@ export type BlueprintAlertNotificationInput = {
   batchId?: string
   batchNumber?: string
   clientName?: string
+}
+
+export type BlueprintIssueCode =
+  | 'no-broker-email'
+  | 'no-carrier-email'
+  | 'paperwork-issue'
+  | 'reply-unclear'
+
+export function blueprintIssueNotificationId(invoiceId: string, code: BlueprintIssueCode): string {
+  return `bp-issue-${invoiceId}-${code}`
+}
+
+/**
+ * One bell item per invoice and issue. A later retry does not create another
+ * row or mark a read alert unread.
+ */
+export function notifyAdminBlueprintIssue(input: {
+  invoiceId: string
+  invoiceNumber?: string
+  code: BlueprintIssueCode
+  title: string
+  message: string
+  blueprintName: string
+  brokerName?: string
+}): Notification {
+  const id = blueprintIssueNotificationId(input.invoiceId, input.code)
+  const existing = adminNotifications.find((n) => n.id === id)
+  if (existing) return existing
+
+  const notification: Notification = {
+    id,
+    type: 'system_alert',
+    title: input.title,
+    message: input.message,
+    timestamp: new Date().toISOString(),
+    read: false,
+    link: `/invoices?invoice=${encodeURIComponent(input.invoiceId)}`,
+    link_label: 'Open invoice',
+    invoice_id: input.invoiceId,
+    invoice_number: input.invoiceNumber,
+    metadata: {
+      invoice_id: input.invoiceId,
+      invoice_number: input.invoiceNumber,
+      broker_name: input.brokerName,
+      blueprint_name: input.blueprintName,
+      source: 'blueprint',
+      issue: input.code,
+    },
+  }
+  adminNotifications.unshift(notification)
+  emitUpdated()
+  broadcastNotification(notification)
+  void insertAdminNotificationOnce(notification).then((inserted) => {
+    if (!inserted) void refreshAdminNotificationsFromServer()
+  })
+  return notification
+}
+
+/** Clear the bell item once the blueprint can send again. */
+export function resolveAdminBlueprintIssue(invoiceId: string, code: BlueprintIssueCode): void {
+  markAdminNotificationRead(blueprintIssueNotificationId(invoiceId, code))
+}
+
+/** Insert only. A duplicate id means the alert is already in the inbox. */
+async function insertAdminNotificationOnce(notification: Notification): Promise<boolean> {
+  if (!isSupabaseConfigured()) return true
+  const supabase = getSupabase()
+  if (!supabase) return true
+  const { error } = await supabase.from('admin_notifications').insert({
+    id: notification.id,
+    type: notification.type,
+    title: notification.title,
+    message: notification.message,
+    timestamp: notification.timestamp,
+    read: notification.read,
+    link: notification.link,
+    link_label: notification.link_label,
+    metadata: notificationMetadata(notification),
+  })
+  if (!error) return true
+  const duplicate = error.code === '23505' || /duplicate key/i.test(error.message)
+  if (duplicate) return false
+  console.error('[adminNotifications] blueprint issue insert failed', error.message)
+  return false
 }
 
 /** Ops alert from a live blueprint Then-do (e.g. new broker urgent review). */

@@ -86,18 +86,10 @@ const CLIENT_CATALOG: AssistantCatalogEntry[] = [
   {
     id: 'client-mc-check',
     label: 'Open MC Check',
-    description: 'Look up a broker MC for authority and insurance',
+    description: 'Check a broker MC for credit, pay pace, authority, and insurance',
     path: '/client/brokers?tab=mc-check',
     mode: 'client',
-    keywords: ['mc check', 'authority', 'safer', 'insurance lookup'],
-  },
-  {
-    id: 'client-mc-lookup',
-    label: 'Open MC Lookup',
-    description: 'Check a broker MC for credit, authority, and insurance',
-    path: '/mclookup',
-    mode: 'client',
-    keywords: ['mc lookup', 'credit check', 'paydex', 'broker credit'],
+    keywords: ['mc check', 'mc lookup', 'authority', 'safer', 'insurance lookup', 'credit check', 'paydex'],
   },
   {
     id: 'client-mc-logs',

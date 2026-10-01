@@ -22,7 +22,7 @@ const REJECTED =
   /not\s+received|did\s*n[o']t\s+receive|never\s+received|missing|no\s+lumper|lumper|missing\s+pages?|pages?\s+missing|incomplete|need(?:s|ed)?\s+(?:the\s+)?(?:pod|bol|rate\s*con|scale)|short\s*pay|will\s+not\s+pay|not\s+paying/i
 
 const CONFIRMED =
-  /good\s+to\s+go|\bg2g\b|all\s+set|looks\s+good|all\s+good|paperwork\s+(?:is\s+)?(?:good|ok|okay|complete|received)|packet\s+(?:is\s+)?(?:good|complete|received)|docs?\s+(?:are\s+)?(?:good|complete)|will\s+pay|paying\s+on|pay\s+date|check\s+(?:was\s+)?mailed|ach\s+(?:sent|processed)/i
+  /good\s+to\s+go|\bg2g\b|all\s+set|looks\s+good|all\s+good|no\s+issues|rate\s+is\s+confirmed|paperwork\s+(?:is\s+)?(?:good|ok|okay|complete|received)|packet\s+(?:is\s+)?(?:good|complete|received)|docs?\s+(?:are\s+)?(?:good|complete)|will\s+pay|paying\s+on|pay\s+date|check\s+(?:was\s+)?mailed|ach\s+(?:sent|processed)/i
 
 export function findReplyDate(text: string): string | null {
   const iso = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readRateVerificationReply } from '../../supabase/functions/_shared/rateVerificationReply'
+import { readRateVerificationReply, senderLabel } from '../../supabase/functions/_shared/rateVerificationReply'
 
 describe('readRateVerificationReply', () => {
   it('marks a clean rate as OK', () => {
@@ -21,6 +21,17 @@ describe('readRateVerificationReply', () => {
       'No advances, but there is a $50 lumper deduction.'
     )
     expect(reading.outcome).toBe('hold')
+  })
+
+  it('names who confirmed a clean rate', () => {
+    const who = senderLabel('Alex Rivera <alex@broker.example>')
+    const reading = readRateVerificationReply(
+      'Re: Rate confirmation — Invoice 012',
+      'No advances or deductions.',
+      who
+    )
+    expect(reading.outcome).toBe('ok')
+    expect(reading.summary).toContain('Confirmed by Alex Rivera (alex@broker.example)')
   })
 
   it('leaves a vague reply unknown', () => {

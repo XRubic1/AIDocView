@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { mockBrokers, addBroker, updateBrokerAsync } from '../data/mockBrokers'
 import { mockInvoices } from '../data/mockInvoices'
 import { Broker, BrokerEmail, BrokerPhone } from '../types/broker'
@@ -20,6 +21,10 @@ import {
   type SnapshotSuggestField,
 } from '../utils/brokerSnapshotFormFill'
 import SnapshotFieldSwap from '../components/brokers/SnapshotFieldSwap'
+import AdminNewBrokersPanel from '../components/admin/AdminNewBrokersPanel'
+import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
+import { linkPendingInvoicesToBroker } from '../services/linkPendingNewBroker'
+import { listPendingNewBrokers, normalizeBrokerNameKey } from '../utils/pendingNewBrokers'
 import {
   addVerificationWebsite,
   listVerificationWebsites,
@@ -54,14 +59,36 @@ function primaryPhone(broker: Broker): string | undefined {
 
 export default function Brokers() {
   const { showToast } = useToast()
+  const tenantRevision = useTenantDataRevision()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const pageTab = searchParams.get('tab') === 'new' ? 'new' : 'all'
   const [brokers, setBrokers] = useState<Broker[]>(mockBrokers)
   const [searchTerm, setSearchTerm] = useState('')
+  /** Carrier-requested name being added from the NEW Brokers tab. */
+  const [reviewingRequestedName, setReviewingRequestedName] = useState<string | null>(null)
+  const [linkingKey, setLinkingKey] = useState<string | null>(null)
   const [selectedBroker, setSelectedBroker] = useState<Broker | null>(null)
   /** Drives slide-in / slide-out of the broker detail drawer. */
   const [detailDrawerVisible, setDetailDrawerVisible] = useState(false)
   const [showFormModal, setShowFormModal] = useState(false)
   const [showMergeModal, setShowMergeModal] = useState(false)
   const [auditRefresh, setAuditRefresh] = useState(0)
+
+  useEffect(() => {
+    setBrokers([...mockBrokers])
+  }, [tenantRevision])
+
+  const pendingNewBrokers = useMemo(
+    () => listPendingNewBrokers(mockInvoices, brokers),
+    [brokers, tenantRevision]
+  )
+
+  const setPageTab = (tab: 'all' | 'new') => {
+    const next = new URLSearchParams(searchParams)
+    if (tab === 'new') next.set('tab', 'new')
+    else next.delete('tab')
+    setSearchParams(next, { replace: true })
+  }
 
   // Animate drawer in after mount; lock body scroll while open.
   useEffect(() => {
@@ -140,6 +167,33 @@ export default function Brokers() {
       .catch((err) => console.warn('[Brokers] verification websites', err))
   }, [])
 
+  const handleLinkExistingBroker = async (requestedName: string, brokerId: string) => {
+    const broker = brokers.find((b) => b.id === brokerId) ?? mockBrokers.find((b) => b.id === brokerId)
+    if (!broker) {
+      showToast('Broker not found', 'error')
+      return
+    }
+    const key = normalizeBrokerNameKey(requestedName)
+    setLinkingKey(key)
+    try {
+      const linked = await linkPendingInvoicesToBroker({
+        requestedName,
+        broker,
+      })
+      setBrokers([...mockBrokers])
+      showToast(
+        linked > 0
+          ? `Linked ${linked} load${linked === 1 ? '' : 's'} to ${broker.name}`
+          : 'No unmatched loads left for that name',
+        linked > 0 ? 'success' : 'info'
+      )
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not attach loads', 'error')
+    } finally {
+      setLinkingKey(null)
+    }
+  }
+
   const filteredBrokers = brokers.filter((broker) => {
     if (searchTerm === '') return true
     const searchLower = searchTerm.toLowerCase()
@@ -154,6 +208,20 @@ export default function Brokers() {
       broker.dot_number?.toLowerCase().includes(searchLower) ||
       broker.city?.toLowerCase().includes(searchLower) ||
       broker.state?.toLowerCase().includes(searchLower)
+    )
+  })
+
+  const filteredPendingBrokers = pendingNewBrokers.filter((item) => {
+    if (searchTerm.trim() === '') return true
+    const searchLower = searchTerm.toLowerCase()
+    return (
+      item.name.toLowerCase().includes(searchLower) ||
+      item.clientNames.some((name) => name.toLowerCase().includes(searchLower)) ||
+      item.invoices.some(
+        (inv) =>
+          inv.invoice_number.toLowerCase().includes(searchLower) ||
+          (inv.load_number ?? '').toLowerCase().includes(searchLower)
+      )
     )
   })
 
@@ -268,8 +336,26 @@ export default function Brokers() {
   }
 
   const handleOpenAddModal = () => {
+    setReviewingRequestedName(null)
     setEditingBrokerId(null)
     setFormData(emptyBrokerForm())
+    setEmails([])
+    setPhones([])
+    setAutoFillEmailDomain(true)
+    setSnapshotDiffs([])
+    setShowFormModal(true)
+  }
+
+  /** Open the add form for a carrier-requested broker that is not in the directory. */
+  const handleOpenReviewNewBroker = (requestedName: string) => {
+    setReviewingRequestedName(requestedName)
+    setEditingBrokerId(null)
+    setFormData({
+      ...emptyBrokerForm(),
+      name: requestedName,
+      is_new: true,
+      payment_terms_days: 30,
+    })
     setEmails([])
     setPhones([])
     setAutoFillEmailDomain(true)
@@ -289,6 +375,7 @@ export default function Brokers() {
   const handleCloseFormModal = () => {
     setShowFormModal(false)
     setEditingBrokerId(null)
+    setReviewingRequestedName(null)
     setFormData(emptyBrokerForm())
     setEmails([])
     setPhones([])
@@ -603,11 +690,28 @@ export default function Brokers() {
         const newBroker: Broker = {
           id: `broker-${Date.now()}`,
           ...payload,
+          is_new: true,
+          payment_terms_days:
+            payload.payment_terms_days != null && Number(payload.payment_terms_days) > 0
+              ? Number(payload.payment_terms_days)
+              : 30,
         }
-        addBroker(newBroker)
+        const created = addBroker(newBroker)
+        let linked = 0
+        if (reviewingRequestedName) {
+          linked = await linkPendingInvoicesToBroker({
+            requestedName: reviewingRequestedName,
+            broker: created,
+          })
+        }
         setBrokers([...mockBrokers])
         handleCloseFormModal()
-        showToast('Broker added', 'success')
+        showToast(
+          linked > 0
+            ? `Broker added at Net ${created.payment_terms_days ?? 30} and linked to ${linked} load${linked === 1 ? '' : 's'}`
+            : 'Broker added',
+          'success'
+        )
       }
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Could not save broker', 'error')
@@ -644,12 +748,35 @@ export default function Brokers() {
   return (
     <>
       <div className="admin-brokers-page flex flex-col min-h-0 h-full overflow-hidden">
+        <div className="client-page-tabs-bar shrink-0 px-3 py-2 border-b border-slate-200">
+          <div className="page-tabs">
+            <button
+              type="button"
+              className={`page-tab ${pageTab === 'all' ? 'page-tab--active' : ''}`}
+              onClick={() => setPageTab('all')}
+            >
+              Brokers
+            </button>
+            <button
+              type="button"
+              className={`page-tab ${pageTab === 'new' ? 'page-tab--active' : ''}`}
+              onClick={() => setPageTab('new')}
+            >
+              NEW Brokers
+              {pendingNewBrokers.length > 0 ? (
+                <span className="ml-1 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800">
+                  {pendingNewBrokers.length}
+                </span>
+              ) : null}
+            </button>
+          </div>
+        </div>
         <div className="client-page-toolbar shrink-0 flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-slate-200">
           <div className="relative flex-1 min-w-0 max-w-md">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Search brokers…"
+              placeholder={pageTab === 'new' ? 'Search new brokers…' : 'Search brokers…'}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="client-input w-full pl-8 pr-3 py-1.5 text-sm"
@@ -657,21 +784,36 @@ export default function Brokers() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <p className="text-xs text-slate-500 tabular-nums">
-              {filteredBrokers.length} broker{filteredBrokers.length !== 1 ? 's' : ''}
+              {pageTab === 'new'
+                ? `${filteredPendingBrokers.length} to review`
+                : `${filteredBrokers.length} broker${filteredBrokers.length !== 1 ? 's' : ''}`}
             </p>
-            <button
-              type="button"
-              onClick={handleOpenAddModal}
-              className="dashboard-btn-primary dashboard-btn-compact inline-flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add broker
-            </button>
+            {pageTab === 'all' ? (
+              <button
+                type="button"
+                onClick={handleOpenAddModal}
+                className="dashboard-btn-primary dashboard-btn-compact inline-flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add broker
+              </button>
+            ) : null}
           </div>
         </div>
 
         <div className="client-table-scroll flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-          {filteredBrokers.length === 0 ? (
+          {pageTab === 'new' ? (
+            <AdminNewBrokersPanel
+              items={filteredPendingBrokers}
+              brokers={brokers}
+              linkingKey={linkingKey}
+              emptyBecauseSearch={searchTerm.trim() !== '' && pendingNewBrokers.length > 0}
+              onReview={handleOpenReviewNewBroker}
+              onLinkExisting={(name, brokerId) => {
+                void handleLinkExistingBroker(name, brokerId)
+              }}
+            />
+          ) : filteredBrokers.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-slate-500">
               <p className="text-sm font-medium">No brokers found</p>
               <p className="text-xs mt-1">Try adjusting your search</p>
@@ -1073,12 +1215,18 @@ export default function Brokers() {
             <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-slate-200 flex items-center justify-between gap-3 bg-slate-50/80">
               <div className="min-w-0">
                 <h2 className="text-base font-semibold text-slate-900 truncate">
-                  {editingBrokerId ? 'Edit broker' : 'Add broker'}
+                  {editingBrokerId
+                    ? 'Edit broker'
+                    : reviewingRequestedName
+                      ? 'Review new broker'
+                      : 'Add broker'}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5 truncate">
                   {editingBrokerId
                     ? 'Update contact, address, and collections preferences'
-                    : 'Enter MC and search to autofill — or fill sections manually'}
+                    : reviewingRequestedName
+                      ? 'Not in the directory yet. Standard pay terms are Net 30. Saving attaches the carrier loads that used this name.'
+                      : 'Enter MC and search to autofill — or fill sections manually. New brokers start at Net 30.'}
                 </p>
               </div>
               <button

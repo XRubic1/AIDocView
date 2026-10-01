@@ -18,6 +18,10 @@ import { upsertBlueprintRun } from './blueprintRuns'
 import { holdAdminInvoice } from '../../services/adminInvoiceActions'
 import { addAdminInvoiceNote, postInvoiceStatusNote } from '../../services/adminInvoiceNoteActions'
 import { persistInvoiceLifecycle } from '../../services/emailLifecycleService'
+import { replyFromLine } from '../../../supabase/functions/_shared/rateVerificationReply'
+import { notifyAdminBlueprintIssue } from '../../services/adminNotificationService'
+import { getClientById } from '../../services/clientRegistry'
+import { sendTransactionalEmail } from '../../services/emailService'
 import {
   confirmedTrack,
   type BrokerReplyReading,
@@ -35,13 +39,53 @@ function graphFor(status: BrokerReplyStatus): SavedBlueprint {
   return (getSavedBlueprint(standard.id) ?? standard) as SavedBlueprint
 }
 
-async function applyReading(invoice: Invoice, reading: BrokerReplyReading, blueprintName: string): Promise<string> {
+function notedSummary(reading: BrokerReplyReading, repliedBy?: string): string {
+  const who = repliedBy ? replyFromLine(repliedBy, reading.status) : ''
+  return [who, reading.summary].filter(Boolean).join(' ')
+}
+
+async function tellAdminAndCarrier(invoice: Invoice, summary: string, blueprintName: string): Promise<void> {
+  const number = invoice.invoice_number?.trim()
+  notifyAdminBlueprintIssue({
+    invoiceId: invoice.id,
+    invoiceNumber: number,
+    code: 'paperwork-issue',
+    title: 'Paperwork status needs attention',
+    message: number ? `Invoice ${number}. ${summary}` : summary,
+    blueprintName,
+    brokerName: invoice.broker_name,
+  })
+  const client = getClientById(invoice.client_id)
+  const to = client?.email?.trim()
+  if (!to) return
+  try {
+    await sendTransactionalEmail('carrier_claim_or_hold_notice', to, {
+      contactName: client?.contact_person || 'there',
+      clientName: client?.name || invoice.client_name,
+      invoiceNumber: invoice.invoice_number,
+      loadNumber: invoice.load_number || 'N/A',
+      brokerName: invoice.broker_name,
+      summary,
+      portalLink: '/client/invoices',
+    })
+  } catch (err) {
+    console.warn('[blueprint] carrier paperwork notice failed', err)
+  }
+}
+
+async function applyReading(
+  invoice: Invoice,
+  reading: BrokerReplyReading,
+  blueprintName: string,
+  repliedBy?: string
+): Promise<string> {
   const life: InvoiceEmailLifecycle = {
     paperwork_status: 'unknown',
     ...(invoice.email_lifecycle ?? {}),
     last_reply_status: reading.status,
   }
-  const note = `${reading.summary} ${blueprintName}`
+  const summary = notedSummary(reading, repliedBy)
+  const note = `${summary} ${blueprintName}`
 
   if (reading.status === 'confirmed' && confirmedTrack(reading) === 'paperwork') {
     life.paperwork_status = 'good'
@@ -50,7 +94,7 @@ async function applyReading(invoice: Invoice, reading: BrokerReplyReading, bluep
     postInvoiceStatusNote(invoice.id, {
       kind: 'ppw_confirmed',
       authorName: 'Credyx',
-      extraNote: reading.summary,
+      extraNote: summary,
     })
     return 'Paperwork confirmed'
   }
@@ -63,14 +107,14 @@ async function applyReading(invoice: Invoice, reading: BrokerReplyReading, bluep
         kind: 'will_pay',
         authorName: 'Credyx',
         collectionDate: reading.payDate,
-        extraNote: reading.summary,
+        extraNote: summary,
       })
       return `Will pay ${reading.payDate}`
     }
     postInvoiceStatusNote(invoice.id, {
       kind: 'payment_confirmed',
       authorName: 'Credyx',
-      extraNote: reading.summary,
+      extraNote: summary,
     })
     return 'Payment confirmed'
   }
@@ -79,7 +123,20 @@ async function applyReading(invoice: Invoice, reading: BrokerReplyReading, bluep
     life.paperwork_status = 'issue'
     life.paperwork = { ...(life.paperwork ?? {}), lastInboundAt: new Date().toISOString() }
     await persistInvoiceLifecycle(invoice.id, life)
-    holdAdminInvoice(invoice.id, reading.summary, 'Credyx')
+    holdAdminInvoice(invoice.id, summary, 'Credyx')
+    if (reading.outboundKind === 'paperwork' || reading.classification === 'missing_docs') {
+      await tellAdminAndCarrier(invoice, summary, blueprintName)
+    } else {
+      notifyAdminBlueprintIssue({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        code: 'paperwork-issue',
+        title: 'Broker reply needs attention',
+        message: summary,
+        blueprintName,
+        brokerName: invoice.broker_name,
+      })
+    }
     return 'Broker rejected'
   }
 
@@ -90,7 +147,8 @@ async function applyReading(invoice: Invoice, reading: BrokerReplyReading, bluep
 
 export async function runBrokerReplyBlueprint(
   invoice: Invoice,
-  reading: BrokerReplyReading
+  reading: BrokerReplyReading,
+  repliedBy?: string
 ): Promise<{ ok: boolean; detail: string }> {
   const bp = graphFor(reading.status)
   const existing: InvoiceEmailLifecycle = {
@@ -106,13 +164,13 @@ export async function runBrokerReplyBlueprint(
     if (node.data.kind !== 'action') continue
     for (const actionId of getActionIds(node.data)) {
       if (actionId === 'apply_broker_reply') {
-        details.push(await applyReading(invoice, reading, bp.name))
+        details.push(await applyReading(invoice, reading, bp.name, repliedBy))
         continue
       }
       if (actionId === 'add_note' && paperworkConfirmed) {
         const cfg = node.data.actionConfigs?.[actionId]
         const body = cfg?.message?.trim() || BROKER_CONFIRMED_NOTE
-        addAdminInvoiceNote(invoice.id, `${body}\n\n(Blueprint: ${bp.name})`, 'Credyx', {
+        addAdminInvoiceNote(invoice.id, body, 'Credyx', {
           visibility: 'internal',
         })
         noted = true
@@ -131,10 +189,21 @@ export async function runBrokerReplyBlueprint(
     }
   }
   if (!details.length) {
-    details.push(await applyReading(invoice, reading, bp.name))
+    details.push(await applyReading(invoice, reading, bp.name, repliedBy))
+  }
+  if (reading.status === 'unknown') {
+    notifyAdminBlueprintIssue({
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoice_number,
+      code: 'reply-unclear',
+      title: 'Broker reply could not be read',
+      message: notedSummary(reading, repliedBy),
+      blueprintName: bp.name,
+      brokerName: invoice.broker_name,
+    })
   }
   if (paperworkConfirmed && !noted) {
-    addAdminInvoiceNote(invoice.id, `${BROKER_CONFIRMED_NOTE}\n\n(Blueprint: ${bp.name})`, 'Credyx', {
+    addAdminInvoiceNote(invoice.id, BROKER_CONFIRMED_NOTE, 'Credyx', {
       visibility: 'internal',
     })
     details.push('Confirmed note')

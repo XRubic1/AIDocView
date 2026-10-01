@@ -33,7 +33,6 @@ import {
   ClientAttention,
   ClientBatches,
   ClientBrokers,
-  ClientMcLookup,
   ClientCollections,
   ClientCollectionsQueue,
   ClientDashboardV2,
@@ -150,7 +149,7 @@ function App() {
                   element={withRouteSuspense(ClientCollectionsQueue)}
                 />
                 <Route path="/client/brokers" element={withRouteSuspense(ClientBrokers)} />
-                <Route path="/mclookup" element={withRouteSuspense(ClientMcLookup, 'Loading MC lookup…')} />
+                <Route path="/mclookup" element={<Navigate to="/client/brokers?tab=mc-check" replace />} />
                 <Route path="/client/assistant" element={withRouteSuspense(ClientAssistant)} />
                 <Route path="/client/reports" element={withRouteSuspense(ClientReports)} />
                 <Route path="/client/documents" element={withRouteSuspense(ClientDocuments)} />

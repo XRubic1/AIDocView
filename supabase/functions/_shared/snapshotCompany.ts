@@ -32,7 +32,21 @@ function looksLikeCompany(record: Record<string, unknown>): boolean {
   return hasName && hasId
 }
 
-const COMPANY_LIST_KEYS = ['Data', 'data', 'Company', 'company', 'Result', 'result', 'results', 'items']
+const COMPANY_LIST_KEYS = [
+  'Data',
+  'data',
+  'Companies',
+  'companies',
+  'Company',
+  'company',
+  'Result',
+  'result',
+  'results',
+  'items',
+  'Items',
+  'Value',
+  'value',
+]
 
 function collectCompanyRecords(value: unknown, out: Record<string, unknown>[]) {
   if (Array.isArray(value)) {
@@ -60,6 +74,12 @@ function collectCompanyRecords(value: unknown, out: Record<string, unknown>[]) {
 export function extractCompanyRecords(body: unknown): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = []
   collectCompanyRecords(body, records)
+  if (records.length) return records
+  const root = asRecord(body)
+  if (!root) return records
+  for (const value of Object.values(root)) {
+    if (Array.isArray(value)) collectCompanyRecords(value, records)
+  }
   return records
 }
 
@@ -151,17 +171,35 @@ function insurerName(row: Record<string, unknown>): string | null {
   return typeof nested === 'string' && nested.trim() ? nested.trim() : null
 }
 
-function isActiveMotusStatus(value: unknown): boolean {
-  const numeric = Number(value)
-  if (numeric === 1) return true
+function isBrokerEntity(value: unknown): boolean {
   const text = String(value ?? '').trim().toLowerCase()
+  return text === 'b' || /\bbroker\b/.test(text) || /\(b\)/.test(text)
+}
+
+/** v3 enums arrive as a code, or as { Status: 1 } / { Type: 8 } when a text field is included. */
+function enumCode(value: unknown): unknown {
+  const record = asRecord(value)
+  if (!record) return value
+  for (const key of ['Status', 'status', 'Type', 'type', 'Code', 'code', 'Value', 'value']) {
+    const child = record[key]
+    if (typeof child === 'number' || (typeof child === 'string' && child.trim())) return child
+  }
+  return value
+}
+
+function isActiveMotusStatus(value: unknown): boolean {
+  const code = enumCode(value)
+  const numeric = Number(code)
+  if (numeric === 1) return true
+  const text = String(code ?? '').trim().toLowerCase()
   return text === 'active' || text === 'authorized' || text === 'a'
 }
 
 function isEndedMotusStatus(value: unknown): boolean {
-  const numeric = Number(value)
+  const code = enumCode(value)
+  const numeric = Number(code)
   if (numeric === 2 || numeric === 3 || numeric === 4) return true
-  const text = String(value ?? '').trim().toLowerCase()
+  const text = String(code ?? '').trim().toLowerCase()
   return text === 'inactive' || text === 'cancelled' || text === 'canceled' || text === 'revoked' || text === 'rejected'
 }
 function isInsuranceForm(value: unknown): boolean {
@@ -253,15 +291,10 @@ export function collectInsuranceRows(record: Record<string, unknown>): Record<st
     }
     const filer = asRecord(policy.Filer) ?? asRecord(policy.filer)
     const filerName = filer ? textValue(field(filer, ['Name', 'LegalName'])) : null
-    const company =
-      filerName ??
-      (typeof policy.company_name === 'string' && policy.company_name.trim() ? policy.company_name.trim() : null)
+    const company = filerName ?? insurerName(policy)
     const policyNumber = policy.PolicyNumber ?? policy.policy_number ?? policy.policyNumber
     const form = policy.Form ?? policy.form ?? policy.form_code
     const limit = money(policy.MaxCovAmount ?? policy.maxCovAmount ?? policy.bi_pd_maximum_limit)
-    const coverageType = Number(policy.Type)
-    const formNumber = Number(form)
-    const surety = coverageType === 3 || coverageType === 4 || formNumber === 7 || formNumber === 8
     if (!company && policyNumber == null && limit == null) return null
     const phone = contactValue(filer?.Phones ?? filer?.Phone ?? policy.Phone ?? policy.phone, [
       'Number',
@@ -269,14 +302,12 @@ export function collectInsuranceRows(record: Record<string, unknown>): Record<st
       'phone',
       'Value',
     ])
-    const email = contactValue(filer?.Emails ?? filer?.Email ?? policy.Email ?? policy.email, [
-      'Address',
-      'Email',
-      'email',
-      'Value',
-    ])
+    const email = contactValue(
+      filer?.Emails ?? filer?.Email ?? filer?.EmailAddress ?? policy.Email ?? policy.EmailAddress ?? policy.email,
+      ['Address', 'Email', 'EmailAddress', 'email', 'Value']
+    )
     return {
-      company_name: company ?? (surety ? 'Surety bond' : 'Insurer'),
+      company_name: company,
       policy_number: policyNumber != null ? String(policyNumber) : null,
       effective_date: policy.EffectiveDate ?? policy.effective_date ?? null,
       bi_pd_maximum_limit: limit,
@@ -309,24 +340,38 @@ export function collectInsuranceRows(record: Record<string, unknown>): Record<st
     }
   }
 
-  if (!rows.length && Array.isArray(record.Auths)) {
-    for (const item of record.Auths) {
-      const auth = asRecord(item)
-      if (!auth || !isActiveMotusStatus(auth.Status)) continue
-      const type = Number(auth.Type)
-      const brokerAuth = type === 8 || type === 9 || type === 10 || type === 11
-      if (!brokerAuth) continue
-      const amount = money(auth.BondFileAmount)
-      if (auth.BondReq !== true && auth.BondFiled !== true && !(amount != null && amount > 0)) continue
-      push({
-        company_name: 'Surety bond',
-        policy_number: null,
-        bi_pd_maximum_limit: amount,
-        form_code: 7,
-      })
-      break
+  for (const listName of ['Insurances', 'insurances', 'Insurance', 'ActiveInsurance', 'Bonds']) {
+    const list = record[listName]
+    if (!Array.isArray(list)) continue
+    for (const raw of list) {
+      const policy = asRecord(raw)
+      if (!policy) continue
+      push(readPolicy(policy) ?? insuranceRow(policy, listName))
     }
   }
+
+  const seenPolicies = new Set<Record<string, unknown>>()
+  const walk = (value: unknown, depth: number) => {
+    if (depth > 8 || value == null) return
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, depth + 1)
+      return
+    }
+    const policy = asRecord(value)
+    if (!policy || seenPolicies.has(policy)) return
+    seenPolicies.add(policy)
+    const looksLikeFiling =
+      policy.PolicyNumber != null ||
+      policy.policyNumber != null ||
+      policy.policy_number != null ||
+      policy.Form != null ||
+      policy.form != null ||
+      policy.MaxCovAmount != null
+    if (looksLikeFiling) push(readPolicy(policy) ?? insuranceRow(policy, 'filing'))
+    for (const child of Object.values(policy)) walk(child, depth + 1)
+  }
+  walk(record, 0)
+
   return rows
 }
 
@@ -338,32 +383,37 @@ function readMotusAuths(record: Record<string, unknown>): {
   docket?: string
 } {
   const auths = record.Auths ?? record.auths
-  if (!Array.isArray(auths)) return {}
   let broker: string | undefined
   let common: string | undefined
   let contract: string | undefined
   let docket: string | undefined
   const label = (active: boolean) => (active ? 'Active' : undefined)
-  for (const item of auths) {
+  if (Array.isArray(auths)) for (const item of auths) {
     const auth = asRecord(item)
     if (!auth) continue
     const active = isActiveMotusStatus(auth.Status)
-    const type = Number(auth.Type)
+    const typeCode = enumCode(auth.Type)
+    const type = Number(typeCode)
+    const typeText = String(typeCode ?? '')
+    const brokerAuth = type === 8 || type === 9 || /\bbroker\b/i.test(typeText)
     // 1 property carrier, 8 broker of property, 9 broker of household goods.
-    if ((type === 8 || type === 9) && active) broker = label(true)
+    if (brokerAuth && active) broker = label(true)
     if ((type === 1 || type === 2 || type === 6) && active) common = label(true)
-    if (!docket) {
-      const number = field(auth, ['DocketNumber', 'docketNumber'])
-      if (number != null) docket = String(number)
-    }
+    const number = field(auth, ['DocketNumber', 'docketNumber'])
+    if (number != null && (brokerAuth || !docket)) docket = String(number)
   }
   const censusList = record.CensusAuths ?? record.censusAuths
   if (Array.isArray(censusList)) {
     const censusLabel = (value: unknown): string | undefined => {
-      const code = Number(value)
-      if (code === 2) return 'Active'
-      if (code === 3) return 'Inactive'
-      if (code === 1) return 'None'
+      const code = enumCode(value)
+      const numeric = Number(code)
+      if (numeric === 2) return 'Active'
+      if (numeric === 3) return 'Inactive'
+      if (numeric === 1) return 'None'
+      const text = String(code ?? '').trim().toLowerCase()
+      if (text === 'a' || text === 'active') return 'Active'
+      if (text === 'i' || text === 'inactive') return 'Inactive'
+      if (text === 'n' || text === 'none') return 'None'
       return undefined
     }
     for (const item of censusList) {
@@ -372,6 +422,10 @@ function readMotusAuths(record: Record<string, unknown>): {
       broker = broker ?? censusLabel(row.Broker ?? row.broker)
       common = common ?? censusLabel(row.Common ?? row.common)
       contract = contract ?? censusLabel(row.Contract ?? row.contract)
+      if (!docket) {
+        const number = field(row, ['DocketNumber', 'docketNumber'])
+        if (number != null) docket = String(number)
+      }
     }
   }
   const operatingStatus = broker === 'Active'
@@ -433,7 +487,7 @@ export function normalizeSnapshotCompany(record: Record<string, unknown>): Recor
     field(general, ['dot_number', 'dotNumber', 'dot'])
   const entity =
     textValue(field(general, ['carship', 'entity_type', 'entityType'])) ??
-    textValue(field(record, ['entityType', 'entity_type', 'carship']))
+    textValue(field(record, ['entityType', 'entity_type', 'carship', 'type', 'Type']))
   if (entity != null) general.carship = entity
 
   const statusRaw =
@@ -457,6 +511,7 @@ export function normalizeSnapshotCompany(record: Record<string, unknown>): Recor
     field(record, ['contract_stat', 'contractAuthority', 'contract_authority']) ??
     motus.contract
   if (broker != null) authority.broker_stat = broker
+  else if (isBrokerEntity(entity) && isActiveMotusStatus(general.status_code)) authority.broker_stat = 'Active'
   if (common != null) authority.common_stat = common
   if (contract != null) authority.contract_stat = contract
 
@@ -472,6 +527,13 @@ export function normalizeSnapshotCompany(record: Record<string, unknown>): Recor
     textValue(field(record, ['docket_number', 'docketNumber', 'docket', 'mc_number', 'mcNumber'])) ??
     motus.docket
   if (docket != null) authority.docket_number = docket
+  if (
+    authority.broker_stat == null &&
+    isBrokerEntity(docket) &&
+    isActiveMotusStatus(general.status_code)
+  ) {
+    authority.broker_stat = 'Active'
+  }
   const prefix = field(authority, ['prefix']) ?? field(record, ['prefix'])
   if (prefix != null) authority.prefix = prefix
 

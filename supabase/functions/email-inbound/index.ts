@@ -10,7 +10,7 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { beginPaymentChaseAfterConfirm } from '../_shared/blueprintEngine.ts'
-import { readRateVerificationReply } from '../_shared/rateVerificationReply.ts'
+import { readRateVerificationReply, replyFromLine, senderLabel } from '../_shared/rateVerificationReply.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,7 +42,7 @@ function readReply(subject: string, body: string, kind: 'paperwork' | 'payment' 
       text
     )
   const confirmed =
-    /good\s+to\s+go|\bg2g\b|all\s+set|looks\s+good|paperwork\s+(is\s+)?(good|ok|okay|complete|received)|will\s+pay|check\s+(was\s+)?mailed|ach\s+(sent|processed)/i.test(
+    /good\s+to\s+go|\bg2g\b|all\s+set|looks\s+good|no\s+issues|rate\s+is\s+confirmed|paperwork\s+(is\s+)?(good|ok|okay|complete|received)|will\s+pay|check\s+(was\s+)?mailed|ach\s+(sent|processed)/i.test(
       text
     ) || /^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s*$/.test(body.trim())
   const dateInReply = /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(text)
@@ -244,6 +244,126 @@ function mergeFetchedEmail(
   return { from, to, subject, bodyText, messageId }
 }
 
+type InboundInvoice = {
+  id: string
+  broker_id: string | null
+  client_id: string
+  invoice_number: string
+  load_number: string | null
+  client_name?: string | null
+  broker_name?: string | null
+  email_lifecycle: Record<string, unknown> | null
+  status?: string | null
+  notes?: string | null
+  notes_history?: unknown
+}
+
+async function appendInvoiceNote(
+  admin: ReturnType<typeof createClient>,
+  invoice: InboundInvoice,
+  note: string,
+  visibility: 'client' | 'internal'
+): Promise<void> {
+  const history = Array.isArray(invoice.notes_history) ? [...invoice.notes_history] : []
+  const trimmed = note.trim()
+  if (
+    history.some(
+      (row) =>
+        row &&
+        typeof row === 'object' &&
+        String((row as { note?: string }).note ?? '').trim() === trimmed
+    )
+  ) {
+    return
+  }
+  const now = new Date().toISOString()
+  history.push({
+    id: `note-${crypto.randomUUID()}`,
+    note,
+    created_by: 'Credyx',
+    created_at: now,
+    type: 'note',
+    visibility,
+  })
+  await admin.from('invoices').update({ notes_history: history, updated_at: now }).eq('id', invoice.id)
+  invoice.notes_history = history
+}
+
+async function alertAdminReply(
+  admin: ReturnType<typeof createClient>,
+  invoice: InboundInvoice,
+  code: 'paperwork-issue' | 'reply-unclear',
+  title: string,
+  message: string
+): Promise<void> {
+  const number = String(invoice.invoice_number ?? '').trim()
+  await admin.from('admin_notifications').upsert(
+    {
+      id: `bp-issue-${invoice.id}-${code}`,
+      type: 'system_alert',
+      title,
+      message: number ? `Invoice ${number}. ${message}` : message,
+      timestamp: new Date().toISOString(),
+      read: false,
+      link: `/invoices?invoice=${encodeURIComponent(invoice.id)}`,
+      link_label: 'Open invoice',
+      metadata: {
+        invoice_id: invoice.id,
+        invoice_number: number || null,
+        broker_name: invoice.broker_name ?? null,
+        source: 'inbox',
+        issue: code,
+      },
+    },
+    { onConflict: 'id', ignoreDuplicates: true }
+  )
+}
+
+async function emailCarrierAboutReply(
+  admin: ReturnType<typeof createClient>,
+  invoice: InboundInvoice,
+  summary: string
+): Promise<void> {
+  const resendKey = Deno.env.get('RESEND_API_KEY')?.trim()
+  if (!resendKey || !invoice.client_id) return
+  const { data: client } = await admin
+    .from('clients')
+    .select('email, name, contact_person')
+    .eq('id', invoice.client_id)
+    .maybeSingle()
+  const to = String(client?.email ?? '').trim()
+  if (!to) return
+  const { data: row } = await admin
+    .from('email_templates')
+    .select('subject, body_html')
+    .eq('id', 'carrier_claim_or_hold_notice')
+    .maybeSingle()
+  const data: Record<string, string> = {
+    contactName: String(client?.contact_person ?? 'there'),
+    clientName: String(client?.name ?? invoice.client_name ?? ''),
+    invoiceNumber: String(invoice.invoice_number ?? ''),
+    loadNumber: String(invoice.load_number ?? 'N/A'),
+    brokerName: String(invoice.broker_name ?? ''),
+    summary,
+    portalLink: '/client/invoices',
+  }
+  let subject = String(row?.subject ?? 'Update — invoice {{invoiceNumber}}')
+  let html = String(row?.body_html ?? '<p>{{summary}}</p>')
+  for (const [key, value] of Object.entries(data)) {
+    subject = subject.replaceAll(`{{${key}}}`, value)
+    html = html.replaceAll(`{{${key}}}`, value)
+  }
+  const from =
+    Deno.env.get('RESEND_FROM_EMAIL') ||
+    Deno.env.get('RESEND_FROM_BROKER') ||
+    'Credyx <billing@credyx.net>'
+  await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to: [to], subject, html }),
+  })
+}
+
 function isLocalSupabaseUrl(url: string): boolean {
   return /localhost|127\.0\.0\.1/i.test(url)
 }
@@ -296,22 +416,14 @@ Deno.serve(async (req) => {
     const invMatch =
       hay.match(/\bINV[- ]?([A-Za-z0-9][\w-]*)\b/i) ||
       hay.match(/\binv(?:oice)?[#:\s-]+([A-Za-z0-9][\w-]*)\b/i)
-    let invoice: {
-      id: string
-      broker_id: string | null
-      client_id: string
-      invoice_number: string
-      load_number: string | null
-      email_lifecycle: Record<string, unknown> | null
-      status?: string | null
-      notes?: string | null
-      notes_history?: unknown
-    } | null = null
+    let invoice: InboundInvoice | null = null
     if (invMatch) {
       const token = invMatch[1]
       const { data: row } = await admin
         .from('invoices')
-        .select('id, broker_id, client_id, invoice_number, load_number, email_lifecycle, status, notes, notes_history')
+        .select(
+          'id, broker_id, client_id, invoice_number, load_number, client_name, broker_name, email_lifecycle, status, notes, notes_history'
+        )
         .ilike('invoice_number', `%${token}%`)
         .limit(1)
         .maybeSingle()
@@ -392,8 +504,8 @@ Deno.serve(async (req) => {
         String(outbound?.body_text ?? '')
       )
       if (kind === 'rate_verification') {
-        const rate = readRateVerificationReply(subject, bodyText)
-        const note = `${rate.summary}\n\n(Blueprint: Rate verification)`
+        const rate = readRateVerificationReply(subject, bodyText, senderLabel(from))
+        const note = rate.summary
         const history = Array.isArray(invoice.notes_history) ? [...invoice.notes_history] : []
         history.push({
           id: `note-${crypto.randomUUID()}`,
@@ -401,7 +513,7 @@ Deno.serve(async (req) => {
           created_by: 'Credyx',
           created_at: now,
           type: rate.outcome === 'hold' ? 'hold_reason' : 'note',
-          visibility: 'internal',
+          visibility: rate.outcome === 'ok' ? 'internal' : 'client',
         })
         const patch: Record<string, unknown> = {
           notes_history: history,
@@ -410,6 +522,7 @@ Deno.serve(async (req) => {
           email_lifecycle: {
             ...((invoice.email_lifecycle ?? {}) as Record<string, unknown>),
             last_reply_status: rate.outcome === 'ok' ? 'confirmed' : rate.outcome === 'hold' ? 'rejected' : 'unknown',
+            ...(rate.outcome === 'ok' ? { paperwork_status: 'good' } : {}),
           },
         }
         const open = !invoice.status || ['pending', 'review', 'approved', 'hold'].includes(invoice.status)
@@ -423,6 +536,13 @@ Deno.serve(async (req) => {
           patch.hold_reason = rate.summary
         }
         await admin.from('invoices').update(patch).eq('id', invoice.id)
+        invoice.notes_history = history
+        if (rate.outcome === 'hold') {
+          await alertAdminReply(admin, invoice, 'paperwork-issue', 'Rate check needs attention', rate.summary)
+          await emailCarrierAboutReply(admin, invoice, rate.summary)
+        } else if (rate.outcome === 'unknown') {
+          await alertAdminReply(admin, invoice, 'reply-unclear', 'Rate check could not be read', rate.summary)
+        }
         const { error: runErr } = await admin.from('blueprint_runs').insert({
           id: `run-rate-${invoice.id}-${Date.now()}`,
           subject: 'invoice',
@@ -439,6 +559,13 @@ Deno.serve(async (req) => {
           updated_at: now,
         })
         if (runErr) console.warn('[email-inbound] rate verification run', runErr.message)
+        if (rate.outcome === 'ok') {
+          try {
+            await beginPaymentChaseAfterConfirm(admin, String(invoice.id))
+          } catch (err) {
+            console.error('[email-inbound] payment chase after rate confirm', err)
+          }
+        }
         classified = {
           status: rate.outcome === 'ok' ? 'confirmed' : rate.outcome === 'hold' ? 'rejected' : 'unknown',
           kind,
@@ -477,6 +604,50 @@ Deno.serve(async (req) => {
         invoicePatch.hold_reason = reading.summary
       }
       await admin.from('invoices').update(invoicePatch).eq('id', invoice.id)
+      const who = replyFromLine(
+        from,
+        reading.status === 'confirmed' ? 'confirmed' : reading.status === 'rejected' ? 'rejected' : 'unknown'
+      )
+      const replyNote = [who, reading.summary].filter(Boolean).join(' ')
+      const topic = kind === 'payment' ? 'Payment status' : 'Paperwork status'
+      if (reading.status === 'confirmed' && reading.classification === 'paperwork_ok') {
+        await appendInvoiceNote(
+          admin,
+          invoice,
+          `Paperwork status is good. ${replyNote}`,
+          'client'
+        )
+      } else if (reading.status === 'confirmed') {
+        await appendInvoiceNote(
+          admin,
+          invoice,
+          `${topic}: ${replyNote}`,
+          'client'
+        )
+      } else if (reading.status === 'rejected') {
+        await appendInvoiceNote(
+          admin,
+          invoice,
+          `${topic} needs attention. ${replyNote}`,
+          'client'
+        )
+        await alertAdminReply(
+          admin,
+          invoice,
+          'paperwork-issue',
+          kind === 'payment' ? 'Payment status needs attention' : 'Paperwork status needs attention',
+          replyNote
+        )
+        await emailCarrierAboutReply(admin, invoice, replyNote)
+      } else {
+        await appendInvoiceNote(
+          admin,
+          invoice,
+          `Broker reply could not be read. ${replyNote}`,
+          'internal'
+        )
+        await alertAdminReply(admin, invoice, 'reply-unclear', 'Broker reply could not be read', replyNote)
+      }
       const paperworkConfirmed = reading.status === 'confirmed' && reading.classification === 'paperwork_ok'
       if (paperworkConfirmed) {
         try {

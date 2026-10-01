@@ -14,6 +14,7 @@ import {
   ListTodo,
   Pencil,
   LayoutList,
+  Workflow,
 } from 'lucide-react'
 import type { Edge } from '@xyflow/react'
 import BlueprintActivityPanel from '../components/blueprints/BlueprintActivityPanel'
@@ -22,6 +23,7 @@ import BlueprintCanvas from '../components/blueprints/BlueprintCanvas'
 import BlueprintRunLog from '../components/blueprints/BlueprintRunLog'
 import { BlueprintRevealMissingContext } from '../components/blueprints/blueprintSetupUi'
 import BlueprintSavedCardsPanel from '../components/blueprints/BlueprintSavedCardsPanel'
+import BlueprintHandoffGrid from '../components/blueprints/BlueprintHandoffGrid'
 import type { SavedBlueprintCard } from '../components/blueprints/blueprintCardLibrary'
 import {
   deleteSavedBlueprint,
@@ -48,7 +50,7 @@ import { saveBlueprintsRunnerEnabled } from '../services/platformSettingsService
 import { syncAllOpenInvoiceBlueprints } from '../components/blueprints/blueprintRunner'
 import '../styles/adminBlueprints.css'
 
-type BlueprintsPageTab = 'editor' | 'library' | 'activity'
+type BlueprintsPageTab = 'editor' | 'map' | 'library' | 'activity'
 
 function resolveInitial() {
   const list = listSavedBlueprints()
@@ -298,8 +300,10 @@ export default function AdminBlueprints() {
             <p>
               {pageTab === 'editor'
                 ? 'Chain small steps: Wait until → Then do → When. One action per card.'
+                : pageTab === 'map'
+                  ? 'Connect blueprints. When one finishes, the next one on the line starts.'
                 : pageTab === 'library'
-                  ? 'All saved blueprints and their priority — higher wins when several match.'
+                  ? 'All saved blueprints and their priority — higher wins when several match the same event.'
                   : 'See which invoices and brokers are waiting, active, or finished on a blueprint.'}
             </p>
           </div>
@@ -423,6 +427,16 @@ export default function AdminBlueprints() {
         <button
           type="button"
           role="tab"
+          aria-selected={pageTab === 'map'}
+          className={`admin-blueprints__tab${pageTab === 'map' ? ' admin-blueprints__tab--on' : ''}`}
+          onClick={() => setPageTab('map')}
+        >
+          <Workflow size={14} aria-hidden />
+          Main grid
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={pageTab === 'library'}
           className={`admin-blueprints__tab${pageTab === 'library' ? ' admin-blueprints__tab--on' : ''}`}
           onClick={() => setPageTab('library')}
@@ -507,6 +521,8 @@ export default function AdminBlueprints() {
               onInsert={(card) => setPendingInsertCard(card)}
             />
           </>
+        ) : pageTab === 'map' ? (
+          <BlueprintHandoffGrid />
         ) : pageTab === 'library' ? (
           <BlueprintLibraryPanel
             onOpen={(id) => {

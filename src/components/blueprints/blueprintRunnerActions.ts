@@ -9,7 +9,11 @@ import {
 import { getBrokerById, updateBroker } from '../../data/mockBrokers'
 import { getInvoiceById, updateInvoice } from '../../data/mockInvoices'
 import { getClientById } from '../../services/clientRegistry'
-import { notifyAdminBlueprintAlert } from '../../services/adminNotificationService'
+import {
+  notifyAdminBlueprintAlert,
+  notifyAdminBlueprintIssue,
+  resolveAdminBlueprintIssue,
+} from '../../services/adminNotificationService'
 import { applyBlueprintBrokerRiskMark } from '../../services/blueprintBrokerRiskActions'
 import { sendTransactionalEmail } from '../../services/emailService'
 import { isEmailLifecycleRuleEnabled } from '../../config/emailLifecycle'
@@ -93,6 +97,66 @@ function fillBlueprintMessage(message: string, invoiceId: string, sentTo?: strin
     invoiceNumber: invoice?.invoice_number || '',
     loadNumber: invoice?.load_number || '',
   })
+}
+
+const BROKER_EMAIL_ACTIONS = new Set([
+  'email_broker_packet',
+  'email_followup',
+  'email_payment_status',
+])
+
+/** True when this Then-do card emails the broker (packet or chase). */
+export function cardSendsToBroker(actionIds: string[]): boolean {
+  return actionIds.some((id) => BROKER_EMAIL_ACTIONS.has(id))
+}
+
+/**
+ * Why a broker send cannot go out. Null when an email is on file.
+ * Distinguishes “not in the directory” from “on file, but no email”.
+ */
+export function missingBrokerEmailReason(invoice: Invoice): string | null {
+  const name = invoice.broker_name?.trim()
+  if (!invoice.broker_id?.trim()) {
+    return name
+      ? `${name} is not in the Credyx directory, so there is no email to send to. Add the broker, then this step will try again.`
+      : 'This invoice has no broker, so there is no email to send to.'
+  }
+  const broker = getBrokerById(invoice.broker_id)
+  if (!broker) {
+    return `${name || 'This broker'} is not in the Credyx directory, so there is no email to send to. Add the broker, then this step will try again.`
+  }
+  const to = resolveBrokerChaseEmail(broker) || resolveBrokerPaperworkEmail(broker)
+  if (to) return null
+  return `No broker email on file for ${broker.name}. Add an accounting or paperwork email. This step tries again in one hour.`
+}
+
+/** One internal note plus a failed-send row. Same text is not saved twice. */
+export function noteMissingBrokerEmail(
+  invoice: Invoice,
+  blueprintName: string,
+  authorName = 'Credyx Blueprint'
+): string | null {
+  const reason = missingBrokerEmailReason(invoice)
+  if (!reason) {
+    resolveAdminBlueprintIssue(invoice.id, 'no-broker-email')
+    return null
+  }
+  addAdminInvoiceNote(invoice.id, withBlueprintTag(reason, blueprintName), authorName, {
+    visibility: 'internal',
+  })
+  recordFailedPacketSend(invoice, authorName, reason)
+  updateInvoice(invoice.id, { collections_needs_attention: true })
+  const number = invoice.invoice_number?.trim()
+  notifyAdminBlueprintIssue({
+    invoiceId: invoice.id,
+    invoiceNumber: number,
+    code: 'no-broker-email',
+    title: 'Blueprint needs a broker email',
+    message: number ? `Invoice ${number}. ${reason}` : reason,
+    blueprintName,
+    brokerName: invoice.broker_name,
+  })
+  return reason
 }
 
 function recordFailedPacketSend(invoice: Invoice, sentBy: string, reason: string): void {
@@ -252,11 +316,6 @@ async function executeBrokerPacketThenDo(input: {
   })
 
   if (result.success) {
-    if (noteMessage) {
-      addAdminInvoiceNote(invoice.id, withBlueprintTag(noteMessage, input.blueprintName), input.authorName, {
-        visibility: 'internal',
-      })
-    }
     try {
       const { onInvoicePpwSent } = await import('./blueprintRunner')
       onInvoicePpwSent(invoice.id)
@@ -362,14 +421,6 @@ async function executeChaseEmailThenDo(input: {
       fromEmails: input.config.fromEmails,
       extraCc: input.extraCc,
     })
-    if (result.ok && noteMessage) {
-      addAdminInvoiceNote(
-        invoice.id,
-        withBlueprintTag(noteMessage, input.blueprintName),
-        input.authorName,
-        { visibility: 'internal' }
-      )
-    }
     return result
   }
 
@@ -395,6 +446,8 @@ async function executeNotifyCarrierThenDo(input: {
   label: string
   toOverride?: string
   extraCc?: string[]
+  /** Same Then-do card already has Add a note. */
+  skipPortalNote?: boolean
 }): Promise<BlueprintActionResult> {
   const invoice = getInvoiceById(input.invoiceId)
   if (!invoice) {
@@ -424,7 +477,19 @@ async function executeNotifyCarrierThenDo(input: {
       if (!to) {
         ok = false
         parts.push('email failed — no client email on file')
+        const number = invoice.invoice_number?.trim()
+        const reason = `No carrier email on file for ${invoice.client_name || 'this carrier'}. Add an email, then this step tries again.`
+        notifyAdminBlueprintIssue({
+          invoiceId: invoice.id,
+          invoiceNumber: number,
+          code: 'no-carrier-email',
+          title: 'Blueprint needs a carrier email',
+          message: number ? `Invoice ${number}. ${reason}` : reason,
+          blueprintName: input.blueprintName,
+          brokerName: invoice.broker_name,
+        })
       } else {
+        resolveAdminBlueprintIssue(invoice.id, 'no-carrier-email')
         const templateId = customTemplate || 'carrier_claim_or_hold_notice'
         const extraCc = input.extraCc ?? []
         const summary = fillBlueprintMessage(
@@ -474,7 +539,7 @@ async function executeNotifyCarrierThenDo(input: {
     }
   }
 
-  if (wantsApp) {
+  if (wantsApp && !input.skipPortalNote) {
     const body = withBlueprintTag(
       fillBlueprintMessage(
         input.config.message?.trim() || 'Update from Credyx on your invoice.',
@@ -513,6 +578,8 @@ export async function executeBlueprintThenDo(input: {
   skipIfAlreadySent?: boolean
   /** Staff override. First address is To; the rest are copied. */
   toEmails?: string[]
+  /** Same Then-do card already posts Add a note. */
+  skipPortalNote?: boolean
 }): Promise<BlueprintActionResult> {
   const author = input.authorName?.trim() || 'Credyx Blueprint'
   const cfg = input.config ?? defaultTaskConfig(input.actionId)
@@ -559,6 +626,7 @@ export async function executeBlueprintThenDo(input: {
       label,
       toOverride,
       extraCc,
+      skipPortalNote: input.skipPortalNote,
     })
   }
 

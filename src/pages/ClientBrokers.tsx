@@ -30,8 +30,8 @@ import {
   normalizeMcQuery,
 } from '../utils/clientBrokers'
 import { BROKER_RISK_POLICY, normalizeBrokerNameKey } from '../utils/brokerRiskPolicy'
-import McLookupModal from '../components/client/McLookupModal'
 import McLookupReviewLog from '../components/client/McLookupReviewLog'
+import ClientMcLookup from './ClientMcLookup'
 import {
   getInitialListPageSize,
   PAGE_SIZE_OPTIONS,
@@ -307,13 +307,11 @@ export default function ClientBrokers() {
         </div>
 
         {pageTab === 'mc-check' && (
-          <McLookupModal
+          <ClientMcLookup
             key={mcPrefill || 'mc-check'}
-            variant="page"
-            open
             initialMc={mcPrefill}
             autoLookup={Boolean(mcPrefill)}
-            onOpenLogs={() => setPageTab('mc-logs')}
+            embedded
           />
         )}
 
@@ -323,8 +321,7 @@ export default function ClientBrokers() {
               MC Logs
             </p>
             <p className="text-xs mt-1 mb-3 leading-relaxed" style={{ color: c.secondary }}>
-              Brokers you checked, when you checked them, and their status at that time — not
-              today’s Snapshot.
+              Brokers you checked, the credit score from that check, and their status at that time.
             </p>
             <McLookupReviewLog
               clientId={clientId}

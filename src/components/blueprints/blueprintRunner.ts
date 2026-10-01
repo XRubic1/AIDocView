@@ -30,12 +30,17 @@ import {
   type BlueprintRunRow,
 } from './blueprintRuns'
 import { getSavedBlueprint, listSavedBlueprints } from './blueprintStore'
+import { nextBlueprintAfter } from './blueprintHandoffMap'
 import { getActionIds } from './blueprintSubject'
 import {
   normalizeTriggerFilters,
   type BlueprintTriggerFilters,
 } from './blueprintTriggerFilters'
-import { executeBlueprintThenDo } from './blueprintRunnerActions'
+import {
+  cardSendsToBroker,
+  executeBlueprintThenDo,
+  noteMissingBrokerEmail,
+} from './blueprintRunnerActions'
 import { addAdminInvoiceNote } from '../../services/adminInvoiceNoteActions'
 import { BROKER_CONFIRMED_NOTE } from '../../../supabase/functions/_shared/standardBlueprints'
 import { resolveBlueprintWaitUntil } from './blueprintWaitUntil'
@@ -304,6 +309,8 @@ export async function advanceInvoiceRun(
     /** Do not park on Wait cards — continue into the next step. */
     skipWaits?: boolean
     toEmails?: string[]
+    /** Blueprints already started in this handoff chain. */
+    handoffVisited?: Set<string>
   }
 ): Promise<BlueprintRunnerLog> {
   if (!options?.manual && !isBlueprintsRunnerEnabled()) {
@@ -549,6 +556,31 @@ export async function advanceInvoiceRun(
       const ids = getActionIds(current.data)
       const actionResults: string[] = []
       let sendFailed = false
+      const cardHasNote = ids.includes('add_note')
+      if (cardSendsToBroker(ids)) {
+        const blocked = noteMissingBrokerEmail(invoice, assignment.blueprintName)
+        if (blocked) {
+          const retryAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+          run = upsertBlueprintRun(
+            {
+              ...run,
+              status: 'waiting',
+              currentNodeId: current.id,
+              currentStep: 'Waiting · no broker email',
+              waitUntil: retryAt,
+            },
+            {
+              historyEvent: {
+                kind: 'wait',
+                title: 'Waiting · no broker email',
+                detail: blocked,
+              },
+            }
+          )
+          details.push(blocked)
+          break
+        }
+      }
       for (const actionId of ids) {
         if (sendFailed) break
         const result = await executeBlueprintThenDo({
@@ -559,6 +591,7 @@ export async function advanceInvoiceRun(
           authorName: options?.authorName,
           skipIfAlreadySent: options?.skipWaits ? false : undefined,
           toEmails: options?.toEmails,
+          skipPortalNote: cardHasNote && actionId !== 'add_note',
         })
         details.push(result.detail)
         actionResults.push(result.detail)
@@ -680,6 +713,15 @@ export async function advanceInvoiceRun(
     current = next
   }
 
+  if (run.status === 'completed' && !options?.skipWaits) {
+    const handoff = await continueMappedBlueprint(
+      invoice,
+      loaded.assignment.blueprintId,
+      options?.handoffVisited ?? new Set<string>()
+    )
+    if (handoff) details.push(handoff)
+  }
+
   try {
     notifyTenantDataUpdated(['invoices'], invoice.client_id)
   } catch {
@@ -691,6 +733,34 @@ export async function advanceInvoiceRun(
     ok: true,
     detail: details.join(' ') || 'Advanced.',
   }
+}
+
+/**
+ * Main-grid link: the blueprint that just finished points at another one.
+ * Skipped for editor skip-wait test runs so a preview does not chain the map.
+ */
+async function continueMappedBlueprint(
+  invoice: Invoice,
+  finishedBlueprintId: string,
+  visited: Set<string>
+): Promise<string | null> {
+  if (visited.has(finishedBlueprintId) || visited.size >= 8) return null
+  visited.add(finishedBlueprintId)
+  const nextId = nextBlueprintAfter(finishedBlueprintId)
+  if (!nextId || visited.has(nextId)) return null
+  const next = getSavedBlueprint(nextId)
+  if (!next) return null
+  const start = next.nodes.find((node) => node.data.kind === 'trigger')
+  if (start?.data.triggerSubject === 'brokers' || start?.data.triggerSubject === 'batches') {
+    return null
+  }
+  assignInvoiceBlueprint(invoice.id, next.id, next.name)
+  const log = await enrollInvoiceIfNeeded(invoice, 'previous blueprint finished', {
+    handoffVisited: visited,
+  })
+  return log.ok
+    ? `Next blueprint · ${next.name}`
+    : `Next blueprint ${next.name} did not start. ${log.detail}`
 }
 
 /**
@@ -854,7 +924,7 @@ export async function startPaymentChaseAfterConfirm(invoiceId: string): Promise<
     row.note.includes('Payment chase started')
   )
   if (!hasConfirmNote) {
-    addAdminInvoiceNote(invoice.id, `${BROKER_CONFIRMED_NOTE}\n\n(Blueprint: Broker confirmed)`, 'Credyx', {
+    addAdminInvoiceNote(invoice.id, BROKER_CONFIRMED_NOTE, 'Credyx', {
       visibility: 'internal',
     })
   }
@@ -880,7 +950,7 @@ export async function startPaymentChaseAfterConfirm(invoiceId: string): Promise<
 export async function enrollInvoiceIfNeeded(
   invoice: Invoice,
   reason: string,
-  options?: { justProcessed?: boolean }
+  options?: { justProcessed?: boolean; handoffVisited?: Set<string> }
 ): Promise<BlueprintRunnerLog> {
   if (!isBlueprintsRunnerEnabled()) {
     return { invoiceId: invoice.id, ok: false, detail: 'Blueprint runner is off.' }
@@ -903,6 +973,7 @@ export async function enrollInvoiceIfNeeded(
   return advanceInvoiceRun(invoice.id, {
     forceWake: true,
     justProcessed: options?.justProcessed,
+    handoffVisited: options?.handoffVisited,
   })
 }
 

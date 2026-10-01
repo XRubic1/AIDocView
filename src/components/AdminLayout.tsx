@@ -18,6 +18,9 @@ import {
 } from '../services/adminNotificationService'
 import { getAllClients } from '../services/clientRegistry'
 import { countPendingBrokerRiskReviews } from '../data/brokerRiskStore'
+import { listPendingNewBrokers } from '../utils/pendingNewBrokers'
+import { mockInvoices } from '../data/mockInvoices'
+import { mockBrokers } from '../data/mockBrokers'
 import { countPendingBrokerSnapshotChanges } from '../services/brokerSnapshotReviewService'
 import { getAllBatches } from '../data/mockBatches'
 import { getInitials, getAdminUserDisplayName } from '../config/adminNav'
@@ -126,6 +129,10 @@ export default function AdminLayout({
     () => countPendingBrokerRiskReviews(),
     [tenantRevision]
   )
+  const pendingNewBrokerCount = useMemo(
+    () => listPendingNewBrokers(mockInvoices, mockBrokers).length,
+    [tenantRevision]
+  )
   const [pendingBrokerSnapshotCount, setPendingBrokerSnapshotCount] = useState(0)
 
   useEffect(() => {
@@ -163,6 +170,7 @@ export default function AdminLayout({
     pendingWriteOffs: pendingWriteOffCount,
     pendingBrokerRisk: pendingBrokerRiskCount,
     pendingBrokerSnapshot: pendingBrokerSnapshotCount,
+    pendingNewBrokers: pendingNewBrokerCount,
   }
 
   const isNavActive = (path: string) => {

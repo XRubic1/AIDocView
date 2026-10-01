@@ -15,6 +15,9 @@ const corsHeaders = {
 const API_BASE = 'https://brokersnapshot.com/api/v2'
 const API_V3 = 'https://brokersnapshot.com/api/v3'
 
+/** Skip a new BrokerSnapshot pull while next_review_at is still in the future. */
+const REUSE_RECENT_SNAPSHOT = true
+
 /** Admin staff or authenticated carrier portal user. */
 function isAllowedUser(user: {
   app_metadata?: Record<string, unknown>
@@ -285,7 +288,7 @@ function summarizeCompany(data: Record<string, unknown>) {
   const hasInsuranceCancellation = cancellations.length > 0
   const latestCancellationDate = cancellations[0]?.cancelEffectiveDate ?? null
 
-  if (activeInsurances.length === 0) {
+  if (activeInsurances.length === 0 && broker !== 'Active') {
     riskFlags.push('No active insurance on file in Snapshot')
   }
   // Past cancels are history — only flag when there is also no current coverage.
@@ -303,8 +306,13 @@ function summarizeCompany(data: Record<string, unknown>) {
     riskFlags.push('Authority revocation record on file')
   }
 
-  const insurances = activeInsurances.slice(0, 8).map((row) => ({
-    companyName: row.company_name != null ? String(row.company_name) : 'Unknown insurer',
+  const namedInsurances = activeInsurances.filter((row) => {
+    const name = row.company_name != null ? String(row.company_name).trim() : ''
+    return name.length > 0 && !/^(surety bond|insurer|unknown insurer)$/i.test(name)
+  })
+
+  const insurances = namedInsurances.slice(0, 8).map((row) => ({
+    companyName: String(row.company_name),
     policyNumber: row.policy_number != null ? String(row.policy_number) : null,
     effectiveDate: row.effective_date != null ? String(row.effective_date) : null,
     maxLimit: asNumber(row.bi_pd_maximum_limit),
@@ -319,19 +327,18 @@ function summarizeCompany(data: Record<string, unknown>) {
   let insuranceVerdict: 'ok' | 'missing' | 'cancelled' | 'warning' = 'ok'
   let insuranceNote = 'Broker insurance is fine.'
 
-  if (activeInsurances.length > 0) {
+  if (activeInsurances.length > 0 || broker === 'Active') {
     insuranceVerdict = 'ok'
-    const insurer =
-      cargoPolicy?.company_name != null
-        ? String(cargoPolicy.company_name)
-        : insurances[0]?.companyName
-    insuranceNote = hasInsuranceCancellation
-      ? insurer
-        ? `Active coverage on file (${insurer}). Older cancellations are history only.`
-        : 'Active coverage on file. Older cancellations are history only.'
-      : insurer
-        ? `Broker insurance is fine — active coverage (${insurer}).`
-        : 'Broker insurance is fine — active coverage on file.'
+    const insurer = insurances[0]?.companyName
+    insuranceNote = broker === 'Active' && !insurer
+      ? 'Active broker authority is on file.'
+      : hasInsuranceCancellation
+        ? insurer
+          ? `Active coverage on file (${insurer}). Older cancellations are history only.`
+          : 'Active coverage on file. Older cancellations are history only.'
+        : insurer
+          ? `Broker insurance is fine — active coverage (${insurer}).`
+          : 'Broker insurance is fine — active coverage on file.'
   } else {
     // No current coverage listed — treat as missing (not "cancelled" from history alone).
     insuranceVerdict = 'missing'
@@ -701,60 +708,89 @@ function summaryFromBody(body: unknown): Record<string, unknown> | null {
   return named ? summary : null
 }
 
+function insuranceSlice(value: unknown, depth = 0): unknown {
+  if (value == null || depth > 5) return value ?? null
+  if (typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.slice(0, 40).map((item) => insuranceSlice(item, depth + 1))
+  const source = value as Record<string, unknown>
+  const picked: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(source)) {
+    if (/^(auths|censusauths)$/i.test(key) && Array.isArray(child)) {
+      picked[key] = child.slice(0, 40)
+      continue
+    }
+    if (!/insur|bond|surety|auth|filer|policy|bmc|docket|entity|status|form|carship|type|broker|common|contract|census|api|detail|regs/i.test(key)) {
+      continue
+    }
+    picked[key] = insuranceSlice(child, depth + 1)
+  }
+  return picked
+}
+
+function chooseCompany(records: Record<string, unknown>[], digits: string): {
+  summary: Record<string, unknown> | null
+  record: Record<string, unknown> | null
+} {
+  let summary: Record<string, unknown> | null = null
+  let record: Record<string, unknown> | null = null
+  let bestScore = Number.NEGATIVE_INFINITY
+  for (const candidate of records) {
+    const score = companyRecordScore(candidate, digits)
+    if (score <= bestScore) continue
+    const next = summaryFromBody(candidate)
+    if (!next) continue
+    summary = next
+    record = candidate
+    bestScore = score
+  }
+  return { summary, record }
+}
+
 async function fetchSnapshotCompany(
   apiKey: string,
   prefix: string,
   digits: string
-): Promise<Record<string, unknown> | null> {
+): Promise<{ summary: Record<string, unknown> | null; insuranceDebug: Record<string, unknown> }> {
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     Accept: 'application/json',
     'X-Default-Value': 'include',
     'X-Enum-Format': 'code',
   }
-  // v3: include 15 = general + details + authority + insurance filings.
-  const urls = [
-    `${API_V3}/Companies?Prefix=${encodeURIComponent(prefix)}&Docket=${encodeURIComponent(digits)}&include=15&limit=5`,
-    `${API_V3}/Companies?prefix=${encodeURIComponent(prefix)}&docket=${encodeURIComponent(digits)}&include=15&limit=5`,
-  ]
+  const calls: Array<{ request: string; httpStatus: number; companyCount: number }> = []
 
-  let best: Record<string, unknown> | null = null
-  let bestScore = Number.NEGATIVE_INFINITY
-  const consider = (body: unknown) => {
-    for (const record of extractCompanyRecords(body)) {
-      const score = companyRecordScore(record, digits)
-      if (score <= bestScore) continue
-      const summary = summaryFromBody(record)
-      if (!summary) continue
-      best = summary
-      bestScore = score
-    }
-  }
+  const searchPath = `Companies?Prefix=${encodeURIComponent(prefix)}&Docket=${encodeURIComponent(digits)}&include=15&limit=5`
+  const searchResponse = await fetch(`${API_V3}/${searchPath}`, { method: 'GET', headers })
+  const searchBody = await searchResponse.json().catch(() => ({}))
+  const searchRecords = extractCompanyRecords(searchBody)
+  calls.push({
+    request: searchPath,
+    httpStatus: searchResponse.status,
+    companyCount: searchRecords.length,
+  })
 
-  for (const url of urls) {
-    const response = await fetch(url, { method: 'GET', headers })
-    consider(await response.json().catch(() => ({})))
-  }
+  const chosen = chooseCompany(searchRecords, digits)
 
-  const dot = best?.dotNumber != null ? String(best.dotNumber).replace(/\D/g, '') : ''
-  if (dot) {
-    const response = await fetch(`${API_V3}/Company?dot=${encodeURIComponent(dot)}&include=15`, {
-      method: 'GET',
-      headers,
-    })
-    consider(await response.json().catch(() => ({})))
+  const summary = chosen.summary
+  const insuranceDebug: Record<string, unknown> = {
+    calls,
+    topLevelKeys: chosen.record ? Object.keys(chosen.record) : [],
+    pulled: insuranceSlice(chosen.record),
+    parsed: summary
+      ? {
+          name: summary.name ?? null,
+          dotNumber: summary.dotNumber ?? null,
+          mcNumber: summary.mcNumber ?? null,
+          brokerAuthority: summary.brokerAuthority ?? null,
+          entityType: summary.entityType ?? null,
+          statusCode: summary.statusCode ?? null,
+          insuranceVerdict: summary.insuranceVerdict ?? null,
+          activeInsuranceCount: summary.activeInsuranceCount ?? 0,
+          insurances: summary.insurances ?? [],
+        }
+      : null,
   }
-
-  // A name-only list row must not win over a later record that has filings.
-  if (bestScore < 200) {
-    const legacy = `${API_BASE}/Company?prefix=${encodeURIComponent(prefix)}&docket=${encodeURIComponent(digits)}&include=3&includeInsurance=23`
-    const legacyResponse = await fetch(legacy, {
-      method: 'GET',
-      headers: { ...headers, 'X-Null-Value': 'include' },
-    })
-    consider(await legacyResponse.json().catch(() => ({})))
-  }
-  return best
+  return { summary, insuranceDebug }
 }
 
 async function persistSnapshotAndDiffs(
@@ -897,17 +933,50 @@ Deno.serve(async (req) => {
         ? String(userData.user.app_metadata.client_id)
         : null
 
+    const admin = adminClient()
+    const payload = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const action = String(payload.action ?? 'lookupByMc')
+
+    if (action === 'stampCreditScore') {
+      const digits = extractDocketDigits(payload.mc ?? payload.mc_number)
+      const score = String(payload.creditScore ?? '').trim().slice(0, 40)
+      if (!lookupClientId || !digits || digits.length < 4 || !score || score === '—') {
+        return jsonResponse({ ok: false })
+      }
+      const since = new Date(Date.now() - 3 * 60 * 1000).toISOString()
+      const { data: recent } = await admin
+        .from('broker_snapshot_lookup_events')
+        .select('id')
+        .eq('client_id', lookupClientId)
+        .eq('mc_digits', digits)
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      const existing = Array.isArray(recent) ? recent[0] : null
+      if (existing && typeof existing.id === 'string') {
+        await admin
+          .from('broker_snapshot_lookup_events')
+          .update({ credit_score: score })
+          .eq('id', existing.id)
+      } else {
+        await admin.from('broker_snapshot_lookup_events').insert({
+          id: newId('bslu'),
+          mc_number: `MC-${digits}`,
+          mc_digits: digits,
+          client_id: lookupClientId,
+          from_cache: false,
+          credit_score: score,
+          found: null,
+          status_label: 'Credit check',
+        })
+      }
+      return jsonResponse({ ok: true })
+    }
+
     const apiKey = Deno.env.get('BROKERSNAPSHOT_API_KEY')
     if (!apiKey) {
       return jsonResponse({ error: 'BrokerSnapshot not configured' }, 500)
     }
-
-    const payload = (await req.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >
-    const action = String(payload.action ?? 'lookupByMc')
-    const admin = adminClient()
 
     if (action === 'lookupByMc') {
       const digits = extractDocketDigits(payload.mc ?? payload.mc_number)
@@ -947,6 +1016,7 @@ Deno.serve(async (req) => {
         Number(cachedPayload.activeInsuranceCount ?? 0) > 0 ||
         String(cachedPayload.insuranceVerdict ?? '').toLowerCase() === 'ok'
       const cacheFresh =
+        REUSE_RECENT_SNAPSHOT &&
         cacheRow &&
         !forceRefresh &&
         cacheRow.next_review_at &&
@@ -1000,7 +1070,9 @@ Deno.serve(async (req) => {
         })
       }
 
-      const summary = await fetchSnapshotCompany(apiKey, prefix, digits)
+      const fetched = await fetchSnapshotCompany(apiKey, prefix, digits)
+      const summary = fetched.summary
+      const insuranceDebug = fetched.insuranceDebug
       if (!summary) {
         await logLookupEvent(admin, {
           snapshotId: cacheRow?.id ?? null,
@@ -1015,7 +1087,7 @@ Deno.serve(async (req) => {
         })
         return jsonResponse({
           Success: true,
-          Data: { found: false, mcNumber: `${prefix}-${digits}`, riskFlags: [] },
+          Data: { found: false, mcNumber: `${prefix}-${digits}`, riskFlags: [], insuranceDebug },
         })
       }
 
@@ -1049,6 +1121,7 @@ Deno.serve(async (req) => {
           Success: true,
           Data: {
             ...summary,
+            insuranceDebug,
             _meta: {
               fromCache: false,
               fetchedAt: (snapAfter as { fetched_at?: string } | null)?.fetched_at ?? nowIso,
@@ -1069,6 +1142,7 @@ Deno.serve(async (req) => {
           Success: true,
           Data: {
             ...summary,
+            insuranceDebug,
             _meta: {
               fromCache: false,
               fetchedAt: nowIso,
@@ -1093,34 +1167,12 @@ Deno.serve(async (req) => {
         },
       })
       const body = await response.json().catch(() => ({}))
-      let summary = summaryFromBody(body)
+      const summary = summaryFromBody(body)
       if (!summary) {
         return jsonResponse({
           Success: true,
           Data: { found: false, dotNumber: Number(dot), riskFlags: [] },
         })
-      }
-
-      // Company-by-DOT sometimes omits docket — resolve MC from Companies list.
-      if (!summary.mcNumber) {
-        const listUrl = `${API_BASE}/Companies?dot=${encodeURIComponent(dot)}&include=3&limit=5`
-        const listRes = await fetch(listUrl, {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            Accept: 'application/json',
-            'X-Null-Value': 'include',
-          },
-        })
-        const listBody = (await listRes.json().catch(() => ({}))) as Record<string, unknown>
-        const rows = Array.isArray(listBody.Data) ? listBody.Data : []
-        for (const row of rows) {
-          const mc = extractMcNumber(row as Record<string, unknown>)
-          if (mc) {
-            summary = { ...summary, mcNumber: mc }
-            break
-          }
-        }
       }
 
       return jsonResponse({

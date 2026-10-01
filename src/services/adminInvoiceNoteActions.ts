@@ -76,10 +76,14 @@ export function addAdminInvoiceNote(
   const invoice = getInvoiceById(invoiceId)
   if (!invoice || !noteText.trim()) return undefined
 
+  const trimmed = noteText.trim()
+  const already = (invoice.notes_history ?? []).some((row) => row.note.trim() === trimmed)
+  if (already) return invoice
+
   const visibility = options?.visibility ?? 'client'
   const newNote: InvoiceNote = {
     id: `note-admin-${Date.now()}`,
-    note: noteText.trim(),
+    note: trimmed,
     created_by: authorName,
     created_at: new Date().toISOString(),
     type: 'note',

@@ -33,6 +33,7 @@ export type AdminNavBadgeKey =
   | 'pendingWriteOffs'
   | 'pendingBrokerRisk'
   | 'pendingBrokerSnapshot'
+  | 'pendingNewBrokers'
 
 export interface AdminNavItem {
   label: string
@@ -97,7 +98,12 @@ export const adminNavSections: AdminNavSection[] = [
         icon: ScanSearch,
         badgeKey: 'pendingBrokerSnapshot',
       },
-      { label: 'Brokers', path: '/brokers', icon: Contact },
+      {
+        label: 'Brokers',
+        path: '/brokers',
+        icon: Contact,
+        badgeKey: 'pendingNewBrokers',
+      },
     ],
   },
   {

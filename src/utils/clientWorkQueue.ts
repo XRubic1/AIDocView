@@ -13,6 +13,7 @@ import {
 } from '../services/paymentReceiptConfirmationService'
 import { listPendingWriteOffs } from '../services/writeOffApprovalService'
 import { getClientById } from '../services/clientRegistry'
+import { listBlueprintRuns } from '../components/blueprints/blueprintRuns'
 import { buildCollectionsChaseQueue } from './collectionsChase'
 
 export type ClientWorkSeverity = 'critical' | 'high' | 'medium' | 'low'
@@ -38,6 +39,7 @@ export type ClientWorkItemKind =
   | 'chase_attention'
   | 'chase_followup'
   | 'chase_inquiry'
+  | 'blueprint_blocked'
 
 export type ClientWorkItem = {
   id: string
@@ -376,6 +378,38 @@ export function buildClientWorkSummaries(input: {
     })
   }
 
+  // Blueprint parked on a missing email. One row per invoice, from the live run.
+  try {
+    for (const run of listBlueprintRuns()) {
+      if (run.subject !== 'invoice' || run.status !== 'waiting' || !run.subjectId) continue
+      const step = run.currentStep.toLowerCase()
+      const missingBroker = step.includes('no broker email')
+      const missingCarrier = step.includes('no carrier email')
+      if (!missingBroker && !missingCarrier) continue
+      const inv = input.invoices.find((row) => row.id === run.subjectId)
+      if (!inv?.client_id) continue
+      const row = ensureBucket(map, inv.client_id, inv.client_name)
+      pushItem(row, {
+        id: `blueprint-${missingBroker ? 'broker' : 'carrier'}-${inv.id}`,
+        kind: 'blueprint_blocked',
+        category: 'chase',
+        severity: 'high',
+        label: missingBroker
+          ? `No broker email · ${inv.invoice_number}`
+          : `No carrier email · ${inv.invoice_number}`,
+        detail: missingBroker
+          ? `No broker email · ${inv.broker_name || 'broker'} · ${run.blueprintName} is waiting`
+          : `No carrier email · ${run.blueprintName} is waiting`,
+        invoiceId: inv.id,
+        invoiceNumber: inv.invoice_number,
+        href: `/invoices?invoice=${encodeURIComponent(inv.id)}`,
+        activityAt: run.updatedAt || asOf.toISOString(),
+      })
+    }
+  } catch {
+    /* blueprint run storage is unavailable outside the browser */
+  }
+
   // Call-backs from invoice collection_status + shared calendar call events due today or overdue
   for (const inv of input.invoices) {
     if (inv.collection_status !== 'C/B' || !inv.client_id) continue
@@ -469,6 +503,8 @@ export function clientWorkIssueLabel(kind: ClientWorkItemKind): string {
       return 'Chase · follow-up'
     case 'chase_inquiry':
       return 'Chase · inquiry'
+    case 'blueprint_blocked':
+      return 'Blueprint'
     default:
       return kind
   }

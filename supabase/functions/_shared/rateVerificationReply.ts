@@ -34,9 +34,40 @@ function quote(text: string): string {
   return ` “${clip}”`
 }
 
+/** "Jane Broker <jane@broker.com>" → "Jane Broker (jane@broker.com)". */
+export function senderLabel(from: string): string {
+  const raw = from.trim()
+  if (!raw) return ''
+  const named = raw.match(/^\s*"?([^"<]+?)"?\s*<([^>]+)>/)
+  if (named) {
+    const name = named[1].trim()
+    const email = named[2].trim()
+    if (name && email && name.toLowerCase() !== email.toLowerCase()) return `${name} (${email})`
+    return email || name
+  }
+  return raw
+}
+
+/** One line naming who sent the reply, for the invoice note. */
+export function replyFromLine(from: string, tone: 'confirmed' | 'rejected' | 'unknown'): string {
+  const who = senderLabel(from)
+  if (!who) return ''
+  if (tone === 'confirmed') return `Confirmed by ${who}.`
+  if (tone === 'rejected') return `From ${who}.`
+  return `Reply from ${who}.`
+}
+
 /** Decide OK, Hold, or unknown from the broker's words. */
-export function readRateVerificationReply(subject: string, body: string): RateVerificationReading {
+export function readRateVerificationReply(
+  subject: string,
+  body: string,
+  confirmedBy?: string
+): RateVerificationReading {
   const text = `${subject}\n${body}`.trim()
+  const who = confirmedBy?.trim()
+  const byOk = who ? ` Confirmed by ${who}.` : ''
+  const byHold = who ? ` Reported by ${who}.` : ''
+  const byUnknown = who ? ` Reply from ${who}.` : ''
   const mentionsAdvance = /\badvances?\b/i.test(text)
   const mentionsDeduction = /\bdeductions?\b/i.test(text)
   const positiveAdvance = mentionsAdvance && !negated(text, 'advances?')
@@ -46,17 +77,17 @@ export function readRateVerificationReply(subject: string, body: string): RateVe
   if (hold) {
     return {
       outcome: 'hold',
-      summary: `Broker reported advances or deductions on the rate.${quote(body)}`,
+      summary: `Broker reported advances or deductions on the rate.${byHold}${quote(body)}`,
     }
   }
   if (CLEAR_OK.test(text)) {
     return {
       outcome: 'ok',
-      summary: `Broker confirmed the rate. No advances or deductions.${quote(body)}`,
+      summary: `Broker confirmed the rate. No advances or deductions.${byOk}${quote(body)}`,
     }
   }
   return {
     outcome: 'unknown',
-    summary: `Broker replied to the rate check. Credyx could not tell if there are advances or deductions.${quote(body)}`,
+    summary: `Broker replied to the rate check. Credyx could not tell if there are advances or deductions.${byUnknown}${quote(body)}`,
   }
 }

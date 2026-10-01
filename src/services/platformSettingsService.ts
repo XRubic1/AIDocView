@@ -677,6 +677,46 @@ export async function saveBlueprintsRunnerEnabled(enabled: boolean): Promise<boo
   return enabled
 }
 
+const BLUEPRINT_HANDOFF_KEY = 'blueprint_handoff_map'
+
+/** Load the main blueprint grid so the runner can start the next blueprint. */
+export async function loadBlueprintHandoffMap(): Promise<void> {
+  const { applyBlueprintHandoffMap, getBlueprintHandoffMap } = await import(
+    '../components/blueprints/blueprintHandoffMap'
+  )
+  if (!isSupabaseConfigured()) return
+  const supabase = getSupabase()
+  if (!supabase) return
+  const { data, error } = await supabase
+    .from('platform_settings')
+    .select('value')
+    .eq('key', BLUEPRINT_HANDOFF_KEY)
+    .maybeSingle()
+  if (error || !data?.value) return
+  applyBlueprintHandoffMap(data.value as never)
+  void getBlueprintHandoffMap()
+}
+
+/** Save the main blueprint grid for every admin and the server runner. */
+export async function saveBlueprintHandoffMap(map: {
+  links: { fromId: string; toId: string }[]
+  positions: Record<string, { x: number; y: number }>
+}): Promise<void> {
+  const { applyBlueprintHandoffMap } = await import('../components/blueprints/blueprintHandoffMap')
+  applyBlueprintHandoffMap(map)
+  if (!isSupabaseConfigured()) return
+  const supabase = getSupabase()
+  if (!supabase) return
+  await persistOrThrow('blueprint_handoff_map', async () => {
+    const { error } = await supabase.from('platform_settings').upsert({
+      key: BLUEPRINT_HANDOFF_KEY,
+      value: map,
+      updated_at: new Date().toISOString(),
+    })
+    if (error) throw new Error(error.message)
+  })
+}
+
 export {
   BROKER_SNAPSHOT_TTL_KEY,
   COLLECTIONS_POLICY_KEY,
@@ -684,6 +724,7 @@ export {
   EMAIL_MAILBOXES_KEY,
   SALES_LEAD_RATING_KEY,
   BLUEPRINTS_RUNTIME_KEY,
+  BLUEPRINT_HANDOFF_KEY,
   DEFAULT_EMAIL_MAILBOXES,
   DEFAULT_SALES_LEAD_RATING_POLICY,
 }

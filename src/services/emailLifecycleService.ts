@@ -170,10 +170,10 @@ export async function ingestBrokerReply(opts: {
     : undefined
 
   if (invoice && outbound?.template_id === 'broker_rate_verification') {
-    const { readRateVerificationReply } = await import(
+    const { readRateVerificationReply, senderLabel } = await import(
       '../../supabase/functions/_shared/rateVerificationReply'
     )
-    const rate = readRateVerificationReply(opts.subject, opts.bodyText)
+    const rate = readRateVerificationReply(opts.subject, opts.bodyText, senderLabel(opts.fromAddress))
     const confirmed = rate.outcome !== 'unknown'
     const review = createReview({
       thread_id: findThreadForInvoice(invoice.id)?.id ?? null,
@@ -250,7 +250,7 @@ export async function ingestBrokerReply(opts: {
 
   if (invoice && reading.status !== 'unknown') {
     const { runBrokerReplyBlueprint } = await import('../components/blueprints/blueprintReplyOutcome')
-    await runBrokerReplyBlueprint(invoice, reading)
+    await runBrokerReplyBlueprint(invoice, reading, opts.fromAddress)
     const now = new Date().toISOString()
     upsertEmailReview({
       ...review,
@@ -270,7 +270,7 @@ export async function ingestBrokerReply(opts: {
       .catch((err) => console.warn('[emailLifecycle] persist reply status failed', err))
   } else if (invoice && reading.status === 'unknown') {
     const { runBrokerReplyBlueprint } = await import('../components/blueprints/blueprintReplyOutcome')
-    await runBrokerReplyBlueprint(invoice, reading)
+    await runBrokerReplyBlueprint(invoice, reading, opts.fromAddress)
     upsertEmailReview({ ...review, confirmed_by: 'Reply reader' })
   }
 

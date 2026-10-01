@@ -399,7 +399,7 @@ export async function beginPaymentChaseAfterConfirm(admin: Admin, invoiceId: str
   const invoice = row as InvoiceRow | null
   if (!invoice || !paperworkGood(invoice)) return
 
-  await appendNote(admin, invoice, `${BROKER_CONFIRMED_NOTE}\n\n(Blueprint: Broker confirmed)`)
+  await appendNote(admin, invoice, BROKER_CONFIRMED_NOTE)
 
   const { data: bpRows } = await admin.from('blueprints').select('id, name, priority, nodes, edges')
   const blueprints: BlueprintRow[] = (bpRows ?? []).map((bp: { id: string; name?: string; priority?: number; nodes?: unknown; edges?: unknown }) => ({
@@ -410,6 +410,21 @@ export async function beginPaymentChaseAfterConfirm(admin: Admin, invoiceId: str
     edges: (Array.isArray(bp.edges) ? bp.edges : []) as FlowEdge[],
   }))
 
+  if (String(invoice.status ?? '') === 'pending') {
+    const approvedAt = new Date().toISOString()
+    await admin
+      .from('invoices')
+      .update({
+        status: 'approved',
+        approved_by: 'Credyx',
+        approved_at: approvedAt,
+        hold_reason: null,
+        updated_at: approvedAt,
+      })
+      .eq('id', invoiceId)
+    invoice.status = 'approved'
+  }
+
   const { data: liveRows } = await admin
     .from('blueprint_runs')
     .select('*')
@@ -417,8 +432,14 @@ export async function beginPaymentChaseAfterConfirm(admin: Admin, invoiceId: str
     .eq('subject_id', invoiceId)
     .in('status', ['waiting', 'active', 'paused'])
   const live = (liveRows ?? []) as RunRow[]
-  const paymentBp = pickBlueprint(invoice, blueprints)
-  const paymentId = paymentBp && trackOf(paymentBp) === 'payment' ? paymentBp.id : null
+  const picked = pickBlueprint(invoice, blueprints)
+  const paymentBp =
+    (picked && trackOf(picked) === 'payment' ? picked : null) ??
+    blueprints.find((bp) => bp.id === 'bp-standard-payment-chase') ??
+    blueprints.find((bp) => trackOf(bp) === 'payment') ??
+    null
+  if (!paymentBp) return
+  const paymentId = paymentBp.id
 
   for (const run of live) {
     const bp = blueprints.find((item) => item.id === run.blueprint_id)
@@ -430,7 +451,6 @@ export async function beginPaymentChaseAfterConfirm(admin: Admin, invoiceId: str
     })
   }
 
-  if (!paymentBp || !paymentId) return
   const alreadyOnPayment = live.some((run) => {
     if (run.blueprint_id === paymentId) return true
     const bp = blueprints.find((item) => item.id === run.blueprint_id)
@@ -523,8 +543,24 @@ async function updateRun(admin: Admin, run: RunRow, patch: Partial<RunRow>): Pro
   Object.assign(run, next)
 }
 
-async function appendNote(admin: Admin, invoice: InvoiceRow, note: string): Promise<void> {
+async function appendNote(
+  admin: Admin,
+  invoice: InvoiceRow,
+  note: string,
+  visibility: 'client' | 'internal' = 'internal'
+): Promise<void> {
   const history = Array.isArray(invoice.notes_history) ? [...(invoice.notes_history as unknown[])] : []
+  const trimmed = note.trim()
+  if (
+    history.some(
+      (row) =>
+        row &&
+        typeof row === 'object' &&
+        String((row as { note?: string }).note ?? '').trim() === trimmed
+    )
+  ) {
+    return
+  }
   const now = new Date().toISOString()
   history.push({
     id: `note-${crypto.randomUUID()}`,
@@ -532,7 +568,7 @@ async function appendNote(admin: Admin, invoice: InvoiceRow, note: string): Prom
     created_by: 'Credyx Blueprint',
     created_at: now,
     type: 'note',
-    visibility: 'internal',
+    visibility,
   })
   await admin.from('invoices').update({ notes_history: history, updated_at: now }).eq('id', invoice.id)
   invoice.notes_history = history
@@ -570,6 +606,25 @@ function alreadyAsked(invoice: InvoiceRow, templateId: string): boolean {
   return false
 }
 
+/** Main grid: fromBlueprintId → toBlueprintId. One next blueprint per source. */
+async function loadBlueprintHandoffMap(admin: Admin): Promise<Map<string, string>> {
+  const next = new Map<string, string>()
+  const { data } = await admin
+    .from('platform_settings')
+    .select('value')
+    .eq('key', 'blueprint_handoff_map')
+    .maybeSingle()
+  const links = (data?.value as { links?: { fromId?: string; toId?: string }[] } | null)?.links
+  if (!Array.isArray(links)) return next
+  for (const link of links) {
+    const fromId = String(link?.fromId ?? '').trim()
+    const toId = String(link?.toId ?? '').trim()
+    if (!fromId || !toId || fromId === toId || next.has(fromId)) continue
+    next.set(fromId, toId)
+  }
+  return next
+}
+
 export async function runBlueprintServerTick(
   admin: Admin,
   opts: { limit?: number } = {}
@@ -577,6 +632,7 @@ export async function runBlueprintServerTick(
   const now = new Date()
   const nowIso = now.toISOString()
   const limit = Math.min(80, Math.max(1, opts.limit ?? 40))
+  const handoffNext = await loadBlueprintHandoffMap(admin)
   const details: string[] = []
   let advanced = 0
   let enrolled = 0
@@ -632,6 +688,53 @@ export async function runBlueprintServerTick(
     liveBySubject.set(key, list)
   }
 
+  async function alertAdminBlueprintIssue(
+    invoice: InvoiceRow,
+    code: 'no-broker-email' | 'no-carrier-email',
+    title: string,
+    message: string,
+    blueprintName: string
+  ): Promise<void> {
+    const invoiceId = String(invoice.id ?? '').trim()
+    if (!invoiceId) return
+    const number = String(invoice.invoice_number ?? '').trim()
+    const { error } = await admin.from('admin_notifications').upsert(
+      {
+        id: `bp-issue-${invoiceId}-${code}`,
+        type: 'system_alert',
+        title,
+        message: number ? `Invoice ${number}. ${message}` : message,
+        timestamp: nowIso,
+        read: false,
+        link: `/invoices?invoice=${encodeURIComponent(invoiceId)}`,
+        link_label: 'Open invoice',
+        metadata: {
+          invoice_id: invoiceId,
+          invoice_number: number || null,
+          broker_name: invoice.broker_name ?? null,
+          blueprint_name: blueprintName,
+          source: 'blueprint',
+          issue: code,
+        },
+      },
+      { onConflict: 'id', ignoreDuplicates: true }
+    )
+    if (error) details.push(`alert-skip:${code}`)
+  }
+
+  async function resolveAdminBlueprintIssue(
+    invoice: InvoiceRow,
+    code: 'no-broker-email' | 'no-carrier-email'
+  ): Promise<void> {
+    const invoiceId = String(invoice.id ?? '').trim()
+    if (!invoiceId) return
+    await admin
+      .from('admin_notifications')
+      .update({ read: true })
+      .eq('id', `bp-issue-${invoiceId}-${code}`)
+      .eq('read', false)
+  }
+
   async function queueReview(invoice: InvoiceRow, summary: string): Promise<void> {
     actions += 1
     await admin.from('email_review_items').insert({
@@ -659,7 +762,41 @@ export async function runBlueprintServerTick(
   ): Promise<string[]> {
     const lines: string[] = []
     const tag = `(Blueprint: ${bp.name})`
-    for (const actionId of getActionIds(node.data)) {
+    const actionIds = getActionIds(node.data)
+    const cardHasNote = actionIds.includes('add_note')
+    const sendsToBroker = actionIds.some(
+      (id) => id === 'email_broker_packet' || id === 'email_followup' || id === 'email_payment_status'
+    )
+    if (sendsToBroker && brokerEmail(broker)) {
+      await resolveAdminBlueprintIssue(invoice, 'no-broker-email')
+    }
+    if (sendsToBroker && !brokerEmail(broker)) {
+      const brokerName = String(broker?.name ?? invoice.broker_name ?? '').trim()
+      const msg = !String(invoice.broker_id ?? '').trim()
+        ? brokerName
+          ? `${brokerName} is not in the Credyx directory, so there is no email to send to. Add the broker, then this step will try again.`
+          : 'This invoice has no broker, so there is no email to send to.'
+        : !broker
+          ? `${brokerName || 'This broker'} is not in the Credyx directory, so there is no email to send to. Add the broker, then this step will try again.`
+          : `No broker email on file for ${brokerName || 'this broker'}. Add an accounting or paperwork email. This step tries again in one hour.`
+      await appendNote(admin, invoice, `${msg}\n\n${tag}`, 'internal')
+      await admin
+        .from('invoices')
+        .update({ collections_needs_attention: true, updated_at: nowIso })
+        .eq('id', invoice.id)
+      invoice.collections_needs_attention = true
+      await alertAdminBlueprintIssue(
+        invoice,
+        'no-broker-email',
+        'Blueprint needs a broker email',
+        msg,
+        bp.name
+      )
+      lines.push('hold:no-broker-email')
+      lines.push(msg)
+      return lines
+    }
+    for (const actionId of actionIds) {
       const cfg = node.data.actionConfigs?.[actionId]
       const templateId = cfg?.templateId?.trim() || defaultTemplate(actionId)
       if (actionId === 'mark_urgent' || actionId === 'create_task' || actionId === 'add_note') {
@@ -675,7 +812,12 @@ export async function runBlueprintServerTick(
             loadNumber: String(invoice.load_number ?? ''),
           }
         )
-        await appendNote(admin, invoice, `${msg}\n\n${tag}`)
+        await appendNote(
+          admin,
+          invoice,
+          `${msg}\n\n${tag}`,
+          actionId === 'add_note' ? 'client' : 'internal'
+        )
         if (actionId === 'mark_urgent') {
           const field = paperworkGood(invoice) ? 'payment' : 'paperwork'
           const state = field === 'payment' ? pay : pw
@@ -735,9 +877,31 @@ export async function runBlueprintServerTick(
           to = String(client?.email ?? '').trim()
         }
         if (!to) {
-          await appendNote(admin, invoice, `${actionId}: no email on file.\n\n${tag}`)
-          lines.push(`skip-no-email:${templateId}`)
-          continue
+          const carrierHold = actionId === 'notify_carrier'
+          const who = carrierHold ? 'carrier' : 'broker'
+          const name = carrierHold
+            ? String(invoice.client_name ?? 'this carrier')
+            : String(broker?.name ?? invoice.broker_name ?? 'this broker')
+          const msg = `No ${who} email on file for ${name}. Add an email, then this step tries again in one hour.`
+          await appendNote(admin, invoice, `${msg}\n\n${tag}`, 'internal')
+          await admin
+            .from('invoices')
+            .update({ collections_needs_attention: true, updated_at: nowIso })
+            .eq('id', invoice.id)
+          const code = carrierHold ? 'no-carrier-email' : 'no-broker-email'
+          await alertAdminBlueprintIssue(
+            invoice,
+            code,
+            carrierHold ? 'Blueprint needs a carrier email' : 'Blueprint needs a broker email',
+            msg,
+            bp.name
+          )
+          lines.push(carrierHold ? 'hold:no-carrier-email' : 'hold:no-broker-email')
+          lines.push(msg)
+          return lines
+        }
+        if (actionId === 'notify_carrier') {
+          await resolveAdminBlueprintIssue(invoice, 'no-carrier-email')
         }
         const fromList = cfg?.fromEmails?.map((e) => e.trim()).filter(Boolean) ?? []
         const fromEmail = fromList[0] || cfg?.fromEmail?.trim() || ''
@@ -776,11 +940,13 @@ export async function runBlueprintServerTick(
           life.blueprint_owns_paperwork = true
           life.blueprint_owns_chase = true
           await saveLife(admin, invoice, life, extra)
-          await appendNote(
-            admin,
-            invoice,
-            `${noteMessage || `${templateId}: emailed ${to}.`}\n\n${tag}`
-          )
+          if (!cardHasNote && actionId === 'notify_carrier') {
+            await appendNote(
+              admin,
+              invoice,
+              `${noteMessage || `${templateId}: emailed ${to}.`}\n\n${tag}`
+            )
+          }
           lines.push(`email:${templateId}`)
         } else {
           await appendNote(admin, invoice, `${templateId}: email failed.\n\n${tag}`)
@@ -789,10 +955,76 @@ export async function runBlueprintServerTick(
         continue
       }
 
-      await appendNote(admin, invoice, `Server runner skipped "${actionId}" (not a chase email).\n\n${tag}`)
       lines.push(`skip:${actionId}`)
     }
     return lines
+  }
+
+  const handoffChain = new Map<string, Set<string>>()
+
+  async function handoffCompletedBlueprint(
+    bp: BlueprintRow,
+    run: RunRow,
+    invoice: InvoiceRow,
+    broker: BrokerRow | undefined
+  ): Promise<void> {
+    const invoiceId = String(invoice.id)
+    let seen = handoffChain.get(invoiceId)
+    if (!seen) {
+      seen = new Set()
+      handoffChain.set(invoiceId, seen)
+    }
+    if (seen.has(bp.id) || seen.size >= 8) return
+    seen.add(bp.id)
+    const nextId = handoffNext.get(bp.id)
+    if (!nextId || seen.has(nextId)) return
+    const nextBp = bpById.get(nextId)
+    if (!nextBp) return
+    const subject = nextBp.nodes.find((node) => node.data.kind === 'trigger')?.data.triggerSubject
+    if (subject === 'brokers' || subject === 'batches') return
+
+    const { data: existingNext } = await admin
+      .from('blueprint_runs')
+      .select('id')
+      .eq('subject', 'invoice')
+      .eq('subject_id', invoiceId)
+      .eq('blueprint_id', nextId)
+      .in('status', ['waiting', 'active', 'paused', 'completed', 'stopped'])
+      .limit(1)
+    if (Array.isArray(existingNext) && existingNext.length > 0) return
+
+    const start = nextBp.nodes.find((node) => node.data.kind === 'trigger') ?? null
+    const nextRun: RunRow = {
+      id: `run-${crypto.randomUUID()}`,
+      subject: 'invoice',
+      subject_id: invoiceId,
+      subject_label: String(invoice.invoice_number ?? invoiceId),
+      client_label: String(invoice.client_name ?? ''),
+      blueprint_id: nextBp.id,
+      blueprint_name: nextBp.name,
+      status: 'active',
+      current_step: 'Start',
+      current_node_id: start?.id ?? null,
+      wait_until: null,
+      started_at: nowIso,
+      updated_at: nowIso,
+    }
+    await updateRun(admin, nextRun, {})
+    await admin.from('invoice_blueprint_assignments').upsert(
+      {
+        invoice_id: invoiceId,
+        blueprint_id: nextBp.id,
+        blueprint_name: nextBp.name,
+        assigned_at: nowIso,
+      },
+      { onConflict: 'invoice_id' }
+    )
+    const bucket = liveBySubject.get(`invoice:${invoiceId}`) ?? []
+    bucket.push(nextRun)
+    liveBySubject.set(`invoice:${invoiceId}`, bucket)
+    details.push(`${invoice.invoice_number ?? invoiceId}: next blueprint ${nextBp.name}`)
+    enrolled += 1
+    await walk(nextBp, nextRun, invoice, broker, start)
   }
 
   async function walk(
@@ -847,6 +1079,7 @@ export async function runBlueprintServerTick(
             wait_until: null,
           })
           runDetails.push('done')
+          await handoffCompletedBlueprint(bp, run, invoice, broker)
           break
         }
         current = after
@@ -855,6 +1088,17 @@ export async function runBlueprintServerTick(
       if (data.kind === 'action') {
         const lines = await executeAction(bp, current, invoice, broker)
         runDetails.push(...lines)
+        if (lines.some((line) => line.startsWith('hold:no-broker-email') || line.startsWith('hold:no-carrier-email'))) {
+          const brokerHold = lines.some((line) => line.startsWith('hold:no-broker-email'))
+          await updateRun(admin, run, {
+            status: 'waiting',
+            current_node_id: current.id,
+            current_step: brokerHold ? 'Waiting · no broker email' : 'Waiting · no carrier email',
+            wait_until: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+          })
+          runDetails.push(lines.find((line) => !line.startsWith('hold:')) || 'missing email')
+          break
+        }
         if (lines.some((line) => line.startsWith('email-fail'))) {
           await updateRun(admin, run, {
             status: 'waiting',
@@ -873,6 +1117,7 @@ export async function runBlueprintServerTick(
             current_step: 'Done',
             wait_until: null,
           })
+          await handoffCompletedBlueprint(bp, run, invoice, broker)
           break
         }
         current = after
@@ -887,6 +1132,7 @@ export async function runBlueprintServerTick(
             wait_until: null,
           })
           runDetails.push('done')
+          await handoffCompletedBlueprint(bp, run, invoice, broker)
           break
         }
         const after: FlowNode | null = nextNodes(current.id, bp.nodes, bp.edges)[0] ?? null
