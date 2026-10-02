@@ -24,9 +24,13 @@ function looksLikeCompany(record: Record<string, unknown>): boolean {
   const general = asRecord(record.General) ?? asRecord(record.general)
   const authority = asRecord(record.Authority) ?? asRecord(record.authority)
   if (general || authority || record.ActiveInsurances || record.activeInsurances) return true
+  if (Array.isArray(record.Auths) || Array.isArray(record.auths)) return true
+  if (Array.isArray(record.CensusAuths) || Array.isArray(record.censusAuths)) return true
+  const name = asRecord(record.Name) ?? asRecord(record.name)
+  if (name && (name.LegalName || name.legalName || name.DbaName || name.Name)) return true
   const keys = new Set(Object.keys(record).map((key) => key.toLowerCase()))
   const hasName = ['legalname', 'legal_name', 'companyname', 'name'].some((key) => keys.has(key))
-  const hasId = ['dot_number', 'dotnumber', 'docket', 'docket_number', 'docketnumber', 'mc_number', 'mcnumber'].some(
+  const hasId = ['dot_number', 'dotnumber', 'dot', 'usdot', 'docket', 'docket_number', 'docketnumber', 'mc_number', 'mcnumber'].some(
     (key) => keys.has(key)
   )
   return hasName && hasId

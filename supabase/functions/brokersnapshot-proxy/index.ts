@@ -746,6 +746,20 @@ function chooseCompany(records: Record<string, unknown>[], digits: string): {
   return { summary, record }
 }
 
+function apiErrorText(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null
+  const root = body as Record<string, unknown>
+  const error = root.Error ?? root.error ?? root.Message ?? root.message
+  if (typeof error === 'string' && error.trim()) return error.trim()
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>
+    const message = record.Message ?? record.message ?? record.Error ?? record.error
+    if (typeof message === 'string' && message.trim()) return message.trim()
+    return JSON.stringify(error).slice(0, 500)
+  }
+  return null
+}
+
 async function fetchSnapshotCompany(
   apiKey: string,
   prefix: string,
@@ -757,25 +771,36 @@ async function fetchSnapshotCompany(
     'X-Default-Value': 'include',
     'X-Enum-Format': 'code',
   }
-  const calls: Array<{ request: string; httpStatus: number; companyCount: number }> = []
+  const calls: Array<{ request: string; httpStatus: number; companyCount: number; error: string | null }> = []
 
-  const searchPath = `Companies?Prefix=${encodeURIComponent(prefix)}&Docket=${encodeURIComponent(digits)}&include=15&limit=5`
-  const searchResponse = await fetch(`${API_V3}/${searchPath}`, { method: 'GET', headers })
-  const searchBody = await searchResponse.json().catch(() => ({}))
-  const searchRecords = extractCompanyRecords(searchBody)
-  calls.push({
-    request: searchPath,
-    httpStatus: searchResponse.status,
-    companyCount: searchRecords.length,
-  })
+  const brokerGet = async (path: string) => {
+    const response = await fetch(`${API_V3}/${path}`, { method: 'GET', headers })
+    const body = await response.json().catch(() => ({}))
+    const records = extractCompanyRecords(body)
+    calls.push({
+      request: path,
+      httpStatus: response.status,
+      companyCount: records.length,
+      error: response.ok ? null : apiErrorText(body),
+    })
+    return { status: response.status, body, records }
+  }
 
-  const chosen = chooseCompany(searchRecords, digits)
+  // include=15 is rejected ("The value '15' is invalid"). include=1 is one call and
+  // still returns CensusAuths, which is where broker authority lives.
+  const search = await brokerGet(
+    `Companies?Prefix=${encodeURIComponent(prefix)}&Docket=${encodeURIComponent(digits)}&include=1&limit=5`
+  )
+  const chosen = chooseCompany(search.records, digits)
+
+  const searchRoot = search.body && typeof search.body === 'object' ? Object.keys(search.body as object) : []
 
   const summary = chosen.summary
   const insuranceDebug: Record<string, unknown> = {
     calls,
-    topLevelKeys: chosen.record ? Object.keys(chosen.record) : [],
-    pulled: insuranceSlice(chosen.record),
+    error: calls.map((call) => call.error).filter(Boolean).join(' · ') || null,
+    topLevelKeys: chosen.record ? Object.keys(chosen.record) : searchRoot,
+    pulled: chosen.record ? insuranceSlice(chosen.record) : insuranceSlice(search.body),
     parsed: summary
       ? {
           name: summary.name ?? null,
@@ -1157,7 +1182,7 @@ Deno.serve(async (req) => {
     if (action === 'lookupByDot') {
       const dot = String(payload.dot ?? '').replace(/\D/g, '')
       if (!dot) return jsonResponse({ error: 'Provide a DOT number' }, 400)
-      const response = await fetch(`${API_V3}/Company?dot=${encodeURIComponent(dot)}&include=15`, {
+      const response = await fetch(`${API_V3}/Company?dot=${encodeURIComponent(dot)}&include=1`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${apiKey}`,

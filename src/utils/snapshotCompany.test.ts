@@ -329,6 +329,39 @@ describe('snapshot company payload', () => {
     expect(policies[0]?.policy_number).toBe('ACC006006227')
   })
 
+  it('keeps a company that has authority filings and no top-level DOT', () => {
+    const records = extractCompanyRecords({
+      Companies: [
+        {
+          Name: { LegalName: 'ABC LOGISTICS INC' },
+          Auths: [
+            {
+              DocketNumber: 'MC322919',
+              Type: 8,
+              Status: 1,
+              Insurances: [
+                {
+                  PolicyNumber: 'BMC-84-1',
+                  Form: 7,
+                  Status: 1,
+                  MaxCovAmount: 75000,
+                  Filer: { Name: 'EXAMPLE SURETY' },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    expect(records).toHaveLength(1)
+    const normalized = normalizeSnapshotCompany(records[0]!)
+    const authority = normalized.Authority as Record<string, unknown>
+    const policies = normalized.ActiveInsurances as Record<string, unknown>[]
+    expect(authority.broker_stat).toBe('Active')
+    expect(authority.docket_number).toBe('MC322919')
+    expect(policies[0]?.company_name).toBe('EXAMPLE SURETY')
+  })
+
   it('reads census broker authority when Auths is null', () => {
     const company = extractCompanyRecord({
       Data: {

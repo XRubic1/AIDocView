@@ -296,6 +296,7 @@ export default function ClientMcLookup({
   const [error, setError] = useState<string | null>(null)
   const [credit, setCredit] = useState<McCreditSearchResponse | null>(null)
   const [authority, setAuthority] = useState<BrokerSnapshotSummary | null>(null)
+  const [authorityError, setAuthorityError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
 
   const assessment = credit ? assessMcCredit(credit) : null
@@ -321,6 +322,9 @@ export default function ClientMcLookup({
     const nextAuthority = authorityResult.status === 'fulfilled' ? authorityResult.value : null
     setCredit(nextCredit)
     setAuthority(nextAuthority)
+    setAuthorityError(
+      authorityResult.status === 'rejected' ? 'Authority check did not return. Try the lookup again.' : null
+    )
     setSearched(true)
     if (nextCredit?.mc) setMc(nextCredit.mc)
     const score = nextCredit ? buildCreditProfile(nextCredit.results)?.score : null
@@ -452,8 +456,13 @@ export default function ClientMcLookup({
             <Slot title="Authority and insurance" className="sm:col-span-2 lg:col-span-1">
               {showResult ? (
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <AuthorityBody summary={authorityFound ? authority : null} />
-                  <InsuranceBody summary={authorityFound ? authority : null} />
+                  {authorityError ? (
+                    <p className="text-sm sm:col-span-2" style={{ color: '#B91C1C' }}>
+                      {authorityError}
+                    </p>
+                  ) : null}
+                  <AuthorityBody summary={authority} />
+                  <InsuranceBody summary={authority} />
                 </div>
               ) : (
                 <Placeholder>Broker authority and coverage, when they are on file.</Placeholder>
