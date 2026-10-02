@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { authorizeLookup } from '../_shared/lookupAuth.ts'
 import {
   collectInsuranceRows,
   companyRecordScore,
@@ -17,16 +18,6 @@ const API_V3 = 'https://brokersnapshot.com/api/v3'
 
 /** Skip a new BrokerSnapshot pull while next_review_at is still in the future. */
 const REUSE_RECENT_SNAPSHOT = true
-
-/** Admin staff or authenticated carrier portal user. */
-function isAllowedUser(user: {
-  app_metadata?: Record<string, unknown>
-}): boolean {
-  const meta = user.app_metadata ?? {}
-  if (meta.role === 'admin') return true
-  const clientId = meta.client_id
-  return typeof clientId === 'string' && clientId.length > 0
-}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -574,8 +565,11 @@ async function logLookupEvent(
     legalName: string | null
     found: boolean
     summary: Record<string, unknown> | null
+    /** Public MC Check has no carrier to attach the history row to. */
+    recordHistory?: boolean
   }
 ): Promise<void> {
+  if (args.recordHistory === false) return
   const status = lookupStatusFields(args.summary, args.found)
   try {
     await admin.from('broker_snapshot_lookup_events').insert({
@@ -822,7 +816,8 @@ async function persistSnapshotAndDiffs(
   admin: ReturnType<typeof adminClient>,
   summary: Record<string, unknown>,
   digits: string,
-  existingSnapshotId?: string | null
+  existingSnapshotId?: string | null,
+  review = true
 ): Promise<{ snapshotId: string; pendingChanges: number }> {
   const mcNumber =
     summary.mcNumber != null ? String(summary.mcNumber) : `MC-${digits}`
@@ -888,6 +883,8 @@ async function persistSnapshotAndDiffs(
     })
   }
 
+  if (!review) return { snapshotId, pendingChanges: 0 }
+
   // Mark previous pending diffs stale, then insert fresh pending set.
   await admin
     .from('broker_snapshot_changes')
@@ -935,28 +932,10 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader) {
-      return jsonResponse({ error: 'Unauthorized' }, 401)
-    }
-
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
-    )
-
-    const { data: userData, error: userError } = await supabase.auth.getUser()
-    if (userError || !userData.user) {
-      return jsonResponse({ error: 'Unauthorized' }, 401)
-    }
-    if (!isAllowedUser(userData.user)) {
-      return jsonResponse({ error: 'Forbidden' }, 403)
-    }
-    const lookupClientId =
-      typeof userData.user.app_metadata?.client_id === 'string'
-        ? String(userData.user.app_metadata.client_id)
-        : null
+    const caller = await authorizeLookup(req)
+    if (!caller.ok) return jsonResponse({ error: caller.error }, caller.status)
+    const lookupClientId = caller.clientId
+    const recordHistory = !caller.isPublic
 
     const admin = adminClient()
     const payload = (await req.json().catch(() => ({}))) as Record<string, unknown>
@@ -1009,7 +988,30 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: 'Provide a valid MC number (at least 4 digits)' }, 400)
       }
 
-      const prefix = String(payload.prefix ?? 'MC').toUpperCase()
+      const prefix = String(payload.prefix ?? 'MC').toUpperCase().replace(/[^A-Z]/g, '') || 'MC'
+      // FF dockets share digit space with MC numbers. Do not read or write the MC cache.
+      if (prefix !== 'MC') {
+        const fetched = await fetchSnapshotCompany(apiKey, prefix, digits)
+        const summary = fetched.summary
+        const insuranceDebug = fetched.insuranceDebug
+        if (!summary) {
+          return jsonResponse({
+            Success: true,
+            Data: { found: false, mcNumber: `${prefix}-${digits}`, riskFlags: [], insuranceDebug },
+          })
+        }
+        return jsonResponse({
+          Success: true,
+          Data: {
+            ...summary,
+            mcNumber:
+              summary.mcNumber != null ? String(summary.mcNumber) : `${prefix}-${digits}`,
+            insuranceDebug,
+            _meta: { fromCache: false, fetchedAt: new Date().toISOString() },
+          },
+        })
+      }
+
       const forceRefresh = Boolean(payload.forceRefresh)
       const nowIso = new Date().toISOString()
 
@@ -1079,6 +1081,7 @@ Deno.serve(async (req) => {
             cachedPayload.name != null ? String(cachedPayload.name) : null,
           found: cachedPayload.found === true,
           summary: cachedPayload,
+          recordHistory,
         })
 
         return jsonResponse({
@@ -1109,6 +1112,7 @@ Deno.serve(async (req) => {
           legalName: null,
           found: false,
           summary: null,
+          recordHistory,
         })
         return jsonResponse({
           Success: true,
@@ -1121,7 +1125,8 @@ Deno.serve(async (req) => {
           admin,
           summary,
           digits,
-          cacheRow?.id ?? null
+          cacheRow?.id ?? null,
+          recordHistory
         )
         await logLookupEvent(admin, {
           snapshotId,
@@ -1135,6 +1140,7 @@ Deno.serve(async (req) => {
           legalName: summary.name != null ? String(summary.name) : null,
           found: true,
           summary,
+          recordHistory,
         })
         const { data: snapAfter } = await admin
           .from('broker_external_snapshots')

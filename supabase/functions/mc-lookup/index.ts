@@ -1,16 +1,9 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { authorizeLookup } from '../_shared/lookupAuth.ts'
 import { runMcCreditSource, type McCreditSource } from '../_shared/mcCreditSources.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
-
-function isAllowedUser(user: { app_metadata?: Record<string, unknown> }): boolean {
-  const meta = user.app_metadata ?? {}
-  if (meta.role === 'admin') return true
-  const clientId = meta.client_id
-  return typeof clientId === 'string' && clientId.length > 0
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -30,17 +23,8 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader) return jsonResponse({ error: 'Unauthorized' }, 401)
-
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
-    )
-    const { data: userData, error: userError } = await supabase.auth.getUser()
-    if (userError || !userData.user) return jsonResponse({ error: 'Unauthorized' }, 401)
-    if (!isAllowedUser(userData.user)) return jsonResponse({ error: 'Forbidden' }, 403)
+    const caller = await authorizeLookup(req)
+    if (!caller.ok) return jsonResponse({ error: caller.error }, caller.status)
 
     const payload = (await req.json().catch(() => ({}))) as { mc?: string; sources?: string }
     const mc = normalizeMc(String(payload.mc ?? ''))

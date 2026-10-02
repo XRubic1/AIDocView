@@ -129,6 +129,21 @@ export function MarketingHeader() {
             </button>
           </>
         )}
+        <button
+          type="button"
+          className="cx-nav-link"
+          onClick={() => {
+            trackWebsiteEvent('nav_click', 'nav_mc_check')
+            setMenuOpen(false)
+            if (isMarketingOnly) {
+              window.location.assign(`${getClientLoginHref().replace(/\/client\/login$/, '')}/mc-check`)
+              return
+            }
+            navigate('/mc-check')
+          }}
+        >
+          MC Check
+        </button>
         <button type="button" className="cx-nav-link" onClick={goClientLogin}>
           Client login
         </button>

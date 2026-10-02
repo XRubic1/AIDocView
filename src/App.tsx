@@ -65,6 +65,7 @@ import {
   PaymentPosting,
   PlatformLandingPage,
   PrivacyPolicy,
+  PublicMcCheck,
   ReviewRulesPage,
   Settings,
   Tour,
@@ -109,6 +110,8 @@ function App() {
               <Route path="/landing" element={<LandingPage />} />
               <Route path="/home" element={withRouteSuspense(PlatformLandingPage)} />
               <Route path="/docsort" element={withRouteSuspense(DocSortLandingPage)} />
+              <Route path="/mc-check" element={withRouteSuspense(PublicMcCheck, 'Loading MC Check…')} />
+              <Route path="/mclookup" element={<Navigate to="/mc-check" replace />} />
 
               <Route element={<ClientProtectedLayout />}>
                 <Route
@@ -149,7 +152,6 @@ function App() {
                   element={withRouteSuspense(ClientCollectionsQueue)}
                 />
                 <Route path="/client/brokers" element={withRouteSuspense(ClientBrokers)} />
-                <Route path="/mclookup" element={<Navigate to="/client/brokers?tab=mc-check" replace />} />
                 <Route path="/client/assistant" element={withRouteSuspense(ClientAssistant)} />
                 <Route path="/client/reports" element={withRouteSuspense(ClientReports)} />
                 <Route path="/client/documents" element={withRouteSuspense(ClientDocuments)} />

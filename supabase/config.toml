@@ -21,6 +21,6 @@ verify_jwt = false
 [functions.brokersnapshot-proxy]
 verify_jwt = false
 
-# Auth checked inside the function (admin / carrier JWT via auth.getUser).
+# Auth checked inside the function (admin, carrier, or the public MC Check page).
 [functions.mc-lookup]
 verify_jwt = false

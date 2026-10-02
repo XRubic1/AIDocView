@@ -1845,12 +1845,37 @@
   color: #ffffff;
 }
 
+.credyx-page--mc-check {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.credyx-mc-canvas {
+  background-color: #0f172a;
+  background-image:
+    radial-gradient(ellipse 78% 460px at 50% -120px, rgba(22, 132, 254, 0.32), transparent 68%),
+    radial-gradient(ellipse 46% 560px at 100% 12%, rgba(22, 132, 254, 0.14), transparent 66%),
+    radial-gradient(ellipse 40% 520px at 0% 78%, rgba(22, 132, 254, 0.1), transparent 70%);
+}
+
+.credyx-page--mc-check ::selection {
+  background: rgba(22, 132, 254, 0.35);
+  color: #ffffff;
+}
+
 .credyx-page--waitlist .cx-nav {
   padding-left: var(--cx-pad-x);
   padding-right: var(--cx-pad-x);
   height: 64px;
   background: rgba(15, 23, 42, 0.88);
   border-bottom-color: var(--cx-border);
+}
+
+/* Waitlist nav is translucent navy over a navy page, so it reads solid.
+   MC Check sits on a light page — keep the bar the same solid navy. */
+.credyx-page--mc-check .cx-nav {
+  background: #0f172a;
+  backdrop-filter: none;
 }
 
 .credyx-page--waitlist .cx-nav-brand {

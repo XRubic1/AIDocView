@@ -1,17 +1,23 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   Bug,
   CheckCircle2,
+  ChevronDown,
+  ExternalLink,
   HelpCircle,
   Loader2,
-  Search,
   ShieldAlert,
   X,
 } from 'lucide-react'
 import { useClientTheme } from '../theme/ThemeContext'
 import { lookupMcCredit } from '../services/mcCreditLookupService'
-import { lookupBrokerSnapshotByMc, recordLookupCreditScore } from '../services/brokerSnapshotService'
+import {
+  lookupBrokerSnapshotByDot,
+  lookupBrokerSnapshotByMc,
+  recordLookupCreditScore,
+} from '../services/brokerSnapshotService'
 import { extractEmailDomain } from '../utils/emailDomain'
 import { formatPhoneNumber } from '../utils/formatPhoneNumber'
 import { assessMcCredit, creditMetrics, redactVendorText } from '../utils/mcCreditAssessment'
@@ -151,26 +157,26 @@ function money(limit: number | null | undefined): string | null {
   return `$${limit.toLocaleString()}`
 }
 
-function verdictStyle(verdict: McCreditVerdict) {
+function verdictStyle(verdict: McCreditVerdict, c: ReturnType<typeof useClientTheme>) {
   if (verdict === 'good') {
-    return { bg: '#ECFDF5', border: '#6EE7B7', color: '#047857', Icon: CheckCircle2, label: 'Good' }
+    return { bg: c.accentLight, border: c.accent, color: c.accent, Icon: CheckCircle2, label: 'Good' }
   }
   if (verdict === 'caution') {
-    return { bg: '#FFFBEB', border: '#FCD34D', color: '#B45309', Icon: AlertTriangle, label: 'Caution' }
+    return { bg: c.stat.amber, border: c.warning, color: c.warning, Icon: AlertTriangle, label: 'Caution' }
   }
   if (verdict === 'avoid') {
-    return { bg: '#FEF2F2', border: '#FCA5A5', color: '#B91C1C', Icon: ShieldAlert, label: 'Avoid' }
+    return { bg: c.stat.red, border: c.error, color: c.error, Icon: ShieldAlert, label: 'Avoid' }
   }
-  return { bg: '#F8FAFC', border: '#E2E8F0', color: '#64748B', Icon: HelpCircle, label: 'Review' }
+  return { bg: c.stat.slate, border: c.border, color: c.secondary, Icon: HelpCircle, label: 'Review' }
 }
 
-function ratingTone(rating: string) {
+function ratingTone(rating: string, c: ReturnType<typeof useClientTheme>) {
   const value = rating.toUpperCase()
-  if (value.includes('NO BUY') || value.includes('F')) return { bg: '#FEF2F2', border: '#FECACA', color: '#B91C1C' }
+  if (value.includes('NO BUY') || value.includes('F')) return { color: c.error }
   if (['A', 'B', 'C'].some((letter) => value.includes(letter)) && !value.includes('D')) {
-    return { bg: '#ECFDF5', border: '#A7F3D0', color: '#047857' }
+    return { color: c.accent }
   }
-  if (value.includes('D')) return { bg: '#FFFBEB', border: '#FDE68A', color: '#B45309' }
+  if (value.includes('D')) return { color: c.warning }
   return null
 }
 
@@ -210,34 +216,128 @@ function hasStolenWarning(results: McCreditRecord[] | undefined): boolean {
   )
 }
 
-function brokerDomainNote(emails: string[], stolen: boolean): { text: string; ok: boolean } | null {
+type DocketKind = 'MC' | 'DOT' | 'FF'
+
+function brokerDomainNote(emails: string[], stolen: boolean): { title: string; text: string } | null {
   const domains = unique(emails.map((email) => extractEmailDomain(email)))
-  if (!domains.length && !stolen) return null
   if (stolen) {
-    const listed =
+    const from =
       domains.length === 1
-        ? ` Emails on file use @${domains[0]}.`
+        ? `comes from @${domains[0]}`
         : domains.length > 1
-          ? ` Emails on file use ${domains.map((domain) => `@${domain}`).join(', ')}.`
-          : ''
+          ? `comes from ${domains.map((domain) => `@${domain}`).join(' or ')}`
+          : 'and email domain are legitimate'
     return {
-      ok: false,
-      text: `Stolen-ID warning. Call the phone numbers on file, email this broker, and confirm the rate confirmation and email domain are legitimate.${listed}`,
+      title: 'Stolen-ID warning on file',
+      text: `Before booking, call the phone numbers below, email the broker, and confirm the rate confirmation ${from}.`,
     }
   }
-  if (domains.length === 1) {
-    return { ok: true, text: `Broker domain must match @${domains[0]}` }
+  if (domains.length > 1) {
+    return {
+      title: 'Email domains do not match',
+      text: `Call the phone numbers below and confirm which domain is legitimate (${domains.map((domain) => `@${domain}`).join(', ')}).`,
+    }
   }
-  return {
-    ok: false,
-    text: `Broker domains don't match (${domains.map((domain) => `@${domain}`).join(', ')}). Call and confirm which domain is legitimate.`,
+  return null
+}
+
+function prettyCaps(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed || trimmed !== trimmed.toUpperCase() || !/[A-Z]/.test(trimmed)) return trimmed
+  return trimmed
+    .toLowerCase()
+    .replace(/(^|[^a-z0-9'])([a-z])/g, (_, sep: string, ch: string) => `${sep}${ch.toUpperCase()}`)
+    .replace(/\b([A-Za-z]{2})\b(?=\s*$)/, (word) => word.toUpperCase())
+}
+
+function decisionLine(
+  profile: CreditProfile | null,
+  assessment: McCreditAssessment | null,
+  fallback: string
+): string {
+  const rating =
+    profile?.rating && profile.rating !== '—' && profile.rating !== 'No Buy'
+      ? `${profile.rating} rating`
+      : null
+  const score = assessment?.positives.find((item) => /credit score/i.test(item))
+  const days =
+    assessment?.positives.find((item) => /day/i.test(item)) ??
+    assessment?.reasons.find((item) => /day/i.test(item))
+  const scoreBit = score
+    ? score.replace(/\s*\(avg [^)]+\)/i, '').replace(/\.$/, '').toLowerCase()
+    : null
+  const dayCount = days?.match(/(\d+)/)?.[1]
+  const dayBit = dayCount
+    ? /quick|fast/i.test(days ?? '')
+      ? `payment around ${dayCount} days`
+      : `an average of ${dayCount} days to pay`
+    : null
+  const bits = [rating, scoreBit, dayBit].filter((bit): bit is string => Boolean(bit))
+  if (!bits.length) return fallback
+  const [first, ...rest] = bits
+  const head = first.charAt(0).toUpperCase() + first.slice(1)
+  if (!rest.length) return `${head}.`
+  if (rest.length === 1) return `${head} and ${rest[0]}.`
+  return `${head}, ${rest[0]} and ${rest[1]}.`
+}
+
+function scoreCaption(profile: CreditProfile, assessment: McCreditAssessment | null): string {
+  const line =
+    assessment?.positives.find((item) => /credit score/i.test(item)) ??
+    assessment?.reasons.find((item) => /credit score/i.test(item))
+  if (line) {
+    const avg = line.match(/avg\s+(\d+)/i)?.[1]
+    const tone = /strong/i.test(line) ? 'Strong' : /moderate/i.test(line) ? 'Moderate' : 'Lower'
+    return avg ? `${tone} credit scores across agencies (avg ${avg}).` : `${tone} credit scores across agencies.`
   }
+  const notice = profile.notices.find((item) => !item.includes('@'))
+  if (notice) return notice
+  return profile.rating === 'N' ? 'No letter grade on file.' : 'Letter grade on file.'
+}
+
+function docketDigits(value: string): string {
+  return value.replace(/\D/g, '')
+}
+
+function companiesMatch(left: string | null | undefined, right: string | null | undefined): boolean {
+  const norm = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const a = norm(left ?? '')
+  const b = norm(right ?? '')
+  if (!a || !b) return true
+  return a.includes(b) || b.includes(a)
+}
+
+function brokerAuthorityActive(authority: BrokerSnapshotSummary): boolean {
+  const broker = displayAuthorities(authority).broker.trim().toLowerCase()
+  return broker === 'active' || broker === 'authorized'
+}
+
+/** A carrier with no credit file and no broker authority is not a broker to book. */
+function isCarrierWithoutBrokerFile(
+  credit: McCreditAssessment | null,
+  profile: CreditProfile | null,
+  authority: BrokerSnapshotSummary | null
+): boolean {
+  if (!authority?.found || brokerAuthorityActive(authority)) return false
+  const noRating = !profile || profile.rating === '—'
+  const noDays = !profile || profile.days === '—'
+  const noFile = !credit || credit.sourceCount === 0 || credit.verdict === 'unknown'
+  return noRating && noDays && noFile
 }
 
 function headlineFor(
   credit: McCreditAssessment | null,
+  profile: CreditProfile | null,
   authority: BrokerSnapshotSummary | null
 ): { verdict: McCreditVerdict; title: string; summary: string } {
+  if (isCarrierWithoutBrokerFile(credit, profile, authority)) {
+    return {
+      verdict: 'avoid',
+      title: 'Not recommended',
+      summary:
+        'This is a carrier, not a broker. No credit rating, no days to pay, and no active broker authority.',
+    }
+  }
   const blocked = Boolean(authority?.found && isDoNotWorkBroker(authority))
   const insurance = authority?.found ? insuranceLabel(authority) : null
   if (blocked || credit?.verdict === 'avoid') {
@@ -287,16 +387,72 @@ function headlineFor(
   }
 }
 
+type CredyxPitch = 'general' | 'nobuy' | 'weak'
+
+const CREDYX_GENERAL = [
+  'Hey, did you know Credyx can also help you chase unpaid invoices?',
+  'Hey, check this out 👀 Credyx can follow up with the broker if your invoice is on hold.',
+  "Already booked the load and the broker isn't paying? Credyx can handle the follow-ups for you.",
+  "Did you know Credyx can follow up with brokers for you when they don't pay?",
+  "Invoice still unpaid? Don't waste your time chasing the broker. Let Credyx do it.",
+  "Your broker hasn't paid yet? Send it to Credyx. We'll help chase it down.",
+  'Oh, your invoice is on hold? 👀 Credyx can help you deal with the broker.',
+  'You just checked the broker. Now let Credyx handle the paperwork and payment follow-ups.',
+  "Hey, did you know there's more you can do on Credyx than just check brokers?",
+  'Check brokers for free. And if something goes wrong after the load, Credyx can help.',
+]
+
+const CREDYX_LINES: Record<CredyxPitch, string[]> = {
+  general: CREDYX_GENERAL,
+  nobuy: ['Factoring company put your invoice on NO BUY? Let Credyx chase the broker for you.'],
+  weak: ['Ohhh… this broker has a bad payment history 👀 Already booked the load? Let Credyx keep an eye on it.'],
+}
+
+function pickLine(pitch: CredyxPitch): string {
+  const lines = CREDYX_LINES[pitch]
+  return lines[Math.floor(Math.random() * lines.length)]
+}
+
+function creditLooksWeak(profile: CreditProfile | null, assessment: McCreditAssessment | null): boolean {
+  const rating = profile?.rating ?? ''
+  if (rating === 'No Buy') return false
+  if (/[DF]/.test(rating)) return true
+  return Boolean(
+    assessment?.reasons.some((reason) => /lower credit|credit rating includes d|slower payment/i.test(reason))
+  )
+}
+
+function credyxPitch(
+  loading: boolean,
+  searched: boolean,
+  verdict: McCreditVerdict | undefined,
+  profile: CreditProfile | null,
+  assessment: McCreditAssessment | null,
+  carrier: boolean,
+  blocked: boolean
+): CredyxPitch {
+  if (loading || !searched || !verdict) return 'general'
+  const noBuy = profile?.rating === 'No Buy' || Boolean(assessment?.reasons.some((reason) => /no buy/i.test(reason)))
+  if (noBuy) return 'nobuy'
+  if (carrier || blocked) return 'general'
+  if ((verdict === 'avoid' || verdict === 'caution') && creditLooksWeak(profile, assessment)) return 'weak'
+  return 'general'
+}
+
 export default function ClientMcLookup({
   initialMc = '',
   autoLookup = false,
   embedded = false,
+  introduce = false,
 }: {
   initialMc?: string
   autoLookup?: boolean
   embedded?: boolean
+  /** Public MC Check: Credyx card before the broker details. */
+  introduce?: boolean
 }) {
   const c = useClientTheme()
+  const [kind, setKind] = useState<DocketKind>('MC')
   const [mc, setMc] = useState(initialMc)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -304,41 +460,71 @@ export default function ClientMcLookup({
   const [authority, setAuthority] = useState<BrokerSnapshotSummary | null>(null)
   const [authorityError, setAuthorityError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
+  const [noteSearch, setNoteSearch] = useState(0)
 
   const assessment = credit ? assessMcCredit(credit) : null
   const profile = useMemo(() => (credit ? buildCreditProfile(credit.results) : null), [credit])
   const authorityFound = Boolean(authority?.found)
-  const headline = searched ? headlineFor(assessment, authority) : null
+  const headline = searched ? headlineFor(assessment, profile, authority) : null
 
-  async function runSearch(raw: string) {
-    const cleaned = raw.trim()
-    if (!cleaned) {
-      setError('Enter an MC number.')
+  async function runSearch(raw: string, searchKind: DocketKind = kind) {
+    const digits = docketDigits(raw)
+    if (!digits || (searchKind !== 'DOT' && digits.length < 4)) {
+      setError(`Enter a ${searchKind} number.`)
       return
     }
-    setMc(cleaned)
+    setMc(digits)
     setLoading(true)
     setError(null)
     setSearched(false)
-    const [creditResult, authorityResult] = await Promise.allSettled([
-      lookupMcCredit(cleaned),
-      lookupBrokerSnapshotByMc(cleaned, { fresh: true }),
-    ])
-    const nextCredit = creditResult.status === 'fulfilled' ? creditResult.value : null
-    const nextAuthority = authorityResult.status === 'fulfilled' ? authorityResult.value : null
+    if (introduce) setNoteSearch((current) => current + 1)
+
+    let nextCredit: McCreditSearchResponse | null = null
+    let nextAuthority: BrokerSnapshotSummary | null = null
+    let authorityFailed = false
+
+    if (searchKind === 'DOT') {
+      try {
+        nextAuthority = await lookupBrokerSnapshotByDot(digits)
+      } catch {
+        authorityFailed = true
+      }
+      const mcDigits = docketDigits(nextAuthority?.mcNumber ?? '')
+      if (mcDigits) {
+        try {
+          nextCredit = await lookupMcCredit(mcDigits)
+        } catch {
+          nextCredit = null
+        }
+      }
+    } else {
+      const prefix = searchKind === 'FF' ? 'FF' : 'MC'
+      const [creditResult, authorityResult] = await Promise.allSettled([
+        lookupMcCredit(digits),
+        lookupBrokerSnapshotByMc(digits, { fresh: true, prefix }),
+      ])
+      nextCredit = creditResult.status === 'fulfilled' ? creditResult.value : null
+      nextAuthority = authorityResult.status === 'fulfilled' ? authorityResult.value : null
+      authorityFailed = authorityResult.status === 'rejected'
+      const creditCompany = nextCredit?.results.find((row) => row.company)?.company?.replace(/\s*\(STOLEN ID.*$/i, '')
+      if (prefix === 'FF' && nextAuthority?.found && !companiesMatch(nextAuthority.name, creditCompany)) {
+        nextCredit = null
+      }
+    }
+
     setCredit(nextCredit)
     setAuthority(nextAuthority)
     setAuthorityError(
-      authorityResult.status === 'rejected' ? 'Authority check did not return. Try the lookup again.' : null
+      authorityFailed ? 'Authority check did not return. Try the lookup again.' : null
     )
     setSearched(true)
-    if (nextCredit?.mc) setMc(nextCredit.mc)
     const score = nextCredit ? buildCreditProfile(nextCredit.results)?.score : null
-    if (score && score !== '—') {
-      void recordLookupCreditScore(nextCredit?.mc || cleaned, score).catch(() => undefined)
+    const scoreMc = nextCredit?.mc || nextAuthority?.mcNumber || (searchKind === 'MC' ? digits : '')
+    if (score && score !== '—' && scoreMc) {
+      void recordLookupCreditScore(scoreMc, score).catch(() => undefined)
     }
     if (!nextCredit && !nextAuthority) {
-      setError('MC lookup failed. Try again in a moment.')
+      setError(`${searchKind} lookup failed. Try again in a moment.`)
     }
     setLoading(false)
   }
@@ -352,63 +538,115 @@ export default function ClientMcLookup({
     if (!autoLookup) return
     const cleaned = initialMc.trim()
     if (!cleaned) return
-    void runSearch(cleaned)
+    void runSearch(cleaned, 'MC')
     // Prefill from the brokers tab should run once when this panel opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoLookup, initialMc])
 
-  const company =
+  const company = prettyCaps(
     (authorityFound ? authority?.name : null) || profile?.company || assessment?.company || 'Broker'
-  const place = authority?.phyAddress || profile?.place || ''
+  )
+  const place = prettyCaps(authority?.phyAddress || profile?.place || '')
   const phone = formatPhoneList(unique([profile?.phone, authority?.phone]).join(', '))
-  const email = unique(splitEmails([profile?.email, authority?.email].filter(Boolean).join(', '))).join(' · ')
+  const emails = unique(splitEmails([profile?.email, authority?.email].filter(Boolean).join(', ')))
   const showResult = searched && !error && (profile || authorityFound)
   const nothing = searched && !error && !profile && !authorityFound
   const stolen = hasStolenWarning(credit?.results)
-  const domain = brokerDomainNote(splitEmails(email), stolen)
-  const showBoard = !error && (showResult || !searched)
+  const domain = brokerDomainNote(emails, stolen)
+  const otherReasons = (assessment?.reasons ?? []).filter((reason) => !reason.startsWith('Stolen-ID'))
+  const summary = headline
+    ? headline.verdict === 'avoid'
+      ? headline.summary
+      : headline.verdict === 'caution' && otherReasons.length > 0 && !headline.summary.startsWith('Stolen-ID')
+        ? headline.summary
+        : headline.verdict === 'caution' && otherReasons.length > 0
+          ? otherReasons.join(' ')
+          : decisionLine(profile, assessment, headline.summary)
+    : ''
+  const extraReasons = otherReasons.filter((reason) => {
+    if (summary.includes(reason)) return false
+    if (headline?.verdict === 'avoid' && /matching broker|no credit record/i.test(reason)) return false
+    return true
+  })
+  const docket =
+    authority?.mcNumber || credit?.mc || (kind === 'DOT' ? '' : mc)
+  const docketLabel = /^(FF|MX|MC)/i.test(docket)
+    ? docket
+    : kind === 'FF'
+      ? `FF-${docket}`
+      : docket
+  const pitch = credyxPitch(
+    loading,
+    searched,
+    headline?.verdict,
+    profile,
+    assessment,
+    isCarrierWithoutBrokerFile(assessment, profile, authority),
+    Boolean(authority?.found && isDoNotWorkBroker(authority))
+  )
+  const noteKey = `${noteSearch}:${pitch}`
+  const [credyxLine, setCredyxLine] = useState(() => ({ key: '0:general', text: pickLine('general') }))
+  if (introduce && credyxLine.key !== noteKey) setCredyxLine({ key: noteKey, text: pickLine(pitch) })
 
   return (
     <div
-      className={embedded ? 'min-h-0 flex-1 overflow-y-auto' : 'h-full overflow-y-auto'}
-      style={{ backgroundColor: c.background }}
+      className={
+        embedded
+          ? 'min-h-0 flex-1 overflow-y-auto'
+          : `h-full overflow-y-auto${introduce ? ' credyx-mc-canvas' : ''}`
+      }
+      style={introduce ? undefined : { backgroundColor: c.background }}
     >
-      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-5 md:px-6 md:py-6">
+      <div className="mx-auto flex w-full max-w-[920px] flex-col gap-4 px-4 py-5 md:px-6 md:py-6">
         <form
           onSubmit={onSearch}
-          className="rounded-2xl border p-4"
+          className="flex items-center gap-2 rounded-2xl border px-3 py-2"
           style={{ backgroundColor: c.card, borderColor: c.border, boxShadow: c.shadow.card }}
         >
-          <label className="block">
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
-              MC number
-            </span>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <input
-                value={mc}
-                onChange={(e) => setMc(e.target.value)}
-                placeholder="Enter MC"
-                inputMode="numeric"
-                autoComplete="off"
-                className="client-input min-w-0 flex-1"
-                disabled={loading}
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className="dashboard-btn-primary inline-flex h-10 items-center justify-center gap-2 px-5 text-sm font-semibold disabled:opacity-60"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                {loading ? 'Checking' : 'Look up'}
-              </button>
-            </div>
+          <label className="relative shrink-0">
+            <select
+              value={kind}
+              onChange={(event) => setKind(event.target.value as DocketKind)}
+              disabled={loading}
+              className="appearance-none bg-transparent py-2 pl-2 pr-7 text-sm font-semibold"
+              style={{ color: c.primary }}
+              aria-label="Number type"
+            >
+              <option value="MC">MC</option>
+              <option value="DOT">DOT</option>
+              <option value="FF">FF</option>
+            </select>
+            <ChevronDown
+              className="pointer-events-none absolute right-1 top-1/2 h-4 w-4 -translate-y-1/2"
+              style={{ color: c.secondary }}
+            />
           </label>
+          <input
+            value={mc}
+            onChange={(event) => setMc(event.target.value)}
+            placeholder={kind === 'DOT' ? 'DOT number' : kind === 'FF' ? 'FF number' : 'MC number'}
+            inputMode="numeric"
+            autoComplete="off"
+            className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm outline-none"
+            style={{ color: c.primary }}
+            disabled={loading}
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl px-4 text-sm font-semibold text-white disabled:opacity-60"
+            style={{ backgroundColor: c.accent }}
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Look up'}
+          </button>
         </form>
+
+        {introduce && noteSearch > 0 ? <CredyxResultCard key={credyxLine.key} text={credyxLine.text} /> : null}
 
         {error ? (
           <p
             className="rounded-xl border px-4 py-3 text-sm"
-            style={{ borderColor: '#FECACA', backgroundColor: '#FEF2F2', color: c.error }}
+            style={{ borderColor: c.error, backgroundColor: c.stat.red, color: c.error }}
           >
             {error}
           </p>
@@ -421,7 +659,7 @@ export default function ClientMcLookup({
           >
             <HelpCircle className="mx-auto h-8 w-8" style={{ color: c.mutedLight }} />
             <h2 className="mt-3 text-lg font-semibold" style={{ color: c.primary }}>
-              No record for MC {credit?.mc || mc}
+              No record for {kind} {credit?.mc || mc}
             </h2>
             <p className="mx-auto mt-1 max-w-md text-sm" style={{ color: c.secondary }}>
               Nothing came back for this number. Check the digits and try again.
@@ -433,61 +671,47 @@ export default function ClientMcLookup({
           <IdentityBar
             verdict={headline.verdict}
             title={headline.title}
-            summary={headline.summary}
-            reasons={assessment?.reasons ?? []}
-            positives={assessment?.positives ?? []}
+            summary={summary}
+            extra={extraReasons}
             company={company}
-            mc={authority?.mcNumber || credit?.mc || mc}
+            mc={docketLabel}
             dot={authority?.dotNumber}
             place={place}
           />
         ) : null}
 
-        {showBoard ? (
-          <div className="grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Slot title="Rating">
-              {showResult && profile ? (
-                <RatingBody profile={profile} />
+        {showResult ? (
+          <div className="grid items-stretch gap-3 md:grid-cols-3">
+            <Card title="Credit rating">
+              {profile ? (
+                <RatingBody profile={profile} assessment={assessment} />
               ) : (
-                <Placeholder>Letter grade when one is on file.</Placeholder>
+                <Placeholder>No credit rating on file.</Placeholder>
               )}
-            </Slot>
-            <Slot title="Days to pay">
-              {showResult && profile ? (
-                <DaysBody profile={profile} note={assessment?.positives.find((item) => /pay|day/i.test(item))} />
-              ) : (
-                <Placeholder>How quickly this broker pays.</Placeholder>
-              )}
-            </Slot>
-            <Slot title="Authority and insurance" className="sm:col-span-2 lg:col-span-1">
-              {showResult ? (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {authorityError ? (
-                    <p className="text-sm sm:col-span-2" style={{ color: '#B91C1C' }}>
-                      {authorityError}
-                    </p>
-                  ) : null}
-                  <AuthorityBody summary={authority} />
-                  <InsuranceBody summary={authority} />
-                </div>
-              ) : (
-                <Placeholder>Broker authority and coverage, when they are on file.</Placeholder>
-              )}
-            </Slot>
+            </Card>
+            <Card title="Days to pay">
+              {profile ? <DaysBody profile={profile} /> : <Placeholder>No payment pace on file.</Placeholder>}
+            </Card>
+            <Card
+              title="Authority and insurance"
+              action={authority ? <InsuranceDebugButton payload={authority.insuranceDebug} /> : null}
+            >
+              {authorityError ? (
+                <p className="mb-2 text-sm" style={{ color: c.error }}>
+                  {authorityError}
+                </p>
+              ) : null}
+              <AuthorityBody summary={authority} />
+            </Card>
           </div>
         ) : null}
 
-        {showResult && domain && !domain.ok ? <DomainBar note={domain} /> : null}
-        {showResult && domain?.ok ? (
-          <p className="px-1 text-sm" style={{ color: c.secondary }}>
-            {domain.text}
-          </p>
-        ) : null}
+        {showResult && domain ? <DomainBar note={domain} /> : null}
 
         {showResult ? (
           <ContactStrip
             phone={phone}
-            email={email}
+            emails={emails}
             officer={authority?.officer}
             mail={
               authority?.mailAddress && authority.mailAddress !== authority.phyAddress
@@ -501,17 +725,20 @@ export default function ClientMcLookup({
   )
 }
 
-function Slot({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
+function Card({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   const c = useClientTheme()
   return (
     <section
-      className={`flex h-full min-h-[168px] flex-col rounded-2xl border px-4 py-4 ${className ?? ''}`}
+      className="flex h-full flex-col rounded-2xl border px-5 py-4"
       style={{ backgroundColor: c.card, borderColor: c.border, boxShadow: c.shadow.card }}
     >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: c.accent }}>
-        {title}
-      </p>
-      <div className="mt-2 flex min-h-0 flex-1 flex-col">{children}</div>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm" style={{ color: c.secondary }}>
+          {title}
+        </p>
+        {action}
+      </div>
+      <div className="mt-3">{children}</div>
     </section>
   )
 }
@@ -525,12 +752,39 @@ function Placeholder({ children }: { children: ReactNode }) {
   )
 }
 
+function CredyxResultCard({ text }: { text: string }) {
+  const c = useClientTheme()
+  return (
+    <section
+      className="credyx-note-pulse rounded-2xl border px-5 py-5"
+      style={{ backgroundColor: c.accentLight, borderColor: c.accent }}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h2 className="text-2xl font-semibold leading-tight" style={{ color: c.primary }}>
+          Credyx
+        </h2>
+        <span
+          className="rounded-lg border px-2.5 py-1 text-xs font-medium"
+          style={{ borderColor: c.accent, backgroundColor: c.card, color: c.primary }}
+        >
+          A/R Solutions
+        </span>
+      </div>
+      <p className="mt-3 text-sm leading-relaxed" style={{ color: c.primary }}>
+        {text}
+      </p>
+      <Link to="/#waitlist-form" className="mt-4 inline-flex text-sm font-semibold" style={{ color: c.accent }}>
+        Schedule a demo
+      </Link>
+    </section>
+  )
+}
+
 function IdentityBar({
   verdict,
   title,
   summary,
-  reasons,
-  positives,
+  extra,
   company,
   mc,
   dot,
@@ -539,136 +793,160 @@ function IdentityBar({
   verdict: McCreditVerdict
   title: string
   summary: string
-  reasons: string[]
-  positives: string[]
+  extra: string[]
   company: string
   mc: string
   dot?: number | null
   place?: string
 }) {
   const c = useClientTheme()
-  const style = verdictStyle(verdict)
+  const style = verdictStyle(verdict, c)
   const Icon = style.Icon
-  const mcLabel = mc ? `MC ${mc.replace(/^MC-?/i, '')}` : null
-  const dotLabel = dot != null ? `DOT ${dot}` : null
-  const negatives = reasons.filter((reason) => !reason.includes('@'))
-  const pluses = positives.filter((item) => !item.includes('@'))
+  const prefix = mc.match(/^(FF|MX|MC)/i)?.[1]?.toUpperCase() ?? 'MC'
+  const digits = mc.replace(/^(FF|MX|MC)-?/i, '').trim()
+  const pills = [
+    digits ? `${prefix} ${digits}` : null,
+    dot != null ? `DOT ${dot}` : null,
+  ].filter((pill): pill is string => Boolean(pill))
 
   return (
-    <section className="rounded-2xl border-2 px-5 py-5" style={{ backgroundColor: style.bg, borderColor: style.border }}>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-        <h2 className="text-3xl font-semibold leading-tight underline decoration-2 underline-offset-4" style={{ color: c.primary }}>
-          {company}
-        </h2>
-        {mcLabel || dotLabel ? (
-          <div className="flex items-baseline gap-4 text-sm font-medium" style={{ color: c.secondary }}>
-            {mcLabel ? <p>{mcLabel}</p> : null}
-            {dotLabel ? <p>{dotLabel}</p> : null}
+    <section className="rounded-2xl border px-5 py-5" style={{ backgroundColor: style.bg, borderColor: style.border }}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-semibold leading-tight" style={{ color: c.primary }}>
+            {company}
+          </h2>
+          {place ? (
+            <p className="mt-1 text-sm" style={{ color: c.secondary }}>
+              {place}
+            </p>
+          ) : null}
+        </div>
+        {pills.length ? (
+          <div className="flex flex-wrap gap-2">
+            {pills.map((pill) => (
+              <span
+                key={pill}
+                className="rounded-lg border px-2.5 py-1 text-xs font-medium"
+                style={{ borderColor: c.accent, backgroundColor: c.card, color: c.primary }}
+              >
+                {pill}
+              </span>
+            ))}
           </div>
         ) : null}
       </div>
-      {place ? (
-        <p className="mt-2 whitespace-normal text-sm" style={{ color: c.secondary }}>
-          {place}
-        </p>
-      ) : null}
       <div className="mt-4 border-t pt-4" style={{ borderColor: style.border }}>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: style.color }}>
-          Decision
-        </p>
-        <div className="mt-1 flex items-center gap-2">
-          <Icon className="h-6 w-6 shrink-0" style={{ color: style.color }} />
-          <p className="text-xl font-semibold leading-none" style={{ color: style.color }}>
+        <div className="flex items-center gap-2">
+          <Icon className="h-5 w-5 shrink-0" style={{ color: style.color }} />
+          <p className="text-lg font-semibold leading-none" style={{ color: style.color }}>
             {title}
           </p>
         </div>
-        <p className="mt-2 text-sm leading-relaxed" style={{ color: c.primary }}>
+        <p className="mt-2 text-sm leading-relaxed" style={{ color: c.secondary }}>
           {summary}
         </p>
-        {pluses.length || negatives.length ? (
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#047857' }}>
-                Positive
-              </p>
-              {pluses.length ? (
-                <ul className="mt-1 space-y-1 text-sm" style={{ color: c.primary }}>
-                  {pluses.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-1 text-sm" style={{ color: c.secondary }}>
-                  None on this check.
-                </p>
-              )}
-            </div>
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#B91C1C' }}>
-                Negative
-              </p>
-              {negatives.length ? (
-                <ul className="mt-1 space-y-1 text-sm" style={{ color: c.primary }}>
-                  {negatives.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-1 text-sm" style={{ color: c.secondary }}>
-                  None on this check.
-                </p>
-              )}
-            </div>
-          </div>
+        {extra.length ? (
+          <ul className="mt-2 space-y-1 text-sm" style={{ color: c.primary }}>
+            {extra.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
         ) : null}
       </div>
     </section>
   )
 }
 
-function RatingBody({ profile }: { profile: CreditProfile }) {
+function RatingBody({
+  profile,
+  assessment,
+}: {
+  profile: CreditProfile
+  assessment: McCreditAssessment | null
+}) {
   const c = useClientTheme()
-  const tone = ratingTone(profile.rating)
+  const tone = ratingTone(profile.rating, c)
+  const score = profile.score === '—' ? null : profile.score.replace('–', '-')
   return (
-    <div className="flex h-full flex-col">
-      <p className="text-2xl font-semibold leading-none" style={{ color: tone?.color ?? c.primary }}>
+    <div>
+      <p className="text-5xl font-semibold leading-none" style={{ color: tone?.color ?? c.primary }}>
         {profile.rating}
       </p>
-      {profile.score !== '—' ? (
-        <p className="mt-2 text-xs" style={{ color: c.secondary }}>
-          Score {profile.score}
+      {score ? (
+        <p className="mt-3 text-sm" style={{ color: c.secondary }}>
+          Score {score}
         </p>
       ) : null}
-      {profile.notices.filter((notice) => !notice.includes('@')).slice(0, 1).length ? (
-        <div className="mt-3 space-y-1 text-xs leading-snug" style={{ color: c.secondary }}>
-          {profile.notices
-            .filter((notice) => !notice.includes('@'))
-            .slice(0, 1)
-            .map((notice) => (
-              <p key={notice}>{notice}</p>
-            ))}
-        </div>
-      ) : (
-        <p className="mt-3 text-xs" style={{ color: c.secondary }}>
-          {profile.rating === 'N' ? 'No letter grade on file.' : 'Letter grade on file.'}
-        </p>
-      )}
+      <p className="mt-2 text-sm leading-snug" style={{ color: c.secondary }}>
+        {scoreCaption(profile, assessment)}
+      </p>
     </div>
   )
 }
 
-function DaysBody({ profile, note }: { profile: CreditProfile; note?: string }) {
+function DaysBody({ profile }: { profile: CreditProfile }) {
   const c = useClientTheme()
+  const label = profile.days === '—' ? '—' : `${profile.days.replace('–', '-')} days`
+  const nums = profile.days.match(/\d+/g)?.map(Number) ?? []
+  const marker = nums.length
+    ? Math.min(100, Math.max(0, (nums.reduce((sum, value) => sum + value, 0) / nums.length / 60) * 100))
+    : null
   return (
     <div>
-      <p className="text-2xl font-semibold leading-none" style={{ color: c.primary }}>
-        {profile.days}
+      <p className="text-4xl font-semibold leading-none tracking-tight" style={{ color: c.primary }}>
+        {label}
       </p>
-      {note ? (
-        <p className="mt-3 text-xs leading-snug" style={{ color: c.secondary }}>
-          {note}
-        </p>
+      {marker != null ? (
+        <div className="mt-8">
+          <div className="relative h-2.5">
+            <div className="flex h-2.5 overflow-hidden rounded-full">
+              <div className="h-full w-1/2" style={{ backgroundColor: c.accent }} />
+              <div className="h-full w-1/4" style={{ backgroundColor: c.warning }} />
+              <div className="h-full flex-1" style={{ backgroundColor: c.error }} />
+            </div>
+            <span
+              className="absolute top-1/2 h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+              style={{ left: `${marker}%`, backgroundColor: c.primary }}
+            />
+          </div>
+          <div className="mt-2 flex justify-between text-[11px]" style={{ color: c.secondary }}>
+            <span>0</span>
+            <span>30</span>
+            <span>60+</span>
+          </div>
+        </div>
       ) : null}
+    </div>
+  )
+}
+
+function statusTone(value: string): 'good' | 'bad' | 'muted' {
+  const text = value.trim().toLowerCase()
+  if (text === 'active' || text === 'on file' || text === 'authorized') return 'good'
+  if (!text || text === 'none' || text === '—' || text === '-') return 'muted'
+  if (/cancel|missing|inactive|not |do not|revok|unauthor|review/.test(text)) return 'bad'
+  return 'muted'
+}
+
+function shownStatus(value: string): string {
+  const text = value.trim()
+  if (!text || text === '—' || text === '-' || /^none$/i.test(text)) return 'None'
+  if (/^active$/i.test(text) || /^authorized$/i.test(text)) return 'Active'
+  return text
+}
+
+function StatusLine({ label, value }: { label: string; value: string }) {
+  const c = useClientTheme()
+  const tone = statusTone(value)
+  const dot = tone === 'good' ? c.accent : tone === 'bad' ? c.error : c.mutedLight
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5 text-sm">
+      <span style={{ color: c.secondary }}>{label}</span>
+      <span className="inline-flex items-center gap-2 font-medium" style={{ color: c.primary }}>
+        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: dot }} />
+        {shownStatus(value)}
+      </span>
     </div>
   )
 }
@@ -676,34 +954,78 @@ function DaysBody({ profile, note }: { profile: CreditProfile; note?: string }) 
 function AuthorityBody({ summary }: { summary: BrokerSnapshotSummary | null }) {
   const c = useClientTheme()
   if (!summary) {
-    return <Placeholder>No authority details for this MC.</Placeholder>
+    return <Placeholder>No authority details for this number.</Placeholder>
   }
   const shown = displayAuthorities(summary)
   const blocked = isDoNotWorkBroker(summary)
-  const active = hasActiveFreightAuthority(summary)
-  const rows = [
-    ['Broker', shown.broker],
-    ['Common', shown.common],
-    ['Contract', shown.contract],
-  ] as const
+  const brokerActive = brokerAuthorityActive(summary)
+  const insurance = insuranceLabel(summary)
+  const insuranceValue =
+    insurance.label === 'Insurance on file'
+      ? 'On file'
+      : insurance.label === 'Insurance cancelled'
+        ? 'Cancelled'
+        : insurance.label === 'Insurance missing'
+          ? 'Missing'
+          : 'Needs review'
+  const policies = (summary.insurances ?? [])
+    .filter((policy) => policy.companyName && !/^(surety bond|insurer|unknown insurer)$/i.test(policy.companyName))
+    .slice(0, 2)
+  const showCancel = shouldShowCancellationHistory(summary)
+  const note = summary.operatingStatus
+    ? prettyCaps(summary.operatingStatus).replace(/:\s*/g, ' ').replace(/\s{2,}/g, ' ')
+    : null
   return (
     <div>
-      <p className="text-sm font-semibold" style={{ color: blocked ? '#B91C1C' : c.primary }}>
-        {blocked ? 'Do not use' : active ? 'Active' : 'Needs review'}
-      </p>
-      <dl className="mt-3 space-y-1">
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex items-baseline justify-between gap-3 text-sm">
-            <dt style={{ color: c.secondary }}>{label}</dt>
-            <dd className="font-semibold" style={{ color: c.primary }}>
-              {value}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      {summary.operatingStatus ? (
-        <p className="mt-2 text-xs leading-snug" style={{ color: c.primary }}>
-          {summary.operatingStatus}
+      <StatusLine label="Authority" value={brokerActive ? 'Active' : blocked ? 'Do not use' : 'None'} />
+      <StatusLine label="Insurance" value={insuranceValue} />
+      <StatusLine label="Broker authority" value={shown.broker} />
+      <StatusLine label="Common" value={shown.common} />
+      <StatusLine label="Contract" value={shown.contract} />
+      {summary.dotNumber != null && summary.dotNumber > 0 ? (
+        <a
+          href={`https://motus.dot.gov/customer/${summary.dotNumber}/account`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold"
+          style={{ color: c.accent }}
+        >
+          View authority on Motus
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      ) : null}
+      {note ? (
+        <p className="mt-3 text-xs leading-snug" style={{ color: c.secondary }}>
+          {/[.!?]$/.test(note) ? note : `${note}.`}
+        </p>
+      ) : null}
+      {policies.length ? (
+        <div className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: c.border }}>
+          {policies.map((policy) => (
+            <div key={`${policy.companyName}-${policy.policyNumber ?? ''}`}>
+              <p className="text-sm font-medium leading-snug" style={{ color: c.primary }}>
+                {policy.companyName}
+              </p>
+              <p className="text-xs" style={{ color: c.secondary }}>
+                {[policy.policyNumber, money(policy.maxLimit)].filter(Boolean).join(' · ')}
+              </p>
+              {policy.phone ? (
+                <p className="text-xs" style={{ color: c.primary }}>
+                  {formatPhoneList(policy.phone)}
+                </p>
+              ) : null}
+              {splitEmails(policy.email).map((address) => (
+                <p key={address} className="break-all text-xs" style={{ color: c.primary }}>
+                  {address}
+                </p>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {showCancel && summary.latestCancellationDate ? (
+        <p className="mt-2 text-xs" style={{ color: c.secondary }}>
+          Cancellation on file · {summary.latestCancellationDate}
         </p>
       ) : null}
     </div>
@@ -769,81 +1091,54 @@ function InsuranceDebugButton({ payload }: { payload: unknown }) {
   )
 }
 
-function InsuranceBody({ summary }: { summary: BrokerSnapshotSummary | null }) {
+function DomainBar({ note }: { note: { title: string; text: string } }) {
   const c = useClientTheme()
-  if (!summary) {
-    return <Placeholder>No insurance details for this MC.</Placeholder>
-  }
-  const insurance = insuranceLabel(summary)
-  const policies = (summary.insurances ?? [])
-    .filter((policy) => policy.companyName && !/^(surety bond|insurer|unknown insurer)$/i.test(policy.companyName))
-    .slice(0, 2)
-  const showCancel = shouldShowCancellationHistory(summary)
   return (
-    <div>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold" style={{ color: insurance.ok ? c.primary : '#B91C1C' }}>
-          {insurance.label}
+    <section
+      className="flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm"
+      style={{ backgroundColor: c.stat.amber, borderColor: c.warning, color: c.primary }}
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: c.warning }} />
+      <div>
+        <p className="font-semibold" style={{ color: c.warning }}>
+          {note.title}
         </p>
-        <InsuranceDebugButton payload={summary.insuranceDebug} />
+        <p className="mt-0.5 leading-relaxed">{note.text}</p>
       </div>
-      <div className="mt-2 space-y-2">
-        {policies.map((policy) => (
-          <div key={`${policy.companyName}-${policy.policyNumber ?? ''}`}>
-            <p className="text-sm font-medium leading-snug" style={{ color: c.primary }}>
-              {policy.companyName}
-            </p>
-            <p className="text-xs" style={{ color: c.secondary }}>
-              {[policy.policyNumber, money(policy.maxLimit)].filter(Boolean).join(' · ')}
-            </p>
-            {policy.phone ? (
-              <p className="text-xs" style={{ color: c.primary }}>
-                {formatPhoneList(policy.phone)}
-              </p>
-            ) : null}
-            {splitEmails(policy.email).map((address) => (
-              <p key={address} className="break-all text-xs" style={{ color: c.primary }}>
-                {address}
-              </p>
-            ))}
-          </div>
-        ))}
-      </div>
-      {showCancel && summary.latestCancellationDate ? (
-        <p className="mt-2 text-xs" style={{ color: c.secondary }}>
-          Cancellation on file · {summary.latestCancellationDate}
-        </p>
-      ) : null}
-    </div>
+    </section>
   )
 }
 
-function DomainBar({ note }: { note: { text: string; ok: boolean } }) {
+function ContactLines({ value }: { value: string }) {
+  const lines = value
+    .split(/[,;·]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
   return (
-    <section
-      className="flex items-start gap-2 rounded-2xl border px-4 py-3 text-sm"
-      style={{ backgroundColor: '#FFFBEB', borderColor: '#FCD34D', color: '#92400E' }}
-    >
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-      <p className="font-semibold">{note.text}</p>
-    </section>
+    <>
+      {lines.map((line) => (
+        <p key={line} className="break-words">
+          {line}
+        </p>
+      ))}
+    </>
   )
 }
 
 function ContactStrip({
   phone,
-  email,
+  emails,
   officer,
   mail,
 }: {
   phone?: string
-  email?: string
+  emails: string[]
   officer?: string | null
   mail?: string
 }) {
   const items = [
     phone ? { label: 'Phone', value: phone } : null,
-    email ? { label: 'Email', value: email } : null,
+    emails.length ? { label: 'Email', value: emails.join(' · ') } : null,
     officer ? { label: 'Officer', value: officer } : null,
     mail ? { label: 'Mailing', value: mail } : null,
   ].filter((item): item is { label: string; value: string } => Boolean(item))
@@ -851,19 +1146,20 @@ function ContactStrip({
   const c = useClientTheme()
   return (
     <section
-      className="grid gap-3 rounded-2xl border px-4 py-3 sm:grid-cols-2 lg:grid-cols-4"
+      className="grid gap-4 rounded-2xl border px-5 py-4 sm:grid-cols-2"
       style={{ backgroundColor: c.card, borderColor: c.border, boxShadow: c.shadow.card }}
     >
       {items.map((item) => (
         <div key={item.label} className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
+          <p className="text-sm" style={{ color: c.secondary }}>
             {item.label}
           </p>
-          <p className="mt-0.5 break-words text-sm" style={{ color: c.primary }}>
-            {item.value}
-          </p>
+          <div className="mt-2 space-y-1 text-sm" style={{ color: c.primary }}>
+            <ContactLines value={item.value} />
+          </div>
         </div>
       ))}
     </section>
   )
 }
+

@@ -8,8 +8,9 @@ const cache = new Map<string, { at: number; data: BrokerSnapshotSummary }>()
 const inflight = new Map<string, Promise<BrokerSnapshotSummary>>()
 const CACHE_TTL_MS = 60 * 1000 // short client memo; shared 30d/5d cache lives server-side
 
-function cacheKey(mc: string): string {
-  return mc.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+function cacheKey(mc: string, prefix = 'MC'): string {
+  const digits = mc.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+  return digits ? `${prefix}:${digits}` : ''
 }
 
 /** Clear in-memory Snapshot lookups (tests / logout). */
@@ -23,9 +24,10 @@ export function clearBrokerSnapshotCache(): void {
  */
 export async function lookupBrokerSnapshotByMc(
   mc: string,
-  options?: { fresh?: boolean }
+  options?: { fresh?: boolean; prefix?: 'MC' | 'FF' }
 ): Promise<BrokerSnapshotSummary> {
-  const key = cacheKey(mc)
+  const prefix = options?.prefix ?? 'MC'
+  const key = cacheKey(mc, prefix)
   if (!key) {
     return { found: false, riskFlags: [], mcNumber: null }
   }
@@ -41,7 +43,7 @@ export async function lookupBrokerSnapshotByMc(
   const supabase = requireSupabase()
   const request = (async () => {
     const { data, error } = await supabase.functions.invoke('brokersnapshot-proxy', {
-      body: { action: 'lookupByMc', mc },
+      body: { action: 'lookupByMc', mc, prefix },
     })
     if (error) throw new Error(error.message || 'BrokerSnapshot lookup failed')
     const payload = data as {

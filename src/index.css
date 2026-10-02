@@ -175,10 +175,25 @@ body {
   }
 }
 
+@keyframes credyx-note-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(22, 132, 254, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(22, 132, 254, 0);
+  }
+}
+
+.credyx-note-pulse {
+  animation: credyx-note-pulse 1.6s ease-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .notification-bell-btn--attention,
   .notification-bell-btn--attention .notification-bell-btn__icon,
-  .notification-bell-btn__badge {
+  .notification-bell-btn__badge,
+  .credyx-note-pulse {
     animation: none !important;
   }
 

@@ -27,6 +27,7 @@ export const ClientCollectionsQueue = lazy(() => import('../pages/ClientCollecti
 export const ClientReports = lazy(() => import('../pages/ClientReports'))
 export const ClientBrokers = lazy(() => import('../pages/ClientBrokers'))
 export const ClientMcLookup = lazy(() => import('../pages/ClientMcLookup'))
+export const PublicMcCheck = lazy(() => import('../pages/PublicMcCheck'))
 export const ClientAssistant = lazy(() => import('../pages/ClientAssistant'))
 export const ClientSettings = lazy(() => import('../pages/ClientSettings'))
 export const ClientDocuments = lazy(() => import('../pages/ClientDocuments'))
