@@ -62,6 +62,10 @@ function nRatingGap(rows: McCreditRecord[], letterRatings: string[]): string | n
   return 'Rated N. Payment history may be too thin to treat this score as solid.'
 }
 
+const STOLEN_ID_REASON = 'Stolen-ID warning on file.'
+const STOLEN_ID_SUMMARY =
+  'Stolen-ID warning on file. Make sure the email domain and rate confirmation are legitimate. Call the phone numbers on file, email this broker, and verify the rate con and email domain are good.'
+
 function isNoBuy(row: McCreditRecord): boolean {
   const blob = [row.noBuy, row.creditRating].filter(Boolean).join(' ').toUpperCase()
   return blob.includes('NO BUY') || row.creditRating?.toUpperCase() === 'F'
@@ -99,10 +103,8 @@ export function assessMcCredit(data: McCreditSearchResponse): McCreditAssessment
     reasons.push('Marked No Buy.')
   }
 
-  if (rows.some(hasStolenId)) {
-    avoidScore += 5
-    reasons.push('Identity-theft / stolen-ID warning on file — verify before hauling.')
-  }
+  const stolenId = rows.some(hasStolenId)
+  if (stolenId) reasons.push(STOLEN_ID_REASON)
 
   const letterRatings = rows
     .map((r) => (r.creditRating || '').toUpperCase().trim())
@@ -168,19 +170,29 @@ export function assessMcCredit(data: McCreditSearchResponse): McCreditAssessment
   let title = 'Review carefully'
   let summary = 'Signals are mixed. Review the details before booking.'
 
+  const scoringReasons = reasons.filter((reason) => reason !== STOLEN_ID_REASON)
+
   if (avoidScore >= 4) {
     verdict = 'avoid'
     title = 'Not recommended'
     summary =
       'Hard risk flags found. Do not treat this broker as safe to work without direct verification.'
-  } else if (reasons.length > 0) {
+  } else if (scoringReasons.length > 0) {
     verdict = 'caution'
     title = 'Work with caution'
-    summary = 'Some positives, but risk or payment concerns exist. Verify before hauling.'
+    summary = stolenId
+      ? STOLEN_ID_SUMMARY
+      : 'Some positives, but risk or payment concerns exist. Verify before hauling.'
   } else if (positives.length > 0 || goodScore > 0) {
     verdict = 'good'
     title = 'Good to work with'
-    summary = 'Credit signals look solid. Still confirm load details as usual.'
+    summary = stolenId
+      ? STOLEN_ID_SUMMARY
+      : 'Credit signals look solid. Still confirm load details as usual.'
+  } else if (stolenId) {
+    verdict = 'caution'
+    title = 'Work with caution'
+    summary = STOLEN_ID_SUMMARY
   }
 
   return {

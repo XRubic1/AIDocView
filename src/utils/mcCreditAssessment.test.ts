@@ -89,6 +89,25 @@ describe('assessMcCredit', () => {
     expect(experienced.verdict).toBe('good')
   })
 
+  it('does not mark a stolen-ID warning as not recommended', () => {
+    const result = assessMcCredit(
+      response([
+        row({
+          company: 'VARSTAR ALLIANCE INC (STOLEN ID)',
+          creditRating: 'B',
+          creditScore: 96,
+          paydex: 33,
+          warning: 'STOLEN ID',
+        }),
+      ])
+    )
+    expect(result.verdict).toBe('good')
+    expect(result.title).toBe('Good to work with')
+    expect(result.summary).toMatch(/email domain and rate confirmation/i)
+    expect(result.summary).toMatch(/call the phone numbers/i)
+    expect(result.reasons.some((reason) => /stolen-id warning/i.test(reason))).toBe(true)
+  })
+
   it('treats strong ratings, scores, and pay speed as good', () => {
     const result = assessMcCredit(
       response([row({ creditRating: 'A', creditScore: 92, paydex: 22 })])

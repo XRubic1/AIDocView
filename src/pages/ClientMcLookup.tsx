@@ -213,22 +213,25 @@ function hasStolenWarning(results: McCreditRecord[] | undefined): boolean {
 function brokerDomainNote(emails: string[], stolen: boolean): { text: string; ok: boolean } | null {
   const domains = unique(emails.map((email) => extractEmailDomain(email)))
   if (!domains.length && !stolen) return null
-  if (domains.length === 1) {
-    const domain = `@${domains[0]}`
-    return {
-      ok: !stolen,
-      text: stolen
-        ? `Stolen-ID warning. Broker domain must match ${domain}`
-        : `Broker domain must match ${domain}`,
-    }
-  }
-  if (domains.length > 1) {
+  if (stolen) {
+    const listed =
+      domains.length === 1
+        ? ` Emails on file use @${domains[0]}.`
+        : domains.length > 1
+          ? ` Emails on file use ${domains.map((domain) => `@${domain}`).join(', ')}.`
+          : ''
     return {
       ok: false,
-      text: `Broker domains don't match (${domains.map((domain) => `@${domain}`).join(', ')}). Confirm this is not a stolen MC.`,
+      text: `Stolen-ID warning. Call the phone numbers on file, email this broker, and confirm the rate confirmation and email domain are legitimate.${listed}`,
     }
   }
-  return { ok: false, text: 'Stolen-ID warning on file. Confirm the broker domain before you book.' }
+  if (domains.length === 1) {
+    return { ok: true, text: `Broker domain must match @${domains[0]}` }
+  }
+  return {
+    ok: false,
+    text: `Broker domains don't match (${domains.map((domain) => `@${domain}`).join(', ')}). Call and confirm which domain is legitimate.`,
+  }
 }
 
 function headlineFor(
@@ -254,10 +257,13 @@ function headlineFor(
     }
   }
   if (credit?.verdict === 'good' && authority?.found && hasActiveFreightAuthority(authority)) {
+    const stolen = credit.reasons.some((reason) => reason.startsWith('Stolen-ID warning'))
     return {
       verdict: 'good',
       title: 'Good to work with',
-      summary: 'Credit and authority both look solid. Still confirm the load details.',
+      summary: stolen
+        ? credit.summary
+        : 'Credit and authority both look solid. Still confirm the load details.',
     }
   }
   if (credit?.verdict === 'good') {
