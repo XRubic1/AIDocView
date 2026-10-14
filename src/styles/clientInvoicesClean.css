@@ -1,0 +1,458 @@
+/*
+ * Client invoices — calm list layout.
+ * Five readable columns with secondary details stacked underneath, and a list
+ * that drops columns by its own width (container queries) so nothing overlaps
+ * when the details panel is open or the screen is narrow.
+ * Colors come from the --cp-* theme tokens so dark mode keeps working.
+ */
+
+/* ── KPI row ── */
+.client-portal .client-invoices-page .inv-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 20px 0;
+  background: var(--cp-surface);
+}
+
+.client-portal .client-invoices-page .inv-kpi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  column-gap: 12px;
+  min-width: 0;
+  padding: 8px 14px;
+  border: 1px solid var(--cp-border);
+  border-radius: 10px;
+  background: var(--cp-card);
+  text-align: left;
+  font: inherit;
+  color: var(--cp-text);
+}
+
+.client-portal .client-invoices-page .inv-kpi--button {
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.client-portal .client-invoices-page .inv-kpi--button:hover {
+  border-color: var(--cp-border-hover);
+}
+
+.client-portal .client-invoices-page .inv-kpi--button:focus-visible {
+  outline: 2px solid var(--cp-accent);
+  outline-offset: 2px;
+}
+
+.client-portal .client-invoices-page .inv-kpi--button.is-active {
+  border-color: var(--cp-error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-error) 14%, transparent);
+}
+
+.client-portal .client-invoices-page .inv-kpi__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cp-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-portal .client-invoices-page .inv-kpi__value {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-portal .client-invoices-page .inv-kpi.is-alert .inv-kpi__value {
+  color: var(--cp-error);
+}
+
+.client-portal .client-invoices-page .inv-kpi__note {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: #7c3aed;
+}
+
+/* ── Toolbar ── */
+.client-portal .client-invoices-page .inv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 20px;
+  background: var(--cp-surface);
+}
+
+.client-portal .client-invoices-page .inv-toolbar__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 320px;
+  order: 2;
+}
+
+.client-portal .client-invoices-page .inv-toolbar__row--filters {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  row-gap: 6px;
+  order: 1;
+}
+
+.client-portal .client-invoices-page .inv-search {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.client-portal .client-invoices-page .inv-search__icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  color: var(--cp-muted-light);
+  pointer-events: none;
+}
+
+.client-portal .client-invoices-page .inv-search input {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--cp-input-border);
+  border-radius: 10px;
+  background: var(--cp-input-bg);
+  color: var(--cp-text);
+  font: inherit;
+  font-size: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.client-portal .client-invoices-page .inv-search input::placeholder {
+  color: var(--cp-muted-light);
+}
+
+.client-portal .client-invoices-page .inv-search input:focus {
+  outline: none;
+  border-color: var(--cp-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-accent) 16%, transparent);
+}
+
+.client-portal .client-invoices-page .inv-date-btn {
+  height: 34px;
+  border-radius: 10px;
+}
+
+.client-portal .client-invoices-page .inv-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.client-portal .client-invoices-page .inv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--cp-border);
+  border-radius: 999px;
+  background: var(--cp-card);
+  color: var(--cp-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.client-portal .client-invoices-page .inv-chip:hover {
+  border-color: var(--cp-border-hover);
+  color: var(--cp-text);
+}
+
+.client-portal .client-invoices-page .inv-chip:focus-visible {
+  outline: 2px solid var(--cp-accent);
+  outline-offset: 2px;
+}
+
+.client-portal .client-invoices-page .inv-chip.is-on {
+  border-color: color-mix(in srgb, var(--cp-accent) 35%, transparent);
+  background: var(--cp-accent-light);
+  color: var(--cp-accent);
+}
+
+.client-portal .client-invoices-page .inv-chip__count {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ── List ── */
+.client-portal .client-invoices-page .payments-workspace-body {
+  border-top: 1px solid var(--cp-border);
+}
+
+.client-portal .client-invoices-page .payments-list-panel {
+  container-type: inline-size;
+  container-name: inv-list;
+  background: var(--cp-card);
+}
+
+.client-portal .client-invoices-page .inv-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.client-portal .client-invoices-page .inv-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 40px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--cp-border);
+  background: var(--cp-card);
+  text-align: left;
+  font-weight: 500;
+}
+
+.client-portal .client-invoices-page .inv-table .dashboard-table__sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cp-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.client-portal .client-invoices-page .inv-table .dashboard-table__sort-btn:hover,
+.client-portal .client-invoices-page .inv-table .dashboard-table__sort-btn[aria-sort='ascending'],
+.client-portal .client-invoices-page .inv-table .dashboard-table__sort-btn[aria-sort='descending'] {
+  color: var(--cp-text);
+}
+
+.client-portal .client-invoices-page .inv-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--cp-border);
+  vertical-align: middle;
+  min-width: 0;
+}
+
+/* Column widths — amount and status stay fixed, text columns share the rest. */
+.client-portal .client-invoices-page .inv-col-invoice {
+  width: 22%;
+}
+
+.client-portal .client-invoices-page .inv-col-broker {
+  width: 28%;
+}
+
+.client-portal .client-invoices-page .inv-col-date {
+  width: 20%;
+}
+
+.client-portal .client-invoices-page .inv-col-amount {
+  width: 128px;
+  text-align: right;
+}
+
+.client-portal .client-invoices-page .inv-col-status {
+  width: 168px;
+}
+
+.client-portal .client-invoices-page th.inv-col-amount .dashboard-table__sort-btn {
+  margin-left: auto;
+}
+
+.client-portal .client-invoices-page .inv-row {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.client-portal .client-invoices-page .inv-row:hover td {
+  background: var(--cp-table-hover);
+}
+
+.client-portal .client-invoices-page .inv-row.is-selected td {
+  background: var(--cp-accent-light);
+}
+
+.client-portal .client-invoices-page .inv-row.is-selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--cp-accent);
+}
+
+.client-portal .client-invoices-page .inv-row.is-overdue td:first-child {
+  box-shadow: inset 3px 0 0 var(--cp-error);
+}
+
+.client-portal .client-invoices-page .inv-row.is-force-close td:first-child {
+  box-shadow: inset 3px 0 0 #7c3aed;
+}
+
+.client-portal .client-invoices-page .inv-cell__main,
+.client-portal .client-invoices-page .inv-cell__sub {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-portal .client-invoices-page .inv-cell__main {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--cp-text);
+}
+
+.client-portal .client-invoices-page .inv-cell__main--quiet {
+  font-weight: 500;
+}
+
+.client-portal .client-invoices-page .inv-cell__sub {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--cp-text-muted);
+}
+
+/* Broker name under the invoice number only shows once the Broker column is hidden. */
+.client-portal .client-invoices-page .inv-cell__sub--broker {
+  display: none;
+}
+
+.client-portal .client-invoices-page .inv-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.client-portal .client-invoices-page .inv-ppw {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cp-success);
+}
+
+/* Narrow list (details panel open or small screen): drop columns instead of squeezing. */
+@container inv-list (max-width: 720px) {
+  .client-portal .client-invoices-page .inv-col-date {
+    display: none;
+  }
+
+  .client-portal .client-invoices-page .inv-col-invoice,
+  .client-portal .client-invoices-page .inv-col-broker {
+    width: auto;
+  }
+
+  .client-portal .client-invoices-page .inv-col-amount {
+    width: 116px;
+  }
+
+  .client-portal .client-invoices-page .inv-col-status {
+    width: 144px;
+  }
+}
+
+@container inv-list (max-width: 540px) {
+  .client-portal .client-invoices-page .inv-col-broker {
+    display: none;
+  }
+
+  .client-portal .client-invoices-page .inv-col-invoice {
+    width: auto;
+  }
+
+  .client-portal .client-invoices-page .inv-cell__sub--broker {
+    display: block;
+  }
+
+  .client-portal .client-invoices-page .inv-col-amount {
+    width: 112px;
+  }
+
+  .client-portal .client-invoices-page .inv-col-status {
+    width: 132px;
+  }
+
+  .client-portal .client-invoices-page .inv-table th,
+  .client-portal .client-invoices-page .inv-table td {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+
+/* ── Footer ── */
+.client-portal .client-invoices-page .inv-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--cp-border);
+  background: var(--cp-card);
+  font-size: 13px;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .client-invoices-page .inv-footer__count {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.client-portal .client-invoices-page .inv-footer__controls,
+.client-portal .client-invoices-page .inv-footer__rows,
+.client-portal .client-invoices-page .inv-footer__pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.client-portal .client-invoices-page .inv-footer__controls {
+  gap: 16px;
+}
+
+.client-portal .client-invoices-page .inv-footer__rows select {
+  width: 64px;
+  height: 30px;
+  padding: 2px 8px;
+  font-size: 13px;
+  background-color: var(--cp-card);
+}
+
+.client-portal .client-invoices-page .inv-footer__pager span {
+  min-width: 44px;
+  text-align: center;
+  color: var(--cp-text);
+}
+
+@media (max-width: 900px) {
+  .client-portal .client-invoices-page .inv-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -106,28 +106,22 @@ export function MarketingHeader() {
         className={`cx-nav-links${menuOpen ? ' open' : ''}`}
         aria-label="Marketing"
       >
+        <button type="button" className="cx-nav-link" onClick={() => goSection('how-it-works')}>
+          How it works
+        </button>
+        <button type="button" className="cx-nav-link" onClick={() => goSection('why')}>
+          Why Credyx
+        </button>
+        <button type="button" className="cx-nav-link" onClick={() => goSection('product')}>
+          Product
+        </button>
         <button type="button" className="cx-nav-link" onClick={() => goSection('pricing')}>
           Pricing
         </button>
-        <button type="button" className="cx-nav-link" onClick={() => goSection('buddy')}>
-          Buddy
-        </button>
-        <button type="button" className="cx-nav-link" onClick={() => goSection('features')}>
-          Features
-        </button>
         {!isMarketingOnly && (
-          <>
-            <button
-              type="button"
-              className="cx-nav-link"
-              onClick={() => go('/how-it-works', 'nav_how_it_works')}
-            >
-              How it works
-            </button>
-            <button type="button" className="cx-nav-link" onClick={() => go('/tour', 'nav_tour')}>
-              Product tour
-            </button>
-          </>
+          <button type="button" className="cx-nav-link" onClick={() => go('/tour', 'nav_tour')}>
+            Product tour
+          </button>
         )}
         <button
           type="button"
@@ -136,10 +130,10 @@ export function MarketingHeader() {
             trackWebsiteEvent('nav_click', 'nav_mc_check')
             setMenuOpen(false)
             if (isMarketingOnly) {
-              window.location.assign(`${getClientLoginHref().replace(/\/client\/login$/, '')}/mc-check`)
+              window.location.assign(`${getClientLoginHref().replace(/\/client\/login$/, '')}/MC`)
               return
             }
-            navigate('/mc-check')
+            navigate('/MC')
           }}
         >
           MC Check

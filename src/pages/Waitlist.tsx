@@ -1,420 +1,56 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Eye,
-  FileCheck,
-  Headphones,
-  CalendarDays,
-  Truck,
-  BarChart3,
-  FolderOpen,
-  AlertCircle,
-  MessageSquare,
-  Building2,
-  X,
-} from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import '../styles/credyxMarketing.css'
+import '../styles/credyxWaitlistSales.css'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
 import { useWebsiteAnalytics } from '../hooks/useWebsiteAnalytics'
 import { trackWebsiteEvent } from '../services/websiteAnalytics'
 import { MarketingHeader } from '../components/enroll/MarketingHeader'
 import { WaitlistForm } from '../components/enroll/WaitlistForm'
-import { WaitlistInvoiceProgress } from '../components/enroll/WaitlistInvoiceProgress'
-import { WaitlistPlatformDeck } from '../components/enroll/WaitlistPlatformDeck'
 import { WaitlistPricingCompare } from '../components/enroll/WaitlistPricingCompare'
+import { WaitlistHeroInvoice } from '../components/enroll/WaitlistHeroInvoice'
+import { WaitlistHowItWorksScene } from '../components/enroll/WaitlistHowItWorksScene'
 import { getClientLoginHref } from '../utils/clientLoginRedirect'
-
-// ── Static content (aligned with WAITLIST_MARKETING_SITE.md) ──
-
-const WORKFLOW_STEPS = [
-  {
-    title: 'Docs received',
-    description: 'You send Credyx your paperwork for the load.',
-  },
-  {
-    title: 'Paperwork verified',
-    description: 'We check every document so nothing gets missed.',
-  },
-  {
-    title: 'Invoice submitted',
-    description: 'We invoice the broker (PPW) and track acceptance.',
-  },
-  {
-    title: 'Broker follow-up',
-    description: 'We chase holds and disputes — and keep you updated.',
-  },
-  {
-    title: 'Payment received',
-    description: 'We confirm when payment arrives — on time.',
-  },
-]
-
-/** Slight path variance so each side connector feels hand-drawn, not cloned. */
-const PROCESS_CONNECTORS = [
-  {
-    path: 'M66 6 C48 12, 12 14, 10 34 C8 52, 44 56, 46 38 C48 24, 6 58, 4 82 C2 102, 36 110, 66 116',
-    head: 'M50 106 L68 116 L50 124',
-  },
-  {
-    path: 'M66 8 C50 10, 16 18, 8 36 C2 54, 40 60, 44 40 C48 22, 10 54, 6 78 C2 100, 40 108, 66 114',
-    head: 'M48 104 L68 114 L52 122',
-  },
-  {
-    path: 'M66 4 C44 14, 10 12, 12 32 C14 50, 48 54, 42 36 C36 20, 4 62, 8 86 C12 106, 34 112, 66 118',
-    head: 'M52 108 L68 118 L48 124',
-  },
-  {
-    path: 'M66 7 C52 16, 14 10, 6 30 C0 48, 38 58, 48 42 C56 28, 8 64, 2 84 C-2 104, 38 112, 66 115',
-    head: 'M50 105 L66 115 L48 122',
-  },
-] as const
 
 const BENEFITS = [
   {
-    icon: Truck,
+    n: '01',
     title: 'No in-house A/R team',
     description: 'Back office handled without payroll and turnover.',
   },
   {
-    icon: Eye,
+    n: '02',
     title: 'Complete visibility',
     description: 'Dashboard for open A/R, holds, and payment status.',
   },
   {
-    icon: Headphones,
+    n: '03',
     title: 'Broker follow-up included',
-    description: 'We chase paperwork issues and slow pay — you stay on the road.',
+    description: 'We chase paperwork issues and slow pay. You stay on the road.',
   },
   {
-    icon: FileCheck,
+    n: '04',
     title: 'Built for carriers',
     description: 'Invoicing, collections, and reporting in one portal.',
   },
-]
-
-/** Credyx vs factoring (copy source: docs/marketing/CREDYX_VS_FACTORING.md §5). Credyx left. */
-const SHOW_VS_FACTORING = false
-
-const VS_FACTORING = {
-  credyx: {
-    title: 'Credyx',
-    sub: 'You\u2019re buying a back office',
-    points: [
-      'You keep your invoices — brokers pay you directly',
-      'Small fee only when invoices are collected — no hidden fees',
-      'We work alongside you — clear asks, shared status, holds chased',
-      'No advance — nothing to claw back; uncollected means no % fee',
-    ],
-  },
-  factor: {
-    title: 'Factoring',
-    sub: 'You\u2019re buying cash flow',
-    points: [
-      'They advance cash and own the invoice (NOA)',
-      'Fees are financing fees — discount, reserves, minimums',
-      'Collections protect their receivable — you see funded or not',
-      'Broker doesn\u2019t pay? Chargeback plus fees',
-    ],
-  },
-} as const
-
-const PLATFORM_FEATURES = [
-  {
-    icon: FileCheck,
-    title: 'Invoice tracking',
-    description: 'Follow every load from paperwork to paid — with status on the invoice.',
-    points: [
-      'Open A/R and holds at a glance',
-      'Submitted → Verified → Invoiced → Paid',
-      'Activity, notes, and docs on one screen',
-    ],
-  },
-  {
-    icon: AlertCircle,
-    title: 'Holds & disputes',
-    description: 'See what is blocked and why — no digging through email threads.',
-    points: [
-      'Hold reason shown right away',
-      'Missing PPW, POD, or rate con called out',
-      'We follow up with the broker for you',
-    ],
-  },
-  {
-    icon: CalendarDays,
-    title: 'A/R calendar',
-    description: 'Know what is due — paperwork checks and expected pay dates.',
-    points: [
-      'Paperwork and upload reminders',
-      'Expected payment dates by invoice',
-      'Jump straight to the invoice from the calendar',
-    ],
-  },
-  {
-    icon: FolderOpen,
-    title: 'Document vault',
-    description: 'Setup packets and load docs approved, filed, and ready.',
-    points: [
-      'BOL, POD, and rate cons with each load',
-      'Company setup packets in one place',
-      'NOAs and bank proof on file when needed',
-    ],
-  },
-  {
-    icon: BarChart3,
-    title: 'Open A/R & reports',
-    description: 'Aging, balances, and payment status without a spreadsheet chase.',
-    points: [
-      'Aging views for open invoices',
-      'Paid vs outstanding at a glance',
-      'Built for fleets of about 1–50 trucks',
-    ],
-  },
-  {
-    icon: Eye,
-    title: 'Live status',
-    description: 'Know where each invoice stands without calling around.',
-    points: [
-      'Real-time status on every load',
-      'Clear next step when something stalls',
-      'You stay informed — we handle the chase',
-    ],
-  },
-  {
-    icon: MessageSquare,
-    title: 'Trucking Buddy',
-    description: 'Ask about your A/R — Buddy answers from live invoice data.',
-    points: [
-      'Holds, aging, and payment questions',
-      'Drafts you confirm before anything sends',
-      'Opens the right invoice or screen',
-    ],
-  },
-  {
-    icon: Building2,
-    title: 'Brokers',
-    description: 'Broker context when you need it — tied to your A/R.',
-    points: [
-      'Directory and notes in one place',
-      'Quick MC lookup',
-      'Linked to the invoices you are tracking',
-    ],
-  },
 ] as const
 
-const BUDDY_EXAMPLES = [
-  {
-    title: 'Holds',
-    chip: 'On hold?',
-    messages: [
-      { role: 'user' as const, text: "What's on hold?" },
-      {
-        role: 'bot' as const,
-        face: '/credyx-buddy-thinking.png',
-        text: (
-          <>
-            Two invoices need attention: <strong>INV-1256</strong> is missing a POD, and{' '}
-            <strong>INV-1241</strong> is waiting on broker paperwork. Want me to draft a follow-up?
-          </>
-        ),
-      },
-      { role: 'user' as const, text: 'Draft an email to Credyx about my holds' },
-      {
-        role: 'bot' as const,
-        face: '/credyx-buddy-done.png',
-        text: (
-          <>
-            Draft ready — review it, then confirm before it&apos;s sent. I never post without you.
-          </>
-        ),
-      },
-    ],
-  },
-  {
-    title: 'Payments',
-    chip: 'Payments',
-    messages: [
-      { role: 'user' as const, text: 'Payment status' },
-      {
-        role: 'bot' as const,
-        face: '/credyx-buddy-thinking.png',
-        text: (
-          <>
-            <strong>3 open invoices</strong> · <strong>$12,480</strong>. INV-1250 expected this week;
-            INV-1248 is 6 days past due.
-          </>
-        ),
-      },
-      { role: 'user' as const, text: 'Show me what is past due' },
-      {
-        role: 'bot' as const,
-        face: '/credyx-buddy-done.png',
-        text: (
-          <>
-            <strong>INV-1248</strong> ($4,200) — open it, or I can draft a broker follow-up.
-          </>
-        ),
-      },
-    ],
-  },
-  {
-    title: 'Attention',
-    chip: 'Needs attention?',
-    messages: [
-      { role: 'user' as const, text: 'What needs my attention today?' },
-      {
-        role: 'bot' as const,
-        face: '/credyx-buddy-thinking.png',
-        text: (
-          <>
-            Today: upload POD for <strong>INV-1256</strong>, confirm expected pay on{' '}
-            <strong>INV-1250</strong>, and review one broker note on <strong>INV-1241</strong>.
-          </>
-        ),
-      },
-      { role: 'user' as const, text: 'Open INV-1256 for me' },
-      {
-        role: 'bot' as const,
-        face: '/credyx-buddy-done.png',
-        text: (
-          <>
-            Opening <strong>INV-1256</strong> now — docs tab is ready so you can upload the POD.
-          </>
-        ),
-      },
-    ],
-  },
-  {
-    title: 'Drafts',
-    chip: 'Draft note',
-    messages: [
-      { role: 'user' as const, text: 'Draft a note on INV-1241 — missing rate con' },
-      {
-        role: 'bot' as const,
-        face: '/credyx-buddy-thinking.png',
-        text: (
-          <>
-            Draft: &ldquo;Waiting on rate confirmation before we resubmit.&rdquo; Want a short email
-            too?
-          </>
-        ),
-      },
-      { role: 'user' as const, text: 'Yes — keep it short' },
-      {
-        role: 'bot' as const,
-        face: '/credyx-buddy-done.png',
-        text: (
-          <>
-            Both drafts are ready. Confirm and I&apos;ll post — email only sends after you approve.
-          </>
-        ),
-      },
-    ],
-  },
-  {
-    title: 'Navigate',
-    chip: 'Navigate',
-    messages: [
-      { role: 'user' as const, text: 'Take me to batches' },
-      {
-        role: 'bot' as const,
-        face: '/credyx-buddy-done.png',
-        text: (
-          <>
-            Heading to <strong>Batches</strong>. You have 1 packet ready to submit and 2 waiting on
-            review.
-          </>
-        ),
-      },
-      { role: 'user' as const, text: 'What about brokers?' },
-      {
-        role: 'bot' as const,
-        face: '/credyx-buddy-thinking.png',
-        text: (
-          <>
-            I can open Brokers or look up an MC#. Say the MC number and I&apos;ll pull what we have.
-          </>
-        ),
-      },
-    ],
-  },
+const INVOICE_ROWS = [
+  { id: 'INV-4821', detail: '$2,840.00', status: 'Paid', ok: true },
+  { id: 'INV-1256', detail: 'Missing POD', status: 'On hold', ok: false },
+  { id: 'INV-1241', detail: 'Broker paperwork', status: 'On hold', ok: false },
 ] as const
 
 const isMarketingOnly = import.meta.env.VITE_MARKETING_ONLY === 'true'
 
-/** Public Credyx waitlist marketing page — separate from the product app shell. */
+/** Public Credyx waitlist / schedule-demo marketing page. */
 export default function Waitlist() {
   const navigate = useNavigate()
   const rootRef = useRef<HTMLDivElement>(null)
-  const [buddyExampleIndex, setBuddyExampleIndex] = useState(0)
-  const [buddyVisibleCount, setBuddyVisibleCount] = useState(0)
-  const [buddyThinking, setBuddyThinking] = useState(false)
+  const [mobCtaHide, setMobCtaHide] = useState(false)
   useRevealOnScroll(rootRef)
   useWebsiteAnalytics()
-
-  const buddyExample = BUDDY_EXAMPLES[buddyExampleIndex]
-  const buddyExampleCount = BUDDY_EXAMPLES.length
-
-  const showPrevBuddyExample = () => {
-    trackWebsiteEvent('cta_click', 'buddy_prev')
-    setBuddyExampleIndex((index) => (index - 1 + buddyExampleCount) % buddyExampleCount)
-  }
-
-  const showNextBuddyExample = () => {
-    trackWebsiteEvent('cta_click', 'buddy_next')
-    setBuddyExampleIndex((index) => (index + 1) % buddyExampleCount)
-  }
-
-  // Play Buddy chat as a short conversation: ask → … → answer → ask → … → answer (5s loop).
-  useEffect(() => {
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (prefersReducedMotion) {
-      setBuddyVisibleCount(buddyExample.messages.length)
-      setBuddyThinking(false)
-      return
-    }
-
-    let cancelled = false
-    const timeoutIds: number[] = []
-
-    const at = (ms: number, fn: () => void) => {
-      timeoutIds.push(
-        window.setTimeout(() => {
-          if (!cancelled) fn()
-        }, ms)
-      )
-    }
-
-    const playSequence = () => {
-      timeoutIds.forEach((id) => window.clearTimeout(id))
-      timeoutIds.length = 0
-      setBuddyVisibleCount(0)
-      setBuddyThinking(false)
-
-      // Play once (~5s): Q1 → thinking → A1 → Q2 → thinking → A2
-      at(80, () => setBuddyVisibleCount(1))
-      at(450, () => setBuddyThinking(true))
-      at(1200, () => {
-        setBuddyThinking(false)
-        setBuddyVisibleCount(2)
-      })
-      at(2100, () => setBuddyVisibleCount(3))
-      at(2500, () => setBuddyThinking(true))
-      at(3200, () => {
-        setBuddyThinking(false)
-        setBuddyVisibleCount(4)
-      })
-    }
-
-    playSequence()
-
-    return () => {
-      cancelled = true
-      timeoutIds.forEach((id) => window.clearTimeout(id))
-    }
-  }, [buddyExampleIndex, buddyExample.messages.length])
 
   const scrollToForm = () => {
     trackWebsiteEvent('cta_click', 'hero_join')
@@ -426,53 +62,64 @@ export default function Waitlist() {
     document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  // Support deep links from nav (/#pricing, /demo#buddy, /#waitlist-form, etc.)
+  // Support deep links from nav (/#pricing, /#waitlist-form, /#how-it-works, etc.)
   useEffect(() => {
     const hash = window.location.hash
-    if (
-      hash !== '#pricing' &&
-      hash !== '#buddy' &&
-      hash !== '#features' &&
-      hash !== '#waitlist-form'
-    ) {
-      return
-    }
-    const id = hash.slice(1)
+    const allowed = new Set([
+      '#pricing',
+      '#buddy',
+      '#features',
+      '#product',
+      '#why',
+      '#how-it-works',
+      '#waitlist-form',
+      '#demo',
+    ])
+    if (!allowed.has(hash)) return
+    const id = hash === '#demo' ? 'waitlist-form' : hash.slice(1)
     const timer = window.setTimeout(() => {
       document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
     }, 80)
     return () => window.clearTimeout(timer)
   }, [])
 
+  // Hide the mobile sticky CTA near the top and near the form.
+  useEffect(() => {
+    const form = document.getElementById('waitlist-form')
+    const onScroll = () => {
+      const nearTop = window.scrollY < window.innerHeight * 0.6
+      const nearForm =
+        form != null && form.getBoundingClientRect().top < window.innerHeight * 0.8
+      setMobCtaHide(nearTop || nearForm)
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   return (
-    <div ref={rootRef} className="credyx-page credyx-page--waitlist">
+    <div ref={rootRef} className="credyx-page credyx-page--waitlist credyx-page--sales">
       <MarketingHeader />
 
       {/* ── Hero ── */}
-      <section className="cx-hero cx-hero--waitlist">
-        <div className="cx-hero-photo" aria-hidden>
-          <img src="/credyx-hero-truck.jpg" alt="" />
-        </div>
-        <div className="cx-mesh" aria-hidden />
-
-        <div className="cx-hero-layout">
-          <div className="cx-hero-copy">
-            <div className="cx-hero-brand hero-enter hero-enter-1">
-              <img
-                className="cx-hero-logo"
-                src="/credyx-logo-white-cred-no-bg.png"
-                alt="Credyx"
-              />
-            </div>
-            <h1 className="cx-hero-headline hero-enter hero-enter-2">
+      <header className="cx-sales-hero" id="top">
+        <svg className="cx-sales-hero-arrow" viewBox="0 0 400 400" aria-hidden>
+          {/* Zigzag up-right arrow — lightning path with a pointed tip */}
+          <path d="M400 0 L318 24 L352 58 L198 220 L148 170 L0 340 L42 382 L152 252 L202 302 L372 90 L400 128 Z" />
+        </svg>
+        <div className="cx-sales-hero2">
+          <div>
+            <span className="cx-sales-pill reveal">Paid on time.</span>
+            <h1 className="reveal">
               Your back office,{' '}
-              <span className="accent cx-hand-underline cx-hand-underline--draw">handled.</span>
+              <span className="cx-sales-b">handled.</span>
             </h1>
-            <p className="cx-hero-sub hero-enter hero-enter-3">
-              Submit paperwork, track invoices, and follow broker payments — without hiring a
-              full A/R team. <strong>Paid on time.</strong>
+            <div className="cx-sales-bar reveal" />
+            <p className="cx-sales-lead reveal">
+              Submit paperwork, track invoices, and follow broker payments, without hiring a full
+              A/R team.
             </p>
-            <div className="cx-hero-buttons hero-enter hero-enter-4">
+            <div className="cx-sales-hero-actions reveal">
               <button type="button" className="cx-btn-primary" onClick={scrollToForm}>
                 Schedule Demo
                 <ArrowRight size={17} />
@@ -481,219 +128,78 @@ export default function Waitlist() {
                 See pricing
               </button>
             </div>
-          </div>
-
-          {/* Client portal preview — fills the right side on desktop */}
-          <div className="cx-hero-visual hero-enter hero-enter-6" aria-hidden="true">
-            <div className="cx-hero-visual-frame">
-              <div className="cx-browser cx-hero-dash">
-                <div className="cx-browser-bar">
-                  <span />
-                  <span />
-                  <span />
-                  <div className="cx-browser-url">app.credyx.com / dashboard</div>
-                </div>
-                <img
-                  src="/credyx-hero-dashboard.png"
-                  alt=""
-                  width={1440}
-                  height={900}
-                  loading="eager"
-                />
-              </div>
-
-              <div className="cx-hero-phone-wrap">
-                <div className="cx-phone-frame">
-                  <img
-                    src="/credyx-hero-mobile.png"
-                    alt=""
-                    width={534}
-                    height={980}
-                    loading="eager"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Process ── */}
-      <section className="cx-section cx-section--process bordered">
-        <div className="cx-section-inner">
-          <div className="cx-section-head centered reveal reveal-grow">
-            <p className="cx-eyebrow">
-              How it works
-            </p>
-            <h2 className="cx-section-title">
-              From{' '}
-              <span className="accent cx-hand-underline cx-hand-underline--v2">paperwork</span>
-              {' '}to{' '}
-              <span className="accent cx-hand-underline cx-hand-underline--v3">payment</span>
-            </h2>
-            <p className="cx-section-sub">
-              Credyx verifies documents, invoices brokers, follows up, and tracks payment —
-              so you stay focused on the road.
+            <p className="cx-sales-micro reveal">
+              <b>$0 monthly fees.</b> $0 startup fees.
             </p>
           </div>
-          <div className="cx-process-flow reveal-stagger reveal">
-            {WORKFLOW_STEPS.map((item, index) => (
-              <div key={item.title} className="cx-process-step">
-                <div className="cx-card cx-card--grow">
-                  <div className="cx-card-num">{String(index + 1).padStart(2, '0')}</div>
-                  <h3 className="cx-card-title">{item.title}</h3>
-                  <p className="cx-card-desc">{item.description}</p>
-                </div>
-                {index < WORKFLOW_STEPS.length - 1 ? (
-                  <div
-                    className={`cx-process-connector cx-process-connector--${
-                      index % 2 === 0 ? 'left' : 'right'
-                    }`}
-                    aria-hidden="true"
-                  >
-                    {/* Clean horizontal connector (wide desktop) */}
-                    <svg
-                      className="cx-process-arrow cx-process-arrow--h"
-                      viewBox="0 0 48 24"
-                      fill="none"
-                      aria-hidden
-                    >
-                      <path
-                        className="cx-process-arrow-path"
-                        pathLength="1"
-                        d="M2 12 H34"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      />
-                      <path
-                        className="cx-process-arrow-head"
-                        pathLength="1"
-                        d="M28 6 L38 12 L28 18"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        fill="none"
-                      />
-                    </svg>
-                    {/* Side connector with slight hand-drawn variance per step */}
-                    <svg
-                      className="cx-process-arrow cx-process-arrow--loop"
-                      viewBox="0 0 80 132"
-                      fill="none"
-                    >
-                      <path
-                        className="cx-process-arrow-path"
-                        pathLength="1"
-                        d={PROCESS_CONNECTORS[index].path}
-                        stroke="currentColor"
-                        strokeWidth="4.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        className="cx-process-arrow-head"
-                        pathLength="1"
-                        d={PROCESS_CONNECTORS[index].head}
-                        stroke="currentColor"
-                        strokeWidth="4.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        fill="none"
-                      />
-                    </svg>
-                  </div>
-                ) : null}
-              </div>
-            ))}
+          <div className="reveal">
+            <WaitlistHeroInvoice />
           </div>
         </div>
-      </section>
+      </header>
+
+      {/* ── How it works (scroll animation) ── */}
+      <WaitlistHowItWorksScene />
 
       {/* ── Why Credyx ── */}
-      <section className="cx-section bordered cx-section--why">
-        <div className="cx-section-inner">
-          <div className="cx-section-head centered reveal reveal-grow">
-            <p className="cx-eyebrow">Why Credyx</p>
-            <h2 className="cx-section-title">
-              Your back office,{' '}
-              <span className="accent cx-hand-underline cx-hand-underline--v7">without the hire</span>
-            </h2>
-          </div>
-          <ul className="cx-why-list reveal-stagger reveal">
+      <section id="why" className="cx-sales-section cx-sales-how">
+        <div className="cx-sales-wrap">
+          <span className="cx-sales-pill reveal">Why Credyx</span>
+          <h2 className="reveal">
+            Your back office,{' '}
+            <span className="cx-sales-b">without the hire.</span>
+          </h2>
+          <div className="cx-sales-grid5 reveal">
             {BENEFITS.map((benefit) => (
-              <li key={benefit.title} className="cx-why-item">
-                <span className="cx-why-icon" aria-hidden>
-                  <benefit.icon size={18} />
-                </span>
-                <div className="cx-why-copy">
-                  <h3>{benefit.title}</h3>
-                  <p>{benefit.description}</p>
-                </div>
-              </li>
+              <div key={benefit.title} className="cx-sales-card">
+                <div className="n">{benefit.n}</div>
+                <h3>{benefit.title}</h3>
+                <p>{benefit.description}</p>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       </section>
 
-      {/* ── Product proof ── */}
-      <section className="cx-section bordered">
-        <div className="cx-section-inner">
-          <div className="cx-section-head centered reveal reveal-grow">
-            <p className="cx-eyebrow">
-              Product
-            </p>
-            <h2 className="cx-section-title">See your A/R clearly</h2>
-            <p className="cx-section-sub">
-              Track open invoices, holds, and payment status from one dashboard.
-            </p>
-          </div>
+      {/* ── Product ── */}
+      <section id="product" className="cx-sales-section">
+        <div className="cx-sales-wrap">
+          <span className="cx-sales-pill reveal">Product</span>
+          <h2 className="reveal">
+            See your A/R <span className="cx-sales-b">clearly.</span>
+          </h2>
+          <p className="cx-sales-lead reveal">
+            Track open invoices, holds, and payment status from one dashboard.
+          </p>
 
-          <div className="cx-proof reveal-stagger reveal">
-            <figure className="cx-proof-shot cx-card--grow">
-              <div className="cx-browser">
-                <div className="cx-browser-bar" aria-hidden>
-                  <span />
-                  <span />
-                  <span />
-                  <div className="cx-browser-url">app.credyx.com / invoices</div>
-                </div>
-                <img
-                  src="/credyx-waitlist-dashboard.jpg"
-                  alt="Credyx desktop invoices view with paid statuses and invoice details panel"
-                  width={1024}
-                  height={488}
-                  loading="lazy"
-                />
+          <div className="cx-sales-two reveal" id="buddy">
+            <div className="cx-sales-inv-list" id="features">
+              <div className="cx-sales-pt2">
+                <span>Invoices</span>
+                <span className="cx-sales-ex">Example</span>
               </div>
-              <figcaption className="cx-proof-caption">
-                Desktop · Invoices, statuses, and details in one view
-              </figcaption>
-            </figure>
-
-            <div className="cx-proof-side">
-              <figure className="cx-proof-shot cx-proof-shot--phone cx-card--grow">
-                <div className="cx-phone-frame">
-                  <img
-                    src="/credyx-waitlist-invoice.png"
-                    alt="Credyx invoice details on mobile with progress, dates, and activity"
-                    width={534}
-                    height={736}
-                    loading="lazy"
-                  />
+              {INVOICE_ROWS.map((row) => (
+                <div key={row.id} className="cx-sales-ir">
+                  <strong>{row.id}</strong>
+                  <span>{row.detail}</span>
+                  <em className={row.ok ? 'ok' : undefined}>{row.status}</em>
                 </div>
-                <figcaption className="cx-proof-caption">
-                  Mobile · Invoice details, activity, and payment status
-                </figcaption>
-              </figure>
+              ))}
             </div>
 
-            <WaitlistInvoiceProgress />
+            <div className="cx-sales-buddy">
+              <div className="cx-sales-pt2">Meet Buddy · AI trucking assistant</div>
+              <div className="cx-sales-bub u">What&apos;s on hold?</div>
+              <div className="cx-sales-bub a">
+                Two invoices need attention: INV-1256 is missing a POD, and INV-1241 is waiting on
+                broker paperwork. Want me to draft a follow-up?
+              </div>
+              <p className="cx-sales-note">Buddy drafts. You confirm before anything is sent.</p>
+            </div>
           </div>
 
           {!isMarketingOnly && (
-            <div className="cx-proof-cta reveal reveal-grow">
+            <div className="cx-sales-hero-actions reveal" style={{ marginTop: 40 }}>
               <button
                 type="button"
                 className="cx-btn-secondary"
@@ -710,294 +216,40 @@ export default function Waitlist() {
         </div>
       </section>
 
-      {/* ── Trucking Buddy ── */}
-      <section id="buddy" className="cx-section cx-section--buddy surface bordered">
-        <div className="cx-section-inner">
-          <div className="cx-buddy-head reveal reveal-grow">
-            <p className="cx-eyebrow">Assistant</p>
-            <h2 className="cx-section-title">
-              Meet{' '}
-              <span className="accent cx-hand-underline cx-hand-underline--v4">Buddy</span>
-            </h2>
-            <p className="cx-buddy-tagline">Your AI trucking assistant</p>
-            <p className="cx-section-sub">
-              Ask about holds, payments, and missing docs. Buddy answers from your live invoices.
-            </p>
-          </div>
-
-          <div className="cx-buddy-layout">
-            <div className="cx-buddy-demo reveal reveal-grow" aria-label="Buddy chat examples">
-              <div className="cx-buddy-demo-top">
-                <div className="cx-buddy-avatar-wrap" aria-hidden>
-                  <img
-                    src="/credyx-buddy-waving.png"
-                    alt=""
-                    className="cx-buddy-avatar-head"
-                    width={64}
-                    height={64}
-                  />
-                  <img
-                    src="/credyx-buddy-waving-hand.png"
-                    alt=""
-                    className="cx-buddy-avatar-hand"
-                    width={32}
-                    height={32}
-                  />
-                </div>
-                <div>
-                  <strong>Hey — I&apos;m your AI trucking buddy</strong>
-                  <span>Ask me anything about your company</span>
-                </div>
-              </div>
-
-              <div className="cx-buddy-example-bar">
-                <button
-                  type="button"
-                  className="cx-buddy-nav-btn"
-                  onClick={showPrevBuddyExample}
-                  aria-label="Previous chat example"
-                >
-                  <ArrowLeft size={18} strokeWidth={2.5} />
-                </button>
-                <div className="cx-buddy-example-label" aria-live="polite">
-                  <span className="cx-buddy-example-title">{buddyExample.title}</span>
-                  <span className="cx-buddy-example-count">
-                    {buddyExampleIndex + 1} / {buddyExampleCount}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="cx-buddy-nav-btn"
-                  onClick={showNextBuddyExample}
-                  aria-label="Next chat example"
-                >
-                  <ArrowRight size={18} strokeWidth={2.5} />
-                </button>
-              </div>
-
-              <div className="cx-buddy-chat" key={buddyExample.title}>
-                {buddyExample.messages.slice(0, buddyVisibleCount).map((message, index) =>
-                  message.role === 'user' ? (
-                    <div
-                      key={`${buddyExample.title}-u-${index}`}
-                      className="cx-buddy-bubble cx-buddy-bubble--user"
-                    >
-                      {message.text}
-                    </div>
-                  ) : (
-                    <div key={`${buddyExample.title}-b-${index}`} className="cx-buddy-row">
-                      <img
-                        src={message.face}
-                        alt=""
-                        className="cx-buddy-bubble-face"
-                        width={48}
-                        height={48}
-                      />
-                      <div className="cx-buddy-bubble cx-buddy-bubble--bot">
-                        <p>{message.text}</p>
-                      </div>
-                    </div>
-                  )
-                )}
-
-                {buddyThinking && (
-                  <div className="cx-buddy-row" aria-live="polite" aria-label="Buddy is thinking">
-                    <img
-                      src="/credyx-buddy-thinking.png"
-                      alt=""
-                      className="cx-buddy-bubble-face"
-                      width={48}
-                      height={48}
-                    />
-                    <div className="cx-buddy-bubble cx-buddy-bubble--bot cx-buddy-bubble--thinking">
-                      <span className="cx-buddy-dots">
-                        <span />
-                        <span />
-                        <span />
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="cx-buddy-chips" aria-label="Jump to example">
-                {BUDDY_EXAMPLES.map((example, index) => (
-                  <button
-                    key={example.chip}
-                    type="button"
-                    className={`cx-buddy-chip${index === buddyExampleIndex ? ' active' : ''}`}
-                    onClick={() => {
-                      trackWebsiteEvent('cta_click', `buddy_chip_${index}`)
-                      setBuddyExampleIndex(index)
-                    }}
-                  >
-                    {example.chip}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Platform ── */}
-      <section id="features" className="cx-section cx-section--features surface bordered">
-        <div className="cx-section-inner">
-          <div className="cx-features-head reveal reveal-grow">
-            <p className="cx-eyebrow">Platform</p>
-            <h2 className="cx-section-title">
-              What&apos;s in{' '}
-              <span className="accent cx-hand-underline cx-hand-underline--v8">the portal</span>
-            </h2>
-          </div>
-
-          <WaitlistPlatformDeck features={PLATFORM_FEATURES} />
-        </div>
-      </section>
-
       {/* ── Pricing ── */}
-      <section id="pricing" className="cx-section cx-section--pricing bordered">
-        <div className="cx-section-inner">
-          <div className="cx-pricing-head reveal reveal-grow">
-            <p className="cx-eyebrow">Pricing</p>
-            <h2 className="cx-section-title">
-              Credyx vs.{' '}
-              <span className="accent cx-hand-underline cx-hand-underline--v5">
-                hiring an in-house A/R person
-              </span>
-            </h2>
-          </div>
-
-          <div className="cx-pricing">
-            <div className="reveal reveal-grow">
-              <WaitlistPricingCompare />
-            </div>
+      <section id="pricing" className="cx-sales-section cx-sales-pricing">
+        <div className="cx-sales-wrap">
+          <span className="cx-sales-pill reveal" style={{ background: '#1684FE' }}>
+            Pricing
+          </span>
+          <h2 className="reveal">
+            Credyx vs. <span className="cx-sales-b">hiring in-house.</span>
+          </h2>
+          <div className="reveal">
+            <WaitlistPricingCompare />
           </div>
         </div>
       </section>
 
-      {/* ── Credyx vs factoring (hidden — set SHOW_VS_FACTORING to re-enable) ── */}
-      {SHOW_VS_FACTORING ? (
-      <section id="vs-factoring" className="cx-section cx-section--vs bordered">
-        <div className="cx-section-inner">
-          <div className="cx-vs-head centered reveal reveal-grow">
-            <p className="cx-eyebrow">Credyx vs factoring</p>
-            <h2 className="cx-section-title">
-              Factoring buys your invoices.{' '}
-              <span className="accent cx-hand-underline cx-hand-underline--v7">
-                We work for you.
-              </span>
+      {/* ── Schedule demo / waitlist form ── */}
+      <section id="waitlist-form" className="cx-sales-section cx-sales-cta">
+        <div className="cx-sales-wrap cx-sales-cta-cols">
+          <div>
+            <span className="cx-sales-pill reveal">Schedule Demo</span>
+            <h2 className="reveal">
+              Schedule a <span className="cx-sales-b">demo.</span>
             </h2>
-            <p className="cx-section-sub">
-              Good factoring companies chase paperwork and run collections too — for the invoice
-              they bought. Credyx does that work for you: your invoices stay yours, brokers pay you
-              directly, and we work alongside you to keep packets moving.
+            <p className="cx-sales-lead reveal" style={{ margin: '24px 0 0' }}>
+              Tell us about your fleet. We&apos;ll reach out to book your demo.
             </p>
-          </div>
-
-          <div className="cx-pricing-compare reveal reveal-grow">
-            <div className="cx-pricing-grid">
-              <div className="cx-pricing-col cx-pricing-col--credyx">
-                <div className="cx-pricing-col-head">
-                  <span className="cx-pricing-col-icon" aria-hidden>
-                    <Check size={16} strokeWidth={3} />
-                  </span>
-                  <div>
-                    <p className="cx-pricing-col-title">{VS_FACTORING.credyx.title}</p>
-                    <p className="cx-pricing-col-sub">{VS_FACTORING.credyx.sub}</p>
-                  </div>
-                </div>
-                <ul className="cx-pricing-list">
-                  {VS_FACTORING.credyx.points.map((point) => (
-                    <li key={point}>
-                      <span className="cx-pricing-mark cx-pricing-mark--check" aria-hidden>
-                        <Check size={14} strokeWidth={3} />
-                      </span>
-                      <div>
-                        <strong>{point}</strong>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="cx-pricing-col cx-pricing-col--inhouse">
-                <div className="cx-pricing-col-head">
-                  <span className="cx-pricing-col-icon cx-pricing-col-icon--neutral" aria-hidden>
-                    <X size={15} strokeWidth={3} />
-                  </span>
-                  <div>
-                    <p className="cx-pricing-col-title">{VS_FACTORING.factor.title}</p>
-                    <p className="cx-pricing-col-sub">{VS_FACTORING.factor.sub}</p>
-                  </div>
-                </div>
-                <ul className="cx-pricing-list">
-                  {VS_FACTORING.factor.points.map((point) => (
-                    <li key={point}>
-                      <span className="cx-pricing-mark cx-pricing-mark--x" aria-hidden>
-                        <X size={13} strokeWidth={3} />
-                      </span>
-                      <div>
-                        <strong>{point}</strong>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            <div className="cx-sales-offer reveal">
+              <div className="lbl">Limited offer · New clients</div>
+              <h3>1 month free on fees</h3>
+              <p>No fee on invoices you submit in your first month.</p>
             </div>
           </div>
-
-          <div className="cx-vs-closing reveal reveal-grow">
-            <p>
-              Need cash flow too? Keep your factor. Credyx integrates with factoring companies —
-              and your Credyx fee is <strong>lower</strong> when you use both.
-            </p>
-            <button
-              type="button"
-              className="cx-btn-primary"
-              onClick={() => {
-                trackWebsiteEvent('cta_click', 'vs_schedule_demo')
-                document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
-              }}
-            >
-              Schedule Demo
-              <ArrowRight size={17} />
-            </button>
-          </div>
-        </div>
-      </section>
-      ) : null}
-
-      {/* ── Waitlist form ── */}
-      <section id="waitlist-form" className="cx-section cx-section--join bordered">
-        <div className="cx-section-inner">
-          <div className="cx-enroll-shell">
-            <div className="cx-join-head reveal reveal-grow">
-              <h2 className="cx-section-title">
-                Schedule a{' '}
-                <span className="accent cx-hand-underline cx-hand-underline--v6">demo</span>
-              </h2>
-              <p className="cx-section-sub">
-                Tell us about your fleet — we&apos;ll reach out to book your demo.
-              </p>
-            </div>
-
-            <div className="cx-founding-card reveal reveal-grow">
-              <div className="cx-founding-bg" aria-hidden />
-              <div className="cx-founding-inner">
-                <div className="cx-founding-top">
-                  <div>
-                    <p className="cx-founding-eyebrow">Limited offer · New clients</p>
-                    <h3>1 month free on fees</h3>
-                    <p>No fee on invoices you submit in your first month.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="reveal reveal-grow">
-              <WaitlistForm />
-            </div>
+          <div className="reveal">
+            <WaitlistForm />
           </div>
         </div>
       </section>
@@ -1068,6 +320,14 @@ export default function Waitlist() {
           Empowering truckers. Simplifying payments. Driving success.
         </p>
       </footer>
+
+      <button
+        type="button"
+        className={`cx-btn-primary cx-sales-mobcta${mobCtaHide ? ' hide' : ''}`}
+        onClick={scrollToForm}
+      >
+        Schedule Demo
+      </button>
     </div>
   )
 }

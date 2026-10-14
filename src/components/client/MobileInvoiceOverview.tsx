@@ -48,6 +48,7 @@ import {
 } from '../../utils/clientInvoiceDisputeStatus'
 import { getClientVisiblePayDate, getWillPayScheduledDate } from '../../utils/invoiceWillPay'
 import { getInvoiceNoteStatusDisplay } from '../../utils/invoiceStatusHeadline'
+import '../../styles/invoiceOverviewClean.css'
 
 interface MobileInvoiceOverviewProps {
   invoice: Invoice
@@ -647,108 +648,58 @@ export default function MobileInvoiceOverview({
     )
   }
 
+  const payDateText = visiblePay
+    ? visiblePay.source === 'pending'
+      ? `${formatMobileInvoiceDate(visiblePay.date)} · pending`
+      : visiblePay.source === 'scheduled'
+        ? `${formatMobileInvoiceDate(visiblePay.date)} · scheduled`
+        : formatMobileInvoiceDate(visiblePay.date)
+    : null
+
   return (
-    <div className="mobile-invoice-overview">
+    <div className="mobile-invoice-overview inv-ov">
       <article
-        className={`mobile-invoice-overview__hero${
-          isShortPaid ? ' is-short-paid' : ''
-        }`}
+        className={`inv-ov__summary${isShortPaid ? ' is-short-paid' : ''}`}
         aria-label="Invoice summary"
       >
-        <div className="mobile-invoice-overview__hero-top">
-          <span className="mobile-invoice-overview__eyebrow">Invoice</span>
-          <span className="mobile-invoice-overview__inv-pill">
-            #{invoice.invoice_number}
-          </span>
-        </div>
-
-        <dl className="mobile-invoice-overview__meta">
-          <div>
-            <dt>Broker</dt>
-            <dd title={invoice.broker_name}>{invoice.broker_name || '—'}</dd>
-          </div>
-          <div>
-            <dt>Load</dt>
-            <dd className="tabular-nums">{invoice.load_number?.trim() || '—'}</dd>
-          </div>
-          <div>
-            <dt>Due date</dt>
-            <dd className="tabular-nums">
-              {visibleDueDate ? formatMobileInvoiceDate(visibleDueDate) : '—'}
-            </dd>
-          </div>
-          <div>
-            <dt>Pay date</dt>
-            <dd className="tabular-nums">
-              {visiblePay
-                ? visiblePay.source === 'pending'
-                  ? `${formatMobileInvoiceDate(visiblePay.date)} (pending)`
-                  : visiblePay.source === 'scheduled'
-                    ? `${formatMobileInvoiceDate(visiblePay.date)} (scheduled)`
-                    : formatMobileInvoiceDate(visiblePay.date)
-                : '—'}
-            </dd>
-          </div>
-          {showScheduledPayRow ? (
-          <div>
-            <dt>Scheduled pay</dt>
-            <dd className="tabular-nums">
-              {scheduledPayDate ? formatMobileInvoiceDate(scheduledPayDate) : '—'}
-            </dd>
-          </div>
-          ) : null}
-        </dl>
-
-        <div className="mobile-invoice-overview__amount-row">
-          <div className="mobile-invoice-overview__amount-stack">
-            {/* Short: invoice + shortfall; received (confirm) or open balance (settled) */}
-            {showShortMarker && shortfallDiff != null ? (
-              <p className="mobile-invoice-overview__amount-face mobile-invoice-overview__amount-face--variance-row tabular-nums">
-                <span className="mobile-invoice-overview__amount-face-invoice">
-                  {formatCurrency(invoice.amount)}
-                </span>
-                <span
-                  className="mobile-invoice-overview__amount-face-mark is-short"
-                  title={
-                    pendingShort
-                      ? 'Short payment pending — amount received below'
-                      : 'Short paid — remaining open balance below'
-                  }
-                >
-                  <ArrowDown size={11} strokeWidth={2.5} aria-hidden />
-                  -{formatCurrency(shortfallDiff)} (short)
-                </span>
-              </p>
-            ) : null}
-            {/* Over: invoice + overage beside it; received total below */}
-            {showOverMarker && overageDiff != null ? (
-              <p className="mobile-invoice-overview__amount-face mobile-invoice-overview__amount-face--variance-row tabular-nums">
-                <span className="mobile-invoice-overview__amount-face-invoice">
-                  {formatCurrency(invoice.amount)}
-                </span>
-                <span
-                  className="mobile-invoice-overview__amount-face-mark is-over"
-                  title="Overpayment"
-                >
-                  <ArrowUp size={11} strokeWidth={2.5} aria-hidden />
-                  +{formatCurrency(overageDiff)} (over)
-                </span>
-              </p>
-            ) : null}
-            <div className="mobile-invoice-overview__amount-main">
-              <p className="mobile-invoice-overview__amount tabular-nums">
-                {formatCurrency(heroAmount)}
-              </p>
-            </div>
+        <div className="inv-ov__head">
+          <div className="inv-ov__title">
+            <p className="inv-ov__number">Invoice #{invoice.invoice_number}</p>
+            <p className="inv-ov__broker" title={invoice.broker_name}>
+              {invoice.broker_name || 'No broker'}
+            </p>
           </div>
           <span
             className={`mobile-invoice-overview__status mobile-invoice-overview__status--${statusKey}`}
           >
             <span className="mobile-invoice-overview__status-dot" aria-hidden />
-            <span className="mobile-invoice-overview__status-text">
-              {statusLabel}
-            </span>
+            <span className="mobile-invoice-overview__status-text">{statusLabel}</span>
           </span>
+        </div>
+
+        <div className="inv-ov__amount-block">
+          <p className="inv-ov__amount tabular-nums">{formatCurrency(heroAmount)}</p>
+          {/* Short: billed amount + shortfall; large figure is received (confirm) or open balance (settled) */}
+          {showShortMarker && shortfallDiff != null ? (
+            <p
+              className="inv-ov__variance is-short tabular-nums"
+              title={
+                pendingShort
+                  ? 'Short payment pending — amount received above'
+                  : 'Short paid — remaining open balance above'
+              }
+            >
+              <ArrowDown size={12} strokeWidth={2.5} aria-hidden />
+              {formatCurrency(shortfallDiff)} short of {formatCurrency(invoice.amount)}
+            </p>
+          ) : null}
+          {/* Over: billed amount + overage; large figure is the received total */}
+          {showOverMarker && overageDiff != null ? (
+            <p className="inv-ov__variance is-over tabular-nums" title="Overpayment">
+              <ArrowUp size={12} strokeWidth={2.5} aria-hidden />
+              {formatCurrency(overageDiff)} over {formatCurrency(invoice.amount)}
+            </p>
+          ) : null}
         </div>
 
         <LifecycleStepper
@@ -763,6 +714,29 @@ export default function MobileInvoiceOverview({
           }
         />
       </article>
+
+      <dl className="inv-ov__facts">
+        <div className="inv-ov__fact">
+          <dt>Load</dt>
+          <dd className="tabular-nums">{invoice.load_number?.trim() || '—'}</dd>
+        </div>
+        <div className="inv-ov__fact">
+          <dt>Due date</dt>
+          <dd className="tabular-nums">
+            {visibleDueDate ? formatMobileInvoiceDate(visibleDueDate) : '—'}
+          </dd>
+        </div>
+        <div className="inv-ov__fact">
+          <dt>Pay date</dt>
+          <dd className="tabular-nums">{payDateText ?? '—'}</dd>
+        </div>
+        {showScheduledPayRow && scheduledPayDate ? (
+          <div className="inv-ov__fact">
+            <dt>Scheduled pay</dt>
+            <dd className="tabular-nums">{formatMobileInvoiceDate(scheduledPayDate)}</dd>
+          </div>
+        ) : null}
+      </dl>
 
       {carrierJourney ? (
         <section className="inv-carrier-journey" aria-label="What happens next">
@@ -779,11 +753,6 @@ export default function MobileInvoiceOverview({
       ) : null}
 
       {insightList}
-
-      <p className="mobile-invoice-overview__brand">
-        <Shield size={12} strokeWidth={2} aria-hidden />
-        Credyx A/R Solutions
-      </p>
     </div>
   )
 }

@@ -5,7 +5,7 @@ import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
-import { FileText, Search, DollarSign, ChevronLeft, ChevronRight, AlertCircle, Check, CalendarDays } from 'lucide-react'
+import { FileText, Search, ChevronLeft, ChevronRight, Check, CalendarDays } from 'lucide-react'
 import DocumentViewer from '../components/DocumentViewer'
 import {
   getInvoiceRowStatusBadge,
@@ -14,7 +14,6 @@ import {
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
 import ClientInvoicesTabs from '../components/client/ClientInvoicesTabs'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
-import ClientListTd from '../components/client/ClientListTd'
 import MobilePaymentDateRangeSheet from '../components/client/MobilePaymentDateRangeSheet'
 import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, getDisplayInvoiceAgeDays, invoiceHasStoppedAging, isOpenArInvoice, AR_POLICY, buildConfirmedPayDateByInvoiceId } from '../utils/invoiceAging'
 import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
@@ -45,7 +44,7 @@ import {
 } from '../utils/paymentVariance'
 import { hasPpwBeenSent } from '../utils/ppwSent'
 import { mockBrokers } from '../data/mockBrokers'
-import { formatBrokerDueDays, getInvoiceBrokerDueDays } from '../utils/invoiceDueDate'
+import { getInvoiceBrokerDueDays } from '../utils/invoiceDueDate'
 import BrokerRiskLevelChip from '../components/client/BrokerRiskLevelChip'
 import { getCarrierVisibleBrokerRiskLevel } from '../utils/clientBrokers'
 import type { BrokerRiskLevel } from '../types/brokerRisk'
@@ -54,6 +53,7 @@ import { getPresetRange } from '../utils/clientReports'
 import { isReceiptDisputeHold } from '../services/paymentReceiptConfirmationService'
 import { invoiceHasOpenDisputedStatus } from '../utils/clientInvoiceDisputeStatus'
 import { getClientVisiblePayDate } from '../utils/invoiceWillPay'
+import '../styles/clientInvoicesClean.css'
 
 type InvoiceSortField =
   | 'invoice_number'
@@ -660,7 +660,8 @@ export default function ClientInvoices() {
     [sortedInvoices, enrichedInvoices, selectedInvoiceId]
   )
 
-  const detailPanelOpen = Boolean(selectedInvoice) && !detailPanelClosing
+  // Compact viewports show details full-page, so never reserve the sidebar column there.
+  const detailPanelOpen = Boolean(selectedInvoice) && !detailPanelClosing && !useFullPageDetail
 
   const handleSort = useCallback(
     (field: InvoiceSortField) => {
@@ -914,14 +915,6 @@ export default function ClientInvoices() {
     useFullPageDetail,
   ])
 
-  const inputCompactStyle = {
-    backgroundColor: c.card,
-    height: 34,
-    paddingTop: 6,
-    paddingBottom: 6,
-    fontSize: 13,
-  } as const
-
   const invoiceDetailPanelProps = selectedInvoice
     ? {
         invoice: selectedInvoice,
@@ -950,42 +943,16 @@ export default function ClientInvoices() {
         ) : (
           <>
             <section
-              className={`client-stat-strip grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-b shrink-0${
-                isMobileViewport ? ' hidden' : ''
-              }`}
-              style={{ borderColor: c.border }}
+              className={`inv-kpis shrink-0${isMobileViewport ? ' hidden' : ''}`}
+              aria-label="Invoice totals"
             >
-              <div
-                className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b sm:border-b-0"
-                style={{ backgroundColor: c.stat.blue, borderColor: c.border }}
-              >
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
-                  <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
-                    Total Invoices
-                  </span>
-                  <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
-                    Invoices
-                  </span>
-                </div>
-                <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-                  {enrichedInvoices.length}
-                </span>
+              <div className="inv-kpi">
+                <span className="inv-kpi__label">Invoices</span>
+                <span className="inv-kpi__value">{enrichedInvoices.length}</span>
               </div>
-              <div
-                className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b sm:border-b-0"
-                style={{ backgroundColor: c.stat.green, borderColor: c.border }}
-              >
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.success }} />
-                  <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
-                    Total Amount
-                  </span>
-                  <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
-                    Amount
-                  </span>
-                </div>
-                <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
+              <div className="inv-kpi">
+                <span className="inv-kpi__label">Total billed</span>
+                <span className="inv-kpi__value">
                   {formatCurrency(enrichedInvoices.reduce((sum, inv) => sum + inv.amount, 0))}
                 </span>
               </div>
@@ -998,117 +965,85 @@ export default function ClientInvoices() {
                       : exclusiveClientInvoiceDisplayFlags('overdue')
                   )
                 }
-                className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left transition-colors hover:opacity-90"
-                style={{
-                  backgroundColor: overdueExclusive ? c.stat.redActive : c.stat.red,
-                  borderColor: c.border,
-                }}
+                className={`inv-kpi inv-kpi--button${overdueInvoices.length > 0 ? ' is-alert' : ''}${
+                  overdueExclusive ? ' is-active' : ''
+                }`}
+                aria-pressed={overdueExclusive}
+                title={
+                  overdueExclusive
+                    ? 'Showing only overdue invoices — click to show all'
+                    : '15+ days past expected pay — click to show only these'
+                }
               >
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ color: c.error }} />
-                  <span className="text-xs font-medium truncate client-stat-strip__label-long" style={{ color: c.secondary }}>
-                    Overdue (15+ days past expected pay)
-                  </span>
-                  <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
-                    Overdue
-                  </span>
-                </div>
-                <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.error }}>
-                  {overdueInvoices.length}
-                </span>
+                <span className="inv-kpi__label">Overdue</span>
+                <span className="inv-kpi__value">{overdueInvoices.length}</span>
               </button>
-              <div
-                className="flex flex-col justify-center gap-0.5 px-4 py-2.5"
-                style={{ backgroundColor: c.stat.amber }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.warning }} />
-                    <span className="text-xs font-medium truncate client-stat-strip__label-full" style={{ color: c.secondary }}>
-                      Overdue Amount
-                    </span>
-                    <span className="text-xs font-medium truncate client-stat-strip__label-short" style={{ color: c.secondary }}>
-                      Ovd Amt
-                    </span>
-                  </div>
-                  <span className="text-lg font-bold tabular-nums shrink-0" style={{ color: c.primary }}>
-                    {formatCurrency(overdueAmount)}
-                  </span>
-                </div>
+              <div className={`inv-kpi${overdueAmount > 0 ? ' is-alert' : ''}`}>
+                <span className="inv-kpi__label">Overdue amount</span>
+                <span className="inv-kpi__value">{formatCurrency(overdueAmount)}</span>
                 {forceCloseEligible.length > 0 && capabilities.hasForceClose && (
-                  <p className="text-[11px] tabular-nums" style={{ color: '#7C3AED' }}>
+                  <span className="inv-kpi__note">
                     {forceCloseEligible.length} at {AR_POLICY.forceCloseDays}+ days past expected pay
-                  </p>
+                  </span>
                 )}
               </div>
             </section>
 
-            <div
-              className="client-page-toolbar px-4 py-2 border-b shrink-0 space-y-2"
-              style={{ borderColor: c.border, backgroundColor: c.card }}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <ClientInvoicesTabs />
-                <div
-                  className="flex flex-wrap items-center gap-1.5 min-w-0"
-                  role="group"
-                  aria-label="Invoice types to display"
-                >
-                {INVOICE_STATUS_FILTERS.map(({ id, label }) => {
-                  const showing = displayFlags[id]
-                  const count = statusFilterCounts[id]
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={(event) => handleDisplayChipClick(id, event)}
-                      aria-pressed={showing}
-                      title={
-                        isExclusiveDisplayFlag(displayFlags, id)
-                          ? `Showing only ${label} — Ctrl+click to restore all filters`
-                          : showing
-                            ? `Showing ${label} — click to hide · Ctrl+click to show only this`
-                            : `Hidden ${label} — click to show · Ctrl+click to show only this`
-                      }
-                      className={`page-tab !py-1 !px-2 !text-xs ${
-                        showing ? 'page-tab--active' : 'opacity-50'
-                      }`}
-                      data-onboard-target={`invoiceFilter-${id}`}
-                    >
-                      {label}
-                      <span className="tabular-nums"> ({count})</span>
-                    </button>
-                  )
-                })}
-                </div>
-              </div>
-              <div className="flex flex-col md:flex-row md:items-center gap-2">
-                <div className="flex-1 relative">
-                  <Search
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
-                    style={{ color: c.secondary }}
-                  />
+            <div className="inv-toolbar shrink-0">
+              <div className="inv-toolbar__row">
+                <label className="inv-search">
+                  <Search className="inv-search__icon" aria-hidden />
                   <input
-                    type="text"
-                    placeholder="Search invoice, broker, load…"
+                    type="search"
+                    placeholder="Search invoice, broker, load or batch"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="client-input pl-8"
-                    style={inputCompactStyle}
+                    aria-label="Search invoices"
                   />
-                </div>
+                </label>
                 <button
                   type="button"
-                  className={`mobile-payments-date__trigger shrink-0${
+                  className={`mobile-payments-date__trigger inv-date-btn shrink-0${
                     mobileDateRangeValue !== 'all' ? ' is-active' : ''
                   }${mobileDateMenuOpen ? ' is-open' : ''}`}
                   aria-haspopup="dialog"
                   aria-expanded={mobileDateMenuOpen}
                   onClick={() => setMobileDateMenuOpen(true)}
                 >
-                  <CalendarDays size={14} strokeWidth={2.25} aria-hidden />
+                  <CalendarDays size={15} strokeWidth={2} aria-hidden />
                   <span className="mobile-payments-date__label">{mobileDateRangeLabel}</span>
                 </button>
+              </div>
+              <div className="inv-toolbar__row inv-toolbar__row--filters">
+                <ClientInvoicesTabs />
+                <div className="inv-filters" role="group" aria-label="Invoice types to display">
+                  {INVOICE_STATUS_FILTERS.map(({ id, label }) => {
+                    const showing = displayFlags[id]
+                    const count = statusFilterCounts[id]
+                    // Empty buckets add noise; keep them only when they are the solo filter.
+                    if (count === 0 && !isExclusiveDisplayFlag(displayFlags, id)) return null
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={(event) => handleDisplayChipClick(id, event)}
+                        aria-pressed={showing}
+                        title={
+                          isExclusiveDisplayFlag(displayFlags, id)
+                            ? `Showing only ${label} — Ctrl+click to restore all filters`
+                            : showing
+                              ? `Showing ${label} — click to hide · Ctrl+click to show only this`
+                              : `Hidden ${label} — click to show · Ctrl+click to show only this`
+                        }
+                        className={`inv-chip${showing ? ' is-on' : ''}`}
+                        data-onboard-target={`invoiceFilter-${id}`}
+                      >
+                        {label}
+                        <span className="inv-chip__count tabular-nums">{count}</span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
               {mobileDateMenuOpen ? (
                 <MobilePaymentDateRangeSheet
@@ -1185,23 +1120,17 @@ export default function ClientInvoices() {
                       })}
                     </div>
                   ) : (
-                  <div className="client-table-scroll client-table-scroll--mobile-stack flex-1 min-h-0 overflow-y-auto">
-                    <table className="dashboard-table dashboard-table--compact">
+                  <div className="inv-table-scroll flex-1 min-h-0 overflow-y-auto">
+                    <table className="inv-table">
                       <thead>
                         <tr>
                           <ClientSortableHeader
                             field="invoice_number"
-                            label="Invoice#"
+                            label="Invoice"
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={handleSort}
-                          />
-                          <ClientSortableHeader
-                            field="load_number"
-                            label="Load#"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={handleSort}
+                            className="inv-col-invoice"
                           />
                           <ClientSortableHeader
                             field="broker_name"
@@ -1209,22 +1138,15 @@ export default function ClientInvoices() {
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={handleSort}
-                            className="client-list-td--broker"
+                            className="inv-col-broker"
                           />
                           <ClientSortableHeader
-                            field="risk_level"
-                            label="Risk factor"
+                            field="invoice_date"
+                            label="Date"
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={handleSort}
-                          />
-                          <ClientSortableHeader
-                            field="batch_number"
-                            label="Batch#"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={handleSort}
-                            className="client-list-td--batch"
+                            className="inv-col-date"
                           />
                           <ClientSortableHeader
                             field="amount"
@@ -1232,60 +1154,8 @@ export default function ClientInvoices() {
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={handleSort}
-                            className="text-right"
+                            className="inv-col-amount"
                             align="right"
-                          />
-                          <ClientSortableHeader
-                            field="balance"
-                            label="Balance"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={handleSort}
-                            className="text-right"
-                            align="right"
-                          />
-                          <ClientSortableHeader
-                            field="invoice_date"
-                            label="Invoice Date"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={handleSort}
-                            className="client-list-td--invoice-date"
-                          />
-                          <ClientSortableHeader
-                            field="pay_date"
-                            label="Pay date"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={handleSort}
-                            className="client-list-td--pay-date"
-                          />
-                          <ClientSortableHeader
-                            field="days_outstanding"
-                            label="Age"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={handleSort}
-                            className="text-right"
-                            align="right"
-                          />
-                          <ClientSortableHeader
-                            field="due_days"
-                            label="Due Days"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={handleSort}
-                            className="text-right"
-                            align="right"
-                          />
-                          <ClientSortableHeader
-                            field="ppw_sent"
-                            label="PPW sent"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={handleSort}
-                            className="text-center"
-                            align="center"
                           />
                           <ClientSortableHeader
                             field="status"
@@ -1293,7 +1163,7 @@ export default function ClientInvoices() {
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={handleSort}
-                            className="client-list-td--status-col"
+                            className="inv-col-status"
                           />
                         </tr>
                       </thead>
@@ -1310,176 +1180,105 @@ export default function ClientInvoices() {
                           const writtenOffAmount =
                             invoice.write_off_request?.shortfall ??
                             (balance.signedBalance > 0 ? balance.signedBalance : invoice.amount)
-                          const balanceDisplay = isWrittenOff
-                            ? { text: formatCurrency(writtenOffAmount), color: c.warning }
-                            : formatInvoiceOpenBalance(balance, c.mutedLight, c.primary)
+                          // Only call out the balance when it differs from the billed amount.
+                          const balanceNote = isWrittenOff
+                            ? { text: `Written off ${formatCurrency(writtenOffAmount)}`, color: c.warning }
+                            : balance.tone === 'short' || balance.tone === 'over'
+                              ? (() => {
+                                  const shown = formatInvoiceOpenBalance(balance, c.mutedLight, c.primary)
+                                  return {
+                                    text: balance.tone === 'over' ? `${shown.text} over` : `${shown.text} open`,
+                                    color: shown.color,
+                                  }
+                                })()
+                              : null
                           const visiblePayDate = getClientVisiblePayDate(invoice, {
                             confirmedPayDate: payDateByInvoiceId.get(invoice.id),
                             pendingPayDate: pendingPayDateByInvoiceId.get(invoice.id),
                           })
+                          const stoppedAging = invoiceHasStoppedAging(invoice)
+                          const ageColor = stoppedAging
+                            ? c.success
+                            : isOpenArInvoice(invoice) && invoice.isOverdue
+                              ? getDaysOutstandingColor(invoice.overdueSeverity)
+                              : undefined
+                          const dateNote =
+                            visiblePayDate?.source === 'confirmed'
+                              ? `Paid ${formatDate(visiblePayDate.date)}`
+                              : visiblePayDate?.source === 'pending'
+                                ? `Paid ${formatDate(visiblePayDate.date)} · pending`
+                                : visiblePayDate?.source === 'scheduled'
+                                  ? `Pays ${formatDate(visiblePayDate.date)}`
+                                  : `${invoice.invoiceAgeDays} ${invoice.invoiceAgeDays === 1 ? 'day' : 'days'} old`
+                          const riskLevel = brokerRiskByInvoiceId.get(invoice.id) ?? 'unrated'
+                          const showRisk = riskLevel === 'medium' || riskLevel === 'high'
                           return (
                             <tr
                               key={invoice.id}
-                              className={`cursor-pointer ${isHighlighted ? 'batch-highlight-row' : ''} ${
-                                isSelected ? 'invoice-row--selected' : ''
-                              } ${
+                              className={`inv-row${isHighlighted ? ' batch-highlight-row' : ''}${
+                                isSelected ? ' is-selected' : ''
+                              }${
                                 invoice.isForceCloseEligible
-                                  ? 'invoice-row--force-close'
+                                  ? ' is-force-close'
                                   : invoice.isOverdue
-                                    ? 'invoice-row--overdue'
+                                    ? ' is-overdue'
                                     : ''
                               }`}
                               data-onboard-target={
                                 isTourInvoiceId(invoice.id) ? 'tourInvoiceRow' : undefined
                               }
+                              aria-selected={isSelected}
                               onClick={() => handleViewInvoiceDetail(invoice)}
                             >
-                              <ClientListTd
-                                variant="primary"
-                                className="font-semibold"
-                                title={invoice.invoice_number}
-                              >
-                                {invoice.invoice_number}
-                              </ClientListTd>
-                              <ClientListTd
-                                variant="desktop"
-                                label="Load#"
-                                style={{ color: c.secondary }}
-                                title={invoice.load_number || undefined}
-                              >
-                                {invoice.load_number || '-'}
-                              </ClientListTd>
-                              <ClientListTd
-                                variant="meta"
-                                className="client-list-td--ellipsis client-list-td--broker"
-                                title={invoice.broker_name}
-                              >
-                                <span className="client-list-td__clip">{invoice.broker_name}</span>
-                              </ClientListTd>
-                              <ClientListTd variant="status" label="Risk factor">
-                                <BrokerRiskLevelChip
-                                  level={brokerRiskByInvoiceId.get(invoice.id) ?? 'unrated'}
-                                  size="sm"
-                                />
-                              </ClientListTd>
-                              <ClientListTd
-                                variant="desktop"
-                                label="Batch#"
-                                className="client-list-td--ellipsis client-list-td--batch"
-                                style={{ color: c.secondary }}
-                                title={invoice.batch_number || undefined}
-                              >
-                                <span className="client-list-td__clip">{invoice.batch_number || '-'}</span>
-                              </ClientListTd>
-                              <ClientListTd variant="amount" className="text-right font-medium tabular-nums">
-                                {formatCurrency(invoice.amount)}
-                              </ClientListTd>
-                              <ClientListTd
-                                variant="desktop"
-                                label="Balance"
-                                className="text-right font-medium tabular-nums"
-                              >
-                                <span style={{ color: balanceDisplay.color }}>{balanceDisplay.text}</span>
-                              </ClientListTd>
-                              <ClientListTd
-                                variant="desktop"
-                                label="Invoice Date"
-                                className="client-list-td--invoice-date"
-                                style={{ color: c.secondary }}
-                              >
-                                {formatDate(invoice.invoice_date)}
-                              </ClientListTd>
-                              <ClientListTd
-                                variant="desktop"
-                                label="Pay date"
-                                className="client-list-td--pay-date"
-                                style={{ color: c.secondary }}
-                              >
-                                {visiblePayDate?.source === 'confirmed' ? (
-                                  <span className="whitespace-nowrap tabular-nums">
-                                    {formatDate(visiblePayDate.date)}
-                                  </span>
-                                ) : visiblePayDate?.source === 'pending' ? (
-                                  <span className="whitespace-nowrap" title="Payment posted — awaiting confirmation">
-                                    <span className="tabular-nums">{formatDate(visiblePayDate.date)}</span>
-                                    <span
-                                      className="block text-[9px] font-medium"
-                                      style={{ color: c.warning }}
-                                    >
-                                      Pending
-                                    </span>
-                                  </span>
-                                ) : visiblePayDate?.source === 'scheduled' ? (
-                                  <span className="whitespace-nowrap" title="Broker confirmed they will pay on this date">
-                                    <span className="tabular-nums">{formatDate(visiblePayDate.date)}</span>
-                                    <span
-                                      className="block text-[9px] font-medium"
-                                      style={{ color: c.primary }}
-                                    >
-                                      Scheduled
-                                    </span>
-                                  </span>
-                                ) : (
-                                  '—'
-                                )}
-                              </ClientListTd>
-                              <ClientListTd variant="desktop" label="Age" className="text-right tabular-nums">
-                                <span
-                                  className="client-invoices-age"
-                                  style={{
-                                    color: invoiceHasStoppedAging(invoice)
-                                      ? c.success
-                                      : isOpenArInvoice(invoice) && invoice.isOverdue
-                                        ? getDaysOutstandingColor(invoice.overdueSeverity)
-                                        : c.secondary,
-                                  }}
-                                >
-                                  {invoice.invoiceAgeDays}d
-                                  {!invoiceHasStoppedAging(invoice) &&
-                                    invoice.isForceCloseEligible &&
-                                    capabilities.hasForceClose && (
-                                    <span className="block text-[9px] font-medium" style={{ color: '#7C3AED' }}>
-                                      FC
-                                    </span>
-                                  )}
+                              <td className="inv-col-invoice">
+                                <span className="inv-cell__main">#{invoice.invoice_number}</span>
+                                <span className="inv-cell__sub">
+                                  {invoice.load_number ? `Load ${invoice.load_number}` : 'No load #'}
                                 </span>
-                              </ClientListTd>
-                              <ClientListTd
-                                variant="desktop"
-                                label="Due Days"
-                                className="text-right tabular-nums"
-                                style={{ color: c.secondary }}
-                                title="Broker due days"
-                              >
-                                {formatBrokerDueDays(getInvoiceBrokerDueDays(invoice, mockBrokers))}
-                              </ClientListTd>
-                              <ClientListTd
-                                variant="desktop"
-                                label="PPW sent"
-                                className="text-center"
-                                data-onboard-target={
-                                  invoice.id.startsWith('inv-onboard-tour')
-                                    ? 'invoicePpwSent'
-                                    : undefined
-                                }
-                              >
-                                {hasPpwBeenSent(invoice) ? (
-                                  <span
-                                    className="inline-flex items-center justify-center"
-                                    title="Paperwork sent to broker"
-                                    style={{ color: '#16a34a' }}
-                                    aria-label="PPW sent"
-                                  >
-                                    <Check className="w-4 h-4" strokeWidth={2.5} />
+                                <span className="inv-cell__sub inv-cell__sub--broker" title={invoice.broker_name}>
+                                  {invoice.broker_name}
+                                </span>
+                              </td>
+                              <td className="inv-col-broker">
+                                <span className="inv-cell__main inv-cell__clip" title={invoice.broker_name}>
+                                  {invoice.broker_name}
+                                </span>
+                                {showRisk ? (
+                                  <span className="inv-cell__sub">
+                                    <BrokerRiskLevelChip level={riskLevel} size="sm" />
                                   </span>
-                                ) : (
-                                  <span style={{ color: c.mutedLight }} aria-label="PPW not sent">
-                                    —
+                                ) : invoice.batch_number ? (
+                                  <span className="inv-cell__sub inv-cell__clip" title={invoice.batch_number}>
+                                    {invoice.batch_number}
                                   </span>
-                                )}
-                              </ClientListTd>
-                              <ClientListTd variant="status" className="client-list-td--status-col">
-                                <div className="inline-flex items-center gap-1 flex-nowrap min-w-0">
+                                ) : null}
+                              </td>
+                              <td className="inv-col-date">
+                                <span className="inv-cell__main inv-cell__main--quiet tabular-nums">
+                                  {formatDate(invoice.invoice_date)}
+                                </span>
+                                <span
+                                  className="inv-cell__sub tabular-nums"
+                                  style={ageColor ? { color: ageColor } : undefined}
+                                >
+                                  {dateNote}
+                                  {!stoppedAging &&
+                                    invoice.isForceCloseEligible &&
+                                    capabilities.hasForceClose && <> · FC</>}
+                                </span>
+                              </td>
+                              <td className="inv-col-amount">
+                                <span className="inv-cell__main tabular-nums">
+                                  {formatCurrency(invoice.amount)}
+                                </span>
+                                {balanceNote ? (
+                                  <span className="inv-cell__sub tabular-nums" style={{ color: balanceNote.color }}>
+                                    {balanceNote.text}
+                                  </span>
+                                ) : null}
+                              </td>
+                              <td className="inv-col-status">
+                                <div className="inv-status">
                                   {awaitingPayment ? (
                                     <span className="status-pill status-pill--confirm-payment">
                                       Confirm payment
@@ -1507,12 +1306,25 @@ export default function ClientInvoices() {
                                   {invoice.isForceCloseEligible &&
                                     capabilities.hasForceClose &&
                                     !awaitingPayment && (
-                                      <span className="status-pill status-pill--hold text-[10px]">
-                                        Force Close
-                                      </span>
+                                      <span className="status-pill status-pill--hold">Force close</span>
                                     )}
+                                  {hasPpwBeenSent(invoice) ? (
+                                    <span
+                                      className="inv-ppw"
+                                      title="Paperwork sent to broker"
+                                      aria-label="Paperwork sent to broker"
+                                      data-onboard-target={
+                                        invoice.id.startsWith('inv-onboard-tour')
+                                          ? 'invoicePpwSent'
+                                          : undefined
+                                      }
+                                    >
+                                      <Check className="w-3.5 h-3.5" strokeWidth={2.75} aria-hidden />
+                                      PPW
+                                    </span>
+                                  ) : null}
                                 </div>
-                              </ClientListTd>
+                              </td>
                             </tr>
                           )
                         })}
@@ -1521,28 +1333,17 @@ export default function ClientInvoices() {
                   </div>
                   )}
 
-                  <div
-                    className="client-page-footer flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-2 border-t shrink-0"
-                    style={{ borderColor: c.border, backgroundColor: c.card }}
-                  >
-                    <p className="text-xs font-medium" style={{ color: c.secondary }}>
-                      Showing {pageStart}–{pageEnd} of {sortedInvoices.length}
+                  <div className="inv-footer shrink-0">
+                    <p className="inv-footer__count">
+                      {pageStart}–{pageEnd} of {sortedInvoices.length}
                     </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: c.secondary }}>
+                    <div className="inv-footer__controls">
+                      <label className="inv-footer__rows">
                         Rows
                         <select
                           value={pageSize}
                           onChange={(e) => setPageSize(Number(e.target.value))}
                           className="client-input"
-                          style={{
-                            backgroundColor: c.card,
-                            height: 30,
-                            paddingTop: 4,
-                            paddingBottom: 4,
-                            fontSize: 12,
-                            width: 64,
-                          }}
                         >
                           {PAGE_SIZE_OPTIONS.map((size) => (
                             <option key={size} value={size}>
@@ -1551,7 +1352,7 @@ export default function ClientInvoices() {
                           ))}
                         </select>
                       </label>
-                      <div className="flex items-center gap-1">
+                      <div className="inv-footer__pager">
                         <button
                           type="button"
                           onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -1561,7 +1362,7 @@ export default function ClientInvoices() {
                         >
                           <ChevronLeft className="w-4 h-4" />
                         </button>
-                        <span className="text-xs font-medium px-2 tabular-nums" style={{ color: c.primary }}>
+                        <span className="tabular-nums">
                           {currentPage} / {totalPages}
                         </span>
                         <button

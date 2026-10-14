@@ -23,6 +23,7 @@ import {
   GitBranch,
   Inbox,
   Target,
+  BadgeCheck,
   type LucideIcon,
 } from 'lucide-react'
 import { getInitials, getClientUserDisplayName } from './clientNav'
@@ -126,6 +127,7 @@ export const adminNavSections: AdminNavSection[] = [
       { label: 'Clients', path: '/clients', icon: Users },
       { label: 'Sales', path: '/admin/sales', icon: Target },
       { label: 'Waitlist', path: '/admin/waitlist', icon: Megaphone },
+      { label: 'MC Checks', path: '/admin/mc-checks', icon: BadgeCheck },
       { label: 'Users', path: '/users', icon: UserCog },
     ],
   },

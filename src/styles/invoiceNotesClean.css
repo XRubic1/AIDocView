@@ -1,0 +1,223 @@
+/*
+ * Invoice activity & notes — readable feed, compact filters, simple composer.
+ * Colors come from the --cp-* theme tokens so dark mode keeps working.
+ */
+
+/* ── Side panel surface: white, with room to breathe ── */
+.client-portal .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes.payment-confirmation-panel__notes--sidebar-matches-mobile {
+  padding: 12px 16px 12px;
+  background: var(--cp-card);
+}
+
+.client-portal .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .payment-confirmation-panel__notes-head {
+  margin-bottom: 14px;
+}
+
+/* Filters: same compact segmented control as All / Needs on the list. */
+.client-portal .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .payment-confirmation-panel__notes-filters.payment-confirmation-panel__notes-filters--segmented {
+  display: flex;
+  width: 100%;
+  gap: 2px;
+  padding: 3px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--cp-surface);
+}
+
+.client-portal .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .payment-confirmation-panel__notes-filters--segmented .payment-confirmation-panel__notes-filter {
+  flex: 1 1 0;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .payment-confirmation-panel__notes-filters--segmented .payment-confirmation-panel__notes-filter:hover {
+  color: var(--cp-text);
+}
+
+.client-portal .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .payment-confirmation-panel__notes-filters--segmented .payment-confirmation-panel__notes-filter--active {
+  background: var(--cp-card);
+  color: var(--cp-text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.client-portal .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .payment-confirmation-panel__notes-filter-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--cp-text) 8%, transparent);
+  color: inherit;
+}
+
+.client-portal .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .payment-confirmation-panel__notes-scroll {
+  padding: 2px 4px 12px 0;
+}
+
+/* ── Feed rows: larger text, clearer hierarchy ── */
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row {
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 20px;
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row:not(:last-child) .payment-confirmation-panel__note-row-rail::after {
+  top: 30px;
+  bottom: -20px;
+  width: 1px;
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-dot {
+  width: 28px;
+  height: 28px;
+  box-shadow: none;
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-content {
+  padding-top: 3px;
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-head {
+  margin-bottom: 4px;
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-source {
+  padding: 1px 6px;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-date {
+  font-size: 12px;
+  opacity: 1;
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-detail {
+  font-size: 14px;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--cp-text) 78%, var(--cp-card));
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-meta {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+/* ── Composer ── */
+.client-portal .payment-confirmation-panel__notes .invoice-detail-note-compose.note-compose,
+.client-portal .payment-confirmation-panel--sidebar .payment-confirmation-panel__notes--sidebar-matches-mobile .invoice-detail-note-compose.note-compose {
+  margin: 0;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--cp-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.client-portal .note-compose__open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--cp-input-border);
+  border-radius: 10px;
+  background: var(--cp-input-bg);
+  color: var(--cp-muted-light);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: text;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.client-portal .note-compose__open span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-portal .note-compose__open:hover {
+  border-color: var(--cp-border-hover);
+  color: var(--cp-text-muted);
+}
+
+.client-portal .note-compose__open:focus-visible {
+  outline: none;
+  border-color: var(--cp-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-accent) 16%, transparent);
+}
+
+.client-portal .note-compose .invoice-detail-note-input.note-compose__input {
+  display: block;
+  width: 100%;
+  min-height: 84px;
+  max-height: 200px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.client-portal .note-compose__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.client-portal .note-compose__hint {
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--cp-muted-light);
+}
+
+.client-portal .note-compose__cancel {
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cp-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.client-portal .note-compose__cancel:hover:not(:disabled) {
+  background: var(--cp-table-hover);
+  color: var(--cp-text);
+}
+
+.client-portal .note-compose .note-compose__submit {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.client-portal .note-compose .note-compose__submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

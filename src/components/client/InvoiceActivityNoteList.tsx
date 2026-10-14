@@ -12,6 +12,7 @@ import {
 import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { formatDate, formatCurrency } from '../../utils/format'
+import '../../styles/invoiceNotesClean.css'
 
 export type ActivityNoteTone = 'neutral' | 'success' | 'warning' | 'error' | 'info'
 export type ActivityNoteSource = 'carrier' | 'credyx'
@@ -313,7 +314,8 @@ export function InvoiceActivityNoteList({
               {entry.detail ? (
                 <p className="payment-confirmation-panel__note-row-detail">{entry.detail}</p>
               ) : null}
-              {entry.meta ? (
+              {/* Skip meta when it only repeats the detail line. */}
+              {entry.meta && entry.meta.trim() !== entry.detail?.trim() ? (
                 <p className="payment-confirmation-panel__note-row-meta">{entry.meta}</p>
               ) : null}
               {isPendingDelete ? (

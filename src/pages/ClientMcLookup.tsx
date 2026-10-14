@@ -3,21 +3,26 @@ import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   Bug,
+  Check,
   CheckCircle2,
   ChevronDown,
   ExternalLink,
   HelpCircle,
   Loader2,
+  Mail,
+  Phone,
   ShieldAlert,
   X,
 } from 'lucide-react'
 import { useClientTheme } from '../theme/ThemeContext'
+import '../styles/credyxMcCheck.css'
 import { lookupMcCredit } from '../services/mcCreditLookupService'
 import {
   lookupBrokerSnapshotByDot,
   lookupBrokerSnapshotByMc,
   recordLookupCreditScore,
 } from '../services/brokerSnapshotService'
+import { recordPublicMcCheck } from '../services/publicMcVisitorService'
 import { extractEmailDomain } from '../utils/emailDomain'
 import { formatPhoneNumber } from '../utils/formatPhoneNumber'
 import { assessMcCredit, creditMetrics, redactVendorText } from '../utils/mcCreditAssessment'
@@ -405,7 +410,9 @@ const CREDYX_GENERAL = [
 const CREDYX_LINES: Record<CredyxPitch, string[]> = {
   general: CREDYX_GENERAL,
   nobuy: ['Factoring company put your invoice on NO BUY? Let Credyx chase the broker for you.'],
-  weak: ['Ohhh… this broker has a bad payment history 👀 Already booked the load? Let Credyx keep an eye on it.'],
+  weak: [
+    'Ohhh… this broker has a bad payment history 👀 Already booked the load? Let Credyx keep an eye on it.',
+  ],
 }
 
 function pickLine(pitch: CredyxPitch): string {
@@ -432,10 +439,14 @@ function credyxPitch(
   blocked: boolean
 ): CredyxPitch {
   if (loading || !searched || !verdict) return 'general'
-  const noBuy = profile?.rating === 'No Buy' || Boolean(assessment?.reasons.some((reason) => /no buy/i.test(reason)))
+  const noBuy =
+    profile?.rating === 'No Buy' ||
+    Boolean(assessment?.reasons.some((reason) => /no buy/i.test(reason)))
   if (noBuy) return 'nobuy'
   if (carrier || blocked) return 'general'
-  if ((verdict === 'avoid' || verdict === 'caution') && creditLooksWeak(profile, assessment)) return 'weak'
+  if ((verdict === 'avoid' || verdict === 'caution') && creditLooksWeak(profile, assessment)) {
+    return 'weak'
+  }
   return 'general'
 }
 
@@ -444,12 +455,15 @@ export default function ClientMcLookup({
   autoLookup = false,
   embedded = false,
   introduce = false,
+  visitorMcDigits = '',
 }: {
   initialMc?: string
   autoLookup?: boolean
   embedded?: boolean
   /** Public MC Check: Credyx card before the broker details. */
   introduce?: boolean
+  /** Public /MC: unlocked carrier MC used to attribute lookups. */
+  visitorMcDigits?: string
 }) {
   const c = useClientTheme()
   const [kind, setKind] = useState<DocketKind>('MC')
@@ -526,6 +540,29 @@ export default function ClientMcLookup({
     if (!nextCredit && !nextAuthority) {
       setError(`${searchKind} lookup failed. Try again in a moment.`)
     }
+    if (introduce && visitorMcDigits) {
+      const resultCompany =
+        prettyCaps(
+          (nextAuthority?.found ? nextAuthority?.name : null) ||
+            nextCredit?.results.find((row) => row.company)?.company?.replace(/\s*\(STOLEN ID.*$/i, '') ||
+            ''
+        ) || null
+      const lookedUpDigits =
+        docketDigits(nextCredit?.mc || nextAuthority?.mcNumber || '') || digits
+      const lookedUpLabel =
+        searchKind === 'DOT'
+          ? `DOT-${digits}`
+          : searchKind === 'FF'
+            ? `FF-${lookedUpDigits}`
+            : `MC-${lookedUpDigits}`
+      void recordPublicMcCheck({
+        visitorMcDigits,
+        searchKind,
+        searchedDigits: lookedUpDigits,
+        searchedLabel: lookedUpLabel,
+        companyName: resultCompany,
+      })
+    }
     setLoading(false)
   }
 
@@ -575,6 +612,8 @@ export default function ClientMcLookup({
     : kind === 'FF'
       ? `FF-${docket}`
       : docket
+  const idle = !loading && !searched && !error
+  const showPublicResult = showResult && Boolean(headline)
   const pitch = credyxPitch(
     loading,
     searched,
@@ -588,14 +627,103 @@ export default function ClientMcLookup({
   const [credyxLine, setCredyxLine] = useState(() => ({ key: '0:general', text: pickLine('general') }))
   if (introduce && credyxLine.key !== noteKey) setCredyxLine({ key: noteKey, text: pickLine(pitch) })
 
+  if (introduce) {
+    return (
+      <div className="credyx-mc">
+        <div className="credyx-mc-wrap credyx-mc-main">
+          <form className="credyx-mc-lkb" onSubmit={onSearch}>
+            <select
+              value={kind}
+              onChange={(event) => setKind(event.target.value as DocketKind)}
+              disabled={loading}
+              aria-label="Number type"
+            >
+              <option value="MC">MC</option>
+              <option value="DOT">DOT</option>
+              <option value="FF">FF</option>
+            </select>
+            <input
+              value={mc}
+              onChange={(event) => setMc(event.target.value)}
+              placeholder="Enter broker number"
+              inputMode="numeric"
+              autoComplete="off"
+              disabled={loading}
+            />
+            <button type="submit" className="credyx-mc-btn" disabled={loading}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Look up'}
+            </button>
+          </form>
+
+          {idle ? (
+            <div className="credyx-mc-empty">
+              <h2>Look up any broker</h2>
+              <p>Search by MC, DOT, or FF number.</p>
+            </div>
+          ) : null}
+
+          {error ? <p className="credyx-mc-err">{error}</p> : null}
+
+          {nothing ? (
+            <div className="credyx-mc-empty">
+              <h2>No record for {kind} {credit?.mc || mc}</h2>
+              <p>Nothing came back for this number. Check the digits and try again.</p>
+            </div>
+          ) : null}
+
+          {showPublicResult && headline ? (
+            <div className="credyx-mc-go">
+              <PublicCredyxCard key={credyxLine.key} text={credyxLine.text} />
+              <PublicIdentityCard
+                verdict={headline.verdict}
+                title={headline.title}
+                summary={summary}
+                company={company}
+                mc={docketLabel}
+                dot={authority?.dotNumber}
+                place={place}
+              />
+              <div className="credyx-mc-g3">
+                <div className="credyx-mc-cd credyx-mc-rise" style={{ ['--d' as string]: '0.1s' }}>
+                  <div className="credyx-mc-lab">Credit rating</div>
+                  {profile ? (
+                    <PublicRatingBody profile={profile} assessment={assessment} />
+                  ) : (
+                    <p className="credyx-mc-sub">No credit rating on file.</p>
+                  )}
+                </div>
+                <div className="credyx-mc-cd credyx-mc-rise" style={{ ['--d' as string]: '0.2s' }}>
+                  <div className="credyx-mc-lab">Days to pay</div>
+                  {profile ? (
+                    <PublicDaysBody profile={profile} />
+                  ) : (
+                    <p className="credyx-mc-sub">No payment pace on file.</p>
+                  )}
+                </div>
+                <div className="credyx-mc-cd credyx-mc-rise" style={{ ['--d' as string]: '0.3s' }}>
+                  <div className="credyx-mc-lab" style={{ marginBottom: 6 }}>
+                    Authority
+                  </div>
+                  {authorityError ? <p className="credyx-mc-err">{authorityError}</p> : null}
+                  <PublicAuthorityRows summary={authority} />
+                </div>
+              </div>
+              <div className="credyx-mc-g2">
+                <PublicInsuranceCard summary={authority} />
+                <PublicContactCard phone={phone} emails={emails} />
+              </div>
+              {domain ? <DomainBar note={domain} /> : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
-      className={
-        embedded
-          ? 'min-h-0 flex-1 overflow-y-auto'
-          : `h-full overflow-y-auto${introduce ? ' credyx-mc-canvas' : ''}`
-      }
-      style={introduce ? undefined : { backgroundColor: c.background }}
+      className={embedded ? 'min-h-0 flex-1 overflow-y-auto' : 'h-full overflow-y-auto'}
+      style={{ backgroundColor: c.background }}
     >
       <div className="mx-auto flex w-full max-w-[920px] flex-col gap-4 px-4 py-5 md:px-6 md:py-6">
         <form
@@ -640,8 +768,6 @@ export default function ClientMcLookup({
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Look up'}
           </button>
         </form>
-
-        {introduce && noteSearch > 0 ? <CredyxResultCard key={credyxLine.key} text={credyxLine.text} /> : null}
 
         {error ? (
           <p
@@ -725,6 +851,293 @@ export default function ClientMcLookup({
   )
 }
 
+function PublicCredyxCard({ text }: { text: string }) {
+  return (
+    <div className="credyx-mc-cx credyx-mc-rise" style={{ ['--d' as string]: '0s' }}>
+      <div className="credyx-mc-cxh">
+        <div>
+          <span className="credyx-mc-eyebrow">Credyx A/R Solutions</span>
+          <h3>{text}</h3>
+          <p>We handle the paperwork and chase the broker. Payment goes straight to you.</p>
+        </div>
+        <Link className="credyx-mc-btn" to="/#waitlist-form">
+          Schedule a demo
+        </Link>
+      </div>
+      <div className="credyx-mc-cxs">
+        <div>
+          <b>1</b>You submit your docs
+        </div>
+        <div>
+          <b>2</b>We verify them
+        </div>
+        <div>
+          <b>3</b>We follow up with the broker
+        </div>
+        <div>
+          <b>4</b>You get paid directly
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PublicIdentityCard({
+  verdict,
+  title,
+  summary,
+  company,
+  mc,
+  dot,
+  place,
+}: {
+  verdict: McCreditVerdict
+  title: string
+  summary: string
+  company: string
+  mc: string
+  dot?: number | null
+  place?: string
+}) {
+  const prefix = mc.match(/^(FF|MX|MC)/i)?.[1]?.toUpperCase() ?? 'MC'
+  const digits = mc.replace(/^(FF|MX|MC)-?/i, '').trim()
+  const pills = [
+    digits ? `${prefix} ${digits}` : null,
+    dot != null ? `DOT ${dot}` : null,
+  ].filter((pill): pill is string => Boolean(pill))
+  const tone =
+    verdict === 'good' ? 'ok' : verdict === 'caution' ? 'caution' : 'avoid'
+
+  return (
+    <div className="credyx-mc-cd credyx-mc-rise" style={{ ['--d' as string]: '0s' }}>
+      <div className="credyx-mc-hd">
+        <div>
+          <h2>{company}</h2>
+          {place ? <div className="credyx-mc-adr">{place}</div> : null}
+        </div>
+        {pills.length ? (
+          <div className="credyx-mc-tags">
+            {pills.map((pill) => (
+              <span key={pill} className="credyx-mc-tg">
+                {pill}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className={`credyx-mc-vd credyx-mc-vd--${tone}`}>
+        <span className="credyx-mc-vd__ic">
+          {tone === 'ok' ? <Check className="h-6 w-6" strokeWidth={2.6} /> : <AlertTriangle className="h-6 w-6" />}
+        </span>
+        <div>
+          <h3>{title}</h3>
+          <p>{summary}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PublicRatingBody({
+  profile,
+  assessment,
+}: {
+  profile: CreditProfile
+  assessment: McCreditAssessment | null
+}) {
+  const score = profile.score === '—' ? null : profile.score.replace('–', '–')
+  return (
+    <div className="credyx-mc-cr">
+      <div className="credyx-mc-rg">
+        <svg viewBox="0 0 100 100" aria-hidden>
+          <circle className="credyx-mc-rg__track" cx="50" cy="50" r="46" />
+          <circle className="credyx-mc-rg__prog" cx="50" cy="50" r="46" />
+        </svg>
+        <b>{profile.rating}</b>
+      </div>
+      <div>
+        {score ? <div className="credyx-mc-score-title">Score {score}</div> : null}
+        <div className="credyx-mc-sub">{scoreCaption(profile, assessment)}</div>
+      </div>
+    </div>
+  )
+}
+
+function PublicDaysBody({ profile }: { profile: CreditProfile }) {
+  const range = profile.days === '—' ? null : profile.days.replace('–', '–')
+  const nums = profile.days.match(/\d+/g)?.map(Number) ?? []
+  const avg = nums.length ? nums.reduce((sum, value) => sum + value, 0) / nums.length : null
+  const marker = avg != null ? Math.min(100, Math.max(0, (avg / 60) * 100)) : null
+  return (
+    <>
+      <div className="credyx-mc-big">
+        {range ?? '—'} {range ? <small>days</small> : null}
+      </div>
+      {avg != null ? (
+        <div className="credyx-mc-sub">
+          Average <b>{Math.round(avg)} days</b>
+        </div>
+      ) : null}
+      {marker != null ? (
+        <>
+          <div className="credyx-mc-gg">
+            <i style={{ flex: 50, background: 'var(--mc-blue)' }} />
+            <i style={{ flex: 25, background: 'var(--mc-amb)' }} />
+            <i style={{ flex: 25, background: 'var(--mc-red)' }} />
+            <span className="credyx-mc-mk" style={{ left: `${marker}%` }} />
+          </div>
+          <div className="credyx-mc-tk">
+            <span>0</span>
+            <span>30</span>
+            <span>60+</span>
+          </div>
+        </>
+      ) : null}
+    </>
+  )
+}
+
+function PublicStatusPill({ value }: { value: string }) {
+  const tone = statusTone(value)
+  const label = shownStatus(value)
+  const cls =
+    tone === 'good' ? 'credyx-mc-pl' : tone === 'bad' ? 'credyx-mc-pl credyx-mc-pl--bad' : 'credyx-mc-pl credyx-mc-pl--n'
+  return <b className={cls}>{label}</b>
+}
+
+function PublicAuthorityRows({ summary }: { summary: BrokerSnapshotSummary | null }) {
+  if (!summary) {
+    return <p className="credyx-mc-sub">No authority details for this number.</p>
+  }
+  const shown = displayAuthorities(summary)
+  const blocked = isDoNotWorkBroker(summary)
+  const brokerActive = brokerAuthorityActive(summary)
+  const insurance = insuranceLabel(summary)
+  const insuranceValue =
+    insurance.label === 'Insurance on file'
+      ? 'On file'
+      : insurance.label === 'Insurance cancelled'
+        ? 'Cancelled'
+        : insurance.label === 'Insurance missing'
+          ? 'Missing'
+          : 'Needs review'
+  return (
+    <>
+      <div className="credyx-mc-rw">
+        <span>Authority</span>
+        <PublicStatusPill value={brokerActive ? 'Active' : blocked ? 'Do not use' : 'None'} />
+      </div>
+      <div className="credyx-mc-rw">
+        <span>Insurance</span>
+        <PublicStatusPill value={insuranceValue} />
+      </div>
+      <div className="credyx-mc-rw">
+        <span>Broker authority</span>
+        <PublicStatusPill value={shown.broker} />
+      </div>
+      <div className="credyx-mc-rw">
+        <span>Common</span>
+        <PublicStatusPill value={shown.common} />
+      </div>
+      <div className="credyx-mc-rw">
+        <span>Contract</span>
+        <PublicStatusPill value={shown.contract} />
+      </div>
+    </>
+  )
+}
+
+function PublicInsuranceCard({ summary }: { summary: BrokerSnapshotSummary | null }) {
+  const policy = (summary?.insurances ?? []).find(
+    (row) => row.companyName && !/^(surety bond|insurer|unknown insurer)$/i.test(row.companyName)
+  )
+  const filing = [policy?.policyNumber, money(policy?.maxLimit ?? null)].filter(Boolean).join(' · ')
+  const contact = splitEmails(policy?.email ?? '')[0] || null
+  const authorized =
+    summary?.propertyAuthorized === true
+      ? 'Broker Property'
+      : summary?.brokerAuthority
+        ? prettyCaps(summary.brokerAuthority)
+        : null
+
+  return (
+    <div className="credyx-mc-cd credyx-mc-rise" style={{ ['--d' as string]: '0.4s' }}>
+      <div className="credyx-mc-lab" style={{ marginBottom: 6 }}>
+        Insurance on file
+      </div>
+      {policy?.companyName ? (
+        <div className="credyx-mc-kv">
+          <span>Insurer</span>
+          <b>{policy.companyName}</b>
+        </div>
+      ) : (
+        <div className="credyx-mc-kv">
+          <span>Insurer</span>
+          <b>{summary?.primaryInsurer || '—'}</b>
+        </div>
+      )}
+      <div className="credyx-mc-kv">
+        <span>Filing</span>
+        <b>{filing || '—'}</b>
+      </div>
+      <div className="credyx-mc-kv">
+        <span>Insurance contact</span>
+        <b>{contact || '—'}</b>
+      </div>
+      <div className="credyx-mc-kv">
+        <span>Authorized for</span>
+        <b>{authorized || '—'}</b>
+      </div>
+      {summary?.dotNumber != null && summary.dotNumber > 0 ? (
+        <a
+          className="credyx-mc-lk"
+          href={`https://motus.dot.gov/customer/${summary.dotNumber}/account`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          View authority on Motus <ExternalLink className="h-4 w-4" />
+        </a>
+      ) : null}
+    </div>
+  )
+}
+
+function PublicContactCard({ phone, emails }: { phone?: string; emails: string[] }) {
+  const phones = (phone || '')
+    .split(/[,;·]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (!phones.length && !emails.length) {
+    return (
+      <div className="credyx-mc-cd credyx-mc-ct credyx-mc-rise" style={{ ['--d' as string]: '0.5s' }}>
+        <div className="credyx-mc-lab" style={{ marginBottom: 6 }}>
+          Contact
+        </div>
+        <p className="credyx-mc-sub">No contact info on file.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="credyx-mc-cd credyx-mc-ct credyx-mc-rise" style={{ ['--d' as string]: '0.5s' }}>
+      <div className="credyx-mc-lab" style={{ marginBottom: 6 }}>
+        Contact
+      </div>
+      {phones.map((line) => (
+        <a key={line} href={`tel:${line.replace(/[^\d+]/g, '')}`}>
+          <Phone className="h-5 w-5" />
+          {line}
+        </a>
+      ))}
+      {emails.map((address) => (
+        <a key={address} href={`mailto:${address}`}>
+          <Mail className="h-5 w-5" />
+          {address}
+        </a>
+      ))}
+    </div>
+  )
+}
+
 function Card({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   const c = useClientTheme()
   return (
@@ -749,34 +1162,6 @@ function Placeholder({ children }: { children: ReactNode }) {
     <p className="text-sm leading-relaxed" style={{ color: c.secondary }}>
       {children}
     </p>
-  )
-}
-
-function CredyxResultCard({ text }: { text: string }) {
-  const c = useClientTheme()
-  return (
-    <section
-      className="credyx-note-pulse rounded-2xl border px-5 py-5"
-      style={{ backgroundColor: c.accentLight, borderColor: c.accent }}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <h2 className="text-2xl font-semibold leading-tight" style={{ color: c.primary }}>
-          Credyx
-        </h2>
-        <span
-          className="rounded-lg border px-2.5 py-1 text-xs font-medium"
-          style={{ borderColor: c.accent, backgroundColor: c.card, color: c.primary }}
-        >
-          A/R Solutions
-        </span>
-      </div>
-      <p className="mt-3 text-sm leading-relaxed" style={{ color: c.primary }}>
-        {text}
-      </p>
-      <Link to="/#waitlist-form" className="mt-4 inline-flex text-sm font-semibold" style={{ color: c.accent }}>
-        Schedule a demo
-      </Link>
-    </section>
   )
 }
 

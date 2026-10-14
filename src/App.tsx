@@ -21,6 +21,7 @@ import {
   AdminBrokerRisk,
   AdminBlueprints,
   AdminBrokerSnapshot,
+  AdminPublicMcChecks,
   AgingAR,
   BrokerAgingInvoicesPopup,
   CarrierAgingBrokersPopup,
@@ -110,8 +111,10 @@ function App() {
               <Route path="/landing" element={<LandingPage />} />
               <Route path="/home" element={withRouteSuspense(PlatformLandingPage)} />
               <Route path="/docsort" element={withRouteSuspense(DocSortLandingPage)} />
-              <Route path="/mc-check" element={withRouteSuspense(PublicMcCheck, 'Loading MC Check…')} />
-              <Route path="/mclookup" element={<Navigate to="/mc-check" replace />} />
+              <Route path="/MC" element={withRouteSuspense(PublicMcCheck, 'Loading MC Check…')} />
+              <Route path="/mc" element={<Navigate to="/MC" replace />} />
+              <Route path="/mc-check" element={<Navigate to="/MC" replace />} />
+              <Route path="/mclookup" element={<Navigate to="/MC" replace />} />
 
               <Route element={<ClientProtectedLayout />}>
                 <Route
@@ -170,6 +173,10 @@ function App() {
                 <Route
                   path="/admin/broker-snapshot"
                   element={withRouteSuspense(AdminBrokerSnapshot)}
+                />
+                <Route
+                  path="/admin/mc-checks"
+                  element={withRouteSuspense(AdminPublicMcChecks, 'Loading MC Checks…')}
                 />
                 <Route path="/batches" element={withRouteSuspense(Batches)} />
                 <Route path="/batches/create" element={withRouteSuspense(CreateBatch)} />
