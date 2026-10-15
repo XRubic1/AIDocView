@@ -1,20 +1,34 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { SummaryCards } from '../components/admin/SummaryCards'
+import {
+  AlertTriangle,
+  ArrowRight,
+  Banknote,
+  Building2,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  FileText,
+  Layers,
+  MessageSquareWarning,
+  Paperclip,
+  Phone,
+  PlusCircle,
+  UserPlus,
+  Wallet,
+  type LucideIcon,
+} from 'lucide-react'
 import { CollectionsQueue } from '../components/admin/CollectionsQueue'
 import { DisputedInvoicesPanel } from '../components/admin/DisputedInvoicesPanel'
-import { ClientWorkQueuePanel } from '../components/admin/ClientWorkQueuePanel'
-import { QuickActions } from '../components/admin/QuickActions'
-import { SectionHeader } from '../components/admin/SectionHeader'
 import { ARTrendChart } from '../components/admin/charts/ARTrendChart'
 import { AgingDistributionChart } from '../components/admin/charts/AgingDistributionChart'
-import { CriticalAlerts } from '../components/admin/widgets/CriticalAlerts'
 import { BatchPipeline } from '../components/admin/widgets/BatchPipeline'
-import { TodaysActions } from '../components/admin/widgets/TodaysActions'
 import ManagedIntakeWidget from '../components/admin/ManagedIntakeWidget'
 import BatchStatusWidget from '../components/client/BatchStatusWidget'
+import { AdminClientsPanel, HEALTH_LABEL } from '../components/admin/dashboard/AdminClientsPanel'
 import { getAllBatches } from '../data/mockBatches'
 import { mockInvoices } from '../data/mockInvoices'
+import { mockPayments } from '../data/mockPayments'
 import { markBrokerContactedForCollections } from '../utils/collectionsChase'
 import { PendingBatch, CollectionsAlert, AgingAR } from '../types/admin'
 import { formatCurrency } from '../utils/format'
@@ -22,610 +36,666 @@ import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
 import { getAllClients, getClientById } from '../services/clientRegistry'
 import { buildClientWorkSummaries } from '../utils/clientWorkQueue'
-import { useClientTheme } from '../theme/ThemeContext'
 import { getAgingArBucketKey, getInvoiceAgeDays, isOpenArInvoice } from '../utils/invoiceAging'
 import { listOpenDisputedInvoices } from '../utils/clientInvoiceDisputeStatus'
 import { invoiceHasPendingHoldPaperworkReview } from '../utils/holdPaperworkReview'
 import { listReceiptDisputedPayments } from '../services/paymentReceiptConfirmationService'
+import { buildAdminClientOverview, SETUP_GAP_LABEL, type ClientHealth } from '../utils/adminClientOverview'
+import '../styles/adminDashboard.css'
+
+type AttentionPriority = 'high' | 'medium' | 'low'
+
+type AttentionItem = {
+  id: string
+  kind: 'stale_batch' | 'overdue_invoice' | 'open_dispute' | 'batch_review' | 'broker_call' | 'ppw_review'
+  priority: AttentionPriority
+  title: string
+  detail: string
+  href: string
+  clientId?: string
+}
+
+const ATTENTION_ICON: Record<AttentionItem['kind'], LucideIcon> = {
+  stale_batch: Clock,
+  overdue_invoice: AlertTriangle,
+  open_dispute: MessageSquareWarning,
+  batch_review: Layers,
+  broker_call: Phone,
+  ppw_review: Paperclip,
+}
+
+const PRIORITY_RANK: Record<AttentionPriority, number> = { high: 0, medium: 1, low: 2 }
+
+const HEALTH_COLOR: Record<ClientHealth, string> = {
+  at_risk: 'var(--adb-danger)',
+  watch: '#d97706',
+  healthy: 'var(--adb-success)',
+  idle: 'var(--adb-faint)',
+}
+
+const PENDING_STATUSES = new Set(['ready_to_post', 'verification', 'approval'])
+
+function isChaseable(inv: { status: string; days_since_expected?: number }, minDays: number) {
+  return (
+    (inv.days_since_expected || 0) >= minDays &&
+    inv.status !== 'paid' &&
+    inv.status !== 'force_closed' &&
+    inv.status !== 'written_off'
+  )
+}
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
-  const c = useClientTheme()
   const tenantRevision = useTenantDataRevision()
   const { capabilities } = useAdminCapabilities()
-  const [widgetClientFilter, setWidgetClientFilter] = useState('')
+  const [clientFilter, setClientFilter] = useState('')
 
-  // Get all real data (re-read when realtime updates land)
+  // Re-read stores when realtime updates land
+  const allClients = useMemo(() => getAllClients(), [tenantRevision])
   const allBatches = useMemo(() => getAllBatches(), [tenantRevision])
   const allInvoices = useMemo(() => [...mockInvoices], [tenantRevision])
-  const clients = useMemo(
+  const allPayments = useMemo(() => [...mockPayments], [tenantRevision])
+
+  const clientOptions = useMemo(
     () =>
-      getAllClients()
+      allClients
         .map((client) => ({ id: client.id, name: client.name }))
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [tenantRevision]
+    [allClients]
   )
+
+  const allPendingBatches = useMemo(
+    () => allBatches.filter((b): b is PendingBatch => PENDING_STATUSES.has(b.status)),
+    [allBatches]
+  )
+
   const workSummaries = useMemo(
-    () =>
-      buildClientWorkSummaries({
-        invoices: allInvoices,
-        batches: allBatches.filter(
-          (batch): batch is PendingBatch =>
-            batch.status === 'ready_to_post' ||
-            batch.status === 'verification' ||
-            batch.status === 'approval'
-        ),
-      }),
-    [allInvoices, allBatches]
+    () => buildClientWorkSummaries({ invoices: allInvoices, batches: allPendingBatches }),
+    [allInvoices, allPendingBatches]
   )
-  
-  // Calculate pending batches from real data
-  const pendingBatches = useMemo(() => {
-    return allBatches.filter((batch): batch is PendingBatch => 
-      batch.status === 'ready_to_post' || 
-      batch.status === 'verification' || 
-      batch.status === 'approval'
-    ).sort((a, b) => {
-      return new Date(a.submitted_at).getTime() - new Date(b.submitted_at).getTime()
-    })
-  }, [allBatches])
-  
-  // Calculate invoices on hold
-  const invoicesOnHold = useMemo(() => {
-    return allInvoices.filter(inv => inv.status === 'hold').length
-  }, [allInvoices])
-  
-  // Calculate total A/R
-  const totalAR = useMemo(() => {
-    return allInvoices
-      .filter((inv) => isOpenArInvoice(inv))
-      .reduce((sum, inv) => sum + inv.amount, 0)
-  }, [allInvoices])
-  
-  // Calculate collections alerts
-  const collectionsAlerts = useMemo(() => {
-    return allInvoices.filter(inv => {
-      const daysSinceExpected = inv.days_since_expected || 0
-      return daysSinceExpected >= 15 && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off'
-    }).length
-  }, [allInvoices])
-  
-  // Calculate collections queue
+
+  const overview = useMemo(
+    () =>
+      buildAdminClientOverview({
+        clients: allClients,
+        invoices: allInvoices,
+        payments: allPayments,
+        workSummaries,
+      }),
+    [allClients, allInvoices, allPayments, workSummaries]
+  )
+
+  // Everything below scopes to the selected client (or all clients)
+  const invoices = useMemo(
+    () => (clientFilter ? allInvoices.filter((inv) => inv.client_id === clientFilter) : allInvoices),
+    [allInvoices, clientFilter]
+  )
+  const batches = useMemo(
+    () => (clientFilter ? allBatches.filter((b) => b.client_id === clientFilter) : allBatches),
+    [allBatches, clientFilter]
+  )
+  const scopedRows = useMemo(
+    () => (clientFilter ? overview.rows.filter((r) => r.clientId === clientFilter) : overview.rows),
+    [overview.rows, clientFilter]
+  )
+
+  const pendingBatches = useMemo(
+    () =>
+      batches
+        .filter((b): b is PendingBatch => PENDING_STATUSES.has(b.status))
+        .sort((a, b) => new Date(a.submitted_at).getTime() - new Date(b.submitted_at).getTime()),
+    [batches]
+  )
+
   const receiptDisputedInvoiceIds = useMemo(
     () => new Set(listReceiptDisputedPayments().map((payment) => payment.invoice_id)),
     [tenantRevision]
   )
 
   const openDisputedRows = useMemo(
-    () => listOpenDisputedInvoices(allInvoices, { receiptDisputedInvoiceIds }),
-    [allInvoices, receiptDisputedInvoiceIds]
+    () => listOpenDisputedInvoices(invoices, { receiptDisputedInvoiceIds }),
+    [invoices, receiptDisputedInvoiceIds]
   )
 
+  const scopedTotals = useMemo(() => {
+    const sum = (pick: (r: (typeof scopedRows)[number]) => number) =>
+      scopedRows.reduce((s, r) => s + pick(r), 0)
+    const openAr = sum((r) => r.openAr)
+    const overdueAr = sum((r) => r.overdueAr)
+    return {
+      openAr,
+      openInvoices: sum((r) => r.openInvoices),
+      overdueAr,
+      severeAr: sum((r) => r.severeAr),
+      collected30d: clientFilter ? sum((r) => r.collected30d) : overview.totals.collected30d,
+      clientsWithAr: scopedRows.filter((r) => r.openAr > 0).length,
+    }
+  }, [scopedRows, clientFilter, overview.totals.collected30d])
+
+  const invoicesOnHold = useMemo(() => invoices.filter((inv) => inv.status === 'hold').length, [invoices])
+
   const collectionsQueue = useMemo((): CollectionsAlert[] => {
-    return allInvoices
-      .filter(inv => {
-        const daysSinceExpected = inv.days_since_expected || 0
-        return daysSinceExpected >= 15 && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off'
-      })
-      .map(inv => ({
-          invoice_id: inv.id,
-          inv_number: inv.invoice_number,
-          client_id: inv.client_id,
-          client_name: inv.client_name,
-          broker_name: inv.broker_name,
-          amount: inv.amount,
-          expected_payment_date:
-            inv.expected_payment_date || inv.due_date || inv.invoice_date,
-          days_since_expected: inv.days_since_expected || 0,
-          client_response: (inv.broker_contacted ? 'not_received' : 'no_response') as CollectionsAlert['client_response'],
-          broker_contacted: inv.broker_contacted || false,
-          last_broker_contact: inv.last_broker_contact || null,
-        }))
+    return invoices
+      .filter((inv) => isChaseable(inv, 15))
+      .map((inv) => ({
+        invoice_id: inv.id,
+        inv_number: inv.invoice_number,
+        client_id: inv.client_id,
+        client_name: inv.client_name,
+        broker_name: inv.broker_name,
+        amount: inv.amount,
+        expected_payment_date: inv.expected_payment_date || inv.due_date || inv.invoice_date,
+        days_since_expected: inv.days_since_expected || 0,
+        client_response: (inv.broker_contacted ? 'not_received' : 'no_response') as CollectionsAlert['client_response'],
+        broker_contacted: inv.broker_contacted || false,
+        last_broker_contact: inv.last_broker_contact || null,
+      }))
       .sort((a, b) => b.days_since_expected - a.days_since_expected)
       .slice(0, 10)
-  }, [allInvoices])
-  
+  }, [invoices])
+
+  const collectionsAlertCount = useMemo(() => invoices.filter((inv) => isChaseable(inv, 15)).length, [invoices])
+
+  const unattachedDocuments = useMemo(
+    () => invoices.filter((inv) => !inv.documents_count || inv.documents_count === 0).length,
+    [invoices]
+  )
+
   // Force-close rate — managed-tier clients only (self-service has no force-close).
   const forceCloseRate = useMemo(() => {
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-
-    const recentManaged = allInvoices.filter((inv) => {
-      const client = getClientById(inv.client_id)
-      if (client?.service_tier !== 'managed') return false
+    const recentManaged = invoices.filter((inv) => {
+      if (getClientById(inv.client_id)?.service_tier !== 'managed') return false
       const updatedAt = inv.updated_at ? new Date(inv.updated_at) : new Date(inv.created_at)
       return updatedAt >= thirtyDaysAgo
     })
-
     if (recentManaged.length === 0) return 0
-
     const forceClosed = recentManaged.filter((inv) => inv.status === 'force_closed').length
-    return ((forceClosed / recentManaged.length) * 100).toFixed(1)
-  }, [allInvoices])
-  
-  // Calculate average review time
-  const avgReviewTime = useMemo(() => {
-    const reviewedBatches = allBatches.filter(b => b.reviewed_at && b.submitted_at)
-    if (reviewedBatches.length === 0) return 0
-    
-    const totalHours = reviewedBatches.reduce((sum, batch) => {
-      const submitted = new Date(batch.submitted_at)
-      const reviewed = new Date(batch.reviewed_at!)
-      const diffMs = reviewed.getTime() - submitted.getTime()
-      const diffHours = diffMs / (1000 * 60 * 60)
-      return sum + diffHours
-    }, 0)
-    
-    return (totalHours / reviewedBatches.length).toFixed(1)
-  }, [allBatches])
-  
-  // Calculate unattached documents
-  const unattachedDocuments = useMemo(() => {
-    return allInvoices.filter(inv => !inv.documents_count || inv.documents_count === 0).length
-  }, [allInvoices])
+    return Math.round((forceClosed / recentManaged.length) * 1000) / 10
+  }, [invoices])
 
-  // Calculate Aging A/R from real invoices
+  const avgReviewHours = useMemo(() => {
+    const reviewed = batches.filter((b) => b.reviewed_at && b.submitted_at)
+    if (reviewed.length === 0) return 0
+    const totalHours = reviewed.reduce(
+      (sum, b) => sum + (new Date(b.reviewed_at!).getTime() - new Date(b.submitted_at).getTime()) / 3_600_000,
+      0
+    )
+    return Math.round((totalHours / reviewed.length) * 10) / 10
+  }, [batches])
+
   const agingAR = useMemo((): AgingAR => {
-    const aging: AgingAR = {
-      '1_15': 0,
-      '16_30': 0,
-      '31_45': 0,
-      '46_60': 0,
-      '61_90': 0,
-      over_91: 0,
-      total: 0,
-    }
-    
-    allInvoices
-      .filter((inv) => isOpenArInvoice(inv))
-      .forEach((inv) => {
-        const bucket = getAgingArBucketKey(getInvoiceAgeDays(inv))
-        aging[bucket] += inv.amount
-        aging.total += inv.amount
-      })
-    
+    const aging: AgingAR = { '1_15': 0, '16_30': 0, '31_45': 0, '46_60': 0, '61_90': 0, over_91: 0, total: 0 }
+    invoices.filter(isOpenArInvoice).forEach((inv) => {
+      const bucket = getAgingArBucketKey(getInvoiceAgeDays(inv))
+      aging[bucket] += inv.amount
+      aging.total += inv.amount
+    })
     return aging
-  }, [allInvoices])
+  }, [invoices])
 
-  // Calculate A/R Trend Chart Data (last 30 days)
   const arTrendData = useMemo(() => {
     const data: Array<{ date: string; totalAR: number; collected: number }> = []
     const today = new Date()
-    
     for (let i = 29; i >= 0; i--) {
       const date = new Date(today)
       date.setDate(date.getDate() - i)
-      const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      
-      const totalAR = allInvoices
-        .filter(inv => {
-          if (!isOpenArInvoice(inv)) {
-            return false
-          }
+      const totalAR = invoices
+        .filter((inv) => {
+          if (!isOpenArInvoice(inv)) return false
           const approvedDate = inv.approved_at ? new Date(inv.approved_at) : new Date(inv.created_at)
           return approvedDate <= date
         })
         .reduce((sum, inv) => sum + inv.amount, 0)
-      
-      const collected = allInvoices
-        .filter(inv => inv.status === 'paid' && inv.approved_at)
-        .filter(inv => {
-          const paidDate = new Date(inv.approved_at!)
-          return paidDate <= date
-        })
+      const collected = invoices
+        .filter((inv) => inv.status === 'paid' && inv.approved_at && new Date(inv.approved_at) <= date)
         .reduce((sum, inv) => sum + inv.amount, 0)
-      
-      data.push({ date: dateStr, totalAR, collected })
+      data.push({ date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), totalAR, collected })
     }
-    
     return data
-  }, [allInvoices])
+  }, [invoices])
 
-  // Calculate Critical Alerts
-  const criticalAlerts = useMemo(() => {
-    const alerts: Array<{
-      id: string
-      type: 'stale_batch' | 'overdue_invoice' | 'missing_document' | 'short_paid' | 'open_dispute'
-      severity: 'high' | 'medium' | 'low'
-      title: string
-      description: string
-      relatedId?: string
-      relatedType?: 'batch' | 'invoice'
-      timestamp?: string
-      clientId?: string
-    }> = []
-    
-    // Stale batches (in same stage >48 hours)
-    const now = new Date()
-    allBatches.forEach(batch => {
-      const submitted = new Date(batch.submitted_at)
-      const hoursSinceSubmitted = (now.getTime() - submitted.getTime()) / (1000 * 60 * 60)
-      
-      if (hoursSinceSubmitted > 48 && (batch.status === 'ready_to_post' || batch.status === 'verification' || batch.status === 'approval')) {
-        alerts.push({
-          id: `stale-${batch.id}`,
-          type: 'stale_batch',
-          severity: hoursSinceSubmitted > 72 ? 'high' : 'medium',
-          title: `Batch ${batch.batch_number} stuck in ${batch.status}`,
-          description: `Batch has been in ${batch.status} for ${Math.round(hoursSinceSubmitted)} hours`,
-          relatedId: batch.id,
-          relatedType: 'batch',
-          timestamp: batch.submitted_at,
-          clientId: batch.client_id,
-        })
-      }
+  const batchPipeline = useMemo(() => {
+    const stages = [
+      { stage: 'ready_to_post', label: 'Ready to Post', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#F59E0B' },
+      { stage: 'verification', label: 'Verification', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#06B6D4' },
+      { stage: 'approval', label: 'Approval', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#1684FE' },
+      { stage: 'submitted', label: 'Submitted', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#10B981' },
+    ]
+    const now = Date.now()
+    batches.forEach((batch) => {
+      const stage = stages.find((s) => s.stage === batch.status)
+      if (!stage) return
+      const hours = (now - new Date(batch.submitted_at).getTime()) / 3_600_000
+      stage.avgTimeHours = (stage.avgTimeHours * stage.count + hours) / (stage.count + 1)
+      stage.count += 1
+      stage.totalAmount += batch.total_amount
     })
-    
-    // Overdue invoices >60 days
-    allInvoices
-      .filter(inv => {
-        const daysSinceExpected = inv.days_since_expected || 0
-        return daysSinceExpected > 60 && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off'
-      })
-      .forEach(inv => {
-        alerts.push({
-          id: `overdue-${inv.id}`,
-          type: 'overdue_invoice',
-          severity: (inv.days_since_expected || 0) > 90 ? 'high' : 'medium',
-          title: `Invoice ${inv.invoice_number} overdue ${inv.days_since_expected} days`,
-          description: `${formatCurrency(inv.amount)} from ${inv.client_name} - ${inv.broker_name}`,
-          relatedId: inv.id,
-          relatedType: 'invoice',
-          timestamp: inv.created_at,
-          clientId: inv.client_id,
-        })
-      })
+    return stages.filter((s) => s.count > 0)
+  }, [batches])
+
+  // One ranked "needs attention" list (alerts + today's actions, deduped)
+  const attention = useMemo((): AttentionItem[] => {
+    const items = new Map<string, AttentionItem>()
+    const add = (item: AttentionItem) => {
+      if (!items.has(item.id)) items.set(item.id, item)
+    }
+    const now = Date.now()
 
     openDisputedRows.forEach((row) => {
       const inv = row.invoice
-      alerts.push({
+      add({
         id: `dispute-${inv.id}`,
-        type: 'open_dispute',
-        severity: 'high',
-        title: `Invoice ${inv.invoice_number} is Open Disputed`,
-        description: `${inv.client_name} · ${row.source === 'receipt' ? 'Receipt dispute' : 'Invoice dispute'} — ${row.reason}`,
-        relatedId: inv.id,
-        relatedType: 'invoice',
-        timestamp: inv.updated_at || inv.created_at,
+        kind: 'open_dispute',
+        priority: 'high',
+        title: `Dispute on ${inv.invoice_number}`,
+        detail: `${inv.client_name} · ${row.source === 'receipt' ? 'Receipt' : 'Invoice'} — ${row.reason}`,
+        href: `/invoices?invoice=${inv.id}`,
         clientId: inv.client_id,
       })
     })
-    
-    return alerts.sort((a, b) => {
-      const severityOrder = { high: 0, medium: 1, low: 2 }
-      return severityOrder[a.severity] - severityOrder[b.severity]
-    })
-  }, [allBatches, allInvoices, openDisputedRows])
 
-  // Calculate Batch Pipeline
-  const batchPipeline = useMemo(() => {
-    const stages = [
-      { stage: 'ready_to_post', label: 'Ready to Post', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#C2A558' },
-      { stage: 'verification', label: 'Verification', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#819291' },
-      { stage: 'approval', label: 'Approval', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#113543' },
-      { stage: 'submitted', label: 'Submitted', count: 0, totalAmount: 0, avgTimeHours: 0, color: '#2E7D32' },
-    ]
-    
-    const now = new Date()
-    allBatches.forEach(batch => {
-      const stageIndex = stages.findIndex(s => s.stage === batch.status)
-      if (stageIndex >= 0) {
-        stages[stageIndex].count += 1
-        stages[stageIndex].totalAmount += batch.total_amount
-        
-        const submitted = new Date(batch.submitted_at)
-        const hoursSinceSubmitted = (now.getTime() - submitted.getTime()) / (1000 * 60 * 60)
-        if (stages[stageIndex].avgTimeHours === 0) {
-          stages[stageIndex].avgTimeHours = hoursSinceSubmitted
-        } else {
-          stages[stageIndex].avgTimeHours = (stages[stageIndex].avgTimeHours + hoursSinceSubmitted) / 2
-        }
-      }
+    invoices.filter((inv) => invoiceHasPendingHoldPaperworkReview(inv)).forEach((inv) => {
+      add({
+        id: `ppw-${inv.id}`,
+        kind: 'ppw_review',
+        priority: 'high',
+        title: `Review paperwork on ${inv.invoice_number}`,
+        detail: `${inv.client_name} uploaded documents — confirm or reject`,
+        href: `/invoices?invoice=${inv.id}`,
+        clientId: inv.client_id,
+      })
     })
-    
-    return stages.filter(s => s.count > 0)
-  }, [allBatches])
 
-  // Calculate Today's Actions
-  const todaysActions = useMemo(() => {
-    const actions: Array<{
-      id: string
-      type: 'batch_review' | 'broker_call' | 'document_upload' | 'invoice_approval' | 'review_dispute'
-      title: string
-      description: string
-      priority: 'high' | 'medium' | 'low'
-      relatedId?: string
-      clientId?: string
-    }> = []
-    
-    // Batches to review (oldest first)
-    pendingBatches.forEach(batch => {
-      const hoursSinceSubmitted = (new Date().getTime() - new Date(batch.submitted_at).getTime()) / (1000 * 60 * 60)
-      actions.push({
+    pendingBatches.forEach((batch) => {
+      const hours = (now - new Date(batch.submitted_at).getTime()) / 3_600_000
+      add({
         id: `batch-${batch.id}`,
-        type: 'batch_review',
-        title: `Review batch ${batch.batch_number}`,
-        description: `${batch.client_name} - ${batch.total_invoices} invoices`,
-        priority: hoursSinceSubmitted > 24 ? 'high' : 'medium',
-        relatedId: batch.id,
+        kind: hours > 48 ? 'stale_batch' : 'batch_review',
+        priority: hours > 72 ? 'high' : hours > 24 ? 'medium' : 'low',
+        title:
+          hours > 48
+            ? `Batch ${batch.batch_number} waiting ${Math.round(hours)}h`
+            : `Review batch ${batch.batch_number}`,
+        detail: `${batch.client_name} · ${batch.total_invoices} invoices · ${formatCurrency(batch.total_amount)}`,
+        href: `/batches?batch=${batch.id}`,
         clientId: batch.client_id,
       })
     })
-    
-    // Broker calls needed (overdue invoices not contacted)
-    allInvoices
-      .filter(inv => {
-        const daysSinceExpected = inv.days_since_expected || 0
-        return daysSinceExpected >= 15 && !inv.broker_contacted && inv.status !== 'paid' && inv.status !== 'force_closed' && inv.status !== 'written_off'
-      })
-      .forEach(inv => {
-        actions.push({
+
+    invoices.filter((inv) => isChaseable(inv, 15)).forEach((inv) => {
+      const days = inv.days_since_expected || 0
+      if (days > 60) {
+        add({
+          id: `overdue-${inv.id}`,
+          kind: 'overdue_invoice',
+          priority: days > 90 ? 'high' : 'medium',
+          title: `${inv.invoice_number} is ${days} days past expected`,
+          detail: `${formatCurrency(inv.amount)} · ${inv.client_name} → ${inv.broker_name}`,
+          href: `/collections?invoice=${inv.id}`,
+          clientId: inv.client_id,
+        })
+      } else if (!inv.broker_contacted) {
+        add({
           id: `call-${inv.id}`,
-          type: 'broker_call',
-          title: `Call broker for ${inv.invoice_number}`,
-          description: `${inv.broker_name} - ${inv.days_since_expected} days overdue`,
-          priority: (inv.days_since_expected || 0) > 30 ? 'high' : 'medium',
-          relatedId: inv.id,
+          kind: 'broker_call',
+          priority: days > 30 ? 'high' : 'medium',
+          title: `Chase ${inv.broker_name}`,
+          detail: `${inv.invoice_number} · ${days} days past expected · ${inv.client_name}`,
+          href: `/collections?invoice=${inv.id}`,
           clientId: inv.client_id,
         })
-      })
-
-    openDisputedRows.forEach((row) => {
-      const inv = row.invoice
-      actions.push({
-        id: `dispute-${inv.id}`,
-        type: 'review_dispute',
-        title: `Review dispute on ${inv.invoice_number}`,
-        description: `${inv.client_name} · ${row.reason}`,
-        priority: 'high',
-        relatedId: inv.id,
-        clientId: inv.client_id,
-      })
-    })
-
-    allInvoices
-      .filter((inv) => invoiceHasPendingHoldPaperworkReview(inv))
-      .forEach((inv) => {
-        actions.push({
-          id: `docs-review-${inv.id}`,
-          type: 'document_upload',
-          title: `Review PPW on ${inv.invoice_number}`,
-          description: `${inv.client_name} uploaded documents — confirm or reject`,
-          priority: 'high',
-          relatedId: inv.id,
-          clientId: inv.client_id,
-        })
-      })
-    
-    return actions.sort((a, b) => {
-      const priorityOrder = { high: 0, medium: 1, low: 2 }
-      return priorityOrder[a.priority] - priorityOrder[b.priority]
-    })
-  }, [pendingBatches, allInvoices, openDisputedRows])
-
-  const filteredCriticalAlerts = useMemo(() => {
-    const rows = widgetClientFilter
-      ? criticalAlerts.filter((alert) => alert.clientId === widgetClientFilter)
-      : criticalAlerts
-    return rows.slice(0, 10)
-  }, [criticalAlerts, widgetClientFilter])
-
-  const filteredTodaysActions = useMemo(() => {
-    const rows = widgetClientFilter
-      ? todaysActions.filter((action) => action.clientId === widgetClientFilter)
-      : todaysActions
-    return rows.slice(0, 8)
-  }, [todaysActions, widgetClientFilter])
-
-  const filteredDisputedRows = useMemo(() => {
-    const rows = widgetClientFilter
-      ? openDisputedRows.filter((row) => row.invoice.client_id === widgetClientFilter)
-      : openDisputedRows
-    return rows.slice(0, 10)
-  }, [openDisputedRows, widgetClientFilter])
-
-  const handleCardClick = (cardType: string) => {
-    switch (cardType) {
-      case 'batches':
-        navigate('/batches')
-        break
-      case 'invoices':
-        navigate('/invoices')
-        break
-      case 'ar':
-        navigate('/aging-ar')
-        break
-      case 'collections':
-        navigate('/collections')
-        break
-      case 'disputes': {
-        const first = filteredDisputedRows[0] ?? openDisputedRows[0]
-        if (first) {
-          navigate(`/invoices?invoice=${first.invoice.id}`)
-        } else {
-          navigate('/invoices')
-        }
-        break
       }
-      default:
-        break
-    }
-  }
+    })
 
-  const handleBatchClick = (batchId: string) => {
-    navigate(`/batches?batch=${batchId}`)
-  }
+    return [...items.values()].sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority])
+  }, [openDisputedRows, invoices, pendingBatches])
 
-  const handleInvoiceClick = (invoiceId: string) => {
-    navigate(`/invoices?invoice=${invoiceId}`)
-  }
+  const highAttention = attention.filter((a) => a.priority === 'high').length
+  const openWork = scopedRows.reduce((sum, r) => sum + r.workOpen, 0)
 
-  const handleCallBroker = (invoiceId: string) => {
-    navigate(`/collections?invoice=${invoiceId}`)
-  }
+  const setupIncomplete = useMemo(
+    () => scopedRows.filter((r) => r.setupGaps.length > 0).slice(0, 5),
+    [scopedRows]
+  )
 
-  const handleMarkContacted = (invoiceId: string) => {
-    void markBrokerContactedForCollections(invoiceId)
-  }
+  const topExposure = useMemo(
+    () => [...scopedRows].filter((r) => r.openAr > 0).sort((a, b) => b.openAr - a.openAr).slice(0, 5),
+    [scopedRows]
+  )
 
-  const handleAlertClick = (alert: any) => {
-    if (alert.relatedType === 'batch' && alert.relatedId) {
-      navigate(`/batches?batch=${alert.relatedId}`)
-    } else if (alert.relatedType === 'invoice' && alert.relatedId) {
-      navigate(`/invoices?invoice=${alert.relatedId}`)
-    }
-  }
-
-  const handleStageClick = (stage: string) => {
-    navigate(`/batches?stage=${stage}`)
-  }
-
-  const handleActionClick = (action: any) => {
-    if (action.type === 'batch_review' && action.relatedId) {
-      navigate(`/batches?batch=${action.relatedId}`)
-    } else if (action.type === 'broker_call' && action.relatedId) {
-      navigate(`/collections?invoice=${action.relatedId}`)
-    } else if (action.type === 'document_upload' && action.relatedId) {
-      navigate(`/invoices?invoice=${action.relatedId}`)
-    } else if (action.type === 'review_dispute' && action.relatedId) {
-      navigate(`/invoices?invoice=${action.relatedId}`)
-    }
-  }
+  const collectedDelta = useMemo(() => {
+    const prev = overview.totals.collectedPrev30d
+    if (clientFilter || prev <= 0) return null
+    return Math.round(((overview.totals.collected30d - prev) / prev) * 100)
+  }, [overview.totals, clientFilter])
 
   const todayLabel = useMemo(
-    () =>
-      new Date().toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      }),
+    () => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
     []
   )
 
-  const attentionCount = filteredCriticalAlerts.length + filteredTodaysActions.length
+  const selectedClientName = clientOptions.find((c) => c.id === clientFilter)?.name
+
+  const overduePct = scopedTotals.openAr > 0 ? Math.round((scopedTotals.overdueAr / scopedTotals.openAr) * 100) : 0
+  const currentPct = 100 - overduePct
+  const severePct = scopedTotals.openAr > 0 ? Math.round((scopedTotals.severeAr / scopedTotals.openAr) * 100) : 0
+
+  const openDisputesView = () => {
+    const first = openDisputedRows[0]
+    navigate(first ? `/invoices?invoice=${first.invoice.id}` : '/invoices')
+  }
 
   return (
-    <div className="client-shell-scroll h-full min-h-0 overflow-y-auto p-5">
-      <div className="space-y-5">
-        {/* 1. Page header: title + client filter + compact Quick Actions */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight" style={{ color: c.primary }}>
-              Dashboard
-            </h1>
-            <p className="text-xs mt-0.5" style={{ color: c.secondary }}>
-              {todayLabel}
+    <div className="admin-dash client-shell-scroll">
+      <div className="admin-dash__glow" aria-hidden />
+      <div className="admin-dash__inner">
+        {/* Header */}
+        <header className="adb-head">
+          <div>
+            <p className="adb-head__eyebrow">{todayLabel}</p>
+            <h1 className="adb-head__title">Dashboard</h1>
+            <p className="adb-head__sub">
+              {selectedClientName ? (
+                <>Showing <b>{selectedClientName}</b> only.</>
+              ) : attention.length > 0 ? (
+                <>
+                  {attention.length} item{attention.length === 1 ? '' : 's'} need attention across{' '}
+                  {overview.totals.clients} client{overview.totals.clients === 1 ? '' : 's'}
+                  {highAttention > 0 ? ` — ${highAttention} high priority` : ''}.
+                </>
+              ) : openWork > 0 ? (
+                <>
+                  Nothing urgent · {openWork} open work item{openWork === 1 ? '' : 's'} in the client queue.
+                </>
+              ) : (
+                <>All clear across {overview.totals.clients} clients.</>
+              )}
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 lg:justify-end flex-1 min-w-0">
-            <div className="flex items-center gap-2 shrink-0">
-              <label className="text-xs font-medium shrink-0" style={{ color: c.secondary }}>
-                Client
-              </label>
-              <select
-                value={widgetClientFilter}
-                onChange={(e) => setWidgetClientFilter(e.target.value)}
-                className="client-input text-xs min-w-[10rem]"
-                style={{ height: 32 }}
-                aria-label="Filter alerts and actions by client"
-              >
-                <option value="">All clients</option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="adb-head__tools">
+            <select
+              value={clientFilter}
+              onChange={(e) => setClientFilter(e.target.value)}
+              className="adb-select"
+              aria-label="Filter dashboard by client"
+            >
+              <option value="">All clients</option>
+              {clientOptions.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="adb-pill adb-pill--primary"
+              onClick={() => navigate(pendingBatches[0] ? `/batches?batch=${pendingBatches[0].id}` : '/batches')}
+            >
+              <Layers aria-hidden /> Review batches
+              {pendingBatches.length > 0 ? <span className="adb-pill__count">{pendingBatches.length}</span> : null}
+            </button>
+            <button type="button" className="adb-pill" onClick={() => navigate('/collections')}>
+              <Phone aria-hidden /> Collections
+              {collectionsAlertCount > 0 ? <span className="adb-pill__count">{collectionsAlertCount}</span> : null}
+            </button>
+            <button type="button" className="adb-pill" onClick={() => navigate('/invoices')}>
+              <Paperclip aria-hidden /> Unattached
+              {unattachedDocuments > 0 ? <span className="adb-pill__count">{unattachedDocuments}</span> : null}
+            </button>
+            <button type="button" className="adb-pill" onClick={() => navigate('/clients')}>
+              <PlusCircle aria-hidden /> Client
+            </button>
+            <button type="button" className="adb-pill" onClick={() => navigate('/brokers')}>
+              <Building2 aria-hidden /> Broker
+            </button>
+            {capabilities.canManageUsers ? (
+              <button type="button" className="adb-pill" onClick={() => navigate('/users?add=1')}>
+                <UserPlus aria-hidden /> User
+              </button>
+            ) : null}
+          </div>
+        </header>
 
-            <QuickActions
-              compact
-              pendingBatchesCount={pendingBatches.length}
-              collectionsAlertsCount={collectionsAlerts}
-              unattachedDocumentsCount={unattachedDocuments}
-              onReviewBatch={() => {
-                if (pendingBatches.length > 0) {
-                  handleBatchClick(pendingBatches[0].id)
-                } else {
-                  navigate('/batches')
-                }
-              }}
-              onCollectionsQueue={() => navigate('/collections')}
-              onUnattachedDocuments={() => navigate('/invoices')}
-              onCreateBroker={() => navigate('/brokers')}
-              onCreateClient={() => navigate('/clients')}
-              onUploadDocuments={() => navigate('/invoices')}
-              canCreateUser={capabilities.canManageUsers}
-              onCreateUser={() => navigate('/users?add=1')}
+        {/* Hero band */}
+        <div className="adb-hero">
+          <button type="button" className="adb-card adb-stat adb-stat--hero" onClick={() => navigate('/aging-ar')}>
+            <span className="adb-stat__label">
+              <Wallet aria-hidden /> Open A/R
+            </span>
+            <span className="adb-stat__value">{formatCurrency(scopedTotals.openAr)}</span>
+            <span className="adb-stat__meta">
+              {scopedTotals.openInvoices} open invoice{scopedTotals.openInvoices === 1 ? '' : 's'}
+              {clientFilter ? '' : ` · ${scopedTotals.clientsWithAr} client${scopedTotals.clientsWithAr === 1 ? '' : 's'}`}
+            </span>
+            <span className="adb-stat__bar" aria-hidden>
+              <span style={{ width: `${currentPct}%`, background: 'var(--adb-blue)' }} />
+              <span style={{ width: `${overduePct - severePct}%`, background: 'var(--adb-warning)' }} />
+              <span style={{ width: `${severePct}%`, background: 'var(--adb-danger)' }} />
+            </span>
+            <span className="adb-stat__legend">
+              <span><i style={{ background: 'var(--adb-blue)' }} />0–30d {currentPct}%</span>
+              <span><i style={{ background: 'var(--adb-warning)' }} />31–60d {overduePct - severePct}%</span>
+              <span><i style={{ background: 'var(--adb-danger)' }} />61d+ {severePct}%</span>
+            </span>
+          </button>
+
+          <button type="button" className="adb-card adb-stat adb-stat--danger" onClick={() => navigate('/aging-ar')}>
+            <span className="adb-stat__label">
+              <AlertTriangle aria-hidden /> 31+ days
+            </span>
+            <span className="adb-stat__value">{formatCurrency(scopedTotals.overdueAr)}</span>
+            <span className="adb-stat__meta">{overduePct}% of open A/R</span>
+          </button>
+
+          <button type="button" className="adb-card adb-stat adb-stat--success" onClick={() => navigate('/payment-posting')}>
+            <span className="adb-stat__label">
+              <Banknote aria-hidden /> Collected 30d
+            </span>
+            <span className="adb-stat__value">{formatCurrency(scopedTotals.collected30d)}</span>
+            <span className="adb-stat__meta">
+              {collectedDelta === null ? (
+                'Posted payments'
+              ) : (
+                <>
+                  <span className={`adb-delta adb-delta--${collectedDelta >= 0 ? 'up' : 'down'}`}>
+                    {collectedDelta >= 0 ? '+' : ''}
+                    {collectedDelta}%
+                  </span>{' '}
+                  vs prior 30 days
+                </>
+              )}
+            </span>
+          </button>
+
+          <button type="button" className="adb-card adb-stat" onClick={() => navigate('/collections')}>
+            <span className="adb-stat__label">
+              <Phone aria-hidden /> Collections
+            </span>
+            <span className="adb-stat__value">{collectionsAlertCount}</span>
+            <span className="adb-stat__meta">
+              {invoicesOnHold} on hold · {openDisputedRows.length} disputed
+            </span>
+          </button>
+
+          <button type="button" className="adb-card adb-stat" onClick={() => navigate('/batches')}>
+            <span className="adb-stat__label">
+              <FileText aria-hidden /> Batches pending
+            </span>
+            <span className="adb-stat__value">{pendingBatches.length}</span>
+            <span className="adb-stat__meta">Avg review {avgReviewHours} hrs</span>
+          </button>
+        </div>
+
+        {/* Clients + attention */}
+        <div className="adb-main">
+          <AdminClientsPanel
+            rows={scopedRows}
+            onOpenClient={(id) => navigate(`/admin/work-queue?client=${encodeURIComponent(id)}`)}
+            onViewAll={() => navigate('/clients')}
+          />
+
+          <div className="adb-side">
+            <section className="adb-card" aria-label="Needs attention">
+              <header className="adb-card__head">
+                <h2 className="adb-card__title">
+                  Needs attention
+                  {attention.length > 0 ? (
+                    <span className={`adb-card__count${highAttention > 0 ? ' adb-card__count--danger' : ''}`}>
+                      {attention.length}
+                    </span>
+                  ) : null}
+                </h2>
+                <button type="button" className="adb-card__link" onClick={() => navigate('/admin/work-queue')}>
+                  Work queue <ArrowRight size={13} aria-hidden />
+                </button>
+              </header>
+              {attention.length === 0 ? (
+                <div className="adb-empty">
+                  <CheckCircle2 aria-hidden />
+                  <strong>All clear</strong>
+                  <span>Nothing urgent right now.</span>
+                </div>
+              ) : (
+                <ul className="adb-attn">
+                  {attention.slice(0, 12).map((item) => {
+                    const Icon = ATTENTION_ICON[item.kind]
+                    return (
+                      <li key={item.id}>
+                        <button type="button" className="adb-attn__item" onClick={() => navigate(item.href)}>
+                          <span className={`adb-attn__icon adb-attn__icon--${item.priority}`}>
+                            <Icon aria-hidden />
+                          </span>
+                          <span className="adb-attn__copy">
+                            <span className="adb-attn__title">{item.title}</span>
+                            <span className="adb-attn__detail" title={item.detail}>
+                              {item.detail}
+                            </span>
+                          </span>
+                          <ChevronRight className="adb-attn__chev" aria-hidden />
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
+
+            <section className="adb-card" aria-label="Client portfolio">
+              <header className="adb-card__head">
+                <h2 className="adb-card__title">Client portfolio</h2>
+              </header>
+              <div className="adb-portfolio">
+                <div className="adb-health-grid">
+                  {(['at_risk', 'watch', 'healthy', 'idle'] as ClientHealth[]).map((h) => (
+                    <div key={h} className="adb-health-tile">
+                      <b>{scopedRows.filter((r) => r.health === h).length}</b>
+                      <span style={{ color: HEALTH_COLOR[h] }}>{HEALTH_LABEL[h]}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="adb-kv">
+                  Managed · Self-service
+                  <b>
+                    {scopedRows.filter((r) => r.tier === 'managed').length} ·{' '}
+                    {scopedRows.filter((r) => r.tier !== 'managed').length}
+                  </b>
+                </div>
+                <div className="adb-kv">
+                  Force-close rate (30d, managed)
+                  <b>{forceCloseRate}%</b>
+                </div>
+                <div className="adb-kv">
+                  Invoices on hold
+                  <b>{invoicesOnHold}</b>
+                </div>
+
+                {topExposure.length > 0 ? (
+                  <>
+                    <div className="adb-divider" />
+                    <div className="adb-top-exposure">
+                      <span className="adb-stat__label">Largest exposure</span>
+                      {topExposure.map((row) => (
+                        <div key={row.clientId} className="adb-exposure-row">
+                          <span title={row.name}>{row.name}</span>
+                          <b>{formatCurrency(row.openAr)}</b>
+                          <div className="adb-mini-bar">
+                            <span
+                              style={{
+                                width: `${Math.max(3, (row.openAr / (topExposure[0].openAr || 1)) * 100)}%`,
+                                background: 'var(--adb-blue)',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+
+                {setupIncomplete.length > 0 ? (
+                  <>
+                    <div className="adb-divider" />
+                    <span className="adb-stat__label">Setup incomplete</span>
+                    <ul className="adb-setup-list">
+                      {setupIncomplete.map((row) => (
+                        <li key={row.clientId}>
+                          <span title={row.name}>{row.name}</span>
+                          <span
+                            className="adb-tag adb-tag--warn"
+                            title={row.setupGaps.map((g) => SETUP_GAP_LABEL[g]).join(', ')}
+                          >
+                            {row.setupGaps.length === 1
+                              ? SETUP_GAP_LABEL[row.setupGaps[0]]
+                              : `${row.setupGaps.length} missing`}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </div>
+            </section>
+          </div>
+        </div>
+
+        {/* Analytics */}
+        <p className="adb-section-label">A/R analytics</p>
+        <div className="adb-grid-2">
+          <ARTrendChart data={arTrendData} />
+          <AgingDistributionChart aging={agingAR} />
+        </div>
+
+        {/* Collections + disputes */}
+        <p className="adb-section-label">Collections</p>
+        <div className="adb-grid-2">
+          <div className="adb-embed">
+            <CollectionsQueue
+              alerts={collectionsQueue}
+              onInvoiceClick={(id) => navigate(`/invoices?invoice=${id}`)}
+              onCallBroker={(id) => navigate(`/collections?invoice=${id}`)}
+              onMarkContacted={(id) => void markBrokerContactedForCollections(id)}
+            />
+          </div>
+          <div className="adb-embed">
+            <DisputedInvoicesPanel
+              rows={openDisputedRows.slice(0, 10)}
+              onInvoiceClick={(id) => navigate(`/invoices?invoice=${id}`)}
+              onViewAll={openDisputesView}
             />
           </div>
         </div>
 
-        {/* 2. Needs Attention Now — most urgent */}
-        <section className="space-y-3">
-          <SectionHeader label="Needs attention now" count={attentionCount} />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <CriticalAlerts alerts={filteredCriticalAlerts} onAlertClick={handleAlertClick} />
-            <TodaysActions actions={filteredTodaysActions} onActionClick={handleActionClick} />
-          </div>
-        </section>
-
-        {/* 3. KPI cards — urgent counts first, health metrics last */}
-        <SummaryCards
-          totalBatchesPending={pendingBatches.length}
-          totalInvoicesHLD={invoicesOnHold}
-          disputedInvoices={openDisputedRows.length}
-          totalAR={totalAR}
-          collectionsAlerts={collectionsAlerts}
-          forceCloseRate={parseFloat(String(forceCloseRate))}
-          avgReviewTime={parseFloat(String(avgReviewTime))}
-          onCardClick={handleCardClick}
-        />
-
-        {/* 4. Work queues — day's workload */}
-        <section className="space-y-3">
-          <SectionHeader label="Work queues" />
-          <ClientWorkQueuePanel summaries={workSummaries} />
-          <DisputedInvoicesPanel
-            rows={filteredDisputedRows}
-            onInvoiceClick={handleInvoiceClick}
-            onViewAll={() => {
-              const first = filteredDisputedRows[0] ?? openDisputedRows[0]
-              if (first) {
-                navigate(`/invoices?invoice=${first.invoice.id}`)
-              } else {
-                navigate('/invoices')
-              }
-            }}
-          />
-          <CollectionsQueue
-            alerts={collectionsQueue}
-            onInvoiceClick={handleInvoiceClick}
-            onCallBroker={handleCallBroker}
-            onMarkContacted={handleMarkContacted}
-          />
-        </section>
-
-        {/* 5. Operations — pipeline & intake */}
-        <section className="space-y-3">
-          <SectionHeader label="Operations" />
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            <BatchPipeline stages={batchPipeline} onStageClick={handleStageClick} />
-            <BatchStatusWidget />
-            <ManagedIntakeWidget />
-          </div>
-        </section>
-
-        {/* 6. Analytics — least urgent */}
-        <section className="space-y-3">
-          <SectionHeader label="Analytics" />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <ARTrendChart data={arTrendData} />
-            <AgingDistributionChart aging={agingAR} />
-          </div>
-        </section>
+        {/* Operations */}
+        <p className="adb-section-label">Operations</p>
+        <div className="adb-grid-3">
+          <BatchPipeline stages={batchPipeline} onStageClick={(stage) => navigate(`/batches?stage=${stage}`)} />
+          <BatchStatusWidget />
+          <ManagedIntakeWidget />
+        </div>
       </div>
     </div>
   )
