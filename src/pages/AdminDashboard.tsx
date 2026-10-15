@@ -18,13 +18,15 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react'
-import { CollectionsQueue } from '../components/admin/CollectionsQueue'
-import { DisputedInvoicesPanel } from '../components/admin/DisputedInvoicesPanel'
-import { ARTrendChart } from '../components/admin/charts/ARTrendChart'
-import { AgingDistributionChart } from '../components/admin/charts/AgingDistributionChart'
-import { BatchPipeline } from '../components/admin/widgets/BatchPipeline'
-import ManagedIntakeWidget from '../components/admin/ManagedIntakeWidget'
-import BatchStatusWidget from '../components/client/BatchStatusWidget'
+import {
+  AgingCard,
+  ArTrendCard,
+  BatchFlowCard,
+  CollectionsCard,
+  DisputesCard,
+  IntakeCard,
+  type IntakeItem,
+} from '../components/admin/dashboard/AdminDashboardCards'
 import { AdminClientsPanel, HEALTH_LABEL } from '../components/admin/dashboard/AdminClientsPanel'
 import { getAllBatches } from '../data/mockBatches'
 import { mockInvoices } from '../data/mockInvoices'
@@ -272,8 +274,38 @@ export default function AdminDashboard() {
       stage.count += 1
       stage.totalAmount += batch.total_amount
     })
-    return stages.filter((s) => s.count > 0)
+    return stages
   }, [batches])
+
+  const invoicesClosed = useMemo(
+    () =>
+      invoices.filter(
+        (inv) => inv.status === 'paid' || inv.status === 'force_closed' || inv.status === 'written_off'
+      ).length,
+    [invoices]
+  )
+
+  const intakeItems = useMemo((): IntakeItem[] => {
+    const enrollments = allClients
+      .filter((cl) => cl.status === 'pending' && (!clientFilter || cl.id === clientFilter))
+      .map((cl) => ({
+        id: `enroll-${cl.id}`,
+        kind: 'enrollment' as const,
+        title: `${cl.name} enrollment`,
+        detail: cl.service_tier === 'managed' ? 'Managed · review and activate' : 'Self-service · review and activate',
+        href: '/clients',
+      }))
+    const handoffs = batches
+      .filter((b) => b.upload_mode === 'handoff' && b.status === 'ready_to_post')
+      .map((b) => ({
+        id: `handoff-${b.id}`,
+        kind: 'handoff' as const,
+        title: `${b.client_name} doc handoff`,
+        detail: `${b.batch_number} · ${b.total_invoices} invoices`,
+        href: `/batches?batch=${b.id}`,
+      }))
+    return [...enrollments, ...handoffs]
+  }, [allClients, batches, clientFilter])
 
   // One ranked "needs attention" list (alerts + today's actions, deduped)
   const attention = useMemo((): AttentionItem[] => {
@@ -664,37 +696,39 @@ export default function AdminDashboard() {
 
         {/* Analytics */}
         <p className="adb-section-label">A/R analytics</p>
-        <div className="adb-grid-2">
-          <ARTrendChart data={arTrendData} />
-          <AgingDistributionChart aging={agingAR} />
+        <div className="adb-grid-2 adb-grid-2--wide-left">
+          <ArTrendCard data={arTrendData} onOpen={() => navigate('/aging-ar')} />
+          <AgingCard aging={agingAR} onOpen={() => navigate('/aging-ar')} />
         </div>
 
         {/* Collections + disputes */}
         <p className="adb-section-label">Collections</p>
         <div className="adb-grid-2">
-          <div className="adb-embed">
-            <CollectionsQueue
-              alerts={collectionsQueue}
-              onInvoiceClick={(id) => navigate(`/invoices?invoice=${id}`)}
-              onCallBroker={(id) => navigate(`/collections?invoice=${id}`)}
-              onMarkContacted={(id) => void markBrokerContactedForCollections(id)}
-            />
-          </div>
-          <div className="adb-embed">
-            <DisputedInvoicesPanel
-              rows={openDisputedRows.slice(0, 10)}
-              onInvoiceClick={(id) => navigate(`/invoices?invoice=${id}`)}
-              onViewAll={openDisputesView}
-            />
-          </div>
+          <CollectionsCard
+            alerts={collectionsQueue}
+            onOpenInvoice={(id) => navigate(`/invoices?invoice=${id}`)}
+            onCall={(id) => navigate(`/collections?invoice=${id}`)}
+            onMarkContacted={(id) => void markBrokerContactedForCollections(id)}
+            onViewAll={() => navigate('/collections')}
+          />
+          <DisputesCard
+            rows={openDisputedRows.slice(0, 10)}
+            onOpenInvoice={(id) => navigate(`/invoices?invoice=${id}`)}
+            onViewAll={openDisputesView}
+          />
         </div>
 
         {/* Operations */}
         <p className="adb-section-label">Operations</p>
-        <div className="adb-grid-3">
-          <BatchPipeline stages={batchPipeline} onStageClick={(stage) => navigate(`/batches?stage=${stage}`)} />
-          <BatchStatusWidget />
-          <ManagedIntakeWidget />
+        <div className="adb-grid-2">
+          <BatchFlowCard
+            stages={batchPipeline}
+            invoicesOnHold={invoicesOnHold}
+            invoicesClosed={invoicesClosed}
+            onStageClick={(stage) => navigate(`/batches?stage=${stage}`)}
+            onViewAll={() => navigate('/batches')}
+          />
+          <IntakeCard items={intakeItems} onOpen={(href) => navigate(href)} />
         </div>
       </div>
     </div>
