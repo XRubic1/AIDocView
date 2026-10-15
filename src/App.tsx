@@ -22,6 +22,7 @@ import {
   AdminBlueprints,
   AdminBrokerSnapshot,
   AdminPublicMcChecks,
+  AdminMotusInsuranceTest,
   AgingAR,
   BrokerAgingInvoicesPopup,
   CarrierAgingBrokersPopup,
@@ -177,6 +178,10 @@ function App() {
                 <Route
                   path="/admin/mc-checks"
                   element={withRouteSuspense(AdminPublicMcChecks, 'Loading MC Checks…')}
+                />
+                <Route
+                  path="/admin/motus-test"
+                  element={withRouteSuspense(AdminMotusInsuranceTest, 'Loading MOTUS test…')}
                 />
                 <Route path="/batches" element={withRouteSuspense(Batches)} />
                 <Route path="/batches/create" element={withRouteSuspense(CreateBatch)} />

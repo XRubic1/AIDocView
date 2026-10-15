@@ -24,3 +24,7 @@ verify_jwt = false
 # Auth checked inside the function (admin, carrier, or the public MC Check page).
 [functions.mc-lookup]
 verify_jwt = false
+
+# Admin-only MOTUS insurance test. The function also checks app_metadata.role = admin.
+[functions.motus-insurance]
+verify_jwt = true

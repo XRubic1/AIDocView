@@ -24,6 +24,7 @@ import {
   Inbox,
   Target,
   BadgeCheck,
+  FlaskConical,
   type LucideIcon,
 } from 'lucide-react'
 import { getInitials, getClientUserDisplayName } from './clientNav'
@@ -128,6 +129,7 @@ export const adminNavSections: AdminNavSection[] = [
       { label: 'Sales', path: '/admin/sales', icon: Target },
       { label: 'Waitlist', path: '/admin/waitlist', icon: Megaphone },
       { label: 'MC Checks', path: '/admin/mc-checks', icon: BadgeCheck },
+      { label: 'MOTUS Test', path: '/admin/motus-test', icon: FlaskConical },
       { label: 'Users', path: '/users', icon: UserCog },
     ],
   },

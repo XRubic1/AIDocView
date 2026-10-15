@@ -14,6 +14,7 @@ import {
   ShieldAlert,
   X,
 } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 import { useClientTheme } from '../theme/ThemeContext'
 import '../styles/credyxMcCheck.css'
 import { lookupMcCredit } from '../services/mcCreditLookupService'
@@ -466,6 +467,7 @@ export default function ClientMcLookup({
   visitorMcDigits?: string
 }) {
   const c = useClientTheme()
+  const { resolved } = useAuth()
   const [kind, setKind] = useState<DocketKind>('MC')
   const [mc, setMc] = useState(initialMc)
   const [loading, setLoading] = useState(false)
@@ -768,6 +770,16 @@ export default function ClientMcLookup({
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Look up'}
           </button>
         </form>
+
+        {resolved.isAdmin ? (
+          <Link
+            to={`/admin/motus-test${mc.trim() ? `?q=${encodeURIComponent(kind === 'DOT' ? mc.trim() : `${kind}${mc.trim()}`)}` : ''}`}
+            className="self-start text-sm font-medium underline"
+            style={{ color: c.accent }}
+          >
+            MOTUS insurance test
+          </Link>
+        ) : null}
 
         {error ? (
           <p

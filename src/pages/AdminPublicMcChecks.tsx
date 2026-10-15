@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronRight, RefreshCw, Search } from 'lucide-react'
 import Spinner from '../components/ui/Spinner'
 import { useToast } from '../components/ui/ToastProvider'
@@ -88,6 +89,13 @@ export default function AdminPublicMcChecks() {
               Carriers who unlocked the public /MC site and the broker lookups they ran
             </p>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/admin/motus-test"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            >
+              MOTUS insurance test
+            </Link>
           <button
             type="button"
             onClick={() => void load()}
@@ -96,6 +104,7 @@ export default function AdminPublicMcChecks() {
             <RefreshCw size={16} />
             Refresh
           </button>
+          </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">
