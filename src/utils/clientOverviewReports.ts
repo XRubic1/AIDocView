@@ -3,6 +3,7 @@ import type { TaxReportSummary } from './clientReports'
 import type { PaymentLagStats } from './clientReports'
 import type { PeriodSummary } from './clientReports'
 import type { CashCollectionForecast } from './cashCollectionForecast'
+import { csvCell } from './clientReportsExtra'
 
 /**
  * Industry-standard report pack for freight / trucking client portals.
@@ -108,17 +109,17 @@ export function buildOverviewCsvRows(input: {
   csv += `Forecast,Expected 7 days,${forecast.next_7_days}\n`
   csv += `Forecast,Expected 30 days,${forecast.next_30_days}\n`
   csv += `Forecast,Open A/R,${forecast.open_ar}\n`
-  csv += `Concentration,Top broker,${concentration.top_broker_name ?? ''}\n`
+  csv += `Concentration,Top broker,${csvCell(concentration.top_broker_name)}\n`
   csv += `Concentration,Top broker % of A/R,${concentration.top_broker_pct.toFixed(1)}%\n`
   csv += `Concentration,Top 3 brokers % of A/R,${concentration.top3_pct.toFixed(1)}%\n`
   csv += `Tax,Gross collected,${taxReport.gross_collected}\n`
   csv += `Tax,Payment count,${taxReport.payment_count}\n`
 
   taxReport.by_broker.forEach((b) => {
-    csv += `Tax broker,${b.broker_name},${b.gross_collected}\n`
+    csv += `Tax broker,${csvCell(b.broker_name)},${b.gross_collected}\n`
   })
   brokerRiskRows.forEach((b) => {
-    csv += `Broker risk,${b.broker_name},${b.rating}\n`
+    csv += `Broker risk,${csvCell(b.broker_name)},${csvCell(b.rating)}\n`
   })
 
   return csv

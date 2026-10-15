@@ -128,7 +128,6 @@ import { buildRegionReviewImage } from '../utils/cropImageRegion'
 import { fileToReviewImages, getReviewPageCount } from '../utils/fileToReviewImage'
 import {
   AI_REVIEW_CONFIG,
-  getOpenAIApiKey,
   isAIReviewEnabled,
 } from '../config/aiReview'
 
@@ -533,8 +532,7 @@ async function callOpenAIJson(
     budget?: ReviewCostBudget
   }
 ): Promise<{ data: Record<string, unknown>; usage: ApiUsageRecord }> {
-  const apiKey = getOpenAIApiKey()
-  if (!apiKey && !isAIReviewEnabled()) {
+  if (!isAIReviewEnabled()) {
     throw new Error(
       'AI review requires Supabase configuration. Deploy the openai-proxy Edge Function with OPENAI_API_KEY.'
     )
@@ -795,8 +793,7 @@ async function extractWithModel(
   budget?: ReviewCostBudget,
   textOnly = false
 ): Promise<ModelExtractionResult> {
-  const apiKey = getOpenAIApiKey()
-  if (!apiKey && !isAIReviewEnabled()) {
+  if (!isAIReviewEnabled()) {
     throw new Error(
       'AI review requires Supabase configuration. Deploy the openai-proxy Edge Function with OPENAI_API_KEY.'
     )
@@ -1096,7 +1093,7 @@ async function reviewRateConPages(
   let upgradedFromMini = false
   let merged: ReturnType<typeof rateConFromUnknown> = {}
   let raw: Record<string, unknown> = {}
-  let extraction = {
+  let extraction: ExtractedDocumentData = {
     documentType: 'rate_confirmation' as DocumentType,
     hasSignature: false,
     confidence: 0,

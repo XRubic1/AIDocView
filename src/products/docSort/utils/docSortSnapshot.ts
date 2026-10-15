@@ -17,6 +17,8 @@ export interface PersistedDocFingerprint {
   rateAmount?: number
   rateCurrency?: string
   invoiceNumber?: string
+  /** Classification confidence; older snapshots lack it. */
+  confidence?: number
   extract?: DocSortFingerprint['extract']
 }
 
@@ -35,6 +37,7 @@ function compactFp(fp: DocSortFingerprint): PersistedDocFingerprint {
     rateAmount: fp.rateAmount,
     rateCurrency: fp.rateCurrency,
     invoiceNumber: fp.invoiceNumber,
+    confidence: fp.confidence,
     extract: fp.extract,
   }
 }

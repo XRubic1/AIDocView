@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Building2,
   CheckCircle2,
   Clock,
   FileText,
-  ListTodo,
   Package,
   PauseCircle,
   Play,
-  RefreshCw,
+  Search,
   StopCircle,
   Zap,
 } from 'lucide-react'
@@ -17,8 +17,7 @@ import {
   BLUEPRINT_RUN_STATUS_LABELS,
   countRunsByStatus,
   filterBlueprintRuns,
-  listBlueprintRuns,
-  resetBlueprintRunsDemo,
+  listStoredBlueprintRuns,
   type BlueprintRunRow,
   type BlueprintRunStatus,
   type BlueprintRunStatusFilter,
@@ -72,38 +71,50 @@ const STATUS_TABS: { id: BlueprintRunStatusFilter; label: string }[] = [
   { id: 'stopped', label: 'Stopped' },
 ]
 
+/** Real enrollments only — demo sample rows carry no subject id. */
+function loadRows(): BlueprintRunRow[] {
+  return listStoredBlueprintRuns()
+    .filter((r) => Boolean(r.subjectId))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
+function matchesQuery(row: BlueprintRunRow, q: string): boolean {
+  if (!q) return true
+  return [row.subjectLabel, row.clientLabel, row.blueprintName, row.currentStep]
+    .some((v) => v?.toLowerCase().includes(q))
+}
+
 export default function BlueprintActivityPanel() {
   const { showToast } = useToast()
-  const [rows, setRows] = useState<BlueprintRunRow[]>(() => listBlueprintRuns())
+  const [rows, setRows] = useState<BlueprintRunRow[]>(loadRows)
   const [statusFilter, setStatusFilter] = useState<BlueprintRunStatusFilter>('all')
   const [subjectFilter, setSubjectFilter] = useState<SubjectFilter>('all')
+  const [query, setQuery] = useState('')
   const [tickBusy, setTickBusy] = useState(false)
 
   useEffect(() => {
-    const refresh = () => setRows(listBlueprintRuns())
+    const refresh = () => setRows(loadRows())
     window.addEventListener(BLUEPRINT_RUNS_CHANGED_EVENT, refresh)
     return () => window.removeEventListener(BLUEPRINT_RUNS_CHANGED_EVENT, refresh)
   }, [])
 
   const counts = useMemo(() => countRunsByStatus(rows), [rows])
-  const visible = useMemo(
-    () => filterBlueprintRuns(rows, statusFilter, subjectFilter),
-    [rows, statusFilter, subjectFilter]
-  )
-
-  const handleResetDemo = () => {
-    setRows(resetBlueprintRunsDemo())
-  }
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return filterBlueprintRuns(rows, statusFilter, subjectFilter).filter((r) =>
+      matchesQuery(r, q)
+    )
+  }, [rows, statusFilter, subjectFilter, query])
 
   const handleTick = async () => {
     if (!isBlueprintsRunnerEnabled()) {
-      showToast('Turn on Live runner first (Blueprints page).', 'error')
+      showToast('Turn automation on first (top right).', 'error')
       return
     }
     setTickBusy(true)
     try {
       const { advanced } = await tickBlueprintRuns('Credyx Blueprint')
-      setRows(listBlueprintRuns())
+      setRows(loadRows())
       showToast(
         advanced > 0
           ? `Advanced ${advanced} waiting run${advanced === 1 ? '' : 's'}.`
@@ -118,37 +129,27 @@ export default function BlueprintActivityPanel() {
   return (
     <div className="bp-activity">
       <div className="bp-activity__intro">
-        <div>
-          <h2 className="bp-activity__title">
-            <ListTodo size={18} aria-hidden />
-            Running activity
-          </h2>
-          <p className="bp-activity__sub">
-            Invoices, brokers, and batches enrolled in a blueprint — waiting on a clock, mid-step, or
-            finished.
-            Live runner writes notes/status only; broker chase emails stay on Run chase.
-          </p>
-        </div>
-        <div className="bp-activity__intro-actions">
-          <button
-            type="button"
-            className="admin-blueprints__btn admin-blueprints__btn--run"
-            onClick={handleTick}
-            disabled={tickBusy}
-          >
-            <Play size={14} aria-hidden />
-            Run blueprints
-          </button>
-          <button
-            type="button"
-            className="admin-blueprints__btn"
-            onClick={handleResetDemo}
-            title="Reload demo sample runs"
-          >
-            <RefreshCw size={14} aria-hidden />
-            Reset demo
-          </button>
-        </div>
+        <label className="bp-activity__search">
+          <Search size={14} aria-hidden />
+          <span className="sr-only">Search activity</span>
+          <input
+            id="bp-activity-search"
+            type="search"
+            value={query}
+            placeholder="Search invoice, client, blueprint, or step"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          className="admin-blueprints__btn"
+          onClick={handleTick}
+          disabled={tickBusy}
+          title="Move every run whose wait is over to its next step now, instead of waiting for the schedule."
+        >
+          <Play size={14} aria-hidden />
+          {tickBusy ? 'Running…' : 'Run due steps now'}
+        </button>
       </div>
 
       <div className="bp-activity__filters">
@@ -191,8 +192,9 @@ export default function BlueprintActivityPanel() {
       <div className="bp-activity__table-wrap">
         {visible.length === 0 ? (
           <div className="bp-activity__empty">
-            No runs match these filters. When the engine enrolls an invoice, broker, or batch, it
-            will show up here.
+            {rows.length === 0
+              ? 'Nothing is running yet. When an invoice, broker, or batch starts a blueprint, it shows up here.'
+              : 'Nothing matches these filters.'}
           </div>
         ) : (
           <table className="bp-activity__table">
@@ -221,7 +223,16 @@ export default function BlueprintActivityPanel() {
                         )}
                       </span>
                       <div>
-                        <div className="bp-activity__subject-name">{row.subjectLabel}</div>
+                        {row.subject === 'invoice' && row.subjectId ? (
+                          <Link
+                            className="bp-activity__subject-name bp-activity__subject-link"
+                            to={`/invoices?invoice=${encodeURIComponent(row.subjectId)}`}
+                          >
+                            {row.subjectLabel}
+                          </Link>
+                        ) : (
+                          <div className="bp-activity__subject-name">{row.subjectLabel}</div>
+                        )}
                         <div className="bp-activity__subject-meta">
                           {row.subject === 'invoice'
                             ? 'Invoice'

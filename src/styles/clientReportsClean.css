@@ -1,0 +1,910 @@
+/*
+ * Client reports — four focused tabs, calm cards, clear scope labels.
+ * Matches the invoices tab card style; colors come from --cp-* theme tokens.
+ */
+
+.client-portal .rpt {
+  background: var(--cp-surface);
+}
+
+/* ── Toolbar ── */
+.client-portal .rpt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--cp-border);
+  background: var(--cp-card);
+}
+
+.client-portal .rpt-tabs,
+.client-portal .rpt-presets {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--cp-surface);
+}
+
+.client-portal .rpt-tab,
+.client-portal .rpt-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cp-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.client-portal .rpt-preset {
+  height: 28px;
+  padding: 0 10px;
+}
+
+.client-portal .rpt-tab:hover,
+.client-portal .rpt-preset:hover {
+  color: var(--cp-text);
+}
+
+.client-portal .rpt-tab.is-active,
+.client-portal .rpt-preset.is-active {
+  background: var(--cp-card);
+  color: var(--cp-text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.client-portal .rpt-tab:focus-visible,
+.client-portal .rpt-preset:focus-visible,
+.client-portal .rpt-btn:focus-visible,
+.client-portal .rpt-link:focus-visible,
+.client-portal .rpt-sort:focus-visible,
+.client-portal .rpt-export:focus-visible {
+  outline: 2px solid var(--cp-accent);
+  outline-offset: 2px;
+}
+
+.client-portal .rpt-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.client-portal .rpt-dates {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--cp-input-border);
+  border-radius: 10px;
+  background: var(--cp-input-bg);
+  color: var(--cp-muted-light);
+  font-size: 13px;
+}
+
+.client-portal .rpt-dates.is-active {
+  border-color: color-mix(in srgb, var(--cp-accent) 45%, var(--cp-input-border));
+}
+
+.client-portal .rpt-dates input {
+  width: 118px;
+  height: 30px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--cp-text);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.client-portal .rpt-dates input:focus {
+  outline: none;
+}
+
+.client-portal .rpt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--cp-border);
+  border-radius: 10px;
+  background: var(--cp-btn-secondary-bg);
+  color: var(--cp-btn-secondary-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.client-portal .rpt-btn:hover:not(:disabled) {
+  border-color: var(--cp-border-hover);
+  background: var(--cp-btn-secondary-hover);
+}
+
+.client-portal .rpt-btn.is-primary {
+  border-color: var(--cp-btn-primary-bg);
+  background: var(--cp-btn-primary-bg);
+  color: var(--cp-btn-primary-text);
+}
+
+.client-portal .rpt-btn.is-primary:hover:not(:disabled) {
+  background: var(--cp-btn-primary-hover);
+}
+
+.client-portal .rpt-btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* ── Body & layout ── */
+.client-portal .rpt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px 28px;
+}
+
+.client-portal .rpt-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.client-portal .rpt-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.client-portal .rpt-grid > .rpt-card {
+  grid-column: span 12;
+}
+
+.client-portal .rpt-grid > .rpt-span-5 { grid-column: span 5; }
+.client-portal .rpt-grid > .rpt-span-6 { grid-column: span 6; }
+.client-portal .rpt-grid > .rpt-span-7 { grid-column: span 7; }
+.client-portal .rpt-grid > .rpt-span-12 { grid-column: span 12; }
+
+/* ── KPI ── */
+.client-portal .rpt-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--cp-border);
+  border-radius: 12px;
+  background: var(--cp-card);
+}
+
+.client-portal .rpt-kpi__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .rpt-kpi__value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--cp-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-portal .rpt-kpi.is-alert .rpt-kpi__value {
+  color: var(--cp-error);
+}
+
+.client-portal .rpt-kpi.is-accent .rpt-kpi__value {
+  color: var(--cp-accent);
+}
+
+.client-portal .rpt-kpi__sub {
+  font-size: 12px;
+  color: var(--cp-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-portal .rpt-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.client-portal .rpt-trend.is-good {
+  color: var(--cp-success);
+}
+
+.client-portal .rpt-trend.is-bad {
+  color: var(--cp-error);
+}
+
+/* ── Card ── */
+.client-portal .rpt-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--cp-border);
+  border-radius: 14px;
+  background: var(--cp-card);
+}
+
+.client-portal .rpt-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 0;
+}
+
+.client-portal .rpt-card__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.client-portal .rpt-card__title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--cp-text);
+}
+
+.client-portal .rpt-scope {
+  font-size: 12px;
+  color: var(--cp-muted-light);
+}
+
+.client-portal .rpt-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cp-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.client-portal .rpt-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.client-portal .rpt-card__body {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 18px 18px;
+}
+
+.client-portal .rpt-card--flush .rpt-card__body {
+  padding: 6px 0 0;
+}
+
+.client-portal .rpt-empty {
+  margin: 0;
+  padding: 20px 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--cp-text-muted);
+}
+
+/* ── Insights ── */
+.client-portal .rpt-insights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.client-portal .rpt-insight {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--rpt-tone) 7%, var(--cp-card));
+  --rpt-tone: var(--cp-info);
+}
+
+.client-portal .rpt-insight > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--rpt-tone);
+}
+
+.client-portal .rpt-insight.is-danger { --rpt-tone: var(--cp-error); }
+.client-portal .rpt-insight.is-warning { --rpt-tone: var(--cp-warning); }
+.client-portal .rpt-insight.is-success { --rpt-tone: var(--cp-success); }
+
+.client-portal .rpt-insight__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cp-text);
+}
+
+.client-portal .rpt-insight__body {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--cp-text-muted);
+}
+
+/* ── Bar rows (single series → one hue; text stays in text ink) ── */
+.client-portal .rpt-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.client-portal .rpt-bar__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.client-portal .rpt-bar__label {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cp-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-portal .rpt-bar__value {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cp-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.client-portal .rpt-bar__track {
+  height: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cp-text) 6%, transparent);
+  overflow: hidden;
+}
+
+.client-portal .rpt-bar__fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--cp-accent);
+  transition: width 0.3s ease;
+}
+
+.client-portal .rpt-bar__fill.is-alert {
+  background: var(--cp-error);
+}
+
+.client-portal .rpt-bar__sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--cp-text-muted);
+}
+
+/* ── Stat groups, lists, ledger ── */
+.client-portal .rpt-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.client-portal .rpt-stats--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.client-portal .rpt-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--cp-surface);
+}
+
+.client-portal .rpt-stat__value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--cp-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-portal .rpt-stat.is-alert .rpt-stat__value {
+  color: var(--cp-error);
+}
+
+.client-portal .rpt-stat__label {
+  font-size: 12px;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .rpt-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 18px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .rpt-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.client-portal .rpt-pill.is-alert {
+  background: color-mix(in srgb, var(--cp-warning) 15%, transparent);
+  color: color-mix(in srgb, var(--cp-warning) 75%, var(--cp-text));
+}
+
+.client-portal .rpt-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.client-portal .rpt-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--cp-border);
+  font-size: 13px;
+  color: var(--cp-text);
+}
+
+.client-portal .rpt-list li:first-child {
+  border-top: 0;
+}
+
+.client-portal .rpt-list li > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-portal .rpt-list__num {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.client-portal .rpt-list .rpt-list__more {
+  color: var(--cp-text-muted);
+}
+
+.client-portal .rpt-ledger {
+  margin: 0;
+}
+
+.client-portal .rpt-ledger > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--cp-border);
+}
+
+.client-portal .rpt-ledger > div:first-child {
+  border-top: 0;
+}
+
+.client-portal .rpt-ledger dt {
+  font-size: 14px;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .rpt-ledger dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--cp-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.client-portal .rpt-ledger > .is-total {
+  border-top: 2px solid var(--cp-text);
+}
+
+.client-portal .rpt-ledger > .is-total dt {
+  font-weight: 600;
+  color: var(--cp-text);
+}
+
+.client-portal .rpt-ledger > .is-total dd {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.client-portal .rpt-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cp-text-muted);
+}
+
+/* On-time vs late split (two states → status colors, each labeled) */
+.client-portal .rpt-split {
+  margin-bottom: 18px;
+}
+
+.client-portal .rpt-split__bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.client-portal .rpt-split__bar span {
+  height: 100%;
+}
+
+.client-portal .rpt-split__bar .is-good,
+.client-portal .rpt-split__legend .is-good {
+  background: var(--cp-success);
+}
+
+.client-portal .rpt-split__bar .is-bad,
+.client-portal .rpt-split__legend .is-bad {
+  background: var(--cp-error);
+}
+
+.client-portal .rpt-split__legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--cp-text);
+}
+
+.client-portal .rpt-split__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.client-portal .rpt-split__legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* ── Notice ── */
+.client-portal .rpt-notice {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--cp-warning) 40%, var(--cp-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--cp-warning) 8%, var(--cp-card));
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--cp-text);
+}
+
+.client-portal .rpt-notice > svg {
+  flex-shrink: 0;
+  color: var(--cp-warning);
+}
+
+.client-portal .rpt-notice p {
+  margin: 0;
+}
+
+/* ── Broker table ── */
+.client-portal .rpt-table-wrap {
+  margin: 0 -18px -18px;
+  overflow-x: auto;
+}
+
+.client-portal .rpt-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+}
+
+.client-portal .rpt-table th {
+  height: 38px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--cp-border);
+  text-align: left;
+  font-weight: 500;
+}
+
+.client-portal .rpt-table th.is-num {
+  text-align: right;
+}
+
+.client-portal .rpt-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cp-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.client-portal .rpt-sort:hover,
+.client-portal .rpt-sort.is-active {
+  color: var(--cp-text);
+}
+
+.client-portal .rpt-table td {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--cp-border);
+  font-size: 14px;
+  color: var(--cp-text);
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+
+.client-portal .rpt-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.client-portal .rpt-table td.is-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.client-portal .rpt-table td.is-alert {
+  color: var(--cp-error);
+  font-weight: 600;
+}
+
+.client-portal .rpt-table tbody tr {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.client-portal .rpt-table tbody tr:hover td,
+.client-portal .rpt-table tbody tr:focus-visible td {
+  background: var(--cp-table-hover);
+}
+
+.client-portal .rpt-table tbody tr:focus-visible {
+  outline: 2px solid var(--cp-accent);
+  outline-offset: -2px;
+}
+
+.client-portal .rpt-table__main {
+  display: block;
+  font-weight: 600;
+}
+
+.client-portal .rpt-table__sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--cp-text-muted);
+}
+
+/* ── Statements ── */
+.client-portal .rpt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 260px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .rpt-field select {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--cp-input-border);
+  border-radius: 10px;
+  background: var(--cp-input-bg);
+  color: var(--cp-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.client-portal .rpt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.client-portal .rpt-hero-num {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--cp-surface);
+}
+
+.client-portal .rpt-hero-num__label,
+.client-portal .rpt-hero-num__sub {
+  font-size: 12px;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .rpt-hero-num__value {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--cp-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.client-portal .rpt-exports {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.client-portal .rpt-export {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--cp-border);
+  border-radius: 12px;
+  background: var(--cp-card);
+  color: var(--cp-text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.client-portal .rpt-export:hover {
+  border-color: var(--cp-border-hover);
+  background: var(--cp-table-hover);
+}
+
+.client-portal .rpt-export > span {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.client-portal .rpt-export strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cp-text);
+}
+
+.client-portal .rpt-export small {
+  font-size: 12px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1180px) {
+  .client-portal .rpt-grid > .rpt-span-5,
+  .client-portal .rpt-grid > .rpt-span-6,
+  .client-portal .rpt-grid > .rpt-span-7 {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 900px) {
+  .client-portal .rpt-kpis,
+  .client-portal .rpt-stats--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .client-portal .rpt-toolbar,
+  .client-portal .rpt-body {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .client-portal .rpt-tabs {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .client-portal .rpt-tab {
+    flex: 1 0 auto;
+    justify-content: center;
+  }
+
+  .client-portal .rpt-filters {
+    width: 100%;
+  }
+
+  .client-portal .rpt-presets {
+    width: 100%;
+  }
+
+  .client-portal .rpt-preset {
+    flex: 1;
+    justify-content: center;
+    padding: 0 6px;
+  }
+
+  .client-portal .rpt-dates {
+    flex: 1;
+  }
+
+  .client-portal .rpt-dates input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .client-portal .rpt-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .client-portal .rpt-table-wrap {
+    margin-left: -18px;
+    margin-right: -18px;
+  }
+
+  .client-portal .rpt-card__head {
+    padding: 12px 14px 0;
+  }
+
+  .client-portal .rpt-card__body {
+    padding: 12px 14px 14px;
+  }
+}

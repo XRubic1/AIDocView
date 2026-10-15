@@ -16,6 +16,7 @@ import {
 } from '../../services/adminNotificationService'
 import { applyBlueprintBrokerRiskMark } from '../../services/blueprintBrokerRiskActions'
 import { sendTransactionalEmail } from '../../services/emailService'
+import type { EmailTemplateId } from '../../config/emailTemplateDefaults'
 import { isEmailLifecycleRuleEnabled } from '../../config/emailLifecycle'
 import { formatCurrency } from '../../utils/format'
 import {
@@ -226,7 +227,7 @@ async function sendCustomBrokerChaseEmail(input: {
   const extraCc = input.extraCc ?? []
   const allCc = [...cc, ...extraCc]
   const result = await sendTransactionalEmail(
-    templateId,
+    templateId as EmailTemplateId,
     to,
     {
       invoiceNumber: invoice.invoice_number,
@@ -499,7 +500,7 @@ async function executeNotifyCarrierThenDo(input: {
         )
         const { fromOverride, cc } = resolveFromAndCc(input.config)
         const result = await sendTransactionalEmail(
-          templateId,
+          templateId as EmailTemplateId,
           to,
           {
             contactName: client?.contact_person || 'there',

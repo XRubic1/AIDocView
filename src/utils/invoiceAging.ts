@@ -4,6 +4,7 @@ import type { ClientCapabilities } from './clientCapabilities'
 import { mockBrokers } from '../data/mockBrokers'
 import {
   getBrokerPaymentTermsDays,
+  parseCalendarDate,
   parseLocalYmd,
   resolveEffectiveDueDate,
 } from './invoiceDueDate'
@@ -96,9 +97,11 @@ export function getInvoiceAgeDays(invoice: Invoice, asOf: Date = new Date()): nu
 
   const today = new Date(asOf)
   today.setHours(0, 0, 0, 0)
-  const invoiceDate = new Date(invoice.invoice_date)
+  // Calendar day, not UTC midnight (which is the previous evening west of UTC).
+  const invoiceDate = parseCalendarDate(invoice.invoice_date)
   invoiceDate.setHours(0, 0, 0, 0)
-  return Math.max(0, Math.floor((today.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24)))
+  // Round, not floor: a DST change between the two dates leaves a 23h or 25h day.
+  return Math.max(0, Math.round((today.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24)))
 }
 
 /** Paid, written-off, force-closed, or rejected — aging clock is stopped. */
@@ -146,7 +149,8 @@ export function getDisplayInvoiceAgeDays(
   options?: { payDate?: string | null; asOf?: Date }
 ): number {
   if (invoiceHasStoppedAging(invoice)) {
-    return getInvoiceAgeDays(invoice, new Date(getInvoiceAgeFreezeDate(invoice, options?.payDate)))
+    const freeze = getInvoiceAgeFreezeDate(invoice, options?.payDate)
+    return getInvoiceAgeDays(invoice, parseCalendarDate(freeze))
   }
   return getInvoiceAgeDays(invoice, options?.asOf ?? new Date())
 }

@@ -1,17 +1,12 @@
 /**
- * Right-rail step palette — add Start / When / Wait / Then-do / Done
- * without right-click (screenshot-style builder).
+ * Floating "Add step" bar on the canvas — Start / When / Wait / Then do / Done.
+ * New cards link after the selected card when the connection rules allow it.
  */
 import type { BlueprintNodeKind } from '../../types/blueprintGraph'
 import { BLUEPRINT_NODE_KIND_LABELS } from '../../types/blueprintGraph'
 import { reasonAddKindDisabled } from './blueprintConnectionRules'
 
-const GROUPS: { title: string; kinds: BlueprintNodeKind[] }[] = [
-  { title: 'Entry', kinds: ['trigger'] },
-  { title: 'Checks', kinds: ['if', 'wait'] },
-  { title: 'Actions', kinds: ['action'] },
-  { title: 'End', kinds: ['stop'] },
-]
+const KINDS: BlueprintNodeKind[] = ['trigger', 'wait', 'if', 'action', 'stop']
 
 const SHORT: Partial<Record<BlueprintNodeKind, string>> = {
   trigger: 'Start',
@@ -31,35 +26,27 @@ export default function BlueprintStepPalette({
   onAdd,
 }: BlueprintStepPaletteProps) {
   return (
-    <aside className="bp-palette" aria-label="Add blueprint steps">
-      <div className="bp-palette__head">Steps</div>
-      {GROUPS.map((group) => (
-        <div key={group.title} className="bp-palette__group">
-          <div className="bp-palette__group-title">{group.title}</div>
-          <div className="bp-palette__chips">
-            {group.kinds.map((kind) => {
-              const disabledReason = reasonAddKindDisabled(tipKind, kind)
-              const disabled = !!disabledReason
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  className={`bp-palette__chip bp-palette__chip--${kind}${disabled ? ' is-disabled' : ''}`}
-                  disabled={disabled}
-                  title={disabledReason ?? BLUEPRINT_NODE_KIND_LABELS[kind]}
-                  onClick={() => {
-                    if (disabled) return
-                    onAdd(kind)
-                  }}
-                >
-                  {SHORT[kind] ?? BLUEPRINT_NODE_KIND_LABELS[kind]}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ))}
-      <p className="bp-palette__hint">Click to add after the selected step. Or right‑click the canvas.</p>
-    </aside>
+    <div className="bp-palette" role="toolbar" aria-label="Add a step">
+      <span className="bp-palette__head">Add step</span>
+      {KINDS.map((kind) => {
+        const disabledReason = reasonAddKindDisabled(tipKind, kind)
+        const disabled = !!disabledReason
+        return (
+          <button
+            key={kind}
+            type="button"
+            className={`bp-palette__chip bp-palette__chip--${kind}${disabled ? ' is-disabled' : ''}`}
+            disabled={disabled}
+            title={disabledReason ?? `Add “${BLUEPRINT_NODE_KIND_LABELS[kind]}” after the selected step`}
+            onClick={() => {
+              if (disabled) return
+              onAdd(kind)
+            }}
+          >
+            {SHORT[kind] ?? BLUEPRINT_NODE_KIND_LABELS[kind]}
+          </button>
+        )
+      })}
+    </div>
   )
 }

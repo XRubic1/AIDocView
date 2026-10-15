@@ -3,6 +3,7 @@
  * blueprint. Settings no longer gates these.
  */
 import { sendTransactionalEmail } from '../../services/emailService'
+import type { EmailTemplateId } from '../../config/emailTemplateDefaults'
 import { getAllBatches } from '../../data/mockBatches'
 import type { SavedBlueprint } from '../../types/blueprintGraph'
 import { STANDARD_OPS_ALERT } from '../../../supabase/functions/_shared/standardBlueprints'
@@ -42,7 +43,7 @@ export async function sendBlueprintOpsAlert(opts: {
   const config = opsConfig()
   const templateId = config.templateId?.trim() || 'credyx_batch_error'
   const to = config.fromEmails?.[0]?.trim() || config.fromEmail?.trim() || DEFAULT_OPS
-  const result = await sendTransactionalEmail(templateId, to, {
+  const result = await sendTransactionalEmail(templateId as EmailTemplateId, to, {
     batchNumber: opts.batchNumber,
     clientName: opts.clientName ?? '',
     issueMessage: opts.issueMessage,

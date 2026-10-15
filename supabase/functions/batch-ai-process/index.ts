@@ -134,12 +134,17 @@ function normalizeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
 }
 
+/** Shortest key allowed to match by containment / suffix ("5" must not match "12345"). */
+const MIN_PARTIAL_MATCH_LEN = 4
+
 function namesAlign(a?: string | null, b?: string | null): boolean {
   if (!a?.trim() || !b?.trim()) return false
   const left = a.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
   const right = b.trim().toLowerCase().replace(/[^a-z0-9]/g, '')
   if (!left || !right) return false
-  return left === right || left.includes(right) || right.includes(left)
+  if (left === right) return true
+  if (Math.min(left.length, right.length) < MIN_PARTIAL_MATCH_LEN) return false
+  return left.includes(right) || right.includes(left)
 }
 
 function laneCityOnBol(lane: string, bolDelivery: string): boolean {
@@ -156,7 +161,9 @@ function loadKeysAlign(a?: string | null, b?: string | null): boolean {
   const left = normalizeId(a)
   const right = normalizeId(b)
   if (!left || !right) return false
-  return left === right || left.endsWith(right) || right.endsWith(left)
+  if (left === right) return true
+  if (Math.min(left.length, right.length) < MIN_PARTIAL_MATCH_LEN) return false
+  return left.endsWith(right) || right.endsWith(left)
 }
 
 function checkRow(
@@ -190,30 +197,27 @@ function formatStop(stop: unknown): string | undefined {
 }
 
 /** Pull display fields from DocSort fingerprint extracts for the UI "Extracted from paperwork" panel. */
-function paperworkFromFingerprints(fps: Fingerprint[], inv: InvoiceRow): PaperworkFields {
+function paperworkFromFingerprints(fps: Fingerprint[], _inv: InvoiceRow): PaperworkFields {
   const rc = fps.find((f) => f.kind === 'rate_confirmation')
   const extract = (rc?.extract ?? {}) as Record<string, unknown>
   const rateCon = (extract.rateConParse ?? {}) as Record<string, unknown>
   const destinations = Array.isArray(rateCon.destinations) ? rateCon.destinations : []
   const lastStop = destinations[destinations.length - 1]
 
+  // Paperwork values come from the rate con only. Never fill a gap with the
+  // invoice's own value — that compares the invoice with itself and always passes.
   const loadNumber =
     String(rateCon.load_number ?? extract.loadNumber ?? '').trim() ||
     rc?.loadNumbers?.[0] ||
-    inv.load_number ||
     undefined
   const amount =
     typeof rateCon.rate_total === 'number' && rateCon.rate_total > 0
       ? rateCon.rate_total
       : typeof rc?.rateAmount === 'number' && rc.rateAmount > 0
         ? rc.rateAmount
-        : inv.amount > 0
-          ? inv.amount
-          : undefined
-  const brokerName =
-    String(rateCon.broker_name ?? '').trim() || rc?.broker || inv.broker_name || undefined
-  const carrierName =
-    String(rateCon.carrier_name ?? '').trim() || rc?.carrier || inv.client_name || undefined
+        : undefined
+  const brokerName = String(rateCon.broker_name ?? '').trim() || rc?.broker || undefined
+  const carrierName = String(rateCon.carrier_name ?? '').trim() || rc?.carrier || undefined
   const pickup = formatStop(rateCon.origin) || rc?.pickup || undefined
   const destinationsLine =
     destinations
@@ -287,26 +291,27 @@ function verifyInvoiceFromCatalog(
 
   const loadOnFile = (inv.load_number || '').trim()
   const loadPaper = (paperwork.loadNumber || '').trim()
+  // Fail closed: a value missing on either side is an issue, never a pass.
   const loadOk =
-    (!loadOnFile && !loadPaper) ||
-    (Boolean(loadOnFile) && Boolean(loadPaper) && loadKeysAlign(loadOnFile, loadPaper)) ||
-    (Boolean(loadOnFile) &&
+    Boolean(loadOnFile) &&
+    ((Boolean(loadPaper) && loadKeysAlign(loadOnFile, loadPaper)) ||
       fps.some((f) => (f.loadNumbers ?? []).some((n) => loadKeysAlign(n, loadOnFile))))
 
   const amountOnFile = inv.amount
   const amountPaper = paperwork.amount
   const amountOk =
-    amountPaper == null ||
-    amountOnFile == null ||
+    amountPaper != null &&
+    amountOnFile != null &&
+    Number(amountOnFile) > 0 &&
     Math.abs(Number(amountOnFile) - Number(amountPaper)) < 0.02
 
   const brokerOnFile = (inv.broker_name || '').trim()
   const brokerPaper = (paperwork.brokerName || '').trim()
-  const brokerOk = !brokerPaper || !brokerOnFile || namesAlign(brokerOnFile, brokerPaper)
+  const brokerOk = namesAlign(brokerOnFile, brokerPaper)
 
   const carrierOnFile = (inv.client_name || '').trim()
   const carrierPaper = (paperwork.carrierName || '').trim()
-  const carrierOk = !carrierPaper || !carrierOnFile || namesAlign(carrierOnFile, carrierPaper)
+  const carrierOk = namesAlign(carrierOnFile, carrierPaper)
 
   const bolFp = fps.find(
     (f) => f.kind === 'bol' || f.kind === 'bill_of_lading' || /bol/i.test(f.kind)
@@ -314,20 +319,35 @@ function verifyInvoiceFromCatalog(
   const bolExtract = (bolFp?.extract ?? {}) as Record<string, unknown>
   const bolAudit = (bolExtract.bolAudit ?? bolExtract) as Record<string, unknown>
   const bolDelivery = String(bolAudit.ship_to ?? bolFp?.delivery ?? '').trim()
-  const receiver = String(
-    (bolAudit.signatures as { receiver?: string } | undefined)?.receiver ??
-      bolAudit.receiver_signature ??
-      ''
-  ).toUpperCase()
-  const signatureMissing = receiver === 'MISSING' || receiver === 'ABSENT' || receiver === 'FAIL'
-  const bolOk = hasBol && !signatureMissing && (Boolean(bolDelivery) || hasRc)
+  const signatures = bolAudit.signatures as
+    | { receiver?: string; receiver_date?: string }
+    | undefined
+  const receiver = String(signatures?.receiver ?? bolAudit.receiver_signature ?? '').toUpperCase()
+  const receiverDate = String(signatures?.receiver_date ?? '').toUpperCase()
+  // Same rule as the browser (bolAuditMeetsDeliveryRequirements): only an explicit
+  // PRESENT / PASS_BY_RULE counts. An unread or unclear BOL is not signed.
+  const signedStatus = (s: string) => s === 'PRESENT' || s === 'PASS_BY_RULE'
+  const rcExtract = (fps.find((f) => f.kind === 'rate_confirmation')?.extract ?? {}) as Record<
+    string,
+    unknown
+  >
+  const rcDestinations = (rcExtract.rateConParse as { destinations?: unknown } | undefined)
+    ?.destinations
+  const rcStops = Array.isArray(rcDestinations) ? rcDestinations.length : 1
+  const receiverOk = signedStatus(receiver)
+  const receiverDateOk = rcStops <= 1 || signedStatus(receiverDate)
+  const bolOk = hasBol && receiverOk && receiverDateOk && Boolean(bolDelivery)
   const bolSummary = !hasBol
     ? 'Missing bill of lading.'
-    : signatureMissing
-      ? 'Receiver signature is missing or unclear.'
-      : bolDelivery
-        ? 'Signed and delivery address is on the bill of lading.'
-        : 'Bill of lading is in the packet. Delivery address was not read.'
+    : !receiver
+      ? 'Bill of lading is in the packet but was not audited for a receiver signature.'
+      : !receiverOk
+        ? 'Receiver signature is missing or unclear.'
+        : !receiverDateOk
+          ? 'Receiver date is missing on a multi-stop load.'
+          : bolDelivery
+            ? 'Signed and delivery address is on the bill of lading.'
+            : 'Bill of lading is signed. Delivery address was not read.'
 
   const lane = (paperwork.destinations || '').trim()
   const stopsOk =
@@ -596,6 +616,7 @@ Deno.serve(async (req) => {
       if (job.kind === 'sort_and_verify') {
         const { data: turn, error: turnErr } = await admin.rpc('claim_packet_creation_turn', {
           p_batch_id: job.batch_id,
+          p_locked_by: isCron ? 'cron' : 'edge-invoke',
         })
         if (!turnErr && turn !== 'started') {
           results.push({
@@ -820,6 +841,16 @@ Deno.serve(async (req) => {
               ai_review_snapshot: JSON.stringify(outcome.snapshot),
             })
             .eq('id', inv.id)
+
+          // Match the browser (flagInvoiceForReview): a failed check sends a pending
+          // packet to Review. Packets a human already approved or held are left alone.
+          if (outcome.status === 'needs_work') {
+            await admin
+              .from('invoices')
+              .update({ status: 'review' })
+              .eq('id', inv.id)
+              .eq('status', 'pending')
+          }
         }
 
         await admin

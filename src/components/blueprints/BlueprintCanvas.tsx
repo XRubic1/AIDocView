@@ -3,7 +3,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   addEdge,
   useNodesState,
   useEdgesState,
@@ -30,7 +29,6 @@ import {
   type BlueprintNodeKind,
 } from '../../types/blueprintGraph'
 import { defaultTriggerFilters } from './blueprintTriggerFilters'
-import type { SavedBlueprintCard } from './blueprintCardLibrary'
 import {
   canConnectNodes,
   canInsertAfterTip,
@@ -73,8 +71,6 @@ interface BlueprintCanvasInnerProps {
   initialEdges: Edge[]
   graphKey: string
   onGraphChange: (nodes: BlueprintFlowNode[], edges: Edge[]) => void
-  pendingInsertCard?: SavedBlueprintCard | null
-  onPendingInsertConsumed?: () => void
 }
 
 function BlueprintCanvasInner({
@@ -82,8 +78,6 @@ function BlueprintCanvasInner({
   initialEdges,
   graphKey,
   onGraphChange,
-  pendingInsertCard,
-  onPendingInsertConsumed,
 }: BlueprintCanvasInnerProps) {
   const { screenToFlowPosition } = useReactFlow()
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
@@ -259,35 +253,6 @@ function BlueprintCanvasInner({
     [selectedId, nodes, addNode]
   )
 
-  const addSavedCard = useCallback(
-    (card: SavedBlueprintCard, flowX: number, flowY: number) => {
-      linkFromTip({
-        id: newNodeId(),
-        type: 'blueprint',
-        position: { x: flowX, y: flowY },
-        data: {
-          ...card.data,
-          kind: card.kind,
-          libraryCardId: card.id,
-          label: card.name || card.data.label,
-        },
-      })
-    },
-    [linkFromTip]
-  )
-
-  useEffect(() => {
-    if (!pendingInsertCard) return
-    const tip = selectedId
-      ? (nodes as BlueprintFlowNode[]).find((n) => n.id === selectedId)
-      : null
-    const x = (tip?.position.x ?? 80) + 240
-    const y = tip?.position.y ?? 160
-    addSavedCard(pendingInsertCard, x, y)
-    onPendingInsertConsumed?.()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingInsertCard])
-
   const duplicateNode = useCallback(
     (nodeId: string) => {
       setNodes((nds) => {
@@ -415,9 +380,12 @@ function BlueprintCanvasInner({
           }}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1.1} color="#cbd5e1" />
-          <Controls />
-          <MiniMap pannable zoomable />
+          <Controls showInteractive={false} />
         </ReactFlow>
+        <BlueprintStepPalette
+          tipKind={selectedNode?.data.kind ?? null}
+          onAdd={addFromPalette}
+        />
         {menu ? (
           <BlueprintContextMenu
             menu={menu}
@@ -429,11 +397,8 @@ function BlueprintCanvasInner({
           />
         ) : null}
       </div>
-      <BlueprintStepPalette
-        tipKind={selectedNode?.data.kind ?? null}
-        onAdd={addFromPalette}
-      />
       <BlueprintSidePanel
+        blueprintId={graphKey}
         node={selectedNode}
         nodes={nodes as BlueprintFlowNode[]}
         edges={edges}
@@ -449,9 +414,6 @@ interface BlueprintCanvasProps {
   initialEdges: Edge[]
   graphKey: string
   onGraphChange: (nodes: BlueprintFlowNode[], edges: Edge[]) => void
-  /** When set, insert this saved card once onto the canvas. */
-  pendingInsertCard?: SavedBlueprintCard | null
-  onPendingInsertConsumed?: () => void
 }
 
 export default function BlueprintCanvas(props: BlueprintCanvasProps) {

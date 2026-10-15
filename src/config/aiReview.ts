@@ -211,10 +211,6 @@ export function resolvePdfPagesToReview(totalPages: number): number {
   return Math.min(totalPages, cap)
 }
 
-export function getOpenAIApiKey(): string | undefined {
-  return getRuntimeEnvString('VITE_OPENAI_API_KEY') || undefined
-}
-
 export function isAIReviewEnabled(): boolean {
   if (getOpenAIChatCompletionsHandler()) return true
   return isSupabaseConfigured()

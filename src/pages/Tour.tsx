@@ -7,10 +7,10 @@ import {
   FolderOpen,
   LayoutDashboard,
   Shield,
-  Truck,
   Wallet,
 } from 'lucide-react'
 import '../styles/credyxMarketing.css'
+import '../styles/credyxWaitlistSales.css'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
 import { useWebsiteAnalytics } from '../hooks/useWebsiteAnalytics'
 import { trackWebsiteEvent } from '../services/websiteAnalytics'
@@ -71,7 +71,7 @@ const PORTAL_STATS = [
   { value: '24/7', label: 'Portal access' },
 ]
 
-/** Credyx product tour — marketing walkthrough of the client portal. */
+/** Credyx product tour — marketing walkthrough of the client portal (sales site styling). */
 export default function Tour() {
   const navigate = useNavigate()
   const pageRef = useRef<HTMLDivElement>(null)
@@ -83,86 +83,90 @@ export default function Tour() {
     document.getElementById('waitlist-form')?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  const goToClientLogin = (source: string) => {
+    trackWebsiteEvent(source.startsWith('footer') ? 'nav_click' : 'cta_click', source)
+    if (isMarketingOnly) {
+      window.location.assign(getClientLoginHref())
+      return
+    }
+    navigate('/client/login')
+  }
+
   return (
-    <div ref={pageRef} className="credyx-page credyx-page--waitlist">
+    <div ref={pageRef} className="credyx-page credyx-page--waitlist credyx-page--sales">
       <MarketingHeader />
 
-      <section className="cx-hero">
-        <div className="cx-mesh" aria-hidden />
-        <div className="cx-hero-inner">
-          <p className="cx-badge hero-enter hero-enter-1">Product tour</p>
-          <h1 className="cx-hero-headline hero-enter hero-enter-2">
-            Your back office,{' '}
-            <span className="accent cx-hand-underline cx-hand-underline--v8">in one portal</span>
-          </h1>
-          <p className="cx-hero-sub hero-enter hero-enter-3">
-            Credyx gives carriers a single place to submit documents, track invoices, monitor
-            collections, and understand cash flow —{' '}
-            <strong>without spreadsheets or guesswork.</strong>
-          </p>
-          <div className="cx-hero-buttons hero-enter hero-enter-4">
-            <button
-              type="button"
-              className="cx-btn-primary"
-              onClick={() => scrollToDemo('tour_hero_demo')}
-            >
-              Schedule Demo
-              <ArrowRight size={17} />
-            </button>
-            <button
-              type="button"
-              className="cx-btn-secondary"
-              onClick={() => {
-                trackWebsiteEvent('cta_click', 'tour_hero_login')
-                if (isMarketingOnly) {
-                  window.location.assign(getClientLoginHref())
-                  return
-                }
-                navigate('/client/login')
-              }}
-            >
-              Client login
-            </button>
+      {/* ── Hero ── */}
+      <header className="cx-sales-hero" id="top">
+        <svg className="cx-sales-hero-arrow" viewBox="0 0 400 400" aria-hidden>
+          <path d="M400 0 L318 24 L352 58 L198 220 L148 170 L0 340 L42 382 L152 252 L202 302 L372 90 L400 128 Z" />
+        </svg>
+        <div className="cx-sales-hero2">
+          <div>
+            <span className="cx-sales-pill reveal">Product tour</span>
+            <h1 className="reveal">
+              Your back office, <span className="cx-sales-b">in one portal.</span>
+            </h1>
+            <div className="cx-sales-bar reveal" />
+            <p className="cx-sales-lead reveal">
+              Submit documents, track invoices, monitor collections, and understand cash flow,
+              without spreadsheets or guesswork.
+            </p>
+            <div className="cx-sales-hero-actions reveal">
+              <button
+                type="button"
+                className="cx-btn-primary"
+                onClick={() => scrollToDemo('tour_hero_demo')}
+              >
+                Schedule Demo
+                <ArrowRight size={17} />
+              </button>
+              <button
+                type="button"
+                className="cx-btn-secondary"
+                onClick={() => goToClientLogin('tour_hero_login')}
+              >
+                Client login
+              </button>
+            </div>
           </div>
-
-          <div className="cx-hero-stats hero-enter hero-enter-5">
-            {PORTAL_STATS.map((stat) => (
-              <div key={stat.label} className="cx-hero-stat">
-                <div className="cx-hero-stat-num">{stat.value}</div>
-                <div className="cx-hero-stat-label">{stat.label}</div>
+          <div className="reveal">
+            <div className="cx-sales-pnl cx-tour-stats">
+              <div className="cx-sales-pt2">
+                <span>The portal</span>
+                <span className="cx-sales-ex">At a glance</span>
               </div>
-            ))}
+              {PORTAL_STATS.map((stat) => (
+                <div key={stat.label} className="cx-tour-stat">
+                  <span className="cx-tour-stat-num">{stat.value}</span>
+                  <span className="cx-tour-stat-label">{stat.label}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-      </section>
+      </header>
 
-      <section className="cx-section bordered">
-        <div className="cx-section-inner">
-          <div className="cx-section-head centered reveal">
-            <p className="cx-eyebrow" style={{ justifyContent: 'center', width: '100%' }}>
-              Inside the portal
-            </p>
-            <h2 className="cx-section-title">
-              Six areas.{' '}
-              <span className="accent cx-hand-underline cx-hand-underline--v2">
-                Complete control.
-              </span>
-            </h2>
-            <p className="cx-section-sub">
-              Walk through what your team sees after onboarding — from the dashboard to reports.
-            </p>
-          </div>
-
-          <div className="cx-card-grid reveal">
+      {/* ── Inside the portal ── */}
+      <section id="inside" className="cx-sales-section cx-sales-how">
+        <div className="cx-sales-wrap">
+          <span className="cx-sales-pill reveal">Inside the portal</span>
+          <h2 className="reveal">
+            Six areas. <span className="cx-sales-b">Complete control.</span>
+          </h2>
+          <p className="cx-sales-lead reveal">
+            What your team sees after onboarding, from the dashboard to reports.
+          </p>
+          <div className="cx-sales-grid5 cx-tour-grid reveal">
             {TOUR_STOPS.map((stop, index) => (
-              <article key={stop.title} className="cx-card">
-                <div className="cx-card-icon">
-                  <stop.icon size={20} />
+              <article key={stop.title} className="cx-sales-card">
+                <div className="cx-tour-card-top">
+                  <div className="n">{String(index + 1).padStart(2, '0')}</div>
+                  <stop.icon className="cx-tour-card-icon" size={22} aria-hidden />
                 </div>
-                <div className="cx-card-num">{index + 1}</div>
-                <h3 className="cx-card-title">{stop.title}</h3>
-                <p className="cx-card-desc">{stop.description}</p>
-                <ul className="cx-tour-highlights">
+                <h3>{stop.title}</h3>
+                <p>{stop.description}</p>
+                <ul className="cx-tour-list">
                   {stop.highlights.map((item) => (
                     <li key={item}>{item}</li>
                   ))}
@@ -173,52 +177,26 @@ export default function Tour() {
         </div>
       </section>
 
-      <section className="cx-section bordered">
-        <div className="cx-section-inner">
-          <div className="cx-tour-cta reveal">
-            <div className="cx-tour-cta-icon" aria-hidden>
-              <Truck size={28} />
-            </div>
-            <div className="cx-tour-cta-body">
-              <h2 className="cx-section-title" style={{ marginBottom: 8 }}>
-                Ready to see it with your{' '}
-                <span className="accent cx-hand-underline cx-hand-underline--v4">freight?</span>
-              </h2>
-              <p className="cx-section-sub" style={{ margin: 0 }}>
-                Schedule a demo. We&apos;ll walk through the portal with your operation in mind.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="cx-btn-primary"
-              onClick={() => scrollToDemo('tour_mid_demo')}
-            >
-              Schedule Demo
-              <ArrowRight size={17} />
-            </button>
+      {/* ── Schedule demo ── */}
+      <section id="waitlist-form" className="cx-sales-section cx-sales-cta">
+        <div className="cx-sales-wrap cx-sales-cta-cols">
+          <div>
+            <span className="cx-sales-pill reveal">Schedule Demo</span>
+            <h2 className="reveal">
+              See it with your <span className="cx-sales-b">freight.</span>
+            </h2>
+            <p className="cx-sales-lead reveal" style={{ margin: '24px 0 0' }}>
+              Tell us about your fleet. We&apos;ll walk through the portal with your operation in
+              mind.
+            </p>
+          </div>
+          <div className="reveal">
+            <WaitlistForm />
           </div>
         </div>
       </section>
 
-      <section id="waitlist-form" className="cx-section cx-section--join bordered">
-        <div className="cx-section-inner">
-          <div className="cx-enroll-shell">
-            <div className="cx-join-head reveal reveal-grow">
-              <h2 className="cx-section-title">
-                Schedule a{' '}
-                <span className="accent cx-hand-underline cx-hand-underline--v6">demo</span>
-              </h2>
-              <p className="cx-section-sub">
-                Tell us about your fleet — we&apos;ll reach out to book your demo.
-              </p>
-            </div>
-            <div className="reveal reveal-grow">
-              <WaitlistForm />
-            </div>
-          </div>
-        </div>
-      </section>
-
+      {/* ── Footer ── */}
       <footer className="cx-footer">
         <div className="cx-footer-brand">
           <img
@@ -245,14 +223,7 @@ export default function Tour() {
           <button
             type="button"
             className="cx-footer-link"
-            onClick={() => {
-              trackWebsiteEvent('nav_click', 'footer_client_login')
-              if (isMarketingOnly) {
-                window.location.assign(getClientLoginHref())
-                return
-              }
-              navigate('/client/login')
-            }}
+            onClick={() => goToClientLogin('footer_client_login')}
           >
             Client login
           </button>

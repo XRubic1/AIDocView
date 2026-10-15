@@ -269,6 +269,34 @@ async function anotherPacketCreationIsActive(batchId: string): Promise<boolean> 
   }
 }
 
+/** This batch already has a fresh running creation (another tab or the edge worker). */
+async function sameBatchCreationIsRunning(batchId: string): Promise<boolean> {
+  const supabase = getSupabase()
+  if (!supabase) return false
+  try {
+    const { data, error } = await supabase
+      .from('batch_processing_jobs')
+      .select('locked_at')
+      .eq('batch_id', batchId)
+      .eq('kind', 'sort_and_verify')
+      .eq('status', 'running')
+      .limit(1)
+    // Unknown state — stay out of the way rather than risk a duplicate run.
+    if (error) return true
+    const lockedAt = data?.[0]?.locked_at ? new Date(String(data[0].locked_at)).getTime() : 0
+    return lockedAt > 0 && Date.now() - lockedAt < CREATION_LOCK_FRESH_MS
+  } catch {
+    return true
+  }
+}
+
+/** Fallback when the claim RPC fails: never start over a live run. */
+async function fallbackCreationTurn(batchId: string): Promise<CreationTurn> {
+  if (await anotherPacketCreationIsActive(batchId)) return 'queued'
+  if (await sameBatchCreationIsRunning(batchId)) return 'busy'
+  return 'started'
+}
+
 /** Cross-client slot. One sort_and_verify runs at a time so OpenAI is not shared. */
 async function claimPacketCreationTurn(batchId: string): Promise<CreationTurn> {
   if (await anotherPacketCreationIsActive(batchId)) return 'queued'
@@ -281,8 +309,7 @@ async function claimPacketCreationTurn(batchId: string): Promise<CreationTurn> {
     })
     if (error) {
       console.warn('[claim_packet_creation_turn]', error.message || error)
-      if (await anotherPacketCreationIsActive(batchId)) return 'queued'
-      return 'started'
+      return fallbackCreationTurn(batchId)
     }
     if (data === 'queued' || data === 'busy') return data
     if (data === 'started') {
@@ -292,8 +319,7 @@ async function claimPacketCreationTurn(batchId: string): Promise<CreationTurn> {
     return 'started'
   } catch (err) {
     console.warn('[claim_packet_creation_turn]', err)
-    if (await anotherPacketCreationIsActive(batchId)) return 'queued'
-    return 'started'
+    return fallbackCreationTurn(batchId)
   }
 }
 
@@ -415,7 +441,7 @@ export async function drainPendingBatchProcessingJobs(limit = 3): Promise<number
   try {
     const { data: failedCreations } = await supabase
       .from('batch_processing_jobs')
-      .select('batch_id, client_id')
+      .select('batch_id, client_id, attempts, max_attempts, last_error')
       .eq('status', 'failed')
       .eq('kind', 'sort_and_verify')
       .order('created_at', { ascending: true })
@@ -427,6 +453,18 @@ export async function drainPendingBatchProcessingJobs(limit = 3): Promise<number
       const batch = getBatchById(batchId)
       if (!batch || (batch.status !== 'creating' && batch.sort_status !== 'sorting')) continue
       revivedFailedCreations.add(batchId)
+      // Out of attempts: stop retrying (each retry spends AI tokens) and hand it to ops.
+      const attempts = Number(row.attempts ?? 0)
+      const maxAttempts = Number(row.max_attempts ?? 5)
+      if (attempts >= maxAttempts) {
+        const { markBatchNeedsRework } = await import('../batchReworkService')
+        const lastError = row.last_error ? ` Last error: ${String(row.last_error)}` : ''
+        void markBatchNeedsRework(
+          batchId,
+          `Packet creation failed ${attempts} times; automatic retries stopped.${lastError}`
+        )
+        continue
+      }
       void enqueueBatchProcessing({
         batchId,
         clientId: String(row.client_id),
@@ -457,7 +495,7 @@ export async function drainPendingBatchProcessingJobs(limit = 3): Promise<number
     const status = String(row.status)
 
     // Stuck "running" jobs are zombies once the browser tab that owned them is gone.
-    // Doc Split only runs in-browser — edge skips status=running — so we must reclaim.
+    // The edge worker skips fresh running locks, so a dead tab's lock must be reclaimed here.
     if (status === 'running') {
       const lockedBy = row.locked_by != null ? String(row.locked_by) : ''
       const lockedAt = row.locked_at ? new Date(String(row.locked_at)).getTime() : 0

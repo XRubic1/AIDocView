@@ -400,6 +400,83 @@
   margin: 0;
 }
 
+/* Product tour — six cards split evenly, highlights, hero stats panel */
+.credyx-page--waitlist.credyx-page--sales .cx-tour-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.credyx-page--waitlist.credyx-page--sales .cx-tour-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.credyx-page--waitlist.credyx-page--sales .cx-tour-card-icon {
+  color: var(--cx-mut);
+  flex: none;
+}
+
+.credyx-page--waitlist.credyx-page--sales .cx-tour-list {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--cx-line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.credyx-page--waitlist.credyx-page--sales .cx-tour-list li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 15px;
+  color: #e2e8f0;
+}
+
+.credyx-page--waitlist.credyx-page--sales .cx-tour-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.6em;
+  width: 8px;
+  height: 2px;
+  background: var(--cx-blue);
+}
+
+.credyx-page--waitlist.credyx-page--sales .cx-tour-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--cx-line);
+}
+
+.credyx-page--waitlist.credyx-page--sales .cx-tour-stat-num {
+  font: 900 clamp(22px, 1.4vw + 12px, 30px) var(--cx-h);
+  text-transform: uppercase;
+  color: #fff;
+}
+
+.credyx-page--waitlist.credyx-page--sales .cx-tour-stat-label {
+  font-size: 15px;
+  color: var(--cx-mut);
+  text-align: right;
+}
+
+@media (max-width: 1000px) {
+  .credyx-page--waitlist.credyx-page--sales .cx-tour-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .credyx-page--waitlist.credyx-page--sales .cx-tour-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Product two-col */
 .credyx-page--waitlist.credyx-page--sales .cx-sales-two {
   display: grid;

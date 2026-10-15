@@ -316,10 +316,20 @@ export function getStoredPrimaryRunForInvoice(invoice: {
           (r) => !r.subjectId && normLabel(r.subjectLabel) === normLabel(invoice.invoice_number)
         )
   if (runs.length === 0) return null
-  const live = runs.find(
-    (r) => r.status === 'waiting' || r.status === 'active' || r.status === 'paused'
+  return pickPrimaryRun(runs)
+}
+
+/**
+ * Running (waiting/active) beats paused — a chase paused for a hold sits beside
+ * the hold run. Then paused, then the most recently updated.
+ */
+function pickPrimaryRun(runs: BlueprintRunRow[]): BlueprintRunRow | null {
+  return (
+    runs.find((r) => r.status === 'waiting' || r.status === 'active') ??
+    runs.find((r) => r.status === 'paused') ??
+    runs[0] ??
+    null
   )
-  return live ?? runs[0] ?? null
 }
 
 /** Latest non-terminal run preferred; else most recently updated. */
@@ -329,10 +339,7 @@ export function getPrimaryRunForInvoice(invoice: {
 }): BlueprintRunRow | null {
   const runs = findRunsForInvoice(invoice).filter((r) => !isManualActionLogRun(r))
   if (runs.length === 0) return null
-  const live = runs.find((r) =>
-    r.status === 'waiting' || r.status === 'active' || r.status === 'paused'
-  )
-  return live ?? runs[0] ?? null
+  return pickPrimaryRun(runs)
 }
 
 function newHistoryEventId(): string {
@@ -569,11 +576,13 @@ export function startInvoiceRun(input: {
   currentStep?: string
   status?: BlueprintRunStatus
   waitUntil?: string | null
+  /** Separate row (e.g. a hold run beside a paused chase). Default: one row per invoice. */
+  runId?: string
 }): BlueprintRunRow {
   const waitDays = input.waitDays ?? 5
   const now = new Date().toISOString()
   const status = input.status ?? 'waiting'
-  const runId = `run-inv-${input.invoiceId}`
+  const runId = input.runId ?? `run-inv-${input.invoiceId}`
   const existing = readAll().find((r) => r.id === runId)
   const step =
     input.currentStep ?? `Wait until · ${waitDays} days from this step`

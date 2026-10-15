@@ -15,6 +15,7 @@ import { parseFingerprintCatalog } from '../../products/docSort/utils/docSortSna
 import { packetReviewsFromCatalog } from '../../utils/packetCatalogReview'
 import { buildInvoiceAiReviewSnapshot } from '../../utils/buildInvoiceAiReviewSnapshot'
 import { buildStructuredLoadReview, getApprovalGateMessage } from '../../utils/loadReviewSummary'
+import { applyFailClosedApprovalGate } from '../../utils/failClosedApprovalGate'
 import {
   carrierMismatchHoldReason,
   isCarrierMismatchIssue,
@@ -144,6 +145,40 @@ function reviewsFromCatalog(
   return packetReviewsFromCatalog(paperworkDocIds(inv), catalog)
 }
 
+/**
+ * The rate con every check is scored from. Chosen by document type, not filename —
+ * a loose /rc/ filename match picked BOLs named "ARCBEST…" or "March…".
+ */
+function pickPrimaryDoc(result: BatchDocumentReviewResult): DocumentReviewResult | undefined {
+  return (
+    result.documents.find((d) => d.extraction.documentType === 'rate_confirmation') ??
+    result.documents.find((d) => /rate[\s_-]*con|confirmation|\.RC\./i.test(d.fileName)) ??
+    result.documents[0]
+  )
+}
+
+/**
+ * 6/6 required checks plus the fail-closed invariants (unaudited delivery pages,
+ * unclear receiver signature, low-confidence pages, cost-cap truncation).
+ * The invariants used to be computed and then ignored for packet status.
+ */
+function packetApprovalGate(
+  result: BatchDocumentReviewResult,
+  structured: ReturnType<typeof buildStructuredLoadReview>
+): { ready: boolean; detail: string } {
+  const gate = getApprovalGateMessage(structured.requiredPassed.length, structured.requiredTotal)
+  if (!gate.ready) return gate
+  const failClosed = applyFailClosedApprovalGate({
+    reviewDocuments: result.documents,
+    proposedOverall: 'APPROVED',
+  })
+  if (failClosed.overall === 'APPROVED') return gate
+  return {
+    ready: false,
+    detail: failClosed.invariantFailures.join('; ') || 'Fail-closed review gate blocked approval.',
+  }
+}
+
 /** Score a packet from the saved rate-con extract. No model call. */
 export function scoreInvoiceFromSavedExtracts(inv: Invoice): InvoiceAiReviewSnapshot | null {
   const batch = inv.batch_id ? getBatchById(inv.batch_id) : undefined
@@ -155,9 +190,7 @@ export function scoreInvoiceFromSavedExtracts(inv: Invoice): InvoiceAiReviewSnap
     assembleBatchReviewFromDocuments(fromExtracts, { singlePacket: true }),
     catalog
   )
-  const primaryDoc =
-    result.documents.find((d) => /rate|confirmation|\.RC\./i.test(d.fileName)) ??
-    result.documents[0]
+  const primaryDoc = pickPrimaryDoc(result)
   if (!primaryDoc) return null
   const structured = buildStructuredLoadReview(primaryDoc, result, {
     packet: {
@@ -167,7 +200,7 @@ export function scoreInvoiceFromSavedExtracts(inv: Invoice): InvoiceAiReviewSnap
       carrierName: inv.client_name,
     },
   })
-  const gate = getApprovalGateMessage(structured.requiredPassed.length, structured.requiredTotal)
+  const gate = packetApprovalGate(result, structured)
   return buildInvoiceAiReviewSnapshot(
     primaryDoc,
     result,
@@ -259,9 +292,7 @@ async function finalizeInvoiceReview(
   emit: ProgressEmitter,
   outcomes: InvoiceAiReviewOutcome[]
 ): Promise<void> {
-  const primaryDoc =
-    result.documents.find((d) => /rate|confirmation|rc/i.test(d.fileName)) ??
-    result.documents[0]
+  const primaryDoc = pickPrimaryDoc(result)
   if (!primaryDoc) {
     const headline = 'Needs additional work'
     const detail = 'No review results returned'
@@ -292,10 +323,7 @@ async function finalizeInvoiceReview(
       carrierName: inv.client_name,
     },
   })
-  const gate = getApprovalGateMessage(
-    structured.requiredPassed.length,
-    structured.requiredTotal
-  )
+  const gate = packetApprovalGate(result, structured)
   const status = gate.ready ? 'ready' : 'needs_work'
   const headline = gate.ready ? 'Good to go' : 'Needs additional work'
   const snapshot = buildInvoiceAiReviewSnapshot(

@@ -717,7 +717,46 @@ export async function saveBlueprintHandoffMap(map: {
   })
 }
 
+const BLUEPRINT_STAGES_KEY = 'blueprint_stages'
+
+/** Load invoice stage settings (Blueprints → Stages) for every admin. */
+export async function loadBlueprintStages(): Promise<void> {
+  const { applyStageConfig } = await import('../components/blueprints/blueprintStagesConfig')
+  if (!isSupabaseConfigured()) return
+  const supabase = getSupabase()
+  if (!supabase) return
+  const { data, error } = await supabase
+    .from('platform_settings')
+    .select('value')
+    .eq('key', BLUEPRINT_STAGES_KEY)
+    .maybeSingle()
+  if (error) return
+  applyStageConfig(data?.value ?? null)
+}
+
+/** Save invoice stage settings for every admin and the server runner. */
+export async function saveBlueprintStages(
+  config: import('../../supabase/functions/_shared/invoiceStages').InvoiceStageConfig
+): Promise<void> {
+  const { applyStageConfig } = await import('../components/blueprints/blueprintStagesConfig')
+  if (isSupabaseConfigured()) {
+    const supabase = getSupabase()
+    if (supabase) {
+      await persistOrThrow('blueprint_stages', async () => {
+        const { error } = await supabase.from('platform_settings').upsert({
+          key: BLUEPRINT_STAGES_KEY,
+          value: config,
+          updated_at: new Date().toISOString(),
+        })
+        if (error) throw new Error(error.message)
+      })
+    }
+  }
+  applyStageConfig(config)
+}
+
 export {
+  BLUEPRINT_STAGES_KEY,
   BROKER_SNAPSHOT_TTL_KEY,
   COLLECTIONS_POLICY_KEY,
   BROKER_RISK_POLICY_KEY,

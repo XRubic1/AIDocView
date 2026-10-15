@@ -1,0 +1,369 @@
+<title>Blueprint System Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column (~72ch) with wide figures that break out to 1100px; diagrams scroll inside their own frame. */
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --fg:#1b2230; --muted:#5d6779; --line:#d9dee7;
+  --accent:#0f6b6e; --accent-soft:#e2f1f1;
+  --bad:#c23b2a; --bad-soft:#fbe9e6; --warn:#a86a00; --warn-soft:#fbf1dc; --good:#2f7d3a; --good-soft:#e5f3e6;
+  --f-display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body:"Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#12161d; --surface:#1a2029; --fg:#e4e8ef; --muted:#9aa4b5; --line:#2c3441;
+  --accent:#4fb8b8; --accent-soft:#16302f;
+  --bad:#f07563; --bad-soft:#3a1f1b; --warn:#e3a640; --warn-soft:#352914; --good:#6cc177; --good-soft:#1a3020;
+  color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#12161d; --surface:#1a2029; --fg:#e4e8ef; --muted:#9aa4b5; --line:#2c3441;
+  --accent:#4fb8b8; --accent-soft:#16302f;
+  --bad:#f07563; --bad-soft:#3a1f1b; --warn:#e3a640; --warn-soft:#352914; --good:#6cc177; --good-soft:#1a3020;
+  color-scheme:dark }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 var(--f-body);padding-inline:20px;padding-block:40px 80px}
+main{max-width:1100px;margin:0 auto;display:grid;gap:56px}
+.prose{max-width:72ch}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:2.4rem}
+h2{font-size:1.6rem;margin-bottom:12px}
+h3{font-size:1.1rem;margin-bottom:6px}
+p{margin:0 0 12px}
+.eyebrow{font:500 .75rem var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+.lede{font-size:1.15rem;color:var(--muted);max-width:68ch;margin-top:14px}
+code,.mono{font-family:var(--f-mono);font-size:.84em}
+code{background:var(--accent-soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+section{display:grid;gap:16px}
+.verdict{border-left:4px solid var(--accent);background:var(--surface);padding:18px 22px;border-radius:0 8px 8px 0;max-width:80ch}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
+.list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.list li{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;min-width:0}
+.list li b{display:block;margin-bottom:2px}
+.list li span{color:var(--muted);font-size:.93rem}
+.tag{display:inline-block;font:500 .7rem var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:999px;margin-right:6px;vertical-align:2px}
+.tag.good{background:var(--good-soft);color:var(--good)}
+.tag.bad{background:var(--bad-soft);color:var(--bad)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.bugs{display:grid;gap:12px;counter-reset:b;margin:0;padding:0;list-style:none}
+.bugs li{display:grid;grid-template-columns:34px 1fr;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.bugs li::before{counter-increment:b;content:counter(b);width:28px;height:28px;border-radius:50%;background:var(--bad);color:var(--surface);display:grid;place-items:center;font:600 .85rem var(--f-mono)}
+.bugs li>div{min-width:0}
+.bugs .where{font:400 .78rem var(--f-mono);color:var(--muted);overflow-wrap:anywhere;margin-top:4px}
+.fig{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;overflow-x:auto}
+.fig svg{display:block;min-width:900px;width:100%;height:auto}
+.fig figcaption{font-size:.88rem;color:var(--muted);margin-top:10px;max-width:80ch}
+figure{margin:0}
+/* svg styling via tokens */
+.s-box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.s-zone{fill:var(--bg);stroke:var(--line);stroke-dasharray:5 4}
+.s-zone-a{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.2}
+.s-db{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+.s-badbox{fill:var(--bad-soft);stroke:var(--bad);stroke-width:1.5}
+.s-t{fill:var(--fg);font:500 13px var(--f-body)}
+.s-tb{fill:var(--fg);font:600 14px var(--f-body)}
+.s-ts{fill:var(--muted);font:400 11.5px var(--f-body)}
+.s-zl{fill:var(--muted);font:500 11px var(--f-mono);letter-spacing:.06em;text-transform:uppercase}
+.s-ta{fill:var(--accent);font:600 12px var(--f-body)}
+.s-tbad{fill:var(--bad);font:600 12px var(--f-body)}
+.s-a{stroke:var(--fg);stroke-width:1.5;fill:none}
+.s-aa{stroke:var(--accent);stroke-width:2;fill:none}
+.s-ab{stroke:var(--bad);stroke-width:1.5;fill:none;stroke-dasharray:5 4}
+.s-pin{fill:var(--bad)}
+.s-pint{fill:var(--surface);font:600 11px var(--f-mono)}
+.mh{fill:var(--fg)} .mha{fill:var(--accent)} .mhb{fill:var(--bad)}
+/* mockups */
+.mock{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.mock-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}
+.mock-bar b{font-family:var(--f-display);font-size:1.05rem}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:500 .78rem var(--f-body);border:1px solid var(--line);padding:3px 10px;border-radius:999px;color:var(--muted)}
+.chip.on{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.board{display:grid;grid-template-columns:repeat(4,minmax(200px,1fr));gap:12px;padding:14px;overflow-x:auto}
+.lane{display:grid;gap:8px;align-content:start;min-width:0}
+.lane h4{margin:0;font:600 .8rem var(--f-mono);letter-spacing:.05em;text-transform:uppercase;display:flex;justify-content:space-between;color:var(--muted)}
+.card{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:9px 10px;background:var(--bg);font-size:.86rem;min-width:0}
+.card .n{font:500 .8rem var(--f-mono)}
+.card .t{font-weight:600;margin:2px 0}
+.card .m{color:var(--muted);font-size:.78rem}
+.card.todo{border-left-color:var(--accent)}
+.card.wait{border-left-color:var(--warn)}
+.card.att{border-left-color:var(--bad)}
+.card.done{border-left-color:var(--good);opacity:.85}
+.btn{font:600 .75rem var(--f-body);border:1px solid var(--accent);color:var(--accent);background:transparent;border-radius:5px;padding:2px 8px;margin-top:6px}
+.recipe{padding:20px;display:grid;gap:14px;font-size:1.02rem}
+.recipe .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.recipe .k{font:600 .75rem var(--f-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);width:64px}
+.pick{border:1px solid var(--accent);background:var(--accent-soft);color:var(--fg);border-radius:6px;padding:4px 10px;font-weight:500}
+.pick::after{content:" ▾";color:var(--accent)}
+.recipe .preview{border-top:1px solid var(--line);padding-top:12px;font-size:.88rem;color:var(--muted)}
+.strip{display:grid;gap:10px;padding:16px}
+.steps{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.85rem}
+.step{padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.step.d{background:var(--good-soft);color:var(--good);border-color:transparent}
+.step.c{background:var(--warn-soft);color:var(--warn);border-color:var(--warn);font-weight:600}
+.arrow{color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+.tw{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 .75rem var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap;font-family:var(--f-mono);font-size:.82rem}
+</style>
+
+<main>
+<header>
+  <div class="eyebrow">AIDocView · Credyx · blueprints review · Oct 15 2026</div>
+  <h1>Blueprint System Review</h1>
+  <p class="lede">What works, what is broken, and how to make chase automation easy to set up and easy to watch, without throwing away the graph engine you already built.</p>
+</header>
+
+<section>
+  <div class="verdict prose">
+    <h3>Short version</h3>
+    <p>The idea is right and the vocabulary (Start → Wait → When → Then do → Done) is good. The problem is that the system runs in <b>two places with two copies of the logic</b>, and the server copy does not actually read what users draw. So users wire up a canvas, and the server picks a blueprint by guessing from which cards exist. That gap is the root of most of the "confusing" feeling. Fix the plumbing first (one engine, on the server, driven by database events), then make building easier with a sentence-style recipe builder that saves the same graph JSON, and add a Task board on top of the runs table.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What is good</h2>
+  <div class="cols">
+    <ul class="list">
+      <li><b>A clear card vocabulary</b><span>Start with / Wait until / When / Then do / Done maps well to how A/R staff think about follow-up.</span></li>
+      <li><b>Shared recipe, per-invoice pointer</b><span>Invoices store which blueprint and step they are on, not a copy of the graph. Correct model.</span></li>
+      <li><b>Domain-aware wait clocks</b><span><code>net_plus_late</code>, <code>due_plus_late</code>, <code>after_last_email</code>, <code>no_payments_for</code> are real A/R timing, not generic timers.</span></li>
+      <li><b>Connection rules</b><span><code>blueprintConnectionRules.ts</code> blocks links that the runner can't execute and blocks broker cards on invoice graphs.</span></li>
+    </ul>
+    <ul class="list">
+      <li><b>Dry run and run history</b><span>Simulating a path and storing <code>history</code> jsonb per run gives you the raw material for a timeline view.</span></li>
+      <li><b>Standard blueprints are seeded</b><span>Paperwork chase, payment chase, hold notice, packet, dispute, broker replies. These are effectively your templates already.</span></li>
+      <li><b>Server cron exists</b><span><code>blueprint-wake-cron</code> runs chase with no tab open. Good direction, it just needs to become the only engine.</span></li>
+      <li><b>Tested</b><span>24 files / 110 tests pass for blueprints and services. Not one tests that browser and server engines agree, though.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>How it runs today</h2>
+  <figure class="fig">
+    <svg viewBox="0 0 960 470" role="img" aria-label="Current blueprint architecture with two engines">
+      <defs>
+        <marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="mh"/></marker>
+        <marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="mhb"/></marker>
+      </defs>
+      <text x="20" y="22" class="s-zl">Things that change invoices</text>
+      <rect x="20" y="36" width="190" height="52" rx="8" class="s-box"/><text x="34" y="58" class="s-t">Admin, tab open</text><text x="34" y="76" class="s-ts">hold, PPW, status change</text>
+      <rect x="20" y="108" width="190" height="52" rx="8" class="s-box"/><text x="34" y="130" class="s-t">Client portal</text><text x="34" y="148" class="s-ts">uploads, disputes</text>
+      <rect x="20" y="180" width="190" height="52" rx="8" class="s-box"/><text x="34" y="202" class="s-t">Edge functions</text><text x="34" y="220" class="s-ts">email-inbound, batch AI</text>
+      <rect x="20" y="300" width="190" height="52" rx="8" class="s-box"/><text x="34" y="322" class="s-t">Cron, every 15–60 min</text><text x="34" y="340" class="s-ts">blueprint-wake-cron + email chase</text>
+
+      <rect x="250" y="20" width="370" height="230" rx="10" class="s-zone"/>
+      <text x="264" y="40" class="s-zl">Browser · only while an admin is logged in</text>
+      <rect x="266" y="54" width="150" height="44" rx="6" class="s-box"/><text x="278" y="81" class="s-t">window event bus</text>
+      <rect x="440" y="54" width="164" height="44" rx="6" class="s-box"/><text x="452" y="74" class="s-t">Live runner toggle</text><text x="452" y="90" class="s-ts">only affects this box</text>
+      <rect x="266" y="118" width="338" height="58" rx="6" class="s-box"/><text x="278" y="140" class="s-tb">Browser engine (copy #1)</text><text x="278" y="160" class="s-ts">3 runners: invoice · broker · batch, each with its own pickNext</text>
+      <rect x="266" y="192" width="338" height="44" rx="6" class="s-box"/><text x="278" y="219" class="s-t">localStorage cache → fire-and-forget upsert</text>
+
+      <rect x="250" y="280" width="370" height="170" rx="10" class="s-zone"/>
+      <text x="264" y="300" class="s-zl">Server · Supabase Edge</text>
+      <rect x="266" y="314" width="338" height="58" rx="6" class="s-box"/><text x="278" y="336" class="s-tb">blueprintEngine.ts (copy #2)</text><text x="278" y="356" class="s-ts">different When rules from copy #1</text>
+      <rect x="266" y="386" width="338" height="50" rx="6" class="s-badbox"/><text x="278" y="406" class="s-tbad">Picks blueprint by guessing its "track"</text><text x="278" y="424" class="s-ts">Start-card filters you drew are not read</text>
+
+      <rect x="670" y="120" width="270" height="150" rx="10" class="s-db"/>
+      <text x="686" y="146" class="s-tb">Supabase</text>
+      <text x="686" y="170" class="s-ts">blueprints · blueprint_runs</text>
+      <text x="686" y="188" class="s-ts">invoice/broker/batch assignments</text>
+      <text x="686" y="206" class="s-ts">platform_settings (handoff map,</text>
+      <text x="686" y="222" class="s-ts">Live flag)</text>
+      <text x="686" y="250" class="s-ts">no "one active run" rule</text>
+      <rect x="670" y="320" width="270" height="70" rx="10" class="s-box"/>
+      <text x="686" y="346" class="s-tb">Emails · notes · alerts</text>
+      <text x="686" y="366" class="s-ts">sent by either engine</text>
+
+      <path d="M210,62 L264,76" class="s-a" marker-end="url(#m1)"/>
+      <path d="M210,134 C235,134 240,90 264,84" class="s-ab" marker-end="url(#m2)"/>
+      <text x="214" y="112" class="s-tbad">no event</text>
+      <path d="M210,206 C240,206 240,100 264,92" class="s-ab" marker-end="url(#m2)"/>
+      <path d="M341,98 L341,116" class="s-a" marker-end="url(#m1)"/>
+      <path d="M435,176 L435,190" class="s-a" marker-end="url(#m1)"/>
+      <path d="M210,326 L264,340" class="s-a" marker-end="url(#m1)"/>
+      <path d="M604,214 C640,214 640,190 668,190" class="s-a" marker-end="url(#m1)"/>
+      <path d="M604,343 C640,343 640,240 668,240" class="s-a" marker-end="url(#m1)"/>
+      <path d="M604,148 C640,148 650,355 668,355" class="s-a" marker-end="url(#m1)"/>
+      <path d="M604,350 L668,350" class="s-a" marker-end="url(#m1)"/>
+      <path d="M522,98 C522,250 470,280 470,312" class="s-ab" marker-end="url(#m2)"/>
+      <text x="530" y="270" class="s-tbad">ignored</text>
+
+      <circle cx="604" cy="118" r="10" class="s-pin"/><text x="600" y="122" class="s-pint">3</text>
+      <circle cx="604" cy="314" r="10" class="s-pin"/><text x="600" y="318" class="s-pint">3</text>
+      <circle cx="604" cy="386" r="10" class="s-pin"/><text x="600" y="390" class="s-pint">2</text>
+      <circle cx="604" cy="54" r="10" class="s-pin"/><text x="600" y="58" class="s-pint">1</text>
+      <circle cx="210" cy="180" r="10" class="s-pin"/><text x="206" y="184" class="s-pint">4</text>
+      <circle cx="604" cy="192" r="10" class="s-pin"/><text x="600" y="196" class="s-pint">7</text>
+      <circle cx="940" cy="250" r="10" class="s-pin"/><text x="936" y="254" class="s-pint">6</text>
+    </svg>
+    <figcaption>Red numbers match the issue list below. Two engines write to the same tables, events only exist inside one browser tab, and the toggle that looks like an on/off switch only controls one of the engines.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>What is broken, ranked</h2>
+  <ol class="bugs">
+    <li><div><b>The Live runner switch does not stop the server.</b> Docs say the wake cron no-ops when Live is off, but <code>runBlueprintServerTick</code> never reads <code>blueprints_runtime</code>. <code>email-lifecycle-chase</code> also calls the same tick. If the cron is scheduled, chase emails go out with the switch off.<div class="where">supabase/functions/_shared/blueprintEngine.ts:628 · supabase/functions/email-lifecycle-chase/index.ts:43</div></div></li>
+    <li><div><b>The server ignores what you draw on Start.</b> <code>pickBlueprint</code> filters by status (hold / approved / review) then picks by <code>trackOf()</code>, which guesses a track from which When/Then-do cards exist. A custom blueprint that doesn't fit a known track is classed "other" and never auto-enrolls on the server. This is the biggest reason the editor feels like it doesn't do what it says.<div class="where">blueprintEngine.ts:167 trackOf · :505 pickBlueprint</div></div></li>
+    <li><div><b>Two engines disagree.</b> Example: <code>invoice_processed</code> is true for approved/hold/paid/force_closed in the browser, and approved/hold/review on the server. An unknown When check defaults to <b>true</b> in the browser and <b>false</b> on the server. Same invoice, different path depending on who ticked it. Invoice, broker and batch runners in the browser also each carry their own copy of nextNodes/pickNext.<div class="where">src/components/blueprints/blueprintRunner.ts:97 vs blueprintEngine.ts:291</div></div></li>
+    <li><div><b>Events only exist inside an admin's browser tab.</b> <code>emitCredyxEvent</code> is a <code>window</code> event bus. Changes from the client portal, email-inbound or batch AI don't fire hold/PPW/paid hooks; they wait for the cron. The cron only loads approved/review/hold invoices, <code>.limit(200)</code> with no ordering, and 400 live runs. Pending invoices are never scanned, and past 200 open invoices some are silently skipped each tick.<div class="where">src/services/credyxEvents.ts · blueprintEngine.ts:657–680</div></div></li>
+    <li><div><b>Demo runs can show up as real data.</b> <code>ensureBlueprintRunsSeeded</code> writes fake runs (INV-10482, INV-10501…) whenever the local list is empty, including right after a hydrate that returned zero rows. <code>findRunsForInvoice</code> then matches runs without a subject id to invoices <b>by invoice-number label</b>, so a real invoice with that number would show a fake run.<div class="where">src/components/blueprints/blueprintRuns.ts:221 · :278</div></div></li>
+    <li><div><b>Nothing guarantees one active run per invoice.</b> The docs rule is "one active chase run per invoice", but <code>blueprint_runs</code> has no partial unique index. The browser lock (<code>withInvoiceEnrollLock</code>) is in-memory per tab, so two admins, or an admin plus the cron, can double-enroll and double-email.<div class="where">supabase/migrations/20260924180000_blueprints.sql · blueprintRunner.ts:1550</div></div></li>
+    <li><div><b>localStorage is treated as a source of truth.</b> Graphs, runs and the handoff map live in localStorage and write through to Supabase without awaiting. Two admins editing get last-write-wins on the whole graph. Graphs aren't versioned, so editing a blueprint while invoices sit on a step can leave <code>current_node_id</code> pointing at a card that no longer exists. Every admin login also runs <code>syncAllOpenInvoiceBlueprints</code> across all open invoices from the browser.<div class="where">blueprintStore.ts · blueprintRuns.ts · src/services/supabase/hydrateStores.ts:66</div></div></li>
+    <li><div><b>Reply-based Whens never fire.</b> <code>broker_replied</code> and <code>no_reply</code> are hard-coded false in both engines, and the server drops any blueprint that uses them. They still appear in the editor, so users can build a blueprint that parks forever.<div class="where">blueprintRunner.ts:126 · blueprintEngine.ts:157, 302</div></div></li>
+  </ol>
+</section>
+
+<section>
+  <h2>Why it feels hard to use</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Friction</th><th>What the user faces</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>Wiring ×2</td><td>Cards are connected inside a blueprint, then blueprints are connected again in the Map (handoff) tab. Two graph editors for one job.</td><td>Make "when this finishes, start…" a field on the Done step. Drop the Map tab.</td></tr>
+      <tr><td>Priority numbers</td><td>Users must pick 10, 55, 90 to decide which blueprint wins.</td><td>Order blueprints in a simple drag list per trigger. Show "this one wins" in the list.</td></tr>
+      <tr><td>Live switch</td><td>Unclear what it controls (and today it doesn't control the server).</td><td>Per-blueprint state: Draft / Testing (3 invoices) / Live / Paused.</td></tr>
+      <tr><td>Hidden runtime</td><td>Activity is a separate tab; invoices show a Blueprints tab with "health". No single list of work.</td><td>Task board (below) as the main screen; invoice row shows its current step inline.</td></tr>
+      <tr><td>Legacy cards</td><td>True/False cards, <code>elseif</code>, and reply checks that never fire are still offered.</td><td>Hide them. When gets a yes/no switch only; disable cards the engine can't run.</td></tr>
+      <tr><td>Canvas first</td><td>Every blueprint starts from a blank canvas with free placement. Most chase recipes are straight lines.</td><td>Recipe builder by default; canvas as an "Advanced view" of the same graph.</td></tr>
+      <tr><td>Then do ≠ task</td><td>"Then do" runs notes/emails, but staff jobs (call the broker) aren't trackable items with an owner and a done button.</td><td>Then-do items of type "staff task" create rows on the Task board.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>How it should run</h2>
+  <figure class="fig">
+    <svg viewBox="0 0 960 400" role="img" aria-label="Proposed single-engine blueprint architecture">
+      <defs>
+        <marker id="m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="mha"/></marker>
+      </defs>
+      <text x="20" y="22" class="s-zl">Any source</text>
+      <rect x="20" y="36" width="170" height="40" rx="8" class="s-box"/><text x="34" y="61" class="s-t">Admin UI</text>
+      <rect x="20" y="88" width="170" height="40" rx="8" class="s-box"/><text x="34" y="113" class="s-t">Client portal</text>
+      <rect x="20" y="140" width="170" height="40" rx="8" class="s-box"/><text x="34" y="165" class="s-t">Inbound email / AI</text>
+      <rect x="20" y="192" width="170" height="40" rx="8" class="s-box"/><text x="34" y="217" class="s-t">Payments posted</text>
+      <rect x="20" y="244" width="170" height="40" rx="8" class="s-box"/><text x="34" y="269" class="s-t">Clock (cron 5–15 min)</text>
+
+      <rect x="240" y="100" width="170" height="110" rx="10" class="s-db"/>
+      <text x="254" y="126" class="s-tb">invoice_events</text>
+      <text x="254" y="148" class="s-ts">DB trigger writes one</text>
+      <text x="254" y="164" class="s-ts">row per status / PPW /</text>
+      <text x="254" y="180" class="s-ts">hold / payment change</text>
+
+      <rect x="460" y="70" width="210" height="170" rx="10" class="s-zone-a"/>
+      <text x="476" y="96" class="s-tb">One engine (server)</text>
+      <text x="476" y="120" class="s-ts">1. read Start filters as drawn</text>
+      <text x="476" y="140" class="s-ts">2. stop runs that no longer fit</text>
+      <text x="476" y="160" class="s-ts">3. enroll best match (list order)</text>
+      <text x="476" y="180" class="s-ts">4. advance to Wait / When / Done</text>
+      <text x="476" y="200" class="s-ts">5. do Then-do, write tasks</text>
+      <text x="476" y="224" class="s-ta">browser only previews (dry run)</text>
+
+      <rect x="720" y="40" width="220" height="80" rx="10" class="s-db"/>
+      <text x="736" y="66" class="s-tb">blueprint_runs</text>
+      <text x="736" y="86" class="s-ts">unique: 1 active per invoice</text>
+      <text x="736" y="104" class="s-ts">pinned to blueprint version</text>
+      <rect x="720" y="136" width="220" height="64" rx="10" class="s-db"/>
+      <text x="736" y="162" class="s-tb">blueprint_tasks</text>
+      <text x="736" y="182" class="s-ts">to do · waiting · done · owner</text>
+      <rect x="720" y="216" width="220" height="50" rx="10" class="s-box"/>
+      <text x="736" y="246" class="s-t">Emails · notes · alerts</text>
+
+      <rect x="460" y="300" width="210" height="80" rx="10" class="s-box"/>
+      <text x="476" y="326" class="s-tb">Recipe builder</text>
+      <text x="476" y="346" class="s-ts">sentence form → same graph JSON</text>
+      <text x="476" y="364" class="s-ts">canvas = "Advanced view"</text>
+      <rect x="720" y="300" width="220" height="80" rx="10" class="s-box"/>
+      <text x="736" y="326" class="s-tb">Task board + invoice strip</text>
+      <text x="736" y="346" class="s-ts">reads runs + tasks via</text>
+      <text x="736" y="364" class="s-ts">Supabase realtime</text>
+
+      <path d="M190,56 C215,56 215,120 238,130" class="s-aa" marker-end="url(#m3)"/>
+      <path d="M190,108 C215,108 220,140 238,145" class="s-aa" marker-end="url(#m3)"/>
+      <path d="M190,160 L238,160" class="s-aa" marker-end="url(#m3)"/>
+      <path d="M190,212 C215,212 220,180 238,176" class="s-aa" marker-end="url(#m3)"/>
+      <path d="M190,264 C330,264 400,230 458,220" class="s-aa" marker-end="url(#m3)"/>
+      <path d="M410,155 L458,155" class="s-aa" marker-end="url(#m3)"/>
+      <path d="M670,110 L718,90" class="s-aa" marker-end="url(#m3)"/>
+      <path d="M670,165 L718,168" class="s-aa" marker-end="url(#m3)"/>
+      <path d="M670,215 L718,238" class="s-aa" marker-end="url(#m3)"/>
+      <path d="M565,300 L565,242" class="s-aa" marker-end="url(#m3)"/>
+      <path d="M830,266 L830,298" class="s-aa" marker-end="url(#m3)"/>
+    </svg>
+    <figcaption>One engine, one place where events land, and every screen reads the same two tables. The graph JSON, the card catalog and the standard blueprints all stay as they are.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Setting up a new task</h2>
+  <p class="prose">Most chase recipes are a straight line. A sentence builder covers them in four picks and saves the exact same nodes/edges, so the engine and the canvas still work. Branches (When yes/no) stay available in the Advanced view.</p>
+  <div class="mock">
+    <div class="mock-bar"><b>New blueprint · Hold reminder</b><div class="chips"><span class="chip on">Recipe</span><span class="chip">Advanced view</span><span class="chip">Draft</span></div></div>
+    <div class="recipe">
+      <div class="row"><span class="k">When</span><span class="pick">an invoice goes on hold</span><span>and it is</span><span class="pick">still unpaid</span></div>
+      <div class="row"><span class="k">Wait</span><span class="pick">3 days</span><span>from</span><span class="pick">this step</span></div>
+      <div class="row"><span class="k">Check</span><span>only if it is</span><span class="pick">still on hold</span></div>
+      <div class="row"><span class="k">Do</span><span class="pick">Email the carrier · Hold notice</span><span class="pick">+ Staff task: call broker</span></div>
+      <div class="row"><span class="k">Then</span><span class="pick">start "Paperwork chase"</span></div>
+      <div class="preview">Matches 14 open invoices right now · Test on 3 invoices before going live · Replaces the Map tab and priority number</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Task window</h2>
+  <p class="prose">One screen for all work, built from <code>blueprint_runs</code> and a new <code>blueprint_tasks</code> table. Waiting runs are "Pending", staff tasks are "To do", paused or failed runs are "Needs attention".</p>
+  <div class="mock">
+    <div class="mock-bar"><b>Tasks</b><div class="chips"><span class="chip on">All</span><span class="chip">Mine</span><span class="chip">Hold</span><span class="chip">Paperwork</span><span class="chip">Payment</span></div></div>
+    <div class="board">
+      <div class="lane"><h4><span>To do</span><span>6</span></h4>
+        <div class="card todo"><div class="n">INV-10390 · Prairie Freight</div><div class="t">Call broker about payment</div><div class="m">Payment chase · step 3 of 5 · due today</div><button class="btn" type="button">Mark done</button></div>
+        <div class="card todo"><div class="n">INV-10517 · Ridge Line</div><div class="t">Review broker reply</div><div class="m">Broker reply unknown · step 2 of 3</div></div>
+      </div>
+      <div class="lane"><h4><span>Pending</span><span>23</span></h4>
+        <div class="card wait"><div class="n">INV-10482 · Summit Hauling</div><div class="t">Notify carrier: still on hold</div><div class="m">Hold reminder · wakes Oct 18, 9:00</div></div>
+        <div class="card wait"><div class="n">INV-10501 · Ridge Line</div><div class="t">Paperwork follow-up email</div><div class="m">Paperwork chase · wakes Oct 16, 9:00</div></div>
+      </div>
+      <div class="lane"><h4><span>Needs attention</span><span>2</span></h4>
+        <div class="card att"><div class="n">INV-10455 · Summit Hauling</div><div class="t">No broker email on file</div><div class="m">Paused at "Email broker" · add email to resume</div></div>
+      </div>
+      <div class="lane"><h4><span>Done</span><span>41</span></h4>
+        <div class="card done"><div class="n">INV-10377 · Prairie Freight</div><div class="t">Paperwork confirmed</div><div class="m">Paperwork chase · finished Oct 14</div></div>
+      </div>
+    </div>
+  </div>
+  <p class="prose" style="color:var(--muted);font-size:.9rem">Example rows for illustration.</p>
+</section>
+
+<section>
+  <h2>What each invoice is doing</h2>
+  <p class="prose">Show this strip on the invoice row (collapsed) and at the top of the invoice detail, instead of a separate Blueprints tab. It reads the run's step list from the graph it is pinned to.</p>
+  <div class="mock">
+    <div class="strip">
+      <div><b>INV-10482</b> <span style="color:var(--muted)">· Summit Hauling · $2,450 · Hold reminder</span></div>
+      <div class="steps"><span class="step d">Went on hold · Oct 13</span><span class="arrow">→</span><span class="step c">Waiting 3 days · wakes Oct 18</span><span class="arrow">→</span><span class="step">Still on hold?</span><span class="arrow">→</span><span class="step">Email carrier</span><span class="arrow">→</span><span class="step">Start paperwork chase</span></div>
+      <div class="chips"><span class="chip">Pause</span><span class="chip">Skip wait</span><span class="chip">Move to another blueprint</span><span class="chip">History</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Order of work</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Phase</th><th>Work</th><th>Why first</th></tr></thead>
+    <tbody>
+      <tr><td>1 · fix</td><td>Server tick checks the Live flag. Stop demo run seeding outside demo mode and drop label matching. Add a partial unique index on <code>blueprint_runs (subject, subject_id) where status in ('waiting','active','paused')</code>.</td><td>Small changes that stop wrong emails and fake data today.</td></tr>
+      <tr><td>2 · one engine</td><td>Move graph walking into one shared module used by the edge function. Browser runners keep only dry-run. Make <code>pickBlueprint</code> evaluate Start filters instead of <code>trackOf</code>.</td><td>Makes what users draw equal what runs. Ends engine drift.</td></tr>
+      <tr><td>3 · events</td><td>Postgres trigger writes <code>invoice_events</code> on status / hold / PPW / payment changes; engine consumes them. Page through all open invoices instead of the first 200.</td><td>Portal and edge-function changes start blueprints right away.</td></tr>
+      <tr><td>4 · tasks</td><td><code>blueprint_tasks</code> table, Task board screen, invoice strip.</td><td>The visibility you asked for, on reliable data.</td></tr>
+      <tr><td>5 · builder</td><td>Recipe builder as the default editor; handoff on the Done step; ordered list instead of priority; Draft / Testing / Live per blueprint; version graphs on save.</td><td>Easier setup, after the engine honours what is built.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+</main>

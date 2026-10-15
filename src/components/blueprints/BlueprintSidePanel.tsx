@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Edge } from '@xyflow/react'
-import { Bookmark, Check, Plus, Trash2, X } from 'lucide-react'
+import { Check, Plus, Trash2, X } from 'lucide-react'
 import type { BlueprintFlowNode, BlueprintNodeData } from '../../types/blueprintGraph'
 import { BLUEPRINT_NODE_KIND_LABELS } from '../../types/blueprintGraph'
 import {
@@ -22,7 +22,13 @@ import {
   resolveSubjectForNode,
   subjectLabel,
 } from './blueprintSubject'
-import { upsertCardByName } from './blueprintCardLibrary'
+import { listSavedBlueprints } from './blueprintStore'
+import {
+  BLUEPRINT_HANDOFF_CHANGED_EVENT,
+  getBlueprintHandoffMap,
+  handoffLinkWouldCycle,
+  nextBlueprintAfter,
+} from './blueprintHandoffMap'
 import {
   channelLabel,
   defaultTaskConfig,
@@ -43,11 +49,11 @@ import {
 import {
   applyEmailMailboxes,
   loadEmailMailboxes,
+  saveBlueprintHandoffMap,
   saveEmailMailboxes,
 } from '../../services/platformSettingsService'
 import { useRevealMissingSetup } from './blueprintSetupUi'
 import {
-  compileBlueprintIndex,
   defaultTriggerFilters,
   getTriggerEntry,
   INVOICE_TRIGGER_STATUS_OPTIONS,
@@ -128,7 +134,70 @@ function readStoredSideWidth(): number {
   }
 }
 
+/** Done card: pick the blueprint that starts when this one finishes (handoff map). */
+function HandoffPicker({ blueprintId }: { blueprintId: string }) {
+  const [map, setMap] = useState(() => getBlueprintHandoffMap())
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const sync = () => setMap(getBlueprintHandoffMap())
+    window.addEventListener(BLUEPRINT_HANDOFF_CHANGED_EVENT, sync)
+    return () => window.removeEventListener(BLUEPRINT_HANDOFF_CHANGED_EVENT, sync)
+  }, [])
+
+  const all = listSavedBlueprints()
+  const isSaved = all.some((b) => b.id === blueprintId)
+  const others = all
+    .filter((b) => b.id !== blueprintId)
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const current = nextBlueprintAfter(blueprintId, map) ?? ''
+
+  const choose = async (toId: string) => {
+    setError(null)
+    if (toId && handoffLinkWouldCycle(map.links, blueprintId, toId)) {
+      setError('That would start a loop back to this blueprint.')
+      return
+    }
+    const links = map.links.filter((l) => l.fromId !== blueprintId)
+    if (toId) links.push({ fromId: blueprintId, toId })
+    setBusy(true)
+    try {
+      await saveBlueprintHandoffMap({ links, positions: map.positions })
+      setMap(getBlueprintHandoffMap())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <label className="bp-side__field">
+      <span>When this blueprint finishes, start</span>
+      <select
+        value={current}
+        disabled={!isSaved || busy}
+        onChange={(e) => void choose(e.target.value)}
+      >
+        <option value="">Nothing — stop here</option>
+        {others.map((b) => (
+          <option key={b.id} value={b.id}>
+            {b.name}
+          </option>
+        ))}
+      </select>
+      <span className="bp-side__help">
+        {!isSaved
+          ? 'Save this blueprint first, then pick what starts next.'
+          : error ?? 'Saved right away. Applies to every Done card in this blueprint.'}
+      </span>
+    </label>
+  )
+}
+
 interface BlueprintSidePanelProps {
+  blueprintId: string
   node: BlueprintFlowNode | null
   nodes: BlueprintFlowNode[]
   edges: Edge[]
@@ -137,13 +206,13 @@ interface BlueprintSidePanelProps {
 }
 
 export default function BlueprintSidePanel({
+  blueprintId,
   node,
   nodes,
   edges,
   onChange,
   onClose,
 }: BlueprintSidePanelProps) {
-  const [saveFlash, setSaveFlash] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [expandedTask, setExpandedTask] = useState<string | null>(null)
   const [templates, setTemplates] = useState<EmailTemplateRow[]>([])
@@ -276,21 +345,8 @@ export default function BlueprintSidePanel({
     }
   }, [expandedTask])
 
-  if (!node) {
-    return (
-      <div className="bp-side-wrap" style={{ ['--bp-side-w' as string]: `${sideWidth}px` }}>
-        {resizeHandle}
-        <aside className="bp-side">
-          <div className="bp-side__empty">
-            <p>Click a box to edit it.</p>
-            <p className="bp-side__hint">
-              Then do cards can hold several tasks. Use Saved cards in the toolbar to reuse them.
-            </p>
-          </div>
-        </aside>
-      </div>
-    )
-  }
+  // Nothing selected: give the canvas the full width.
+  if (!node) return null
 
   const { data } = node
   const kind = data.kind
@@ -308,24 +364,8 @@ export default function BlueprintSidePanel({
       ? (data.actionConfigs?.[expandedTask] ?? defaultTaskConfig(expandedTask))
       : null
 
-  const persistCard = (merged: BlueprintNodeData) => {
-    const saved = upsertCardByName({
-      id: merged.libraryCardId,
-      name: merged.label || BLUEPRINT_NODE_KIND_LABELS[merged.kind],
-      subject,
-      data: merged,
-    })
-    if (merged.libraryCardId !== saved.id) {
-      onChange(node.id, { libraryCardId: saved.id })
-    }
-    setSaveFlash(true)
-    window.setTimeout(() => setSaveFlash(false), 1000)
-  }
-
-  const applyPatch = (patch: Partial<BlueprintNodeData>, autoSave = true) => {
-    const merged = { ...data, ...patch }
+  const applyPatch = (patch: Partial<BlueprintNodeData>) => {
     onChange(node.id, patch)
-    if (autoSave) persistCard(merged)
   }
 
   const setActionList = (ids: string[], openId?: string) => {
@@ -340,7 +380,7 @@ export default function BlueprintSidePanel({
     for (const id of ids) {
       nextConfigs[id] = prev[id] ?? defaultTaskConfig(id)
     }
-    applyPatch({ ...patch, actionConfigs: nextConfigs }, true)
+    applyPatch({ ...patch, actionConfigs: nextConfigs })
     if (openId && isActionConfigurable(openId)) setExpandedTask(openId)
   }
 
@@ -738,34 +778,23 @@ export default function BlueprintSidePanel({
       <aside className="bp-side">
       <div className="bp-side__head">
         <div>
-          <div className="bp-side__kind">{BLUEPRINT_NODE_KIND_LABELS[kind]}</div>
-          <h2 className="bp-side__title">Edit this step</h2>
+          <div className="bp-side__kind">Step</div>
+          <h2 className="bp-side__title">{BLUEPRINT_NODE_KIND_LABELS[kind]}</h2>
         </div>
         <button type="button" className="bp-side__close" onClick={onClose} aria-label="Close">
-          ×
+          <X size={16} aria-hidden />
         </button>
       </div>
 
-      <div className="bp-side__title-row">
-        <label className="bp-side__field bp-side__field--grow">
-          <span>Title</span>
-          <input
-            type="text"
-            value={data.label}
-            onChange={(e) => applyPatch({ label: e.target.value })}
-            placeholder="Name this card"
-          />
-        </label>
-        <button
-          type="button"
-          className={`bp-side__save-icon${saveFlash ? ' bp-side__save-icon--ok' : ''}`}
-          title="Save card"
-          aria-label="Save card"
-          onClick={() => persistCard(data)}
-        >
-          <Bookmark size={16} aria-hidden />
-        </button>
-      </div>
+      <label className="bp-side__field">
+        <span>Card title</span>
+        <input
+          type="text"
+          value={data.label}
+          onChange={(e) => applyPatch({ label: e.target.value })}
+          placeholder="Name this card"
+        />
+      </label>
 
       {kind === 'trigger' && (
         <>
@@ -836,11 +865,6 @@ export default function BlueprintSidePanel({
             ))}
           </fieldset>
 
-          <p className="bp-side__help">
-            Only matching records enter this blueprint — not every open invoice, broker, or batch in
-            the system.
-          </p>
-
           {(() => {
             const subjectKey =
               data.triggerSubject === 'brokers' || data.triggerSubject === 'batches'
@@ -861,9 +885,6 @@ export default function BlueprintSidePanel({
                     <div className="bp-side__todos-label">Which invoices?</div>
                     <FilterInfoTip text="These rules decide which invoices can enter this blueprint. An invoice must match every rule you turn on — not every open invoice in Credyx." />
                   </div>
-                  <p className="bp-side__help">
-                    Think of this as a gate: only invoices that pass these checks start the chain.
-                  </p>
                   <label className="bp-side__channel-opt">
                     <input
                       type="checkbox"
@@ -947,9 +968,6 @@ export default function BlueprintSidePanel({
                     <div className="bp-side__todos-label">Which batches?</div>
                     <FilterInfoTip text="Optional gate after a batch event — usually keep submitted only for Process workflows." />
                   </div>
-                  <p className="bp-side__help">
-                    Only batches that pass these checks continue the chain.
-                  </p>
                   <label className="bp-side__channel-opt">
                     <input
                       type="checkbox"
@@ -976,9 +994,6 @@ export default function BlueprintSidePanel({
                   <div className="bp-side__todos-label">Which brokers?</div>
                   <FilterInfoTip text="These rules decide which brokers can enter this blueprint — not every broker in Credyx." />
                 </div>
-                <p className="bp-side__help">
-                  Only brokers that pass these checks start the chain.
-                </p>
                 <label className="bp-side__channel-opt">
                   <input
                     type="checkbox"
@@ -1346,47 +1361,7 @@ export default function BlueprintSidePanel({
         </>
       )}
 
-      {(() => {
-        const index = compileBlueprintIndex(nodes, edges)
-        if (index.waits.length === 0 && index.events.length === 0) return null
-        return (
-          <div className="bp-side__compile">
-            <div className="bp-side__todos-label">Compiled index (preview)</div>
-            <p className="bp-side__help">
-              A future runner would index clocks and events — not scan every record against every
-              blueprint.
-            </p>
-            {index.waits.length > 0 ? (
-              <div className="bp-side__compile-block">
-                <div className="bp-side__compile-heading">Wait until → wake when</div>
-                <ul className="bp-side__compile-list">
-                  {index.waits.map((w) => (
-                    <li key={w.nodeId}>
-                      <strong>{w.title}</strong>
-                      <span>{w.line}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {index.events.length > 0 ? (
-              <div className="bp-side__compile-block">
-                <div className="bp-side__compile-heading">When → subscribe to</div>
-                <ul className="bp-side__compile-list">
-                  {index.events.map((ev) => (
-                    <li key={ev.nodeId}>
-                      <strong>{ev.title}</strong>
-                      <span>{ev.line}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        )
-      })()}
-
-      <p className="bp-side__hint">Preview only — tasks are not sent for real yet.</p>
+      {kind === 'stop' && <HandoffPicker blueprintId={blueprintId} />}
       </aside>
 
       {showFullTemplate && selectedTemplate && fullTemplatePreview

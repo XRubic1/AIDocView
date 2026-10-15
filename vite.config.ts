@@ -19,8 +19,22 @@ function resolveSupabaseEnv(mode: string) {
   return { url, key }
 }
 
+/**
+ * Vite inlines every VITE_* value into the client bundle, so an OpenAI key under
+ * that prefix is readable by anyone who loads the app. Fail the build instead.
+ */
+function guardServerSecrets(mode: string, command: 'build' | 'serve') {
+  const env = loadEnv(mode, process.cwd(), 'VITE_')
+  if (!env.VITE_OPENAI_API_KEY?.trim()) return
+  const message =
+    '[vite] VITE_OPENAI_API_KEY is set. It would ship in the browser bundle. Remove it from .env / Vercel and keep OPENAI_API_KEY only as a Supabase secret for openai-proxy.'
+  if (command === 'build') throw new Error(message)
+  console.warn(message)
+}
+
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
+  guardServerSecrets(mode, command)
   const { url, key } = resolveSupabaseEnv(mode)
 
   if (!url || !key) {

@@ -1,6 +1,7 @@
 import type { Invoice } from '../types/invoice'
 import type { Payment } from '../types/payment'
 import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from './paymentVariance'
+import { parseCalendarDate } from './invoiceDueDate'
 
 export type CashWindowBucket = {
   amount: number
@@ -31,7 +32,9 @@ function startOfDayMs(d: Date): number {
 
 function parseDayMs(raw: string | undefined): number | null {
   if (!raw) return null
-  const day = startOfDayMs(new Date(raw))
+  // YYYY-MM-DD is a calendar day; new Date('YYYY-MM-DD') is UTC and lands on the
+  // previous day west of UTC.
+  const day = startOfDayMs(parseCalendarDate(raw))
   return Number.isNaN(day) ? null : day
 }
 
@@ -59,15 +62,18 @@ function bucketByDaysOut(
   amount: number,
   acc: { next7: CashWindowBucket; next14: CashWindowBucket; next30: CashWindowBucket }
 ): number | null {
-  if (dayMs < today || dayMs > end30) return null
+  // Compare whole calendar days: a DST change inside the window shifts local
+  // midnights by an hour, so raw millisecond bounds miss or add a day.
   const daysOut = Math.round((dayMs - today) / (24 * 60 * 60 * 1000))
+  const daysTo = (end: number) => Math.round((end - today) / (24 * 60 * 60 * 1000))
+  if (daysOut < 0 || daysOut > daysTo(end30)) return null
   acc.next30.amount += amount
   acc.next30.count += 1
-  if (dayMs <= end14) {
+  if (daysOut <= daysTo(end14)) {
     acc.next14.amount += amount
     acc.next14.count += 1
   }
-  if (dayMs <= end7) {
+  if (daysOut <= daysTo(end7)) {
     acc.next7.amount += amount
     acc.next7.count += 1
   }

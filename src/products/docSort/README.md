@@ -18,7 +18,7 @@ DocSort matches and groups **rate confirmations** with **bills of lading** from 
 
 ## Configuration
 
-Uses the same `VITE_OPENAI_API_KEY` as the monorepo. Optional:
+AI calls go through the `openai-proxy` Edge Function; `OPENAI_API_KEY` is a server secret and must never be a `VITE_*` var. Optional:
 
 - `VITE_DOCSORT_PARALLEL` — concurrent scans (default `4`)
 

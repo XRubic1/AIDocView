@@ -49,7 +49,7 @@ function invoiceNumberLabel(bill: ClientBill): string {
 }
 
 /** Load Credyx wordmark for PDF (white Cred + blue yx on navy header). */
-async function loadCredyxLogoBase64(): Promise<{ dataUrl: string; format: 'PNG' | 'JPEG' } | null> {
+export async function loadCredyxLogoBase64(): Promise<{ dataUrl: string; format: 'PNG' | 'JPEG' } | null> {
   try {
     const response = await fetch('/credyx-logo-white-cred-no-bg.png')
     const contentType = response.headers.get('content-type') || ''

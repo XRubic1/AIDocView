@@ -49,7 +49,7 @@ function profilesForBroker(brokerId: string, brokerName: string): BrokerRiskProf
 
 function ensureStubProfile(
   brokerId: string,
-  brokerName: string,
+  _brokerName: string,
   level: BrokerRiskLevel,
   status: BrokerRiskProfile['review_status'],
   note: string,

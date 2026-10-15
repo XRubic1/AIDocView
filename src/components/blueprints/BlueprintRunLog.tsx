@@ -97,7 +97,7 @@ export default function BlueprintRunLog({
                       ? ` · ${actionCount} action${actionCount === 1 ? '' : 's'}`
                       : ''
                   }`
-                : ' · press Simulate'}
+                : ' · press Test run'}
               {' · Esc to close'}
             </p>
           </div>
@@ -109,7 +109,7 @@ export default function BlueprintRunLog({
             onClick={onRunAgain}
           >
             <Play size={14} aria-hidden />
-            Simulate again
+            Run again
           </button>
           <button type="button" className="admin-blueprints__btn" onClick={onClear}>
             Clear
@@ -172,7 +172,7 @@ export default function BlueprintRunLog({
             <li className="bp-run__empty">
               <Play size={18} aria-hidden />
               <span>
-                Press <strong>Simulate</strong> to see when each step would run and what it would
+                Press <strong>Test run</strong> to see when each step would run and what it would
                 do.
               </span>
             </li>

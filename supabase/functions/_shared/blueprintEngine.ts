@@ -5,6 +5,16 @@
  */
 import { BROKER_CONFIRMED_NOTE, STANDARD_CHASE_BLUEPRINTS } from './standardBlueprints.ts'
 import { fillBlueprintNoteTokens } from './blueprintNoteTokens.ts'
+import {
+  BLUEPRINT_STAGES_SETTINGS_KEY,
+  HOLD_PAUSE_PREFIX,
+  activeStageConfig,
+  planInvoiceStage,
+  stageBlueprintIds,
+  stepBeforeHoldPause,
+  type InvoiceStageConfig,
+  type StageRunStatus,
+} from './invoiceStages.ts'
 
 // Untyped service client — same pattern as the other Credyx edge functions.
 // deno-lint-ignore no-explicit-any
@@ -393,6 +403,16 @@ const INVOICE_HANDOFF_COLUMNS =
 /**
  * Paperwork confirmation: internal note, stop the paperwork chase, enroll payment chase on its clock.
  */
+/** Blueprints → Stages settings, or null when stages are off / not set up. */
+async function loadStageConfig(admin: Admin): Promise<InvoiceStageConfig | null> {
+  const { data } = await admin
+    .from('platform_settings')
+    .select('value')
+    .eq('key', BLUEPRINT_STAGES_SETTINGS_KEY)
+    .maybeSingle()
+  return activeStageConfig(data?.value)
+}
+
 export async function beginPaymentChaseAfterConfirm(admin: Admin, invoiceId: string): Promise<void> {
   await ensureStandardBlueprints(admin)
   const { data: row } = await admin.from('invoices').select(INVOICE_HANDOFF_COLUMNS).eq('id', invoiceId).maybeSingle()
@@ -424,6 +444,10 @@ export async function beginPaymentChaseAfterConfirm(admin: Admin, invoiceId: str
       .eq('id', invoiceId)
     invoice.status = 'approved'
   }
+
+  // Stages on: paperwork is good now, so the next cron tick moves the invoice to the
+  // Payment stage (or keeps it on hold). Don't stop runs here — a hold run must survive.
+  if (await loadStageConfig(admin)) return
 
   const { data: liveRows } = await admin
     .from('blueprint_runs')
@@ -640,6 +664,7 @@ export async function runBlueprintServerTick(
   let actions = 0
 
   await ensureStandardBlueprints(admin)
+  const stages = await loadStageConfig(admin)
 
   const { data: settingsRow } = await admin.from('platform_settings').select('value').eq('key', 'email_lifecycle').maybeSingle()
   const settings = (settingsRow?.value ?? {}) as { rules?: Record<string, { enabled?: boolean }> }
@@ -978,6 +1003,11 @@ export async function runBlueprintServerTick(
     seen.add(bp.id)
     const nextId = handoffNext.get(bp.id)
     if (!nextId || seen.has(nextId)) return
+    // Stages on: the invoice's stage picks between stage blueprints, not "then start".
+    if (stages) {
+      const managed = stageBlueprintIds(stages)
+      if (managed.has(bp.id) && managed.has(nextId)) return
+    }
     const nextBp = bpById.get(nextId)
     if (!nextBp) return
     const subject = nextBp.nodes.find((node) => node.data.kind === 'trigger')?.data.triggerSubject
@@ -1148,6 +1178,100 @@ export async function runBlueprintServerTick(
     details.push(`${invoice.invoice_number ?? run.id}: ${runDetails.join('; ') || 'advanced'}`)
   }
 
+  // —— Stages (Blueprints → Stages): same plan as the browser runner ——
+  // Pause / resume / stop first, so the due-run walk below only sees runs that
+  // belong to the invoice's current stage.
+  const stageEnrolls: { invoice: InvoiceRow; bp: BlueprintRow }[] = []
+  if (stages) {
+    const ids = invoices.map((inv) => String(inv.id))
+    const { data: stageRows } = ids.length
+      ? await admin
+          .from('blueprint_runs')
+          .select('*')
+          .eq('subject', 'invoice')
+          .in('subject_id', ids)
+          .limit(4000)
+      : { data: [] }
+    const runsBySubject = new Map<string, RunRow[]>()
+    for (const row of (stageRows ?? []) as RunRow[]) {
+      const key = String(row.subject_id ?? '')
+      const list = runsBySubject.get(key) ?? []
+      list.push(row)
+      runsBySubject.set(key, list)
+    }
+    // Prefer the objects in `runs` so status changes carry into dueRuns.
+    const loadedById = new Map(runs.map((run) => [run.id, run]))
+
+    for (const invoice of invoices) {
+      const id = String(invoice.id)
+      const label = String(invoice.invoice_number ?? id)
+      const mine = (runsBySubject.get(id) ?? []).map((row) => loadedById.get(row.id) ?? row)
+      const byId = new Map(mine.map((row) => [row.id, row]))
+      const plan = planInvoiceStage(
+        {
+          status: String(invoice.status ?? ''),
+          paperworkStatus: String(lifeOf(invoice).paperwork_status ?? '') || null,
+          ppwSent: Boolean(ppwSentAt(invoice)),
+        },
+        mine.map((row) => ({
+          id: row.id,
+          blueprintId: row.blueprint_id,
+          status: row.status as StageRunStatus,
+          currentStep: row.current_step ?? '',
+        })),
+        stages
+      )
+
+      for (const { id: runId } of plan.pause) {
+        const row = byId.get(runId)
+        if (!row) continue
+        await updateRun(admin, row, {
+          status: 'paused',
+          current_step: `${HOLD_PAUSE_PREFIX}${row.current_step}`,
+        })
+        details.push(`${label}: paused ${row.blueprint_name} (on hold)`)
+      }
+      for (const { run, step } of plan.stop) {
+        const row = byId.get(run.id)
+        if (!row) continue
+        await updateRun(admin, row, { status: 'stopped', current_step: step, wait_until: null })
+        details.push(`${label}: ${step}`)
+      }
+      for (const { run, step } of plan.retire) {
+        const row = byId.get(run.id)
+        if (row) await updateRun(admin, row, { current_step: step })
+      }
+      for (const { id: runId } of plan.resume) {
+        const row = byId.get(runId)
+        if (!row) continue
+        await updateRun(admin, row, {
+          status: 'waiting',
+          current_step: stepBeforeHoldPause(row.current_step),
+        })
+        await admin.from('invoice_blueprint_assignments').upsert(
+          {
+            invoice_id: id,
+            blueprint_id: row.blueprint_id,
+            blueprint_name: row.blueprint_name,
+            assigned_at: nowIso,
+          },
+          { onConflict: 'invoice_id' }
+        )
+        // Resumed runs join the due list (parked When or a wait that already passed).
+        if (!loadedById.has(row.id)) {
+          runs.push(row)
+          loadedById.set(row.id, row)
+        }
+        details.push(`${label}: resumed ${row.blueprint_name} after hold`)
+      }
+      if (plan.enroll && plan.targetBlueprintId) {
+        const bp = bpById.get(plan.targetBlueprintId)
+        if (bp) stageEnrolls.push({ invoice, bp })
+        else details.push(`${label}: stage blueprint ${plan.targetBlueprintId} not found`)
+      }
+    }
+  }
+
   const dueRuns = runs
     .filter((run) => {
       if (run.status !== 'waiting' || !run.subject_id) return false
@@ -1165,7 +1289,8 @@ export async function runBlueprintServerTick(
       await updateRun(admin, run, { status: 'stopped', current_step: 'Stopped · invoice closed', wait_until: null })
       continue
     }
-    const track = trackOf(bp)
+    // Stages on: the stage pass above already stopped runs that left their stage.
+    const track = stages ? 'other' : trackOf(bp)
     if (track === 'paperwork' && paperworkGood(invoice)) {
       await updateRun(admin, run, { status: 'stopped', current_step: 'Stopped · paperwork logged good', wait_until: null })
       continue
@@ -1188,15 +1313,25 @@ export async function runBlueprintServerTick(
     (finished ?? []).map((row: { blueprint_id?: string; subject_id?: string }) => `${row.blueprint_id}:${row.subject_id}`)
   )
 
+  // Stages on: enroll exactly what the stage plan asked for. Off: older matching.
+  const enrollCandidates: { invoice: InvoiceRow; bp: BlueprintRow | null }[] = stages
+    ? stageEnrolls.map(({ invoice, bp }) => ({ invoice, bp }))
+    : invoices.map((invoice) => ({ invoice, bp: null }))
+
   let enrolls = 0
-  for (const invoice of invoices) {
+  for (const candidate of enrollCandidates) {
     if (enrolls >= limit) break
+    const invoice = candidate.invoice
     const id = String(invoice.id)
-    const live = (liveBySubject.get(`invoice:${id}`) ?? []).filter((run) => run.status === 'waiting' || run.status === 'active')
-    if (live.length) continue
-    const bp = pickBlueprint(invoice, blueprints)
+    let bp = candidate.bp
+    if (!stages) {
+      const live = (liveBySubject.get(`invoice:${id}`) ?? []).filter((run) => run.status === 'waiting' || run.status === 'active')
+      if (live.length) continue
+      bp = pickBlueprint(invoice, blueprints)
+      if (!bp) continue
+      if (finishedKey.has(`${bp.id}:${id}`)) continue
+    }
     if (!bp) continue
-    if (finishedKey.has(`${bp.id}:${id}`)) continue
     const run: RunRow = {
       id: `run-${crypto.randomUUID()}`,
       subject: 'invoice',

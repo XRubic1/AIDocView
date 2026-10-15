@@ -13,6 +13,8 @@ import { emailCredyxIntakeError } from './credyx/batchLifecycleEmails'
 import type { AiSpendDecision, AiSpendDenyReason } from './aiSpendService'
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { listHandoffDocumentMeta } from '../utils/resolveHandoffDocuments'
+import { hasPpwBeenSent } from '../utils/ppwSent'
+import type { Invoice } from '../types/invoice'
 
 /** Admin-facing AI / pipeline error for a batch (from the latest processing job). */
 export async function fetchBatchAiLastError(batchId: string): Promise<string | null> {
@@ -169,12 +171,31 @@ export async function releaseBatchForAiPolicyBlock(
 }
 
 /** Delete all invoices on a batch so packet creation can run again without duplicates. */
-export function clearBatchInvoicesForRecreate(batchId: string): void {
+/** Statuses that are still AI-owned drafts. Anything else is a human or money decision. */
+const RECREATABLE_INVOICE_STATUSES = new Set(['pending', 'review'])
+
+/** Invoices that must never be deleted by an automatic re-create. */
+export function invoicesBlockingRecreate(batchId: string): Invoice[] {
+  return getInvoicesByBatchId(batchId).filter(
+    (inv) =>
+      !RECREATABLE_INVOICE_STATUSES.has(inv.status) ||
+      hasPpwBeenSent(inv) ||
+      (inv.paid_amount ?? 0) > 0
+  )
+}
+
+/**
+ * Delete a batch's packets so they can be rebuilt. Refuses (returns false, deletes
+ * nothing) when any packet was approved, held, sent to a broker, or paid.
+ */
+export function clearBatchInvoicesForRecreate(batchId: string): boolean {
+  if (invoicesBlockingRecreate(batchId).length > 0) return false
   const invoices = getInvoicesByBatchId(batchId)
   for (const inv of invoices) {
     deleteInvoice(inv.id)
   }
   updateBatchTotals(batchId)
+  return true
 }
 
 /**
@@ -188,6 +209,14 @@ export async function retryBatchPacketCreation(batchId: string): Promise<void> {
   const batch = getBatchById(batchId)
   if (!batch) throw new Error('Batch not found')
 
+  const blocking = invoicesBlockingRecreate(batchId)
+  if (blocking.length > 0) {
+    throw new Error(
+      `Cannot re-create packets: ${blocking.length} invoice(s) are already approved, held, sent or paid (${blocking
+        .map((inv) => inv.invoice_number)
+        .join(', ')}). Fix them in Packet Rework instead.`
+    )
+  }
   clearBatchInvoicesForRecreate(batchId)
 
   updateBatch(batchId, {

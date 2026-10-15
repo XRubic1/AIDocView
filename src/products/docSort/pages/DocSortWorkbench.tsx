@@ -66,7 +66,7 @@ export default function DocSortWorkbench() {
 
   const handleSort = async () => {
     if (!isAIReviewEnabled()) {
-      setError('Add VITE_OPENAI_API_KEY to your .env file to run DocSort.')
+      setError('DocSort needs Supabase and the openai-proxy Edge Function (OPENAI_API_KEY set server-side).')
       return
     }
     setRunning(true)

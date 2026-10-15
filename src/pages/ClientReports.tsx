@@ -1,53 +1,93 @@
 import { useMemo, useState, useCallback, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
-import { formatCurrency, formatDate } from '../utils/format'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  FileText,
-  Download,
-  BarChart3,
-  TrendingUp,
-  TrendingDown,
-  DollarSign,
-  Wallet,
-  Clock,
+  AlertCircle,
   AlertTriangle,
   ArrowRight,
-  Activity,
-  Receipt,
+  BarChart3,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  Info,
+  Landmark,
+  TrendingDown,
+  TrendingUp,
+  Users,
+  Wallet,
   type LucideIcon,
 } from 'lucide-react'
-import DashboardPanel from '../components/client/dashboard/DashboardPanel'
-import AgingARChart from '../components/client/AgingARChart'
-import PaymentTrendsChart from '../components/client/PaymentTrendsChart'
+import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
+import { formatCurrency, formatDate } from '../utils/format'
 import CashFlowChart from '../components/client/CashFlowChart'
 import CashCollectionForecast from '../components/client/CashCollectionForecast'
-import CollectionsColumnChart from '../components/client/reports/CollectionsColumnChart'
-import CollectionsPeriodRing from '../components/client/reports/CollectionsPeriodRing'
-import SubmissionFunnelBar from '../components/client/reports/SubmissionFunnelBar'
-import { useClientTheme } from '../theme/ThemeContext'
+import BrokerRiskLevelChip from '../components/client/BrokerRiskLevelChip'
 import {
-  computeOpenArAging,
+  computeBrokerScores,
   computeCashFlowTrend,
-  computePipelineMetrics,
+  computeOpenArAging,
   computePaymentLag,
   computePeriodSummary,
+  computePipelineMetrics,
   computeTaxReport,
-  computeCollectionsByMonth,
+  generateReportInsights,
   getPresetRange,
+  type BrokerScoreRow,
   type DateRange,
+  type ReportInsight,
 } from '../utils/clientReports'
 import { computeCashCollectionForecast } from '../utils/cashCollectionForecast'
+import { buildOverviewCsvRows, computeConcentrationRisk } from '../utils/clientOverviewReports'
 import {
-  buildOverviewCsvRows,
-} from '../utils/clientOverviewReports'
+  computeAvgDaysToPay,
+  computeFeeSummary,
+  computePaperworkSpeed,
+  computeShortPaySummary,
+  downloadTextFile,
+  listActivityYears,
+  listRecentMonths,
+  monthToRange,
+  toCsv,
+  yearToRange,
+} from '../utils/clientReportsExtra'
+import { generateCarrierStatementPdf } from '../utils/generateCarrierStatementPdf'
+import { getCarrierVisibleBrokerRiskLevel } from '../utils/clientBrokers'
+import { mockBrokers } from '../data/mockBrokers'
+import { useToast } from '../components/ui/ToastProvider'
+import '../styles/clientReportsClean.css'
 
-type ReportType = 'overview' | 'aging' | 'cashflow'
-
+type ReportTab = 'overview' | 'brokers' | 'cash' | 'statements'
 type DatePreset = 'mtd' | '30d' | '90d' | 'ytd'
+type BrokerSortKey =
+  | 'broker_name'
+  | 'open_ar'
+  | 'overdue_amount'
+  | 'collected_in_range'
+  | 'avg_days_invoice_to_pay'
+  | 'late_payment_count'
 
-const BUCKET_COLORS = (c: ReturnType<typeof useClientTheme>) =>
-  [c.chart.blue, c.chart.cyan, c.chart.purple, c.chart.amber, c.chart.orange, c.chart.red] as const
+const REPORT_TABS: { id: ReportTab; label: string; icon: LucideIcon }[] = [
+  { id: 'overview', label: 'Overview', icon: BarChart3 },
+  { id: 'brokers', label: 'Brokers', icon: Users },
+  { id: 'cash', label: 'Cash & fees', icon: Wallet },
+  { id: 'statements', label: 'Statements', icon: FileText },
+]
+
+const DATE_PRESETS: { id: DatePreset; label: string }[] = [
+  { id: 'mtd', label: 'This month' },
+  { id: '30d', label: '30 days' },
+  { id: '90d', label: '90 days' },
+  { id: 'ytd', label: 'Year to date' },
+]
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  check: 'Check',
+  wire: 'Wire',
+  ach: 'ACH',
+  credit_card: 'Card',
+}
 
 /** Previous period of equal length ending the day before the current range starts. */
 function getPreviousEqualRange(range: DateRange): DateRange {
@@ -67,842 +107,1122 @@ function pctChange(current: number, previous: number): number | null {
   return ((current - previous) / previous) * 100
 }
 
-function ReportBarRow({
+function formatDays(days: number | null): string {
+  if (days == null) return '—'
+  return `${days} ${days === 1 ? 'day' : 'days'}`
+}
+
+/* ── Building blocks ── */
+
+function Scope({ children }: { children: ReactNode }) {
+  return <span className="rpt-scope">{children}</span>
+}
+
+function Card({
+  title,
+  scope,
+  action,
+  children,
+  className = '',
+}: {
+  title: string
+  scope?: string
+  action?: { label: string; onClick: () => void }
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <section className={`rpt-card ${className}`.trim()}>
+      <header className="rpt-card__head">
+        <div className="rpt-card__title">
+          <h2>{title}</h2>
+          {scope ? <Scope>{scope}</Scope> : null}
+        </div>
+        {action ? (
+          <button type="button" className="rpt-link" onClick={action.onClick}>
+            {action.label}
+            <ArrowRight size={14} aria-hidden />
+          </button>
+        ) : null}
+      </header>
+      <div className="rpt-card__body">{children}</div>
+    </section>
+  )
+}
+
+function Trend({ pct, invert = false }: { pct: number | null; invert?: boolean }) {
+  if (pct == null || !Number.isFinite(pct) || Math.abs(pct) < 0.5) return null
+  const good = invert ? pct < 0 : pct > 0
+  const Icon = pct > 0 ? TrendingUp : TrendingDown
+  return (
+    <span className={`rpt-trend ${good ? 'is-good' : 'is-bad'}`}>
+      <Icon size={12} aria-hidden />
+      {Math.abs(pct).toFixed(0)}% vs prior period
+    </span>
+  )
+}
+
+function Kpi({
+  label,
+  value,
+  sub,
+  trend,
+  tone,
+}: {
+  label: string
+  value: string
+  sub?: string
+  trend?: ReactNode
+  tone?: 'alert' | 'accent'
+}) {
+  return (
+    <div className={`rpt-kpi${tone ? ` is-${tone}` : ''}`}>
+      <span className="rpt-kpi__label">{label}</span>
+      <span className="rpt-kpi__value">{value}</span>
+      {trend ?? (sub ? <span className="rpt-kpi__sub">{sub}</span> : null)}
+    </div>
+  )
+}
+
+function BarRow({
   label,
   value,
   max,
-  color,
   display,
   sub,
+  tone,
 }: {
   label: string
   value: number
   max: number
-  color: string
   display: string
   sub?: string
+  tone?: 'alert' | 'muted'
 }) {
-  const c = useClientTheme()
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0
-
   return (
-    <div className="report-bar-row">
-      <div className="report-bar-row__head">
-        <span className="font-medium truncate" style={{ color: c.secondary }}>
-          {label}
-        </span>
-        <span className="font-semibold tabular-nums shrink-0 text-right" style={{ color: c.primary }}>
-          {display}
-        </span>
+    <div className="rpt-bar" title={`${label}: ${display}${sub ? ` · ${sub}` : ''}`}>
+      <div className="rpt-bar__head">
+        <span className="rpt-bar__label">{label}</span>
+        <span className="rpt-bar__value">{display}</span>
       </div>
-      {sub && (
-        <p className="text-[11px] -mt-1" style={{ color: c.mutedLight }}>
-          {sub}
-        </p>
-      )}
-      <div className="report-bar-row__track">
+      <div className="rpt-bar__track">
         <div
-          className="report-bar-row__fill"
-          style={{ width: `${pct}%`, backgroundColor: color }}
+          className={`rpt-bar__fill${tone ? ` is-${tone}` : ''}`}
+          style={{ width: value > 0 ? `max(${pct}%, 4px)` : 0 }}
         />
       </div>
+      {sub ? <span className="rpt-bar__sub">{sub}</span> : null}
     </div>
   )
 }
 
-function MiniKpi({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  const c = useClientTheme()
-  return (
-    <div className="report-mini-kpi">
-      <span className="report-mini-kpi__label">{label}</span>
-      <span className="report-mini-kpi__value" style={{ color: accent ?? c.primary }}>
-        {value}
-      </span>
-    </div>
-  )
+const INSIGHT_ICONS: Record<ReportInsight['tone'], LucideIcon> = {
+  danger: AlertTriangle,
+  warning: AlertCircle,
+  success: CheckCircle2,
+  info: Info,
 }
 
-function StatStripCell({
-  label,
-  value,
-  icon: Icon,
-  accentColor,
-  trend,
-}: {
-  label: string
-  value: string
-  icon: LucideIcon
-  accentColor: string
-  trend?: { pct: number; invert?: boolean } | null
-}) {
-  const c = useClientTheme()
-  const showTrend = trend != null && Number.isFinite(trend.pct) && Math.abs(trend.pct) >= 0.5
-  const favorable = trend
-    ? trend.invert
-      ? trend.pct < 0
-      : trend.pct > 0
-    : false
-  const unfavorable = trend
-    ? trend.invert
-      ? trend.pct > 0
-      : trend.pct < 0
-    : false
-
-  return (
-    <div
-      className="report-stat-cell report-stat-cell--accent flex flex-col justify-center gap-0.5 px-3 py-2 sm:border-r border-b sm:border-b-0 last:border-r-0"
-      style={{ borderColor: c.border, ['--report-stat-accent' as string]: accentColor }}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Icon className="w-3 h-3 shrink-0" style={{ color: accentColor }} />
-          <span className="text-[11px] font-medium truncate" style={{ color: c.secondary }}>
-            {label}
-          </span>
-        </div>
-        <span className="report-stat-cell__value shrink-0 text-right" style={{ color: c.primary }}>
-          {value}
-        </span>
-      </div>
-      {showTrend && trend && (
-        <span
-          className={`report-stat-trend ${
-            favorable ? 'report-stat-trend--up' : unfavorable ? 'report-stat-trend--down' : ''
-          }`}
-          style={!favorable && !unfavorable ? { color: c.mutedLight } : undefined}
-        >
-          {trend.pct > 0 ? (
-            <TrendingUp className="w-2.5 h-2.5" aria-hidden />
-          ) : trend.pct < 0 ? (
-            <TrendingDown className="w-2.5 h-2.5" aria-hidden />
-          ) : null}
-          {Math.abs(trend.pct).toFixed(0)}% vs prior
-        </span>
-      )}
-    </div>
-  )
+function Empty({ children }: { children: ReactNode }) {
+  return <p className="rpt-empty">{children}</p>
 }
 
-function ReportPanel({
-  children,
-  span = 12,
-  enterIndex = 0,
-}: {
-  children: ReactNode
-  span?: 3 | 4 | 5 | 6 | 7 | 12
-  enterIndex?: number
-}) {
-  const spanClass: Record<number, string> = {
-    3: 'lg:col-span-3',
-    4: 'lg:col-span-4',
-    5: 'lg:col-span-5',
-    6: 'lg:col-span-6',
-    7: 'lg:col-span-7',
-    12: 'lg:col-span-12',
-  }
-  const enterClass = `dashboard-section-enter dashboard-section-enter--${Math.min(enterIndex, 5)}`
-  return (
-    <div className={`client-reports-panel ${spanClass[span] ?? 'lg:col-span-12'} ${enterClass}`}>
-      {children}
-    </div>
-  )
-}
+/* ── Page ── */
 
 export default function ClientReports() {
-  const c = useClientTheme()
   const navigate = useNavigate()
-  const { invoices: clientInvoices, payments: clientPayments } = useClientDemoSnapshot()
-  const [selectedReportType, setSelectedReportType] = useState<ReportType>('overview')
+  const { showToast } = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const {
+    invoices,
+    payments,
+    clientId,
+    clientName,
+    dashboard,
+  } = useClientDemoSnapshot()
+  const carrierName = clientName || dashboard?.client_name || 'Carrier'
+
+  const tabParam = searchParams.get('tab') as ReportTab | null
+  const tab: ReportTab = REPORT_TABS.some((t) => t.id === tabParam) ? tabParam! : 'overview'
+  const setTab = (next: ReportTab) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'overview') params.delete('tab')
+    else params.set('tab', next)
+    setSearchParams(params, { replace: true })
+  }
+
   const [datePreset, setDatePreset] = useState<DatePreset | 'custom'>('90d')
   const [dateRange, setDateRange] = useState<DateRange>(() => getPresetRange('90d'))
-
   const applyPreset = (preset: DatePreset) => {
     setDatePreset(preset)
     setDateRange(getPresetRange(preset))
   }
-
+  const rangeLabel = `${formatDate(dateRange.start_date)} – ${formatDate(dateRange.end_date)}`
   const previousRange = useMemo(() => getPreviousEqualRange(dateRange), [dateRange])
-  const prevEndDate = useMemo(
-    () => new Date(`${previousRange.end_date}T00:00:00`),
-    [previousRange.end_date]
-  )
 
-  const aging = useMemo(
-    () => computeOpenArAging(clientInvoices, new Date(), clientPayments),
-    [clientInvoices, clientPayments]
-  )
-  const prevAging = useMemo(
-    () => computeOpenArAging(clientInvoices, prevEndDate, clientPayments),
-    [clientInvoices, prevEndDate, clientPayments]
-  )
+  /* Core metrics */
   const summary = useMemo(
-    () => computePeriodSummary(clientInvoices, clientPayments, dateRange),
-    [clientInvoices, clientPayments, dateRange]
+    () => computePeriodSummary(invoices, payments, dateRange),
+    [invoices, payments, dateRange]
   )
   const prevSummary = useMemo(
-    () => computePeriodSummary(clientInvoices, clientPayments, previousRange),
-    [clientInvoices, clientPayments, previousRange]
+    () => computePeriodSummary(invoices, payments, previousRange),
+    [invoices, payments, previousRange]
   )
-  const cashFlow = useMemo(
-    () => computeCashFlowTrend(clientInvoices, clientPayments, 6),
-    [clientInvoices, clientPayments]
+  const aging = useMemo(() => computeOpenArAging(invoices, new Date(), payments), [invoices, payments])
+  const cashFlow = useMemo(() => computeCashFlowTrend(invoices, payments, 6), [invoices, payments])
+  const forecast = useMemo(
+    () => computeCashCollectionForecast(invoices, payments),
+    [invoices, payments]
   )
-  const collectionForecast = useMemo(
-    () => computeCashCollectionForecast(clientInvoices, clientPayments),
-    [clientInvoices, clientPayments]
-  )
-  const pipeline = useMemo(
-    () => computePipelineMetrics(clientInvoices, dateRange),
-    [clientInvoices, dateRange]
-  )
+  const pipeline = useMemo(() => computePipelineMetrics(invoices, dateRange), [invoices, dateRange])
   const paymentLag = useMemo(
-    () => computePaymentLag(clientPayments, clientInvoices, dateRange),
-    [clientPayments, clientInvoices, dateRange]
+    () => computePaymentLag(payments, invoices, dateRange),
+    [payments, invoices, dateRange]
   )
-  const taxReport = useMemo(
-    () => computeTaxReport(clientInvoices, clientPayments, dateRange),
-    [clientInvoices, clientPayments, dateRange]
+  const avgDaysToPay = useMemo(
+    () => computeAvgDaysToPay(invoices, payments, dateRange),
+    [invoices, payments, dateRange]
   )
-  const collectionsByMonth = useMemo(
-    () => computeCollectionsByMonth(clientInvoices, clientPayments, dateRange),
-    [clientInvoices, clientPayments, dateRange]
+  const prevAvgDaysToPay = useMemo(
+    () => computeAvgDaysToPay(invoices, payments, previousRange),
+    [invoices, payments, previousRange]
   )
 
-  const bucketColors = BUCKET_COLORS(c)
-  const maxAgingAmount = Math.max(...aging.buckets.map((b) => b.amount), 1)
-  const periodOutstanding = Math.max(0, summary.invoiced - summary.collected)
-
-  const paymentMethods = useMemo(() => {
-    const confirmed = clientPayments.filter(
-      (p) => p.status === 'confirmed' && p.received_date >= dateRange.start_date && p.received_date <= dateRange.end_date
-    )
-    const labels: Record<string, string> = {
-      check: 'Check',
-      wire: 'Wire',
-      ach: 'ACH',
-      credit_card: 'Card',
+  /* Brokers */
+  const termsByBrokerName = useMemo(() => {
+    const terms: Record<string, number | null | undefined> = {}
+    for (const b of mockBrokers) terms[b.name] = b.payment_terms_days
+    return terms
+  }, [])
+  const brokers = useMemo(
+    () => computeBrokerScores(invoices, payments, dateRange, new Date(), termsByBrokerName),
+    [invoices, payments, dateRange, termsByBrokerName]
+  )
+  const concentration = useMemo(() => computeConcentrationRisk(brokers), [brokers])
+  const riskByBroker = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getCarrierVisibleBrokerRiskLevel>>()
+    for (const b of brokers) {
+      const sample = invoices.find((i) => i.broker_name === b.broker_name)
+      map.set(
+        b.broker_name,
+        getCarrierVisibleBrokerRiskLevel(clientId, {
+          broker_id: sample?.broker_id ?? '',
+          broker_name: b.broker_name,
+        })
+      )
     }
-    return ['check', 'wire', 'ach', 'credit_card']
+    return map
+  }, [brokers, invoices, clientId])
+  const [brokerSort, setBrokerSort] = useState<{ key: BrokerSortKey; dir: 'asc' | 'desc' }>({
+    key: 'open_ar',
+    dir: 'desc',
+  })
+  const sortedBrokers = useMemo(() => {
+    const rows = [...brokers]
+    const { key, dir } = brokerSort
+    rows.sort((a, b) => {
+      const av = a[key] ?? -1
+      const bv = b[key] ?? -1
+      const cmp =
+        typeof av === 'string' && typeof bv === 'string'
+          ? av.localeCompare(bv)
+          : Number(av) - Number(bv)
+      return dir === 'asc' ? cmp : -cmp
+    })
+    return rows
+  }, [brokers, brokerSort])
+  const toggleBrokerSort = (key: BrokerSortKey) =>
+    setBrokerSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: key === 'broker_name' ? 'asc' : 'desc' }
+    )
+  const openBroker = (row: BrokerScoreRow) => {
+    const sample = invoices.find((i) => i.broker_name === row.broker_name)
+    const key = sample?.broker_id || row.broker_name
+    navigate(`/client/brokers?broker=${encodeURIComponent(key)}`)
+  }
+
+  const insights = useMemo(
+    () => generateReportInsights({ summary, aging, brokers, pipeline, paymentLag, cashFlow }).slice(0, 3),
+    [summary, aging, brokers, pipeline, paymentLag, cashFlow]
+  )
+
+  /* Cash & fees */
+  const fees = useMemo(() => computeFeeSummary(invoices, payments, dateRange), [invoices, payments, dateRange])
+  const prevFees = useMemo(
+    () => computeFeeSummary(invoices, payments, previousRange),
+    [invoices, payments, previousRange]
+  )
+  const shortPays = useMemo(
+    () => computeShortPaySummary(invoices, payments, dateRange),
+    [invoices, payments, dateRange]
+  )
+  const paperwork = useMemo(() => computePaperworkSpeed(invoices, dateRange), [invoices, dateRange])
+  const paymentMethods = useMemo(() => {
+    const confirmed = payments.filter(
+      (p) =>
+        p.status === 'confirmed' &&
+        p.received_date >= dateRange.start_date &&
+        p.received_date <= dateRange.end_date
+    )
+    return Object.keys(PAYMENT_METHOD_LABELS)
       .map((method) => {
         const items = confirmed.filter((p) => p.payment_method === method)
         return {
-          method: labels[method] || method,
+          method: PAYMENT_METHOD_LABELS[method],
           amount: items.reduce((s, p) => s + p.amount, 0),
           count: items.length,
         }
       })
       .filter((m) => m.count > 0)
-  }, [clientPayments, dateRange])
+      .sort((a, b) => b.amount - a.amount)
+  }, [payments, dateRange])
 
-  const maxMethodAmount = Math.max(...paymentMethods.map((m) => m.amount), 1)
+  /* Statements */
+  const months = useMemo(() => listRecentMonths(12), [])
+  const years = useMemo(() => listActivityYears(invoices, payments), [invoices, payments])
+  const [statementMonth, setStatementMonth] = useState(() => months[1]?.key ?? months[0].key)
+  const [taxYear, setTaxYear] = useState(() => new Date().getFullYear())
+  const statementRange = useMemo(() => monthToRange(statementMonth), [statementMonth])
+  const statementLabel = months.find((m) => m.key === statementMonth)?.label ?? statementMonth
+  const statementSummary = useMemo(
+    () => computePeriodSummary(invoices, payments, statementRange),
+    [invoices, payments, statementRange]
+  )
+  const statementFees = useMemo(
+    () => computeFeeSummary(invoices, payments, statementRange),
+    [invoices, payments, statementRange]
+  )
+  const statementPayments = useMemo(
+    () =>
+      payments
+        .filter(
+          (p) =>
+            p.status === 'confirmed' &&
+            p.received_date >= statementRange.start_date &&
+            p.received_date <= statementRange.end_date
+        )
+        .sort((a, b) => a.received_date.localeCompare(b.received_date)),
+    [payments, statementRange]
+  )
+  const statementByBroker = useMemo(() => {
+    const map = new Map<string, { broker: string; invoiced: number; collected: number }>()
+    const row = (name: string) => {
+      const existing = map.get(name) ?? { broker: name, invoiced: 0, collected: 0 }
+      map.set(name, existing)
+      return existing
+    }
+    for (const inv of invoices) {
+      if (inv.invoice_date >= statementRange.start_date && inv.invoice_date <= statementRange.end_date) {
+        row(inv.broker_name).invoiced += inv.amount
+      }
+    }
+    for (const p of statementPayments) row(p.broker_name).collected += p.amount
+    return [...map.values()].sort((a, b) => b.collected - a.collected || b.invoiced - a.invoiced)
+  }, [invoices, statementPayments, statementRange])
+  const taxReport = useMemo(
+    () => computeTaxReport(invoices, payments, yearToRange(taxYear)),
+    [invoices, payments, taxYear]
+  )
+  const [pdfBusy, setPdfBusy] = useState(false)
 
-  const handleExportCSV = useCallback(() => {
-    let csvContent = ''
-    let filename = ''
+  const feeNote = (summaryFees: typeof fees) =>
+    summaryFees.terms_labels.length > 0
+      ? `Estimated from your fee terms (${summaryFees.terms_labels.join(', ')})`
+      : 'No fee terms on file for these invoices'
 
-    switch (selectedReportType) {
-      case 'overview':
-        csvContent = buildOverviewCsvRows({
+  /* Exports */
+  const exportCurrentTab = useCallback(() => {
+    const stamp = `${dateRange.start_date}_to_${dateRange.end_date}`
+    if (tab === 'overview') {
+      downloadTextFile(
+        `credyx_overview_${stamp}.csv`,
+        buildOverviewCsvRows({
           summary,
           aging,
-          taxReport,
+          taxReport: computeTaxReport(invoices, payments, dateRange),
           paymentLag,
-          forecast: collectionForecast,
-          concentration: {
-            top_broker_name: null,
-            top_broker_ar: 0,
-            top_broker_pct: 0,
-            top3_pct: 0,
-            is_elevated: false,
-          },
-          brokerRiskRows: [],
+          forecast,
+          concentration,
+          brokerRiskRows: brokers.map((b) => ({
+            broker_name: b.broker_name,
+            rating: riskByBroker.get(b.broker_name) ?? 'unrated',
+            collected_in_range: b.collected_in_range,
+            overdue_amount: b.overdue_amount,
+          })),
         })
-        filename = `overview_${dateRange.start_date}_to_${dateRange.end_date}.csv`
-        break
-      case 'aging':
-        csvContent = 'Bucket,Amount,Invoices\n'
-        aging.buckets.forEach((b) => {
-          csvContent += `${b.label},${b.amount},${b.invoice_count}\n`
-        })
-        filename = `ar_aging_${dateRange.end_date}.csv`
-        break
-      case 'cashflow':
-        csvContent = 'Month,Invoiced,Collected,Invoice Count,Payment Count\n'
-        cashFlow.forEach((row) => {
-          csvContent += `${row.month},${row.invoiced},${row.collected},${row.invoice_count},${row.payment_count}\n`
-        })
-        filename = `cash_flow_${dateRange.start_date}_to_${dateRange.end_date}.csv`
-        break
+      )
+      return
     }
-
-    const blob = new Blob([csvContent], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+    if (tab === 'brokers') {
+      downloadTextFile(
+        `credyx_brokers_${stamp}.csv`,
+        toCsv([
+          ['Broker', 'Risk', 'Open A/R', 'Share of A/R %', 'Overdue', 'Collected in range', 'Avg days to pay', 'Late payments', 'Terms (days)'],
+          ...sortedBrokers.map((b) => [
+            b.broker_name,
+            riskByBroker.get(b.broker_name) ?? 'unrated',
+            b.open_ar,
+            b.share_of_ar.toFixed(1),
+            b.overdue_amount,
+            b.collected_in_range,
+            b.avg_days_invoice_to_pay ?? '',
+            b.late_payment_count ?? 0,
+            b.payment_terms_days ?? '',
+          ]),
+        ])
+      )
+      return
+    }
+    if (tab === 'cash') {
+      downloadTextFile(
+        `credyx_cash_and_fees_${stamp}.csv`,
+        toCsv([
+          ['Section', 'Metric', 'Value'],
+          ['Period', 'Invoiced', summary.invoiced],
+          ['Period', 'Collected', summary.collected],
+          ['Fees', 'Gross collected', fees.gross_collected],
+          ['Fees', 'Credyx fees (estimated)', fees.fees],
+          ['Fees', 'Net to you', fees.net],
+          ['Fees', 'Collected on trial (fees waived)', fees.waived_gross],
+          ['Short pays', 'Short paid', shortPays.short_amount],
+          ['Short pays', 'Short paid invoices', shortPays.short_count],
+          ['Short pays', 'Written off', shortPays.written_off_amount],
+          ['Short pays', 'Overpaid', shortPays.over_amount],
+          ['Forecast', 'Expected next 7 days', forecast.next_7_days],
+          ['Forecast', 'Expected next 30 days', forecast.next_30_days],
+          ...cashFlow.map((m) => ['Monthly', `${m.month} invoiced`, m.invoiced]),
+          ...cashFlow.map((m) => ['Monthly', `${m.month} collected`, m.collected]),
+        ])
+      )
+    }
   }, [
-    selectedReportType,
+    tab,
+    dateRange,
     summary,
     aging,
-    cashFlow,
-    dateRange,
-    taxReport,
+    invoices,
+    payments,
     paymentLag,
-    collectionForecast,
+    forecast,
+    concentration,
+    brokers,
+    riskByBroker,
+    sortedBrokers,
+    fees,
+    shortPays,
+    cashFlow,
   ])
 
-  const reportTabs: { id: ReportType; label: string; icon: LucideIcon }[] = [
-    { id: 'overview', label: 'Overview', icon: BarChart3 },
-    { id: 'aging', label: 'A/R Aging', icon: Clock },
-    { id: 'cashflow', label: 'Cash Flow', icon: Wallet },
-  ]
+  const downloadStatementPdf = async () => {
+    setPdfBusy(true)
+    try {
+      await generateCarrierStatementPdf({
+        carrierName,
+        periodLabel: statementLabel,
+        startDate: statementRange.start_date,
+        endDate: statementRange.end_date,
+        summary: {
+          invoiced: statementSummary.invoiced,
+          invoiceCount: statementSummary.invoice_count,
+          collected: statementSummary.collected,
+          paymentCount: statementSummary.payment_count,
+          fees: statementFees.fees,
+          net: statementFees.net,
+          openAr: aging.total_ar,
+        },
+        feeNote: feeNote(statementFees),
+        byBroker: statementByBroker,
+        payments: statementPayments.map((p) => ({
+          date: p.received_date,
+          invoice: p.invoice_number,
+          broker: p.broker_name,
+          method: PAYMENT_METHOD_LABELS[p.payment_method] ?? p.payment_method,
+          amount: p.amount,
+        })),
+      })
+    } catch {
+      showToast('Could not create the PDF. Try again.', 'error')
+    } finally {
+      setPdfBusy(false)
+    }
+  }
 
-  const inputCompactStyle = {
-    backgroundColor: c.card,
-    height: 28,
-    paddingTop: 4,
-    paddingBottom: 4,
-    fontSize: 12,
-  } as const
+  const downloadStatementCsv = () =>
+    downloadTextFile(
+      `credyx_statement_${statementMonth}.csv`,
+      toCsv([
+        ['Statement', statementLabel],
+        ['Carrier', carrierName],
+        [],
+        ['Invoiced', statementSummary.invoiced],
+        ['Collected', statementSummary.collected],
+        ['Credyx fees (estimated)', statementFees.fees],
+        ['Net to you', statementFees.net],
+        [],
+        ['Date received', 'Invoice', 'Broker', 'Method', 'Amount'],
+        ...statementPayments.map((p) => [
+          p.received_date,
+          p.invoice_number,
+          p.broker_name,
+          PAYMENT_METHOD_LABELS[p.payment_method] ?? p.payment_method,
+          p.amount,
+        ]),
+      ])
+    )
 
-  const collectedTrend = pctChange(summary.collected, prevSummary.collected)
-  const dsoTrend =
-    summary.dso !== null && prevSummary.dso !== null
-      ? pctChange(summary.dso, prevSummary.dso)
-      : null
-  const overdueTrend = pctChange(aging.overdue_amount, prevAging.overdue_amount)
-  const collectionRateTrend = pctChange(summary.collection_rate, prevSummary.collection_rate)
-  const invoicedTrend = pctChange(summary.invoiced, prevSummary.invoiced)
-  const openArTrend = pctChange(aging.total_ar, prevAging.total_ar)
+  const downloadTaxCsv = () =>
+    downloadTextFile(
+      `credyx_1099_summary_${taxYear}.csv`,
+      toCsv([
+        ['Tax year', taxYear],
+        ['Gross collected', taxReport.gross_collected],
+        [],
+        ['Broker', 'Gross collected', 'Payments'],
+        ...taxReport.by_broker.map((b) => [b.broker_name, b.gross_collected, b.payment_count]),
+      ])
+    )
+
+  const downloadAllInvoices = () =>
+    downloadTextFile(
+      'credyx_all_invoices.csv',
+      toCsv([
+        ['Invoice', 'Load', 'Broker', 'Invoice date', 'Due date', 'Amount', 'Paid', 'Status', 'Batch'],
+        ...invoices.map((i) => [
+          i.invoice_number,
+          i.load_number ?? '',
+          i.broker_name,
+          i.invoice_date,
+          i.due_date ?? '',
+          i.amount,
+          i.paid_amount ?? '',
+          i.status,
+          i.batch_number ?? '',
+        ]),
+      ])
+    )
+
+  const downloadAllPayments = () =>
+    downloadTextFile(
+      'credyx_all_payments.csv',
+      toCsv([
+        ['Received', 'Invoice', 'Broker', 'Method', 'Reference', 'Amount', 'Status'],
+        ...payments.map((p) => [
+          p.received_date,
+          p.invoice_number,
+          p.broker_name,
+          PAYMENT_METHOD_LABELS[p.payment_method] ?? p.payment_method,
+          p.payment_reference ?? '',
+          p.amount,
+          p.status,
+        ]),
+      ])
+    )
+
+  const maxAging = Math.max(...aging.buckets.map((b) => b.amount), 1)
+  const topBrokers = brokers.filter((b) => b.open_ar > 0).slice(0, 5)
+  const maxTopBroker = Math.max(...topBrokers.map((b) => b.open_ar), 1)
+  const maxMethod = Math.max(...paymentMethods.map((m) => m.amount), 1)
+  const onTimeKnown = paymentLag.sample_size > 0
+
+  const sortHeader = (key: BrokerSortKey, label: string, align: 'left' | 'right' = 'right') => {
+    const active = brokerSort.key === key
+    return (
+      <th className={align === 'right' ? 'is-num' : undefined}>
+        <button
+          type="button"
+          className={`rpt-sort${active ? ' is-active' : ''}`}
+          onClick={() => toggleBrokerSort(key)}
+          aria-sort={active ? (brokerSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+        >
+          {label}
+          {active ? (
+            brokerSort.dir === 'asc' ? <ChevronUp size={13} aria-hidden /> : <ChevronDown size={13} aria-hidden />
+          ) : null}
+        </button>
+      </th>
+    )
+  }
 
   return (
-    <>
-      <div className="client-reports-page overflow-hidden flex flex-col min-h-0">
-        <div
-          className="client-reports-chrome shrink-0 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 px-4 py-2"
-          style={{ borderColor: c.border, backgroundColor: c.card }}
-        >
-          <div
-            className="client-segmented-control client-reports-segmented min-w-0"
-            role="tablist"
-            aria-label="Report type"
-          >
-            {reportTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={selectedReportType === tab.id}
-                onClick={() => setSelectedReportType(tab.id)}
-                className={`client-segmented-control__btn ${
-                  selectedReportType === tab.id ? 'client-segmented-control__btn--active' : ''
-                }`}
-              >
-                <tab.icon className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="client-reports-filters flex flex-wrap items-center gap-2 shrink-0">
-            <div className="client-reports-date-group">
-              <div
-                className="client-segmented-control client-reports-date-presets"
-                role="group"
-                aria-label="Date presets"
-              >
-                {(
-                  [
-                    { id: 'mtd' as const, label: 'MTD' },
-                    { id: '30d' as const, label: '30d' },
-                    { id: '90d' as const, label: '90d' },
-                    { id: 'ytd' as const, label: 'YTD' },
-                  ] as const
-                ).map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => applyPreset(preset.id)}
-                    className={`client-segmented-control__btn ${
-                      datePreset === preset.id ? 'client-segmented-control__btn--active' : ''
-                    }`}
-                    style={
-                      datePreset === preset.id
-                        ? { color: c.accent, backgroundColor: `${c.accent}14` }
-                        : undefined
-                    }
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-              <div className="client-reports-date-inputs">
-                <input
-                  type="date"
-                  value={dateRange.start_date}
-                  onChange={(e) => {
-                    setDatePreset('custom')
-                    setDateRange((prev) => ({ ...prev, start_date: e.target.value }))
-                  }}
-                  className="client-input client-reports-date-input"
-                  style={inputCompactStyle}
-                  aria-label="Start date"
-                />
-                <span className="text-[11px] font-medium" style={{ color: c.mutedLight }}>
-                  –
-                </span>
-                <input
-                  type="date"
-                  value={dateRange.end_date}
-                  onChange={(e) => {
-                    setDatePreset('custom')
-                    setDateRange((prev) => ({ ...prev, end_date: e.target.value }))
-                  }}
-                  className="client-input client-reports-date-input"
-                  style={inputCompactStyle}
-                  aria-label="End date"
-                />
-              </div>
-            </div>
+    <div className="client-reports-page rpt overflow-hidden flex flex-col min-h-0">
+      {/* Toolbar: report tabs, date range, export */}
+      <div className="rpt-toolbar shrink-0">
+        <div className="rpt-tabs" role="tablist" aria-label="Reports">
+          {REPORT_TABS.map((t) => (
             <button
+              key={t.id}
               type="button"
-              onClick={handleExportCSV}
-              className="dashboard-btn-secondary dashboard-btn-compact shrink-0"
+              role="tab"
+              aria-selected={tab === t.id}
+              className={`rpt-tab${tab === t.id ? ' is-active' : ''}`}
+              onClick={() => setTab(t.id)}
             >
-              <Download className="w-3.5 h-3.5" />
-              CSV
+              <t.icon size={15} aria-hidden />
+              {t.label}
             </button>
-          </div>
+          ))}
         </div>
 
-        <section
-          key={selectedReportType}
-          className="client-stat-strip client-reports-stat-strip grid grid-cols-2 lg:grid-cols-4 border-b shrink-0"
-          style={{ borderColor: c.border }}
-        >
-          {selectedReportType === 'overview' && (
-            <>
-              <StatStripCell
+        {tab !== 'statements' ? (
+          <div className="rpt-filters">
+            <div className="rpt-presets" role="group" aria-label="Date range">
+              {DATE_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`rpt-preset${datePreset === p.id ? ' is-active' : ''}`}
+                  aria-pressed={datePreset === p.id}
+                  onClick={() => applyPreset(p.id)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className={`rpt-dates${datePreset === 'custom' ? ' is-active' : ''}`}>
+              <input
+                type="date"
+                value={dateRange.start_date}
+                max={dateRange.end_date}
+                onChange={(e) => {
+                  setDatePreset('custom')
+                  setDateRange((prev) => ({ ...prev, start_date: e.target.value }))
+                }}
+                aria-label="Start date"
+              />
+              <span aria-hidden>–</span>
+              <input
+                type="date"
+                value={dateRange.end_date}
+                min={dateRange.start_date}
+                onChange={(e) => {
+                  setDatePreset('custom')
+                  setDateRange((prev) => ({ ...prev, end_date: e.target.value }))
+                }}
+                aria-label="End date"
+              />
+            </div>
+            <button type="button" className="rpt-btn" onClick={exportCurrentTab}>
+              <Download size={15} aria-hidden />
+              Export CSV
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      <div key={tab} className="rpt-body flex-1 min-h-0 overflow-y-auto">
+        {/* ───────── Overview ───────── */}
+        {tab === 'overview' && (
+          <>
+            <div className="rpt-kpis">
+              <Kpi
                 label="Collected"
                 value={formatCurrency(summary.collected)}
-                icon={TrendingUp}
-                accentColor={c.success}
-                trend={collectedTrend != null ? { pct: collectedTrend } : null}
+                trend={<Trend pct={pctChange(summary.collected, prevSummary.collected)} />}
+                sub={`${summary.payment_count} payments · ${rangeLabel}`}
               />
-              <StatStripCell
-                label="DSO"
-                value={summary.dso !== null ? `${summary.dso}d` : '—'}
-                icon={Clock}
-                accentColor={c.info}
-                trend={dsoTrend != null ? { pct: dsoTrend, invert: true } : null}
-              />
-              <StatStripCell
-                label="Overdue"
-                value={formatCurrency(aging.overdue_amount)}
-                icon={AlertTriangle}
-                accentColor={c.error}
-                trend={overdueTrend != null ? { pct: overdueTrend, invert: true } : null}
-              />
-              <StatStripCell
-                label="Collection rate"
-                value={`${summary.collection_rate.toFixed(0)}%`}
-                icon={BarChart3}
-                accentColor={c.warning}
-                trend={collectionRateTrend != null ? { pct: collectionRateTrend } : null}
-              />
-            </>
-          )}
-          {selectedReportType === 'aging' && (
-            <>
-              <StatStripCell
+              <Kpi
                 label="Open A/R"
                 value={formatCurrency(aging.total_ar)}
-                icon={DollarSign}
-                accentColor={c.info}
-                trend={openArTrend != null ? { pct: openArTrend, invert: true } : null}
+                sub={
+                  aging.overdue_amount > 0
+                    ? `${formatCurrency(aging.overdue_amount)} overdue · as of today`
+                    : `${aging.total_invoices} open invoices · as of today`
+                }
+                tone={aging.overdue_amount > 0 ? 'alert' : undefined}
               />
-              <StatStripCell
-                label="Open invoices"
-                value={String(aging.total_invoices)}
-                icon={FileText}
-                accentColor={c.secondary}
+              <Kpi
+                label="Expected next 30 days"
+                value={formatCurrency(forecast.next_30_days)}
+                sub={`${formatCurrency(forecast.next_7_days)} in the next 7 days`}
+                tone="accent"
               />
-              <StatStripCell
-                label="Overdue"
-                value={formatCurrency(aging.overdue_amount)}
-                icon={AlertTriangle}
-                accentColor={c.error}
-                trend={overdueTrend != null ? { pct: overdueTrend, invert: true } : null}
+              <Kpi
+                label="Avg days to get paid"
+                value={formatDays(avgDaysToPay)}
+                trend={
+                  avgDaysToPay != null && prevAvgDaysToPay != null ? (
+                    <Trend pct={pctChange(avgDaysToPay, prevAvgDaysToPay)} invert />
+                  ) : undefined
+                }
+                sub="Invoice date to payment"
               />
-              <StatStripCell
-                label="91+ days"
-                value={formatCurrency(aging.aging_ar.over_91)}
-                icon={Clock}
-                accentColor={c.warning}
-              />
-            </>
-          )}
-          {selectedReportType === 'cashflow' && (
-            <>
-              <StatStripCell
-                label="Invoiced"
-                value={formatCurrency(summary.invoiced)}
-                icon={FileText}
-                accentColor={c.info}
-                trend={invoicedTrend != null ? { pct: invoicedTrend } : null}
-              />
-              <StatStripCell
-                label="Collected"
-                value={formatCurrency(summary.collected)}
-                icon={DollarSign}
-                accentColor={c.success}
-                trend={collectedTrend != null ? { pct: collectedTrend } : null}
-              />
-              <StatStripCell
-                label="Expected 7d"
-                value={formatCurrency(collectionForecast.next_7_days)}
-                icon={TrendingUp}
-                accentColor={c.warning}
-              />
-              <StatStripCell
-                label="Expected 30d"
-                value={formatCurrency(collectionForecast.next_30_days)}
-                icon={Wallet}
-                accentColor={c.secondary}
-              />
-            </>
-          )}
-        </section>
-
-        <div key={`body-${selectedReportType}`} className="client-reports-body flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
-          {selectedReportType === 'overview' && (
-            <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-              <ReportPanel span={7} enterIndex={0}>
-                <DashboardPanel
-                  title="Cash flow trend"
-                  icon={TrendingUp}
-                  iconTone="blue"
-                  compact
-                  interactive={false}
-                  className="client-reports-panel-card"
-                >
-                  <CashFlowChart data={cashFlow} compact />
-                </DashboardPanel>
-              </ReportPanel>
-
-              <ReportPanel span={5} enterIndex={1}>
-                <DashboardPanel
-                  title="Expected collections"
-                  icon={Wallet}
-                  iconTone="green"
-                  compact
-                  interactive
-                  actionLabel="Cash flow"
-                  onAction={() => setSelectedReportType('cashflow')}
-                  className="client-reports-panel-card"
-                >
-                  <CollectionsPeriodRing
-                    collected={summary.collected}
-                    outstanding={periodOutstanding}
-                    compact
-                  />
-                </DashboardPanel>
-              </ReportPanel>
-
-              <ReportPanel span={6} enterIndex={2}>
-                <DashboardPanel
-                  title="Collections effectiveness"
-                  icon={BarChart3}
-                  iconTone="blue"
-                  compact
-                  interactive
-                  actionLabel="Collections"
-                  onAction={() => navigate('/client/collections')}
-                  className="client-reports-panel-card"
-                >
-                  <div className="p-3 space-y-3">
-                    <p className="text-[11px]" style={{ color: c.secondary }}>
-                      {formatDate(dateRange.start_date)} – {formatDate(dateRange.end_date)}
-                    </p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      <MiniKpi label="Invoiced" value={formatCurrency(summary.invoiced)} />
-                      <MiniKpi label="Collected" value={formatCurrency(summary.collected)} accent={c.success} />
-                      <MiniKpi
-                        label="Outstanding"
-                        value={formatCurrency(periodOutstanding)}
-                        accent={c.warning}
-                      />
-                      <MiniKpi label="DSO" value={summary.dso !== null ? `${summary.dso} days` : '—'} />
-                      <MiniKpi
-                        label="On-time pay"
-                        value={paymentLag.sample_size > 0 ? `${paymentLag.on_time_pct.toFixed(0)}%` : '—'}
-                        accent={c.success}
-                      />
-                      <MiniKpi
-                        label="Late pay"
-                        value={paymentLag.sample_size > 0 ? `${paymentLag.late_pct.toFixed(0)}%` : '—'}
-                        accent={paymentLag.late_pct > 30 ? c.error : c.secondary}
-                      />
-                    </div>
-                    <CollectionsColumnChart data={collectionsByMonth} />
-                  </div>
-                </DashboardPanel>
-              </ReportPanel>
-
-              <ReportPanel span={6} enterIndex={3}>
-                <DashboardPanel
-                  title="A/R aging snapshot"
-                  icon={Clock}
-                  iconTone="amber"
-                  compact
-                  interactive
-                  actionLabel="Full aging"
-                  onAction={() => setSelectedReportType('aging')}
-                  className="client-reports-panel-card"
-                >
-                  <AgingARChart aging={aging.aging_ar} compact />
-                  <div className="px-3 pb-3 space-y-1.5 border-t" style={{ borderColor: c.border }}>
-                    {aging.buckets.map((bucket, i) => (
-                      <ReportBarRow
-                        key={bucket.id}
-                        label={bucket.label}
-                        value={bucket.amount}
-                        max={maxAgingAmount}
-                        color={bucketColors[i % bucketColors.length]}
-                        display={formatCurrency(bucket.amount)}
-                        sub={`${bucket.invoice_count} invoice${bucket.invoice_count !== 1 ? 's' : ''}`}
-                      />
-                    ))}
-                  </div>
-                </DashboardPanel>
-              </ReportPanel>
-
-              <ReportPanel span={6} enterIndex={4}>
-                <DashboardPanel
-                  title="Processing health"
-                  icon={Activity}
-                  iconTone="cyan"
-                  compact
-                  interactive={false}
-                  className="client-reports-panel-card"
-                >
-                  <div className="p-3 space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <MiniKpi label="Approval rate" value={`${pipeline.approval_rate.toFixed(0)}%`} />
-                      <MiniKpi
-                        label="Avg approve"
-                        value={pipeline.avg_days_to_approve !== null ? `${pipeline.avg_days_to_approve}d` : '—'}
-                      />
-                      <MiniKpi label="On hold" value={String(pipeline.on_hold)} accent={pipeline.on_hold > 0 ? c.warning : undefined} />
-                      <MiniKpi
-                        label="Open disputes"
-                        value={String(pipeline.open_dispute_count)}
-                        accent={pipeline.open_dispute_count > 0 ? c.error : undefined}
-                      />
-                    </div>
-                    <SubmissionFunnelBar pipeline={pipeline} />
-                    <button
-                      type="button"
-                      onClick={() => navigate('/client/invoices')}
-                      className="dashboard-btn-secondary dashboard-btn-compact w-full justify-center"
-                    >
-                      Invoice queue
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </DashboardPanel>
-              </ReportPanel>
-
-              <ReportPanel span={6} enterIndex={5}>
-                <DashboardPanel
-                  title="Tax & revenue (1099)"
-                  icon={Receipt}
-                  iconTone="slate"
-                  compact
-                  interactive={false}
-                  className="client-reports-panel-card"
-                >
-                  <div className="p-3 space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <MiniKpi label="Gross collected" value={formatCurrency(taxReport.gross_collected)} accent={c.success} />
-                      <MiniKpi label="Payments" value={String(taxReport.payment_count)} />
-                      <MiniKpi label="Invoiced" value={formatCurrency(taxReport.invoiced_in_period)} />
-                      <MiniKpi
-                        label="Still outstanding"
-                        value={formatCurrency(taxReport.outstanding_from_period)}
-                        accent={c.warning}
-                      />
-                    </div>
-                    {taxReport.by_broker.length > 0 ? (
-                      <div className="space-y-2 pt-1 border-t" style={{ borderColor: c.border }}>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: c.secondary }}>
-                          By broker (1099 reference)
-                        </p>
-                        {taxReport.by_broker.slice(0, 6).map((row, i) => (
-                          <ReportBarRow
-                            key={row.broker_name}
-                            label={row.broker_name}
-                            value={row.gross_collected}
-                            max={taxReport.by_broker[0]?.gross_collected ?? 1}
-                            color={bucketColors[i % bucketColors.length]}
-                            display={formatCurrency(row.gross_collected)}
-                            sub={`${row.payment_count} payment${row.payment_count !== 1 ? 's' : ''}`}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-center py-2" style={{ color: c.secondary }}>
-                        No collections in this period for tax reporting
-                      </p>
-                    )}
-                    <p className="text-[10px] leading-snug" style={{ color: c.mutedLight }}>
-                      Summary of freight revenue collected in the selected period. Export CSV or share with your accountant for 1099 / tax prep.
-                    </p>
-                  </div>
-                </DashboardPanel>
-              </ReportPanel>
             </div>
-          )}
 
-          {selectedReportType === 'aging' && (
-            <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-              <ReportPanel span={6} enterIndex={0}>
-                <DashboardPanel
-                  title="A/R distribution"
-                  icon={BarChart3}
-                  iconTone="amber"
-                  compact
-                  interactive
-                  actionLabel="View invoices"
-                  onAction={() => navigate('/client/aging-ar')}
-                  className="client-reports-panel-card"
-                >
-                  <AgingARChart aging={aging.aging_ar} compact />
-                </DashboardPanel>
-              </ReportPanel>
-              <ReportPanel span={6} enterIndex={1}>
-                <DashboardPanel
-                  title="Bucket detail"
-                  icon={Clock}
-                  iconTone="blue"
-                  compact
-                  interactive={false}
-                  className="client-reports-panel-card"
-                >
-                  <div className="p-3 space-y-2.5">
-                    {aging.buckets.map((bucket, i) => (
-                      <ReportBarRow
+            <Card title="What stands out" scope="Selected dates" className="rpt-insights-card">
+              {insights.length === 0 ? (
+                <div className="rpt-insight is-success">
+                  <CheckCircle2 size={18} aria-hidden />
+                  <div>
+                    <p className="rpt-insight__title">Nothing needs your attention</p>
+                    <p className="rpt-insight__body">No overdue balances, disputes or unusual payment delays.</p>
+                  </div>
+                </div>
+              ) : (
+                <ul className="rpt-insights">
+                  {insights.map((insight) => {
+                    const Icon = INSIGHT_ICONS[insight.tone]
+                    return (
+                      <li key={insight.id} className={`rpt-insight is-${insight.tone}`}>
+                        <Icon size={18} aria-hidden />
+                        <div>
+                          <p className="rpt-insight__title">{insight.title}</p>
+                          <p className="rpt-insight__body">{insight.body}</p>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </Card>
+
+            <div className="rpt-grid">
+              <Card title="Invoiced vs collected" scope="Last 6 months" className="rpt-span-7">
+                <CashFlowChart data={cashFlow} compact />
+              </Card>
+              <Card
+                title="A/R aging"
+                scope="As of today"
+                className="rpt-span-5"
+                action={{ label: 'Aging A/R', onClick: () => navigate('/client/aging-ar') }}
+              >
+                {aging.total_ar <= 0 ? (
+                  <Empty>No open receivables.</Empty>
+                ) : (
+                  <div className="rpt-bars">
+                    {aging.buckets.map((bucket) => (
+                      <BarRow
                         key={bucket.id}
                         label={`${bucket.label} days`}
                         value={bucket.amount}
-                        max={maxAgingAmount}
-                        color={bucketColors[i % bucketColors.length]}
+                        max={maxAging}
                         display={formatCurrency(bucket.amount)}
-                        sub={`${bucket.invoice_count} invoice${bucket.invoice_count !== 1 ? 's' : ''} · ${aging.total_ar > 0 ? ((bucket.amount / aging.total_ar) * 100).toFixed(0) : 0}% of open A/R`}
+                        sub={`${bucket.invoice_count} invoice${bucket.invoice_count === 1 ? '' : 's'}`}
+                        tone={bucket.amount > 0 && bucket.id !== '0_15' && bucket.id !== '16_30' ? 'alert' : undefined}
                       />
                     ))}
                   </div>
-                </DashboardPanel>
-              </ReportPanel>
-            </div>
-          )}
+                )}
+              </Card>
 
-          {selectedReportType === 'cashflow' && (
-            <div className="client-reports-grid grid grid-cols-1 lg:grid-cols-12 gap-3 w-full">
-              <ReportPanel span={6} enterIndex={0}>
-                <DashboardPanel
-                  title="Cash flow"
-                  icon={TrendingUp}
-                  iconTone="blue"
-                  compact
-                  interactive={false}
-                  className="client-reports-panel-card"
-                >
-                  <CashFlowChart data={cashFlow} compact />
-                </DashboardPanel>
-              </ReportPanel>
-              <ReportPanel span={6} enterIndex={1}>
-                <DashboardPanel
-                  title="Collection forecast"
-                  icon={Wallet}
-                  iconTone="green"
-                  compact
-                  interactive={false}
-                  className="client-reports-panel-card"
-                >
-                  <CashCollectionForecast
-                    invoices={clientInvoices}
-                    payments={clientPayments}
-                    compact
-                  />
-                </DashboardPanel>
-              </ReportPanel>
-              <ReportPanel span={12} enterIndex={2}>
-                <DashboardPanel
-                  title="Payment behavior"
-                  icon={DollarSign}
-                  iconTone="purple"
-                  compact
-                  interactive={false}
-                  className="client-reports-panel-card"
-                >
-                  <div className="p-3 space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <MiniKpi
-                        label="On-time"
-                        value={paymentLag.sample_size > 0 ? `${paymentLag.on_time_pct.toFixed(0)}%` : '—'}
-                        accent={c.success}
+              <Card
+                title="Top brokers by open A/R"
+                scope="As of today"
+                className="rpt-span-6"
+                action={{ label: 'All brokers', onClick: () => setTab('brokers') }}
+              >
+                {topBrokers.length === 0 ? (
+                  <Empty>No open balances with brokers.</Empty>
+                ) : (
+                  <div className="rpt-bars">
+                    {topBrokers.map((b) => (
+                      <BarRow
+                        key={b.broker_name}
+                        label={b.broker_name}
+                        value={b.open_ar}
+                        max={maxTopBroker}
+                        display={formatCurrency(b.open_ar)}
+                        sub={`${b.share_of_ar.toFixed(0)}% of open A/R${
+                          b.overdue_amount > 0 ? ` · ${formatCurrency(b.overdue_amount)} overdue` : ''
+                        }`}
                       />
-                      <MiniKpi
-                        label="Late"
-                        value={paymentLag.sample_size > 0 ? `${paymentLag.late_pct.toFixed(0)}%` : '—'}
-                        accent={c.error}
-                      />
-                    </div>
-                    {paymentMethods.length === 0 ? (
-                      <p className="text-xs text-center py-3" style={{ color: c.secondary }}>
-                        No payments in range
-                      </p>
-                    ) : (
-                      paymentMethods.map((method) => (
-                        <ReportBarRow
-                          key={method.method}
-                          label={method.method}
-                          value={method.amount}
-                          max={maxMethodAmount}
-                          color={c.info}
-                          display={formatCurrency(method.amount)}
-                          sub={`${method.count} pmt`}
-                        />
-                      ))
-                    )}
+                    ))}
                   </div>
-                </DashboardPanel>
-              </ReportPanel>
-              <ReportPanel span={12} enterIndex={3}>
-                <DashboardPanel
-                  title="Collections trend"
-                  icon={Activity}
-                  iconTone="cyan"
-                  compact
-                  interactive={false}
-                  className="client-reports-panel-card"
-                >
-                  <PaymentTrendsChart
-                    payments={clientPayments}
-                    invoices={clientInvoices}
-                    compact
-                  />
-                </DashboardPanel>
-              </ReportPanel>
+                )}
+              </Card>
+
+              <Card
+                title="Paperwork speed"
+                scope="Selected dates"
+                className="rpt-span-6"
+                action={{ label: 'Invoices', onClick: () => navigate('/client/invoices') }}
+              >
+                <div className="rpt-stats">
+                  <div className="rpt-stat">
+                    <span className="rpt-stat__value">{paperwork.submitted}</span>
+                    <span className="rpt-stat__label">Invoices submitted</span>
+                  </div>
+                  <div className="rpt-stat">
+                    <span className="rpt-stat__value">{formatDays(paperwork.avg_days_to_verify)}</span>
+                    <span className="rpt-stat__label">To verify</span>
+                  </div>
+                  <div className="rpt-stat">
+                    <span className="rpt-stat__value">{formatDays(paperwork.avg_days_to_send)}</span>
+                    <span className="rpt-stat__label">To send to broker</span>
+                  </div>
+                </div>
+                <div className="rpt-subhead">
+                  Most common hold reasons
+                  {paperwork.on_hold_now > 0 ? (
+                    <span className="rpt-pill is-alert">{paperwork.on_hold_now} on hold now</span>
+                  ) : null}
+                </div>
+                {paperwork.hold_reasons.length === 0 ? (
+                  <Empty>No holds in this period.</Empty>
+                ) : (
+                  <ul className="rpt-list">
+                    {paperwork.hold_reasons.map((r) => (
+                      <li key={r.reason}>
+                        <span>{r.reason}</span>
+                        <span className="rpt-list__num">{r.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
             </div>
-          )}
-        </div>
+          </>
+        )}
+
+        {/* ───────── Brokers ───────── */}
+        {tab === 'brokers' && (
+          <>
+            <div className="rpt-kpis">
+              <Kpi label="Brokers" value={String(brokers.length)} sub="With open A/R or activity in range" />
+              <Kpi
+                label="Largest broker share"
+                value={concentration.top_broker_name ? `${concentration.top_broker_pct.toFixed(0)}%` : '—'}
+                sub={concentration.top_broker_name ?? 'No open A/R'}
+                tone={concentration.is_elevated ? 'alert' : undefined}
+              />
+              <Kpi
+                label="Top 3 brokers"
+                value={concentration.top_broker_name ? `${concentration.top3_pct.toFixed(0)}%` : '—'}
+                sub="Share of open A/R"
+              />
+              <Kpi
+                label="Brokers with overdue"
+                value={String(brokers.filter((b) => b.overdue_amount > 0).length)}
+                sub={formatCurrency(aging.overdue_amount)}
+                tone={aging.overdue_amount > 0 ? 'alert' : undefined}
+              />
+            </div>
+
+            {concentration.is_elevated && concentration.top_broker_name ? (
+              <div className="rpt-notice">
+                <AlertCircle size={18} aria-hidden />
+                <p>
+                  <strong>{concentration.top_broker_name}</strong> holds{' '}
+                  {concentration.top_broker_pct.toFixed(0)}% of your open A/R. If they pay late, a large share
+                  of your cash is delayed. Consider spreading loads across more brokers.
+                </p>
+              </div>
+            ) : null}
+
+            <Card title="Broker performance" scope="Open A/R as of today · collected in selected dates">
+              {sortedBrokers.length === 0 ? (
+                <Empty>No broker activity in this period.</Empty>
+              ) : (
+                <div className="rpt-table-wrap">
+                  <table className="rpt-table">
+                    <thead>
+                      <tr>
+                        {sortHeader('broker_name', 'Broker', 'left')}
+                        {sortHeader('open_ar', 'Open A/R')}
+                        {sortHeader('overdue_amount', 'Overdue')}
+                        {sortHeader('collected_in_range', 'Collected')}
+                        {sortHeader('avg_days_invoice_to_pay', 'Days to pay')}
+                        {sortHeader('late_payment_count', 'Late pays')}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedBrokers.map((b) => {
+                        const risk = riskByBroker.get(b.broker_name) ?? 'unrated'
+                        return (
+                          <tr key={b.broker_name} onClick={() => openBroker(b)} tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') openBroker(b)
+                            }}
+                          >
+                            <td>
+                              <span className="rpt-table__main">{b.broker_name}</span>
+                              <span className="rpt-table__sub">
+                                {risk === 'medium' || risk === 'high' ? (
+                                  <BrokerRiskLevelChip level={risk} size="sm" />
+                                ) : b.payment_terms_days ? (
+                                  `Net ${b.payment_terms_days} terms`
+                                ) : (
+                                  'Terms not on file'
+                                )}
+                              </span>
+                            </td>
+                            <td className="is-num">
+                              <span className="rpt-table__main">{formatCurrency(b.open_ar)}</span>
+                              <span className="rpt-table__sub">{b.share_of_ar.toFixed(0)}% of A/R</span>
+                            </td>
+                            <td className={`is-num${b.overdue_amount > 0 ? ' is-alert' : ''}`}>
+                              {b.overdue_amount > 0 ? formatCurrency(b.overdue_amount) : '—'}
+                            </td>
+                            <td className="is-num">{formatCurrency(b.collected_in_range)}</td>
+                            <td className="is-num">{formatDays(b.avg_days_invoice_to_pay ?? null)}</td>
+                            <td className={`is-num${(b.late_payment_count ?? 0) > 0 ? ' is-alert' : ''}`}>
+                              {b.late_payment_count ?? 0}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </>
+        )}
+
+        {/* ───────── Cash & fees ───────── */}
+        {tab === 'cash' && (
+          <>
+            <div className="rpt-kpis">
+              <Kpi
+                label="Invoiced"
+                value={formatCurrency(summary.invoiced)}
+                trend={<Trend pct={pctChange(summary.invoiced, prevSummary.invoiced)} />}
+                sub={`${summary.invoice_count} invoices`}
+              />
+              <Kpi
+                label="Collected"
+                value={formatCurrency(summary.collected)}
+                trend={<Trend pct={pctChange(summary.collected, prevSummary.collected)} />}
+                sub={`${summary.payment_count} payments`}
+              />
+              <Kpi
+                label="Credyx fees"
+                value={formatCurrency(fees.fees)}
+                trend={<Trend pct={pctChange(fees.fees, prevFees.fees)} invert />}
+                sub="Estimated"
+              />
+              <Kpi label="Net to you" value={formatCurrency(fees.net)} sub="Collected minus fees" tone="accent" />
+            </div>
+
+            <div className="rpt-grid">
+              <Card title="Invoiced vs collected" scope="Last 6 months" className="rpt-span-7">
+                <CashFlowChart data={cashFlow} compact />
+              </Card>
+              <Card title="Expected collections" scope="Next 30 days" className="rpt-span-5 rpt-card--flush">
+                <CashCollectionForecast invoices={invoices} payments={payments} compact />
+              </Card>
+
+              <Card title="Fees & net" scope="Selected dates" className="rpt-span-6">
+                <dl className="rpt-ledger">
+                  <div>
+                    <dt>Gross collected</dt>
+                    <dd>{formatCurrency(fees.gross_collected)}</dd>
+                  </div>
+                  <div>
+                    <dt>Credyx fees</dt>
+                    <dd>− {formatCurrency(fees.fees)}</dd>
+                  </div>
+                  <div className="is-total">
+                    <dt>Net to you</dt>
+                    <dd>{formatCurrency(fees.net)}</dd>
+                  </div>
+                </dl>
+                {fees.waived_gross > 0 ? (
+                  <p className="rpt-note">
+                    {formatCurrency(fees.waived_gross)} was collected on trial invoices, so no fees were charged.
+                  </p>
+                ) : null}
+                {fees.unknown_terms_gross > 0 ? (
+                  <p className="rpt-note">
+                    {formatCurrency(fees.unknown_terms_gross)} has no fee terms on file and is not included in fees.
+                  </p>
+                ) : null}
+                <p className="rpt-note">{feeNote(fees)}. Your monthly Credyx invoice is the final amount.</p>
+              </Card>
+
+              <Card title="How brokers paid" scope="Selected dates" className="rpt-span-6">
+                {onTimeKnown ? (
+                  <div className="rpt-split" aria-label="On-time versus late payments">
+                    <div className="rpt-split__bar">
+                      <span className="is-good" style={{ width: `${paymentLag.on_time_pct}%` }} />
+                      <span className="is-bad" style={{ width: `${paymentLag.late_pct}%` }} />
+                    </div>
+                    <div className="rpt-split__legend">
+                      <span>
+                        <i className="is-good" aria-hidden /> On time {paymentLag.on_time_pct.toFixed(0)}%
+                      </span>
+                      <span>
+                        <i className="is-bad" aria-hidden /> Late {paymentLag.late_pct.toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+                {paymentMethods.length === 0 ? (
+                  <Empty>No payments received in this period.</Empty>
+                ) : (
+                  <div className="rpt-bars">
+                    {paymentMethods.map((m) => (
+                      <BarRow
+                        key={m.method}
+                        label={m.method}
+                        value={m.amount}
+                        max={maxMethod}
+                        display={formatCurrency(m.amount)}
+                        sub={`${m.count} payment${m.count === 1 ? '' : 's'}`}
+                      />
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              <Card
+                title="Short pays & disputes"
+                scope="Selected dates · disputes as of today"
+                className="rpt-span-12"
+                action={{ label: 'Pay variances', onClick: () => navigate('/client/short-payments') }}
+              >
+                <div className="rpt-stats rpt-stats--4">
+                  <div className={`rpt-stat${shortPays.short_amount > 0 ? ' is-alert' : ''}`}>
+                    <span className="rpt-stat__value">{formatCurrency(shortPays.short_amount)}</span>
+                    <span className="rpt-stat__label">
+                      Short paid · {shortPays.short_count} invoice{shortPays.short_count === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <div className="rpt-stat">
+                    <span className="rpt-stat__value">{formatCurrency(shortPays.written_off_amount)}</span>
+                    <span className="rpt-stat__label">Written off · {shortPays.written_off_count}</span>
+                  </div>
+                  <div className="rpt-stat">
+                    <span className="rpt-stat__value">{formatCurrency(shortPays.over_amount)}</span>
+                    <span className="rpt-stat__label">Overpaid · {shortPays.over_count}</span>
+                  </div>
+                  <div className={`rpt-stat${shortPays.open_disputes > 0 ? ' is-alert' : ''}`}>
+                    <span className="rpt-stat__value">{shortPays.open_disputes}</span>
+                    <span className="rpt-stat__label">Open disputes</span>
+                  </div>
+                </div>
+                {shortPays.by_broker.length > 0 ? (
+                  <>
+                    <div className="rpt-subhead">Brokers that short-paid</div>
+                    <ul className="rpt-list">
+                      {shortPays.by_broker.slice(0, 5).map((b) => (
+                        <li key={b.broker_name}>
+                          <span>{b.broker_name}</span>
+                          <span className="rpt-list__num">
+                            {formatCurrency(b.short_amount)} · {b.short_count}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </Card>
+            </div>
+          </>
+        )}
+
+        {/* ───────── Statements ───────── */}
+        {tab === 'statements' && (
+          <div className="rpt-grid">
+            <Card title="Monthly statement" className="rpt-span-7">
+              <label className="rpt-field">
+                <span>Month</span>
+                <select value={statementMonth} onChange={(e) => setStatementMonth(e.target.value)}>
+                  {months.map((m) => (
+                    <option key={m.key} value={m.key}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <dl className="rpt-ledger">
+                <div>
+                  <dt>Invoiced · {statementSummary.invoice_count} invoices</dt>
+                  <dd>{formatCurrency(statementSummary.invoiced)}</dd>
+                </div>
+                <div>
+                  <dt>Collected · {statementSummary.payment_count} payments</dt>
+                  <dd>{formatCurrency(statementSummary.collected)}</dd>
+                </div>
+                <div>
+                  <dt>Credyx fees (estimated)</dt>
+                  <dd>− {formatCurrency(statementFees.fees)}</dd>
+                </div>
+                <div className="is-total">
+                  <dt>Net to you</dt>
+                  <dd>{formatCurrency(statementFees.net)}</dd>
+                </div>
+              </dl>
+              <p className="rpt-note">
+                Includes a breakdown by broker and every payment received in {statementLabel}.
+              </p>
+              <div className="rpt-actions">
+                <button type="button" className="rpt-btn is-primary" onClick={downloadStatementPdf} disabled={pdfBusy}>
+                  <FileText size={15} aria-hidden />
+                  {pdfBusy ? 'Preparing PDF…' : 'Download PDF'}
+                </button>
+                <button type="button" className="rpt-btn" onClick={downloadStatementCsv}>
+                  <FileSpreadsheet size={15} aria-hidden />
+                  CSV
+                </button>
+              </div>
+            </Card>
+
+            <Card title="Tax summary (1099 reference)" className="rpt-span-5">
+              <label className="rpt-field">
+                <span>Tax year</span>
+                <select value={taxYear} onChange={(e) => setTaxYear(Number(e.target.value))}>
+                  {years.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="rpt-hero-num">
+                <span className="rpt-hero-num__label">Gross freight revenue collected</span>
+                <span className="rpt-hero-num__value">{formatCurrency(taxReport.gross_collected)}</span>
+                <span className="rpt-hero-num__sub">{taxReport.payment_count} payments in {taxYear}</span>
+              </div>
+              {taxReport.by_broker.length === 0 ? (
+                <Empty>No payments received in {taxYear}.</Empty>
+              ) : (
+                <ul className="rpt-list">
+                  {taxReport.by_broker.slice(0, 6).map((b) => (
+                    <li key={b.broker_name}>
+                      <span>{b.broker_name}</span>
+                      <span className="rpt-list__num">{formatCurrency(b.gross_collected)}</span>
+                    </li>
+                  ))}
+                  {taxReport.by_broker.length > 6 ? (
+                    <li className="rpt-list__more">+ {taxReport.by_broker.length - 6} more in the CSV</li>
+                  ) : null}
+                </ul>
+              )}
+              <div className="rpt-actions">
+                <button type="button" className="rpt-btn" onClick={downloadTaxCsv}>
+                  <Landmark size={15} aria-hidden />
+                  Download for your accountant
+                </button>
+              </div>
+            </Card>
+
+            <Card title="Data exports" className="rpt-span-12">
+              <div className="rpt-exports">
+                <button type="button" className="rpt-export" onClick={downloadAllInvoices}>
+                  <FileSpreadsheet size={20} aria-hidden />
+                  <span>
+                    <strong>All invoices</strong>
+                    <small>{invoices.length} rows · amount, broker, status, due date</small>
+                  </span>
+                  <Download size={16} aria-hidden />
+                </button>
+                <button type="button" className="rpt-export" onClick={downloadAllPayments}>
+                  <FileSpreadsheet size={20} aria-hidden />
+                  <span>
+                    <strong>All payments</strong>
+                    <small>{payments.length} rows · date, broker, method, reference</small>
+                  </span>
+                  <Download size={16} aria-hidden />
+                </button>
+              </div>
+            </Card>
+          </div>
+        )}
       </div>
-    </>
+    </div>
   )
 }

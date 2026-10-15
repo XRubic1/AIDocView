@@ -2,10 +2,11 @@ import { reviewResultFromFingerprint } from '../products/docSort/utils/docExtrac
 import type { DocSortFingerprint } from '../products/docSort/types'
 import type { DocumentReviewResult, ExtractedDocumentData } from '../types/documentReview'
 
+/** Saved snapshot docs; `confidence` is missing on snapshots written before it was persisted. */
 type CatalogDoc = Pick<
   DocSortFingerprint,
-  'docId' | 'fileName' | 'kind' | 'confidence' | 'loadNumbers' | 'broker' | 'extract'
->
+  'docId' | 'fileName' | 'kind' | 'loadNumbers' | 'broker' | 'extract'
+> & { confidence?: number }
 
 /** BOL / support files are attached without a field read. Keep them on the packet. */
 function unextractedAttachment(saved: CatalogDoc): ExtractedDocumentData | null {

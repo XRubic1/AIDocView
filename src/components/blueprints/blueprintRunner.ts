@@ -14,7 +14,6 @@ import { findBestMatchingBlueprint, scoreBlueprintForEvent, type BlueprintMatchE
 import { blueprintPriority } from '../../types/blueprintGraph'
 import {
   formatCatalogCardLine,
-  lookupActionById,
   lookupWaitUntilById,
 } from './blueprintCatalog'
 import {
@@ -46,6 +45,14 @@ import { BROKER_CONFIRMED_NOTE } from '../../../supabase/functions/_shared/stand
 import { resolveBlueprintWaitUntil } from './blueprintWaitUntil'
 import { notifyTenantDataUpdated } from '../../services/supabase/tenantDataLiveSync'
 import { whenNodePasses } from './blueprintWhenMatch'
+import { getActiveStageConfig } from './blueprintStagesConfig'
+import {
+  HOLD_PAUSE_PREFIX,
+  planInvoiceStage,
+  stageBlueprintIds,
+  stepBeforeHoldPause,
+  type InvoiceStageFacts,
+} from '../../../supabase/functions/_shared/invoiceStages'
 
 export type BlueprintRunnerLog = {
   invoiceId: string
@@ -464,7 +471,7 @@ export async function advanceInvoiceRun(
       const next = nextAfterWhen(current.id, bp.nodes, bp.edges, ok)
       if (!ok) {
         if (options?.skipWaits) {
-          const forced = nextNodes(current.id, bp.nodes, bp.edges)[0] ?? null
+          const forced: BlueprintFlowNode | null = nextNodes(current.id, bp.nodes, bp.edges)[0] ?? null
           details.push(
             `When not matched — continued (${current.data.label || 'When'})`
           )
@@ -748,6 +755,12 @@ async function continueMappedBlueprint(
   visited.add(finishedBlueprintId)
   const nextId = nextBlueprintAfter(finishedBlueprintId)
   if (!nextId || visited.has(nextId)) return null
+  // Stages on: the invoice's stage picks between stage blueprints, not "then start".
+  const stages = getActiveStageConfig()
+  if (stages) {
+    const managed = stageBlueprintIds(stages)
+    if (managed.has(finishedBlueprintId) && managed.has(nextId)) return null
+  }
   const next = getSavedBlueprint(nextId)
   if (!next) return null
   const start = next.nodes.find((node) => node.data.kind === 'trigger')
@@ -928,6 +941,9 @@ export async function startPaymentChaseAfterConfirm(invoiceId: string): Promise<
       visibility: 'internal',
     })
   }
+  // Stages on: paperwork is now good, so the Payment stage blueprint takes over.
+  const staged = await routeInvoiceByStage(invoiceId, 'broker confirmed')
+  if (staged) return staged
   const bp = paymentChaseBlueprint()
   if (!bp) return { invoiceId, ok: false, detail: 'No payment chase blueprint.' }
   const existing = getPrimaryRunForInvoice(invoice)
@@ -1102,6 +1118,145 @@ export async function enrollForEvent(
   })
 }
 
+function stageFactsOf(invoice: Invoice): InvoiceStageFacts {
+  return {
+    status: invoice.status,
+    paperworkStatus: invoice.email_lifecycle?.paperwork_status ?? null,
+    ppwSent: hasPpwBeenSent(invoice),
+  }
+}
+
+/**
+ * Stages on (Blueprints → Stages): put the invoice on its stage's blueprint.
+ * A hold pauses the other stage chase; removing it resumes (or restarts) that chase,
+ * or moves on to Payment when paperwork was confirmed meanwhile.
+ * Returns null when stages are off so callers keep the older matching.
+ * Same plan as the server cron (supabase/functions/_shared/invoiceStages.ts).
+ */
+export async function routeInvoiceByStage(
+  invoiceId: string,
+  reason: string
+): Promise<BlueprintRunnerLog | null> {
+  const config = getActiveStageConfig()
+  if (!config) return null
+  if (!isBlueprintsRunnerEnabled()) {
+    return { invoiceId, ok: false, detail: 'Blueprint runner is off.' }
+  }
+  // A step inside a running route can change the stage (e.g. packet sent → paperwork).
+  // Wait for that route to finish, then route again instead of dropping this call.
+  for (let tries = 0; tries < 5 && enrollInFlight.has(invoiceId); tries += 1) {
+    await enrollInFlight.get(invoiceId)?.catch(() => undefined)
+  }
+
+  return withInvoiceEnrollLock(invoiceId, async () => {
+    const invoice = getInvoiceById(invoiceId)
+    if (!invoice) return { invoiceId, ok: false, detail: 'Invoice not found.' }
+    const rows = listBlueprintRuns().filter(
+      (r) => r.subject === 'invoice' && r.subjectId === invoiceId
+    )
+    const rowById = new Map(rows.map((r) => [r.id, r]))
+    const plan = planInvoiceStage(
+      stageFactsOf(invoice),
+      rows.map((r) => ({
+        id: r.id,
+        blueprintId: r.blueprintId,
+        status: r.status,
+        currentStep: r.currentStep,
+      })),
+      config
+    )
+    const notes: string[] = []
+
+    for (const { id } of plan.pause) {
+      const row = rowById.get(id)
+      if (!row) continue
+      upsertBlueprintRun(
+        { ...row, status: 'paused', currentStep: `${HOLD_PAUSE_PREFIX}${row.currentStep}` },
+        {
+          historyEvent: {
+            kind: 'paused',
+            title: 'Paused · invoice on hold',
+            detail: `Was at: ${row.currentStep}`,
+          },
+        }
+      )
+      notes.push(`paused ${row.blueprintName}`)
+    }
+
+    for (const { run, step } of plan.stop) {
+      const row = rowById.get(run.id)
+      if (!row) continue
+      upsertBlueprintRun(
+        { ...row, status: 'stopped', currentStep: step, waitUntil: null },
+        { historyEvent: { kind: 'stopped', title: step } }
+      )
+      notes.push(`stopped ${row.blueprintName}`)
+    }
+
+    for (const { run, step } of plan.retire) {
+      const row = rowById.get(run.id)
+      if (row) upsertBlueprintRun({ ...row, currentStep: step }, { silent: true })
+    }
+
+    for (const { id } of plan.resume) {
+      const row = rowById.get(id)
+      if (!row) continue
+      const step = stepBeforeHoldPause(row.currentStep)
+      upsertBlueprintRun(
+        { ...row, status: 'waiting', currentStep: step },
+        { historyEvent: { kind: 'advance', title: 'Resumed after hold', detail: step } }
+      )
+      assignInvoiceBlueprint(invoice.id, row.blueprintId, row.blueprintName)
+      const log = await advanceInvoiceRun(invoice.id, { authorName: 'Credyx Blueprint' })
+      notes.push(`resumed ${row.blueprintName}: ${log.detail}`)
+    }
+
+    if (plan.enroll && plan.targetBlueprintId) {
+      const bp = getSavedBlueprint(plan.targetBlueprintId)
+      if (!bp) {
+        notes.push('stage blueprint not found — check Blueprints → Stages')
+      } else {
+        assignInvoiceBlueprint(invoice.id, bp.id, bp.name)
+        const start = getStartNode(bp.nodes)
+        startInvoiceRun({
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoice_number,
+          clientLabel: invoice.client_name,
+          blueprintId: bp.id,
+          blueprintName: bp.name,
+          currentNodeId: start?.id,
+          currentStep: start?.data.label || 'Start with',
+          status: 'active',
+          waitUntil: null,
+          // Hold runs get their own row so the paused chase keeps its place.
+          runId: plan.stage === 'hold' ? `run-inv-${invoice.id}-hold` : undefined,
+        })
+        const log = await advanceInvoiceRun(invoice.id, {
+          forceWake: true,
+          justProcessed: reason === 'invoice processed',
+        })
+        notes.push(`started ${bp.name}: ${log.detail}`)
+      }
+    } else if (plan.targetBlueprintId && plan.resume.length === 0) {
+      const live = rows.find(
+        (r) =>
+          r.blueprintId === plan.targetBlueprintId &&
+          (r.status === 'waiting' || r.status === 'active')
+      )
+      if (live) assignInvoiceBlueprint(invoice.id, live.blueprintId, live.blueprintName)
+      if (await tryAdvanceParkedWhen(invoiceId, { justProcessed: reason === 'invoice processed' })) {
+        notes.push('advanced parked When')
+      }
+    }
+
+    return {
+      invoiceId,
+      ok: true,
+      detail: `Stage: ${plan.stage ?? 'not started'}${notes.length ? ` · ${notes.join('; ')}` : ''} (${reason})`,
+    }
+  })
+}
+
 /** Hold placed — auto-match hold blueprints if none assigned. */
 export function onInvoiceHeld(invoiceId: string): Promise<void> {
   return new Promise((resolve) => {
@@ -1109,6 +1264,7 @@ export function onInvoiceHeld(invoiceId: string): Promise<void> {
       runBlueprintLifecycleHook(async () => {
         try {
           if (!isBlueprintsRunnerEnabled()) return
+          if (await routeInvoiceByStage(invoiceId, 'invoice held')) return
           const invoice = getInvoiceById(invoiceId)
           if (!invoice) return
           await enrollForEvent(invoice, 'hold', 'invoice held')
@@ -1173,6 +1329,7 @@ export function onInvoiceHoldCleared(invoiceId: string): Promise<void> {
       runBlueprintLifecycleHook(async () => {
         try {
           if (!isBlueprintsRunnerEnabled()) return
+          if (await routeInvoiceByStage(invoiceId, 'hold cleared')) return
           const invoice = getInvoiceById(invoiceId)
           if (!invoice) return
 
@@ -1243,6 +1400,7 @@ export function onInvoicePpwSent(invoiceId: string): void {
   try {
     runBlueprintLifecycleHook(async () => {
       if (!isBlueprintsRunnerEnabled()) return
+      if (await routeInvoiceByStage(invoiceId, 'PPW sent')) return
       const invoice = getInvoiceById(invoiceId)
       if (!invoice) return
 
@@ -1274,6 +1432,7 @@ export function onInvoiceProcessed(invoiceId: string): void {
   try {
     runBlueprintLifecycleHook(async () => {
       if (!isBlueprintsRunnerEnabled()) return
+      if (await routeInvoiceByStage(invoiceId, 'invoice processed')) return
       const invoice = getInvoiceById(invoiceId)
       if (!invoice) return
 
@@ -1293,6 +1452,7 @@ export function onInvoicePurchased(invoiceId: string): void {
   try {
     runBlueprintLifecycleHook(async () => {
       if (!isBlueprintsRunnerEnabled()) return
+      if (await routeInvoiceByStage(invoiceId, 'invoice purchased')) return
       const invoice = getInvoiceById(invoiceId)
       if (!invoice) return
       await enrollForEvent(invoice, 'purchased', 'invoice purchased')
@@ -1348,6 +1508,8 @@ export async function syncInvoiceBlueprints(
   if (!isBlueprintsRunnerEnabled()) {
     return { invoiceId, ok: false, detail: 'Blueprint runner is off.' }
   }
+  const staged = await routeInvoiceByStage(invoiceId, reason)
+  if (staged) return staged
   const invoice = getInvoiceById(invoiceId)
   if (!invoice) {
     return { invoiceId, ok: false, detail: 'Invoice not found.' }

@@ -662,10 +662,12 @@ export async function runDocSplitterAutoPipeline(
       savedPacketsMissingUploadDocs(batchId, draft)
     ) {
       const { clearBatchInvoicesForRecreate } = await import('../services/batchReworkService')
-      clearBatchInvoicesForRecreate(batchId)
+      const cleared = clearBatchInvoicesForRecreate(batchId)
       logBatchDocAction(batchId, {
         type: 'auto_pipeline',
-        title: 'Replaced packets that left same-upload BOLs unassigned',
+        title: cleared
+          ? 'Replaced packets that left same-upload BOLs unassigned'
+          : 'Kept packets with unassigned same-upload BOLs — some are already approved, held, sent or paid',
       })
     }
 
@@ -847,7 +849,12 @@ export async function runDocSplitterAutoPipeline(
       savedPacketsMissingUploadDocs(batchId, draft)
     ) {
       const { clearBatchInvoicesForRecreate } = await import('../services/batchReworkService')
-      clearBatchInvoicesForRecreate(batchId)
+      if (!clearBatchInvoicesForRecreate(batchId)) {
+        logBatchDocAction(batchId, {
+          type: 'auto_pipeline',
+          title: 'Kept packets with unassigned same-upload BOLs — some are already approved, held, sent or paid',
+        })
+      }
     }
 
     if (getInvoicesByBatchId(batchId).length > 0) {

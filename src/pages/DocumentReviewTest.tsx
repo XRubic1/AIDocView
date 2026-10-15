@@ -102,7 +102,7 @@ export default function DocumentReviewTest() {
   const classifyAll = useCallback(
     async (docs: TestDocument[]) => {
       if (!isAIReviewEnabled()) {
-        showToast('Add VITE_OPENAI_API_KEY to your .env file first.', 'error')
+        showToast('AI review needs Supabase and the openai-proxy Edge Function (OPENAI_API_KEY set server-side).', 'error')
         return
       }
 
@@ -224,8 +224,9 @@ export default function DocumentReviewTest() {
           >
             <AlertCircle className="w-5 h-5 flex-shrink-0" style={{ color: '#C2A558' }} />
             <div className="text-sm" style={{ color: '#113543' }}>
-              Add <code className="font-mono text-xs">VITE_OPENAI_API_KEY</code> to your{' '}
-              <code className="font-mono text-xs">.env</code> file and restart the dev server.
+              Set the Supabase env vars and deploy the{' '}
+              <code className="font-mono text-xs">openai-proxy</code> Edge Function with{' '}
+              <code className="font-mono text-xs">OPENAI_API_KEY</code>, then restart the dev server.
             </div>
           </div>
         )}

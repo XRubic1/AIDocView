@@ -1,7 +1,6 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_OPENAI_API_KEY?: string
   /** Primary vision model — use a dated snapshot for reproducibility (default: gpt-4.1-2025-04-14) */
   readonly VITE_AI_PRIMARY_MODEL?: string
   /** Fallback when confidence is low (default: gpt-4o-2024-08-06) */

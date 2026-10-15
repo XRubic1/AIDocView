@@ -80,6 +80,17 @@ export function parseLocalYmd(value: string | undefined): Date | null {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0)
 }
 
+/**
+ * Date-only strings (YYYY-MM-DD) as a local calendar day; full timestamps as the
+ * instant they name. `new Date('YYYY-MM-DD')` is UTC midnight — the previous
+ * evening anywhere west of UTC.
+ */
+export function parseCalendarDate(value: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value.trim())
+    ? (parseLocalYmd(value) as Date)
+    : new Date(value)
+}
+
 /** Add whole days to a YYYY-MM-DD string. */
 export function addDaysToYmd(ymd: string, days: number): string | undefined {
   const base = parseLocalYmd(ymd)
