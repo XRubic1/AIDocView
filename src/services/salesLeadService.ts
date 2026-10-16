@@ -8,6 +8,7 @@ import {
   fleetSizeFromSnapshot,
   formatSalesGradeWhy,
   rateSalesLeadFromSnapshot,
+  rateSalesLeadFromFigures,
   SALES_LEAD_RATING_POLICY,
   yearsFromAddDate,
   type SalesChaseGrade,
@@ -526,3 +527,135 @@ export function summarizeSalesLeads(leads: SalesLead[]): Record<SalesChaseGrade 
 }
 
 export { formatSalesGradeWhy }
+
+/** Fields a person can type in for a lead they found themselves. */
+export interface ManualSalesLeadInput {
+  company_name: string
+  mc: string
+  dot: string
+  officer: string
+  contact_email: string
+  contact_phone: string
+  phy_address: string
+  operating_status: string
+  years_in_business: string
+  total_trucks: string
+  total_drivers: string
+  status: SalesLeadStatus
+  notes: string
+  /** 'auto' grades from years + trucks with your rating rules. */
+  grade: SalesChaseGrade | 'auto'
+}
+
+function optionalText(value: string): string | null {
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function optionalNumber(value: string): number | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const n = Number(trimmed)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+async function buildManualFields(input: ManualSalesLeadInput) {
+  const company = input.company_name.trim()
+  if (!company) throw new Error('Company name is required.')
+  const email = input.contact_email.trim()
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('That email address does not look right.')
+  }
+
+  const mcDigits = normalizeMcDigits(input.mc)
+  const dotDigits = normalizeDotDigits(input.dot)
+  const dot_number = dotDigits ? Number(dotDigits) : null
+  const years = optionalNumber(input.years_in_business)
+  const trucks = optionalNumber(input.total_trucks)
+
+  const policy = await loadSalesLeadRatingPolicy()
+  const auto = rateSalesLeadFromFigures(years, trucks == null ? null : Math.floor(trucks), policy)
+  const breakdown: SalesGradeBreakdown =
+    input.grade === 'auto'
+      ? auto
+      : {
+          ...auto,
+          combined_grade: input.grade,
+          summary: `Grade ${input.grade} — set by hand.`,
+        }
+
+  return {
+    mc_number: mcDigits ? `MC-${mcDigits}` : dot_number != null ? `DOT ${dot_number}` : '',
+    // Unique key: real MC, else DOT, else a manual id so blank leads never collide.
+    mc_digits:
+      mcDigits || (dot_number != null ? syntheticDotMcDigits(dot_number) : `MANUAL:${crypto.randomUUID()}`),
+    company_name: company,
+    dot_number,
+    contact_phone: optionalText(input.contact_phone),
+    contact_email: email ? email.toLowerCase() : null,
+    officer: optionalText(input.officer),
+    phy_address: optionalText(input.phy_address),
+    operating_status: optionalText(input.operating_status),
+    years_in_business: years,
+    total_trucks: trucks == null ? null : Math.floor(trucks),
+    total_drivers: (() => {
+      const n = optionalNumber(input.total_drivers)
+      return n == null ? null : Math.floor(n)
+    })(),
+    chase_grade: breakdown.combined_grade,
+    grade_breakdown: breakdown,
+    status: input.status,
+    notes: optionalText(input.notes),
+    updated_at: new Date().toISOString(),
+  }
+}
+
+/** Add a lead from typed-in details (no BrokerSnapshot lookup). */
+export async function addManualSalesLead(input: ManualSalesLeadInput): Promise<SalesLead> {
+  const supabase = requireSupabase()
+  const fields = await buildManualFields(input)
+  const existing = await findExistingSalesLead({
+    mcDigits: fields.mc_digits.startsWith('MANUAL:') ? '' : fields.mc_digits,
+    dotNumber: fields.dot_number,
+  })
+  if (existing) {
+    throw new Error(`This carrier is already on your sales list as ${formatExistingLeadLabel(existing)}.`)
+  }
+  const { data, error } = await supabase
+    .from('sales_leads')
+    .insert(fields)
+    .select(LEAD_SELECT)
+    .single()
+  if (error) {
+    if (error.code === '23505') throw new Error('A lead with this MC or DOT is already on your list.')
+    throw new Error(error.message)
+  }
+  return mapRow(data as Record<string, unknown>)
+}
+
+/** Save typed-in edits to an existing lead (keeps its lookup snapshot and MC key when unchanged). */
+export async function updateSalesLeadDetails(
+  leadId: string,
+  current: SalesLead,
+  input: ManualSalesLeadInput
+): Promise<SalesLead> {
+  const supabase = requireSupabase()
+  const fields = await buildManualFields(input)
+  const sameIdentity =
+    normalizeMcDigits(input.mc) === (isSyntheticDotMcDigits(current.mc_digits) ? '' : current.mc_digits) &&
+    (fields.dot_number ?? null) === (current.dot_number ?? null)
+  const { data, error } = await supabase
+    .from('sales_leads')
+    .update({
+      ...fields,
+      ...(sameIdentity ? { mc_digits: current.mc_digits, mc_number: current.mc_number || fields.mc_number } : {}),
+    })
+    .eq('id', leadId)
+    .select(LEAD_SELECT)
+    .single()
+  if (error) {
+    if (error.code === '23505') throw new Error('Another lead already uses this MC or DOT.')
+    throw new Error(error.message)
+  }
+  return mapRow(data as Record<string, unknown>)
+}

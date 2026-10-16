@@ -44,6 +44,8 @@ export type EmailTemplateId =
   | 'broker_claim_scope'
   | 'carrier_claim_or_hold_notice'
   | 'carrier_dispute_opened'
+  /** Sales outreach to carrier leads (subject/body always sent as overrides). */
+  | 'carrier_sales_outreach'
 
 export interface EmailTemplateDefinition {
   id: EmailTemplateId

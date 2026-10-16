@@ -26,6 +26,7 @@ type EmailTemplate =
   | 'staff_calendar_digest'
   | 'carrier_document_issue'
   | 'carrier_billing_invoice'
+  | 'carrier_sales_outreach'
   | 'auth_signup'
   | 'auth_invite'
   | 'auth_magiclink'

@@ -15,6 +15,8 @@ export type InboundClassification =
   | 'unclear'
   | 'non_response_paperwork'
   | 'non_response_payment'
+  /** Sales outreach copy or a carrier lead's reply (filed by email-inbound). */
+  | 'sales'
 
 export type ProposedAction =
   | 'add_note'

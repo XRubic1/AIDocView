@@ -615,3 +615,37 @@ export function rateSalesLeadFromSnapshot(
     ),
   }
 }
+
+/**
+ * Grade a hand-entered lead from years in business and fleet size, using the same
+ * rating rules as BrokerSnapshot lookups (no authority / insurance checks).
+ */
+export function rateSalesLeadFromFigures(
+  years: number | null,
+  trucks: number | null,
+  policy: SalesLeadRatingPolicy = SALES_LEAD_RATING_POLICY
+): SalesGradeBreakdown {
+  const years_grade =
+    years == null
+      ? null
+      : gradeFromAscendingMax(years, policy.years_a_max, policy.years_b_max, policy.years_c_max, policy.years_d_max)
+  const trucks_grade =
+    trucks == null
+      ? null
+      : gradeFromAscendingMax(trucks, policy.trucks_a_max, policy.trucks_b_max, policy.trucks_c_max, policy.trucks_d_max)
+  const notes = ['Entered by hand — authority and insurance not checked.']
+  if (years == null) notes.push('No years in business entered — years grade skipped.')
+  if (trucks == null) notes.push('No truck count entered — fleet grade skipped.')
+  const combined_grade = combineGrades(years_grade, trucks_grade, policy.combine_mode)
+  return {
+    years_in_business: years,
+    trucks,
+    years_grade,
+    trucks_grade,
+    combined_grade,
+    forced_f_reason: null,
+    demotions: [],
+    notes,
+    summary: buildGradeSummary(combined_grade, years, trucks, years_grade, trucks_grade, policy.combine_mode, [], notes, null),
+  }
+}

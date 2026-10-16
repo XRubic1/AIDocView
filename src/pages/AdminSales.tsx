@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Info,
+  Mail,
+  NotebookPen,
+  Pencil,
   Plus,
   RefreshCw,
+  RotateCw,
   Save,
   Search,
-  Trash2,
-  RotateCw,
-  Target,
-  StickyNote,
-  Info,
-  X,
   Shield,
-  NotebookPen,
+  StickyNote,
+  Target,
+  Trash2,
+  X,
 } from 'lucide-react'
 import { useToast } from '../components/ui/ToastProvider'
 import Spinner from '../components/ui/Spinner'
@@ -23,6 +25,9 @@ import BrokerSnapshotSummaryView from '../components/client/BrokerSnapshotSummar
 import {
   addSalesLead,
   addSalesLeadsFromDotNotepad,
+  addManualSalesLead,
+  updateSalesLeadDetails,
+  type ManualSalesLeadInput,
   deleteSalesLead,
   listSalesLeads,
   parseDotNotepad,
@@ -39,8 +44,19 @@ import {
   saveSalesLeadRatingPolicy,
 } from '../services/platformSettingsService'
 import type { SalesChaseGrade } from '../utils/salesLeadRating'
+import SalesEmailPanel from '../components/admin/sales/SalesEmailPanel'
+import SalesLeadFormModal from '../components/admin/sales/SalesLeadFormModal'
+import {
+  isValidEmail,
+  loadSalesEmailActivity,
+  type SalesEmailActivity,
+  type SalesThreadActivity,
+} from '../services/salesEmailService'
+import { useAuth } from '../context/AuthContext'
+import { getAdminUserDisplayName } from '../config/adminNav'
+import '../styles/adminSalesClean.css'
 
-type TabId = 'leads' | 'notepad' | 'rating'
+type TabId = 'leads' | 'email' | 'notepad' | 'rating'
 
 const STATUS_OPTIONS: { value: SalesLeadStatus; label: string }[] = [
   { value: 'new', label: 'New' },
@@ -52,12 +68,32 @@ const STATUS_OPTIONS: { value: SalesLeadStatus; label: string }[] = [
   { value: 'skipped', label: 'Skipped' },
 ]
 
-const GRADE_COLORS: Record<SalesChaseGrade, string> = {
-  A: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  B: 'bg-sky-100 text-sky-800 border-sky-200',
-  C: 'bg-amber-100 text-amber-900 border-amber-200',
-  D: 'bg-orange-100 text-orange-900 border-orange-200',
-  F: 'bg-slate-200 text-slate-700 border-slate-300',
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'leads', label: 'Leads' },
+  { id: 'email', label: 'Email' },
+  { id: 'notepad', label: 'Notepad' },
+  { id: 'rating', label: 'Rating rules' },
+]
+
+function GradeBadge({ grade, onClick }: { grade: SalesChaseGrade; onClick?: () => void }) {
+  if (!onClick) return <span className={`sl-grade sl-grade--${grade}`}>{grade}</span>
+  return (
+    <button
+      type="button"
+      className={`sl-grade sl-grade--${grade} sl-grade--button`}
+      onClick={onClick}
+      title="Why this grade"
+      aria-label={`Grade ${grade} — why`}
+    >
+      {grade}
+    </button>
+  )
+}
+
+function formatEmailedAt(iso: string): string {
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return ''
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
 function formatYears(years: number | null): string {
@@ -96,7 +132,31 @@ function parseClipboardLeadId(raw: string): { value: string; by?: SalesLeadLooku
 /** Admin cold-outreach leads: MC/DOT → BrokerSnapshot → chase grade A–F. */
 export default function AdminSales() {
   const { showToast } = useToast()
+  const { resolved } = useAuth()
+  const sentBy = getAdminUserDisplayName(resolved.user?.email ?? null)
   const [tab, setTab] = useState<TabId>('leads')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [emailRecipientIds, setEmailRecipientIds] = useState<string[] | null>(null)
+  const [leadForm, setLeadForm] = useState<
+    { mode: 'add'; prefill?: Partial<ManualSalesLeadInput> } | { mode: 'edit'; lead: SalesLead } | null
+  >(null)
+  const [savingLeadForm, setSavingLeadForm] = useState(false)
+  const [activity, setActivity] = useState<SalesEmailActivity | null>(null)
+
+  const loadActivity = useCallback(async () => {
+    try {
+      setActivity(await loadSalesEmailActivity())
+    } catch {
+      setActivity(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadActivity()
+    // Pick up new replies while the page stays open.
+    const id = window.setInterval(() => void loadActivity(), 60_000)
+    return () => window.clearInterval(id)
+  }, [loadActivity])
   const [loading, setLoading] = useState(true)
   const [leads, setLeads] = useState<SalesLead[]>([])
   const [gradeFilter, setGradeFilter] = useState<SalesChaseGrade | 'all'>('all')
@@ -176,13 +236,13 @@ export default function AdminSales() {
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable) {
         return
       }
-      if (showAddModal || whyLead || detailLead || notesLead) return
+      if (showAddModal || whyLead || detailLead || notesLead || leadForm) return
       e.preventDefault()
       void openAddLead()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [tab, showAddModal, whyLead, detailLead, notesLead, openAddLead])
+  }, [tab, showAddModal, whyLead, detailLead, notesLead, leadForm, openAddLead])
 
   const summary = useMemo(() => summarizeSalesLeads(leads), [leads])
 
@@ -203,6 +263,24 @@ export default function AdminSales() {
       )
     })
   }, [leads, gradeFilter, search])
+
+  const activityFor = useCallback(
+    (lead: SalesLead): SalesThreadActivity | null =>
+      activity?.byLeadId.get(lead.id) ??
+      (lead.contact_email ? activity?.byAddress.get(lead.contact_email.toLowerCase()) : undefined) ??
+      null,
+    [activity]
+  )
+
+  // Leads with new replies first (newest reply on top); everything else keeps its order.
+  const sortedLeads = useMemo(() => {
+    const withReplies = filtered
+      .filter((lead) => (activityFor(lead)?.unread ?? 0) > 0)
+      .sort((a, b) => (activityFor(b)?.lastReplyAt ?? '').localeCompare(activityFor(a)?.lastReplyAt ?? ''))
+    if (withReplies.length === 0) return filtered
+    const ids = new Set(withReplies.map((l) => l.id))
+    return [...withReplies, ...filtered.filter((l) => !ids.has(l.id))]
+  }, [filtered, activityFor])
 
   const handleAddLead = async () => {
     if (adding) return
@@ -352,46 +430,111 @@ export default function AdminSales() {
     }
   }
 
+  const leadName = (lead: SalesLead) =>
+    lead.company_name || lead.mc_number || `DOT ${lead.dot_number ?? ''}`
+
+  const visibleIds = filtered.map((l) => l.id)
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id))
+  const selectedLeads = leads.filter((l) => selectedIds.has(l.id))
+  const selectedWithEmail = selectedLeads.filter((l) => isValidEmail(l.contact_email))
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const toggleAllVisible = () =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id))
+      else visibleIds.forEach((id) => next.add(id))
+      return next
+    })
+
+  const emailLeads = (ids: string[]) => {
+    setEmailRecipientIds(ids)
+    setTab('email')
+  }
+
+  const consumeEmailRecipients = useCallback(() => setEmailRecipientIds(null), [])
+
+  const [openThreadId, setOpenThreadId] = useState<string | null>(null)
+  const consumeOpenThread = useCallback(() => setOpenThreadId(null), [])
+  const openConversation = (threadId: string) => {
+    setOpenThreadId(threadId)
+    setTab('email')
+  }
+
+  const openManualFromLookup = () => {
+    const digits = idInput.replace(/\D/g, '')
+    setShowAddModal(false)
+    setIdInput('')
+    setLeadForm({ mode: 'add', prefill: digits ? (lookupBy === 'mc' ? { mc: digits } : { dot: digits }) : undefined })
+  }
+
+  const handleSaveLeadForm = async (input: ManualSalesLeadInput) => {
+    if (!leadForm || savingLeadForm) return
+    setSavingLeadForm(true)
+    try {
+      if (leadForm.mode === 'add') {
+        const lead = await addManualSalesLead(input)
+        setLeads((prev) => [lead, ...prev])
+        showToast(`Added ${leadName(lead)} — grade ${lead.chase_grade}`, 'success')
+      } else {
+        const lead = await updateSalesLeadDetails(leadForm.lead.id, leadForm.lead, input)
+        setLeads((prev) => prev.map((row) => (row.id === lead.id ? lead : row)))
+        setDetailLead((prev) => (prev?.id === lead.id ? lead : prev))
+        showToast('Lead updated', 'success')
+      }
+      setLeadForm(null)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not save lead', 'error')
+    } finally {
+      setSavingLeadForm(false)
+    }
+  }
+
+  /** Leads typed in without an MC or DOT have nothing to look up. */
+  const canLookup = (lead: SalesLead) => Boolean(lead.mc_number) || lead.dot_number != null
+
   return (
-    <div className="client-shell-scroll h-full min-h-0 overflow-y-auto p-5">
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="client-shell-scroll sl h-full min-h-0 overflow-y-auto">
+      <div className="sl-page">
+        <header className="sl-head">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Sales</h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Cold-outreach leads by MC or DOT — BrokerSnapshot fleet + tenure → chase grade
-            </p>
+            <h1>Sales</h1>
+            <p>Carrier leads by MC or DOT, graded by fleet size and time in business.</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="sl-head__actions">
             <button
               type="button"
-              onClick={() => void loadLeads()}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+              className="sl-btn"
+              onClick={() => {
+                void loadLeads()
+                void loadActivity()
+              }}
             >
-              <RefreshCw size={16} />
+              <RefreshCw size={15} aria-hidden />
               Refresh
             </button>
             {tab === 'leads' && (
-              <button
-                type="button"
-                onClick={() => void openAddLead()}
-                className="dashboard-btn-primary inline-flex items-center gap-2"
-              >
-                <Plus size={16} />
+              <button type="button" className="sl-btn sl-btn--primary" onClick={() => void openAddLead()}>
+                <Plus size={16} aria-hidden />
                 Add lead
-                <kbd className="ml-1 rounded border border-white/30 bg-white/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none">
-                  F
-                </kbd>
+                <kbd>F</kbd>
               </button>
             )}
             {tab === 'notepad' && (
               <button
                 type="button"
+                className="sl-btn sl-btn--primary"
                 disabled={notepadImporting || notepadDotCount === 0}
                 onClick={() => void handleNotepadImport()}
-                className="dashboard-btn-primary inline-flex items-center gap-2"
               >
-                <NotebookPen size={16} />
+                <NotebookPen size={16} aria-hidden />
                 {notepadImporting
                   ? `Importing ${notepadProgress?.done ?? 0}/${notepadProgress?.total ?? 0}…`
                   : `Import ${notepadDotCount} DOT${notepadDotCount === 1 ? '' : 's'}`}
@@ -400,66 +543,74 @@ export default function AdminSales() {
             {tab === 'rating' && (
               <button
                 type="button"
+                className="sl-btn sl-btn--primary"
                 disabled={savingRating || !ratingForm}
                 onClick={() => void handleSaveRating()}
-                className="dashboard-btn-primary inline-flex items-center gap-2"
               >
-                <Save size={16} />
+                <Save size={16} aria-hidden />
                 {savingRating ? 'Saving…' : 'Save rules'}
               </button>
             )}
           </div>
+        </header>
+
+        <div className="sl-tabs" role="tablist" aria-label="Sales sections">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.id}
+              className={`sl-tab${tab === t.id ? ' is-active' : ''}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.id === 'email' ? <Mail size={15} aria-hidden /> : null}
+              {t.label}
+              {t.id === 'email' && (activity?.totalUnread ?? 0) > 0 ? (
+                <span className="sl-count" aria-label={`${activity?.totalUnread} new emails`}>
+                  {activity?.totalUnread}
+                </span>
+              ) : null}
+            </button>
+          ))}
         </div>
 
-        <div className="page-tabs">
-          <button
-            type="button"
-            className={`page-tab ${tab === 'leads' ? 'page-tab--active' : ''}`}
-            onClick={() => setTab('leads')}
-          >
-            Leads
-          </button>
-          <button
-            type="button"
-            className={`page-tab ${tab === 'notepad' ? 'page-tab--active' : ''}`}
-            onClick={() => setTab('notepad')}
-          >
-            Notepad
-          </button>
-          <button
-            type="button"
-            className={`page-tab ${tab === 'rating' ? 'page-tab--active' : ''}`}
-            onClick={() => setTab('rating')}
-          >
-            Rating rules
-          </button>
-        </div>
-
-        {tab === 'rating' ? (
-          <div className="dashboard-card p-5">
+        {tab === 'email' ? (
+          <SalesEmailPanel
+            leads={leads}
+            sentBy={sentBy}
+            initialRecipientIds={emailRecipientIds}
+            onInitialRecipientsConsumed={consumeEmailRecipients}
+            onLeadsChanged={() => {
+              void loadLeads()
+              void loadActivity()
+            }}
+            activity={activity}
+            onActivityChanged={() => void loadActivity()}
+            openThreadId={openThreadId}
+            onOpenThreadConsumed={consumeOpenThread}
+          />
+        ) : tab === 'rating' ? (
+          <div className="sl-card sl-card--pad">
             {ratingForm ? (
               <SalesLeadRatingSettingsPanel
                 settings={ratingForm}
                 onChange={(patch) => setRatingForm((prev) => (prev ? { ...prev, ...patch } : prev))}
               />
             ) : (
-              <div className="flex justify-center py-12">
+              <div className="sl-center">
                 <Spinner />
               </div>
             )}
           </div>
         ) : tab === 'notepad' ? (
-          <div className="dashboard-card space-y-4 p-5">
+          <div className="sl-card sl-card--pad sl-notepad">
             <div>
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                DOT notepad
-              </h2>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Paste DOTs from BrokerSnapshot map, separated by commas. Example:{' '}
-                <span className="font-mono text-slate-700 dark:text-slate-300">
-                  2550736, 104121, 3083852
-                </span>
-                . Each DOT is looked up, graded, and added — duplicates are skipped.
+              <h2 className="sl-card__title">DOT notepad</h2>
+              <p className="sl-muted">
+                Paste DOTs from the BrokerSnapshot map, separated by commas, for example{' '}
+                <code>2550736, 104121, 3083852</code>. Each one is looked up, graded and added.
+                Duplicates are skipped.
               </p>
             </div>
 
@@ -469,55 +620,40 @@ export default function AdminSales() {
               disabled={notepadImporting}
               rows={10}
               placeholder="2550736, 104121, 3083852, …"
-              className="client-input w-full resize-y font-mono text-sm"
+              className="sl-input sl-textarea sl-mono"
             />
 
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-              <span>
+            <div className="sl-notepad__bar">
+              <span className="sl-muted">
                 {notepadDotCount} unique DOT{notepadDotCount === 1 ? '' : 's'} ready
-                {notepadProgress
-                  ? ` · Progress ${notepadProgress.done}/${notepadProgress.total}`
-                  : ''}
+                {notepadProgress ? ` · ${notepadProgress.done}/${notepadProgress.total} done` : ''}
               </span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="dashboard-btn-secondary"
-                  disabled={notepadImporting || !notepadText.trim()}
-                  onClick={() => {
-                    setNotepadText('')
-                    setNotepadLog([])
-                  }}
-                >
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  className="dashboard-btn-primary"
-                  disabled={notepadImporting || notepadDotCount === 0}
-                  onClick={() => void handleNotepadImport()}
-                >
-                  {notepadImporting ? 'Importing…' : `Import ${notepadDotCount} DOTs`}
-                </button>
-              </div>
+              <button
+                type="button"
+                className="sl-btn"
+                disabled={notepadImporting || !notepadText.trim()}
+                onClick={() => {
+                  setNotepadText('')
+                  setNotepadLog([])
+                }}
+              >
+                Clear
+              </button>
             </div>
 
             {notepadProgress && (
-              <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                <div
-                  className="h-full rounded-full bg-[#1684FE] transition-all"
+              <div className="sl-progress__bar">
+                <span
                   style={{
-                    width: `${Math.round(
-                      (notepadProgress.done / Math.max(notepadProgress.total, 1)) * 100
-                    )}%`,
+                    width: `${Math.round((notepadProgress.done / Math.max(notepadProgress.total, 1)) * 100)}%`,
                   }}
                 />
               </div>
             )}
 
             {notepadLog.length > 0 && (
-              <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                <table className="dashboard-table dashboard-table--compact w-full text-xs">
+              <div className="sl-log">
+                <table className="sl-table">
                   <thead>
                     <tr>
                       <th>DOT</th>
@@ -528,26 +664,15 @@ export default function AdminSales() {
                   <tbody>
                     {[...notepadLog].reverse().map((item, idx) => (
                       <tr key={`${item.dot}-${idx}`}>
-                        <td className="tabular-nums font-medium">{item.dot}</td>
+                        <td className="sl-num">{item.dot}</td>
                         <td>
                           {item.status === 'added' && (
-                            <span className="text-emerald-700">
-                              Added · {item.lead.chase_grade}
-                            </span>
+                            <span className="sl-tag sl-tag--good">Added · {item.lead.chase_grade}</span>
                           )}
-                          {item.status === 'skipped' && (
-                            <span className="text-amber-700">Skipped</span>
-                          )}
-                          {item.status === 'error' && (
-                            <span className="text-red-600">Error</span>
-                          )}
+                          {item.status === 'skipped' && <span className="sl-tag">Skipped</span>}
+                          {item.status === 'error' && <span className="sl-tag sl-tag--bad">Error</span>}
                         </td>
-                        <td
-                          className="max-w-[28rem] truncate text-slate-500"
-                          title={
-                            item.status === 'added' ? item.lead.company_name || '' : item.reason
-                          }
-                        >
+                        <td className="sl-muted sl-clip">
                           {item.status === 'added'
                             ? item.lead.company_name || item.lead.mc_number || '—'
                             : item.reason}
@@ -561,149 +686,169 @@ export default function AdminSales() {
           </div>
         ) : (
           <>
-            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
-              {(
-                [
-                  ['all', 'All', summary.all],
-                  ['A', 'Grade A', summary.A],
-                  ['B', 'Grade B', summary.B],
-                  ['C', 'Grade C', summary.C],
-                  ['D', 'Grade D', summary.D],
-                  ['F', 'Grade F', summary.F],
-                ] as const
-              ).map(([key, label, value]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setGradeFilter(key)}
-                  className={`rounded-xl border px-3 py-3 text-left transition ${
-                    gradeFilter === key
-                      ? 'border-[#1684FE] bg-sky-50 dark:bg-sky-950/40'
-                      : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800'
-                  }`}
-                >
-                  <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                    {label}
-                  </div>
-                  <div className="mt-1 text-xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-                    {value}
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            <div className="client-page-toolbar flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[200px] flex-1">
-                <Search
-                  size={16}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
+            <div className="sl-toolbar">
+              <div className="sl-grades" role="group" aria-label="Filter by grade">
+                {(
+                  [
+                    ['all', 'All', summary.all],
+                    ['A', 'A', summary.A],
+                    ['B', 'B', summary.B],
+                    ['C', 'C', summary.C],
+                    ['D', 'D', summary.D],
+                    ['F', 'F', summary.F],
+                  ] as const
+                ).map(([key, label, value]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`sl-grade-filter${gradeFilter === key ? ' is-active' : ''}`}
+                    aria-pressed={gradeFilter === key}
+                    onClick={() => setGradeFilter(key)}
+                  >
+                    {key === 'all' ? label : <span className={`sl-grade sl-grade--${key} sl-grade--xs`}>{label}</span>}
+                    <span className="sl-grade-filter__count">{value}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="sl-search sl-search--grow">
+                <Search size={15} aria-hidden />
                 <input
                   type="search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search company, MC, DOT, notes…"
-                  className="client-input w-full pl-9"
+                  placeholder="Search company, MC, DOT, email or notes"
+                  aria-label="Search leads"
                 />
               </div>
             </div>
 
+            {selectedIds.size > 0 ? (
+              <div className="sl-bulkbar" role="region" aria-label="Selected leads">
+                <span>
+                  <strong>{selectedIds.size}</strong> selected
+                  {selectedWithEmail.length < selectedIds.size
+                    ? ` · ${selectedWithEmail.length} with an email`
+                    : ''}
+                </span>
+                <div className="sl-bulkbar__actions">
+                  <button type="button" className="sl-link" onClick={() => setSelectedIds(new Set())}>
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    className="sl-btn sl-btn--primary sl-btn--sm"
+                    disabled={selectedWithEmail.length === 0}
+                    onClick={() => emailLeads(selectedWithEmail.map((l) => l.id))}
+                  >
+                    <Mail size={14} aria-hidden />
+                    Email {selectedWithEmail.length}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             {loading && leads.length === 0 ? (
-              <div className="flex justify-center py-16">
+              <div className="sl-center">
                 <Spinner />
               </div>
             ) : (
-              <div className="dashboard-card overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="dashboard-table dashboard-table--compact w-full">
+              <div className="sl-card sl-table-card">
+                <div className="sl-table-scroll">
+                  <table className="sl-table sl-leads">
                     <thead>
                       <tr>
-                        <th>Grade</th>
+                        <th className="sl-col-check">
+                          <input
+                            type="checkbox"
+                            checked={allVisibleSelected}
+                            onChange={toggleAllVisible}
+                            aria-label="Select all shown leads"
+                          />
+                        </th>
+                        <th className="sl-col-grade">Grade</th>
                         <th>Company</th>
-                        <th>MC / DOT</th>
-                        <th>Trucks</th>
-                        <th>Years</th>
+                        <th className="sl-col-fleet">Fleet</th>
                         <th>Contact</th>
-                        <th>Email</th>
-                        <th>Status</th>
-                        <th>Why ranked</th>
-                        <th>Notes</th>
-                        <th className="text-right">Actions</th>
+                        <th className="sl-col-status">Status</th>
+                        <th className="sl-col-actions" aria-label="Actions" />
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.length === 0 ? (
                         <tr>
-                          <td colSpan={11} className="py-12 text-center text-sm text-slate-500">
-                            <Target className="mx-auto mb-2 text-slate-300" size={28} />
-                            No leads yet. Add a carrier MC or DOT to pull BrokerSnapshot and score
-                            them.
+                          <td colSpan={7}>
+                            <div className="sl-empty">
+                              <Target size={26} aria-hidden />
+                              <p>
+                                {leads.length === 0
+                                  ? 'No leads yet. Add a carrier MC or DOT to look them up and grade them.'
+                                  : 'No leads match this filter.'}
+                              </p>
+                            </div>
                           </td>
                         </tr>
                       ) : (
-                        filtered.map((lead) => (
-                          <tr key={lead.id}>
-                            <td>
-                              <span
-                                className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-2 py-0.5 text-xs font-bold ${GRADE_COLORS[lead.chase_grade]}`}
-                              >
-                                {lead.chase_grade}
-                              </span>
+                        sortedLeads.map((lead) => {
+                          const act = activityFor(lead)
+                          const newReplies = act?.unread ?? 0
+                          return (
+                          <tr
+                            key={lead.id}
+                            className={`${selectedIds.has(lead.id) ? 'is-selected' : ''}${newReplies > 0 ? ' has-reply' : ''}`.trim() || undefined}
+                          >
+                            <td className="sl-col-check">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(lead.id)}
+                                onChange={() => toggleSelect(lead.id)}
+                                aria-label={`Select ${leadName(lead)}`}
+                              />
+                            </td>
+                            <td className="sl-col-grade">
+                              <GradeBadge grade={lead.chase_grade} onClick={() => setWhyLead(lead)} />
                             </td>
                             <td>
                               <button
                                 type="button"
+                                className="sl-company"
                                 onClick={() => setDetailLead(lead)}
-                                className="text-left group"
-                                title="View full BrokerSnapshot"
+                                title="View BrokerSnapshot"
                               >
-                                <div className="font-medium text-[#1684FE] group-hover:underline">
-                                  {lead.company_name || '—'}
-                                </div>
-                                <div className="text-xs text-slate-500">
-                                  {lead.operating_status || '—'}
-                                </div>
+                                {lead.company_name || '—'}
                               </button>
+                              <span className="sl-sub">
+                                {[lead.mc_number, lead.dot_number != null ? `DOT ${lead.dot_number}` : null]
+                                  .filter(Boolean)
+                                  .join(' · ') || '—'}
+                                {lead.operating_status ? ` · ${lead.operating_status}` : ''}
+                              </span>
                             </td>
-                            <td className="tabular-nums text-xs">
-                              <div>{lead.mc_number || '—'}</div>
-                              <div className="text-slate-500">
-                                {lead.dot_number != null ? `DOT ${lead.dot_number}` : '—'}
-                              </div>
-                            </td>
-                            <td className="tabular-nums">
-                              {lead.total_trucks ?? lead.total_power_units ?? '—'}
-                            </td>
-                            <td className="tabular-nums">
-                              {formatYears(lead.years_in_business)}
-                            </td>
-                              <td>
-                              <div className="text-sm">{lead.officer || '—'}</div>
-                              <div className="text-xs text-slate-500">
-                                {lead.contact_phone || '—'}
-                              </div>
+                            <td className="sl-col-fleet">
+                              <span className="sl-main">
+                                {lead.total_trucks ?? lead.total_power_units ?? '—'} trucks
+                              </span>
+                              <span className="sl-sub">{formatYears(lead.years_in_business)} in business</span>
                             </td>
                             <td>
-                              {lead.contact_email ? (
-                                <a
-                                  href={`mailto:${lead.contact_email}`}
-                                  className="text-sm text-[#1684FE] hover:underline break-all"
-                                  title={`Email ${lead.contact_email}`}
-                                >
-                                  {lead.contact_email}
-                                </a>
-                              ) : (
-                                <span className="text-xs text-slate-400">—</span>
-                              )}
+                              <span className="sl-main sl-clip">{lead.officer || '—'}</span>
+                              <span className="sl-sub sl-clip">
+                                {lead.contact_email ? (
+                                  <a href={`mailto:${lead.contact_email}`} title={lead.contact_email}>
+                                    {lead.contact_email}
+                                  </a>
+                                ) : (
+                                  'No email'
+                                )}
+                                {lead.contact_phone ? ` · ${lead.contact_phone}` : ''}
+                              </span>
                             </td>
-                            <td>
+                            <td className="sl-col-status">
                               <select
-                                className="client-input py-1 text-xs"
+                                className={`sl-status sl-status--${lead.status}`}
                                 value={lead.status}
                                 disabled={busyId === lead.id}
-                                onChange={(e) =>
-                                  void handleStatus(lead.id, e.target.value as SalesLeadStatus)
-                                }
+                                onChange={(e) => void handleStatus(lead.id, e.target.value as SalesLeadStatus)}
+                                aria-label={`Status for ${leadName(lead)}`}
                               >
                                 {STATUS_OPTIONS.map((opt) => (
                                   <option key={opt.value} value={opt.value}>
@@ -711,66 +856,89 @@ export default function AdminSales() {
                                   </option>
                                 ))}
                               </select>
-                            </td>
-                            <td className="max-w-[18rem]">
-                              <button
-                                type="button"
-                                onClick={() => setWhyLead(lead)}
-                                className="group flex items-start gap-1 text-left text-xs text-slate-600 hover:text-[#1684FE] dark:text-slate-300"
-                                title="See full ranking explanation"
-                              >
-                                <Info
-                                  size={14}
-                                  className="mt-0.5 shrink-0 text-slate-400 group-hover:text-[#1684FE]"
-                                />
-                                <span className="line-clamp-2">{lead.grade_why}</span>
-                              </button>
-                            </td>
-                            <td>
-                              <button
-                                type="button"
-                                onClick={() => openNotes(lead)}
-                                className={`inline-flex max-w-[10rem] items-center gap-1 rounded border px-2 py-1 text-xs ${
-                                  lead.notes
-                                    ? 'border-amber-200 bg-amber-50 text-amber-900'
-                                    : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-600'
-                                }`}
-                                title={lead.notes || 'Add notes'}
-                              >
-                                <StickyNote size={12} />
-                                <span className="truncate">
-                                  {lead.notes ? lead.notes : 'Add'}
+                              {act?.lastEmailedAt ? (
+                                <span className="sl-sub sl-emailed" title="Last emailed">
+                                  Emailed {formatEmailedAt(act.lastEmailedAt)}
                                 </span>
-                              </button>
+                              ) : null}
                             </td>
-                            <td>
-                              <div className="flex items-center justify-end gap-1">
+                            <td className="sl-col-actions">
+                              <div className="sl-row-actions">
                                 <button
                                   type="button"
-                                  title="Re-lookup Snapshot & re-score"
-                                  disabled={busyId === lead.id}
-                                  onClick={() => void handleRefresh(lead.id)}
-                                  className="rounded border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 dark:border-slate-600"
+                                  className={`sl-icon-btn sl-mail-btn${newReplies > 0 ? ' has-count' : ''}`}
+                                  title={
+                                    newReplies > 0
+                                      ? `${newReplies} new repl${newReplies === 1 ? 'y' : 'ies'} — open conversation`
+                                      : lead.contact_email
+                                        ? `Email ${lead.contact_email}`
+                                        : 'No email on file'
+                                  }
+                                  aria-label={
+                                    newReplies > 0
+                                      ? `${newReplies} new emails from ${leadName(lead)}`
+                                      : `Email ${leadName(lead)}`
+                                  }
+                                  disabled={!isValidEmail(lead.contact_email) && newReplies === 0}
+                                  onClick={() =>
+                                    newReplies > 0 && act ? openConversation(act.threadId) : emailLeads([lead.id])
+                                  }
                                 >
-                                  <RotateCw size={14} />
+                                  <Mail size={15} />
+                                  {newReplies > 0 ? <span className="sl-count sl-count--corner">{newReplies}</span> : null}
                                 </button>
                                 <button
                                   type="button"
+                                  className="sl-icon-btn"
+                                  title="Edit details"
+                                  aria-label={`Edit ${leadName(lead)}`}
+                                  onClick={() => setLeadForm({ mode: 'edit', lead })}
+                                >
+                                  <Pencil size={15} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`sl-icon-btn${lead.notes ? ' has-note' : ''}`}
+                                  title={lead.notes || 'Add notes'}
+                                  aria-label={`Notes for ${leadName(lead)}`}
+                                  onClick={() => openNotes(lead)}
+                                >
+                                  <StickyNote size={15} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="sl-icon-btn"
+                                  title={canLookup(lead) ? 'Look up again and re-grade' : 'No MC or DOT to look up'}
+                                  aria-label={`Refresh ${leadName(lead)}`}
+                                  disabled={busyId === lead.id || !canLookup(lead)}
+                                  onClick={() => void handleRefresh(lead.id)}
+                                >
+                                  <RotateCw size={15} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="sl-icon-btn sl-icon-btn--danger"
                                   title="Remove lead"
+                                  aria-label={`Remove ${leadName(lead)}`}
                                   disabled={busyId === lead.id}
                                   onClick={() => void handleDelete(lead.id)}
-                                  className="rounded border border-slate-200 p-1.5 text-red-600 hover:bg-red-50 dark:border-slate-600"
                                 >
-                                  <Trash2 size={14} />
+                                  <Trash2 size={15} />
                                 </button>
                               </div>
                             </td>
                           </tr>
-                        ))
+                          )
+                        })
                       )}
                     </tbody>
                   </table>
                 </div>
+                {filtered.length > 0 ? (
+                  <div className="sl-table-foot">
+                    {filtered.length} of {leads.length} leads
+                  </div>
+                ) : null}
               </div>
             )}
           </>
@@ -778,57 +946,52 @@ export default function AdminSales() {
       </div>
 
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Add lead</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Looks up BrokerSnapshot for trucks, years in business, authority, and insurance —
-              then assigns a chase grade from your rating rules. A copied MC/DOT is pasted
-              automatically when you open this.
+        <div className="sl-overlay" role="presentation" onClick={() => !adding && setShowAddModal(false)}>
+          <div className="sl-modal" role="dialog" aria-modal aria-label="Add lead" onClick={(e) => e.stopPropagation()}>
+            <h2>Add lead</h2>
+            <p className="sl-muted">
+              Looks up trucks, years in business, authority and insurance, then grades the carrier
+              with your rating rules. A copied MC or DOT is filled in automatically.
             </p>
-
-            <div className="mt-4 flex gap-2">
+            <div className="sl-seg sl-seg--full" role="group" aria-label="Look up by">
               <button
                 type="button"
-                className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-                  lookupBy === 'mc'
-                    ? 'border-[#1684FE] bg-sky-50 text-[#1684FE]'
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-600'
-                }`}
+                className={`sl-seg__btn${lookupBy === 'mc' ? ' is-active' : ''}`}
                 onClick={() => setLookupBy('mc')}
               >
                 By MC
               </button>
               <button
                 type="button"
-                className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-                  lookupBy === 'dot'
-                    ? 'border-[#1684FE] bg-sky-50 text-[#1684FE]'
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-600'
-                }`}
+                className={`sl-seg__btn${lookupBy === 'dot' ? ' is-active' : ''}`}
                 onClick={() => setLookupBy('dot')}
               >
                 By DOT
               </button>
             </div>
-
-            <label className="mt-4 block text-xs font-medium text-slate-600 dark:text-slate-300">
-              {lookupBy === 'mc' ? 'MC number' : 'DOT number'}
+            <label className="sl-field">
+              <span className="sl-field__label">{lookupBy === 'mc' ? 'MC number' : 'DOT number'}</span>
               <input
                 autoFocus
+                className="sl-input"
                 value={idInput}
                 onChange={(e) => setIdInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void handleAddLead()
                 }}
                 placeholder={lookupBy === 'mc' ? 'e.g. 123456' : 'e.g. 987654'}
-                className="client-input mt-1 w-full"
               />
             </label>
-            <div className="mt-5 flex justify-end gap-2">
+            <p className="sl-muted sl-modal__alt">
+              No MC or DOT, or not in BrokerSnapshot?{' '}
+              <button type="button" className="sl-link" disabled={adding} onClick={openManualFromLookup}>
+                Enter details by hand
+              </button>
+            </p>
+            <div className="sl-modal__actions">
               <button
                 type="button"
-                className="dashboard-btn-secondary"
+                className="sl-btn"
                 disabled={adding}
                 onClick={() => {
                   setShowAddModal(false)
@@ -839,7 +1002,7 @@ export default function AdminSales() {
               </button>
               <button
                 type="button"
-                className="dashboard-btn-primary"
+                className="sl-btn sl-btn--primary"
                 disabled={adding || !idInput.trim()}
                 onClick={() => void handleAddLead()}
               >
@@ -851,71 +1014,79 @@ export default function AdminSales() {
       )}
 
       {detailLead && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-3"
-          role="presentation"
-          onClick={() => setDetailLead(null)}
-        >
+        <div className="sl-overlay" role="presentation" onClick={() => setDetailLead(null)}>
           <div
-            className="mc-lookup-modal client-modal flex w-full max-w-4xl max-h-[92vh] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            className="sl-modal sl-modal--wide mc-lookup-modal client-modal"
             role="dialog"
             aria-modal
             aria-label="Lead BrokerSnapshot"
             onClick={(e) => e.stopPropagation()}
           >
-            <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2.5 dark:border-slate-700">
-              <Shield className="h-4 w-4 shrink-0 text-[#1684FE]" />
-              <div className="min-w-0 flex-1">
-                <h2 className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
-                  {detailLead.company_name || detailLead.mc_number || `DOT ${detailLead.dot_number}`}
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Grade {detailLead.chase_grade}
-                  {detailLead.mc_number ? ` · ${detailLead.mc_number}` : ''}
-                  {detailLead.dot_number != null ? ` · DOT ${detailLead.dot_number}` : ''}
+            <header className="sl-modal__head">
+              <Shield size={16} className="sl-accent" aria-hidden />
+              <div className="sl-modal__title">
+                <h2>{leadName(detailLead)}</h2>
+                <p className="sl-muted">
+                  {[detailLead.mc_number, detailLead.dot_number != null ? `DOT ${detailLead.dot_number}` : null]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </p>
               </div>
-              <span
-                className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-2 py-0.5 text-xs font-bold ${GRADE_COLORS[detailLead.chase_grade]}`}
-              >
-                {detailLead.chase_grade}
-              </span>
+              <GradeBadge grade={detailLead.chase_grade} />
               <button
                 type="button"
-                disabled={busyId === detailLead.id}
-                onClick={() => void handleRefresh(detailLead.id)}
-                className="dashboard-btn-secondary inline-flex items-center gap-1.5 text-xs"
+                className="sl-btn sl-btn--sm"
+                disabled={!isValidEmail(detailLead.contact_email)}
+                onClick={() => {
+                  const id = detailLead.id
+                  setDetailLead(null)
+                  emailLeads([id])
+                }}
               >
-                <RotateCw size={14} />
-                Refresh Snapshot
+                <Mail size={14} aria-hidden />
+                Email
               </button>
               <button
                 type="button"
-                onClick={() => setDetailLead(null)}
-                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                aria-label="Close"
+                className="sl-btn sl-btn--sm"
+                onClick={() => {
+                  const lead = detailLead
+                  setDetailLead(null)
+                  setLeadForm({ mode: 'edit', lead })
+                }}
               >
-                <X className="h-4 w-4" />
+                <Pencil size={14} aria-hidden />
+                Edit
+              </button>
+              <button
+                type="button"
+                className="sl-btn sl-btn--sm"
+                disabled={busyId === detailLead.id || !canLookup(detailLead)}
+                onClick={() => void handleRefresh(detailLead.id)}
+              >
+                <RotateCw size={14} aria-hidden />
+                Refresh
+              </button>
+              <button type="button" className="sl-icon-btn" onClick={() => setDetailLead(null)} aria-label="Close">
+                <X size={16} />
               </button>
             </header>
-
-            <div className="mc-lookup-modal__body min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-200">
-                <p className="font-semibold text-slate-900 dark:text-slate-100">Why ranked</p>
-                <p className="mt-1 leading-relaxed">{detailLead.grade_why}</p>
+            <div className="sl-modal__scroll mc-lookup-modal__body">
+              <div className="sl-why">
+                <p className="sl-why__label">Why grade {detailLead.chase_grade}</p>
+                <p>{detailLead.grade_why}</p>
                 {detailLead.notes && (
-                  <p className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-600">
-                    <span className="font-semibold">Notes: </span>
+                  <p className="sl-why__notes">
+                    <strong>Notes: </strong>
                     {detailLead.notes}
                   </p>
                 )}
               </div>
-
               {detailLead.snapshot ? (
                 <BrokerSnapshotSummaryView summary={detailLead.snapshot} />
               ) : (
-                <div className="py-10 text-center text-sm text-slate-500">
-                  No BrokerSnapshot saved on this lead. Click Refresh Snapshot to look it up.
+                <div className="sl-empty">
+                  <p>No BrokerSnapshot saved on this lead. Click Refresh to look it up.</p>
                 </div>
               )}
             </div>
@@ -924,63 +1095,46 @@ export default function AdminSales() {
       )}
 
       {whyLead && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Why grade {whyLead.chase_grade}
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {whyLead.company_name || whyLead.mc_number || `DOT ${whyLead.dot_number}`}
-                </p>
+        <div className="sl-overlay" role="presentation" onClick={() => setWhyLead(null)}>
+          <div className="sl-modal" role="dialog" aria-modal aria-label="Why this grade" onClick={(e) => e.stopPropagation()}>
+            <div className="sl-modal__head sl-modal__head--plain">
+              <div className="sl-modal__title">
+                <h2>Why grade {whyLead.chase_grade}</h2>
+                <p className="sl-muted">{leadName(whyLead)}</p>
               </div>
-              <span
-                className={`inline-flex min-w-[1.75rem] items-center justify-center rounded border px-2 py-0.5 text-xs font-bold ${GRADE_COLORS[whyLead.chase_grade]}`}
-              >
-                {whyLead.chase_grade}
-              </span>
+              <GradeBadge grade={whyLead.chase_grade} />
             </div>
-
-            <p className="mt-4 text-sm leading-relaxed text-slate-700 dark:text-slate-200">
-              {whyLead.grade_why}
-            </p>
-
-            <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
-                <dt className="text-slate-500">Years in business</dt>
-                <dd className="mt-1 font-medium text-slate-900 dark:text-slate-100">
-                  {formatYears(whyLead.grade_breakdown.years_in_business)} →{' '}
-                  {whyLead.grade_breakdown.years_grade ?? 'n/a'}
+            <p className="sl-body-text">{whyLead.grade_why}</p>
+            <dl className="sl-facts">
+              <div>
+                <dt>Years in business</dt>
+                <dd>
+                  {formatYears(whyLead.grade_breakdown.years_in_business)} → {whyLead.grade_breakdown.years_grade ?? 'n/a'}
                 </dd>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
-                <dt className="text-slate-500">Fleet size</dt>
-                <dd className="mt-1 font-medium text-slate-900 dark:text-slate-100">
-                  {whyLead.grade_breakdown.trucks ?? '—'} trucks →{' '}
-                  {whyLead.grade_breakdown.trucks_grade ?? 'n/a'}
+              <div>
+                <dt>Fleet size</dt>
+                <dd>
+                  {whyLead.grade_breakdown.trucks ?? '—'} trucks → {whyLead.grade_breakdown.trucks_grade ?? 'n/a'}
                 </dd>
               </div>
               {whyLead.grade_breakdown.demotions.length > 0 && (
-                <div className="col-span-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-orange-900">
-                  <dt className="font-medium">Demotions</dt>
-                  <dd className="mt-1">{whyLead.grade_breakdown.demotions.join(' · ')}</dd>
+                <div className="is-warn">
+                  <dt>
+                    <Info size={13} aria-hidden /> Demotions
+                  </dt>
+                  <dd>{whyLead.grade_breakdown.demotions.join(' · ')}</dd>
                 </div>
               )}
               {whyLead.grade_breakdown.forced_f_reason && (
-                <div className="col-span-2 rounded-lg border border-slate-300 bg-slate-100 p-3">
-                  <dt className="font-medium text-slate-700">Hard stop</dt>
-                  <dd className="mt-1 text-slate-800">{whyLead.grade_breakdown.forced_f_reason}</dd>
+                <div className="is-stop">
+                  <dt>Hard stop</dt>
+                  <dd>{whyLead.grade_breakdown.forced_f_reason}</dd>
                 </div>
               )}
             </dl>
-
-            <div className="mt-5 flex justify-end">
-              <button
-                type="button"
-                className="dashboard-btn-secondary"
-                onClick={() => setWhyLead(null)}
-              >
+            <div className="sl-modal__actions">
+              <button type="button" className="sl-btn" onClick={() => setWhyLead(null)}>
                 Close
               </button>
             </div>
@@ -988,33 +1142,37 @@ export default function AdminSales() {
         </div>
       )}
 
+      {leadForm && (
+        <SalesLeadFormModal
+          key={leadForm.mode === 'edit' ? leadForm.lead.id : 'new'}
+          lead={leadForm.mode === 'edit' ? leadForm.lead : null}
+          prefill={leadForm.mode === 'add' ? leadForm.prefill : undefined}
+          saving={savingLeadForm}
+          onCancel={() => setLeadForm(null)}
+          onSave={(input) => void handleSaveLeadForm(input)}
+        />
+      )}
+
       {notesLead && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Lead notes</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {notesLead.company_name || notesLead.mc_number || `DOT ${notesLead.dot_number}`}
-            </p>
+        <div className="sl-overlay" role="presentation" onClick={() => !savingNotes && setNotesLead(null)}>
+          <div className="sl-modal" role="dialog" aria-modal aria-label="Lead notes" onClick={(e) => e.stopPropagation()}>
+            <h2>Lead notes</h2>
+            <p className="sl-muted">{leadName(notesLead)}</p>
             <textarea
               autoFocus
               value={notesDraft}
               onChange={(e) => setNotesDraft(e.target.value)}
               rows={6}
-              placeholder="Call notes, email draft status, intro source…"
-              className="client-input mt-4 w-full resize-y"
+              placeholder="Call notes, intro source, follow-up date…"
+              className="sl-input sl-textarea"
             />
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                className="dashboard-btn-secondary"
-                disabled={savingNotes}
-                onClick={() => setNotesLead(null)}
-              >
+            <div className="sl-modal__actions">
+              <button type="button" className="sl-btn" disabled={savingNotes} onClick={() => setNotesLead(null)}>
                 Cancel
               </button>
               <button
                 type="button"
-                className="dashboard-btn-primary"
+                className="sl-btn sl-btn--primary"
                 disabled={savingNotes}
                 onClick={() => void handleSaveNotes()}
               >

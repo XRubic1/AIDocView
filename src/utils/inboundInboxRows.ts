@@ -39,6 +39,7 @@ export type InboundInboxRow = {
 
 function classifiedAsLabel(review: EmailReviewItem | null): string {
   if (!review) return 'Not classified'
+  if (review.classification === 'sales') return 'Sales'
   const summary = review.summary ?? ''
   if (
     review.confirmed_by === 'Rate verification' ||

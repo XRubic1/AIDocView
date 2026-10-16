@@ -443,6 +443,88 @@ Deno.serve(async (req) => {
     }
 
     const now = new Date().toISOString()
+
+    const senderMatch = from.match(/<([^>]+)>/) || from.match(/([^\s<>]+@[^\s<>]+)/)
+    const sender = (senderMatch?.[1] || from).trim().toLowerCase()
+
+    /** Show a sales email in the Inbox, labeled Sales, without invoice matching or reply reading. */
+    const fileSalesReview = async (summary: string) => {
+      await admin.from('email_review_items').insert({
+        id: `review-${crypto.randomUUID()}`,
+        status: 'confirmed',
+        classification: 'sales',
+        proposed_actions: [],
+        summary,
+        body_text: bodyText,
+        from_address: from,
+        to_address: to || 'system@credyx.net',
+        subject,
+        created_at: now,
+        confirmed_at: now,
+        confirmed_by: 'Sales',
+      })
+    }
+
+    // Our own sales outreach copied to system@ (sent from @credyx.net to a carrier lead).
+    if (sender.endsWith('@credyx.net')) {
+      const recipients = ((to ?? "").match(/[^\s<>,;"']+@[^\s<>,;"']+/g) ?? [])
+        .map((addr) => addr.toLowerCase())
+        .filter((addr) => !addr.endsWith('@credyx.net'))
+      if (recipients.length > 0) {
+        const { data: salesThreads } = await admin
+          .from('sales_email_threads')
+          .select('id, company_name, to_address')
+          .in('to_address', recipients)
+        if (salesThreads && salesThreads.length > 0) {
+          const names = salesThreads.map((t) => t.company_name || t.to_address).join(', ')
+          await fileSalesReview(`Sales outreach · ${names}`)
+          return new Response(JSON.stringify({ ok: true, matched: 'sales_copy', to }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+      }
+    }
+
+    // Replies to sales outreach: file under the lead's conversation instead of the broker review queue.
+    if (!invoice) {
+      if (sender) {
+        const { data: salesThread } = await admin
+          .from('sales_email_threads')
+          .select('id, lead_id')
+          .eq('to_address', sender)
+          .maybeSingle()
+        if (salesThread?.id) {
+          await fileSalesReview('Sales reply · from a carrier lead')
+          await admin.from('sales_email_messages').insert({
+            thread_id: salesThread.id,
+            lead_id: salesThread.lead_id,
+            direction: 'inbound',
+            status: 'received',
+            from_address: sender,
+            to_address: to || '',
+            subject,
+            body_text: bodyText,
+            provider_message_id: messageId || null,
+            sent_at: now,
+          })
+          await admin
+            .from('sales_email_threads')
+            .update({ last_message_at: now, last_direction: 'inbound', unread: true })
+            .eq('id', salesThread.id)
+          if (salesThread.lead_id) {
+            await admin
+              .from('sales_leads')
+              .update({ status: 'replied', updated_at: now })
+              .eq('id', salesThread.lead_id)
+              .in('status', ['new', 'researching', 'contacted'])
+          }
+          return new Response(JSON.stringify({ ok: true, matched: 'sales_lead', to }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          })
+        }
+      }
+    }
+
     let threadId: string | null = null
     let classified = readReply(subject, bodyText, 'other')
 
