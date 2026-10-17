@@ -90,15 +90,13 @@
   animation: credyx-auth-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Pill, same as .cx-sales-pill */
+/* Eyebrow label, same as .cx-sales-pill */
 .credyx-auth__eyebrow {
-  display: inline-block;
-  margin-bottom: 24px;
-  padding: 9px 18px;
-  border-radius: 8px;
-  background: var(--cx-blue);
-  color: #fff;
-  font: 800 13px var(--cx-h);
+  display: block;
+  margin-bottom: 18px;
+  padding: 0;
+  color: var(--cx-blue);
+  font: 700 13px var(--cx-h);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -592,9 +590,8 @@
   }
 
   .credyx-auth__eyebrow {
-    margin-bottom: 16px;
-    padding: 7px 14px;
-    font-size: 11px;
+    margin-bottom: 12px;
+    font-size: 12px;
   }
 
   .credyx-auth__brand-title {

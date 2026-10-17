@@ -24012,3 +24012,41 @@
 .client-portal .batch-debug-fields dd {
   margin: 0.1rem 0 0;
 }
+
+/* Phone: the floating menu button needs its own top gutter instead of covering
+   each page's first row, and must be visible on light pages. Full-page invoice
+   details bring their own menu button, so they keep the full height. */
+@media (max-width: 767px) {
+  .client-portal div:has(> .client-phone-menu-btn) > main:not(:has(.payment-confirmation-panel--mobile)) {
+    padding-top: 56px;
+  }
+
+  .client-portal div:has(> .client-phone-menu-btn) > main:not(:has(.payment-confirmation-panel--mobile))::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    border-bottom: 1px solid var(--cp-border);
+    background: var(--cp-card);
+    pointer-events: none;
+  }
+
+  .client-portal div:has(> .client-phone-menu-btn) > main {
+    position: relative;
+  }
+
+  .client-portal .client-phone-menu-btn {
+    top: max(6px, env(safe-area-inset-top, 0px));
+    color: var(--cp-text);
+  }
+
+  .client-portal .client-phone-menu-btn:active {
+    background: var(--cp-table-hover);
+  }
+
+  .client-portal div:has(main .payment-confirmation-panel--mobile) > .client-phone-menu-btn {
+    display: none;
+  }
+}

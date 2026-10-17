@@ -156,7 +156,8 @@ const AUTH_FALLBACK: Record<string, { subject: string; eyebrow: string; headline
 }
 
 function defaultLogoHtml(): string {
-  const origin = (Deno.env.get('SITE_URL') || 'https://app.credyx.net').replace(/\/$/, '')
+  // Hosted on the public site; SITE_URL (app host) may not serve static assets.
+  const origin = (Deno.env.get('EMAIL_ASSET_ORIGIN') || 'https://credyx.net').replace(/\/$/, '')
   return `<img src="${origin}/credyx-logo-white-cred-no-bg.png" alt="Credyx" width="148" style="display:block;border:0;outline:none;text-decoration:none;max-width:148px;height:auto;" />`
 }
 

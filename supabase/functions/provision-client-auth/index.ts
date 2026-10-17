@@ -59,11 +59,13 @@ async function findUserIdByEmail(
   return null
 }
 
+let lastGenerateLinkError = ''
+
 /** Generate an invite/recovery link; retry login redirect if setup-password is not allow-listed. */
 async function generateSetupLink(
   admin: ReturnType<typeof createClient>,
   email: string,
-  type: 'invite' | 'recovery',
+  type: 'recovery',
   preferredRedirect: string,
   fallbackRedirect: string
 ): Promise<string | null> {
@@ -75,6 +77,7 @@ async function generateSetupLink(
     })
     if (!error && data?.properties?.action_link) return data.properties.action_link
     console.warn('[provision-client-auth] generateLink failed', type, redirectTo, error?.message)
+    lastGenerateLinkError = error?.message ?? 'no link returned'
   }
   return null
 }
@@ -171,10 +174,11 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: `Could not link account: ${linkError.message}` })
     }
 
-    const siteUrl = (Deno.env.get('SITE_URL') ?? 'https://app.credyx.net').replace(/\/$/, '')
+    // credyx.net serves the app today; set SITE_URL once a dedicated app host exists.
+    const siteUrl = (Deno.env.get('SITE_URL') ?? 'https://credyx.net').replace(/\/$/, '')
     const portalLink = `${siteUrl}/client/login`
     const setupRedirect = `${siteUrl}/client/setup-password`
-    const websiteUrl = Deno.env.get('CREDYX_WEBSITE_URL') ?? 'https://credyx.com'
+    const websiteUrl = Deno.env.get('CREDYX_WEBSITE_URL') ?? 'https://credyx.net'
     const contactEmail = Deno.env.get('CREDYX_CONTACT_EMAIL') ?? 'ops@credyx.net'
 
     const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(userId)
@@ -182,16 +186,19 @@ Deno.serve(async (req) => {
 
     let setupLink = portalLink
     if (needsPasswordSetup) {
+      // Always 'recovery': the user already exists (created above), and Supabase
+      // rejects 'invite' links for existing users.
       const generated = await generateSetupLink(
         supabaseAdmin,
         email,
-        createdNewUser ? 'invite' : 'recovery',
+        'recovery',
         setupRedirect,
         portalLink
       )
       if (generated) setupLink = generated
     }
 
+    let passwordEmailSent = false
     if (sendEmail) {
       const resendKey = Deno.env.get('RESEND_API_KEY')
       if (!resendKey) {
@@ -208,10 +215,12 @@ Deno.serve(async (req) => {
         Deno.env.get('RESEND_FROM_EMAIL') ||
         'Credyx <onboarding@resend.dev>'
       const replyTo = Deno.env.get('RESEND_REPLY_TO_CARRIER')?.trim() || Deno.env.get('RESEND_REPLY_TO')?.trim()
+      const assetOrigin = (Deno.env.get('EMAIL_ASSET_ORIGIN') || 'https://credyx.net').replace(/\/$/, '')
 
       const placeholders: Record<string, string> = {
         contactName: (clientRow.contact_person as string | null)?.trim() || 'there',
         clientName: (clientRow.name as string) || 'your company',
+        loginEmail: email,
         feeTermsLabel: feeTermsLabel(clientRow.fee_terms as Record<string, unknown> | null),
         feePercentage: String(
           (clientRow.fee_terms as { fee_percentage?: number } | null)?.fee_percentage ?? ''
@@ -219,56 +228,83 @@ Deno.serve(async (req) => {
         websiteUrl,
         portalLink,
         contactEmail,
-        setupLink,
-        inviteLink: setupLink,
-        ctaLabel: needsPasswordSetup ? 'Create your password' : 'Sign in to your portal',
-        companyLogoHtml: `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.02em;line-height:1;">
-  <span style="color:#ffffff;">Cred</span><span style="color:#1684FE;">yx</span>
-</div>`,
+        companyLogoHtml: `<img src="${assetOrigin}/credyx-logo-white-cred-no-bg.png" alt="Credyx" width="168" style="display:block;border:0;outline:none;text-decoration:none;height:auto;max-width:168px;" />`,
       }
 
-      const { data: tmpl } = await supabaseAdmin
-        .from('email_templates')
-        .select('subject, body_html')
-        .eq('id', 'client_invite')
-        .maybeSingle()
-
-      const subject = renderTemplateString(
-        tmpl?.subject ?? 'Welcome to Credyx — your account is active',
-        placeholders
-      )
-      const html = renderTemplateString(
-        tmpl?.body_html ??
-          `<p>Hi {{contactName}},</p><p>Your Credyx account for <strong>{{clientName}}</strong> is active.</p><p>Collection fee: <strong>{{feeTermsLabel}}</strong></p><p><a href="{{setupLink}}">{{ctaLabel}}</a></p>`,
-        placeholders
-      )
-
-      const resendBody: Record<string, unknown> = {
-        from: fromEmail,
-        to: [email],
-        subject,
-        html,
-      }
-      if (replyTo) resendBody.reply_to = replyTo
-
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${resendKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(resendBody),
-      })
-      if (!res.ok) {
-        const errText = await res.text()
-        return json({
-          ok: false,
-          error: `Account is ready, but the email failed: ${errText.slice(0, 280)}`,
+      const sendTemplate = async (
+        templateId: string,
+        fallback: { subject: string; html: string },
+        data: Record<string, string>
+      ): Promise<string | null> => {
+        const { data: tmpl } = await supabaseAdmin
+          .from('email_templates')
+          .select('subject, body_html')
+          .eq('id', templateId)
+          .maybeSingle()
+        const resendBody: Record<string, unknown> = {
+          from: fromEmail,
+          to: [email],
+          subject: renderTemplateString(tmpl?.subject ?? fallback.subject, data),
+          html: renderTemplateString(tmpl?.body_html ?? fallback.html, data),
+        }
+        if (replyTo) resendBody.reply_to = replyTo
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(resendBody),
         })
+        return res.ok ? null : (await res.text()).slice(0, 280)
+      }
+
+      // Email 1 — login is ready (login page, username, next steps).
+      const loginError = await sendTemplate(
+        'client_invite',
+        {
+          subject: 'Your Credyx login is ready',
+          html: `<p>Hi {{contactName}},</p><p>Your Credyx login for <strong>{{clientName}}</strong> is ready.</p><p>Login page: <a href="{{portalLink}}">{{portalLink}}</a><br/>Username: {{loginEmail}}</p><p>{{passwordNote}}</p>`,
+        },
+        {
+          ...placeholders,
+          // Older template copies link the button to setupLink — keep it on the login page.
+          setupLink: portalLink,
+          inviteLink: portalLink,
+          ctaLabel: needsPasswordSetup ? 'Go to the login page' : 'Sign in to your portal',
+          passwordNote: needsPasswordSetup
+            ? "We've sent you a separate email with a link to create your password. Create it first, then sign in anytime at the login page."
+            : 'Sign in with your existing password.',
+        }
+      )
+      if (loginError) {
+        return json({ ok: false, error: `Account is ready, but the email failed: ${loginError}` })
+      }
+
+      // Email 2 — create password (only while the client has none).
+      if (needsPasswordSetup) {
+        if (setupLink === portalLink) {
+          return json({
+            ok: false,
+            error: `Login email sent, but the create-password link could not be generated (${lastGenerateLinkError}).`,
+          })
+        }
+        const passwordError = await sendTemplate(
+          'client_password_setup',
+          {
+            subject: 'Create your Credyx password',
+            html: `<p>Hi {{contactName}},</p><p>Create your password for the Credyx portal. Username: {{loginEmail}}</p><p><a href="{{setupLink}}">Create your password</a></p>`,
+          },
+          { ...placeholders, setupLink, inviteLink: setupLink }
+        )
+        if (passwordError) {
+          return json({
+            ok: false,
+            error: `Login email sent, but the create-password email failed: ${passwordError}`,
+          })
+        }
+        passwordEmailSent = true
       }
     }
 
-    return json({ ok: true, userId, emailed: Boolean(sendEmail) })
+    return json({ ok: true, userId, emailed: Boolean(sendEmail), passwordEmailSent })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Provision failed'
     console.error('[provision-client-auth]', message)

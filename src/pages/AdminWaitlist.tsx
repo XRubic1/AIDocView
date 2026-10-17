@@ -9,7 +9,11 @@ import {
   ChevronRight,
   Globe2,
   Timer,
+  UserPlus,
+  CheckCircle2,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import WaitlistSetupAccountModal from '../components/admin/WaitlistSetupAccountModal'
 import { formatDate } from '../utils/format'
 import { useToast } from '../components/ui/ToastProvider'
 import Spinner from '../components/ui/Spinner'
@@ -62,6 +66,7 @@ export default function AdminWaitlist() {
   const [eventRange, setEventRange] = useState<EventRange>('7d')
   const [eventName, setEventName] = useState('')
   const [expandedVisitorKey, setExpandedVisitorKey] = useState<string | null>(null)
+  const [setupLead, setSetupLead] = useState<WaitlistLead | null>(null)
 
   const visitorGroups = useMemo(() => {
     const joinedByIp = buildJoinedIpIndex(leads)
@@ -196,12 +201,13 @@ export default function AdminWaitlist() {
                       <th className="px-4 py-3 font-medium">Heard about</th>
                       <th className="px-4 py-3 font-medium">Status</th>
                       <th className="px-4 py-3 font-medium">Joined</th>
+                      <th className="px-4 py-3 font-medium text-right">Account</th>
                     </tr>
                   </thead>
                   <tbody>
                     {leads.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                        <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                           No waitlist signups yet.
                         </td>
                       </tr>
@@ -233,6 +239,35 @@ export default function AdminWaitlist() {
                           </td>
                           <td className="px-4 py-3 text-slate-500">
                             {formatDate(lead.created_at)}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {lead.client_id ? (
+                              <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                                <Link
+                                  to="/clients"
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-300"
+                                >
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  Account set up
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() => setSetupLead(lead)}
+                                  className="text-xs text-slate-500 hover:underline"
+                                >
+                                  Resend
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setSetupLead(lead)}
+                                className="dashboard-btn-primary dashboard-btn-compact inline-flex items-center gap-1.5 whitespace-nowrap"
+                              >
+                                <UserPlus className="h-3.5 w-3.5" />
+                                Set up account
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))
@@ -411,6 +446,16 @@ export default function AdminWaitlist() {
           </>
         )}
       </div>
+      {setupLead ? (
+        <WaitlistSetupAccountModal
+          lead={setupLead}
+          onClose={() => setSetupLead(null)}
+          onDone={() => {
+            setSetupLead(null)
+            void loadAll()
+          }}
+        />
+      ) : null}
     </div>
   )
 }

@@ -60,6 +60,49 @@ const PUBLIC_TEMPLATES = new Set<EmailTemplate>([
   'waitlist_welcome',
 ])
 
+/** Internal inbox for anonymous-site alerts (waitlist, enrollment). */
+const OPS_ALERT_EMAIL = 'ops@credyx.net'
+/** Legacy inline-logo content id — mail apps often list it as an attachment. */
+const LOGO_CID = 'credyx-logo'
+
+/**
+ * Public templates are callable without a login, so the caller only supplies
+ * the form fields. Alerts always go to ops; no custom HTML, From, CC or files.
+ */
+function lockDownPublicPayload(payload: SendEmailPayload): void {
+  const p = payload as SendEmailPayload & { cc?: unknown; fromOverride?: unknown }
+  if (payload.template !== 'waitlist_welcome') payload.to = OPS_ALERT_EMAIL
+  delete payload.overrideSubject
+  delete payload.overrideHtml
+  delete payload.isTest
+  delete p.cc
+  delete p.fromOverride
+
+  payload.attachments = []
+
+  // Drop raw-HTML fields; the logo slot is filled server-side.
+  const data: Record<string, string> = {}
+  for (const [key, value] of Object.entries(payload.data ?? {})) {
+    if (typeof value !== 'string' || key.endsWith('Html')) continue
+    data[key] = value.slice(0, 2000)
+  }
+  payload.data = data
+}
+
+/**
+ * Never send the logo as a file: drop the inline logo attachment and point every
+ * logo reference at the hosted image instead.
+ */
+function useHostedLogo(payload: SendEmailPayload): void {
+  if (payload.attachments?.length) {
+    payload.attachments = payload.attachments.filter((a) => a.contentId !== LOGO_CID)
+  }
+  payload.data = { ...(payload.data ?? {}), companyLogoHtml: defaultCompanyLogoHtml() }
+  if (payload.overrideHtml?.includes(`cid:${LOGO_CID}`)) {
+    payload.overrideHtml = payload.overrideHtml.split(`cid:${LOGO_CID}`).join(hostedLogoUrl())
+  }
+}
+
 type FromAudience = 'broker' | 'carrier' | 'admin' | 'default'
 
 /** Map template → audience for From / Reply-To secrets. */
@@ -233,10 +276,14 @@ function isFullEmailDocument(html: string): boolean {
   return t.startsWith('<!doctype') || t.startsWith('<html')
 }
 
-/** Real Credyx wordmark (hosted) when the client did not attach a cid logo. */
+/** Hosted Credyx wordmark — served by the public site (credyx.net). */
+function hostedLogoUrl(): string {
+  const origin = (Deno.env.get('EMAIL_ASSET_ORIGIN') || 'https://credyx.net').replace(/\/$/, '')
+  return `${origin}/credyx-logo-white-cred-no-bg.png`
+}
+
 function defaultCompanyLogoHtml(): string {
-  const origin = (Deno.env.get('SITE_URL') || 'https://app.credyx.net').replace(/\/$/, '')
-  return `<img src="${origin}/credyx-logo-white-cred-no-bg.png" alt="Credyx" width="168" style="display:block;border:0;outline:none;text-decoration:none;height:auto;max-width:168px;" />`
+  return `<img src="${hostedLogoUrl()}" alt="Credyx" width="168" style="display:block;border:0;outline:none;text-decoration:none;height:auto;max-width:168px;" />`
 }
 
 const EMAIL_SHELL_EYEBROW: Record<string, string> = {
@@ -369,7 +416,7 @@ function enrichData(template: EmailTemplate, data: Record<string, string>): Reco
   }
 
   if (template === 'client_invite') {
-    if (!next.websiteUrl) next.websiteUrl = 'https://credyx.com'
+    if (!next.websiteUrl) next.websiteUrl = 'https://credyx.net'
     if (!next.contactEmail) next.contactEmail = 'ops@credyx.net'
     if (!next.setupLink) next.setupLink = next.inviteLink || next.portalLink || ''
     if (!next.inviteLink) next.inviteLink = next.setupLink
@@ -489,16 +536,71 @@ function builtInEmail(template: EmailTemplate, data: Record<string, string>) {
         ),
       }
     case 'waitlist_welcome':
+      // Keep in sync with WAITLIST_WELCOME_CONTENT_HTML in src/config/emailTemplateDefaults.ts
       return {
-        subject: renderTemplateString("You're on the Credyx waitlist", d),
+        subject: renderTemplateString("Next steps for onboarding {{companyName}} with Credyx", d),
         html: renderTemplateString(
-          `<div style="font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
-  <p>Hi {{contactName}},</p>
-  <p>Thank you for joining the <strong>Credyx</strong> waitlist for <strong>{{companyName}}</strong>.</p>
-  <p>Founding access is reserved — we'll reach out when onboarding opens and keep you updated on next steps.</p>
-  <p style="color:#475569;font-size:14px;">Your back office, in one portal. Paid on time.</p>
-  <p style="margin-top:24px;">— The Credyx team<br/><span style="color:#64748b;font-size:13px;">Credyx A/R Solutions</span></p>
-</div>`,
+          ensureCredyxEmailShell(
+            `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Onboarding</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;-webkit-text-size-adjust:100%;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:28px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+          <tr>
+            <td style="background-color:#0f172a;padding:22px 28px;">
+              {{companyLogoHtml}}
+              <p style="margin:14px 0 0 0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;">
+                Onboarding
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 28px 24px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#475569;">
+              <p style="margin:0 0 12px 0;font-size:20px;font-weight:600;line-height:1.35;color:#0f172a;">We'll be in touch to get you onboarded</p>
+              <div style="font-size:14px;line-height:1.6;color:#475569;">
+                <p>Hi {{contactName}},</p>
+<p>Thanks for signing up <strong>{{companyName}}</strong> with <strong>Credyx</strong>. A member of our team will contact you shortly to schedule your onboarding.</p>
+<p style="margin:20px 0;">
+  <a href="https://credyx.net/tour" style="display:inline-block;background-color:#1684FE;color:#ffffff;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;padding:12px 20px;border-radius:8px;">See how Credyx works</a>
+</p>
+<p style="margin:20px 0 8px 0;"><strong>Get these documents ready before onboarding</strong><br/>
+<span style="color:#475569;">You'll upload them to your Document Vault on day one so we can start sending your invoices right away.</span></p>
+<ul style="margin:0 0 16px 0;padding-left:20px;line-height:1.7;">
+  <li>W-9 (signed, current)</li>
+  <li>Certificate of Insurance (COI)</li>
+  <li>MC operating authority</li>
+  <li>DOT registration</li>
+  <li>Voided check or bank letter for your payout account</li>
+  <li>Notice of Assignment (NOA) — only if you factor your invoices</li>
+</ul>
+<p>Questions? Email <a href="mailto:ops@credyx.net" style="color:#1684FE;text-decoration:none;">ops@credyx.net</a> or call <a href="tel:+15550100199" style="color:#1684FE;text-decoration:none;">(555) 010-0199</a>.</p>
+<p>— The Credyx team</p>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 28px;background-color:#f8fafc;border-top:1px solid #e2e8f0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+              <p style="margin:0 0 4px 0;font-size:12px;font-weight:600;color:#334155;">Credyx · Paid on time</p>
+              <p style="margin:0;font-size:11px;line-height:1.45;color:#64748b;">
+                A/R Solutions. If you received this in error, please delete it and notify ops@credyx.net.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+            template
+          ),
           d
         ),
       }
@@ -820,6 +922,17 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: corsHeaders })
       }
     }
+
+    if (PUBLIC_TEMPLATES.has(payload.template)) {
+      lockDownPublicPayload(payload)
+      if (!isEmail(payload.to)) {
+        return new Response(JSON.stringify({ ok: false, error: 'Invalid recipient' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+    }
+    useHostedLogo(payload)
 
     const resendKey = Deno.env.get('RESEND_API_KEY')
     let { from, replyTo } = await resolveFromAddresses(payload.template)

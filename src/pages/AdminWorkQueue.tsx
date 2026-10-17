@@ -1,11 +1,11 @@
 /**
  * Full admin Client Work Queue — expandable client rows, invoice-grouped issues,
  * in-page invoice detail on the right (no navigation away).
+ * Client activity (uploads, notes, payments) shows here until an admin marks it reviewed.
  */
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Briefcase, ChevronDown, ChevronRight, Filter, Search, X } from 'lucide-react'
-import ClientSortableHeader from '../components/client/ClientSortableHeader'
+import { Check, ChevronDown, Search, X } from 'lucide-react'
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
 import { useToast } from '../components/ui/ToastProvider'
 import { getAllBatches } from '../data/mockBatches'
@@ -13,44 +13,36 @@ import { getInvoiceById, mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
 import { useAuth } from '../context/AuthContext'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
+import { useAdminNotifications } from '../hooks/useAdminNotifications'
 import { getAdminUserDisplayName } from '../config/adminNav'
 import {
   addAdminInvoiceNote,
   removeAdminInvoiceNote,
 } from '../services/adminInvoiceNoteActions'
-import { useClientTheme } from '../theme/ThemeContext'
+import { markAdminNotificationRead } from '../services/adminNotificationService'
 import type { PendingBatch } from '../types/admin'
 import type { Invoice } from '../types/invoice'
-import {
-  getInitialListPageSize,
-  PAGE_SIZE_OPTIONS,
-  type SortDir,
-} from '../utils/clientListPage'
+import { getInitialListPageSize, PAGE_SIZE_OPTIONS } from '../utils/clientListPage'
 import { compareByClientName } from '../utils/compareByClientName'
+import { formatRelativeTime } from '../utils/format'
 import {
   buildClientWorkSummaries,
   clientWorkIssueLabel,
   filterClientWorkSummaries,
   groupClientWorkItemsByInvoice,
+  type ClientWorkCategory,
   type ClientWorkCategoryFilter,
   type ClientWorkInvoiceGroup,
+  type ClientWorkItem,
   type ClientWorkSeverity,
   type ClientWorkSummary,
 } from '../utils/clientWorkQueue'
 import '../styles/adminWorkQueue.css'
 
-type SortField =
-  | 'clientName'
-  | 'totalOpen'
-  | 'disputes'
-  | 'payments'
-  | 'holds'
-  | 'callbacks'
-  | 'batches'
-  | 'severity'
+type SortMode = 'severity' | 'activity' | 'totalOpen' | 'clientName'
 
-const CATEGORY_FILTERS: Array<{ id: ClientWorkCategoryFilter; label: string }> = [
-  { id: 'all', label: 'All' },
+const CATEGORY_FILTERS: Array<{ id: ClientWorkCategory; label: string }> = [
+  { id: 'activity', label: 'Client activity' },
   { id: 'disputes', label: 'Disputes' },
   { id: 'payments', label: 'Payments' },
   { id: 'holds', label: 'Holds' },
@@ -60,12 +52,31 @@ const CATEGORY_FILTERS: Array<{ id: ClientWorkCategoryFilter; label: string }> =
   { id: 'chase', label: 'Chase' },
 ]
 
+/** Short noun for the per-client tag row ("2 holds"). */
+const CATEGORY_NOUN: Record<ClientWorkCategory, [string, string]> = {
+  activity: ['new from client', 'new from client'],
+  disputes: ['dispute', 'disputes'],
+  payments: ['payment', 'payments'],
+  holds: ['hold', 'holds'],
+  callbacks: ['callback', 'callbacks'],
+  batches: ['batch', 'batches'],
+  overdue: ['overdue', 'overdue'],
+  chase: ['chase', 'chase'],
+}
+
 const SEVERITY_FILTERS: Array<{ id: 'all' | ClientWorkSeverity; label: string }> = [
   { id: 'all', label: 'Any severity' },
   { id: 'critical', label: 'Critical' },
   { id: 'high', label: 'High' },
   { id: 'medium', label: 'Medium' },
   { id: 'low', label: 'Low' },
+]
+
+const SORT_OPTIONS: Array<{ id: SortMode; label: string }> = [
+  { id: 'severity', label: 'Priority' },
+  { id: 'activity', label: 'Client activity' },
+  { id: 'totalOpen', label: 'Most open' },
+  { id: 'clientName', label: 'A–Z' },
 ]
 
 const SEVERITY_RANK: Record<ClientWorkSeverity, number> = {
@@ -75,27 +86,33 @@ const SEVERITY_RANK: Record<ClientWorkSeverity, number> = {
   low: 3,
 }
 
-function severityClass(severity: ClientWorkSeverity): string {
-  return `admin-work-queue__sev admin-work-queue__sev--${severity}`
+function initials(name: string): string {
+  const parts = name.replace(/[^a-z0-9 ]/gi, ' ').trim().split(/\s+/)
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?'
+}
+
+function isActivity(item: ClientWorkItem): boolean {
+  return item.kind === 'client_activity'
 }
 
 export default function AdminWorkQueue() {
-  const t = useClientTheme()
   const { showToast } = useToast()
   const { resolved } = useAuth()
   const adminName = getAdminUserDisplayName(resolved.user?.email ?? null)
   const [searchParams, setSearchParams] = useSearchParams()
   const tenantRevision = useTenantDataRevision()
+  const notifications = useAdminNotifications()
 
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<ClientWorkCategoryFilter>('all')
   const [severityFilter, setSeverityFilter] = useState<'all' | ClientWorkSeverity>('all')
-  const [sortField, setSortField] = useState<SortField>('severity')
-  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [sortMode, setSortMode] = useState<SortMode>('severity')
   const [pageSize, setPageSize] = useState(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
   const [expandedId, setExpandedId] = useState<string | null>(searchParams.get('client'))
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null)
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
+    searchParams.get('invoice')
+  )
   const [refreshKey, setRefreshKey] = useState(0)
   const bump = () => setRefreshKey((k) => k + 1)
 
@@ -115,9 +132,19 @@ export default function AdminWorkQueue() {
   )
 
   const summaries = useMemo(
-    () => buildClientWorkSummaries({ invoices, batches }),
-    [invoices, batches]
+    () => buildClientWorkSummaries({ invoices, batches, notifications }),
+    [invoices, batches, notifications]
   )
+
+  const categoryTotals = useMemo(() => {
+    const totals = { all: 0 } as Record<ClientWorkCategoryFilter, number>
+    for (const chip of CATEGORY_FILTERS) totals[chip.id] = 0
+    for (const row of summaries) {
+      totals.all += row.totalOpen
+      for (const chip of CATEGORY_FILTERS) totals[chip.id] += row[chip.id]
+    }
+    return totals
+  }, [summaries])
 
   const filtered = useMemo(() => {
     let rows = filterClientWorkSummaries(summaries, { category, search })
@@ -130,20 +157,16 @@ export default function AdminWorkQueue() {
   const sorted = useMemo(() => {
     const rows = [...filtered]
     rows.sort((a, b) => {
-      if (sortField === 'clientName') {
-        return compareByClientName(a.clientName, b.clientName, sortDir)
-      }
-      if (sortField === 'severity') {
-        const cmp = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
-        return sortDir === 'asc' ? cmp : -cmp
-      }
-      const left = a[sortField] as number
-      const right = b[sortField] as number
-      const cmp = left - right
-      return sortDir === 'asc' ? cmp : -cmp
+      if (sortMode === 'clientName') return compareByClientName(a.clientName, b.clientName, 'asc')
+      if (sortMode === 'activity' && a.activity !== b.activity) return b.activity - a.activity
+      if (sortMode === 'totalOpen' && a.totalOpen !== b.totalOpen) return b.totalOpen - a.totalOpen
+      const sev = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]
+      if (sev !== 0) return sev
+      if (a.activity !== b.activity) return b.activity - a.activity
+      return b.totalOpen - a.totalOpen
     })
     return rows
-  }, [filtered, sortField, sortDir])
+  }, [filtered, sortMode])
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pageRows = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
@@ -152,6 +175,13 @@ export default function AdminWorkQueue() {
     if (!selectedInvoiceId) return null
     return getInvoiceById(selectedInvoiceId) ?? invoices.find((inv) => inv.id === selectedInvoiceId) ?? null
   }, [selectedInvoiceId, invoices])
+
+  /** Unread client activity on the open invoice — shown in the panel bar. */
+  const selectedActivity = useMemo(() => {
+    if (!selectedInvoice) return []
+    const client = summaries.find((s) => s.clientId === selectedInvoice.client_id)
+    return client?.items.filter((item) => isActivity(item) && item.invoiceId === selectedInvoice.id) ?? []
+  }, [selectedInvoice, summaries])
 
   /** Invoices from the expanded client's open work — for detail panel navigation. */
   const navigationInvoices = useMemo(() => {
@@ -169,15 +199,17 @@ export default function AdminWorkQueue() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [search, category, severityFilter, pageSize])
+  }, [search, category, severityFilter, pageSize, sortMode])
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages)
   }, [currentPage, totalPages])
 
-  // Deep-link: ?client= expands that row
+  // Deep-link: ?client= expands that row, ?invoice= opens the invoice
   useEffect(() => {
     const clientId = searchParams.get('client')
+    const invoiceId = searchParams.get('invoice')
+    if (invoiceId) setSelectedInvoiceId(invoiceId)
     if (!clientId) return
     setExpandedId(clientId)
     const idx = sorted.findIndex((row) => row.clientId === clientId)
@@ -186,401 +218,377 @@ export default function AdminWorkQueue() {
     }
   }, [searchParams, sorted, pageSize])
 
-  const onSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-      return
-    }
-    setSortField(field)
-    setSortDir(field === 'clientName' || field === 'severity' ? 'asc' : 'desc')
-  }
+  const setParam = useCallback(
+    (key: string, value: string | null) => {
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev)
+          if (value) params.set(key, value)
+          else params.delete(key)
+          return params
+        },
+        { replace: true }
+      )
+    },
+    [setSearchParams]
+  )
 
   const toggleClient = (row: ClientWorkSummary) => {
     const next = expandedId === row.clientId ? null : row.clientId
     setExpandedId(next)
-    if (!next) setSelectedInvoiceId(null)
-    setSearchParams(
-      (prev) => {
-        const params = new URLSearchParams(prev)
-        if (next) params.set('client', next)
-        else params.delete('client')
-        return params
-      },
-      { replace: true }
-    )
+    if (!next) {
+      setSelectedInvoiceId(null)
+      setParam('invoice', null)
+    }
+    setParam('client', next)
   }
 
-  const openInvoice = useCallback((invoiceId: string | undefined) => {
-    if (!invoiceId) return
-    setSelectedInvoiceId(invoiceId)
-  }, [])
+  const openInvoice = useCallback(
+    (invoiceId: string | undefined) => {
+      if (!invoiceId) return
+      setSelectedInvoiceId(invoiceId)
+      setParam('invoice', invoiceId)
+    },
+    [setParam]
+  )
 
   const closeInvoice = useCallback(() => {
     setSelectedInvoiceId(null)
-  }, [])
+    setParam('invoice', null)
+  }, [setParam])
+
+  const markReviewed = useCallback(
+    (items: ClientWorkItem[]) => {
+      const activity = items.filter(isActivity)
+      if (!activity.length) return
+      activity.forEach((item) => markAdminNotificationRead(item.id))
+      showToast(
+        activity.length === 1 ? 'Marked reviewed' : `${activity.length} updates marked reviewed`,
+        'success'
+      )
+    },
+    [showToast]
+  )
 
   const detailOpen = Boolean(selectedInvoice)
+  const clientCount = summaries.length
+  const activityClients = summaries.filter((s) => s.activity > 0).length
 
   return (
-    <>
-      <div
-        className={`admin-work-queue${detailOpen ? ' admin-work-queue--detail-open' : ''}`}
-        style={{ color: t.primary }}
-      >
-        <div className="admin-work-queue__main">
-          <div
-            className="admin-work-queue__top"
-            style={{ borderColor: t.border, backgroundColor: t.card }}
-          >
-            <div className="admin-work-queue__heading">
-              <div className="admin-work-queue__title-row">
-                <Briefcase className="admin-work-queue__title-icon" style={{ color: t.info }} />
-                <div>
-                  <h1 style={{ color: t.primary }}>Client Work Queue</h1>
-                  <p style={{ color: t.secondary }}>
-                    {summaries.length} clients with open work · expand a client, then open an invoice
-                  </p>
-                </div>
-              </div>
-            </div>
+    <div className={`wq admin-work-queue${detailOpen ? ' wq--detail-open' : ''}`}>
+      <div className="wq__main">
+        <header className="wq__head">
+          <div className="wq__title-block">
+            <p className="wq__eyebrow">Operations</p>
+            <h1 className="wq__title">Client work queue</h1>
+            <p className="wq__sub">
+              {clientCount} client{clientCount === 1 ? '' : 's'} with open work
+              {categoryTotals.activity > 0 ? (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    className="wq__sub-link"
+                    onClick={() => setCategory('activity')}
+                  >
+                    {categoryTotals.activity} new client update
+                    {categoryTotals.activity === 1 ? '' : 's'} from {activityClients}
+                  </button>
+                </>
+              ) : null}
+            </p>
+          </div>
 
-            <div className="admin-work-queue__filters">
-              <div className="admin-work-queue__search">
-                <Search className="admin-work-queue__search-icon" style={{ color: t.secondary }} />
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search client, invoice, or item…"
-                  className="client-input pl-8"
-                  aria-label="Search work queue"
+          <div className="wq__tools">
+            <label className="wq__search">
+              <Search aria-hidden />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search client or invoice"
+                aria-label="Search work queue"
+              />
+            </label>
+            <select
+              className="wq__select"
+              value={severityFilter}
+              onChange={(e) => setSeverityFilter(e.target.value as typeof severityFilter)}
+              aria-label="Filter by severity"
+            >
+              {SEVERITY_FILTERS.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className="wq__select"
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as SortMode)}
+              aria-label="Sort clients"
+            >
+              {SORT_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  Sort: {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </header>
+
+        <nav className="wq__chips" aria-label="Filter by type">
+          <button
+            type="button"
+            className={`wq-chip${category === 'all' ? ' wq-chip--active' : ''}`}
+            onClick={() => setCategory('all')}
+          >
+            All <span className="wq-chip__n">{categoryTotals.all}</span>
+          </button>
+          {CATEGORY_FILTERS.map((chip) => {
+            const n = categoryTotals[chip.id]
+            const hot = chip.id === 'activity' && n > 0
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                className={`wq-chip${category === chip.id ? ' wq-chip--active' : ''}${
+                  hot ? ' wq-chip--hot' : ''
+                }${n === 0 ? ' wq-chip--empty' : ''}`}
+                onClick={() => setCategory(chip.id)}
+              >
+                {hot ? <span className="wq-chip__dot" aria-hidden /> : null}
+                {chip.label} <span className="wq-chip__n">{n}</span>
+              </button>
+            )
+          })}
+        </nav>
+
+        <section className="wq-card" aria-label="Clients with open work">
+          <ul className="wq-list">
+            {pageRows.length === 0 ? (
+              <li className="wq-empty">
+                <Check aria-hidden />
+                <strong>Nothing here</strong>
+                <span>No clients match these filters.</span>
+              </li>
+            ) : (
+              pageRows.map((row) => (
+                <ClientRow
+                  key={row.clientId}
+                  row={row}
+                  open={expandedId === row.clientId}
+                  selectedInvoiceId={selectedInvoiceId}
+                  onToggle={() => toggleClient(row)}
+                  onOpenInvoice={openInvoice}
+                  onMarkReviewed={markReviewed}
                 />
-              </div>
-              <div className="admin-work-queue__filter-row">
-                <Filter className="w-3.5 h-3.5 shrink-0" style={{ color: t.secondary }} />
+              ))
+            )}
+          </ul>
+
+          <footer className="wq-foot">
+            <span>
+              {pageRows.length ? (currentPage - 1) * pageSize + 1 : 0}–
+              {Math.min(currentPage * pageSize, sorted.length)} of {sorted.length}
+            </span>
+            <div className="wq-foot__pager">
+              <label>
+                Rows
                 <select
-                  value={severityFilter}
-                  onChange={(e) => setSeverityFilter(e.target.value as typeof severityFilter)}
-                  className="client-input"
-                  aria-label="Filter by severity"
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="wq__select wq__select--sm"
                 >
-                  {SEVERITY_FILTERS.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.label}
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="admin-work-queue__chips">
-                {CATEGORY_FILTERS.map((chip) => (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    className={`page-tab ${category === chip.id ? 'page-tab--active' : ''}`}
-                    onClick={() => setCategory(chip.id)}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="admin-work-queue__workspace">
-            <div
-              className="admin-work-queue__table-wrap"
-              style={{ borderColor: t.border, backgroundColor: t.card }}
-            >
-              <div className="overflow-x-auto admin-work-queue__table-scroll">
-                <table className="dashboard-table dashboard-table--compact w-full">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 36 }} />
-                      <ClientSortableHeader
-                        field="clientName"
-                        label="Client"
-                        sortField={sortField}
-                        sortDir={sortDir}
-                        onSort={onSort}
-                      />
-                      <ClientSortableHeader
-                        field="severity"
-                        label="Severity"
-                        sortField={sortField}
-                        sortDir={sortDir}
-                        onSort={onSort}
-                      />
-                      <ClientSortableHeader
-                        field="totalOpen"
-                        label="Open"
-                        sortField={sortField}
-                        sortDir={sortDir}
-                        onSort={onSort}
-                        align="center"
-                        className="text-center"
-                      />
-                      <ClientSortableHeader
-                        field="disputes"
-                        label="Disputes"
-                        sortField={sortField}
-                        sortDir={sortDir}
-                        onSort={onSort}
-                        align="center"
-                        className="text-center"
-                      />
-                      <ClientSortableHeader
-                        field="payments"
-                        label="Payments"
-                        sortField={sortField}
-                        sortDir={sortDir}
-                        onSort={onSort}
-                        align="center"
-                        className="text-center"
-                      />
-                      <ClientSortableHeader
-                        field="holds"
-                        label="Holds"
-                        sortField={sortField}
-                        sortDir={sortDir}
-                        onSort={onSort}
-                        align="center"
-                        className="text-center"
-                      />
-                      <ClientSortableHeader
-                        field="callbacks"
-                        label="Callbacks"
-                        sortField={sortField}
-                        sortDir={sortDir}
-                        onSort={onSort}
-                        align="center"
-                        className="text-center"
-                      />
-                      <ClientSortableHeader
-                        field="batches"
-                        label="Batches"
-                        sortField={sortField}
-                        sortDir={sortDir}
-                        onSort={onSort}
-                        align="center"
-                        className="text-center"
-                      />
-                      <th>Next</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={10} className="text-center py-10" style={{ color: t.secondary }}>
-                          No clients match this filter
-                        </td>
-                      </tr>
-                    ) : (
-                      pageRows.map((row) => {
-                        const open = expandedId === row.clientId
-                        const groups = open ? groupClientWorkItemsByInvoice(row.items) : []
-                        return (
-                          <Fragment key={row.clientId}>
-                            <tr
-                              className={`cursor-pointer ${open ? 'admin-work-queue__row--active' : ''}`}
-                              onClick={() => toggleClient(row)}
-                            >
-                              <td>
-                                {open ? (
-                                  <ChevronDown className="w-4 h-4" style={{ color: t.secondary }} />
-                                ) : (
-                                  <ChevronRight className="w-4 h-4" style={{ color: t.muted }} />
-                                )}
-                              </td>
-                              <td className="font-medium">{row.clientName}</td>
-                              <td>
-                                <span className={severityClass(row.severity)}>{row.severity}</span>
-                              </td>
-                              <td className="text-center font-semibold tabular-nums">
-                                {row.totalOpen}
-                              </td>
-                              <td className="text-center tabular-nums">{row.disputes || '—'}</td>
-                              <td className="text-center tabular-nums">{row.payments || '—'}</td>
-                              <td className="text-center tabular-nums">{row.holds || '—'}</td>
-                              <td className="text-center tabular-nums">{row.callbacks || '—'}</td>
-                              <td className="text-center tabular-nums">{row.batches || '—'}</td>
-                              <td className="text-sm" style={{ color: t.secondary }}>
-                                {row.nextDueLabel}
-                              </td>
-                            </tr>
-                            {open ? (
-                              <tr className="admin-work-queue__expand-row">
-                                <td colSpan={10}>
-                                  <div className="admin-work-queue__expand">
-                                    <div className="admin-work-queue__actions">
-                                      <Link
-                                        to={row.links.invoices}
-                                        className="dashboard-btn-secondary !text-xs"
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        All invoices
-                                      </Link>
-                                      <Link
-                                        to={row.links.paymentPosting}
-                                        className="dashboard-btn-secondary !text-xs"
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        Payment posting
-                                      </Link>
-                                      <Link
-                                        to={row.links.collections}
-                                        className="dashboard-btn-secondary !text-xs"
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        Collections
-                                      </Link>
-                                      <Link
-                                        to={row.links.calendar}
-                                        className="dashboard-btn-secondary !text-xs"
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        Calendar
-                                      </Link>
-                                    </div>
-
-                                    {groups.length === 0 ? (
-                                      <p className="text-sm" style={{ color: t.secondary }}>
-                                        No open items
-                                      </p>
-                                    ) : (
-                                      <ul className="admin-work-queue__groups">
-                                        {groups.map((group) => (
-                                          <InvoiceGroupCard
-                                            key={group.key}
-                                            group={group}
-                                            selectedInvoiceId={selectedInvoiceId}
-                                            onOpenInvoice={openInvoice}
-                                          />
-                                        ))}
-                                      </ul>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            ) : null}
-                          </Fragment>
-                        )
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <div
-                className="admin-work-queue__footer"
-                style={{ borderColor: t.border, color: t.secondary }}
-              >
-                <span>
-                  Showing {pageRows.length ? (currentPage - 1) * pageSize + 1 : 0}–
-                  {Math.min(currentPage * pageSize, sorted.length)} of {sorted.length}
-                </span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="flex items-center gap-1.5 text-xs">
-                    Rows
-                    <select
-                      value={pageSize}
-                      onChange={(e) => setPageSize(Number(e.target.value))}
-                      className="client-input"
-                      style={{ width: 64, height: 30, fontSize: 12 }}
-                    >
-                      {PAGE_SIZE_OPTIONS.map((size) => (
-                        <option key={size} value={size}>
-                          {size}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="dashboard-btn-secondary !h-7 !px-2 !text-xs"
-                    disabled={currentPage <= 1}
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  >
-                    Prev
-                  </button>
-                  <span className="text-xs">
-                    {currentPage} / {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    className="dashboard-btn-secondary !h-7 !px-2 !text-xs"
-                    disabled={currentPage >= totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {detailOpen && selectedInvoice ? (
-          <aside
-            className="admin-work-queue__invoice-panel"
-            style={{ borderColor: t.border, backgroundColor: t.card }}
-          >
-            <div
-              className="admin-work-queue__invoice-panel-bar"
-              style={{ borderColor: t.border }}
-            >
-              <div className="min-w-0">
-                <div className="admin-work-queue__invoice-panel-title truncate">
-                  {selectedInvoice.invoice_number}
-                </div>
-                <div className="text-xs truncate" style={{ color: t.secondary }}>
-                  {selectedInvoice.client_name} · {selectedInvoice.broker_name}
-                </div>
-              </div>
+              </label>
               <button
                 type="button"
-                className="dashboard-btn-secondary !h-8 !px-2 !text-xs inline-flex items-center gap-1"
-                onClick={closeInvoice}
-                aria-label="Close invoice"
+                className="wq-btn"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               >
-                <X className="w-3.5 h-3.5" />
-                Close
+                Prev
+              </button>
+              <span>
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                className="wq-btn"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
               </button>
             </div>
-            <div className="admin-work-queue__invoice-panel-body">
-              <InvoiceDetailPanel
-                variant="sidebar"
-                invoice={selectedInvoice}
-                clientName={selectedInvoice.client_name}
-                noteAuthorName={adminName}
-                navigationInvoices={navigationInvoices}
-                onClose={closeInvoice}
-                onNavigateInvoice={(invoice) => openInvoice(invoice.id)}
-                onInvoiceUpdated={bump}
-                onAddNote={(invoiceId, note, options) => {
-                  addAdminInvoiceNote(invoiceId, note, adminName, {
-                    visibility: options?.visibility ?? 'client',
-                  })
-                  bump()
-                }}
-                onRemoveNote={(invoiceId, noteId) => {
-                  const updated = removeAdminInvoiceNote(invoiceId, noteId)
-                  if (!updated) {
-                    showToast('Only Credyx notes can be removed', 'error')
-                    return false
-                  }
-                  bump()
-                  return true
-                }}
-                payments={payments.filter((p) => p.invoice_id === selectedInvoice.id)}
-                enableClientActions={false}
-                enableNotes
-                portalMode="admin"
-              />
-            </div>
-          </aside>
-        ) : null}
+          </footer>
+        </section>
       </div>
-    </>
+
+      {detailOpen && selectedInvoice ? (
+        <aside className="wq-panel">
+          <div className="wq-panel__bar">
+            <div className="wq-panel__id">
+              <strong>{selectedInvoice.invoice_number}</strong>
+              <span>
+                {selectedInvoice.client_name} · {selectedInvoice.broker_name}
+              </span>
+            </div>
+            {selectedActivity.length > 0 ? (
+              <button
+                type="button"
+                className="wq-btn wq-btn--primary"
+                onClick={() => markReviewed(selectedActivity)}
+              >
+                <Check aria-hidden />
+                Mark reviewed
+              </button>
+            ) : null}
+            <button type="button" className="wq-btn" onClick={closeInvoice} aria-label="Close invoice">
+              <X aria-hidden />
+              <span className="wq-btn__label">Close</span>
+            </button>
+          </div>
+          {selectedActivity.length > 0 ? (
+            <ul className="wq-panel__activity">
+              {selectedActivity.map((item) => (
+                <li key={item.id}>
+                  <span className="wq-dot" aria-hidden />
+                  <span className="wq-panel__activity-copy">
+                    <b>{item.label}</b> {item.detail}
+                  </span>
+                  <time>{formatRelativeTime(item.activityAt)}</time>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="wq-panel__body">
+            <InvoiceDetailPanel
+              variant="sidebar"
+              invoice={selectedInvoice}
+              clientName={selectedInvoice.client_name}
+              noteAuthorName={adminName}
+              navigationInvoices={navigationInvoices}
+              onClose={closeInvoice}
+              onNavigateInvoice={(invoice) => openInvoice(invoice.id)}
+              onInvoiceUpdated={bump}
+              onAddNote={(invoiceId, note, options) => {
+                addAdminInvoiceNote(invoiceId, note, adminName, {
+                  visibility: options?.visibility ?? 'client',
+                })
+                bump()
+              }}
+              onRemoveNote={(invoiceId, noteId) => {
+                const updated = removeAdminInvoiceNote(invoiceId, noteId)
+                if (!updated) {
+                  showToast('Only Credyx notes can be removed', 'error')
+                  return false
+                }
+                bump()
+                return true
+              }}
+              payments={payments.filter((p) => p.invoice_id === selectedInvoice.id)}
+              enableClientActions={false}
+              enableNotes
+              portalMode="admin"
+            />
+          </div>
+        </aside>
+      ) : null}
+    </div>
+  )
+}
+
+/** One client: summary line, then its invoice groups when expanded. */
+function ClientRow({
+  row,
+  open,
+  selectedInvoiceId,
+  onToggle,
+  onOpenInvoice,
+  onMarkReviewed,
+}: {
+  row: ClientWorkSummary
+  open: boolean
+  selectedInvoiceId: string | null
+  onToggle: () => void
+  onOpenInvoice: (invoiceId: string | undefined) => void
+  onMarkReviewed: (items: ClientWorkItem[]) => void
+}) {
+  const groups = open ? groupClientWorkItemsByInvoice(row.items) : []
+  const tags = CATEGORY_FILTERS.filter((c) => row[c.id] > 0).map((c) => {
+    const n = row[c.id]
+    const [one, many] = CATEGORY_NOUN[c.id]
+    return { id: c.id, text: `${n} ${n === 1 ? one : many}` }
+  })
+
+  return (
+    <li className={`wq-row${open ? ' wq-row--open' : ''}`}>
+      <button type="button" className="wq-row__head" onClick={onToggle} aria-expanded={open}>
+        <span className={`wq-avatar wq-avatar--${row.severity}`} aria-hidden>
+          {initials(row.clientName)}
+        </span>
+        <span className="wq-row__main">
+          <span className="wq-row__name">
+            {row.clientName}
+            {row.activity > 0 ? (
+              <span className="wq-new" title="New client activity">
+                {row.activity} new
+              </span>
+            ) : null}
+          </span>
+          <span className="wq-row__next" title={row.nextDueLabel}>
+            {row.nextDueLabel}
+          </span>
+        </span>
+        <span className="wq-row__tags">
+          {tags.map((tag) => (
+            <span key={tag.id} className={`wq-tag wq-tag--${tag.id}`}>
+              {tag.text}
+            </span>
+          ))}
+        </span>
+        <span className="wq-row__meta">
+          <span className={`wq-sev wq-sev--${row.severity}`}>{row.severity}</span>
+          <span className="wq-row__count">
+            <b>{row.totalOpen}</b> open
+          </span>
+        </span>
+        <ChevronDown className="wq-row__chev" aria-hidden />
+      </button>
+
+      {open ? (
+        <div className="wq-row__body">
+          <div className="wq-links">
+            <Link to={row.links.invoices}>Invoices</Link>
+            <Link to={row.links.paymentPosting}>Payment posting</Link>
+            <Link to={row.links.collections}>Collections</Link>
+            <Link to={row.links.calendar}>Calendar</Link>
+          </div>
+          {groups.length === 0 ? (
+            <p className="wq-muted">No open items</p>
+          ) : (
+            <ul className="wq-groups">
+              {groups.map((group) => (
+                <InvoiceGroupCard
+                  key={group.key}
+                  group={group}
+                  selectedInvoiceId={selectedInvoiceId}
+                  onOpenInvoice={onOpenInvoice}
+                  onMarkReviewed={onMarkReviewed}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+    </li>
   )
 }
 
@@ -589,64 +597,76 @@ function InvoiceGroupCard({
   group,
   selectedInvoiceId,
   onOpenInvoice,
+  onMarkReviewed,
 }: {
   group: ClientWorkInvoiceGroup
   selectedInvoiceId: string | null
   onOpenInvoice: (invoiceId: string | undefined) => void
+  onMarkReviewed: (items: ClientWorkItem[]) => void
 }) {
-  const t = useClientTheme()
   const canOpenInvoice = Boolean(group.invoiceId)
   const active = group.invoiceId != null && group.invoiceId === selectedInvoiceId
+  const activity = group.issues.filter(isActivity)
 
   return (
-    <li>
-      <div
-        className={`admin-work-queue__group ${active ? 'admin-work-queue__group--active' : ''} ${
-          canOpenInvoice ? 'admin-work-queue__group--clickable' : ''
-        }`}
-        role={canOpenInvoice ? 'button' : undefined}
-        tabIndex={canOpenInvoice ? 0 : undefined}
-        onClick={() => {
-          if (canOpenInvoice) onOpenInvoice(group.invoiceId)
-        }}
-        onKeyDown={(e) => {
-          if (!canOpenInvoice) return
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onOpenInvoice(group.invoiceId)
-          }
-        }}
-      >
-        <div className="admin-work-queue__group-head">
-          <div className="min-w-0">
-            <div className="font-semibold text-sm truncate">{group.title}</div>
-            <div className="text-xs" style={{ color: t.secondary }}>
-              {group.issues.length} issue{group.issues.length === 1 ? '' : 's'}
-              {canOpenInvoice ? ' · click to open' : ''}
-            </div>
-          </div>
-          <span className={severityClass(group.severity)}>{group.severity}</span>
-        </div>
-        <ul className="admin-work-queue__issue-list">
-          {group.issues.map((issue) => (
-            <li key={issue.id} className="admin-work-queue__issue">
-              <span className="admin-work-queue__issue-kind">
-                {clientWorkIssueLabel(issue.kind)}
-              </span>
-              <span className="admin-work-queue__issue-detail" style={{ color: t.secondary }}>
-                {issue.detail}
-              </span>
-            </li>
-          ))}
-        </ul>
-        {!canOpenInvoice && group.batchId ? (
+    <li
+      className={`wq-group${active ? ' wq-group--active' : ''}${
+        canOpenInvoice ? ' wq-group--clickable' : ''
+      }${activity.length ? ' wq-group--new' : ''}`}
+      role={canOpenInvoice ? 'button' : undefined}
+      tabIndex={canOpenInvoice ? 0 : undefined}
+      onClick={() => {
+        if (canOpenInvoice) onOpenInvoice(group.invoiceId)
+      }}
+      onKeyDown={(e) => {
+        if (!canOpenInvoice || e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpenInvoice(group.invoiceId)
+        }
+      }}
+    >
+      <div className="wq-group__head">
+        <strong className="wq-group__title">{group.title}</strong>
+        <span className={`wq-sev wq-sev--${group.severity}`}>{group.severity}</span>
+      </div>
+      <ul className="wq-issues">
+        {group.issues.map((issue) => (
+          <li key={issue.id} className={`wq-issue${isActivity(issue) ? ' wq-issue--new' : ''}`}>
+            <span className="wq-issue__kind">
+              {isActivity(issue) ? <span className="wq-dot" aria-hidden /> : null}
+              {isActivity(issue) ? issue.label : clientWorkIssueLabel(issue.kind)}
+              {isActivity(issue) ? (
+                <time className="wq-issue__time">{formatRelativeTime(issue.activityAt)}</time>
+              ) : null}
+            </span>
+            <span className="wq-issue__detail">{issue.detail}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="wq-group__foot">
+        {activity.length ? (
+          <button
+            type="button"
+            className="wq-btn wq-btn--sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              onMarkReviewed(activity)
+            }}
+          >
+            <Check aria-hidden />
+            Mark reviewed
+          </button>
+        ) : null}
+        {canOpenInvoice ? (
+          <span className="wq-group__open">Open invoice →</span>
+        ) : group.batchId ? (
           <Link
             to={`/batches?batch=${encodeURIComponent(group.batchId)}`}
-            className="text-xs underline mt-2 inline-block"
-            style={{ color: t.info }}
+            className="wq-group__open"
             onClick={(e) => e.stopPropagation()}
           >
-            Open batch
+            Open batch →
           </Link>
         ) : null}
       </div>

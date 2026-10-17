@@ -6,6 +6,7 @@ import type { AdminCollectionsRow } from './adminCollections'
 import type { ChaseQueueStatus } from './collectionsChase'
 import type { CollectionsUrgentReason } from './collectionsPolicy'
 import { formatDate } from './format'
+import { getOpenClientAttention } from './clientAttention'
 
 /** High-level performance a carrier can scan in one glance. */
 export type ClientInvoicePerformance =
@@ -53,17 +54,22 @@ export function clientPerformanceRank(p: ClientInvoicePerformance): number {
   return PERF_RANK[p]
 }
 
-/** Map admin chase + urgency into one carrier performance state. */
+/**
+ * Map admin chase + urgency into one carrier performance state.
+ * Credyx's internal urgency (follow-up due, stale contact, callback due) is Credyx's
+ * work, not the carrier's, so it shows as "Credyx working". "Needs attention" is
+ * reserved for things the carrier must act on; a missed broker promise reads as past due.
+ */
 export function resolveClientPerformance(row: AdminCollectionsRow): ClientInvoicePerformance {
+  // Only an explicit Credyx request makes the carrier responsible.
+  if (getOpenClientAttention(row.invoice)) return 'needs_attention'
   if (!row.ppwSentAt) return 'not_sent'
   if (row.collectionStatus === 'W/P' && row.confirmedPayDate) {
-    // Missed Will Pay stays urgent / needs attention
-    if (row.urgentReasons.includes('will_pay_missed')) return 'needs_attention'
+    if (row.urgentReasons.includes('will_pay_missed')) return 'overdue'
     return 'payment_promised'
   }
-  if (row.isUrgent || row.chaseStatus === 'needs_attention') return 'needs_attention'
   if (row.isOverdue) return 'overdue'
-  if (row.chaseStatus !== 'not_due') return 'credyx_working'
+  if (row.isUrgent || row.chaseStatus !== 'not_due') return 'credyx_working'
   if (row.ppwSentAt) return 'with_broker'
   return 'on_track'
 }
@@ -109,6 +115,8 @@ export function clientPerformancePillClass(p: ClientInvoicePerformance): string 
 /** Translate urgent/chase signals into one carrier-readable sentence. */
 export function describeWhatsHappening(row: AdminCollectionsRow): string {
   const reasons = row.urgentReasons
+  const attention = getOpenClientAttention(row.invoice)
+  if (attention) return `Credyx needs from you: ${attention.message}`
 
   if (reasons.includes('will_pay_missed') && row.confirmedPayDate) {
     return `Broker promised payment by ${formatDate(row.confirmedPayDate)} — date passed; Credyx is following up.`

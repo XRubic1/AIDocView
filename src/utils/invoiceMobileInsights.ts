@@ -1,4 +1,5 @@
 import type { Invoice } from '../types/invoice'
+import { getOpenClientAttention } from './clientAttention'
 import type { EnrichedInvoice } from './invoiceAging'
 import type { BrokerRiskLevel } from '../types/brokerRisk'
 import { isOpenArInvoice } from './invoiceAging'
@@ -130,6 +131,17 @@ function getOnHoldNoteText(invoice: Invoice): string {
 export function getCarrierInvoiceActionRequired(
   invoice: Invoice
 ): CarrierInvoiceActionRequired | null {
+  // Credyx asked the carrier for something from the admin note box.
+  const attention = getOpenClientAttention(invoice)
+  if (attention) {
+    const needsDocs = MISSING_DOCS_HOLD_RE.test(attention.message)
+    return {
+      title: 'Credyx needs something from you',
+      note: attention.message,
+      cta: needsDocs ? 'upload' : 'activity',
+      ctaLabel: needsDocs ? 'Upload documents' : 'View activity',
+    }
+  }
   if (!isClientVisibleHold(invoice)) return null
   // Carrier already uploaded — wait for Credyx accept/reject instead of asking again.
   if (invoiceHasPendingHoldPaperworkReview(invoice)) return null

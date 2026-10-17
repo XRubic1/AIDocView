@@ -12,6 +12,10 @@ export type InvoiceStatusNoteKind =
   | 'payment_confirmed'
   | 'ppw_confirmed'
   | 'set_due_date'
+  /** Ask the carrier for something; the note text is what they need to do. */
+  | 'needs_attention'
+  /** Close the open carrier request. */
+  | 'attention_resolved'
 
 const STATUS_NOTE_LABELS: Record<InvoiceStatusNoteKind, string> = {
   will_pay: 'Will Pay',
@@ -19,6 +23,8 @@ const STATUS_NOTE_LABELS: Record<InvoiceStatusNoteKind, string> = {
   payment_confirmed: 'Payment status confirmed',
   ppw_confirmed: 'Broker confirmed paperwork',
   set_due_date: 'Due date set',
+  needs_attention: 'Needs attention',
+  attention_resolved: 'Resolved — nothing needed from you',
 }
 
 export function getInvoiceStatusNoteLabel(kind: InvoiceStatusNoteKind): string {
@@ -186,6 +192,8 @@ export function postInvoiceStatusNote(
   ) {
     return undefined
   }
+  // A carrier request must say what's needed.
+  if (input.kind === 'needs_attention' && !extra) return undefined
 
   let body = `Status: ${label}`
   // Include date on all dated status posts (Will Pay / Call Back / Set due date require it).
@@ -201,6 +209,11 @@ export function postInvoiceStatusNote(
     created_at: new Date().toISOString(),
     type: 'status_update',
     visibility: 'client',
+    ...(input.kind === 'needs_attention'
+      ? { client_attention: 'open' as const, attention_message: extra }
+      : input.kind === 'attention_resolved'
+        ? { client_attention: 'resolved' as const }
+        : {}),
   }
 
   const { notes_history, notes } = appendNote(invoice, newNote)
@@ -231,6 +244,19 @@ export function postInvoiceStatusNote(
   const updated = updateInvoice(invoiceId, patch)
   if (updated) {
     notifyTenantDataUpdated(['invoices'], updated.client_id)
+    // Tell the carrier when Credyx needs something from them.
+    if (input.kind === 'needs_attention' && updated.client_id) {
+      notifyClientInvoiceNote({
+        clientId: updated.client_id,
+        invoiceId: updated.id,
+        invoiceNumber: updated.invoice_number,
+        authorName: input.authorName,
+        noteText: `Needs attention: ${extra}`,
+        source: 'credyx',
+        batchId: updated.batch_id,
+        batchNumber: updated.batch_number,
+      })
+    }
   }
   return updated
 }

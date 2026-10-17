@@ -219,7 +219,7 @@ export default function Waitlist() {
       {/* ── Pricing ── */}
       <section id="pricing" className="cx-sales-section cx-sales-pricing">
         <div className="cx-sales-wrap">
-          <span className="cx-sales-pill reveal" style={{ background: '#1684FE' }}>
+          <span className="cx-sales-pill reveal">
             Pricing
           </span>
           <h2 className="reveal">

@@ -15,10 +15,13 @@ import { listPendingWriteOffs } from '../services/writeOffApprovalService'
 import { getClientById } from '../services/clientRegistry'
 import { listBlueprintRuns } from '../components/blueprints/blueprintRuns'
 import { buildCollectionsChaseQueue } from './collectionsChase'
+import type { Notification } from '../types/notification'
+import { buildClientActivity } from './clientActivity'
 
 export type ClientWorkSeverity = 'critical' | 'high' | 'medium' | 'low'
 
 export type ClientWorkCategory =
+  | 'activity'
   | 'holds'
   | 'disputes'
   | 'payments'
@@ -28,6 +31,7 @@ export type ClientWorkCategory =
   | 'chase'
 
 export type ClientWorkItemKind =
+  | 'client_activity'
   | 'hold'
   | 'dispute'
   | 'pending_payment'
@@ -58,6 +62,8 @@ export type ClientWorkItem = {
 export type ClientWorkSummary = {
   clientId: string
   clientName: string
+  /** Unread uploads, notes, payments etc. from the carrier. */
+  activity: number
   holds: number
   disputes: number
   payments: number
@@ -127,6 +133,7 @@ function ensureBucket(
     row = {
       clientId,
       clientName: name,
+      activity: 0,
       holds: 0,
       disputes: 0,
       payments: 0,
@@ -159,6 +166,9 @@ function pushItem(row: ClientWorkSummary, item: ClientWorkItem): void {
   row.severity = worseSeverity(row.severity, item.severity)
 
   switch (item.category) {
+    case 'activity':
+      row.activity += 1
+      break
     case 'holds':
       row.holds += 1
       break
@@ -205,12 +215,33 @@ function resolveClientFromInvoice(
 export function buildClientWorkSummaries(input: {
   invoices: Invoice[]
   batches: PendingBatch[]
+  /** Admin notifications — unread client activity becomes review items. */
+  notifications?: Notification[]
   asOf?: Date
 }): ClientWorkSummary[] {
   const asOf = input.asOf ?? new Date()
   const today = todayKey(asOf)
   const map = new Map<string, ClientWorkSummary>()
   const invoiceById = new Map(input.invoices.map((inv) => [inv.id, inv]))
+
+  // Client activity (uploads, notes, payments, disputes) awaiting review
+  for (const act of buildClientActivity(input.notifications ?? [], input.invoices)) {
+    const row = ensureBucket(map, act.clientId, act.clientName)
+    pushItem(row, {
+      id: act.id,
+      kind: 'client_activity',
+      category: 'activity',
+      severity: act.severity,
+      label: act.label,
+      detail: act.detail,
+      invoiceId: act.invoiceId,
+      invoiceNumber: act.invoiceNumber,
+      href: act.invoiceId
+        ? `/invoices?invoice=${encodeURIComponent(act.invoiceId)}`
+        : `/admin/work-queue?client=${encodeURIComponent(act.clientId)}`,
+      activityAt: act.at,
+    })
+  }
 
   // Holds
   for (const inv of input.invoices) {
@@ -481,6 +512,8 @@ export function buildClientWorkSummaries(input: {
 /** Human label for an issue kind shown under a grouped invoice. */
 export function clientWorkIssueLabel(kind: ClientWorkItemKind): string {
   switch (kind) {
+    case 'client_activity':
+      return 'Client activity'
     case 'hold':
       return 'Hold'
     case 'dispute':

@@ -53,6 +53,7 @@ import { getPresetRange } from '../utils/clientReports'
 import { isReceiptDisputeHold } from '../services/paymentReceiptConfirmationService'
 import { invoiceHasOpenDisputedStatus } from '../utils/clientInvoiceDisputeStatus'
 import { getClientVisiblePayDate } from '../utils/invoiceWillPay'
+import { getOpenClientAttention } from '../utils/clientAttention'
 import '../styles/clientInvoicesClean.css'
 
 type InvoiceSortField =
@@ -1308,6 +1309,14 @@ export default function ClientInvoices() {
                                     !awaitingPayment && (
                                       <span className="status-pill status-pill--hold">Force close</span>
                                     )}
+                                  {getOpenClientAttention(invoice) ? (
+                                    <span
+                                      className="status-pill status-pill--overdue"
+                                      title={getOpenClientAttention(invoice)?.message}
+                                    >
+                                      Needs you
+                                    </span>
+                                  ) : null}
                                   {hasPpwBeenSent(invoice) ? (
                                     <span
                                       className="inv-ppw"

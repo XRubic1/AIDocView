@@ -456,3 +456,222 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ── Collections: total sits in the bucket row; tighter cells ── */
+@media (min-width: 1024px) {
+  .client-portal .aging-bucket-strip.coll-strip {
+    grid-template-columns: minmax(0, 1.25fr) repeat(6, minmax(0, 1fr));
+  }
+}
+
+.client-portal .coll-strip .aging-bucket-cell {
+  padding: 8px 12px;
+  gap: 1px;
+}
+
+.client-portal .coll-strip__total {
+  background: var(--cp-surface);
+}
+
+.client-portal .coll-strip__total.is-all {
+  box-shadow: inset 0 -2px 0 var(--cp-accent);
+}
+
+.client-portal .coll-strip__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .coll-strip__amount {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cp-text);
+}
+
+.client-portal .coll-strip__count {
+  font-size: 11px;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .coll-managed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--cp-text-muted);
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* Keep the phone-hidden KPI row hidden (Tailwind's .hidden lost to display:grid). */
+.client-portal .client-invoices-page .inv-kpis.hidden {
+  display: none;
+}
+
+/* Short phone amounts are hidden on larger screens. */
+.client-portal .coll-strip__short {
+  display: none;
+}
+
+/* ── Collections on phones: compact header so the invoice list gets the screen ──
+   Total = slim line; six buckets = one row (range + short amount); search and the
+   view switch are short. Sizes: labels 11px, amounts 13px, body/search 14px. */
+@media (max-width: 767px) {
+  .client-portal .aging-bucket-strip.coll-strip {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 4px;
+    padding: 8px 12px;
+    background: var(--cp-card);
+  }
+
+  .client-portal .coll-strip .aging-bucket-cell {
+    min-width: 0;
+    align-items: center;
+    padding: 5px 2px;
+    gap: 0;
+    border: 1px solid var(--cp-border) !important;
+    border-radius: 8px;
+    text-align: center;
+  }
+
+  .client-portal .coll-strip .aging-bucket-cell > span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .client-portal .coll-strip .aging-bucket-cell .text-\[11px\] {
+    font-size: 10.5px !important;
+    letter-spacing: 0 !important;
+  }
+
+  .client-portal .coll-strip .coll-strip__full,
+  .client-portal .coll-strip .coll-strip__cnt {
+    display: none !important;
+  }
+
+  .client-portal .coll-strip .coll-strip__short {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--cp-text);
+  }
+
+  /* Total: one slim full-width line above the buckets. */
+  .client-portal .coll-strip__total {
+    grid-column: 1 / -1;
+    flex-direction: row !important;
+    align-items: baseline !important;
+    justify-content: flex-start;
+    gap: 8px !important;
+    padding: 6px 10px !important;
+    text-align: left !important;
+    background: var(--cp-accent-light) !important;
+    border-color: color-mix(in srgb, var(--cp-accent) 35%, var(--cp-border)) !important;
+  }
+
+  .client-portal .coll-strip__total.is-all {
+    box-shadow: none;
+  }
+
+  .client-portal .coll-strip__label {
+    font-size: 12px;
+  }
+
+  .client-portal .coll-strip__amount {
+    font-size: 15px;
+  }
+
+  .client-portal .coll-strip__count {
+    margin-left: auto;
+    font-size: 12px;
+  }
+
+  /* Toolbar: search, then switch + note on one line. */
+  .client-portal .client-collections-page .client-page-toolbar {
+    padding: 8px 12px !important;
+  }
+
+  .client-portal .client-collections-page .client-page-toolbar > .flex-col {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 6px !important;
+  }
+
+  .client-portal .client-collections-page .client-page-toolbar > .flex-col > .flex-1 {
+    flex: 0 0 auto !important;
+    width: 100%;
+  }
+
+  .client-portal .client-collections-page .client-page-toolbar input.client-input {
+    height: 34px !important;
+    font-size: 14px !important;
+    padding-left: 32px !important;
+  }
+
+  .client-portal .client-collections-page .client-page-toolbar > .flex-col > .shrink-0 {
+    display: flex;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    gap: 8px !important;
+    overflow: visible !important;
+  }
+
+  .client-portal .client-collections-page .client-segmented-control {
+    display: inline-flex !important;
+    flex: 0 0 auto;
+  }
+
+  .client-portal .client-collections-page .client-segmented-control__btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 30px;
+    padding: 0 10px;
+    font-size: 13px !important;
+  }
+
+  .client-portal .client-collections-page .client-segmented-control__btn > svg {
+    display: inline-block !important;
+    position: static !important;
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+  }
+
+  .client-portal .client-collections-page .coll-managed {
+    order: 2;
+    display: flex !important;
+    justify-content: flex-end !important;
+    gap: 5px;
+    min-width: 0;
+    font-size: 11.5px;
+    text-align: right;
+    white-space: normal;
+  }
+
+  .client-portal .client-collections-page .coll-managed > svg {
+    display: inline-block !important;
+    flex: 0 0 auto !important;
+    width: 13px !important;
+  }
+
+  .client-portal .client-collections-page .coll-managed__text {
+    min-width: 0;
+  }
+}
+
+/* Phones: tapping Total (or the active bucket) clears the filter, so the extra
+   "Clear … filter" button only crowds the toolbar. */
+@media (max-width: 767px) {
+  .client-portal .client-collections-page .client-page-toolbar > .flex-col > .shrink-0 > .dashboard-btn-secondary {
+    display: none;
+  }
+}

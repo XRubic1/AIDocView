@@ -4,7 +4,6 @@ import {
   BROKER_REMITTANCE_UPDATED_BODY_HTML,
   CARRIER_BILLING_INVOICE_BODY_HTML,
   CARRIER_DOCUMENT_ISSUE_BODY_HTML,
-  CLIENT_WELCOME_BODY_HTML,
   wrapCredyxEmailBodyHtml,
 } from './emailLayouts'
 
@@ -14,6 +13,7 @@ import {
  */
 export type EmailTemplateId =
   | 'client_invite'
+  | 'client_password_setup'
   | 'broker_packet'
   | 'broker_remittance_updated'
   | 'admin_enrollment_alert'
@@ -57,6 +57,75 @@ export interface EmailTemplateDefinition {
   subject: string
   body_html: string
 }
+
+
+// TODO: replace the test phone number with the real Credyx line before launch.
+const CREDYX_CONTACT_EMAIL = 'ops@credyx.net'
+const CREDYX_CONTACT_PHONE = '(555) 010-0199'
+const CREDYX_TOUR_URL = 'https://credyx.net/tour'
+
+const EMAIL_BUTTON_STYLE =
+  'display:inline-block;background-color:#1684FE;color:#ffffff;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;padding:12px 20px;border-radius:8px;'
+
+/** Documents a carrier uploads to the Document Vault before Credyx can send invoices. */
+const DOC_VAULT_CHECKLIST_HTML = `<ul style="margin:0 0 16px 0;padding-left:20px;line-height:1.7;">
+  <li>W-9 (signed, current)</li>
+  <li>Certificate of Insurance (COI)</li>
+  <li>MC operating authority</li>
+  <li>DOT registration</li>
+  <li>Voided check or bank letter for your payout account</li>
+  <li>Notice of Assignment (NOA) — only if you factor your invoices</li>
+</ul>`
+
+/** Email 1 of account setup — login details + what happens next. */
+export const CLIENT_LOGIN_READY_CONTENT_HTML = `<p>Hi {{contactName}},</p>
+<p>Your Credyx login for <strong>{{clientName}}</strong> is ready.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:16px 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+  <tr><td style="padding:14px 16px;font-size:14px;line-height:1.7;color:#0f172a;">
+    <strong>Login page:</strong> <a href="{{portalLink}}" style="color:#1684FE;text-decoration:none;">{{portalLink}}</a><br/>
+    <strong>Username:</strong> {{loginEmail}}<br/>
+    <strong>Collection fee:</strong> {{feeTermsLabel}}
+  </td></tr>
+</table>
+<p>{{passwordNote}}</p>
+<p style="margin:20px 0;"><a href="{{portalLink}}" style="${EMAIL_BUTTON_STYLE}">{{ctaLabel}}</a></p>
+<p style="margin:20px 0 8px 0;"><strong>What happens next</strong></p>
+<ol style="margin:0 0 16px 0;padding-left:20px;line-height:1.7;">
+  <li>Sign in and upload your documents to the <strong>Document Vault</strong>.</li>
+  <li>Credyx reviews and approves them.</li>
+  <li>Submit your first invoices and paperwork — we take it from there.</li>
+</ol>
+<p style="margin:0 0 8px 0;">Documents to upload:</p>
+${DOC_VAULT_CHECKLIST_HTML}
+<p>Questions? Email <a href="mailto:{{contactEmail}}" style="color:#1684FE;text-decoration:none;">{{contactEmail}}</a> or call <a href="tel:+15550100199" style="color:#1684FE;text-decoration:none;">${CREDYX_CONTACT_PHONE}</a>.</p>
+<p>— The Credyx team</p>`
+
+/** Email 2 of account setup — create-password link. */
+export const CLIENT_PASSWORD_SETUP_CONTENT_HTML = `<p>Hi {{contactName}},</p>
+<p>Create your password to finish setting up the Credyx portal for <strong>{{clientName}}</strong>. Your username is <strong>{{loginEmail}}</strong>.</p>
+<p style="margin:20px 0;"><a href="{{setupLink}}" style="${EMAIL_BUTTON_STYLE}">Create your password</a></p>
+<p style="color:#475569;font-size:13px;">For security this link expires. If it no longer works, go to <a href="{{portalLink}}" style="color:#1684FE;text-decoration:none;">{{portalLink}}</a> and choose <em>Forgot password</em>.</p>
+<p style="color:#475569;font-size:13px;">Didn't expect this email? You can ignore it, or let us know at <a href="mailto:{{contactEmail}}" style="color:#1684FE;text-decoration:none;">{{contactEmail}}</a>.</p>
+<p>— The Credyx team</p>`
+
+/** Waitlist welcome body — onboarding contact, tour link, Document Vault checklist. */
+export const WAITLIST_WELCOME_CONTENT_HTML = `<p>Hi {{contactName}},</p>
+<p>Thanks for signing up <strong>{{companyName}}</strong> with <strong>Credyx</strong>. A member of our team will contact you shortly to schedule your onboarding.</p>
+<p style="margin:20px 0;">
+  <a href="${CREDYX_TOUR_URL}" style="display:inline-block;background-color:#1684FE;color:#ffffff;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;text-decoration:none;padding:12px 20px;border-radius:8px;">See how Credyx works</a>
+</p>
+<p style="margin:20px 0 8px 0;"><strong>Get these documents ready before onboarding</strong><br/>
+<span style="color:#475569;">You'll upload them to your Document Vault on day one so we can start sending your invoices right away.</span></p>
+<ul style="margin:0 0 16px 0;padding-left:20px;line-height:1.7;">
+  <li>W-9 (signed, current)</li>
+  <li>Certificate of Insurance (COI)</li>
+  <li>MC operating authority</li>
+  <li>DOT registration</li>
+  <li>Voided check or bank letter for your payout account</li>
+  <li>Notice of Assignment (NOA) — only if you factor your invoices</li>
+</ul>
+<p>Questions? Email <a href="mailto:${CREDYX_CONTACT_EMAIL}" style="color:#1684FE;text-decoration:none;">${CREDYX_CONTACT_EMAIL}</a> or call <a href="tel:+15550100199" style="color:#1684FE;text-decoration:none;">${CREDYX_CONTACT_PHONE}</a>.</p>
+<p>— The Credyx team</p>`
 
 export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
   ...AUTH_EMAIL_TEMPLATE_DEFAULTS.map((t) => ({
@@ -154,14 +223,32 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
   },
   {
     id: 'client_invite',
-    name: 'Client welcome',
+    name: 'Client — login ready',
     description:
-      'Sent when admin activates a carrier or clicks Send welcome. Includes fee %, website, Credyx contact, and password setup.',
+      'Email 1 when an account is set up (Waitlist → Set up account, activate, or Send welcome): login page, username, fee and Document Vault checklist.',
     audience: 'carrier',
     placeholders:
-      'contactName, clientName, feeTermsLabel, feePercentage, websiteUrl, portalLink, contactEmail, setupLink, inviteLink, ctaLabel, companyLogoHtml',
-    subject: 'Welcome to Credyx — your account is active',
-    body_html: CLIENT_WELCOME_BODY_HTML,
+      'contactName, clientName, loginEmail, feeTermsLabel, portalLink, contactEmail, passwordNote, ctaLabel, companyLogoHtml',
+    subject: 'Your Credyx login is ready',
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Welcome',
+      headline: 'Your login is ready',
+      contentHtml: CLIENT_LOGIN_READY_CONTENT_HTML,
+    }),
+  },
+  {
+    id: 'client_password_setup',
+    name: 'Client — create password',
+    description:
+      'Email 2 when an account is set up: link to create the portal password. Not sent once the client has a password.',
+    audience: 'carrier',
+    placeholders: 'contactName, clientName, loginEmail, setupLink, portalLink, contactEmail, companyLogoHtml',
+    subject: 'Create your Credyx password',
+    body_html: wrapCredyxEmailBodyHtml({
+      eyebrow: 'Account setup',
+      headline: 'Create your password',
+      contentHtml: CLIENT_PASSWORD_SETUP_CONTENT_HTML,
+    }),
   },
   {
     id: 'admin_enrollment_alert',
@@ -204,18 +291,15 @@ export const EMAIL_TEMPLATE_DEFAULTS: EmailTemplateDefinition[] = [
   {
     id: 'waitlist_welcome',
     name: 'Waitlist — thank you',
-    description: 'Sent automatically to the carrier when they join the Credyx waitlist.',
+    description:
+      'Sent automatically when a carrier signs up: Credyx will contact them for onboarding, plus the Document Vault checklist.',
     audience: 'carrier',
     placeholders: 'companyLogoHtml, contactName, companyName',
-    subject: "You're on the Credyx waitlist",
+    subject: 'Next steps for onboarding {{companyName}} with Credyx',
     body_html: wrapCredyxEmailBodyHtml({
-      eyebrow: 'Waitlist',
-      headline: "You're on the list",
-      contentHtml: `<p>Hi {{contactName}},</p>
-<p>Thank you for joining the <strong>Credyx</strong> waitlist for <strong>{{companyName}}</strong>.</p>
-<p>Founding access is reserved — we'll reach out when onboarding opens and keep you updated on next steps.</p>
-<p>Your back office, in one portal. Paid on time.</p>
-<p>— The Credyx team</p>`,
+      eyebrow: 'Onboarding',
+      headline: "We'll be in touch to get you onboarded",
+      contentHtml: WAITLIST_WELCOME_CONTENT_HTML,
     }),
   },
   {

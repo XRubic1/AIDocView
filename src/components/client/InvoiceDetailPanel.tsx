@@ -115,6 +115,7 @@ import HoldPaperworkReviewBanner from '../admin/HoldPaperworkReviewBanner'
 import { InvoiceActivityNoteList, declutterActivityEntries } from './InvoiceActivityNoteList'
 import { isCarrierDocumentUploadNote } from '../../utils/holdPaperworkReview'
 import { getCarrierVisibleBrokerRiskLevel } from '../../utils/clientBrokers'
+import { getOpenClientAttention } from '../../utils/clientAttention'
 import ConfirmPaymentReceiptModal from './ConfirmPaymentReceiptModal'
 
 type TimelineFilter = 'all' | 'activity' | 'notes' | 'payments' | 'send'
@@ -391,6 +392,7 @@ export default function InvoiceDetailPanel({
   const [statusDate, setStatusDate] = useState(() => new Date().toISOString().slice(0, 10))
   /** Selected status action awaiting Confirm (does not post until confirmed). */
   const [pendingStatusKind, setPendingStatusKind] = useState<InvoiceStatusNoteKind | null>(null)
+  const openClientAttention = getOpenClientAttention(invoice)
   const [statusBusy, setStatusBusy] = useState(false)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [showDisputeModal, setShowDisputeModal] = useState(false)
@@ -1214,6 +1216,10 @@ export default function InvoiceDetailPanel({
     if (!pendingStatusKind || statusBusy) return
     setStatusError(null)
     const kind = pendingStatusKind
+    if (kind === 'needs_attention' && !newNote.trim()) {
+      setStatusError('Write what the client needs to do in the note box.')
+      return
+    }
     if (
       (kind === 'will_pay' || kind === 'call_back' || kind === 'set_due_date') &&
       !statusDate
@@ -1247,7 +1253,11 @@ export default function InvoiceDetailPanel({
             ? 'Due date set'
             : kind === 'ppw_confirmed'
               ? 'Broker confirmed paperwork'
-              : 'Status note posted',
+              : kind === 'needs_attention'
+                ? 'Client notified — marked Needs attention'
+                : kind === 'attention_resolved'
+                  ? 'Needs attention cleared'
+                  : 'Status note posted',
         'success'
       )
     } catch (error) {
@@ -1875,6 +1885,10 @@ export default function InvoiceDetailPanel({
                               ['ppw_confirmed', 'PPW confirmed'],
                               ['payment_confirmed', 'Payment confirmed'],
                               ['set_due_date', 'Set due date'],
+                              ['needs_attention', 'Needs attention'],
+                              ...(openClientAttention
+                                ? ([['attention_resolved', 'Resolve attention']] as const)
+                                : []),
                             ] as const
                           ).map(([kind, label]) => (
                             <button
@@ -1904,6 +1918,10 @@ export default function InvoiceDetailPanel({
                             'Add will post Payment status confirmed'}
                           {pendingStatusKind === 'set_due_date' &&
                             'Add will set invoice due date'}
+                          {pendingStatusKind === 'needs_attention' &&
+                            'Add will show the client “Needs attention” with your note as what they need to do, and notify them'}
+                          {pendingStatusKind === 'attention_resolved' &&
+                            'Add will clear Needs attention for the client'}
                         </p>
                       ) : null}
                       {statusError ? (

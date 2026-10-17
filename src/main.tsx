@@ -1,3 +1,5 @@
+// Must stay first: reroutes password-setup links before auth reads the URL.
+import './bootstrap/authLinkRedirect'
 import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'

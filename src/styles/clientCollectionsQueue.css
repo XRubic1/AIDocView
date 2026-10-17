@@ -1,0 +1,363 @@
+/*
+ * Client Collections — one filter row, four readable columns, cards on phones.
+ * Colors come from the --cp-* theme tokens so dark mode keeps working.
+ */
+
+.client-portal .cq {
+  container-type: inline-size;
+  container-name: cq;
+  background: var(--cp-card);
+}
+
+/* ── Toolbar: total + note, filters, search ── */
+.client-portal .cq-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid var(--cp-border);
+  background: var(--cp-surface);
+}
+
+.client-portal .cq-toolbar__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+}
+
+.client-portal .cq-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+}
+
+.client-portal .cq-total__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .cq-total__amount {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--cp-text);
+}
+
+.client-portal .cq-total__count {
+  font-size: 13px;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .cq-managed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--cp-text-muted);
+  cursor: help;
+}
+
+.client-portal .cq-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.client-portal .cq-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--cp-border);
+  border-radius: 999px;
+  background: var(--cp-card);
+  color: var(--cp-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.client-portal .cq-chip:hover {
+  border-color: var(--cp-border-hover);
+  color: var(--cp-text);
+}
+
+.client-portal .cq-chip:focus-visible {
+  outline: 2px solid var(--cp-accent);
+  outline-offset: 2px;
+}
+
+.client-portal .cq-chip.is-on {
+  border-color: color-mix(in srgb, var(--cp-accent) 35%, transparent);
+  background: var(--cp-accent-light);
+  color: var(--cp-accent);
+}
+
+/* Problem filters read as problems when selected. */
+.client-portal .cq-chip--needs_attention.is-on,
+.client-portal .cq-chip--overdue.is-on {
+  border-color: color-mix(in srgb, var(--cp-error) 40%, transparent);
+  background: color-mix(in srgb, var(--cp-error) 8%, var(--cp-card));
+  color: var(--cp-error);
+}
+
+.client-portal .cq-chip__count {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.client-portal .cq-search {
+  position: relative;
+  display: block;
+}
+
+.client-portal .cq-search__icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  color: var(--cp-muted-light);
+  pointer-events: none;
+}
+
+.client-portal .cq-search input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--cp-input-border);
+  border-radius: 10px;
+  background: var(--cp-input-bg);
+  color: var(--cp-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.client-portal .cq-search input:focus {
+  outline: none;
+  border-color: var(--cp-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-accent) 16%, transparent);
+}
+
+/* ── Table ── */
+.client-portal .cq-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.client-portal .cq-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 40px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--cp-border);
+  background: var(--cp-card);
+  text-align: left;
+}
+
+.client-portal .cq-table .dashboard-table__sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cp-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.client-portal .cq-table th.cq-col-balance .dashboard-table__sort-btn {
+  margin-left: auto;
+}
+
+.client-portal .cq-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--cp-border);
+  vertical-align: top;
+  min-width: 0;
+}
+
+.client-portal .cq-col-invoice { width: 24%; }
+.client-portal .cq-col-balance { width: 140px; text-align: right; }
+.client-portal .cq-col-status { width: 170px; }
+.client-portal .cq-col-what { width: auto; }
+
+.client-portal .cq-row {
+  cursor: pointer;
+}
+
+.client-portal .cq-row:hover td {
+  background: var(--cp-table-hover);
+}
+
+.client-portal .cq-row.is-selected td {
+  background: var(--cp-accent-light);
+}
+
+.client-portal .cq-row.is-flagged td:first-child {
+  box-shadow: inset 3px 0 0 var(--cp-error);
+}
+
+.client-portal .cq-row.is-selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--cp-accent);
+}
+
+.client-portal .cq-main,
+.client-portal .cq-sub {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-portal .cq-main {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--cp-text);
+}
+
+.client-portal .cq-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .cq-late {
+  font-weight: 600;
+  color: var(--cp-error);
+}
+
+.client-portal .cq-col-status .cq-sub {
+  white-space: normal;
+}
+
+.client-portal .cq-what {
+  display: block;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--cp-text);
+}
+
+.client-portal .cq-col-what .cq-sub {
+  white-space: normal;
+}
+
+/* Narrow list (details panel open): fold balance under the invoice. */
+@container cq (max-width: 640px) {
+  .client-portal .cq-col-balance {
+    display: none;
+  }
+
+  .client-portal .cq-col-invoice {
+    width: 32%;
+  }
+
+  .client-portal .cq-col-status {
+    width: 140px;
+  }
+}
+
+/* ── Phones: each invoice is a card ── */
+@media (max-width: 767px) {
+  .client-portal .cq-toolbar {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .client-portal .cq-total__amount {
+    font-size: 17px;
+  }
+
+  .client-portal .cq-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .client-portal .cq-filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .client-portal .cq-chip {
+    flex: 0 0 auto;
+    height: 30px;
+  }
+
+  .client-portal .cq-table thead {
+    display: none;
+  }
+
+  .client-portal .cq-table,
+  .client-portal .cq-table tbody {
+    display: block;
+  }
+
+  .client-portal .cq-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    padding: 12px;
+    border-bottom: 1px solid var(--cp-border);
+  }
+
+  .client-portal .cq-row td {
+    display: block;
+    width: auto !important;
+    padding: 0;
+    border: 0;
+    background: none !important;
+    box-shadow: none !important;
+    text-align: left;
+  }
+
+  .client-portal .cq-row.is-flagged {
+    box-shadow: inset 3px 0 0 var(--cp-error);
+  }
+
+  .client-portal .cq-row .cq-col-balance {
+    display: block;
+    text-align: right;
+  }
+
+  .client-portal .cq-row .cq-col-status {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .client-portal .cq-row .cq-col-status .cq-sub {
+    margin: 0;
+  }
+
+  .client-portal .cq-row .cq-col-what {
+    grid-column: 1 / -1;
+  }
+
+  .client-portal .cq-what {
+    font-size: 13px;
+  }
+}

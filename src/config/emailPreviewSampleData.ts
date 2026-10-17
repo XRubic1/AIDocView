@@ -85,7 +85,18 @@ export function getEmailPreviewSampleData(templateId: EmailTemplateId): Record<s
         portalLink: `${shared.portalLink}/client/login`,
         setupLink: `${shared.portalLink}/client/setup-password`,
         inviteLink: `${shared.portalLink}/client/setup-password`,
-        ctaLabel: 'Create your password',
+        ctaLabel: 'Go to login',
+        loginEmail: 'dispatch@northline.example',
+        passwordNote:
+          "We've sent a separate email with a link to create your password. Create it first, then sign in anytime.",
+      }
+    case 'client_password_setup':
+      return {
+        ...shared,
+        contactEmail: 'ops@credyx.net',
+        loginEmail: 'dispatch@northline.example',
+        portalLink: `${shared.portalLink}/client/login`,
+        setupLink: `${shared.portalLink}/client/setup-password`,
       }
     case 'auth_signup':
     case 'auth_invite':

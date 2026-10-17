@@ -625,19 +625,6 @@ export default function CashCollectedPanel({
     return 'custom'
   }, [dateFrom, dateTo, matchesDatePreset])
 
-  const dateRangeLabel = useMemo(() => {
-    if (dateRangeValue === 'all') {
-      return period === 'monthly' ? 'Last 12 months' : 'Last 12 weeks'
-    }
-    if (dateRangeValue === '30d') return 'Last 30d'
-    if (dateRangeValue === '90d') return 'Last 90d'
-    if (dateRangeValue === 'ytd') return 'YTD'
-    if (dateFrom && dateTo) return `${formatDate(dateFrom)} – ${formatDate(dateTo)}`
-    if (dateFrom) return `From ${formatDate(dateFrom)}`
-    if (dateTo) return `Until ${formatDate(dateTo)}`
-    return 'Custom'
-  }, [dateRangeValue, dateFrom, dateTo, period])
-
   const {
     data,
     collectedTotal,
@@ -648,7 +635,16 @@ export default function CashCollectedPanel({
     hasSignal,
     historyCount,
   } = useMemo(() => {
-    const points = buildHistory(invoices, payments, period, dateFrom, dateTo)
+    const allPoints = buildHistory(invoices, payments, period, dateFrom, dateTo)
+    // Default range: start at the first period with activity (min 4 shown) so a
+    // new account isn't a row of empty months.
+    let points = allPoints
+    if (!dateFrom && !dateTo) {
+      const firstActive = allPoints.findIndex(
+        (p) => p.invoiced > 0 || p.collected > 0 || p.forecast > 0
+      )
+      if (firstActive > 0) points = allPoints.slice(Math.min(firstActive, Math.max(0, allPoints.length - 4)))
+    }
     const historical = points.filter((p) => !p.isNext)
     const current = points.find((p) => p.isCurrent)
     const next = points.find((p) => p.isNext)
@@ -669,6 +665,21 @@ export default function CashCollectedPanel({
         (next?.forecast ?? 0) > 0,
     }
   }, [invoices, payments, period, dateFrom, dateTo])
+
+  const dateRangeLabel = useMemo(() => {
+    if (dateRangeValue === 'all') {
+      const shown = data.filter((p) => !p.isNext).length
+      if (period === 'monthly') return shown >= 12 ? 'Last 12 months' : `Last ${shown} months`
+      return shown >= 12 ? 'Last 12 weeks' : `Last ${shown} weeks`
+    }
+    if (dateRangeValue === '30d') return 'Last 30d'
+    if (dateRangeValue === '90d') return 'Last 90d'
+    if (dateRangeValue === 'ytd') return 'YTD'
+    if (dateFrom && dateTo) return `${formatDate(dateFrom)} – ${formatDate(dateTo)}`
+    if (dateFrom) return `From ${formatDate(dateFrom)}`
+    if (dateTo) return `Until ${formatDate(dateTo)}`
+    return 'Custom'
+  }, [dateRangeValue, dateFrom, dateTo, period, data])
 
   const mom = useMemo(() => {
     const historical = data.filter((p) => !p.isNext)
@@ -823,68 +834,29 @@ export default function CashCollectedPanel({
           </div>
 
           <aside className="cdv3-cash__aside" aria-label="Cash summary">
-            <p className="cdv3-cash__aside-label">This {unit}</p>
-            <p
-              className={`cdv3-cash__aside-amount tabular-nums ${
-                !loading && currentCollected <= 0 ? 'is-zero' : 'is-blue'
-              }`}
-            >
-              {loading ? '—' : formatCurrency(currentCollected)}
-            </p>
-            {!loading ? (
-              <p className={`cdv3-cash__aside-mom is-${mom.dir}`}>
-                Collected · {mom.dir === 'up' ? '▲' : mom.dir === 'down' ? '▼' : '→'} {mom.pct}%
-                vs prior
-              </p>
-            ) : null}
-            <div className="cdv3-cash__aside-cards">
-              <div className="cdv3-cash__aside-card cdv3-cash__aside-card--forecast">
-                <span className="cdv3-cash__aside-card-title">Forecast</span>
-                <div className="cdv3-cash__aside-forecast-stack">
-                  <div>
-                    <span>current</span>
-                    <strong
-                      className={`tabular-nums ${
-                        !loading && currentForecast <= 0 ? 'is-zero' : 'is-blue'
-                      }`}
-                    >
-                      {loading ? '—' : formatCurrency(currentForecast)}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>next {unit}</span>
-                    <strong
-                      className={`tabular-nums ${
-                        !loading && nextForecast <= 0 ? 'is-zero' : 'is-blue'
-                      }`}
-                    >
-                      {loading ? '—' : formatCurrency(nextForecast)}
-                    </strong>
-                  </div>
-                </div>
-              </div>
-              <div className="cdv3-cash__aside-card">
-                <span>
-                  Collected ({historyCount} {period === 'monthly' ? 'mo' : 'wk'})
-                </span>
-                <strong
-                  className={`tabular-nums ${
-                    !loading && collectedTotal <= 0 ? 'is-zero' : 'is-blue'
-                  }`}
-                >
-                  {loading ? '—' : formatCurrency(collectedTotal)}
-                </strong>
-              </div>
-              <div className="cdv3-cash__aside-card">
-                <span>Invoiced (window)</span>
-                <strong
-                  className={`tabular-nums ${
-                    !loading && invoicedTotal <= 0 ? 'is-zero' : undefined
-                  }`}
-                >
-                  {loading ? '—' : formatCurrency(invoicedTotal)}
-                </strong>
-              </div>
+            <div className="cdv3-cash__stat is-lead">
+              <span>Expected this {unit}</span>
+              <strong className="tabular-nums">{loading ? '—' : formatCurrency(currentForecast)}</strong>
+            </div>
+            <div className="cdv3-cash__stat">
+              <span>Expected next {unit}</span>
+              <strong className="tabular-nums">{loading ? '—' : formatCurrency(nextForecast)}</strong>
+            </div>
+            <div className="cdv3-cash__stat">
+              <span>Collected this {unit}</span>
+              <strong className="tabular-nums">{loading ? '—' : formatCurrency(currentCollected)}</strong>
+              {!loading && mom.dir !== 'flat' && historyCount > 1 ? (
+                <em className={`is-${mom.dir}`}>
+                  {mom.dir === 'up' ? 'Up' : 'Down'} {mom.pct}% from last {unit}
+                </em>
+              ) : null}
+            </div>
+            <div className="cdv3-cash__stat">
+              <span>
+                Collected · {historyCount} {period === 'monthly' ? 'months' : 'weeks'}
+              </span>
+              <strong className="tabular-nums">{loading ? '—' : formatCurrency(collectedTotal)}</strong>
+              <em>of {formatCurrency(invoicedTotal)} invoiced</em>
             </div>
           </aside>
         </div>

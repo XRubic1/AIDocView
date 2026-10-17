@@ -221,3 +221,123 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* ── Full-page / phone invoice view: same compact filters + white feed ── */
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes.payment-confirmation-panel__notes--mobile-surface {
+  background: var(--cp-card);
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes.payment-confirmation-panel__notes--mobile-surface .payment-confirmation-panel__notes-head {
+  padding: 12px 16px 4px;
+}
+
+/* One row of four, segmented like the All / Needs switch. */
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes.payment-confirmation-panel__notes--mobile-surface .payment-confirmation-panel__notes-filters--segmented {
+  display: flex;
+  width: 100%;
+  gap: 2px;
+  padding: 3px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--cp-surface);
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes.payment-confirmation-panel__notes--mobile-surface .payment-confirmation-panel__notes-filter {
+  flex: 1 1 0;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cp-text-muted);
+  white-space: nowrap;
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes.payment-confirmation-panel__notes--mobile-surface .payment-confirmation-panel__notes-filter--active {
+  background: var(--cp-card);
+  color: var(--cp-text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes.payment-confirmation-panel__notes--mobile-surface .payment-confirmation-panel__notes-filter-count {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--cp-text) 8%, transparent);
+  color: inherit;
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes.payment-confirmation-panel__notes--mobile-surface .payment-confirmation-panel__notes-scroll {
+  padding: 12px 16px 16px;
+}
+
+/* "Add note" reads like a text field to tap, not a big blue button. */
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes.payment-confirmation-panel__notes--mobile-surface .invoice-detail-note-compose {
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+  box-shadow: none;
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes.payment-confirmation-panel__notes--mobile-surface .invoice-detail-note-compose__mobile-open {
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--cp-input-border);
+  border-radius: 10px;
+  background: var(--cp-input-bg);
+  box-shadow: none;
+  color: var(--cp-muted-light);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.client-portal .payment-confirmation-panel--mobile .payment-confirmation-panel__notes.payment-confirmation-panel__notes--mobile-surface .invoice-detail-note-compose__mobile-open-arrow {
+  margin-left: auto;
+  color: var(--cp-muted-light);
+}
+
+/* Feed: a quieter source tag and dates, a touch more air between entries. */
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-source--credyx {
+  background: transparent;
+  padding: 0;
+  color: var(--cp-accent);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 600;
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-source--credyx::before {
+  content: '· ';
+  color: var(--cp-muted-light);
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-source--carrier {
+  background: transparent;
+  padding: 0;
+  color: var(--cp-text-muted);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 600;
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-source--carrier::before {
+  content: '· ';
+  color: var(--cp-muted-light);
+}
+
+.client-portal .payment-confirmation-panel__notes .payment-confirmation-panel__note-row-date {
+  color: var(--cp-muted-light);
+}

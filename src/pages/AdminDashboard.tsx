@@ -11,6 +11,7 @@ import {
   FileText,
   Layers,
   MessageSquareWarning,
+  MessageSquareText,
   Paperclip,
   Phone,
   PlusCircle,
@@ -38,6 +39,8 @@ import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import { useAdminCapabilities } from '../hooks/useAdminCapabilities'
 import { getAllClients, getClientById } from '../services/clientRegistry'
 import { buildClientWorkSummaries } from '../utils/clientWorkQueue'
+import { buildClientActivity, type ClientActivityKind } from '../utils/clientActivity'
+import { useAdminNotifications } from '../hooks/useAdminNotifications'
 import { getAgingArBucketKey, getInvoiceAgeDays, isOpenArInvoice } from '../utils/invoiceAging'
 import { listOpenDisputedInvoices } from '../utils/clientInvoiceDisputeStatus'
 import { invoiceHasPendingHoldPaperworkReview } from '../utils/holdPaperworkReview'
@@ -49,12 +52,20 @@ type AttentionPriority = 'high' | 'medium' | 'low'
 
 type AttentionItem = {
   id: string
-  kind: 'stale_batch' | 'overdue_invoice' | 'open_dispute' | 'batch_review' | 'broker_call' | 'ppw_review'
+  kind:
+    | 'stale_batch'
+    | 'overdue_invoice'
+    | 'open_dispute'
+    | 'batch_review'
+    | 'broker_call'
+    | 'ppw_review'
+    | 'client_activity'
   priority: AttentionPriority
   title: string
   detail: string
   href: string
   clientId?: string
+  activityKind?: ClientActivityKind
 }
 
 const ATTENTION_ICON: Record<AttentionItem['kind'], LucideIcon> = {
@@ -64,6 +75,15 @@ const ATTENTION_ICON: Record<AttentionItem['kind'], LucideIcon> = {
   batch_review: Layers,
   broker_call: Phone,
   ppw_review: Paperclip,
+  client_activity: MessageSquareText,
+}
+
+const ACTIVITY_ICON: Partial<Record<ClientActivityKind, LucideIcon>> = {
+  upload: Paperclip,
+  payment: Banknote,
+  receipt_confirmed: Banknote,
+  receipt_dispute: MessageSquareWarning,
+  write_off: Wallet,
 }
 
 const PRIORITY_RANK: Record<AttentionPriority, number> = { high: 0, medium: 1, low: 2 }
@@ -97,6 +117,7 @@ export default function AdminDashboard() {
   const allBatches = useMemo(() => getAllBatches(), [tenantRevision])
   const allInvoices = useMemo(() => [...mockInvoices], [tenantRevision])
   const allPayments = useMemo(() => [...mockPayments], [tenantRevision])
+  const notifications = useAdminNotifications()
 
   const clientOptions = useMemo(
     () =>
@@ -112,8 +133,9 @@ export default function AdminDashboard() {
   )
 
   const workSummaries = useMemo(
-    () => buildClientWorkSummaries({ invoices: allInvoices, batches: allPendingBatches }),
-    [allInvoices, allPendingBatches]
+    () =>
+      buildClientWorkSummaries({ invoices: allInvoices, batches: allPendingBatches, notifications }),
+    [allInvoices, allPendingBatches, notifications]
   )
 
   const overview = useMemo(
@@ -315,6 +337,26 @@ export default function AdminDashboard() {
     }
     const now = Date.now()
 
+    // Client did something on an invoice (upload, note, payment) — review in the work queue
+    const uploadInvoiceIds = new Set<string>()
+    buildClientActivity(notifications, allInvoices)
+      .filter((act) => !clientFilter || act.clientId === clientFilter)
+      .forEach((act) => {
+        if (act.kind === 'upload' && act.invoiceId) uploadInvoiceIds.add(act.invoiceId)
+        const params = new URLSearchParams({ client: act.clientId })
+        if (act.invoiceId) params.set('invoice', act.invoiceId)
+        add({
+          id: `activity-${act.id}`,
+          kind: 'client_activity',
+          activityKind: act.kind,
+          priority: act.severity === 'high' || act.severity === 'critical' ? 'high' : 'medium',
+          title: act.invoiceNumber ? `${act.label} · ${act.invoiceNumber}` : act.label,
+          detail: `${act.clientName || 'Client'} — ${act.detail}`,
+          href: `/admin/work-queue?${params.toString()}`,
+          clientId: act.clientId,
+        })
+      })
+
     openDisputedRows.forEach((row) => {
       const inv = row.invoice
       add({
@@ -329,6 +371,8 @@ export default function AdminDashboard() {
     })
 
     invoices.filter((inv) => invoiceHasPendingHoldPaperworkReview(inv)).forEach((inv) => {
+      // Already listed as a client upload above
+      if (uploadInvoiceIds.has(inv.id)) return
       add({
         id: `ppw-${inv.id}`,
         kind: 'ppw_review',
@@ -382,7 +426,7 @@ export default function AdminDashboard() {
     })
 
     return [...items.values()].sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority])
-  }, [openDisputedRows, invoices, pendingBatches])
+  }, [openDisputedRows, invoices, pendingBatches, notifications, allInvoices, clientFilter])
 
   const highAttention = attention.filter((a) => a.priority === 'high').length
   const openWork = scopedRows.reduce((sum, r) => sum + r.workOpen, 0)
@@ -593,7 +637,8 @@ export default function AdminDashboard() {
               ) : (
                 <ul className="adb-attn">
                   {attention.slice(0, 12).map((item) => {
-                    const Icon = ATTENTION_ICON[item.kind]
+                    const Icon =
+                      (item.activityKind && ACTIVITY_ICON[item.activityKind]) || ATTENTION_ICON[item.kind]
                     return (
                       <li key={item.id}>
                         <button type="button" className="adb-attn__item" onClick={() => navigate(item.href)}>

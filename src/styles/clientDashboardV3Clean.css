@@ -1,0 +1,223 @@
+/*
+ * Dashboard V3 — calmer layer on top of clientDashboardV3.css:
+ * status line that says what needs you, three flat KPI cards, a side panel
+ * that never scrolls inside the chart card. Uses the --cdv3-* tokens.
+ */
+
+/* Flat cards, no glow — matches the invoices / reports pages. */
+.client-dashboard-v3 .cdv3-cash,
+.client-dashboard-v3 .cdv3-work {
+  box-shadow: none;
+}
+
+/* ── Status line ── */
+.client-dashboard-v3 .cdv3-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--cdv3-border);
+  border-radius: var(--cdv3-radius);
+  background: var(--cdv3-card);
+}
+
+.client-dashboard-v3 .cdv3-status.is-action {
+  border-color: color-mix(in srgb, var(--cdv3-warning) 45%, var(--cdv3-border));
+  background: color-mix(in srgb, var(--cdv3-warning) 7%, var(--cdv3-card));
+}
+
+.client-dashboard-v3 .cdv3-status__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cdv3-ink);
+}
+
+.client-dashboard-v3 .cdv3-status.is-clear .cdv3-status__title svg {
+  color: var(--cdv3-success);
+}
+
+.client-dashboard-v3 .cdv3-status__items {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.client-dashboard-v3 .cdv3-status__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--cdv3-border);
+  border-radius: 999px;
+  background: var(--cdv3-card);
+  color: var(--cdv3-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.client-dashboard-v3 .cdv3-status__link:hover {
+  border-color: var(--cdv3-blue);
+  color: var(--cdv3-blue);
+}
+
+.client-dashboard-v3 .cdv3-status__away {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--cdv3-muted);
+}
+
+/* ── KPI cards ── */
+.client-dashboard-v3 .cdv3-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--cdv3-gap);
+  flex: 0 0 auto;
+}
+
+.client-dashboard-v3 .cdv3-kpis.has-overdue {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.client-dashboard-v3 .cdv3-kpis.is-loading {
+  opacity: 0.6;
+}
+
+.client-dashboard-v3 .cdv3-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: calc(12px * var(--cdv3-s)) calc(16px * var(--cdv3-s));
+  border: 1px solid var(--cdv3-border);
+  border-radius: var(--cdv3-radius);
+  background: var(--cdv3-card);
+  color: var(--cdv3-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.client-dashboard-v3 .cdv3-kpi:hover {
+  border-color: color-mix(in srgb, var(--cdv3-blue) 40%, var(--cdv3-border));
+}
+
+.client-dashboard-v3 .cdv3-kpi:focus-visible,
+.client-dashboard-v3 .cdv3-status__link:focus-visible {
+  outline: 2px solid var(--cdv3-blue);
+  outline-offset: 2px;
+}
+
+.client-dashboard-v3 .cdv3-kpi__label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--cdv3-muted);
+}
+
+.client-dashboard-v3 .cdv3-kpi__value {
+  font-size: calc(clamp(20px, 1.2vw + 12px, 26px) * var(--cdv3-s));
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-dashboard-v3 .cdv3-kpi.is-primary .cdv3-kpi__value {
+  font-size: calc(clamp(22px, 1.6vw + 12px, 30px) * var(--cdv3-s));
+}
+
+.client-dashboard-v3 .cdv3-kpi__value.is-accent {
+  color: var(--cdv3-blue);
+}
+
+.client-dashboard-v3 .cdv3-kpi__sub {
+  font-size: 12.5px;
+  color: var(--cdv3-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.client-dashboard-v3 .cdv3-kpi.is-alert {
+  border-color: color-mix(in srgb, var(--cdv3-error) 40%, var(--cdv3-border));
+}
+
+.client-dashboard-v3 .cdv3-kpi.is-alert .cdv3-kpi__value {
+  color: var(--cdv3-error);
+}
+
+/* ── Chart side panel: plain stacked figures, no inner scroll ── */
+.client-dashboard-v3 .cdv3-cash__aside {
+  gap: 0;
+  padding: 0 0 0 calc(14px * var(--cdv3-s));
+  border: 0;
+  border-left: 1px solid var(--cdv3-border);
+  border-radius: 0;
+  background: none;
+  overflow: visible;
+  justify-content: center;
+}
+
+.client-dashboard-v3 .cdv3-cash__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: calc(8px * var(--cdv3-s)) 0;
+  border-top: 1px solid var(--cdv3-border);
+}
+
+.client-dashboard-v3 .cdv3-cash__stat:first-child {
+  border-top: 0;
+}
+
+.client-dashboard-v3 .cdv3-cash__stat span {
+  font-size: 12px;
+  color: var(--cdv3-muted);
+}
+
+.client-dashboard-v3 .cdv3-cash__stat strong {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cdv3-ink);
+}
+
+.client-dashboard-v3 .cdv3-cash__stat.is-lead strong {
+  font-size: calc(20px * var(--cdv3-s));
+  color: var(--cdv3-blue);
+}
+
+.client-dashboard-v3 .cdv3-cash__stat em {
+  font-size: 11.5px;
+  font-style: normal;
+  color: var(--cdv3-muted);
+}
+
+.client-dashboard-v3 .cdv3-cash__stat em.is-up {
+  color: var(--cdv3-success);
+}
+
+.client-dashboard-v3 .cdv3-cash__stat em.is-down {
+  color: var(--cdv3-error);
+}
+
+@container cdv3 (max-width: 900px) {
+  .client-dashboard-v3 .cdv3-kpis,
+  .client-dashboard-v3 .cdv3-kpis.has-overdue {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .client-dashboard-v3 .cdv3-status__away {
+    margin-left: 0;
+    width: 100%;
+  }
+}

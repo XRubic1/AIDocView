@@ -10,7 +10,7 @@ import CashCollectedPanel from '../components/client/dashboard-v3/CashCollectedP
 import DashboardWorkPanel, {
   type DashboardMainTab,
 } from '../components/client/dashboard-v3/DashboardWorkPanel'
-import type { KpiTrend } from '../components/client/dashboard-v2/KpiStatRow'
+import { ArrowRight, CheckCircle2 } from 'lucide-react'
 import MobileEmptyDashboard from '../components/client/dashboard/MobileEmptyDashboard'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
 import {
@@ -24,7 +24,6 @@ import { AMOUNT_EPSILON, getInvoiceOpenArBalance } from '../utils/paymentVarianc
 import { formatCurrency } from '../utils/format'
 import {
   buildComingDueWindows,
-  buildConfirmedPaidWindows,
 } from '../utils/clientCashWindows'
 import {
   computeAttentionActions,
@@ -34,14 +33,7 @@ import { useClientSession } from '../hooks/useClientSession'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import { buildClientBrokerDirectory } from '../utils/clientBrokers'
 import '../styles/clientDashboardV3.css'
-
-function trendFromChange(current: number, previous: number): KpiTrend {
-  if (previous <= AMOUNT_EPSILON && current <= AMOUNT_EPSILON) return 'flat'
-  if (previous <= AMOUNT_EPSILON) return current > AMOUNT_EPSILON ? 'up' : 'flat'
-  if (current > previous * 1.05) return 'up'
-  if (current < previous * 0.95) return 'down'
-  return 'flat'
-}
+import '../styles/clientDashboardV3Clean.css'
 
 function startOfDayMs(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
@@ -83,11 +75,6 @@ export default function ClientDashboardV3() {
   )
   const comingDue30 = comingDue.next30
 
-  const paidRecent = useMemo(
-    () => buildConfirmedPaidWindows(invoices, payments),
-    [invoices, payments]
-  )
-
   const actionCounts = useMemo(() => {
     const confirms = computeConfirmPaymentActions(payments)
     const attention = computeAttentionActions({ invoices, payments })
@@ -118,69 +105,26 @@ export default function ClientDashboardV3() {
     }).length
   }, [clientId, invoices, payments, tenantRevision])
 
-  const kpiTrends = useMemo(() => {
-    const now = new Date()
-    const today = startOfDayMs(now)
-    const dayMs = 24 * 60 * 60 * 1000
-    const thirtyDaysAgo = today - 30 * dayMs
-
-    let invoiced30 = 0
-    let collected30 = 0
-    let overduePrior = 0
-    let comingDuePrior = 0
-    let confirmedPayPrior = 0
-
+  /** Last-30-day cash received, plus how many invoices still carry a balance. */
+  const last30 = useMemo(() => {
+    const today = startOfDayMs(new Date())
+    const thirtyDaysAgo = today - 30 * 24 * 60 * 60 * 1000
+    let paid = 0
+    let paidCount = 0
+    let openCount = 0
     for (const inv of invoices) {
-      const invDay = startOfDayMs(new Date(inv.invoice_date))
-      if (invDay >= thirtyDaysAgo && invDay < today) {
-        invoiced30 += inv.amount
-      }
-
-      if (!isOpenArInvoice(inv)) continue
-      const balance = getInvoiceOpenArBalance(inv, payments)
-      if (balance <= AMOUNT_EPSILON) continue
-
-      if (inv.collection_status === 'W/P' && inv.collection_date) {
-        const payDay = startOfDayMs(new Date(inv.collection_date))
-        if (!Number.isNaN(payDay) && payDay >= thirtyDaysAgo && payDay < today) {
-          confirmedPayPrior += balance
-        }
-      }
-
-      const dueRaw = inv.due_date
-      if (!dueRaw) continue
-      const dueDay = startOfDayMs(new Date(dueRaw))
-      if (Number.isNaN(dueDay)) continue
-
-      if (dueDay < thirtyDaysAgo) overduePrior += balance
-      if (dueDay >= thirtyDaysAgo && dueDay < today && inv.collection_status !== 'W/P') {
-        comingDuePrior += balance
-      }
+      if (isOpenArInvoice(inv) && getInvoiceOpenArBalance(inv, payments) > AMOUNT_EPSILON) openCount += 1
     }
-
     for (const p of payments) {
       if (p.status !== 'confirmed') continue
-      const received = startOfDayMs(new Date(p.received_date))
-      if (received >= thirtyDaysAgo && received < today) collected30 += p.amount
+      const day = startOfDayMs(new Date(p.received_date))
+      if (day >= thirtyDaysAgo && day <= today) {
+        paid += p.amount
+        paidCount += 1
+      }
     }
-
-    const openNow = dashboard.summary.total_ar
-    const openPrior = Math.max(0, openNow - invoiced30 + collected30)
-
-    return {
-      open: trendFromChange(openNow, openPrior),
-      overdue: trendFromChange(overdueAmount, overduePrior),
-      coming: trendFromChange(comingDue30.amount, comingDuePrior),
-      paid: trendFromChange(paidRecent.next30.amount, confirmedPayPrior),
-    }
-  }, [
-    invoices,
-    payments,
-    dashboard.summary.total_ar,
-    overdueAmount,
-    comingDue30.amount,
-    paidRecent.next30.amount,
-  ])
+    return { paid, paidCount, openCount }
+  }, [invoices, payments])
 
   const awaySummary = useMemo(() => {
     const daysAway = 2
@@ -214,6 +158,27 @@ export default function ClientDashboardV3() {
     return `Since ${when}: ${parts.join(' · ')}`
   }, [invoices, payments, batches])
 
+  /** Plain-language to-do list for the status line. */
+  const needsYou = useMemo(() => {
+    const items: { tab: DashboardMainTab; label: string }[] = []
+    if (actionCounts.confirm > 0) {
+      items.push({
+        tab: 'confirm',
+        label: `Confirm ${actionCounts.confirm} payment${actionCounts.confirm === 1 ? '' : 's'}`,
+      })
+    }
+    if (actionCounts.held > 0) {
+      items.push({
+        tab: 'held',
+        label: `${actionCounts.held} invoice${actionCounts.held === 1 ? '' : 's'} on hold`,
+      })
+    }
+    if (actionCounts.overdue > 0) {
+      items.push({ tab: 'overdue', label: `${actionCounts.overdue} overdue` })
+    }
+    return items
+  }, [actionCounts])
+
   const selectTab = (tab: DashboardMainTab) => {
     setMainTab((prev) => (prev === tab && tab !== 'cash' ? 'cash' : tab))
   }
@@ -227,25 +192,49 @@ export default function ClientDashboardV3() {
         <MobileEmptyDashboard />
       ) : (
         <div className="client-dashboard-v3__frame">
-          <div className="client-dashboard-v3__mesh" aria-hidden />
 
           <div className="client-dashboard-v3__inner">
-            {awaySummary ? (
-              <header className="cdv3-status">
-                <p className="cdv3-status__away">{awaySummary}</p>
+            {!loading ? (
+              <header className={`cdv3-status${needsYou.length > 0 ? ' is-action' : ' is-clear'}`}>
+                {needsYou.length > 0 ? (
+                  <>
+                    <span className="cdv3-status__title">
+                      {actionCounts.total} thing{actionCounts.total === 1 ? '' : 's'} need
+                      {actionCounts.total === 1 ? 's' : ''} you
+                    </span>
+                    <span className="cdv3-status__items">
+                      {needsYou.map((item) => (
+                        <button
+                          key={item.tab}
+                          type="button"
+                          className="cdv3-status__link"
+                          onClick={() => setMainTab(item.tab)}
+                        >
+                          {item.label}
+                          <ArrowRight size={14} aria-hidden />
+                        </button>
+                      ))}
+                    </span>
+                  </>
+                ) : (
+                  <span className="cdv3-status__title">
+                    <CheckCircle2 size={18} aria-hidden />
+                    You&apos;re all set. Nothing needs you right now.
+                  </span>
+                )}
+                {awaySummary ? <span className="cdv3-status__away">{awaySummary}</span> : null}
               </header>
             ) : null}
 
             <HeroCashBand
               openBalance={dashboard.summary.total_ar}
-              openTrend={kpiTrends.open}
+              openCount={last30.openCount}
+              expectedAmount={comingDue30.amount}
+              expectedCount={comingDue30.count}
+              paidAmount={last30.paid}
+              paidCount={last30.paidCount}
               overdueAmount={overdueAmount}
               overdueCount={overdueCount}
-              overdueTrend={kpiTrends.overdue}
-              comingDueAmount={comingDue30.amount}
-              comingDueCount={comingDue30.count}
-              confirmedPayAmount={paidRecent.next30.amount}
-              confirmedPayCount={paidRecent.next30.count}
               loading={loading}
             />
 
@@ -302,10 +291,9 @@ export default function ClientDashboardV3() {
                 className={`cdv3-shortcut is-muted${mainTab === 'broker' ? ' is-active' : ''}`}
                 onClick={() => selectTab('broker')}
               >
-                Broker risk
-                {brokerRiskCount > 0 ? (
-                  <span className="tabular-nums">{brokerRiskCount}</span>
-                ) : null}
+                {brokerRiskCount > 0
+                  ? `${brokerRiskCount} broker${brokerRiskCount === 1 ? '' : 's'} to watch`
+                  : 'Broker risk'}
               </button>
             </div>
 

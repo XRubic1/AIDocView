@@ -4,8 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
-import ClientListTd from '../components/client/ClientListTd'
+import { Search, ChevronLeft, ChevronRight, Info } from 'lucide-react'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
 import EmptyState from '../components/ui/EmptyState'
@@ -20,7 +19,7 @@ import {
 } from '../services/platformSettingsService'
 import { useClientTheme } from '../theme/ThemeContext'
 import type { Invoice } from '../types/invoice'
-import { buildAdminCollectionsRows, formatBrokerNetDays } from '../utils/adminCollections'
+import { buildAdminCollectionsRows } from '../utils/adminCollections'
 import {
   buildClientPerformanceRows,
   carrierAttentionLabel,
@@ -28,9 +27,7 @@ import {
   clientPerformanceRank,
   matchesClientCollectionsFocus,
   primaryCarrierAttentionReason,
-  progressStepPillClass,
   type ClientCollectionsFocus,
-  type ClientPerformanceRow,
 } from '../utils/clientCollectionsPerformance'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import {
@@ -39,6 +36,7 @@ import {
   type SortDir,
 } from '../utils/clientListPage'
 import { formatCurrency, formatDate } from '../utils/format'
+import '../styles/clientCollectionsQueue.css'
 
 type SortField =
   | 'invoice_number'
@@ -288,8 +286,6 @@ export default function ClientCollectionsQueue() {
     )
   }
 
-  const inputStyle = { backgroundColor: c.card, color: c.primary }
-
   const invoiceDetailPanelProps = selectedInvoice
     ? {
         invoice: selectedInvoice,
@@ -313,20 +309,6 @@ export default function ClientCollectionsQueue() {
     return 0
   }
 
-  const renderPerformanceCell = (row: ClientPerformanceRow) => {
-    const attention = primaryCarrierAttentionReason(row.urgentReasons)
-    return (
-      <div className="flex flex-col items-start gap-0.5 min-w-0">
-        <span className={row.performancePillClass}>{row.performanceLabel}</span>
-        {attention && row.performance === 'needs_attention' ? (
-          <span className="text-[11px] leading-snug" style={{ color: c.secondary }}>
-            {carrierAttentionLabel(attention)}
-          </span>
-        ) : null}
-      </div>
-    )
-  }
-
   return (
     <>
       <div className="client-collections-page overflow-hidden flex flex-col min-h-0">
@@ -334,167 +316,68 @@ export default function ClientCollectionsQueue() {
           <InvoiceDetailPanel variant="mobile" {...invoiceDetailPanelProps} />
         ) : (
           <>
-            {!capabilities.canRunInvoiceOps && (
-              <section
-                className="shrink-0 px-4 py-2.5 border-b text-sm"
-                style={{ borderColor: c.border, backgroundColor: c.stat.amber, color: c.secondary }}
-              >
-                Credyx handles broker follow-up on your plan. Use this page to see how each invoice
-                is performing and what happens next.
-              </section>
-            )}
-
             <div
-              className="payments-workspace-body flex-1 min-h-0"
+              className={`payments-workspace-body flex-1 min-h-0${
+                detailPanelOpen && !useFullPageDetail ? ' payments-workspace-body--detail-open' : ''
+              }${isResizing ? ' payments-workspace-body--resizing' : ''}`}
               ref={workspaceRef}
               style={
-                {
-                  '--detail-panel-width': `${detailWidth}px`,
-                  cursor: isResizing ? 'col-resize' : undefined,
-                } as CSSProperties
+                detailPanelOpen && !useFullPageDetail
+                  ? ({ '--payments-detail-width': `${detailWidth}px` } as CSSProperties)
+                  : undefined
               }
             >
-              <div className="payments-list-panel flex flex-col min-h-0 overflow-hidden">
-                <section
-                  className="client-stat-strip grid grid-cols-2 lg:grid-cols-5 border-b shrink-0"
-                  style={{ borderColor: c.border }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setFocusAndUrl('all')}
-                    className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left"
-                    style={{
-                      backgroundColor: focus === 'all' ? c.stat.blue : c.card,
-                      borderColor: c.border,
-                    }}
-                  >
-                    <span className="text-xs font-medium" style={{ color: c.secondary }}>
-                      Open A/R
-                    </span>
-                    <span className="text-right">
+              <div className="payments-list-panel cq flex flex-col min-h-0 overflow-hidden">
+                <div className="cq-toolbar shrink-0">
+                  <div className="cq-toolbar__top">
+                    <p className="cq-total">
+                      <span className="cq-total__label">Open A/R</span>
+                      <span className="cq-total__amount tabular-nums">{formatCurrency(counts.openAmount)}</span>
+                      <span className="cq-total__count">
+                        {counts.open} invoice{counts.open === 1 ? '' : 's'}
+                      </span>
+                    </p>
+                    {!capabilities.canRunInvoiceOps ? (
                       <span
-                        className="block text-lg font-bold tabular-nums"
-                        style={{ color: c.primary }}
+                        className="cq-managed"
+                        title="Credyx handles broker follow-up on your plan. This page shows how each invoice is doing and what happens next."
                       >
-                        {counts.open}
+                        <Info className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                        <span>Credyx handles broker follow-up</span>
                       </span>
-                      <span className="block text-[11px] tabular-nums" style={{ color: c.secondary }}>
-                        {formatCurrency(counts.openAmount)}
-                      </span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFocusAndUrl(focus === 'needs_attention' ? 'all' : 'needs_attention')
-                    }
-                    className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b lg:border-b-0 text-left"
-                    style={{
-                      backgroundColor: focus === 'needs_attention' ? c.stat.red : c.card,
-                      borderColor: c.border,
-                    }}
-                  >
-                    <span className="text-xs font-medium" style={{ color: c.secondary }}>
-                      Needs attention
-                    </span>
-                    <span className="text-lg font-bold tabular-nums" style={{ color: c.error }}>
-                      {counts.needsAttention}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFocusAndUrl(focus === 'overdue' ? 'all' : 'overdue')}
-                    className="flex items-center justify-between gap-2 px-4 py-2.5 sm:border-r border-b lg:border-b-0 text-left"
-                    style={{
-                      backgroundColor: focus === 'overdue' ? c.stat.amber : c.card,
-                      borderColor: c.border,
-                    }}
-                  >
-                    <span className="text-xs font-medium" style={{ color: c.secondary }}>
-                      Past due
-                    </span>
-                    <span className="text-right">
-                      <span
-                        className="block text-lg font-bold tabular-nums"
-                        style={{ color: c.error }}
-                      >
-                        {counts.overdue}
-                      </span>
-                      <span className="block text-[11px] tabular-nums" style={{ color: c.secondary }}>
-                        {formatCurrency(counts.overdueAmount)}
-                      </span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFocusAndUrl(focus === 'credyx_working' ? 'all' : 'credyx_working')
-                    }
-                    className="flex items-center justify-between gap-2 px-4 py-2.5 lg:border-r border-b lg:border-b-0 text-left"
-                    style={{
-                      backgroundColor: focus === 'credyx_working' ? c.stat.blue : c.card,
-                      borderColor: c.border,
-                    }}
-                  >
-                    <span className="text-xs font-medium" style={{ color: c.secondary }}>
-                      Credyx working
-                    </span>
-                    <span className="text-lg font-bold tabular-nums" style={{ color: c.primary }}>
-                      {counts.working}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFocusAndUrl(focus === 'payment_promised' ? 'all' : 'payment_promised')
-                    }
-                    className="flex items-center justify-between gap-2 px-4 py-2.5 text-left"
-                    style={{
-                      backgroundColor: focus === 'payment_promised' ? c.stat.green : c.card,
-                      borderColor: c.border,
-                    }}
-                  >
-                    <span className="text-xs font-medium" style={{ color: c.secondary }}>
-                      Payment promised
-                    </span>
-                    <span className="text-lg font-bold tabular-nums" style={{ color: c.primary }}>
-                      {counts.promised}
-                    </span>
-                  </button>
-                </section>
+                    ) : null}
+                  </div>
 
-                <div
-                  className="client-page-toolbar px-4 py-2 border-b shrink-0 space-y-2"
-                  style={{ borderColor: c.border, backgroundColor: c.card }}
-                >
-                  <div className="flex-1 relative">
-                    <Search
-                      className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
-                      style={{ color: c.secondary }}
-                    />
+                  <div className="cq-filters" role="group" aria-label="Show invoices">
+                    {FOCUS_TABS.map((key) => {
+                      const count = focusCount(key)
+                      // Empty buckets are noise; keep All and whichever filter is active.
+                      if (count === 0 && key !== 'all' && focus !== key) return null
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setFocusAndUrl(focus === key && key !== 'all' ? 'all' : key)}
+                          aria-pressed={focus === key}
+                          className={`cq-chip cq-chip--${key}${focus === key ? ' is-on' : ''}`}
+                        >
+                          {clientCollectionsFocusLabel(key)}
+                          <span className="cq-chip__count tabular-nums">{count}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <label className="cq-search">
+                    <Search className="cq-search__icon" aria-hidden />
                     <input
-                      type="text"
-                      placeholder="Search invoice, broker, load, or status…"
+                      type="search"
+                      placeholder="Search invoice, broker or load"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="client-input pl-8"
-                      style={inputStyle}
+                      aria-label="Search invoices"
                     />
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {FOCUS_TABS.map((key) => (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => setFocusAndUrl(key)}
-                        className={`page-tab !py-1 !px-2 !text-xs ${
-                          focus === key ? 'page-tab--active' : ''
-                        }`}
-                      >
-                        {clientCollectionsFocusLabel(key)} ({focusCount(key)})
-                      </button>
-                    ))}
-                  </div>
+                  </label>
                 </div>
 
                 {sorted.length === 0 ? (
@@ -505,8 +388,8 @@ export default function ClientCollectionsQueue() {
                     />
                   </div>
                 ) : (
-                  <div className="client-table-scroll flex-1 min-h-0 overflow-y-auto overflow-x-auto">
-                    <table className="dashboard-table dashboard-table--compact">
+                  <div className="cq-scroll flex-1 min-h-0 overflow-y-auto">
+                    <table className="cq-table">
                       <thead>
                         <tr>
                           <ClientSortableHeader
@@ -515,13 +398,7 @@ export default function ClientCollectionsQueue() {
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={onSort}
-                          />
-                          <ClientSortableHeader
-                            field="broker_name"
-                            label="Broker"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={onSort}
+                            className="cq-col-invoice"
                           />
                           <ClientSortableHeader
                             field="amount"
@@ -530,132 +407,69 @@ export default function ClientCollectionsQueue() {
                             sortDir={sortDir}
                             onSort={onSort}
                             align="right"
-                          />
-                          <ClientSortableHeader
-                            field="due_date"
-                            label="Due"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={onSort}
-                          />
-                          <ClientSortableHeader
-                            field="next_followup"
-                            label="Next follow-up"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={onSort}
-                            title="When Credyx next follows up with the broker"
-                          />
-                          <ClientSortableHeader
-                            field="progress"
-                            label="Stage"
-                            sortField={sortField}
-                            sortDir={sortDir}
-                            onSort={onSort}
-                            title="Where this invoice is in the Credyx workflow"
+                            className="cq-col-balance"
                           />
                           <ClientSortableHeader
                             field="performance"
-                            label="Performance"
+                            label="Status"
                             sortField={sortField}
                             sortDir={sortDir}
                             onSort={onSort}
-                            title="How this invoice is performing right now"
+                            className="cq-col-status"
                           />
-                          <th className="text-left" title="What Credyx or the broker is doing">
-                            What’s happening
-                          </th>
-                          <th className="text-left">What’s next</th>
+                          <ClientSortableHeader
+                            field="next_followup"
+                            label="What's happening"
+                            sortField={sortField}
+                            sortDir={sortDir}
+                            onSort={onSort}
+                            className="cq-col-what"
+                          />
                         </tr>
                       </thead>
                       <tbody>
                         {pageRows.map((row) => {
                           const selected = selectedInvoice?.id === row.invoice.id
+                          const attention = primaryCarrierAttentionReason(row.urgentReasons)
+                          const flagged = row.performance === 'needs_attention' || row.isOverdue
+                          const nextLine =
+                            row.nextFollowup && row.nextFollowup.kind !== 'send_ppw'
+                              ? `${row.nextFollowup.due ? 'Follow-up due now' : `Follow-up ${formatDate(row.nextFollowup.date)}`}`
+                              : row.whatsNext
                           return (
                             <tr
                               key={row.invoice.id}
-                              className={`cursor-pointer ${selected ? 'invoice-row--selected' : ''} ${
-                                row.performance === 'needs_attention' || row.isOverdue
-                                  ? 'invoice-row--overdue'
-                                  : ''
-                              }`}
+                              className={`cq-row${selected ? ' is-selected' : ''}${flagged ? ' is-flagged' : ''}`}
                               onClick={() => handleViewInvoice(row.invoice)}
                             >
-                              <ClientListTd variant="primary">
-                                <div className="font-medium" style={{ color: c.primary }}>
-                                  {row.invoice.invoice_number}
-                                </div>
-                                <div className="text-[11px]" style={{ color: c.secondary }}>
-                                  {row.invoice.load_number
-                                    ? `Load ${row.invoice.load_number}`
-                                    : `${row.ageDays}d old`}
-                                </div>
-                              </ClientListTd>
-                              <ClientListTd>
-                                <div className="truncate max-w-[140px]">
-                                  {row.broker?.name || row.invoice.broker_name}
-                                </div>
-                                <div className="text-[11px]" style={{ color: c.secondary }}>
-                                  {formatBrokerNetDays(row.dueDays)}
-                                </div>
-                              </ClientListTd>
-                              <ClientListTd variant="amount" className="tabular-nums">
-                                {formatCurrency(row.amount)}
-                              </ClientListTd>
-                              <ClientListTd>
-                                <div className="tabular-nums">
-                                  {row.dueDate ? formatDate(row.dueDate) : '—'}
-                                </div>
+                              <td className="cq-col-invoice">
+                                <span className="cq-main">#{row.invoice.invoice_number}</span>
+                                <span className="cq-sub">{row.broker?.name || row.invoice.broker_name}</span>
+                              </td>
+                              <td className="cq-col-balance">
+                                <span className="cq-main tabular-nums">{formatCurrency(row.amount)}</span>
                                 {row.isOverdue ? (
-                                  <span className="status-pill status-pill--overdue">
-                                    {row.daysPastDue}d late
-                                  </span>
+                                  <span className="cq-sub cq-late">{row.daysPastDue} days late</span>
                                 ) : row.confirmedPayDate ? (
-                                  <span className="text-[11px]" style={{ color: c.secondary }}>
-                                    Pay by {formatDate(row.confirmedPayDate)}
-                                  </span>
+                                  <span className="cq-sub">Pays {formatDate(row.confirmedPayDate)}</span>
+                                ) : row.dueDate ? (
+                                  <span className="cq-sub">Due {formatDate(row.dueDate)}</span>
                                 ) : null}
-                              </ClientListTd>
-                              <ClientListTd>
-                                {row.nextFollowup && row.nextFollowup.kind !== 'send_ppw' ? (
-                                  <>
-                                    <div className="tabular-nums">
-                                      {formatDate(row.nextFollowup.date)}
-                                    </div>
-                                    <div className="text-[11px]" style={{ color: c.secondary }}>
-                                      {row.nextFollowup.due
-                                        ? `${row.nextFollowup.label} · due now`
-                                        : row.nextFollowup.label}
-                                    </div>
-                                  </>
-                                ) : (
-                                  <span style={{ color: c.secondary }}>—</span>
-                                )}
-                              </ClientListTd>
-                              <ClientListTd variant="status">
-                                <span className={progressStepPillClass(row.progressStep)}>
-                                  {row.progressLabel}
-                                </span>
-                              </ClientListTd>
-                              <ClientListTd variant="status">
-                                {renderPerformanceCell(row)}
-                              </ClientListTd>
-                              <ClientListTd>
-                                <p
-                                  className="text-xs leading-snug max-w-[280px]"
-                                  style={{ color: c.primary }}
-                                >
-                                  {row.whatsHappening}
-                                </p>
-                              </ClientListTd>
-                              <ClientListTd>
-                                <p
-                                  className="text-xs leading-snug max-w-[200px]"
-                                  style={{ color: c.secondary }}
-                                >
-                                  {row.whatsNext ?? '—'}
-                                </p>
-                              </ClientListTd>
+                              </td>
+                              <td className="cq-col-status">
+                                <span className={row.performancePillClass}>{row.performanceLabel}</span>
+                                {row.performance === 'needs_attention' ? (
+                                  <span className="cq-sub cq-late">Action needed from you</span>
+                                ) : attention === 'will_pay_missed' ? (
+                                  <span className="cq-sub">{carrierAttentionLabel(attention)}</span>
+                                ) : row.performance === 'credyx_working' && row.nextFollowup?.due ? (
+                                  <span className="cq-sub">Follow-up due</span>
+                                ) : null}
+                              </td>
+                              <td className="cq-col-what">
+                                <span className="cq-what">{row.whatsHappening}</span>
+                                {nextLine ? <span className="cq-sub">Next: {nextLine}</span> : null}
+                              </td>
                             </tr>
                           )
                         })}

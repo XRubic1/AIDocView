@@ -1,131 +1,87 @@
 import { useNavigate } from 'react-router-dom'
 import { useCountUp } from '../../../hooks/useCountUp'
 import { formatCurrency } from '../../../utils/format'
-import type { KpiTrend } from '../dashboard-v2/KpiStatRow'
 
 export type HeroCashBandProps = {
   openBalance: number
-  openTrend?: KpiTrend
+  /** Invoices with a balance still owed. */
+  openCount: number
+  expectedAmount: number
+  expectedCount: number
+  paidAmount: number
+  paidCount: number
   overdueAmount: number
   overdueCount: number
-  overdueTrend?: KpiTrend
-  comingDueAmount: number
-  comingDueCount: number
-  confirmedPayAmount: number
-  confirmedPayCount: number
   loading?: boolean
 }
 
-function trendGlyph(trend: KpiTrend | undefined): string {
-  if (trend === 'up') return '↑'
-  if (trend === 'down') return '↓'
-  return '→'
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
 }
 
 /**
- * Waitlist-branded hero: one big open balance, overdue callout, compact cash chips.
- * Open balance is the only large figure — other KPIs stay secondary.
+ * Three cash numbers — owed, expected, paid — plus an overdue card that only
+ * appears when something is actually overdue.
  */
 export default function HeroCashBand({
   openBalance,
-  openTrend = 'flat',
+  openCount,
+  expectedAmount,
+  expectedCount,
+  paidAmount,
+  paidCount,
   overdueAmount,
   overdueCount,
-  overdueTrend = 'flat',
-  comingDueAmount,
-  comingDueCount,
-  confirmedPayAmount,
-  confirmedPayCount,
   loading = false,
 }: HeroCashBandProps) {
   const navigate = useNavigate()
   const openAnimated = useCountUp(loading ? 0 : openBalance, { decimals: 2, duration: 700 })
-  const overdueAnimated = useCountUp(loading ? 0 : overdueAmount, {
-    decimals: 2,
-    duration: 700,
-  })
+  const showOverdue = !loading && overdueCount > 0
 
   return (
-    <section className={`cdv3-hero${loading ? ' is-loading' : ''}`} aria-label="Cash overview">
-      <button
-        type="button"
-        className="cdv3-hero__open"
-        onClick={() => navigate('/client/invoices')}
-        title="View open invoices"
-      >
-        <span className="cdv3-hero__eyebrow">Open balance</span>
-        <span className="cdv3-hero__open-row">
-          <span className="cdv3-hero__open-amount tabular-nums">
-            {loading ? '—' : formatCurrency(openAnimated)}
-          </span>
-          {!loading ? (
-            <span className={`cdv3-hero__trend is-${openTrend}`} title="vs prior 30 days">
-              {trendGlyph(openTrend)}
-            </span>
-          ) : null}
-        </span>
-        <span className="cdv3-hero__hint">All open A/R</span>
+    <section
+      className={`cdv3-kpis${showOverdue ? ' has-overdue' : ''}${loading ? ' is-loading' : ''}`}
+      aria-label="Cash overview"
+    >
+      <button type="button" className="cdv3-kpi is-primary" onClick={() => navigate('/client/invoices')}>
+        <span className="cdv3-kpi__label">Open balance</span>
+        <span className="cdv3-kpi__value tabular-nums">{loading ? '—' : formatCurrency(openAnimated)}</span>
+        <span className="cdv3-kpi__sub">{loading ? ' ' : openCount > 0 ? `${plural(openCount, 'open invoice')} with brokers` : 'Nothing owed right now'}</span>
       </button>
 
       <button
         type="button"
-        className={`cdv3-hero__overdue${overdueCount > 0 ? ' has-risk' : ''}`}
-        onClick={() => navigate('/client/invoices?status=overdue')}
-        title="View overdue invoices"
+        className="cdv3-kpi"
+        onClick={() => navigate('/client/invoices?status=approved')}
       >
-        <span className="cdv3-hero__eyebrow">Overdue</span>
-        <span className="cdv3-hero__overdue-row">
-          <span className="cdv3-hero__overdue-amount tabular-nums">
-            {loading ? '—' : formatCurrency(overdueAnimated)}
-          </span>
-          {!loading && overdueCount > 0 ? (
-            <span className="cdv3-hero__count tabular-nums">{overdueCount}</span>
-          ) : null}
-          {!loading ? (
-            <span className={`cdv3-hero__trend is-${overdueTrend}`} title="vs prior 30 days">
-              {trendGlyph(overdueTrend)}
-            </span>
-          ) : null}
+        <span className="cdv3-kpi__label">Expected next 30 days</span>
+        <span className="cdv3-kpi__value is-accent tabular-nums">
+          {loading ? '—' : formatCurrency(expectedAmount)}
         </span>
-        <span className="cdv3-hero__hint">
-          {overdueCount > 0 ? 'Needs follow-up' : 'Nothing past due'}
+        <span className="cdv3-kpi__sub">
+          {loading ? ' ' : expectedCount > 0 ? `${plural(expectedCount, 'invoice')} due` : 'Nothing due yet'}
         </span>
       </button>
 
-      <div className="cdv3-hero__chips">
+      <button type="button" className="cdv3-kpi" onClick={() => navigate('/client/payments')}>
+        <span className="cdv3-kpi__label">Paid last 30 days</span>
+        <span className="cdv3-kpi__value tabular-nums">{loading ? '—' : formatCurrency(paidAmount)}</span>
+        <span className="cdv3-kpi__sub">
+          {loading ? ' ' : paidCount > 0 ? plural(paidCount, 'payment') : 'No payments yet'}
+        </span>
+      </button>
+
+      {showOverdue ? (
         <button
           type="button"
-          className="cdv3-chip"
-          onClick={() => navigate('/client/invoices?status=approved')}
-          title="View coming due"
+          className="cdv3-kpi is-alert"
+          onClick={() => navigate('/client/invoices?status=overdue')}
         >
-          <span className="cdv3-chip__label">Coming due</span>
-          <span className="cdv3-chip__value tabular-nums">
-            {loading ? '—' : formatCurrency(comingDueAmount)}
-          </span>
-          {!loading && comingDueCount > 0 ? (
-            <span className="cdv3-chip__meta tabular-nums">{comingDueCount} inv</span>
-          ) : (
-            <span className="cdv3-chip__meta">Next 30d</span>
-          )}
+          <span className="cdv3-kpi__label">Overdue</span>
+          <span className="cdv3-kpi__value tabular-nums">{formatCurrency(overdueAmount)}</span>
+          <span className="cdv3-kpi__sub">{plural(overdueCount, 'invoice')} past due</span>
         </button>
-        <button
-          type="button"
-          className="cdv3-chip cdv3-chip--success"
-          onClick={() => navigate('/client/invoices')}
-          title="View confirmed pay"
-        >
-          <span className="cdv3-chip__label">Confirmed pay</span>
-          <span className="cdv3-chip__value tabular-nums">
-            {loading ? '—' : formatCurrency(confirmedPayAmount)}
-          </span>
-          {!loading && confirmedPayCount > 0 ? (
-            <span className="cdv3-chip__meta tabular-nums">{confirmedPayCount} inv</span>
-          ) : (
-            <span className="cdv3-chip__meta">Last 30d</span>
-          )}
-        </button>
-      </div>
+      ) : null}
     </section>
   )
 }

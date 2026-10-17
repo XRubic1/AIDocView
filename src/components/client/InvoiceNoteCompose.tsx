@@ -96,7 +96,7 @@ export function InvoiceNoteCompose({
             aria-expanded="false"
           >
             <MessageSquarePlus className="w-4 h-4 shrink-0" aria-hidden />
-            <span>Add note</span>
+            <span>{resolvedPlaceholder}</span>
             <ChevronUp className="w-4 h-4 shrink-0 invoice-detail-note-compose__mobile-open-arrow" aria-hidden />
           </button>
         </div>

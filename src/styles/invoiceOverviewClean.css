@@ -140,28 +140,130 @@
   text-overflow: ellipsis;
 }
 
-/* ── What happens next ── */
-.client-portal .inv-ov .inv-carrier-journey {
-  margin: 0;
-  padding: 14px 16px;
-  border: 0;
+/* ── What's happening: vertical timeline ── */
+.client-portal .inv-ov .inv-journey {
+  padding: 14px 16px 6px;
+  border: 1px solid var(--cp-border);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--cp-accent) 7%, var(--cp-card));
-  gap: 10px;
+  background: var(--cp-card);
 }
 
-.client-portal .inv-ov .inv-carrier-journey__headline {
+.client-portal .inv-journey__title {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .inv-journey__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.client-portal .inv-journey__step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 14px;
+}
+
+/* Connecting line from this marker down to the next one. */
+.client-portal .inv-journey__step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 24px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--cp-border);
+}
+
+.client-portal .inv-journey__step.is-done:not(:last-child)::after {
+  background: var(--cp-accent);
+}
+
+.client-portal .inv-journey__marker {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--cp-border);
+  border-radius: 50%;
+  background: var(--cp-card);
+  color: #fff;
+}
+
+.client-portal .inv-journey__step.is-done .inv-journey__marker {
+  border-color: var(--cp-accent);
+  background: var(--cp-accent);
+}
+
+.client-portal .inv-journey__step.is-current .inv-journey__marker {
+  border-color: var(--cp-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cp-accent) 18%, transparent);
+}
+
+.client-portal .inv-journey__step.is-current .inv-journey__marker::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cp-accent);
+  animation: inv-journey-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes inv-journey-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.7); opacity: 0.6; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .client-portal .inv-journey__step.is-current .inv-journey__marker::after {
+    animation: none;
+  }
+}
+
+.client-portal .inv-journey__body {
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.client-portal .inv-journey__label {
+  display: block;
   font-size: 14px;
+  line-height: 1.4;
+  color: var(--cp-text-muted);
+}
+
+.client-portal .inv-journey__step.is-done .inv-journey__label {
+  color: var(--cp-text);
+}
+
+.client-portal .inv-journey__step.is-current .inv-journey__label {
+  font-weight: 600;
+  color: var(--cp-text);
+}
+
+.client-portal .inv-journey__note {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--cp-accent-light);
+  font-size: 13px;
   line-height: 1.5;
   color: var(--cp-text);
 }
 
-.client-portal .inv-ov .inv-carrier-journey__step.is-done {
-  color: var(--cp-success);
-}
-
-.client-portal .inv-ov .inv-carrier-journey__step.is-current {
-  color: var(--cp-text);
+.client-portal .inv-journey__note--end {
+  margin: 0 0 10px;
 }
 
 /* ── Updates list: one card, divided rows ── */

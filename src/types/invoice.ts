@@ -8,6 +8,10 @@ export interface InvoiceNote {
   type?: 'note' | 'client_note' | 'hold_reason' | 'approval' | 'rejection' | 'dispute' | 'status_update'
   /** Omit or `client` = carrier-visible; `internal` = Credyx only. */
   visibility?: 'client' | 'internal'
+  /** Credyx asked the carrier for something (`open`) or closed that request (`resolved`). */
+  client_attention?: 'open' | 'resolved'
+  /** What the carrier needs to do, for `client_attention: 'open'`. */
+  attention_message?: string
 }
 
 export interface InvoiceDispute {

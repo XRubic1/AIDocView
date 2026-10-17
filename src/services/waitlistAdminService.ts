@@ -10,6 +10,9 @@ export interface WaitlistLead {
   hear_about: string | null
   notes: string | null
   status: string
+  /** Client account created from this lead (Set up account). */
+  client_id: string | null
+  converted_at: string | null
   ip_address: string | null
   region: string | null
   device_type: 'mobile' | 'desktop' | null
@@ -164,13 +167,23 @@ export async function fetchWaitlistLeads(limit = 100): Promise<WaitlistLead[]> {
   const { data, error } = await supabase
     .from('waitlist_signups')
     .select(
-      'id, company_name, contact_name, email, phone, fleet_size, hear_about, notes, status, ip_address, region, device_type, created_at'
+      'id, company_name, contact_name, email, phone, fleet_size, hear_about, notes, status, client_id, converted_at, ip_address, region, device_type, created_at'
     )
     .order('created_at', { ascending: false })
     .limit(limit)
 
   if (error) throw new Error(error.message)
   return (data ?? []) as WaitlistLead[]
+}
+
+/** Mark a lead converted and link it to the client account created from it. */
+export async function markWaitlistLeadConverted(leadId: string, clientId: string): Promise<void> {
+  const supabase = requireSupabase()
+  const { error } = await supabase
+    .from('waitlist_signups')
+    .update({ status: 'converted', client_id: clientId, converted_at: new Date().toISOString() })
+    .eq('id', leadId)
+  if (error) throw new Error(error.message)
 }
 
 export type EventRange = '24h' | '7d' | '30d' | 'all'

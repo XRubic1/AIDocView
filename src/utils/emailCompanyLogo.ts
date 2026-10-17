@@ -1,4 +1,4 @@
-import { fileToEmailAttachment, type EmailAttachment } from '../services/emailService'
+import type { EmailAttachment } from '../services/emailService'
 
 /** Content-ID used for inline logo in transactional emails (cid:…). */
 export const EMAIL_LOGO_CONTENT_ID = 'credyx-logo'
@@ -24,27 +24,12 @@ export function buildCompanyLogoFallbackHtml(): string {
 }
 
 /**
- * Load the current Credyx wordmark as an inline email attachment.
- * Returns null if the asset is missing or not an image.
+ * The logo is no longer sent as an inline attachment — mail apps list it as a
+ * file. send-email fills {{companyLogoHtml}} with the hosted image instead.
+ * Kept so existing callers fall through to their no-attachment path.
  */
 export async function loadCompanyLogoAttachment(): Promise<EmailAttachment | null> {
-  try {
-    const response = await fetch(EMAIL_LOGO_PUBLIC_PATH)
-    const contentType = response.headers.get('content-type') || ''
-    if (!response.ok || !contentType.startsWith('image/')) return null
-
-    const blob = await response.blob()
-    if (!blob.type.startsWith('image/')) return null
-
-    const attachment = await fileToEmailAttachment(blob, 'credyx-logo.png')
-    return {
-      ...attachment,
-      contentType: blob.type || 'image/png',
-      contentId: EMAIL_LOGO_CONTENT_ID,
-    }
-  } catch {
-    return null
-  }
+  return null
 }
 
 /**

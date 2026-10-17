@@ -34,17 +34,18 @@
   color: var(--cx-blue);
 }
 
+/* Section eyebrow: plain label text, not a button-like chip. */
 .credyx-page--waitlist.credyx-page--sales .cx-sales-pill {
-  display: inline-block;
-  background: var(--cx-blue);
-  color: #fff;
+  display: block;
+  background: none;
+  color: var(--cx-blue);
   font-family: var(--cx-h);
-  font-weight: 800;
-  letter-spacing: 0.14em;
+  font-weight: 700;
+  letter-spacing: 0.16em;
   font-size: 13px;
-  padding: 9px 18px;
-  border-radius: 8px;
-  margin-bottom: 28px;
+  padding: 0;
+  border-radius: 0;
+  margin-bottom: 18px;
   text-transform: uppercase;
 }
 
@@ -1156,9 +1157,8 @@
   }
 
   .credyx-page--waitlist.credyx-page--sales .cx-sales-pill {
-    margin-bottom: 14px;
-    padding: 7px 14px;
-    font-size: 11px;
+    margin-bottom: 12px;
+    font-size: 12px;
   }
 
   .credyx-page--waitlist.credyx-page--sales .cx-sales-bar {
@@ -1250,7 +1250,7 @@
   }
 
   .credyx-page--waitlist.credyx-page--sales .cx-sales-pill {
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
 
   .credyx-page--waitlist.credyx-page--sales .cx-sales-hero h1 {

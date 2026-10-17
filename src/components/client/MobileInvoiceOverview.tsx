@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Check,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -739,16 +740,36 @@ export default function MobileInvoiceOverview({
       </dl>
 
       {carrierJourney ? (
-        <section className="inv-carrier-journey" aria-label="What happens next">
-          <p className="inv-carrier-journey__headline">{carrierJourney.headline}</p>
-          <ol className="inv-carrier-journey__steps">
-            {carrierJourney.steps.map((step, index) => (
-              <li key={step.id} className={`inv-carrier-journey__step is-${step.state}`}>
-                <span className="inv-carrier-journey__index">{index + 1}</span>
-                <span>{step.label}</span>
+        <section className="inv-journey" aria-label="What's happening">
+          <p className="inv-journey__title">What&apos;s happening</p>
+          <ol className="inv-journey__list">
+            {carrierJourney.steps.map((step) => (
+              <li
+                key={step.id}
+                className={`inv-journey__step is-${step.state}`}
+                aria-current={step.state === 'current' ? 'step' : undefined}
+              >
+                <span className="inv-journey__marker" aria-hidden>
+                  {step.state === 'done' ? <Check size={12} strokeWidth={3} /> : null}
+                </span>
+                <div className="inv-journey__body">
+                  <span className="inv-journey__label">
+                    {step.label}
+                    <span className="sr-only">
+                      {step.state === 'done' ? ' (done)' : step.state === 'current' ? ' (now)' : ''}
+                    </span>
+                  </span>
+                  {step.state === 'current' ? (
+                    <p className="inv-journey__note">{carrierJourney.headline}</p>
+                  ) : null}
+                </div>
               </li>
             ))}
           </ol>
+          {/* All steps done (e.g. paid): show the summary under the list. */}
+          {!carrierJourney.steps.some((step) => step.state === 'current') ? (
+            <p className="inv-journey__note inv-journey__note--end">{carrierJourney.headline}</p>
+          ) : null}
         </section>
       ) : null}
 

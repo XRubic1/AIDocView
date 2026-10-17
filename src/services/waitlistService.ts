@@ -1,6 +1,5 @@
 import { requireSupabase, isSupabaseConfigured } from '../lib/supabase'
 import { sendTransactionalEmail } from './emailService'
-import { getRuntimeEnvString } from '../platform/runtimeEnv'
 import { detectDeviceType, resolveVisitorGeo } from './websiteAnalytics'
 
 export interface WaitlistSignupInput {
@@ -19,9 +18,8 @@ export interface WaitlistSignupResult {
   alreadySignedUp: boolean
 }
 
-function getAdminAlertEmail(): string {
-  return getRuntimeEnvString('VITE_ADMIN_ALERT_EMAIL') ?? 'admin@credyx.com'
-}
+/** Waitlist alerts land in the ops inbox (send-email enforces this server-side). */
+const OPS_ALERT_EMAIL = 'ops@credyx.net'
 
 /** Persist a waitlist lead and best-effort notify ops via email. */
 export async function submitWaitlistSignup(
@@ -79,12 +77,13 @@ export async function submitWaitlistSignup(
   }
 
   // Welcome the joiner + alert ops — do not fail the signup if email delivery is down.
+  // The admin bell notification is created by a DB trigger on waitlist_signups.
   void sendTransactionalEmail('waitlist_welcome', email, {
     contactName,
     companyName,
   })
 
-  void sendTransactionalEmail('waitlist_signup_alert', getAdminAlertEmail(), {
+  void sendTransactionalEmail('waitlist_signup_alert', OPS_ALERT_EMAIL, {
     companyName,
     contactName,
     email,

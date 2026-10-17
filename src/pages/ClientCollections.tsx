@@ -8,12 +8,13 @@ import type { Invoice } from '../types/invoice'
 import { formatCurrency, formatDate } from '../utils/format'
 import {
   Search,
-  DollarSign,
+  Info,
   ChevronLeft,
   ChevronRight,
   FileText,
   Building2,
 } from 'lucide-react'
+import '../styles/clientInvoicesClean.css'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import InvoiceDetailPanel from '../components/client/InvoiceDetailPanel'
@@ -63,6 +64,15 @@ interface BrokerAgingRow {
   invoice_count: number
   total_amount: number
   buckets: Record<DisplayAgingBucketId, { amount: number; count: number }>
+}
+
+/** Short money label for tight phone cells: $0, $950, $12k, $1.2M. */
+function formatShortCurrency(amount: number): string {
+  const abs = Math.abs(amount)
+  const trim = (n: number) => n.toFixed(1).replace(/\.0$/, '')
+  if (abs < 1000) return `$${Math.round(amount)}`
+  if (abs < 1_000_000) return `$${trim(amount / 1000)}k`
+  return `$${trim(amount / 1_000_000)}M`
 }
 
 function createEmptyBuckets(): Record<DisplayAgingBucketId, { amount: number; count: number }> {
@@ -535,15 +545,6 @@ export default function ClientCollections() {
           <InvoiceDetailPanel variant="mobile" {...invoiceDetailPanelProps} />
         ) : (
           <>
-            {!capabilities.canRunInvoiceOps && (
-              <section
-                className="shrink-0 px-4 py-2.5 border-b text-sm"
-                style={{ borderColor: c.border, backgroundColor: c.stat.amber, color: c.secondary }}
-              >
-                Collections follow-up is managed by Credyx on your plan. View aging and invoice details
-                here; contact Credyx for broker outreach and force-close actions.
-              </section>
-            )}
             {capabilities.canRunInvoiceOps &&
               !capabilities.hasForceClose &&
               openArInvoices.some((inv) => inv.isForceCloseEligible) && (
@@ -555,27 +556,21 @@ export default function ClientCollections() {
                   request, or dispute). Self-service plans do not use Credyx force-close.
                 </section>
               )}
-            <section
-              className="flex items-center justify-between gap-3 px-4 py-2 border-b shrink-0"
-              style={{ borderColor: c.border, backgroundColor: c.stat.slate }}
-            >
-              <div className="flex items-center gap-1.5 min-w-0">
-                <DollarSign className="w-3.5 h-3.5 shrink-0" style={{ color: c.info }} />
-                <span className="text-xs font-medium" style={{ color: c.secondary }}>
-                  Total A/R
-                </span>
-              </div>
-              <div className="text-right shrink-0">
-                <span className="text-lg font-bold tabular-nums" style={{ color: c.primary }}>
-                  {formatCurrency(totalAr)}
-                </span>
-                <p className="text-[11px] tabular-nums" style={{ color: c.secondary }}>
+            <section className="aging-bucket-strip coll-strip shrink-0">
+              <button
+                type="button"
+                onClick={() => setBucketFilter('all')}
+                className={`aging-bucket-cell coll-strip__total${bucketFilter === 'all' ? ' is-all' : ''}`}
+                style={{ borderColor: c.border }}
+                aria-pressed={bucketFilter === 'all'}
+                title="Show all open invoices"
+              >
+                <span className="coll-strip__label">Total A/R</span>
+                <span className="coll-strip__amount tabular-nums">{formatCurrency(totalAr)}</span>
+                <span className="coll-strip__count tabular-nums">
                   {openArInvoices.length} open invoice{openArInvoices.length !== 1 ? 's' : ''}
-                </p>
-              </div>
-            </section>
-
-            <section className="aging-bucket-strip shrink-0">
+                </span>
+              </button>
               {DISPLAY_AGING_BUCKETS.map((bucket) => {
                 const summary = bucketSummary[bucket.id]
                 const isActive = bucketFilter === bucket.id
@@ -590,6 +585,8 @@ export default function ClientCollections() {
                       borderColor: c.border,
                     }}
                     aria-pressed={isActive}
+                    aria-label={`${bucket.label} days: ${formatCurrency(summary.amount)}, ${summary.count} invoice${summary.count !== 1 ? 's' : ''}`}
+                    title={`${formatCurrency(summary.amount)} · ${summary.count} invoice${summary.count !== 1 ? 's' : ''}`}
                   >
                     <span
                       className="text-[11px] font-semibold uppercase tracking-wide"
@@ -597,10 +594,13 @@ export default function ClientCollections() {
                     >
                       {bucket.label}
                     </span>
-                    <span className="text-sm font-bold tabular-nums" style={{ color: c.primary }}>
+                    <span className="text-sm font-bold tabular-nums coll-strip__full" style={{ color: c.primary }}>
                       {formatCurrency(summary.amount)}
                     </span>
-                    <span className="text-[11px] tabular-nums" style={{ color: c.secondary }}>
+                    <span className="coll-strip__short tabular-nums" aria-hidden>
+                      {formatShortCurrency(summary.amount)}
+                    </span>
+                    <span className="text-[11px] tabular-nums coll-strip__cnt" style={{ color: c.secondary }}>
                       {summary.count} invoice{summary.count !== 1 ? 's' : ''}
                     </span>
                   </button>
@@ -632,6 +632,15 @@ export default function ClientCollections() {
                   />
                 </div>
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {!capabilities.canRunInvoiceOps && (
+                    <span
+                      className="coll-managed"
+                      title="Collections follow-up is managed by Credyx on your plan. Contact Credyx for broker outreach and force-close actions."
+                    >
+                      <Info className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                      <span className="coll-managed__text">Credyx handles broker follow-up</span>
+                    </span>
+                  )}
                   {bucketFilter !== 'all' && (
                     <button
                       type="button"
