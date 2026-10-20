@@ -1121,7 +1121,11 @@ export async function enrollForEvent(
 function stageFactsOf(invoice: Invoice): InvoiceStageFacts {
   return {
     status: invoice.status,
-    paperworkStatus: invoice.email_lifecycle?.paperwork_status ?? null,
+    // A broker pay promise (Will Pay + date) means the paperwork was accepted.
+    paperworkStatus:
+      invoice.collection_status === 'W/P' && invoice.collection_date
+        ? 'good'
+        : (invoice.email_lifecycle?.paperwork_status ?? null),
     ppwSent: hasPpwBeenSent(invoice),
   }
 }

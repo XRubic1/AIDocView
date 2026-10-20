@@ -15,7 +15,8 @@ import { getSavedBlueprint } from './blueprintStore'
 import { getActionIds } from './blueprintSubject'
 import { executeBlueprintThenDo } from './blueprintRunnerActions'
 import { upsertBlueprintRun } from './blueprintRuns'
-import { holdAdminInvoice } from '../../services/adminInvoiceActions'
+import { approveAdminInvoice, holdAdminInvoice } from '../../services/adminInvoiceActions'
+import { getInvoiceById } from '../../data/mockInvoices'
 import { addAdminInvoiceNote, postInvoiceStatusNote } from '../../services/adminInvoiceNoteActions'
 import { persistInvoiceLifecycle } from '../../services/emailLifecycleService'
 import { replyFromLine } from '../../../supabase/functions/_shared/rateVerificationReply'
@@ -73,6 +74,13 @@ async function tellAdminAndCarrier(invoice: Invoice, summary: string, blueprintN
   }
 }
 
+/** A confirmed broker reply (good to go / pay date) clears the invoice hold. */
+function releaseHoldAfterBrokerConfirm(invoiceId: string): boolean {
+  const current = getInvoiceById(invoiceId)
+  if (current?.status !== 'hold') return false
+  return approveAdminInvoice(invoiceId, 'Credyx')?.status === 'approved'
+}
+
 async function applyReading(
   invoice: Invoice,
   reading: BrokerReplyReading,
@@ -96,11 +104,26 @@ async function applyReading(
       authorName: 'Credyx',
       extraNote: summary,
     })
-    return 'Paperwork confirmed'
+    // "Paperwork is good, we'll pay Nov 17" — keep the pay date so Payment takes over.
+    if (reading.payDate) {
+      postInvoiceStatusNote(invoice.id, {
+        kind: 'will_pay',
+        authorName: 'Credyx',
+        collectionDate: reading.payDate,
+        extraNote: summary,
+      })
+    }
+    const released = releaseHoldAfterBrokerConfirm(invoice.id)
+    const base = reading.payDate ? `Paperwork confirmed · Will pay ${reading.payDate}` : 'Paperwork confirmed'
+    return released ? `${base} · Hold released` : base
   }
 
   if (reading.status === 'confirmed') {
-    life.payment = { ...(life.payment ?? {}), lastInboundAt: new Date().toISOString() }
+    const nowIso = new Date().toISOString()
+    // A broker who agrees to pay has accepted the paperwork — leave the paperwork stage.
+    life.paperwork_status = 'good'
+    life.paperwork = { ...(life.paperwork ?? {}), lastInboundAt: nowIso }
+    life.payment = { ...(life.payment ?? {}), lastInboundAt: nowIso }
     await persistInvoiceLifecycle(invoice.id, life)
     if (reading.payDate) {
       postInvoiceStatusNote(invoice.id, {
@@ -109,14 +132,16 @@ async function applyReading(
         collectionDate: reading.payDate,
         extraNote: summary,
       })
-      return `Will pay ${reading.payDate}`
+      const released = releaseHoldAfterBrokerConfirm(invoice.id)
+      return `Will pay ${reading.payDate}${released ? ' · Hold released' : ''}`
     }
     postInvoiceStatusNote(invoice.id, {
       kind: 'payment_confirmed',
       authorName: 'Credyx',
       extraNote: summary,
     })
-    return 'Payment confirmed'
+    const released = releaseHoldAfterBrokerConfirm(invoice.id)
+    return released ? 'Payment confirmed · Hold released' : 'Payment confirmed'
   }
 
   if (reading.status === 'rejected') {
@@ -235,7 +260,8 @@ export async function runBrokerReplyBlueprint(
     }
   )
 
-  if (paperworkConfirmed) {
+  // Any confirmed reply (paperwork good, or a pay promise) moves the invoice to the payment chase.
+  if (reading.status === 'confirmed') {
     const chase = await startPaymentChaseAfterConfirm(invoice.id)
     details.push(chase.detail)
   }

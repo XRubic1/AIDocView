@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type TransitionEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useHorizontalSwipe } from '../../hooks/useHorizontalSwipe'
 import {
   X,
@@ -274,6 +274,7 @@ export default function InvoiceDetailPanel({
 }: InvoiceDetailPanelProps) {
   const c = useClientTheme()
   const navigate = useNavigate()
+  const location = useLocation()
   const { capabilities } = useClientCapabilities()
   const { showToast } = useToast()
   const { resolved } = useAuth()
@@ -1123,7 +1124,22 @@ export default function InvoiceDetailPanel({
         /* cross-origin opener — fall through to this window */
       }
     }
-    navigate(path)
+    navigate(
+      path,
+      isAdminPortal
+        ? undefined
+        : {
+            state: {
+              returnTo: {
+                to: `${location.pathname}?${new URLSearchParams({
+                  highlight_invoice: visibleInvoice.id,
+                }).toString()}`,
+                label: `Back to invoice #${visibleInvoice.invoice_number}`,
+                invoiceId: visibleInvoice.id,
+              },
+            },
+          }
+    )
   }
 
   const handleUploadDocuments = async (files: File[]) => {

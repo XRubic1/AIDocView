@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import AssistantChatThread from '../components/client/assistant/AssistantChatThread'
 import AssistantCalendar from '../components/client/assistant/AssistantCalendar'
+import AssistantBriefing from '../components/client/assistant/AssistantBriefing'
+import { buildAssistantBriefing } from '../utils/assistantBriefing'
 import { getMockCalendarEvents } from '../data/mockAssistantData'
 import { getClientInvoices, getClientPayments } from '../data/clientDemoData'
 import type { AssistantCalendarEvent } from '../types/assistant'
@@ -18,6 +20,7 @@ import {
 } from '../data/sharedCalendarEvents'
 
 type MobileTab = 'chat' | 'calendar'
+type ChatPaneTab = 'today' | 'chat'
 
 /** Merge live A/R-derived events with shared admin/client meetings. */
 function buildCalendarEvents(
@@ -46,6 +49,9 @@ export default function ClientAssistant() {
     buildCalendarEvents(undefined)
   )
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [paneTab, setPaneTab] = useState<ChatPaneTab>('today')
+  const [chatPrompt, setChatPrompt] = useState<string | undefined>(undefined)
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat')
   const [isNarrow, setIsNarrow] = useState(false)
   const { workspaceRef, paneWidth, isResizing, resizeHandleProps } =
@@ -63,11 +69,13 @@ export default function ClientAssistant() {
     if (!clientId) {
       setEvents(buildCalendarEvents(undefined))
       setInvoices([])
+      setPayments([])
       return
     }
     const nextInvoices = getClientInvoices(clientId, clientName)
     const nextPayments = getClientPayments(clientId, clientName)
     setInvoices(nextInvoices)
+    setPayments(nextPayments)
     setEvents(buildCalendarEvents(clientId, nextInvoices, nextPayments))
   }, [clientId, clientName])
 
@@ -88,6 +96,14 @@ export default function ClientAssistant() {
       refreshEvents()
     })
   }, [clientId, refreshEvents])
+
+  const briefing = useMemo(() => buildAssistantBriefing(invoices, payments), [invoices, payments])
+
+  const askAssistant = (prompt: string) => {
+    setChatPrompt(prompt)
+    setPaneTab('chat')
+    setMobileTab('chat')
+  }
 
   const handleAddEvent = (_event: SharedCalendarEvent) => {
     refreshEvents()
@@ -133,10 +149,44 @@ export default function ClientAssistant() {
             : undefined
         }
       >
-        <div className="assistant-page__chat-head">
-          <p className="assistant-page__chat-label">Hey — your trucking buddy</p>
+        <div className="assistant-page__chat-head" style={{ display: 'flex', gap: 8 }}>
+          <div className="assistant-cal__filters" role="tablist" aria-label="Assistant view">
+            {(
+              [
+                ['today', 'Today'],
+                ['chat', 'Ask'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={paneTab === id}
+                className={`assistant-cal__filter${
+                  paneTab === id ? ' assistant-cal__filter--active' : ''
+                }`}
+                onClick={() => setPaneTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        <AssistantChatThread />
+        {paneTab === 'today' ? (
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+            <AssistantBriefing briefing={briefing} onAsk={askAssistant} />
+          </div>
+        ) : null}
+        <div
+          style={{
+            display: paneTab === 'chat' ? 'flex' : 'none',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+          }}
+        >
+          <AssistantChatThread initialPrompt={chatPrompt} />
+        </div>
       </div>
 
       {!isNarrow && (

@@ -210,6 +210,44 @@
   color: var(--cdv3-error);
 }
 
+/* Stacked layout (chart above, figures below): even 4-up strip, no side rule */
+@container cdv3 (max-width: 1100px) {
+  .client-dashboard-v3 .cdv3-cash__aside {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: start;
+    gap: 0;
+    padding: calc(8px * var(--cdv3-s)) 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--cdv3-border);
+  }
+
+  .client-dashboard-v3 .cdv3-cash__stat,
+  .client-dashboard-v3 .cdv3-cash__stat:first-child {
+    min-width: 0;
+    padding: 0 calc(12px * var(--cdv3-s));
+    border-top: 0;
+    border-left: 1px solid var(--cdv3-border);
+  }
+
+  .client-dashboard-v3 .cdv3-cash__stat:first-child {
+    border-left: 0;
+    padding-left: 0;
+  }
+}
+
+@container cdv3 (max-width: 640px) {
+  .client-dashboard-v3 .cdv3-cash__aside {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: calc(10px * var(--cdv3-s));
+  }
+
+  .client-dashboard-v3 .cdv3-cash__stat:nth-child(odd) {
+    border-left: 0;
+    padding-left: 0;
+  }
+}
+
 @container cdv3 (max-width: 900px) {
   .client-dashboard-v3 .cdv3-kpis,
   .client-dashboard-v3 .cdv3-kpis.has-overdue {

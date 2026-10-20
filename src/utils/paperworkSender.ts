@@ -9,6 +9,7 @@ import {
   type EmailAttachment,
 } from '../services/emailService'
 import { hasPpwBeenSent } from './ppwSent'
+import { buildInvoicePacket, invoicePacketFileName } from './buildInvoicePacket'
 import { resolveInvoiceDocumentsAsync } from './resolveInvoiceDocuments'
 import {
   getClientDocumentFile,
@@ -51,7 +52,7 @@ export interface BrokerPacketFile {
   id: string
   name: string
   file: File
-  source: 'invoice' | 'vault_broker'
+  source: 'invoice' | 'vault_broker' | 'packet'
 }
 
 export type BrokerPacketCollectMode = 'defaults' | 'selected' | 'all_broker'
@@ -61,6 +62,9 @@ export type BrokerPacketCollectMode = 'defaults' | 'selected' | 'all_broker'
  * - defaults: invoice docs + latest voided check / bank letter
  * - selected: invoice docs matching selectedInvoiceDocIds + vault ids in selectedVaultDocIds
  * - all_broker: invoice docs + all broker-category vault docs (legacy)
+ *
+ * Every PDF/image is merged into ONE packet PDF (invoice, RC, BOL, other, bank proof…);
+ * only files that cannot be merged (e.g. Word docs) are returned separately.
  */
 export async function collectBrokerPacketFiles(
   invoice: Invoice,
@@ -124,7 +128,22 @@ export async function collectBrokerPacketFiles(
     })
   }
 
-  return collected
+  const { packet, rest } = await buildInvoicePacket(
+    collected.map((c) => ({ name: c.name, file: c.file })),
+    invoicePacketFileName(invoice.invoice_number)
+  )
+  if (!packet) return collected
+
+  const restNames = new Set(rest.map((r) => r.name.toLowerCase()))
+  return [
+    {
+      id: `packet-${invoice.id}`,
+      name: packet.name,
+      file: packet,
+      source: 'packet',
+    },
+    ...collected.filter((c) => restNames.has(c.name.toLowerCase())),
+  ]
 }
 
 /** Build Resend attachments from collected packet files. */

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
+import ListSkeleton from '../components/ui/ListSkeleton'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
 import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
@@ -110,7 +111,8 @@ export default function ClientCollections() {
   const useFullPageDetail = useCompactDetailViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
   const [refreshKey, setRefreshKey] = useState(0)
-  const { dashboard: data, payments, invoices: rawInvoices } = useClientDemoSnapshot(refreshKey)
+  const { dashboard: data, payments, invoices: rawInvoices, isInitialLoad } =
+    useClientDemoSnapshot(refreshKey)
   const [searchParams, setSearchParams] = useSearchParams()
   const [highlightedInvoiceId, setHighlightedInvoiceId] = useState<string | null>(null)
 
@@ -164,6 +166,17 @@ export default function ClientCollections() {
       openArInvoices.reduce((sum, inv) => sum + (openBalanceById.get(inv.id) ?? inv.amount), 0),
     [openArInvoices, openBalanceById]
   )
+
+  const holdSummary = useMemo(() => {
+    let amount = 0
+    let count = 0
+    for (const inv of openArInvoices) {
+      if (inv.status !== 'hold') continue
+      amount += openBalanceById.get(inv.id) ?? inv.amount
+      count += 1
+    }
+    return { amount, count }
+  }, [openArInvoices, openBalanceById])
 
   const bucketColors = useMemo(
     () => ({
@@ -500,7 +513,14 @@ export default function ClientCollections() {
         onClick={() => handleViewInvoiceDetail(invoice)}
       >
         <ClientListTd variant="primary" className="font-semibold">
-          {invoice.invoice_number}
+          <span className="inline-flex items-center gap-2">
+            {invoice.invoice_number}
+            {invoice.status === 'hold' ? (
+              <span className="status-pill status-pill--hold" title={invoice.hold_reason || 'On hold'}>
+                On hold
+              </span>
+            ) : null}
+          </span>
         </ClientListTd>
         <ClientListTd variant="meta" className="truncate">
           {invoice.broker_name}
@@ -570,6 +590,14 @@ export default function ClientCollections() {
                 <span className="coll-strip__count tabular-nums">
                   {openArInvoices.length} open invoice{openArInvoices.length !== 1 ? 's' : ''}
                 </span>
+                {holdSummary.count > 0 ? (
+                  <span
+                    className="coll-strip__count tabular-nums"
+                    style={{ color: c.chart.amber, fontWeight: 600 }}
+                  >
+                    {formatCurrency(holdSummary.amount)} on hold · {holdSummary.count}
+                  </span>
+                ) : null}
               </button>
               {DISPLAY_AGING_BUCKETS.map((bucket) => {
                 const summary = bucketSummary[bucket.id]
@@ -705,7 +733,11 @@ export default function ClientCollections() {
               )}
             </div>
 
-            {activeListLength === 0 ? (
+{isInitialLoad ? (
+              <div className="payments-workspace-body flex-1 min-h-0">
+                <div className="payments-list-panel flex flex-col"><ListSkeleton /></div>
+              </div>
+            ) : activeListLength === 0 ? (
               <div className="payments-workspace-body flex-1 min-h-0">
                 <div className="payments-list-panel flex items-center justify-center text-center py-6 px-4">
                   <div>

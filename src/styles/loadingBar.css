@@ -1,0 +1,42 @@
+.top-loading-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  height: 3px;
+  overflow: hidden;
+  background: rgba(22, 132, 254, 0.12);
+  pointer-events: none;
+}
+
+.top-loading-bar__fill {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, #1684fe, transparent);
+  border-radius: 999px;
+  animation: top-loading-bar-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes top-loading-bar-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .top-loading-bar__fill {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.top-loading-bar--fixed {
+  position: fixed;
+  z-index: 100;
+}

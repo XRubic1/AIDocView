@@ -23,6 +23,7 @@ import OverpaymentAcceptModal from '../components/client/OverpaymentAcceptModal'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import DocumentViewer from '../components/DocumentViewer'
+import ListSkeleton from '../components/ui/ListSkeleton'
 import { useClientTheme } from '../theme/ThemeContext'
 import {
   getInitialListPageSize,
@@ -47,7 +48,7 @@ import {
   acceptClientOverpayment,
   closeClientInvoiceAsUncollectable,
 } from '../services/clientInvoiceActions'
-import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
+import { useInvoiceViewerDocuments } from '../hooks/useInvoiceViewerDocuments'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 
 type VarianceTab = 'short' | 'over'
@@ -88,7 +89,7 @@ export default function ClientShortPayments() {
 
   const [varianceTab, setVarianceTab] = useState<VarianceTab>('short')
   const [refreshKey, setRefreshKey] = useState(0)
-  const { dashboard: data, invoices: rawInvoices, payments: clientPayments } =
+  const { dashboard: data, invoices: rawInvoices, payments: clientPayments, isInitialLoad } =
     useClientDemoSnapshot(refreshKey)
   const clientInvoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
   const [searchTerm, setSearchTerm] = useState('')
@@ -104,6 +105,7 @@ export default function ClientShortPayments() {
   const [acceptTarget, setAcceptTarget] = useState<OverpaymentRecord | null>(null)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null)
+  const viewerDocs = useInvoiceViewerDocuments(viewingInvoice)
 
   const shortPayments = useMemo(
     () => listShortPayments(clientInvoices, clientPayments),
@@ -518,7 +520,11 @@ export default function ClientShortPayments() {
           </div>
         </div>
 
-        {sortedRows.length === 0 ? (
+        {isInitialLoad ? (
+          <div className="flex-1 min-h-0 flex flex-col">
+            <ListSkeleton />
+          </div>
+        ) : sortedRows.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-center py-8 px-4">
             <div>
               <DollarSign className="w-10 h-10 mx-auto mb-3" style={{ color: c.mutedLight }} />
@@ -827,7 +833,9 @@ export default function ClientShortPayments() {
             setShowDocumentViewer(false)
             setViewingInvoice(null)
           }}
-          documents={getInvoiceDocumentsForViewer(viewingInvoice)}
+          documents={viewerDocs.documents}
+          loading={viewerDocs.loading}
+          onUpload={viewerDocs.upload}
           invoiceNumber={viewingInvoice.invoice_number}
           title="View Documents"
         />

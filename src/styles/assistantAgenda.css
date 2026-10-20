@@ -1,0 +1,228 @@
+/* Simple agenda for the Assistant calendar pane. */
+.ast-agenda {
+  --ast-ink: var(--cp-text, #16222a);
+  --ast-muted: var(--cp-muted, #85959a);
+  --ast-border: var(--cp-border, #e7ebec);
+  --ast-card: var(--cp-card, #ffffff);
+  --ast-surface: var(--cp-surface, #f7f8f9);
+  --ast-blue: #1684fe;
+
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px;
+  color: var(--ast-ink);
+}
+
+.ast-section__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ast-section__title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.ast-section__title.is-action {
+  color: #b45309;
+}
+
+.ast-section__count {
+  padding: 1px 8px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--ast-muted);
+  background: var(--ast-surface);
+  border-radius: 999px;
+}
+
+.ast-section__hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ast-muted);
+}
+
+.ast-section__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ast-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--ast-card);
+  border: 1px solid var(--ast-border);
+  border-radius: 12px;
+}
+
+.ast-card.is-action {
+  border-color: rgba(212, 168, 83, 0.55);
+  background: linear-gradient(180deg, rgba(253, 239, 195, 0.35), var(--ast-card));
+}
+
+.ast-card.is-done {
+  opacity: 0.65;
+}
+
+.ast-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  color: var(--ast-blue);
+  background: rgba(22, 132, 254, 0.1);
+  border-radius: 10px;
+}
+
+.ast-card__icon--paperwork_check,
+.ast-card__icon--escalate {
+  color: #b45309;
+  background: rgba(212, 168, 83, 0.2);
+}
+
+.ast-card__icon--expected_payment,
+.ast-card__icon--payment_posted {
+  color: #2fa98c;
+  background: rgba(47, 169, 140, 0.14);
+}
+
+.ast-card__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.ast-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ast-card__title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.ast-card__due {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ast-muted);
+}
+
+.ast-card__due.is-overdue {
+  color: #d14343;
+}
+
+.ast-card__sub {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  color: var(--ast-muted);
+}
+
+.ast-card__detail {
+  margin: 6px 0 0;
+  font-size: 0.8125rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ast-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ast-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ast-ink);
+  text-decoration: none;
+  background: var(--ast-card);
+  border: 1px solid var(--ast-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ast-btn:hover {
+  background: var(--ast-surface);
+  border-color: var(--ast-blue);
+}
+
+.ast-btn--primary {
+  color: #fff;
+  background: #0f172a;
+  border-color: #0f172a;
+}
+
+.ast-btn--primary:hover {
+  background: #1e293b;
+  border-color: #1e293b;
+}
+
+.ast-link {
+  padding: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ast-blue);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.ast-section > .ast-link + .ast-section__list {
+  margin-top: 10px;
+}
+
+.ast-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 28px 12px;
+  color: #2fa98c;
+  text-align: center;
+}
+
+.ast-empty__title {
+  margin: 6px 0 0;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  color: var(--ast-ink);
+}
+
+.ast-empty__sub {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--ast-muted);
+}
+
+/* Calendar view: selected day below the grid */
+.ast-dayview {
+  padding: 0 16px 16px;
+}
+
+.ast-dayview__title {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+  font-weight: 700;
+}

@@ -23,7 +23,7 @@ import {
 import { mockInvoices } from '../data/mockInvoices'
 import { mockBrokers } from '../data/mockBrokers'
 import { mockPayments } from '../data/mockPayments'
-import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
+import { useInvoiceViewerDocuments } from '../hooks/useInvoiceViewerDocuments'
 import { addAdminInvoiceNote, removeAdminInvoiceNote } from '../services/adminInvoiceNoteActions'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
@@ -227,6 +227,7 @@ export default function AdminInvoices() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null)
+  const viewerDocs = useInvoiceViewerDocuments(viewingInvoice)
 
   const invoices = useMemo(() => [...mockInvoices], [dataRevision])
   const payments = useMemo(() => [...mockPayments], [dataRevision])
@@ -958,7 +959,8 @@ export default function AdminInvoices() {
               setShowDocumentViewer(false)
               setViewingInvoice(null)
             }}
-            documents={getInvoiceDocumentsForViewer(viewingInvoice)}
+            documents={viewerDocs.documents}
+            loading={viewerDocs.loading}
             invoiceNumber={viewingInvoice.invoice_number}
             title="View Documents"
           />

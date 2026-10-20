@@ -44,6 +44,8 @@ type SparkPoint = {
   collected: number
   /** Open A/R expected to land in the period (current + next only). */
   forecast: number
+  /** Open A/R on hold expected in the period — stacked above forecast, not in it. */
+  hold: number
   invoiced: number
   /** Sum for top labels / Y-axis sense. */
   total: number
@@ -135,12 +137,13 @@ function forecastForBucket(
   invoices: Invoice[],
   payments: Payment[],
   period: ChartPeriod,
-  bucketKey: string
+  bucketKey: string,
+  status: 'approved' | 'hold'
 ): number {
   let total = 0
   for (const inv of invoices) {
     if (!isOpenArInvoice(inv)) continue
-    if (inv.status !== 'approved' && inv.status !== 'hold') continue
+    if (inv.status !== status) continue
     const balance = getInvoiceOpenArBalance(inv, payments)
     if (balance <= AMOUNT_EPSILON) continue
     const day = expectedCollectDay(inv)
@@ -169,6 +172,7 @@ function buildHistory(
     label: string
     collected: number
     forecast: number
+    hold: number
     invoiced: number
     isCurrent: boolean
     isNext: boolean
@@ -192,6 +196,7 @@ function buildHistory(
         label: formatBucketLabel(key, period),
         collected: 0,
         forecast: 0,
+        hold: 0,
         invoiced: 0,
         isCurrent: key === currentKey,
         isNext: false,
@@ -206,6 +211,7 @@ function buildHistory(
         label: formatBucketLabel(nextKey, period),
         collected: 0,
         forecast: 0,
+        hold: 0,
         invoiced: 0,
         isCurrent: false,
         isNext: true,
@@ -237,6 +243,7 @@ function buildHistory(
         label: formatBucketLabel(key, period),
         collected: 0,
         forecast: 0,
+        hold: 0,
         invoiced: 0,
         isCurrent: key === currentKey,
         isNext: false,
@@ -250,6 +257,7 @@ function buildHistory(
         label: formatBucketLabel(nextKey, period),
         collected: 0,
         forecast: 0,
+        hold: 0,
         invoiced: 0,
         isCurrent: false,
         isNext: true,
@@ -282,16 +290,18 @@ function buildHistory(
 
   for (const bucket of buckets) {
     if (bucket.isCurrent || bucket.isNext) {
-      bucket.forecast = forecastForBucket(invoices, payments, period, bucket.key)
+      bucket.forecast = forecastForBucket(invoices, payments, period, bucket.key, 'approved')
+      bucket.hold = forecastForBucket(invoices, payments, period, bucket.key, 'hold')
     }
   }
 
-  return buckets.map(({ label, collected, forecast, invoiced, isCurrent, isNext }) => {
-    const total = collected + forecast
+  return buckets.map(({ label, collected, forecast, hold, invoiced, isCurrent, isNext }) => {
+    const total = collected + forecast + hold
     return {
       label,
       collected,
       forecast,
+      hold,
       invoiced,
       total,
       chartMax: Math.max(invoiced, total),
@@ -344,6 +354,13 @@ function ChartTooltip({
           <i className="is-forecast" aria-hidden />
           Forecast
           <strong className="tabular-nums">{formatCurrency(forecast)}</strong>
+        </p>
+      ) : null}
+      {point.hold > 0 ? (
+        <p className="cdv3-cash__tooltip-row">
+          <i className="is-hold" aria-hidden />
+          On hold
+          <strong className="tabular-nums">{formatCurrency(point.hold)}</strong>
         </p>
       ) : null}
       {(collected > 0 && forecast > 0) || (isCurrent && forecast > 0) ? (
@@ -404,12 +421,15 @@ function pushCashStack(
     width: number
     colH: number
     fcsH: number
+    holdH: number
     hatchFill: string
+    holdFill: string
   },
 ) {
-  const { x, baseline, width, colH, fcsH, hatchFill } = opts
+  const { x, baseline, width, colH, fcsH, holdH, hatchFill, holdFill } = opts
   const hasCol = colH > 0
   const hasFcs = fcsH > 0
+  const hasHold = holdH > 0
 
   if (hasCol) {
     const top = baseline - colH
@@ -435,10 +455,22 @@ function pushCashStack(
     const top = baseline - colH - fcsH
     const h = fcsH + seam
     nodes.push(
+      hasHold ? (
+        <rect key="fcs" x={x} y={top} width={width} height={h} fill={hatchFill} />
+      ) : (
+        <path key="fcs" d={roundedTopPath(x, top, width, h, 8)} fill={hatchFill} />
+      ),
+    )
+  }
+
+  if (hasHold) {
+    const seam = hasCol || hasFcs ? STACK_SEAM : 0
+    const top = baseline - colH - fcsH - holdH
+    nodes.push(
       <path
-        key="fcs"
-        d={roundedTopPath(x, top, width, h, 8)}
-        fill={hatchFill}
+        key="hold"
+        d={roundedTopPath(x, top, width, holdH + seam, 8)}
+        fill={holdFill}
       />,
     )
   }
@@ -448,7 +480,7 @@ function pushCashStack(
  * One Recharts series → one centered category band. We draw invoiced /
  * collected / forecast ourselves so a lone bar sits on the month label.
  */
-function makeMonthBarShape(hatchFill: string) {
+function makeMonthBarShape(hatchFill: string, holdFill: string) {
   // Recharts ActiveShape types props as `unknown` — narrow locally.
   return function MonthBarShape(props: unknown) {
     const { x = 0, y = 0, width = 0, height = 0, payload } = props as BarShapeProps
@@ -457,7 +489,8 @@ function makeMonthBarShape(hatchFill: string) {
     const invoiced = payload.invoiced ?? 0
     const collected = payload.collected ?? 0
     const forecast = payload.forecast ?? 0
-    const cash = collected + forecast
+    const hold = payload.hold ?? 0
+    const cash = collected + forecast + hold
     const chartMax = Math.max(payload.chartMax ?? 0, invoiced, cash)
     if (chartMax <= 0) return <g />
 
@@ -488,7 +521,9 @@ function makeMonthBarShape(hatchFill: string) {
         width: cashW,
         colH: toH(collected),
         fcsH: toH(forecast),
+        holdH: toH(hold),
         hatchFill,
+        holdFill,
       })
     } else if (hasCash) {
       const barW = Math.min(CASH_BAR_WIDTH, width)
@@ -498,7 +533,9 @@ function makeMonthBarShape(hatchFill: string) {
         width: barW,
         colH: toH(collected),
         fcsH: toH(forecast),
+        holdH: toH(hold),
         hatchFill,
+        holdFill,
       })
     } else if (hasInvoiced) {
       const barW = Math.min(INVOICED_BAR_WIDTH, width)
@@ -593,9 +630,10 @@ export default function CashCollectedPanel({
   const dateTriggerRef = useRef<HTMLButtonElement>(null)
   const uid = useId().replace(/:/g, '')
   const hatchId = `cdv3-hatch-${uid}`
+  const holdHatchId = `cdv3-hold-hatch-${uid}`
   const monthBarShape = useMemo(
-    () => makeMonthBarShape(`url(#${hatchId})`),
-    [hatchId],
+    () => makeMonthBarShape(`url(#${hatchId})`, `url(#${holdHatchId})`),
+    [hatchId, holdHatchId],
   )
 
   const matchesDatePreset = useCallback(
@@ -641,7 +679,7 @@ export default function CashCollectedPanel({
     let points = allPoints
     if (!dateFrom && !dateTo) {
       const firstActive = allPoints.findIndex(
-        (p) => p.invoiced > 0 || p.collected > 0 || p.forecast > 0
+        (p) => p.invoiced > 0 || p.collected > 0 || p.forecast > 0 || p.hold > 0
       )
       if (firstActive > 0) points = allPoints.slice(Math.min(firstActive, Math.max(0, allPoints.length - 4)))
     }
@@ -662,7 +700,9 @@ export default function CashCollectedPanel({
         collected > 0 ||
         invoiced > 0 ||
         (current?.forecast ?? 0) > 0 ||
-        (next?.forecast ?? 0) > 0,
+        (current?.hold ?? 0) > 0 ||
+        (next?.forecast ?? 0) > 0 ||
+        (next?.hold ?? 0) > 0,
     }
   }, [invoices, payments, period, dateFrom, dateTo])
 
@@ -795,6 +835,24 @@ export default function CashCollectedPanel({
                         strokeOpacity="0.55"
                       />
                     </pattern>
+                    <pattern
+                      id={holdHatchId}
+                      patternUnits="userSpaceOnUse"
+                      width="6"
+                      height="6"
+                      patternTransform="rotate(45)"
+                    >
+                      <rect width="6" height="6" fill="#FDEFC3" />
+                      <line
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="6"
+                        stroke="#E8A317"
+                        strokeWidth="2.5"
+                        strokeOpacity="0.75"
+                      />
+                    </pattern>
                   </defs>
                   <CartesianGrid vertical={false} stroke="#E7EBEC" strokeDasharray="0" />
                   <YAxis
@@ -867,6 +925,9 @@ export default function CashCollectedPanel({
           </span>
           <span>
             <i className="is-hatch" /> Forecast
+          </span>
+          <span>
+            <i className="is-hold" /> On hold
           </span>
           <span>
             <i className="is-invoiced" /> Invoiced

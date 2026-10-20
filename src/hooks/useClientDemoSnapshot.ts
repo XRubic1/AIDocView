@@ -12,6 +12,7 @@ import { useTenantDataRevision } from './useTenantDataRevision'
 import { mockInvoices } from '../data/mockInvoices'
 import { mockPayments } from '../data/mockPayments'
 import { getAllBatches } from '../data/mockBatches'
+import { beginClientLoading } from '../components/ui/clientLoadingStore'
 
 /** Client-scoped invoices, payments, batches, and dashboard — one client at a time. */
 export function useClientDemoSnapshot(refreshKey = 0) {
@@ -25,6 +26,11 @@ export function useClientDemoSnapshot(refreshKey = 0) {
   const hasLoadedRef = useRef(false)
 
   const [focusRefresh, setFocusRefresh] = useState(0)
+
+  useEffect(() => {
+    if (!loading) return
+    return beginClientLoading()
+  }, [loading])
 
   useEffect(() => {
     const onVisible = () => {

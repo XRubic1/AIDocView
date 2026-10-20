@@ -3,10 +3,13 @@ import { ClientPortalProvider, useClientPortal } from '../../context/ClientPorta
 import { OnboardingChromeProvider } from '../../context/OnboardingChromeContext'
 import ClientLayout from '../ClientLayout'
 import ClientRouteGuard from './ClientRouteGuard'
+import TopLoadingBar from '../ui/TopLoadingBar'
+import { useClientLoading } from '../ui/clientLoadingStore'
 
 /** Persistent chrome around client routes so the sidebar does not remount on navigation. */
 function ClientPortalShell() {
   const { client } = useClientPortal()
+  const loading = useClientLoading()
 
   return (
     <OnboardingChromeProvider>
@@ -15,6 +18,7 @@ function ClientPortalShell() {
         clientId={client?.id}
         flushMain
       >
+        <TopLoadingBar active={loading} fixed />
         <Outlet />
       </ClientLayout>
     </OnboardingChromeProvider>

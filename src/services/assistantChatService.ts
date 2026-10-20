@@ -49,6 +49,7 @@ import {
   isPaymentStatusQuery,
   type AssistantPaymentStatus,
 } from '../utils/assistantPaymentStatus'
+import { buildAssistantBriefing, summarizeBriefingForAi } from '../utils/assistantBriefing'
 import {
   buildArSummarySnapshot,
   isArSummaryQuery,
@@ -548,11 +549,20 @@ ${sharedFormat}
 JSON only: {"messages":[{"kind":"plain"|"quiet"|"action"|"expected_payment"|"email_draft"|"note_draft"|"dispute_draft"|"payment_status"|"ar_summary"|"app_action","text":"...","actionIds":[],"expectedPaymentInvoiceId":"","paymentStatusInvoiceNumbers":["1260"],"appActions":[{"id":"admin-collections"}],"noteDraft":{"body":"","invoiceNumber":"","invoiceId":"","brokerName":"","visibility":"client"},"disputeDraft":{"invoiceNumber":"","invoiceId":"","reason":"amount_discrepancy","description":""},"emailDraft":{"audience":"client","to":"","toName":"","subject":"","body":"","invoiceNumber":"","invoiceId":"","brokerName":""}}],"followUps":[{"label":"...","prompt":"...","action":"prompt"}]}`
   }
 
+  const briefingRules = `BRIEFING FACTS (context.briefing) — these are computed by the app and are the source of truth:
+- For "what should I do", "what's going on", "when will I get paid", "which broker is slow" or cash questions, answer from briefing.todo, briefing.cashForecast and briefing.brokers. Quote the amounts and dates exactly; never recompute or round differently.
+- Lead with what the carrier must do (owner "you") and the exact next step. Say plainly when Credyx is handling something and nothing is needed from them.
+- Explain WHY something matters in dollars and days, not just that it exists. Do not just list holds.
+- Held money is never counted as expected cash; say so when asked about cash.
+- You work for the carrier. Be neutral and helpful: never blame them, never mention internal Credyx notes, staff tasks, risk scores or chase schedules. If a pay date is an estimate, say it is an estimate and why.
+- If briefing has no data for the question, say what is unknown instead of guessing.`
+
   return `You are Credyx Assistant for a trucking carrier portal.
 Answer ONLY from CREDYX CONTEXT JSON — never invent data.
 Help with missing docs, expected pay, payment status, carrier-visible notes, drafting emails to Credyx, posting notes on invoices, and opening ANY screen in their portal (batches, invoices, payments, brokers, reports, settings, etc.).
 Use invoiceDetails for why held/written off/disputed. No Credyx chase tasks for the carrier.
 For due-today uploads, kind "action" + actionIds from dueTodayActions. Expected pay: kind "expected_payment" + expectedPaymentInvoiceId.
+${briefingRules}
 ${contextRules}
 ${pageRules}
 ${appActionRules}
@@ -838,6 +848,11 @@ export function buildAssistantGroundingJson(input: AssistantChatContextInput): s
           : undefined,
       brokers: relatedBrokers.map(brokerContactSummary),
     }
+  }
+
+  // Carrier mode: computed, client-safe facts the model must quote instead of guessing.
+  if (input.mode === 'client') {
+    payload.briefing = summarizeBriefingForAi(buildAssistantBriefing(input.invoices, input.payments))
   }
 
   return JSON.stringify(payload)

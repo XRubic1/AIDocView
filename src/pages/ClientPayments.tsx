@@ -30,6 +30,7 @@ import { useClientTheme } from '../theme/ThemeContext'
 import { getInvoiceById } from '../data/mockInvoices'
 import { getClientPayments as getClientDemoPayments } from '../data/clientDemoData'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
+import ListSkeleton from '../components/ui/ListSkeleton'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { useToast } from '../components/ui/ToastProvider'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
@@ -253,7 +254,8 @@ export default function ClientPayments() {
     buildInitialPayments(clientId, clientName)
   )
 
-  const { invoices: rawInvoices, payments: snapshotPayments } = useClientDemoSnapshot(refreshKey)
+  const { invoices: rawInvoices, payments: snapshotPayments, isInitialLoad } =
+    useClientDemoSnapshot(refreshKey)
   const clientInvoices = useMemo(() => mapClientVisibleInvoices(rawInvoices), [rawInvoices])
 
   const invoiceConfirmedById = useMemo(() => {
@@ -1615,7 +1617,13 @@ export default function ClientPayments() {
         </div>
         )}
 
-        {sortedPayments.length === 0 ? (
+        {isInitialLoad ? (
+          <div className="payments-workspace-body flex-1 min-h-0">
+            <div className="payments-list-panel flex flex-col">
+              <ListSkeleton />
+            </div>
+          </div>
+        ) : sortedPayments.length === 0 ? (
           <div className="payments-workspace-body flex-1 min-h-0">
             <div className="payments-list-panel flex items-center justify-center text-center py-8 px-4">
               <div>

@@ -1,0 +1,364 @@
+/* Shared document viewer — used by every client (and admin) document view. */
+.dv-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.dv-pane-shell {
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+}
+
+.dv-panel {
+  --dv-ink: var(--cp-text, #16222a);
+  --dv-muted: var(--cp-muted, #85959a);
+  --dv-border: var(--cp-border, #e7ebec);
+  --dv-card: var(--cp-card, #ffffff);
+  --dv-surface: var(--cp-surface, #f7f8f9);
+  --dv-blue: #1684fe;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  color: var(--dv-ink);
+  background: var(--dv-card);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.dv-panel.is-pane {
+  max-width: none;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.dv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--dv-border);
+}
+
+.dv-header__titles {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dv-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dv-subtitle {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--dv-muted);
+}
+
+.dv-header__end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.dv-count {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--dv-muted);
+  background: var(--dv-surface);
+  border-radius: 999px;
+}
+
+.dv-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  color: var(--dv-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.dv-icon-btn:hover:not(:disabled) {
+  color: var(--dv-ink);
+  background: var(--dv-surface);
+  border-color: var(--dv-border);
+}
+
+.dv-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.dv-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--dv-border);
+  background: var(--dv-surface);
+}
+
+.dv-tabs__list {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dv-tabs__list::-webkit-scrollbar {
+  display: none;
+}
+
+.dv-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--dv-ink);
+  background: var(--dv-card);
+  border: 1px solid var(--dv-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.dv-tab:hover:not(.is-active) {
+  border-color: var(--dv-blue);
+}
+
+.dv-tab.is-active {
+  color: #fff;
+  background: var(--dv-blue);
+  border-color: var(--dv-blue);
+}
+
+.dv-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0;
+  overflow: auto;
+  background: var(--dv-surface);
+}
+
+.dv-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: block;
+  background: #fff;
+  border: 0;
+}
+
+.dv-image-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.dv-image {
+  max-width: 100%;
+  max-height: calc(100% - 28px);
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.12);
+}
+
+.dv-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--dv-muted);
+}
+
+.dv-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  color: var(--dv-muted);
+  text-align: center;
+}
+
+.dv-empty__title {
+  margin: 8px 0 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--dv-ink);
+}
+
+.dv-empty__sub {
+  margin: 0;
+  max-width: 340px;
+  font-size: 0.8125rem;
+}
+
+.dv-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid var(--dv-border);
+  border-top-color: var(--dv-blue);
+  border-radius: 50%;
+  animation: dv-spin 0.8s linear infinite;
+}
+
+@keyframes dv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dv-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--dv-border);
+}
+
+.dv-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--dv-muted);
+}
+
+.dv-file__text {
+  min-width: 0;
+}
+
+.dv-file__name {
+  margin: 0;
+  max-width: 320px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--dv-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dv-file__size {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.dv-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dv-move {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--dv-muted);
+}
+
+.dv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--dv-ink);
+  background: var(--dv-card);
+  border: 1px solid var(--dv-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.dv-btn:hover:not(:disabled) {
+  background: var(--dv-surface);
+  border-color: var(--dv-blue);
+}
+
+.dv-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.dv-btn.is-primary {
+  color: #fff;
+  background: #0f172a;
+  border-color: #0f172a;
+}
+
+.dv-btn.is-primary:hover:not(:disabled) {
+  background: #1e293b;
+  border-color: #1e293b;
+}
+
+.dv-btn.is-danger {
+  color: #d14343;
+  border-color: rgba(209, 67, 67, 0.35);
+}
+
+@media (max-width: 640px) {
+  .dv-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dv-actions {
+    justify-content: flex-end;
+  }
+}
+
+.dv-file-input {
+  display: none;
+}

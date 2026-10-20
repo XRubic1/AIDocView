@@ -16,7 +16,7 @@ import ClientInvoicesTabs from '../components/client/ClientInvoicesTabs'
 import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import MobilePaymentDateRangeSheet from '../components/client/MobilePaymentDateRangeSheet'
 import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, getDisplayInvoiceAgeDays, invoiceHasStoppedAging, isOpenArInvoice, AR_POLICY, buildConfirmedPayDateByInvoiceId } from '../utils/invoiceAging'
-import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
+import { useInvoiceViewerDocuments } from '../hooks/useInvoiceViewerDocuments'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useCompactDetailViewport, useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
@@ -27,6 +27,8 @@ import {
 } from '../utils/clientListPage'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import ClientReturnBanner from '../components/client/ClientReturnBanner'
+import { InvoiceCardsSkeleton, InvoiceTableSkeleton } from '../components/client/InvoiceListSkeleton'
+import { Skeleton } from '../components/ui/Skeleton'
 import MobileInvoiceListCard from '../components/client/MobileInvoiceListCard'
 import {
   clearInvoiceRestoreTarget,
@@ -281,8 +283,13 @@ export default function ClientInvoices() {
   const [autoOpenUpload, setAutoOpenUpload] = useState(false)
 
   const [invoicesRefreshKey, setInvoicesRefreshKey] = useState(0)
-  const { dashboard: data, payments, invoices: rawInvoices, clientId } =
-    useClientDemoSnapshot(invoicesRefreshKey)
+  const {
+    dashboard: data,
+    payments,
+    invoices: rawInvoices,
+    clientId,
+    isInitialLoad,
+  } = useClientDemoSnapshot(invoicesRefreshKey)
 
   const invoices = useMemo(
     () => mapClientVisibleInvoices(rawInvoices),
@@ -300,6 +307,7 @@ export default function ClientInvoices() {
   const [detailPanelClosing, setDetailPanelClosing] = useState(false)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
   const [viewingInvoiceDocuments, setViewingInvoiceDocuments] = useState<Invoice | null>(null)
+  const viewerDocs = useInvoiceViewerDocuments(viewingInvoiceDocuments)
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<InvoiceSortField>('invoice_date')
@@ -779,10 +787,6 @@ export default function ClientInvoices() {
     setShowDocumentViewer(true)
   }
 
-  const getDocumentsForInvoice = (invoice: Invoice) => {
-    return getInvoiceDocumentsForViewer(invoice)
-  }
-
   const overdueInvoices = enrichedInvoices.filter((inv) => inv.isOverdue)
   const overdueAmount = overdueInvoices.reduce((sum, inv) => sum + inv.amount, 0)
   const forceCloseEligible = enrichedInvoices.filter((inv) => inv.isForceCloseEligible)
@@ -949,12 +953,18 @@ export default function ClientInvoices() {
             >
               <div className="inv-kpi">
                 <span className="inv-kpi__label">Invoices</span>
-                <span className="inv-kpi__value">{enrichedInvoices.length}</span>
+                <span className="inv-kpi__value">
+                  {isInitialLoad ? <Skeleton className="h-6 w-10" /> : enrichedInvoices.length}
+                </span>
               </div>
               <div className="inv-kpi">
                 <span className="inv-kpi__label">Total billed</span>
                 <span className="inv-kpi__value">
-                  {formatCurrency(enrichedInvoices.reduce((sum, inv) => sum + inv.amount, 0))}
+                  {isInitialLoad ? (
+                    <Skeleton className="h-6 w-24" />
+                  ) : (
+                    formatCurrency(enrichedInvoices.reduce((sum, inv) => sum + inv.amount, 0))
+                  )}
                 </span>
               </div>
               <button
@@ -977,11 +987,15 @@ export default function ClientInvoices() {
                 }
               >
                 <span className="inv-kpi__label">Overdue</span>
-                <span className="inv-kpi__value">{overdueInvoices.length}</span>
+                <span className="inv-kpi__value">
+                  {isInitialLoad ? <Skeleton className="h-6 w-8" /> : overdueInvoices.length}
+                </span>
               </button>
               <div className={`inv-kpi${overdueAmount > 0 ? ' is-alert' : ''}`}>
                 <span className="inv-kpi__label">Overdue amount</span>
-                <span className="inv-kpi__value">{formatCurrency(overdueAmount)}</span>
+                <span className="inv-kpi__value">
+                  {isInitialLoad ? <Skeleton className="h-6 w-20" /> : formatCurrency(overdueAmount)}
+                </span>
                 {forceCloseEligible.length > 0 && capabilities.hasForceClose && (
                   <span className="inv-kpi__note">
                     {forceCloseEligible.length} at {AR_POLICY.forceCloseDays}+ days past expected pay
@@ -1060,7 +1074,13 @@ export default function ClientInvoices() {
               ) : null}
             </div>
 
-            {sortedInvoices.length === 0 ? (
+            {isInitialLoad ? (
+              <div className="payments-workspace-body flex-1 min-h-0">
+                <div className="payments-list-panel">
+                  {isMobileViewport ? <InvoiceCardsSkeleton /> : <InvoiceTableSkeleton />}
+                </div>
+              </div>
+            ) : sortedInvoices.length === 0 ? (
               <div className="payments-workspace-body flex-1 min-h-0">
                 <div className="payments-list-panel flex items-center justify-center text-center py-6 px-4">
                   <div>
@@ -1422,7 +1442,9 @@ export default function ClientInvoices() {
             setShowDocumentViewer(false)
             setViewingInvoiceDocuments(null)
           }}
-          documents={getDocumentsForInvoice(viewingInvoiceDocuments)}
+          documents={viewerDocs.documents}
+          loading={viewerDocs.loading}
+          onUpload={viewerDocs.upload}
           invoiceNumber={viewingInvoiceDocuments.invoice_number}
           title="View Documents"
         />

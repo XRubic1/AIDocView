@@ -1210,7 +1210,11 @@ export async function runBlueprintServerTick(
       const plan = planInvoiceStage(
         {
           status: String(invoice.status ?? ''),
-          paperworkStatus: String(lifeOf(invoice).paperwork_status ?? '') || null,
+          // A broker pay promise (Will Pay + date) means the paperwork was accepted.
+          paperworkStatus:
+            invoice.collection_status === 'W/P' && invoice.collection_date
+              ? 'good'
+              : String(lifeOf(invoice).paperwork_status ?? '') || null,
           ppwSent: Boolean(ppwSentAt(invoice)),
         },
         mine.map((row) => ({

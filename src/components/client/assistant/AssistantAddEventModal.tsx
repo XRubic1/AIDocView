@@ -18,6 +18,8 @@ interface AssistantAddEventModalProps {
   /** Used for notice emails. */
   clientEmail?: string
   createdBy: 'admin' | 'client'
+  /** Pre-select the event type (e.g. from a Schedule meeting / Set reminder button). */
+  initialType?: AssistantCreatableEventType
   onClose: () => void
   onSaved: (event: SharedCalendarEvent) => void
 }
@@ -85,6 +87,7 @@ export default function AssistantAddEventModal({
   clientName,
   clientEmail,
   createdBy,
+  initialType: initialTypeProp,
   onClose,
   onSaved,
 }: AssistantAddEventModalProps) {
@@ -103,7 +106,7 @@ export default function AssistantAddEventModal({
   const invoicePool = openInvoices.length > 0 ? openInvoices : invoices
 
   const initialType: AssistantCreatableEventType =
-    createdBy === 'admin' ? 'meeting' : 'reminder'
+    initialTypeProp ?? (createdBy === 'admin' ? 'meeting' : 'reminder')
 
   const [type, setType] = useState<AssistantCreatableEventType>(initialType)
   const [dueDate, setDueDate] = useState(defaultDate)
@@ -113,14 +116,14 @@ export default function AssistantAddEventModal({
   const [brokerName, setBrokerName] = useState('')
   const [meetingUrl, setMeetingUrl] = useState('')
   const [emailMessage, setEmailMessage] = useState('')
-  const [sendEmail, setSendEmail] = useState(createdBy === 'admin')
+  const [sendEmail, setSendEmail] = useState(createdBy === 'admin' || initialType === 'meeting')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [emailStatus, setEmailStatus] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    const nextType = createdBy === 'admin' ? 'meeting' : 'reminder'
+    const nextType = initialTypeProp ?? (createdBy === 'admin' ? 'meeting' : 'reminder')
     setType(nextType)
     setDueDate(defaultDate)
     setTitle(defaultTitle(nextType))
@@ -129,11 +132,11 @@ export default function AssistantAddEventModal({
     setBrokerName('')
     setMeetingUrl('')
     setEmailMessage('')
-    setSendEmail(createdBy === 'admin')
+    setSendEmail(createdBy === 'admin' || nextType === 'meeting')
     setBusy(false)
     setError(null)
     setEmailStatus(null)
-  }, [open, defaultDate, createdBy])
+  }, [open, defaultDate, createdBy, initialTypeProp])
 
   useEffect(() => {
     if (!open) return
@@ -260,7 +263,13 @@ export default function AssistantAddEventModal({
       >
         <div className="invoice-dispute-modal-header">
           <h3 id={titleId} className="text-base font-semibold" style={{ color: c.primary }}>
-            {createdBy === 'admin' ? 'Add event for client' : 'Add calendar event'}
+            {createdBy === 'admin'
+              ? 'Add event for client'
+              : type === 'meeting'
+                ? 'Schedule a meeting'
+                : type === 'reminder'
+                  ? 'Set a reminder'
+                  : 'Add calendar event'}
           </h3>
           <button
             type="button"
@@ -293,7 +302,9 @@ export default function AssistantAddEventModal({
                 value={type}
                 onChange={(e) => onTypeChange(e.target.value as AssistantCreatableEventType)}
               >
-                {TYPE_OPTIONS.map((opt) => (
+                {TYPE_OPTIONS.filter(
+                  (opt) => createdBy === 'admin' || opt.id === 'meeting' || opt.id === 'reminder'
+                ).map((opt) => (
                   <option key={opt.id} value={opt.id}>
                     {opt.label}
                   </option>

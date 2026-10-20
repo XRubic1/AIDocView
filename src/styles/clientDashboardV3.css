@@ -1099,6 +1099,16 @@
   );
 }
 
+.cdv3-cash__legend i.is-hold {
+  background: repeating-linear-gradient(
+    -45deg,
+    #fdefc3,
+    #fdefc3 2px,
+    #e8a317 2px,
+    #e8a317 4px
+  );
+}
+
 .cdv3-cash__legend i.is-invoiced {
   background: #e7ebec;
 }
@@ -1150,6 +1160,16 @@
     #c8ede6 1px,
     #2fa98c 1px,
     #2fa98c 2px
+  );
+}
+
+.cdv3-cash__tooltip-row i.is-hold {
+  background: repeating-linear-gradient(
+    -45deg,
+    #fdefc3,
+    #fdefc3 1px,
+    #e8a317 1px,
+    #e8a317 2px
   );
 }
 

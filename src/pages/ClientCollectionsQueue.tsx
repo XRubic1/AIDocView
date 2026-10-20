@@ -11,6 +11,7 @@ import EmptyState from '../components/ui/EmptyState'
 import { mockBrokers } from '../data/mockBrokers'
 import { useClientCapabilities } from '../hooks/useClientCapabilities'
 import { useClientDemoSnapshot } from '../hooks/useClientDemoSnapshot'
+import ListSkeleton from '../components/ui/ListSkeleton'
 import { useCompactDetailViewport } from '../hooks/useIsMobileViewport'
 import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
 import {
@@ -63,7 +64,8 @@ export default function ClientCollectionsQueue() {
   const useFullPageDetail = useCompactDetailViewport()
   const { workspaceRef, detailWidth, isResizing, resizeHandleProps } = useResizableSplitPane()
   const [refreshKey, setRefreshKey] = useState(0)
-  const { dashboard: data, payments, invoices: rawInvoices } = useClientDemoSnapshot(refreshKey)
+  const { dashboard: data, payments, invoices: rawInvoices, isInitialLoad } =
+    useClientDemoSnapshot(refreshKey)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -380,7 +382,9 @@ export default function ClientCollectionsQueue() {
                   </label>
                 </div>
 
-                {sorted.length === 0 ? (
+                {isInitialLoad ? (
+                  <ListSkeleton />
+                ) : sorted.length === 0 ? (
                   <div className="flex-1 min-h-0 flex items-center justify-center p-6">
                     <EmptyState
                       title="No invoices in this view"

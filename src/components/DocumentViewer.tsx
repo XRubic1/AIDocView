@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
-import { X, ChevronLeft, ChevronRight, Download, Printer, FileText } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { X, ChevronLeft, ChevronRight, Download, Printer, FileText, Upload } from 'lucide-react'
 import jsPDF from 'jspdf'
 import { useToast } from './ui/ToastProvider'
 import DocumentDownloadOverlay from './ui/DocumentDownloadOverlay'
+import '../styles/documentViewer.css'
 
 interface Document {
   id: string
@@ -41,6 +42,10 @@ interface DocumentViewerProps {
   downloadProgress?: number
   downloadLabel?: string
   downloadFileName?: string
+  /** Real files are still being fetched (e.g. from storage). */
+  loading?: boolean
+  /** When set, shows an Upload button so users can add more documents. */
+  onUpload?: (files: File[]) => void | Promise<void>
 }
 
 export default function DocumentViewer({
@@ -61,10 +66,14 @@ export default function DocumentViewer({
   downloadProgress,
   downloadLabel,
   downloadFileName,
+  loading = false,
+  onUpload,
 }: DocumentViewerProps) {
   const { showToast } = useToast()
   const [currentIndex, setCurrentIndex] = useState(0)
   const [documentUrls, setDocumentUrls] = useState<string[]>([])
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const isPane = layout === 'pane'
 
   // Generate URLs for documents
@@ -259,8 +268,7 @@ export default function DocumentViewer({
   }
 
   const formatFileSize = (bytes?: number) => {
-    if (!bytes) return 'Unknown size'
-    if (bytes === 0) return '0 Bytes'
+    if (!bytes || bytes <= 0) return ''
     const k = 1024
     const sizes = ['Bytes', 'KB', 'MB', 'GB']
     const i = Math.floor(Math.log(bytes) / Math.log(k))
@@ -288,370 +296,239 @@ export default function DocumentViewer({
 
   if (!isOpen && !isPane) return null
 
-  const shellClass = isPane
-    ? 'h-full w-full min-h-0 overflow-hidden flex flex-col bg-white'
-    : 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50'
+  const fileType = currentDocument ? getFileType(currentDocument.name) : 'other'
+  const canPrint = Boolean(currentUrl) && (fileType === 'pdf' || fileType === 'image')
+  const multiple = documents.length > 1
+  const sizeLabel = formatFileSize(currentDocument?.size)
 
-  const panelClass = isPane
-    ? 'bg-white h-full w-full overflow-hidden flex flex-col'
-    : 'bg-white rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[95vh] overflow-hidden flex flex-col'
+  const panel = (
+    <div
+      className={`dv-panel${isPane ? ' is-pane' : ''}`}
+      role={isPane ? undefined : 'dialog'}
+      aria-modal={isPane ? undefined : true}
+      aria-label={title}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <DocumentDownloadOverlay
+        open={isDownloading}
+        progress={downloadProgress}
+        title={downloadLabel || 'Downloading document'}
+        fileName={downloadFileName}
+        subtitle="Fetching the file so you can review it…"
+        variant="absolute"
+      />
 
-  return (
-    <div className={`${shellClass} relative`}>
-      <div className={`${panelClass} relative`} style={{ backgroundColor: '#FFFFFF' }}>
-        <DocumentDownloadOverlay
-          open={isDownloading}
-          progress={downloadProgress}
-          title={downloadLabel || 'Downloading document'}
-          fileName={downloadFileName}
-          subtitle="Fetching the file so you can review it…"
-          variant="absolute"
-        />
-        {/* Header */}
-        <div
-          className={`flex items-center justify-between border-b ${isPane ? 'px-4 py-3' : 'p-6'}`}
-          style={{ borderColor: '#819291' }}
-        >
-          <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold truncate" style={{ color: '#113543' }}>
-              {title}
-            </h3>
-            {invoiceNumber && (
-              <p className="text-sm mt-1" style={{ color: '#819291' }}>
-                Invoice #{invoiceNumber}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center space-x-4 shrink-0">
-            <div className="text-sm" style={{ color: '#819291' }}>
-              {documents.length === 0 ? '0 of 0' : `${currentIndex + 1} of ${documents.length}`}
-            </div>
-            {!isPane && (
-              <button
-                onClick={onClose}
-                className="p-2 hover:bg-gray-100 rounded transition-colors"
-                style={{ color: '#113543' }}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            )}
-          </div>
+      <header className="dv-header">
+        <div className="dv-header__titles">
+          <h3 className="dv-title">{title}</h3>
+          {invoiceNumber ? <p className="dv-subtitle">Invoice #{invoiceNumber}</p> : null}
         </div>
-
-        {/* Document Navigation */}
-        {documents.length > 1 && (
-          <div
-            className="flex items-center justify-between p-4 border-b bg-gray-50"
-            style={{ borderColor: '#819291', backgroundColor: '#f8f9fa' }}
-          >
-            <button
-              onClick={handlePrevious}
-              disabled={currentIndex === 0}
-              className="flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                color: currentIndex === 0 ? '#819291' : '#113543',
-                border: '1px solid #819291',
-              }}
-              onMouseEnter={(e) => {
-                if (currentIndex > 0) {
-                  e.currentTarget.style.backgroundColor = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#C2A558'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (currentIndex > 0) {
-                  e.currentTarget.style.backgroundColor = '#FFFFFF'
-                  e.currentTarget.style.borderColor = '#819291'
-                }
-              }}
-            >
-              <ChevronLeft className="w-4 h-4" />
-              <span>Previous</span>
+        <div className="dv-header__end">
+          <span className="dv-count tabular-nums">
+            {documents.length === 0 ? '0 of 0' : `${currentIndex + 1} of ${documents.length}`}
+          </span>
+          {!isPane && (
+            <button type="button" className="dv-icon-btn" onClick={onClose} aria-label="Close">
+              <X size={18} strokeWidth={2.25} />
             </button>
-
-            <div className="flex items-center space-x-2 flex-1 justify-center">
-              {documents.map((doc, idx) => (
-                <button
-                  key={doc.id}
-                  onClick={() => setCurrentIndex(idx)}
-                  className="px-3 py-1 text-xs font-medium rounded transition-colors"
-                  style={{
-                    backgroundColor: idx === currentIndex ? '#113543' : '#FFFFFF',
-                    color: idx === currentIndex ? '#FFFFFF' : '#113543',
-                    border: '1px solid #819291',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (idx !== currentIndex) {
-                      e.currentTarget.style.backgroundColor = '#f8f9fa'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (idx !== currentIndex) {
-                      e.currentTarget.style.backgroundColor = '#FFFFFF'
-                    }
-                  }}
-                >
-                  <FileText className="w-3 h-3 inline mr-1" />
-                  {doc.name.length > 20 ? doc.name.substring(0, 20) + '...' : doc.name}
-                </button>
-              ))}
-            </div>
-
-            <button
-              onClick={handleNext}
-              disabled={currentIndex === documents.length - 1}
-              className="flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                color: currentIndex === documents.length - 1 ? '#819291' : '#113543',
-                border: '1px solid #819291',
-              }}
-              onMouseEnter={(e) => {
-                if (currentIndex < documents.length - 1) {
-                  e.currentTarget.style.backgroundColor = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#C2A558'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (currentIndex < documents.length - 1) {
-                  e.currentTarget.style.backgroundColor = '#FFFFFF'
-                  e.currentTarget.style.borderColor = '#819291'
-                }
-              }}
-            >
-              <span>Next</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Document Viewer */}
-        <div
-          className={`flex-1 min-h-0 overflow-auto ${isPane ? 'p-3' : 'p-6'}`}
-          style={{ backgroundColor: '#f8f9fa' }}
-        >
-          {currentDocument && currentUrl ? (
-            <div className={`flex items-center justify-center ${isPane ? 'h-full min-h-0' : 'h-full'}`}>
-              {getFileType(currentDocument.name) === 'pdf' ? (
-                <iframe
-                  src={currentUrl}
-                  className={
-                    isPane
-                      ? 'w-full h-full min-h-0 border rounded'
-                      : 'w-full h-full min-h-[600px] border rounded'
-                  }
-                  style={{ borderColor: '#819291' }}
-                  title={currentDocument.name}
-                />
-              ) : getFileType(currentDocument.name) === 'image' ? (
-                <div className="flex flex-col items-center justify-center">
-                  <div className="mb-4 p-3 rounded" style={{ backgroundColor: '#f0f0f0' }}>
-                    <p className="text-xs" style={{ color: '#819291' }}>
-                      Image will be converted to PDF when downloading or printing
-                    </p>
-                  </div>
-                  <img
-                    src={currentUrl}
-                    alt={currentDocument.name}
-                    className={`max-w-full object-contain rounded shadow-lg ${isPane ? 'max-h-full' : 'max-h-[60vh]'}`}
-                  />
-                </div>
-              ) : getFileType(currentDocument.name) === 'document' ? (
-                <div className="text-center p-8">
-                  <FileText className="w-16 h-16 mx-auto mb-4" style={{ color: '#819291' }} />
-                  <p className="text-lg font-medium mb-2" style={{ color: '#113543' }}>
-                    {currentDocument.name}
-                  </p>
-                  <p className="text-sm mb-4" style={{ color: '#819291' }}>
-                    {formatFileSize(currentDocument.size)}
-                  </p>
-                  <div className="bg-yellow-50 border border-yellow-200 rounded p-4 mb-4">
-                    <p className="text-sm font-medium mb-2" style={{ color: '#856404' }}>
-                      DOC/DOCX Conversion Required
-                    </p>
-                    <p className="text-xs" style={{ color: '#856404' }}>
-                      This document type requires server-side conversion to PDF. 
-                      Please download the file and convert it using a document converter, 
-                      or contact support for assistance.
-                    </p>
-                  </div>
-                  <p className="text-sm" style={{ color: '#819291' }}>
-                    Click Download to save the original file
-                  </p>
-                </div>
-              ) : (
-                <div className="text-center p-8">
-                  <FileText className="w-16 h-16 mx-auto mb-4" style={{ color: '#819291' }} />
-                  <p className="text-lg font-medium mb-2" style={{ color: '#113543' }}>
-                    {currentDocument.name}
-                  </p>
-                  <p className="text-sm mb-4" style={{ color: '#819291' }}>
-                    {formatFileSize(currentDocument.size)}
-                  </p>
-                  <p className="text-sm" style={{ color: '#819291' }}>
-                    Preview not available for this file type. Please download to view.
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <FileText className="w-16 h-16 mx-auto mb-4" style={{ color: '#819291' }} />
-                <p className="text-lg font-medium mb-2" style={{ color: '#113543' }}>
-                  {currentDocument?.name || 'No document'}
-                </p>
-                <p className="text-sm" style={{ color: '#819291' }}>
-                  Document preview not available
-                </p>
-              </div>
-            </div>
           )}
         </div>
+      </header>
 
-        {/* Footer with Actions */}
-        <div
-          className={`flex items-center justify-between border-t ${isPane ? 'px-4 py-3' : 'p-6'}`}
-          style={{ borderColor: '#819291' }}
-        >
-          <div className="flex items-center space-x-3">
-            <FileText className="w-4 h-4" style={{ color: '#819291' }} />
-            <div>
-              <p className="text-sm font-medium" style={{ color: '#113543' }}>
-                {currentDocument?.name}
-              </p>
-              {currentDocument?.size && (
-                <p className="text-xs" style={{ color: '#819291' }}>
-                  {formatFileSize(currentDocument.size)}
-                </p>
-              )}
-            </div>
+      {multiple && (
+        <nav className="dv-tabs" aria-label="Documents">
+          <button
+            type="button"
+            className="dv-icon-btn"
+            onClick={handlePrevious}
+            disabled={currentIndex === 0}
+            aria-label="Previous document"
+          >
+            <ChevronLeft size={18} strokeWidth={2.25} />
+          </button>
+          <div className="dv-tabs__list" role="tablist">
+            {documents.map((doc, idx) => (
+              <button
+                key={doc.id}
+                type="button"
+                role="tab"
+                aria-selected={idx === currentIndex}
+                className={`dv-tab${idx === currentIndex ? ' is-active' : ''}`}
+                onClick={() => setCurrentIndex(idx)}
+                title={doc.name}
+              >
+                <FileText size={13} strokeWidth={2.25} aria-hidden />
+                <span>{doc.name.length > 24 ? `${doc.name.slice(0, 24)}…` : doc.name}</span>
+              </button>
+            ))}
           </div>
-          <div className="flex items-center space-x-3">
-            {canUnassignCurrent && (
-              <button
-                type="button"
-                className="px-3 py-2 text-sm font-medium rounded border"
-                style={{ color: '#113543', borderColor: '#819291' }}
-                onClick={() => currentDocument && onUnassignDocument?.(currentDocument.id)}
-              >
-                Unassign
-              </button>
+          <button
+            type="button"
+            className="dv-icon-btn"
+            onClick={handleNext}
+            disabled={currentIndex === documents.length - 1}
+            aria-label="Next document"
+          >
+            <ChevronRight size={18} strokeWidth={2.25} />
+          </button>
+        </nav>
+      )}
+
+      <div className="dv-stage">
+        {currentDocument && currentUrl ? (
+          fileType === 'pdf' ? (
+            <iframe
+              src={currentUrl.startsWith('blob:') ? `${currentUrl}#navpanes=0&view=FitH` : currentUrl}
+              className="dv-frame" title={currentDocument.name}
+            />
+          ) : fileType === 'image' ? (
+            <div className="dv-image-wrap">
+              <img src={currentUrl} alt={currentDocument.name} className="dv-image" />
+              <p className="dv-note">Images are converted to PDF when downloading or printing.</p>
+            </div>
+          ) : (
+            <div className="dv-empty">
+              <FileText size={40} strokeWidth={1.5} aria-hidden />
+              <p className="dv-empty__title">{currentDocument.name}</p>
+              {sizeLabel ? <p className="dv-empty__sub">{sizeLabel}</p> : null}
+              <p className="dv-empty__sub">
+                {fileType === 'document'
+                  ? 'Word documents can’t be previewed here. Download the file to open it.'
+                  : 'Preview isn’t available for this file type. Download to view.'}
+              </p>
+            </div>
+          )
+        ) : (
+          <div className="dv-empty">
+            {loading ? (
+              <span className="dv-spinner" aria-hidden />
+            ) : (
+              <FileText size={40} strokeWidth={1.5} aria-hidden />
             )}
-            {canDeleteCurrent && (
-              <button
-                type="button"
-                className="px-3 py-2 text-sm font-medium rounded border"
-                style={{ color: '#b91c1c', borderColor: '#fecaca' }}
-                onClick={() => {
-                  if (!currentDocument) return
-                  if (window.confirm(`Delete ${currentDocument.name}? This cannot be undone.`)) {
-                    onDeleteDocument?.(currentDocument.id)
-                  }
-                }}
-              >
-                Delete
-              </button>
-            )}
-            {canMoveCurrent && (
-              <label className="flex items-center gap-2">
-                <span className="text-xs font-medium" style={{ color: '#64748b' }}>
-                  Move to
-                </span>
-                <select
-                  className="doc-viewer-move-select"
-                  defaultValue=""
-                  onChange={(e) => {
-                    const value = e.target.value
-                    if (!value || !currentDocument) return
-                    onMoveDocument?.(
-                      currentDocument.id,
-                      value === '__unmatched__' ? null : value
-                    )
-                    e.target.value = ''
-                  }}
-                >
-                  <option value="">Select…</option>
-                  {moveTargets?.map((target) => (
-                    <option
-                      key={target.draftId ?? '__unmatched__'}
-                      value={target.draftId ?? '__unmatched__'}
-                    >
-                      {target.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <button
-              onClick={handleDownload}
-              disabled={!currentDocument}
-              className="flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                color: '#113543',
-                border: '1px solid #819291',
-              }}
-              onMouseEnter={(e) => {
-                if (currentDocument) {
-                  e.currentTarget.style.backgroundColor = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#C2A558'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (currentDocument) {
-                  e.currentTarget.style.backgroundColor = '#FFFFFF'
-                  e.currentTarget.style.borderColor = '#819291'
-                }
-              }}
-            >
-              <Download className="w-4 h-4" />
-              <span>Download</span>
-            </button>
-            <button
-              onClick={handlePrint}
-              disabled={!currentUrl || (getFileType(currentDocument?.name || '') !== 'pdf' && getFileType(currentDocument?.name || '') !== 'image')}
-              className="flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                color: '#113543',
-                border: '1px solid #819291',
-              }}
-              onMouseEnter={(e) => {
-                if (currentUrl && (getFileType(currentDocument?.name || '') === 'pdf' || getFileType(currentDocument?.name || '') === 'image')) {
-                  e.currentTarget.style.backgroundColor = '#f8f9fa'
-                  e.currentTarget.style.borderColor = '#C2A558'
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (currentUrl && (getFileType(currentDocument?.name || '') === 'pdf' || getFileType(currentDocument?.name || '') === 'image')) {
-                  e.currentTarget.style.backgroundColor = '#FFFFFF'
-                  e.currentTarget.style.borderColor = '#819291'
-                }
-              }}
-            >
-              <Printer className="w-4 h-4" />
-              <span>Print</span>
-            </button>
-            {!isPane && (
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium transition-colors"
-                style={{
-                  backgroundColor: '#113543',
-                  color: '#FFFFFF',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#0d2a35'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#113543'
-                }}
-              >
-                Close
-              </button>
-            )}
+            <p className="dv-empty__title">{currentDocument?.name || 'No documents'}</p>
+            <p className="dv-empty__sub">
+              {loading ? 'Loading document…' : 'This document isn’t available to preview.'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <footer className="dv-footer">
+        <div className="dv-file">
+          <FileText size={16} strokeWidth={2} aria-hidden />
+          <div className="dv-file__text">
+            <p className="dv-file__name">{currentDocument?.name}</p>
+            {sizeLabel ? <p className="dv-file__size">{sizeLabel}</p> : null}
           </div>
         </div>
-      </div>
+        <div className="dv-actions">
+          {canUnassignCurrent && (
+            <button
+              type="button"
+              className="dv-btn"
+              onClick={() => currentDocument && onUnassignDocument?.(currentDocument.id)}
+            >
+              Unassign
+            </button>
+          )}
+          {canDeleteCurrent && (
+            <button
+              type="button"
+              className="dv-btn is-danger"
+              onClick={() => {
+                if (!currentDocument) return
+                if (window.confirm(`Delete ${currentDocument.name}? This cannot be undone.`)) {
+                  onDeleteDocument?.(currentDocument.id)
+                }
+              }}
+            >
+              Delete
+            </button>
+          )}
+          {canMoveCurrent && (
+            <label className="dv-move">
+              <span>Move to</span>
+              <select
+                className="doc-viewer-move-select"
+                defaultValue=""
+                onChange={(e) => {
+                  const value = e.target.value
+                  if (!value || !currentDocument) return
+                  onMoveDocument?.(currentDocument.id, value === '__unmatched__' ? null : value)
+                  e.target.value = ''
+                }}
+              >
+                <option value="">Select…</option>
+                {moveTargets?.map((target) => (
+                  <option
+                    key={target.draftId ?? '__unmatched__'}
+                    value={target.draftId ?? '__unmatched__'}
+                  >
+                    {target.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <button
+            type="button"
+            className="dv-btn"
+            onClick={handleDownload}
+            disabled={!currentDocument || (!currentDocument.file && !currentUrl)}
+          >
+            <Download size={15} strokeWidth={2.25} aria-hidden />
+            Download
+          </button>
+          {onUpload && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+                className="dv-file-input"
+                onChange={async (e) => {
+                  const files = Array.from(e.target.files ?? [])
+                  e.target.value = ''
+                  if (files.length === 0) return
+                  setUploading(true)
+                  try {
+                    await onUpload(files)
+                  } finally {
+                    setUploading(false)
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="dv-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                <Upload size={15} strokeWidth={2.25} aria-hidden />
+                {uploading ? 'Uploading…' : 'Upload'}
+              </button>
+            </>
+          )}
+          <button type="button" className="dv-btn" onClick={handlePrint} disabled={!canPrint}>
+            <Printer size={15} strokeWidth={2.25} aria-hidden />
+            Print
+          </button>
+          {!isPane && (
+            <button type="button" className="dv-btn is-primary" onClick={onClose}>
+              Close
+            </button>
+          )}
+        </div>
+      </footer>
+    </div>
+  )
+
+  if (isPane) return <div className="dv-pane-shell">{panel}</div>
+
+  return (
+    <div className="dv-overlay" role="presentation" onClick={onClose}>
+      {panel}
     </div>
   )
 }
-

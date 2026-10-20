@@ -120,15 +120,15 @@ function App() {
               <Route element={<ClientProtectedLayout />}>
                 <Route
                   path="/client/dashboard"
-                  element={withRouteSuspense(ClientDashboardV2, 'Loading dashboard…')}
+                  element={withRouteSuspense(ClientDashboardV3, 'Loading dashboard…')}
                 />
                 <Route
                   path="/client/dashboard-v2"
-                  element={<Navigate to="/client/dashboard" replace />}
+                  element={withRouteSuspense(ClientDashboardV2, 'Loading dashboard…')}
                 />
                 <Route
                   path="/client/dashboard-v3"
-                  element={withRouteSuspense(ClientDashboardV3, 'Loading dashboard…')}
+                  element={<Navigate to="/client/dashboard" replace />}
                 />
                 <Route
                   path="/client/onboarding"

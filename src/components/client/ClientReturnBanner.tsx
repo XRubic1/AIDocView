@@ -34,6 +34,10 @@ export default function ClientReturnBanner() {
         type="button"
         className="client-return-banner__btn"
         onClick={() => {
+          if (!returnTo.paymentId) {
+            navigate(returnTo.to)
+            return
+          }
           if (returnTo.paymentId) {
             stashPaymentRestoreTarget({
               paymentId: returnTo.paymentId,

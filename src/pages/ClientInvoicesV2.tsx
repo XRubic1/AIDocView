@@ -21,7 +21,7 @@ import ClientSortableHeader from '../components/client/ClientSortableHeader'
 import ClientListTd from '../components/client/ClientListTd'
 import MobilePaymentDateRangeSheet from '../components/client/MobilePaymentDateRangeSheet'
 import { enrichInvoices, EnrichedInvoice, getDaysOutstandingColor, getDisplayInvoiceAgeDays, invoiceHasStoppedAging, isOpenArInvoice, AR_POLICY, buildConfirmedPayDateByInvoiceId } from '../utils/invoiceAging'
-import { getInvoiceDocumentsForViewer } from '../services/invoiceDocumentStore'
+import { useInvoiceViewerDocuments } from '../hooks/useInvoiceViewerDocuments'
 import { useClientTheme } from '../theme/ThemeContext'
 import { useCompactDetailViewport, useIsMobileViewport } from '../hooks/useIsMobileViewport'
 import { useResizableSplitPane } from '../hooks/useResizableSplitPane'
@@ -32,6 +32,7 @@ import {
 } from '../utils/clientListPage'
 import { mapClientVisibleInvoices } from '../utils/clientInvoiceView'
 import ClientReturnBanner from '../components/client/ClientReturnBanner'
+import ListSkeleton from '../components/ui/ListSkeleton'
 import MobileInvoiceListCard from '../components/client/MobileInvoiceListCard'
 import {
   clearInvoiceRestoreTarget,
@@ -286,7 +287,7 @@ export default function ClientInvoicesV2() {
   const [autoOpenUpload, setAutoOpenUpload] = useState(false)
 
   const [invoicesRefreshKey, setInvoicesRefreshKey] = useState(0)
-  const { dashboard: data, payments, invoices: rawInvoices, clientId } =
+  const { dashboard: data, payments, invoices: rawInvoices, clientId, isInitialLoad } =
     useClientDemoSnapshot(invoicesRefreshKey)
 
   const invoices = useMemo(
@@ -305,6 +306,7 @@ export default function ClientInvoicesV2() {
   const [detailPanelClosing, setDetailPanelClosing] = useState(false)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false)
   const [viewingInvoiceDocuments, setViewingInvoiceDocuments] = useState<Invoice | null>(null)
+  const viewerDocs = useInvoiceViewerDocuments(viewingInvoiceDocuments)
   const [pageSize, setPageSize] = useState<number>(getInitialListPageSize)
   const [currentPage, setCurrentPage] = useState(1)
   const [sortField, setSortField] = useState<InvoiceSortField>('invoice_date')
@@ -783,10 +785,6 @@ export default function ClientInvoicesV2() {
     setShowDocumentViewer(true)
   }
 
-  const getDocumentsForInvoice = (invoice: Invoice) => {
-    return getInvoiceDocumentsForViewer(invoice)
-  }
-
   const overdueInvoices = enrichedInvoices.filter((inv) => inv.isOverdue)
   const overdueAmount = useMemo(() => {
     let sum = 0
@@ -1119,7 +1117,11 @@ export default function ClientInvoicesV2() {
               ) : null}
             </div>
 
-            {sortedInvoices.length === 0 ? (
+{isInitialLoad ? (
+              <div className="civ2-list-panel flex-1 min-h-0">
+                <div className="payments-list-panel flex flex-col"><ListSkeleton /></div>
+              </div>
+            ) : sortedInvoices.length === 0 ? (
               <div className="civ2-list-panel flex-1 min-h-0">
                 <div className="payments-list-panel flex items-center justify-center text-center py-6 px-4">
                   <div>
@@ -1605,7 +1607,9 @@ export default function ClientInvoicesV2() {
             setShowDocumentViewer(false)
             setViewingInvoiceDocuments(null)
           }}
-          documents={getDocumentsForInvoice(viewingInvoiceDocuments)}
+          documents={viewerDocs.documents}
+          loading={viewerDocs.loading}
+          onUpload={viewerDocs.upload}
           invoiceNumber={viewingInvoiceDocuments.invoice_number}
           title="View Documents"
         />
