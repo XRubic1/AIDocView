@@ -58,7 +58,17 @@ function RunCell({ step }: { step: BlueprintDashboardStep }) {
   return <span className="bpd-run is-muted">After the step before</span>
 }
 
-function YesNo({ planned, done, value }: { planned: boolean; done: boolean; value?: boolean }) {
+function YesNo({
+  planned,
+  done,
+  value,
+  why,
+}: {
+  planned: boolean
+  done: boolean
+  value?: boolean
+  why?: string
+}) {
   if (!planned) return <span className="bpd-mark is-none">—</span>
   if (!done) return <span className="bpd-mark is-planned">Planned</span>
   if (value === true)
@@ -69,11 +79,16 @@ function YesNo({ planned, done, value }: { planned: boolean; done: boolean; valu
     )
   if (value === false)
     return (
-      <span className="bpd-mark is-no">
+      <span className="bpd-mark is-no" title={why}>
         <X size={14} strokeWidth={3} aria-hidden /> No
+        {why ? <small className="bpd-why">{why}</small> : null}
       </span>
     )
-  return <span className="bpd-mark is-none">?</span>
+  return (
+    <span className="bpd-mark is-none" title="This step ran before results were recorded">
+      Not recorded
+    </span>
+  )
 }
 
 /** Super-simple view: each step, when it ran or will run, and whether it sent / noted. */
@@ -218,7 +233,7 @@ export default function BlueprintRunDashboard({ invoice }: { invoice: Invoice })
                   </td>
                   <td>
                     {s.state === 'done' ? (
-                      <span className="bpd-mark is-yes">
+                      <span className="bpd-mark is-yes" title={s.result || undefined}>
                         <Check size={14} strokeWidth={3} aria-hidden /> Yes
                       </span>
                     ) : s.state === 'now' ? (
@@ -228,7 +243,7 @@ export default function BlueprintRunDashboard({ invoice }: { invoice: Invoice })
                     )}
                   </td>
                   <td>
-                    <YesNo planned={s.plansEmail} done={s.state === 'done'} value={s.emailSent} />
+                    <YesNo planned={s.plansEmail} done={s.state === 'done'} value={s.emailSent} why={s.emailWhy} />
                   </td>
                   <td>
                     <YesNo planned={s.plansNote} done={s.state === 'done'} value={s.noteAdded} />
@@ -239,6 +254,29 @@ export default function BlueprintRunDashboard({ invoice }: { invoice: Invoice })
           </table>
         </div>
       )}
+
+      <div className="bpd-activity">
+        <h4 className="bpd-activity__title">Activity</h4>
+        {data.activity.length === 0 ? (
+          <p className="bpd-note">Nothing has run yet in this run.</p>
+        ) : (
+          <ul className="bpd-activity__list">
+            {data.activity.map((a) => (
+              <li key={a.id}>
+                <span className="bpd-activity__when">{when(a.at)}</span>
+                <span className="bpd-activity__step">{a.step}</span>
+                <span className="bpd-activity__chips">
+                  {a.emailSent === true ? <span className="bpd-chip is-yes">Email sent</span> : null}
+                  {a.emailSent === false && a.plansEmail ? <span className="bpd-chip is-no">Email not sent</span> : null}
+                  {a.noteAdded === true ? <span className="bpd-chip is-yes">Note added</span> : null}
+                  {a.noteAdded === false && a.plansNote ? <span className="bpd-chip is-no">No note</span> : null}
+                </span>
+                {a.detail ? <span className="bpd-activity__detail">{a.detail}</span> : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   )
 }

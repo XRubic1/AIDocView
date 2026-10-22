@@ -864,6 +864,18 @@ export async function rerunInvoiceBlueprint(
   const blueprintId = run?.blueprintId ?? getInvoiceBlueprintAssignment(invoiceId)?.blueprintId
   if (!blueprintId) return { invoiceId, ok: false, detail: 'No blueprint to rerun.' }
 
+  const life = invoice.email_lifecycle
+  if (life) {
+    const track = life.paperwork_status === 'good' ? 'payment' : 'paperwork'
+    const state = { ...(life[track] ?? {}) }
+    if (state.firstAskedAt || state.secondAskedAt) {
+      delete state.firstAskedAt
+      delete state.secondAskedAt
+      const { persistInvoiceLifecycle } = await import('../../services/emailLifecycleService')
+      await persistInvoiceLifecycle(invoiceId, { ...life, [track]: state })
+    }
+  }
+
   if (run && (run.status === 'waiting' || run.status === 'active' || run.status === 'paused')) {
     upsertBlueprintRun(
       { ...run, status: 'stopped', currentStep: 'Stopped · rerun', waitUntil: null },
@@ -1851,6 +1863,19 @@ export type BlueprintDashboardStep = {
   emailSent?: boolean
   noteAdded?: boolean
   result?: string
+  /** Why a planned email did not go out (from the step result). */
+  emailWhy?: string
+}
+
+export type BlueprintDashboardActivity = {
+  id: string
+  at: string
+  step: string
+  detail?: string
+  emailSent?: boolean
+  noteAdded?: boolean
+  plansEmail: boolean
+  plansNote: boolean
 }
 
 export type BlueprintDashboardStatus =
@@ -1871,6 +1896,8 @@ export type BlueprintDashboard = {
   nextRunAt: string | null
   nextRunText: string
   steps: BlueprintDashboardStep[]
+  /** What each Then-do step actually did in this run, newest first. */
+  activity: BlueprintDashboardActivity[]
   snapshot: BlueprintDebugSnapshot
 }
 
@@ -1939,6 +1966,12 @@ export function buildBlueprintDashboard(invoiceId: string): BlueprintDashboard {
           actionEv.emailSent ?? (step.plansEmail ? /sent|emailed/i.test(actionEv.detail ?? '') : undefined)
         step.noteAdded =
           actionEv.noteAdded ?? (step.plansNote ? /note/i.test(actionEv.detail ?? '') : undefined)
+        if (step.emailSent === false) {
+          const why = (actionEv.detail ?? '')
+            .split(' · ')
+            .find((part) => /email/i.test(part) && /not sent|failed|skip/i.test(part))
+          step.emailWhy = why?.replace(/^Email not sent — /, '') || undefined
+        }
       }
     }
     return step
@@ -2025,9 +2058,28 @@ export function buildBlueprintDashboard(invoiceId: string): BlueprintDashboard {
   else if (nextRunAt) nextRunText = fmtIn(nextRunAt)
   else if (status === 'waiting') nextRunText = 'After the previous step'
 
+  const stepById = new Map(steps.map((s) => [s.id, s]))
+  const activity: BlueprintDashboardActivity[] = episode
+    .filter((ev) => ev.kind === 'action' || ev.kind === 'stopped')
+    .map((ev) => {
+      const step = ev.stepNodeId ? stepById.get(ev.stepNodeId) : undefined
+      return {
+        id: ev.id,
+        at: ev.at,
+        step: step?.name ?? ev.title.replace(/^Then do · /, ''),
+        detail: ev.detail,
+        emailSent: ev.emailSent,
+        noteAdded: ev.noteAdded,
+        plansEmail: step?.plansEmail ?? false,
+        plansNote: step?.plansNote ?? false,
+      }
+    })
+    .reverse()
+
   return {
     status,
     statusText,
+    activity,
     blueprintName: run?.blueprintName ?? String(snapshot.assignment?.blueprintName ?? ''),
     lastCheckedAt: snapshot.lastAutoTickAt ?? run?.updatedAt ?? null,
     nextRunAt,
@@ -2044,12 +2096,16 @@ export function buildBlueprintDashboard(invoiceId: string): BlueprintDashboard {
  */
 async function healStuckInvoiceRuns(
   now: number,
-  authorName?: string
+  authorName?: string,
+  opts?: { serverHandlesWaiting?: boolean }
 ): Promise<{ advanced: number; logs: BlueprintRunnerLog[] }> {
   const logs: BlueprintRunnerLog[] = []
   let advanced = 0
   for (const run of listBlueprintRuns()) {
     if (run.subject !== 'invoice' || !run.subjectId) continue
+    // The server already walks every waiting run (parked Whens included). Doing it here too
+    // would send the same email twice — only rescue runs the server ignores.
+    if (opts?.serverHandlesWaiting && run.status === 'waiting') continue
     // Self-heal runs that no clock will ever wake:
     //  - parked on a When whose condition is already true (event was missed, e.g. PPW sent)
     //  - left "active" without finishing its first advance (never reached a Wait)
@@ -2103,7 +2159,9 @@ export async function tickBlueprintRuns(authorName?: string): Promise<{
     const { invokeBlueprintWakeCron } = await import('../../services/blueprintWakeCron')
     const server = await invokeBlueprintWakeCron(40)
     if (server) {
-      const healed = await healStuckInvoiceRuns(Date.now(), authorName)
+      const healed = await healStuckInvoiceRuns(Date.now(), authorName, {
+        serverHandlesWaiting: true,
+      })
       return {
         advanced: server.advanced + healed.advanced,
         logs: [

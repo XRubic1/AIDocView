@@ -62,6 +62,7 @@ type RunRow = {
   wait_until: string | null
   started_at: string
   updated_at: string
+  history?: Array<Record<string, unknown>> | null
 }
 
 type InvoiceRow = Record<string, unknown>
@@ -544,6 +545,27 @@ function pickBlueprint(invoice: InvoiceRow, blueprints: BlueprintRow[]): Bluepri
   return candidates.find((bp) => trackOf(bp) === 'paperwork') ?? null
 }
 
+/**
+ * Take a due run for this invocation only. The cron, an admin's "Run check now" and an
+ * open admin tab can all call this function at the same moment; without a claim each
+ * would walk the same run and send the same email. The update only succeeds if the row
+ * is still exactly as we read it.
+ */
+async function claimDueRun(admin: Admin, run: RunRow): Promise<boolean> {
+  const claimedAt = new Date().toISOString()
+  let query = admin
+    .from('blueprint_runs')
+    .update({ status: 'active', updated_at: claimedAt })
+    .eq('id', run.id)
+    .eq('status', 'waiting')
+  query = run.updated_at ? query.eq('updated_at', run.updated_at) : query
+  const { data, error } = await query.select('id')
+  if (error || !data || data.length === 0) return false
+  run.status = 'active'
+  run.updated_at = claimedAt
+  return true
+}
+
 async function updateRun(admin: Admin, run: RunRow, patch: Partial<RunRow>): Promise<void> {
   const next = { ...run, ...patch, updated_at: new Date().toISOString() }
   await admin.from('blueprint_runs').upsert(
@@ -561,29 +583,69 @@ async function updateRun(admin: Admin, run: RunRow, patch: Partial<RunRow>): Pro
       wait_until: next.wait_until,
       started_at: next.started_at,
       updated_at: next.updated_at,
+      ...(Array.isArray(next.history) ? { history: next.history } : {}),
     },
     { onConflict: 'id' }
   )
   Object.assign(run, next)
 }
 
+/** Add one step event to the run's history (saved with the next updateRun). */
+function pushRunEvent(run: RunRow, event: Record<string, unknown>): void {
+  const history = Array.isArray(run.history) ? [...run.history] : []
+  const seq = history.reduce((max, ev) => Math.max(max, Number((ev as { seq?: number }).seq ?? 0)), 0) + 1
+  history.push({
+    id: `ev-${crypto.randomUUID()}`,
+    at: new Date().toISOString(),
+    seq,
+    blueprintName: run.blueprint_name,
+    blueprintId: run.blueprint_id,
+    ...event,
+  })
+  run.history = history.length > 200 ? history.slice(history.length - 200) : history
+}
+
+/** Plain-English summary of a Then-do card's result lines. */
+function describeActionLines(lines: string[]): string {
+  return lines
+    .map((line) => {
+      if (line.startsWith('email:')) {
+        const [, template, to] = line.split(':')
+        return to ? `Email sent to ${to} (${template})` : `Email sent (${template})`
+      }
+      if (line.startsWith('email-fail:')) return `Email FAILED (${line.slice(11)})`
+      if (line.startsWith('skip-already:')) return `Email not sent — already sent before (${line.slice(13)})`
+      if (line.startsWith('skip-disabled:')) return `Email not sent — turned off in Email workflow (${line.slice(14)})`
+      if (line === 'note:add_note') return 'Note added'
+      if (line === 'note-dup:add_note') return 'Note not added — same note was just added'
+      if (line.startsWith('urgent:')) return 'Marked urgent'
+      if (line.startsWith('review:')) return 'Sent to staff to call the broker'
+      return line
+    })
+    .join(' · ')
+}
+
+/** Same note text within this window is treated as a double run, not a new step. */
+const NOTE_DEDUPE_MS = 10 * 60 * 1000
+
 async function appendNote(
   admin: Admin,
   invoice: InvoiceRow,
   note: string,
   visibility: 'client' | 'internal' = 'internal'
-): Promise<void> {
+): Promise<boolean> {
   const history = Array.isArray(invoice.notes_history) ? [...(invoice.notes_history as unknown[])] : []
   const trimmed = note.trim()
+  const cutoff = Date.now() - NOTE_DEDUPE_MS
   if (
-    history.some(
-      (row) =>
-        row &&
-        typeof row === 'object' &&
-        String((row as { note?: string }).note ?? '').trim() === trimmed
-    )
+    history.some((row) => {
+      if (!row || typeof row !== 'object') return false
+      const r = row as { note?: string; created_at?: string }
+      if (String(r.note ?? '').trim() !== trimmed) return false
+      return new Date(String(r.created_at ?? 0)).getTime() >= cutoff
+    })
   ) {
-    return
+    return false
   }
   const now = new Date().toISOString()
   history.push({
@@ -596,6 +658,7 @@ async function appendNote(
   })
   await admin.from('invoices').update({ notes_history: history, updated_at: now }).eq('id', invoice.id)
   invoice.notes_history = history
+  return true
 }
 
 async function saveLife(admin: Admin, invoice: InvoiceRow, life: Record<string, unknown>, extra: Record<string, unknown> = {}): Promise<void> {
@@ -837,7 +900,7 @@ export async function runBlueprintServerTick(
             loadNumber: String(invoice.load_number ?? ''),
           }
         )
-        await appendNote(
+        const noteAdded = await appendNote(
           admin,
           invoice,
           `${msg}\n\n${tag}`,
@@ -856,7 +919,7 @@ export async function runBlueprintServerTick(
           actions += 1
           lines.push('urgent:needs-attention')
         } else {
-          lines.push(`note:${actionId}`)
+          lines.push(noteAdded ? `note:${actionId}` : `note-dup:${actionId}`)
         }
         continue
       }
@@ -972,7 +1035,7 @@ export async function runBlueprintServerTick(
               `${noteMessage || `${templateId}: emailed ${to}.`}\n\n${tag}`
             )
           }
-          lines.push(`email:${templateId}`)
+          lines.push(`email:${templateId}:${to}`)
         } else {
           await appendNote(admin, invoice, `${templateId}: email failed.\n\n${tag}`)
           lines.push(`email-fail:${templateId}`)
@@ -1118,6 +1181,15 @@ export async function runBlueprintServerTick(
       if (data.kind === 'action') {
         const lines = await executeAction(bp, current, invoice, broker)
         runDetails.push(...lines)
+        pushRunEvent(run, {
+          kind: 'action',
+          title: `Then do · ${data.label || 'tasks'}`,
+          detail: describeActionLines(lines) || undefined,
+          stepNodeId: current.id,
+          completedNodeId: current.id,
+          emailSent: lines.some((line) => line.startsWith('email:')),
+          noteAdded: lines.includes('note:add_note'),
+        })
         if (lines.some((line) => line.startsWith('hold:no-broker-email') || line.startsWith('hold:no-carrier-email'))) {
           const brokerHold = lines.some((line) => line.startsWith('hold:no-broker-email'))
           await updateRun(admin, run, {
@@ -1304,6 +1376,11 @@ export async function runBlueprintServerTick(
       continue
     }
     const broker = brokerById.get(String(invoice.broker_id ?? ''))
+    // Another invocation already took this run — it will send; we must not.
+    if (!(await claimDueRun(admin, run))) {
+      details.push(`${String(invoice.invoice_number ?? run.subject_id)}: already being run elsewhere — skipped`)
+      continue
+    }
     await walk(bp, run, invoice, broker, null)
   }
 
