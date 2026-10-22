@@ -7,7 +7,8 @@ import type { Edge } from '@xyflow/react'
 import { isBlueprintsRunnerEnabled } from '../../config/blueprintsRuntime'
 import { getInvoiceById, mockInvoices } from '../../data/mockInvoices'
 import { getConfirmedPaymentTotal } from '../../data/mockPayments'
-import { hasPpwBeenSent } from '../../utils/ppwSent'
+import { getPpwSentAt, hasPpwBeenSent } from '../../utils/ppwSent'
+import { isSupabaseConfigured } from '../../lib/supabase'
 import type { Invoice } from '../../types/invoice'
 import type { BlueprintFlowNode, BlueprintNodeData, SavedBlueprint } from '../../types/blueprintGraph'
 import { findBestMatchingBlueprint, scoreBlueprintForEvent, type BlueprintMatchEvent } from './blueprintAutoMatch'
@@ -563,6 +564,8 @@ export async function advanceInvoiceRun(
       const ids = getActionIds(current.data)
       const actionResults: string[] = []
       let sendFailed = false
+      let emailSent = false
+      let noteAdded = false
       const cardHasNote = ids.includes('add_note')
       if (cardSendsToBroker(ids)) {
         const blocked = noteMissingBrokerEmail(invoice, assignment.blueprintName)
@@ -602,6 +605,16 @@ export async function advanceInvoiceRun(
         })
         details.push(result.detail)
         actionResults.push(result.detail)
+        if (result.ok && !result.skipped) {
+          if (
+            actionId === 'email_broker_packet' ||
+            actionId === 'email_payment_status' ||
+            actionId === 'email_followup'
+          ) {
+            emailSent = true
+          }
+          if (actionId === 'add_note') noteAdded = true
+        }
         if (
           !result.ok &&
           !result.skipped &&
@@ -649,6 +662,9 @@ export async function advanceInvoiceRun(
             kind: 'action',
             title: `Then do · ${current.data.label || 'tasks'}`,
             detail: actionResults.join(' · ') || undefined,
+            stepNodeId: current.id,
+            emailSent,
+            noteAdded,
           },
         }
       )
@@ -832,6 +848,35 @@ export async function runInvoiceBlueprintManual(input: {
     authorName: input.authorName,
     toEmails: input.toEmails,
   })
+}
+
+/**
+ * Stop the invoice's current run (if live) and start the same blueprint again from the top.
+ * Waits are respected; use runInvoiceBlueprintManual(skip_waits) to run every step at once.
+ */
+export async function rerunInvoiceBlueprint(
+  invoiceId: string,
+  authorName?: string
+): Promise<BlueprintRunnerLog> {
+  const invoice = getInvoiceById(invoiceId)
+  if (!invoice) return { invoiceId, ok: false, detail: 'Invoice not found.' }
+  const run = getPrimaryRunForInvoice(invoice)
+  const blueprintId = run?.blueprintId ?? getInvoiceBlueprintAssignment(invoiceId)?.blueprintId
+  if (!blueprintId) return { invoiceId, ok: false, detail: 'No blueprint to rerun.' }
+
+  if (run && (run.status === 'waiting' || run.status === 'active' || run.status === 'paused')) {
+    upsertBlueprintRun(
+      { ...run, status: 'stopped', currentStep: 'Stopped · rerun', waitUntil: null },
+      {
+        historyEvent: {
+          kind: 'stopped',
+          title: 'Stopped · rerun',
+          detail: 'Restarting this blueprint from the start.',
+        },
+      }
+    )
+  }
+  return runInvoiceBlueprintManual({ invoiceId, blueprintId, mode: 'normal', authorName })
 }
 
 export function stopInvoiceRun(
@@ -1603,6 +1648,449 @@ export async function syncAllOpenInvoiceBlueprints(reason = 'assign all open'): 
 }
 
 /** Wake all due Wait clocks (server cron when configured, else local). */
+export type BlueprintDebugStep = {
+  index: number
+  id: string
+  kind: string
+  label: string
+  isCurrent: boolean
+  config: Record<string, unknown>
+  /** When cards: does the condition pass right now? */
+  whenPasses?: boolean
+  /** Wait cards: what the runner would resolve as the wake time. */
+  waitResolves?: { waitUntil: string; detail: string; inMinutes: number } | { error: string }
+}
+
+export type BlueprintDebugSnapshot = {
+  generatedAt: string
+  runnerEnabled: boolean
+  serverConfigured: boolean
+  lastAutoTickAt: string | null
+  invoice: Record<string, unknown>
+  assignment: Record<string, unknown> | null
+  run: Record<string, unknown> | null
+  steps: BlueprintDebugStep[]
+  /** Plain-English: what the next check will do with this run, and why. */
+  verdict: string[]
+  recentHistory: Array<Record<string, unknown>>
+}
+
+/** Everything needed to see why an invoice's blueprint is (or is not) moving. */
+export function debugInvoiceBlueprint(invoiceId: string): BlueprintDebugSnapshot {
+  const now = new Date()
+  const invoice = getInvoiceById(invoiceId)
+  const run = invoice ? getPrimaryRunForInvoice(invoice) : null
+  const assignment = getInvoiceBlueprintAssignment(invoiceId)
+  const loaded = invoice ? loadAssignedGraph(invoiceId) : null
+  const verdict: string[] = []
+
+  let lastAuto: string | null = null
+  try {
+    const raw = localStorage.getItem('credyx:blueprint-auto-tick-at')
+    if (raw) lastAuto = new Date(Number(raw)).toISOString()
+  } catch {
+    /* ignore */
+  }
+
+  // Walk the graph in order from the trigger card.
+  const steps: BlueprintDebugStep[] = []
+  if (loaded && invoice) {
+    const { bp } = loaded
+    const byId = new Map(bp.nodes.map((n) => [n.id, n]))
+    const start = bp.nodes.find((n) => n.data.kind === 'trigger') ?? bp.nodes[0]
+    const seen = new Set<string>()
+    let cur: BlueprintFlowNode | undefined = start
+    while (cur && !seen.has(cur.id) && steps.length < 40) {
+      seen.add(cur.id)
+      const d = cur.data
+      const step: BlueprintDebugStep = {
+        index: steps.length,
+        id: cur.id,
+        kind: String(d.kind),
+        label: d.label?.trim() || String(d.kind),
+        isCurrent: run?.currentNodeId === cur.id,
+        config: {
+          checkId: d.checkId,
+          whenMatch: d.whenMatch,
+          waitUntilId: d.waitUntilId,
+          days: d.days,
+          waitUnit: d.waitUnit,
+          actionIds: d.actionIds,
+        },
+      }
+      if (isWhen(d)) {
+        try {
+          step.whenPasses = evaluateWhenNode(d, invoice)
+        } catch (err) {
+          step.whenPasses = undefined
+          step.config.error = String(err)
+        }
+      }
+      if (d.kind === 'wait') {
+        try {
+          const r = resolveBlueprintWaitUntil({ kind: 'invoice', invoice }, cur, now)
+          step.waitResolves = {
+            waitUntil: r.waitUntil,
+            detail: r.detail,
+            inMinutes: Math.round((new Date(r.waitUntil).getTime() - now.getTime()) / 60_000),
+          }
+        } catch (err) {
+          step.waitResolves = { error: String(err) }
+        }
+      }
+      steps.push(step)
+      cur = nextNodes(cur.id, bp.nodes, bp.edges)[0]
+      if (cur && !byId.has(cur.id)) break
+    }
+  }
+
+  // Verdict mirrors tickBlueprintRuns so it explains what that check would do.
+  if (!isBlueprintsRunnerEnabled()) verdict.push('The Live runner is OFF — nothing advances. Turn automation on.')
+  if (!invoice) verdict.push('Invoice not found in the local store.')
+  else if (!assignment && !run) verdict.push('No blueprint is assigned and there is no run.')
+  else if (!run) verdict.push('A blueprint is assigned but there is no run. Use Start enrollment / Rerun.')
+  else {
+    const waitMs = run.waitUntil ? new Date(run.waitUntil).getTime() - now.getTime() : null
+    const currentStep = steps.find((s) => s.isCurrent)
+    if (run.status === 'completed' || run.status === 'stopped') {
+      verdict.push(`Run is ${run.status} (${run.currentStep}). It will not move again. Use Rerun.`)
+    } else if (run.status === 'paused') {
+      verdict.push('Run is PAUSED (usually because the invoice is on hold). It resumes when the hold is removed.')
+    } else if (!currentStep) {
+      verdict.push(
+        `Run points at node "${run.currentNodeId ?? '(none)'}" which is not on the assigned blueprint's path — it was probably started from another blueprint or the graph was edited. Rerun to reset.`
+      )
+    } else if (currentStep.kind === 'trigger') {
+      verdict.push('Run is sitting on the first (trigger) card and has not advanced. The next check will push it forward; Rerun does it now.')
+    } else if (run.status === 'waiting' && run.waitUntil) {
+      if (waitMs != null && waitMs > 0) {
+        verdict.push(`Waiting on a clock step. Wakes ${new Date(run.waitUntil).toLocaleString()} (in ${Math.ceil(waitMs / 60_000)} min).`)
+      } else {
+        verdict.push(
+          `Wake time ${new Date(run.waitUntil).toLocaleString()} has PASSED (${Math.abs(Math.round((waitMs ?? 0) / 60_000))} min ago). It is due — the next check will advance it. Checks run every 5 min while an admin tab is open, or when you press Run blueprints.`
+        )
+      }
+    } else if (run.status === 'waiting' && currentStep.kind !== 'wait') {
+      verdict.push(
+        currentStep.whenPasses
+          ? `Parked on "${currentStep.label}" and its condition is TRUE now — the next check will advance it.`
+          : `Parked on "${currentStep.label}" — its condition is still FALSE, so it keeps waiting.`
+      )
+    } else if (run.status === 'waiting') {
+      verdict.push('On a Wait step with no wake time stored — the next check will schedule it.')
+    } else if (run.status === 'active') {
+      const idleMin = Math.round((now.getTime() - new Date(run.updatedAt || 0).getTime()) / 60_000)
+      verdict.push(`Run is ACTIVE (idle ${idleMin} min). If it stays active it never finished its first advance; the check re-kicks it after 2 min.`)
+    }
+    if (currentStep?.kind === 'wait') {
+      const cfg = currentStep.config
+      verdict.push(
+        `Wait is configured as: ${String(cfg.waitUntilId ?? 'pause_days')} · ${String(cfg.days ?? '?')} ${String(cfg.waitUnit ?? 'days')}.`
+      )
+    }
+  }
+  if (lastAuto) verdict.push(`Last automatic check from this browser: ${new Date(lastAuto).toLocaleString()}.`)
+  else verdict.push('No automatic check has run from this browser yet.')
+
+  const stripped = run ? (({ history: _history, ...rest }) => rest)(run) : null
+  return {
+    generatedAt: now.toISOString(),
+    runnerEnabled: isBlueprintsRunnerEnabled(),
+    serverConfigured: isSupabaseConfigured(),
+    lastAutoTickAt: lastAuto,
+    invoice: invoice
+      ? {
+          id: invoice.id,
+          number: invoice.invoice_number,
+          status: invoice.status,
+          ppwSent: hasPpwBeenSent(invoice),
+          ppwSentAt: getPpwSentAt(invoice),
+          paperworkStatus: invoice.email_lifecycle?.paperwork_status ?? null,
+          lastReplyStatus: invoice.email_lifecycle?.last_reply_status ?? null,
+          collectionStatus: invoice.collection_status ?? null,
+          collectionDate: invoice.collection_date ?? null,
+          sendHistory: (invoice.document_send_history ?? []).map((r) => ({
+            at: r.sent_at,
+            status: r.status,
+            to: r.email_address,
+          })),
+        }
+      : {},
+    assignment: assignment ? { ...assignment } : null,
+    run: stripped ? { ...stripped } : null,
+    steps,
+    verdict,
+    recentHistory: (run?.history ?? []).slice(-15).map((ev) => ({
+      at: ev.at,
+      kind: ev.kind,
+      title: ev.title,
+      detail: ev.detail,
+      completedNodeId: ev.completedNodeId,
+    })),
+  }
+}
+
+export type DashboardStepState = 'done' | 'now' | 'next'
+
+export type BlueprintDashboardStep = {
+  id: string
+  number: number
+  name: string
+  kind: 'when' | 'wait' | 'action' | 'stop'
+  state: DashboardStepState
+  /** When this step actually ran (done steps). */
+  ranAt?: string
+  /** When this step is planned to run (current / upcoming), if it can be known. */
+  runsAt?: string
+  /** For a condition step that is still waiting: what it waits for. */
+  waitingFor?: string
+  /** What the card is set up to do. */
+  plansEmail: boolean
+  plansNote: boolean
+  /** What actually happened (done Then-do steps). */
+  emailSent?: boolean
+  noteAdded?: boolean
+  result?: string
+}
+
+export type BlueprintDashboardStatus =
+  | 'none'
+  | 'waiting'
+  | 'overdue'
+  | 'running'
+  | 'stuck'
+  | 'paused'
+  | 'done'
+  | 'stopped'
+
+export type BlueprintDashboard = {
+  status: BlueprintDashboardStatus
+  statusText: string
+  blueprintName: string
+  lastCheckedAt: string | null
+  nextRunAt: string | null
+  nextRunText: string
+  steps: BlueprintDashboardStep[]
+  snapshot: BlueprintDebugSnapshot
+}
+
+const EMAIL_ACTIONS = new Set(['email_broker_packet', 'email_payment_status', 'email_followup'])
+
+/** Add a pause_days style duration to a time (days land at 09:00 like the runner). */
+function addWaitDuration(fromIso: string, days: unknown, unit: unknown): string | undefined {
+  const n = Number(days)
+  if (!Number.isFinite(n)) return undefined
+  const d = new Date(fromIso)
+  if (unit === 'minutes') return new Date(d.getTime() + n * 60_000).toISOString()
+  if (unit === 'hours') return new Date(d.getTime() + n * 3_600_000).toISOString()
+  d.setDate(d.getDate() + n)
+  d.setHours(9, 0, 0, 0)
+  return d.toISOString()
+}
+
+/** Simple per-step view of an invoice's blueprint: what ran, when, and what runs next. */
+export function buildBlueprintDashboard(invoiceId: string): BlueprintDashboard {
+  const snapshot = debugInvoiceBlueprint(invoiceId)
+  const invoice = getInvoiceById(invoiceId)
+  const run = invoice ? getPrimaryRunForInvoice(invoice) : null
+  const now = Date.now()
+
+  // Only this enrollment's events (after the latest "enrolled").
+  const all = run?.history ?? []
+  let startIdx = 0
+  all.forEach((ev, i) => {
+    if (ev.kind === 'enrolled') startIdx = i
+  })
+  const episode = all.slice(startIdx)
+
+  const graphSteps = snapshot.steps.filter((s) => s.kind !== 'trigger')
+  const currentIdx = graphSteps.findIndex((s) => s.isCurrent)
+  const live = run && (run.status === 'waiting' || run.status === 'active' || run.status === 'paused')
+  const finished = run && run.status === 'completed'
+
+  const steps: BlueprintDashboardStep[] = graphSteps.map((s, i) => {
+    const ids = Array.isArray(s.config.actionIds) ? (s.config.actionIds as string[]) : []
+    const kind: BlueprintDashboardStep['kind'] =
+      s.kind === 'wait' ? 'wait' : s.kind === 'action' ? 'action' : s.kind === 'stop' ? 'stop' : 'when'
+    let state: DashboardStepState = 'next'
+    if (finished) state = 'done'
+    else if (currentIdx >= 0 && i < currentIdx) state = 'done'
+    else if (currentIdx >= 0 && i === currentIdx) state = s.kind === 'action' ? 'done' : 'now'
+
+    const actionEv = [...episode].reverse().find((ev) => ev.kind === 'action' && ev.stepNodeId === s.id)
+    const doneEv = [...episode].reverse().find((ev) => ev.completedNodeId === s.id)
+    const step: BlueprintDashboardStep = {
+      id: s.id,
+      number: i + 1,
+      name:
+        s.kind === 'wait'
+          ? `${s.label} (${String(s.config.days ?? '?')} ${String(s.config.waitUnit ?? 'days')})`
+          : s.label,
+      kind,
+      state,
+      plansEmail: ids.some((id) => EMAIL_ACTIONS.has(id)),
+      plansNote: ids.includes('add_note'),
+    }
+    if (state === 'done') {
+      step.ranAt = actionEv?.at ?? doneEv?.at
+      if (kind === 'action' && actionEv) {
+        step.result = actionEv.detail
+        step.emailSent =
+          actionEv.emailSent ?? (step.plansEmail ? /sent|emailed/i.test(actionEv.detail ?? '') : undefined)
+        step.noteAdded =
+          actionEv.noteAdded ?? (step.plansNote ? /note/i.test(actionEv.detail ?? '') : undefined)
+      }
+    }
+    return step
+  })
+
+  // Fill missing "ran at" with the next known time (steps passed together).
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    if (steps[i].state === 'done' && !steps[i].ranAt) {
+      steps[i].ranAt = steps.slice(i + 1).find((x) => x.ranAt)?.ranAt ?? episode[0]?.at
+    }
+  }
+
+  // Plan forward from the current step.
+  if (live && currentIdx >= 0) {
+    const cur = graphSteps[currentIdx]
+    let t: string | undefined =
+      cur.kind === 'wait'
+        ? run?.waitUntil ??
+          (cur.waitResolves && !('error' in cur.waitResolves) ? cur.waitResolves.waitUntil : undefined)
+        : undefined
+    if (cur.kind !== 'wait' && cur.kind !== 'trigger' && cur.whenPasses === false) {
+      steps[currentIdx].waitingFor = cur.label
+    }
+    if (cur.kind === 'wait') steps[currentIdx].runsAt = t
+    for (let i = currentIdx + 1; i < graphSteps.length; i += 1) {
+      const g = graphSteps[i]
+      if (g.kind === 'wait') {
+        const waitId = g.config.waitUntilId ?? 'pause_days'
+        t = t && waitId === 'pause_days' ? addWaitDuration(t, g.config.days, g.config.waitUnit) : undefined
+        steps[i].runsAt = t
+      } else if (g.kind === 'action' || g.kind === 'stop') {
+        steps[i].runsAt = t
+      } else if (g.whenPasses === false) {
+        steps[i].waitingFor = g.label
+        t = undefined
+      }
+    }
+  } else if (live && currentIdx < 0) {
+    // Still on the trigger card: the first step runs on the next check.
+    if (steps[0]) steps[0].runsAt = new Date(now).toISOString()
+  }
+
+  const nextStep = steps.find((s) => s.state !== 'done')
+  const nextRunAt = nextStep?.runsAt ?? null
+  const fmtIn = (iso: string) => {
+    const diff = new Date(iso).getTime() - now
+    const mins = Math.round(Math.abs(diff) / 60_000)
+    const span = mins < 90 ? `${mins} min` : mins < 2160 ? `${Math.round(mins / 60)} h` : `${Math.round(mins / 1440)} days`
+    return diff >= 0 ? `in ${span}` : `${span} overdue`
+  }
+
+  let status: BlueprintDashboardStatus = 'none'
+  let statusText = 'Not running'
+  const idleMs = run ? now - new Date(run.updatedAt || 0).getTime() : 0
+  if (!run) {
+    status = 'none'
+    statusText = 'No run on this invoice'
+  } else if (run.status === 'completed') {
+    status = 'done'
+    statusText = 'Finished'
+  } else if (run.status === 'stopped') {
+    status = 'stopped'
+    statusText = `Stopped · ${run.currentStep.replace(/^Stopped · /, '')}`
+  } else if (run.status === 'paused') {
+    status = 'paused'
+    statusText = 'Paused while the invoice is on hold'
+  } else if (run.status === 'active' && idleMs > 2 * 60_000) {
+    status = 'stuck'
+    statusText = 'Stuck — press Run check now'
+  } else if (run.status === 'active') {
+    status = 'running'
+    statusText = 'Running'
+  } else if (nextRunAt && new Date(nextRunAt).getTime() < now) {
+    status = 'overdue'
+    statusText = 'Due now — running shortly'
+  } else {
+    status = 'waiting'
+    statusText = 'Waiting'
+  }
+
+  let nextRunText = '—'
+  if (status === 'stuck') nextRunText = 'On the next check'
+  else if (nextStep?.waitingFor && !nextRunAt) nextRunText = `When “${nextStep.waitingFor}” happens`
+  else if (nextRunAt) nextRunText = fmtIn(nextRunAt)
+  else if (status === 'waiting') nextRunText = 'After the previous step'
+
+  return {
+    status,
+    statusText,
+    blueprintName: run?.blueprintName ?? String(snapshot.assignment?.blueprintName ?? ''),
+    lastCheckedAt: snapshot.lastAutoTickAt ?? run?.updatedAt ?? null,
+    nextRunAt,
+    nextRunText,
+    steps,
+    snapshot,
+  }
+}
+
+/**
+ * Runs that no clock will ever wake: a parked When that is already true, an
+ * "active" run that never finished its first advance, or a Wait with no wake time.
+ * The server check only looks at due Waits, so this always runs in the browser too.
+ */
+async function healStuckInvoiceRuns(
+  now: number,
+  authorName?: string
+): Promise<{ advanced: number; logs: BlueprintRunnerLog[] }> {
+  const logs: BlueprintRunnerLog[] = []
+  let advanced = 0
+  for (const run of listBlueprintRuns()) {
+    if (run.subject !== 'invoice' || !run.subjectId) continue
+    // Self-heal runs that no clock will ever wake:
+    //  - parked on a When whose condition is already true (event was missed, e.g. PPW sent)
+    //  - left "active" without finishing its first advance (never reached a Wait)
+    if (!run.waitUntil && (run.status === 'waiting' || run.status === 'active')) {
+      const idleMs = now - new Date(run.updatedAt || 0).getTime()
+      if (run.status === 'active') {
+        if (idleMs < STUCK_ACTIVE_RUN_MS) continue
+        const log = await advanceInvoiceRun(run.subjectId, { forceWake: true, authorName })
+        logs.push(log)
+        if (log.ok) advanced += 1
+      } else if (await tryAdvanceParkedWhen(run.subjectId)) {
+        logs.push({ invoiceId: run.subjectId, ok: true, detail: 'Advanced parked When (tick).' })
+        advanced += 1
+      } else {
+        // Waiting on a Wait step but no wake time was ever stored — schedule it now.
+        const inv = getInvoiceById(run.subjectId)
+        const loaded = inv ? loadAssignedGraph(run.subjectId) : null
+        const node = loaded?.bp.nodes.find((n) => n.id === run.currentNodeId)
+        if (inv && node && node.data.kind === 'wait') {
+          const resolved = resolveBlueprintWaitUntil({ kind: 'invoice', invoice: inv }, node)
+          upsertBlueprintRun(
+            { ...run, waitUntil: resolved.waitUntil },
+            {
+              historyEvent: {
+                kind: 'wait',
+                title: `Wait scheduled · ${resolved.detail}`,
+                detail: `Wake ${new Date(resolved.waitUntil).toLocaleString()}`,
+              },
+            }
+          )
+          logs.push({ invoiceId: run.subjectId, ok: true, detail: 'Scheduled missing wake time.' })
+        }
+      }
+    }
+  }
+  return { advanced, logs }
+}
+
+/** An "active" run idle this long never finished its first advance — kick it again. */
+const STUCK_ACTIVE_RUN_MS = 2 * 60 * 1000
+
 export async function tickBlueprintRuns(authorName?: string): Promise<{
   advanced: number
   logs: BlueprintRunnerLog[]
@@ -1615,13 +2103,17 @@ export async function tickBlueprintRuns(authorName?: string): Promise<{
     const { invokeBlueprintWakeCron } = await import('../../services/blueprintWakeCron')
     const server = await invokeBlueprintWakeCron(40)
     if (server) {
+      const healed = await healStuckInvoiceRuns(Date.now(), authorName)
       return {
-        advanced: server.advanced,
-        logs: (server.details ?? []).map((detail) => ({
-          invoiceId: '',
-          ok: true,
-          detail,
-        })),
+        advanced: server.advanced + healed.advanced,
+        logs: [
+          ...(server.details ?? []).map((detail) => ({
+            invoiceId: '',
+            ok: true,
+            detail,
+          })),
+          ...healed.logs,
+        ],
       }
     }
   } catch (err) {
@@ -1629,19 +2121,19 @@ export async function tickBlueprintRuns(authorName?: string): Promise<{
   }
 
   const now = Date.now()
-  const logs: BlueprintRunnerLog[] = []
-  let advanced = 0
+  const healed = await healStuckInvoiceRuns(now, authorName)
+  const logs: BlueprintRunnerLog[] = [...healed.logs]
+  let advanced = healed.advanced
 
   const { advanceBrokerRun } = await import('./blueprintBrokerRunner')
   const { advanceBatchRun } = await import('./blueprintBatchRunner')
 
   for (const run of listBlueprintRuns()) {
     if (!run.subjectId) continue
-    if (run.status !== 'waiting') continue
-    // Parked Whens have null waitUntil — only clock Waits tick here
-    if (!run.waitUntil || new Date(run.waitUntil).getTime() > now) continue
 
     if (run.subject === 'invoice') {
+      if (run.status !== 'waiting') continue
+      if (!run.waitUntil || new Date(run.waitUntil).getTime() > now) continue
       const log = await advanceInvoiceRun(run.subjectId, {
         forceWake: true,
         authorName,
@@ -1650,6 +2142,10 @@ export async function tickBlueprintRuns(authorName?: string): Promise<{
       if (log.ok) advanced += 1
       continue
     }
+
+    if (run.status !== 'waiting') continue
+    // Parked Whens have null waitUntil — only clock Waits tick here
+    if (!run.waitUntil || new Date(run.waitUntil).getTime() > now) continue
 
     if (run.subject === 'broker') {
       const log = advanceBrokerRun(run.subjectId, {

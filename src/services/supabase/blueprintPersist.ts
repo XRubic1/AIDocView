@@ -90,6 +90,11 @@ function parseHistory(raw: unknown): BlueprintRunHistoryEvent[] | undefined {
       blueprintName:
         typeof e.blueprintName === 'string' ? e.blueprintName : undefined,
       blueprintId: typeof e.blueprintId === 'string' ? e.blueprintId : undefined,
+      completedNodeId:
+        typeof e.completedNodeId === 'string' ? e.completedNodeId : undefined,
+      stepNodeId: typeof e.stepNodeId === 'string' ? e.stepNodeId : undefined,
+      emailSent: typeof e.emailSent === 'boolean' ? e.emailSent : undefined,
+      noteAdded: typeof e.noteAdded === 'boolean' ? e.noteAdded : undefined,
     })
   }
   return out
@@ -155,14 +160,33 @@ export async function deleteBlueprintFromDb(id: string): Promise<void> {
   if (error) warn('blueprint delete', error.message)
 }
 
-export async function persistBlueprintRun(run: BlueprintRunRow): Promise<void> {
-  if (!isSupabaseConfigured()) return
-  const supabase = getSupabase()
-  if (!supabase) return
-  const { error } = await supabase
-    .from('blueprint_runs')
-    .upsert(blueprintRunToRow(run), { onConflict: 'id' })
-  if (error) warn('run upsert', error.message)
+const latestRunToSave = new Map<string, BlueprintRunRow>()
+const runSaveChain = new Map<string, Promise<void>>()
+
+/**
+ * Save a run. Saves for the same run are queued and only the newest state is written,
+ * so an older save can never finish last and roll the run back.
+ */
+export function persistBlueprintRun(run: BlueprintRunRow): Promise<void> {
+  if (!isSupabaseConfigured()) return Promise.resolve()
+  latestRunToSave.set(run.id, run)
+  const prev = runSaveChain.get(run.id) ?? Promise.resolve()
+  const next = prev.then(async () => {
+    const latest = latestRunToSave.get(run.id)
+    if (!latest) return
+    latestRunToSave.delete(run.id)
+    const supabase = getSupabase()
+    if (!supabase) return
+    const { error } = await supabase
+      .from('blueprint_runs')
+      .upsert(blueprintRunToRow(latest), { onConflict: 'id' })
+    if (error) warn('run upsert', error.message)
+  })
+  runSaveChain.set(run.id, next)
+  void next.finally(() => {
+    if (runSaveChain.get(run.id) === next) runSaveChain.delete(run.id)
+  })
+  return next
 }
 
 export async function deleteBlueprintRunFromDb(id: string): Promise<void> {

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Client, ServiceTier } from '../types/client'
 import {
   getAllClients,
@@ -52,6 +53,7 @@ export default function Clients() {
   const { showToast } = useToast()
   const { resolved } = useAuth()
   const [clients, setClients] = useState<Client[]>(() => getAllClients())
+  const [searchParams, setSearchParams] = useSearchParams()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [activeTab, setActiveTab] = useState<ClientTab>('ar')
@@ -128,6 +130,18 @@ export default function Clients() {
   const handleClientClick = (client: Client) => {
     setSelectedClient(getAllClients().find((c) => c.id === client.id) ?? client)
   }
+
+  // Deep link from an invoice: /clients?client=<id> opens that carrier.
+  useEffect(() => {
+    const ref = searchParams.get('client')
+    if (!ref) return
+    const match = clients.find((c) => c.id === ref)
+    if (!match) return
+    setSelectedClient(getAllClients().find((c) => c.id === match.id) ?? match)
+    const next = new URLSearchParams(searchParams)
+    next.delete('client')
+    setSearchParams(next, { replace: true })
+  }, [clients, searchParams, setSearchParams])
 
   const handleCloseModal = () => {
     setSelectedClient(null)

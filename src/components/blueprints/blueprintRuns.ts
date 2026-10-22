@@ -35,6 +35,13 @@ export type BlueprintRunHistoryEvent = {
   /** Blueprint name at the time of the event (survives later switches). */
   blueprintName?: string
   blueprintId?: string
+  /** Graph node that finished when this event was logged (drives "completed at" on steps). */
+  completedNodeId?: string
+  /** Then-do card this event belongs to. */
+  stepNodeId?: string
+  /** Then-do results: an email actually went out / a note was written. */
+  emailSent?: boolean
+  noteAdded?: boolean
 }
 
 export interface BlueprintRunRow {
@@ -208,8 +215,28 @@ function writeAll(list: BlueprintRunRow[]): void {
 }
 
 /** Replace runs from Supabase hydrate; marks seeded so demo seed does not reappear. */
+function lastEventAt(row: BlueprintRunRow | undefined): string {
+  const h = row?.history ?? []
+  return h.length ? h[h.length - 1].at : ''
+}
+
 export function replaceBlueprintRunsFromHydrate(rows: BlueprintRunRow[]): void {
-  writeAll(rows)
+  // Keep whichever copy saw the latest step: a DB row can land before this
+  // browser's newest save does, and must not roll the run back.
+  const local = new Map(readAll().map((r) => [r.id, r]))
+  const merged = rows.map((incoming) => {
+    const mine = local.get(incoming.id)
+    return mine && lastEventAt(mine) > lastEventAt(incoming) ? mine : incoming
+  })
+  const incomingIds = new Set(rows.map((r) => r.id))
+  const freshCutoff = Date.now() - 2 * 60 * 1000
+  for (const mine of local.values()) {
+    // Created here moments ago and not saved yet — keep it.
+    if (!incomingIds.has(mine.id) && new Date(mine.updatedAt).getTime() > freshCutoff) {
+      merged.push(mine)
+    }
+  }
+  writeAll(merged)
   localStorage.setItem(SEED_FLAG, '1')
   try {
     window.dispatchEvent(new CustomEvent('credyx:blueprint-runs-changed'))
@@ -399,6 +426,23 @@ export function upsertBlueprintRun(
       })
     }
     if (opts?.extraHistory?.length) events.push(...opts.extraHistory)
+
+    // Stamp which step just finished so the invoice can show when it was completed.
+    const finishedNode =
+      prev?.currentNodeId && prev.currentNodeId !== row.currentNodeId
+        ? prev.currentNodeId
+        : row.status === 'completed' && prev?.status !== 'completed'
+          ? row.currentNodeId
+          : undefined
+    if (finishedNode && events.length === 0) {
+      events.push({
+        kind: inferHistoryKind(prev, row),
+        title: row.currentStep || BLUEPRINT_RUN_STATUS_LABELS[row.status],
+      })
+    }
+    if (finishedNode && events.length > 0) {
+      ;(events[0] as { completedNodeId?: string }).completedNodeId = finishedNode
+    }
     // Stable order: wall clock + monotonic seq (avoids Done sorting before Then-do)
     let seq = 0
     const baseSeq =
@@ -413,6 +457,10 @@ export function upsertBlueprintRun(
         detail: ev.detail,
         blueprintName: ev.blueprintName ?? row.blueprintName,
         blueprintId: ev.blueprintId ?? row.blueprintId,
+        completedNodeId: ev.completedNodeId,
+        stepNodeId: ev.stepNodeId,
+        emailSent: ev.emailSent,
+        noteAdded: ev.noteAdded,
       })
       seq += 1
     }

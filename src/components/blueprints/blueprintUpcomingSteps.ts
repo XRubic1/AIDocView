@@ -46,7 +46,7 @@ function describe(data: BlueprintNodeData): { title: string; detail: string } {
   if (data.kind === 'wait') {
     const wait = lookupWaitUntilById(data.waitUntilId)
     const line = wait
-      ? formatCatalogCardLine(wait, data.days)
+      ? formatCatalogCardLine(wait, data.days, data.waitUnit)
       : data.fieldKey?.trim() || 'Wait not set'
     return { title, detail: line }
   }
@@ -92,7 +92,7 @@ export function resolveCurrentNodeId(
       if (n.data.kind !== 'wait') return false
       const wait = lookupWaitUntilById(n.data.waitUntilId)
       const line = wait
-        ? formatCatalogCardLine(wait, n.data.days)
+        ? formatCatalogCardLine(wait, n.data.days, n.data.waitUnit)
         : n.data.fieldKey ?? ''
       return (
         line.toLowerCase().includes(step.replace(/^wait until\s*[·•]\s*/i, '')) ||

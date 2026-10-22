@@ -229,6 +229,21 @@ export default function Brokers() {
     setSelectedBroker(broker)
   }
 
+  // Deep link from an invoice: /brokers?broker=<id or name> opens that broker's drawer.
+  useEffect(() => {
+    const ref = searchParams.get('broker')
+    if (!ref) return
+    const needle = ref.trim().toLowerCase()
+    const match = brokers.find(
+      (b) => b.id === ref || b.name.trim().toLowerCase() === needle
+    )
+    if (!match) return
+    setSelectedBroker(match)
+    const next = new URLSearchParams(searchParams)
+    next.delete('broker')
+    setSearchParams(next, { replace: true })
+  }, [brokers, searchParams, setSearchParams])
+
   /** Slide the drawer out, then clear selection. */
   const handleCloseDetailDrawer = () => {
     if (isMerging) return

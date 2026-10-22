@@ -13,6 +13,8 @@ import { formatWhenCardLine } from '../components/blueprints/blueprintWhenMatch'
 import { getSavedBlueprint } from '../components/blueprints/blueprintStore'
 import { getStoredPrimaryRunForInvoice } from '../components/blueprints/blueprintRuns'
 import type { InvoiceMobileInsight } from './invoiceMobileInsights'
+import { getPpwSentAt } from './ppwSent'
+import { resolveBlueprintWaitUntil } from '../components/blueprints/blueprintWaitUntil'
 
 const EMAIL_ACTION_IDS = new Set([
   'email_broker_packet',
@@ -161,6 +163,10 @@ export type InvoiceBlueprintChaseStep = {
   label: string
   detail: string
   state: BlueprintChaseStepState
+  /** ISO time this step finished, when known (done steps only). */
+  completedAt?: string
+  /** ISO time this step is due to run (current Wait and the step right after it). */
+  runsAt?: string
 }
 
 export type InvoiceBlueprintChaseTrack = {
@@ -254,7 +260,7 @@ function stepDetail(
 
 /** Numbered path for the live blueprint. Current step is the one the run is on. */
 export function getInvoiceBlueprintChaseTrack(
-  invoice: Pick<Invoice, 'id' | 'invoice_number'>,
+  invoice: Pick<Invoice, 'id' | 'invoice_number'> & Partial<Invoice>,
   now: Date = new Date()
 ): InvoiceBlueprintChaseTrack | null {
   const run = getStoredPrimaryRunForInvoice(invoice)
@@ -268,9 +274,55 @@ export function getInvoiceBlueprintChaseTrack(
   const currentIndex = run.currentNodeId
     ? nodes.findIndex((node) => node.id === run.currentNodeId)
     : -1
+  // When each step finished. A step that was passed through in the same advance as a later
+  // one takes that later time, since both completed together.
+  const doneAtByNode = new Map<string, string>()
+  for (const ev of run.history ?? []) {
+    if (ev.completedNodeId) doneAtByNode.set(ev.completedNodeId, ev.at)
+  }
+  /** Runs started before completion times were recorded: use what the invoice itself knows. */
+  const knownFactTime = (node: BlueprintFlowNode): string | undefined => {
+    const check = node.data.checkId
+    if (check === 'ppw_sent') return invoice.document_send_history ? (getPpwSentAt(invoice as Invoice) ?? undefined) : undefined
+    if (check === 'paperwork_good') return invoice.email_lifecycle?.paperwork?.lastInboundAt
+    return undefined
+  }
+  const completedAtFor = (index: number): string | undefined => {
+    for (let i = index; i <= currentIndex && i < nodes.length; i += 1) {
+      const at = doneAtByNode.get(nodes[i].id)
+      if (at) return at
+    }
+    return knownFactTime(nodes[index])
+  }
+  // The wake time is normally stored on the run. If it is missing, work it out the same way
+  // the runner does, counting from when the run last changed.
+  let wakeAt: string | null = run.waitUntil
+  const currentNode = currentIndex >= 0 ? nodes[currentIndex] : undefined
+  if (!wakeAt && currentNode?.data.kind === 'wait') {
+    try {
+      wakeAt = resolveBlueprintWaitUntil(
+        { kind: 'invoice', invoice: invoice as Invoice },
+        currentNode,
+        new Date(run.updatedAt || Date.now())
+      ).waitUntil
+    } catch {
+      wakeAt = null
+    }
+  }
+  const waitingOnClock = currentNode?.data.kind === 'wait' && Boolean(wakeAt)
+  const runsAtFor = (index: number): string | undefined => {
+    if (!waitingOnClock || !wakeAt) return undefined
+    if (index === currentIndex) return wakeAt
+    // The step right after a Wait fires the moment the Wait ends.
+    if (index === currentIndex + 1 && nodes[index]?.data.kind === 'action') return wakeAt
+    return undefined
+  }
+
   return {
     blueprintName: run.blueprintName || bp.name,
     steps: nodes.map((node, index) => ({
+      completedAt: currentIndex >= 0 && index < currentIndex ? completedAtFor(index) : undefined,
+      runsAt: index >= currentIndex ? runsAtFor(index) : undefined,
       id: node.id,
       number: index + 1,
       label: node.data.label?.trim() || statusName(node),
@@ -280,7 +332,7 @@ export function getInvoiceBlueprintChaseTrack(
         index,
         currentIndex,
         nodes,
-        run.waitUntil,
+        wakeAt,
         now
       ),
       state: currentIndex < 0 ? 'upcoming' : index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'upcoming',

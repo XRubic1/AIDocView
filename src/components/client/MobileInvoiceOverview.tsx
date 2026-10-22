@@ -101,6 +101,10 @@ interface MobileInvoiceOverviewProps {
   onOpenBrokerRisk?: () => void
   /** Admin only: show the live blueprint's next chase on the overview. */
   showBlueprintChase?: boolean
+  /** Admin only: open this invoice's broker. */
+  onOpenBroker?: () => void
+  /** Admin only: open this invoice's carrier (client). */
+  onOpenCarrier?: () => void
 }
 
 /** Icon for a mobile insight row. */
@@ -227,6 +231,8 @@ export default function MobileInvoiceOverview({
   onConfirmAdminPendingPayment,
   brokerRiskLevel = null,
   onOpenBrokerRisk,
+  onOpenBroker,
+  onOpenCarrier,
   showBlueprintChase = false,
 }: MobileInvoiceOverviewProps) {
   const [chaseRev, setChaseRev] = useState(0)
@@ -731,6 +737,26 @@ export default function MobileInvoiceOverview({
           <dt>Pay date</dt>
           <dd className="tabular-nums">{payDateText ?? '—'}</dd>
         </div>
+        {onOpenBroker ? (
+          <div className="inv-ov__fact">
+            <dt>Broker</dt>
+            <dd>
+              <button type="button" className="inv-ov__link" onClick={onOpenBroker}>
+                {invoice.broker_name || 'Open broker'}
+              </button>
+            </dd>
+          </div>
+        ) : null}
+        {onOpenCarrier ? (
+          <div className="inv-ov__fact">
+            <dt>Carrier</dt>
+            <dd>
+              <button type="button" className="inv-ov__link" onClick={onOpenCarrier}>
+                {invoice.client_name || 'Open carrier'}
+              </button>
+            </dd>
+          </div>
+        ) : null}
         {showScheduledPayRow && scheduledPayDate ? (
           <div className="inv-ov__fact">
             <dt>Scheduled pay</dt>

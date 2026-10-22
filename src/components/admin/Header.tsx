@@ -115,7 +115,7 @@ export function Header({ userName, userRole = 'Admin' }: HeaderProps) {
             </div>
             <button
               onClick={() => {
-                void signOutAdmin().then(() => navigate('/login'))
+                void signOutAdmin().then(() => navigate('/logistics.login'))
               }}
               className="flex items-center space-x-2 px-3 py-2 text-sm transition-colors"
               style={{ color: '#819291' }}

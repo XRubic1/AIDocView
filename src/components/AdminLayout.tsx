@@ -38,6 +38,7 @@ import CredyxWordmark from './CredyxWordmark'
 import AssistantFab from './client/assistant/AssistantFab'
 import AssistantHeaderBuddy from './client/assistant/AssistantHeaderBuddy'
 import { signOutAdmin } from '../services/adminAuthService'
+import { useBlueprintAutoTick } from '../hooks/useBlueprintAutoTick'
 import { useAuth } from '../context/AuthContext'
 import { useTenantDataRevision } from '../hooks/useTenantDataRevision'
 import '../styles/clientPortal.css'
@@ -68,6 +69,7 @@ export default function AdminLayout({
   const { resolvedTheme } = useTheme()
   const { resolved } = useAuth()
   const tenantRevision = useTenantDataRevision()
+  useBlueprintAutoTick()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>(() => getAdminNotifications())
@@ -186,7 +188,7 @@ export default function AdminLayout({
   }
 
   const handleLogout = () => {
-    void signOutAdmin().then(() => navigate('/login'))
+    void signOutAdmin().then(() => navigate('/logistics.login'))
   }
 
   const sidebarContent = (isMobile = false) => {

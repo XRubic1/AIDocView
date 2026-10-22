@@ -339,3 +339,22 @@
   border-color: color-mix(in srgb, var(--cp-error) 45%, var(--cp-border)) !important;
   background: color-mix(in srgb, var(--cp-error) 6%, var(--cp-card));
 }
+
+.client-portal .inv-ov__link {
+  padding: 0;
+  max-width: 100%;
+  font: inherit;
+  font-weight: 600;
+  color: var(--cp-accent, #1684fe);
+  text-align: right;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-portal .inv-ov__link:hover {
+  text-decoration: underline;
+}

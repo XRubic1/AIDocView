@@ -7,9 +7,34 @@ interface InvoiceBlueprintChaseTrackProps {
   subtitle: string
 }
 
-function stateLabel(state: 'done' | 'current' | 'upcoming'): string {
+function formatDone(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function stateLabelWithRun(
+  state: 'done' | 'current' | 'upcoming',
+  completedAt?: string,
+  runsAt?: string
+): string {
+  const base = stateLabel(state, completedAt)
+  const when = formatDone(runsAt)
+  return when && state !== 'done' ? `${base} · Runs ${when}` : base
+}
+
+function stateLabel(state: 'done' | 'current' | 'upcoming', completedAt?: string): string {
   if (state === 'current') return 'Current step'
-  if (state === 'done') return 'Done'
+  if (state === 'done') {
+    const when = formatDone(completedAt)
+    return when ? `Done · ${when}` : 'Done'
+  }
   return 'Upcoming'
 }
 
@@ -40,7 +65,9 @@ export default function InvoiceBlueprintChaseTrackView({
               type="button"
               className="inv-chase-steps__dot"
               aria-current={step.state === 'current' ? 'step' : undefined}
-              aria-label={`${step.number}. ${step.label}. ${step.detail}`}
+              aria-label={`${step.number}. ${step.label}. ${step.detail}${
+                step.completedAt ? `. Completed ${formatDone(step.completedAt)}` : ''
+              }${step.runsAt ? `. Runs ${formatDone(step.runsAt)}` : ''}`}
               onMouseEnter={() => setOpenId(step.id)}
               onFocus={() => setOpenId(step.id)}
               onBlur={() => setOpenId(null)}
@@ -57,7 +84,7 @@ export default function InvoiceBlueprintChaseTrackView({
         <div className="inv-chase-steps__detail" role="tooltip">
           <span className="inv-chase-steps__tip-title">{open.label}</span>
           <span className={`inv-chase-steps__tip-state is-${open.state}`}>
-            {stateLabel(open.state)}
+            {stateLabelWithRun(open.state, open.completedAt, open.runsAt)}
           </span>
           <span className="inv-chase-steps__tip-detail">{open.detail}</span>
         </div>

@@ -211,7 +211,7 @@ export function compileBlueprintIndex(
     if (n.data.kind === 'wait') {
       const wait = lookupWaitUntilById(n.data.waitUntilId)
       const line = wait
-        ? formatCatalogCardLine(wait, n.data.days)
+        ? formatCatalogCardLine(wait, n.data.days, n.data.waitUnit)
         : n.data.fieldKey?.trim() || 'Wait not set'
       waits.push({
         nodeId: n.id,

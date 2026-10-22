@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   CheckCircle2,
   Clock,
   GitBranch,
+  Maximize2,
+  Minimize2,
   PauseCircle,
   PlayCircle,
   StopCircle,
@@ -36,11 +39,16 @@ import {
 import { formatCatalogCardLine, lookupWaitUntilById } from './blueprintCatalog'
 import {
   enrollInvoiceIfNeeded,
+  rerunInvoiceBlueprint,
 } from './blueprintRunner'
 import {
   isBlueprintsRunnerEnabled,
 } from '../../config/blueprintsRuntime'
+import InvoiceBlueprintDebug from './InvoiceBlueprintDebug'
+import BlueprintRunDashboard from './BlueprintRunDashboard'
+import '../../styles/blueprintRunDashboard.css'
 import '../../styles/invoiceBlueprintTab.css'
+import '../../styles/documentViewer.css'
 
 type HealthKind = 'ok' | 'attention' | 'idle' | 'none'
 
@@ -188,6 +196,15 @@ function historyKindLabel(kind: BlueprintRunHistoryKind): string {
   }
 }
 
+type BlueprintTab = 'overview' | 'steps' | 'debug' | 'history'
+
+const TABS: Array<{ id: BlueprintTab; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'steps', label: 'Next steps' },
+  { id: 'debug', label: 'Debug' },
+  { id: 'history', label: 'History' },
+]
+
 interface InvoiceBlueprintPanelProps {
   invoice: Invoice
 }
@@ -199,6 +216,12 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
   )
   const [run, setRun] = useState(() => getPrimaryRunForInvoice(invoice))
   const [history, setHistory] = useState(() => listInvoiceBlueprintHistory(invoice))
+  const [rerunBusy, setRerunBusy] = useState(false)
+  const [rerunMsg, setRerunMsg] = useState<string | null>(null)
+  const [rerunConfirm, setRerunConfirm] = useState(false)
+  const [tab, setTab] = useState<BlueprintTab>('overview')
+  const [full, setFull] = useState(false)
+  const [showMore, setShowMore] = useState(false)
 
   useEffect(() => {
     const refresh = () => {
@@ -234,6 +257,21 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
     })
   }, [liveRun, effectiveBlueprintId])
 
+  // Esc leaves full screen; lock page scroll while it is open.
+  useEffect(() => {
+    if (!full) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFull(false)
+    }
+    document.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [full])
+
   const handleAssign = (blueprintId: string) => {
     if (!blueprintId) {
       clearInvoiceBlueprintAssignment(invoice.id)
@@ -243,6 +281,24 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
     const bp = blueprints.find((b) => b.id === blueprintId)
     const name = bp?.name ?? 'Untitled blueprint'
     setAssignment(assignInvoiceBlueprint(invoice.id, blueprintId, name))
+  }
+
+  const handleRerun = async () => {
+    if (rerunBusy) return
+    setRerunConfirm(false)
+    setRerunBusy(true)
+    setRerunMsg(null)
+    try {
+      const log = await rerunInvoiceBlueprint(invoice.id)
+      setRerunMsg(log.ok ? `Rerun started. ${log.detail}` : `Could not rerun: ${log.detail}`)
+    } catch (err) {
+      setRerunMsg(err instanceof Error ? err.message : 'Could not rerun this blueprint.')
+    } finally {
+      setRerunBusy(false)
+      setAssignment(getInvoiceBlueprintAssignment(invoice.id))
+      setRun(getPrimaryRunForInvoice(invoice))
+      setHistory(listInvoiceBlueprintHistory(invoice))
+    }
   }
 
   const handleStartEnrollment = () => {
@@ -271,7 +327,7 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
       : undefined
     const stepLine = waitNode
       ? wait
-        ? formatCatalogCardLine(wait, waitNode.data.days)
+        ? formatCatalogCardLine(wait, waitNode.data.days, waitNode.data.waitUnit)
         : waitNode.data.fieldKey || 'Wait until…'
       : undefined
     const waitDays = Number(waitNode?.data.days) || 5
@@ -289,8 +345,8 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
     )
   }
 
-  return (
-    <div className="inv-bp">
+  const overviewBlock = (
+    <>
       <div className={`inv-bp__health inv-bp__health--${health.kind}`}>
         <div className="inv-bp__health-icon" aria-hidden>
           {health.kind === 'attention' ? (
@@ -384,6 +440,46 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
               <span className="inv-bp__muted">Updated</span>
               <span className="inv-bp__value">{formatWhen(run.updatedAt)}</span>
             </div>
+            {runnerOn ? (
+              <div className="inv-bp__run-row" style={{ marginTop: 10 }}>
+                {rerunBusy ? (
+                  <button type="button" className="inv-bp__btn" disabled>
+                    <span className="dv-spinner" aria-hidden style={{ width: 14, height: 14, borderWidth: 2, display: 'inline-block', marginRight: 8, verticalAlign: 'middle' }} />
+                    Rerunning…
+                  </button>
+                ) : rerunConfirm ? (
+                  <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button type="button" className="inv-bp__btn" onClick={() => void handleRerun()}>
+                      Yes, rerun from the start
+                    </button>
+                    <button type="button" className="inv-bp__btn" onClick={() => setRerunConfirm(false)}>
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="inv-bp__btn"
+                    onClick={() => {
+                      setRerunMsg(null)
+                      setRerunConfirm(true)
+                    }}
+                  >
+                    Rerun blueprint
+                  </button>
+                )}
+              </div>
+            ) : null}
+            {rerunConfirm && !rerunBusy ? (
+              <p className="inv-bp__meta" style={{ marginTop: 6 }}>
+                This stops the current run and starts a new one. Steps that send emails may send again.
+              </p>
+            ) : null}
+            {rerunMsg ? (
+              <p className="inv-bp__meta" style={{ marginTop: 6 }}>
+                {rerunMsg}
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="inv-bp__empty">
@@ -404,6 +500,10 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
         )}
       </section>
 
+    </>
+  )
+  const stepsBlock = (
+    <>
       {run && run.status !== 'completed' && run.status !== 'stopped' ? (
         <section className="inv-bp__card">
           <div className="inv-bp__card-head">
@@ -447,6 +547,16 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
         </section>
       ) : null}
 
+    </>
+  )
+  const debugBlock = (
+    <>
+      <InvoiceBlueprintDebug invoice={invoice} />
+
+    </>
+  )
+  const historyBlock = (
+    <>
       <section className="inv-bp__card">
         <div className="inv-bp__card-head inv-bp__card-head--row">
           <span>Run history</span>
@@ -496,6 +606,86 @@ export default function InvoiceBlueprintPanel({ invoice }: InvoiceBlueprintPanel
           </ol>
         )}
       </section>
+
+    </>
+  )
+
+  const content = (
+    <div className={`inv-bp${full ? ' inv-bp--full' : ''}`}>
+      <header className="inv-bp__bar">
+        <div className="inv-bp__bar-title">
+          <GitBranch size={16} aria-hidden />
+          <span>Blueprint · Invoice #{invoice.invoice_number}</span>
+        </div>
+        <button
+          type="button"
+          className="inv-bp__icon-btn"
+          onClick={() => setFull((v) => !v)}
+          aria-label={full ? 'Exit full screen' : 'Open full screen'}
+          title={full ? 'Exit full screen (Esc)' : 'Full screen'}
+        >
+          {full ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          <span>{full ? 'Exit full screen' : 'Full screen'}</span>
+        </button>
+      </header>
+
+      <BlueprintRunDashboard invoice={invoice} />
+
+      <button
+        type="button"
+        className="inv-bp__more"
+        onClick={() => setShowMore((v) => !v)}
+        aria-expanded={showMore}
+      >
+        {showMore ? 'Hide details' : 'More details (setup, debug, history)'}
+      </button>
+
+      {!showMore || full ? null : (
+        <nav className="inv-bp__tabs" role="tablist" aria-label="Blueprint sections">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.id}
+              className={`inv-bp__tab${tab === t.id ? ' is-active' : ''}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {!showMore ? null : full ? (
+        <div className="inv-bp__cols">
+          <div className="inv-bp__col">
+            {overviewBlock}
+            {stepsBlock}
+          </div>
+          <div className="inv-bp__col">
+            {debugBlock}
+            {historyBlock}
+          </div>
+        </div>
+      ) : (
+        <>
+          {tab === 'overview' ? overviewBlock : null}
+          {tab === 'steps' ? stepsBlock : null}
+          {tab === 'debug' ? debugBlock : null}
+          {tab === 'history' ? historyBlock : null}
+        </>
+      )}
     </div>
   )
+
+  if (full) {
+    const target =
+      typeof document !== 'undefined'
+        ? (document.querySelector('.client-portal') ?? document.body)
+        : null
+    if (!target) return content
+    return createPortal(<div className="inv-bp-overlay">{content}</div>, target)
+  }
+  return content
 }

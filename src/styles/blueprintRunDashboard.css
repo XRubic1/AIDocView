@@ -1,0 +1,288 @@
+/* Simple blueprint dashboard on the invoice Blueprints tab */
+.bpd {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1rem;
+  background: var(--cp-card, #fff);
+  border: 1px solid var(--cp-border, #e2e8f0);
+  border-radius: 12px;
+  color: var(--cp-text, #0f172a);
+}
+
+.bpd-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.bpd-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--cp-text-muted, #64748b);
+}
+
+.bpd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.bpd-status__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.bpd-status.is-waiting,
+.bpd-status.is-running {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.bpd-status.is-overdue,
+.bpd-status.is-paused {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.bpd-status.is-stuck,
+.bpd-status.is-stopped {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.bpd-status.is-done {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.bpd-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.bpd-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.75rem 0.9rem;
+  background: var(--cp-surface, #f8fafc);
+  border: 1px solid var(--cp-border, #e2e8f0);
+  border-radius: 10px;
+}
+
+.bpd-fact__label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cp-text-muted, #64748b);
+}
+
+.bpd-fact__value {
+  font-size: 1.15rem;
+  font-weight: 750;
+}
+
+.bpd-fact__sub {
+  font-size: 0.85rem;
+  color: var(--cp-text-muted, #64748b);
+}
+
+.bpd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.bpd-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--cp-text, #0f172a);
+  background: var(--cp-card, #fff);
+  border: 1px solid var(--cp-border, #e2e8f0);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.bpd-btn:hover:not(:disabled) {
+  border-color: #1684fe;
+}
+
+.bpd-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.bpd-btn--primary {
+  color: #fff;
+  background: #0f172a;
+  border-color: #0f172a;
+}
+
+.bpd-btn--primary:hover:not(:disabled) {
+  background: #1e293b;
+}
+
+.bpd-btn--danger {
+  color: #fff;
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+.bpd-note {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--cp-text-muted, #64748b);
+}
+
+.bpd-table-wrap {
+  overflow-x: auto;
+}
+
+.bpd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.bpd-table th {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cp-text-muted, #64748b);
+  border-bottom: 1px solid var(--cp-border, #e2e8f0);
+}
+
+.bpd-table th svg {
+  vertical-align: -2px;
+}
+
+.bpd-table td {
+  padding: 0.65rem 0.6rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--cp-border, #e2e8f0);
+}
+
+.bpd-table tr.is-now td {
+  background: #eff6ff;
+}
+
+.bpd-table tr.is-next td {
+  color: var(--cp-text-muted, #64748b);
+}
+
+.bpd-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 750;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+tr.is-done .bpd-num {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+tr.is-now .bpd-num {
+  background: #1684fe;
+  color: #fff;
+}
+
+.bpd-step {
+  font-weight: 650;
+}
+
+.bpd-run {
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+}
+
+.bpd-run em {
+  font-style: normal;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #1d4ed8;
+}
+
+.bpd-run.is-done {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.bpd-run.is-now {
+  font-weight: 700;
+  color: var(--cp-text, #0f172a);
+}
+
+.bpd-run.is-wait {
+  white-space: normal;
+  color: #92400e;
+  font-weight: 600;
+}
+
+.bpd-run.is-muted {
+  white-space: normal;
+}
+
+.bpd-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.bpd-mark.is-yes {
+  color: #15803d;
+}
+
+.bpd-mark.is-no {
+  color: #b91c1c;
+}
+
+.bpd-mark.is-planned {
+  color: #1d4ed8;
+}
+
+.bpd-mark.is-none {
+  color: var(--cp-text-muted, #94a3b8);
+}
+
+.inv-bp__more {
+  align-self: flex-start;
+  padding: 0;
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: #1684fe;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}

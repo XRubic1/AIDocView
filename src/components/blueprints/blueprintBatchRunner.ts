@@ -42,7 +42,7 @@ function isWhen(data: BlueprintNodeData): boolean {
 function waitStepLine(node: BlueprintFlowNode): string {
   const wait = lookupWaitUntilById(node.data.waitUntilId)
   const line = wait
-    ? formatCatalogCardLine(wait, node.data.days)
+    ? formatCatalogCardLine(wait, node.data.days, node.data.waitUnit)
     : node.data.fieldKey?.trim() || 'Wait until…'
   return `Wait until · ${line}`
 }

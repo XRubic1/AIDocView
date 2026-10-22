@@ -43,7 +43,7 @@ Admin login uses **Supabase Auth**. The account must have **`app_metadata.role =
 { "role": "admin" }
 ```
 
-5. Sign in at `/login` with that email and password.
+5. Sign in at `/logistics.login` with that email and password.
 
 **Option B — CLI script (recommended)**
 

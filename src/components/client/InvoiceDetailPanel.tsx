@@ -1783,6 +1783,19 @@ export default function InvoiceDetailPanel({
                   }
             }
             showBlueprintChase={isAdminPortal}
+            onOpenBroker={
+              isAdminPortal && (invoice.broker_id || invoice.broker_name)
+                ? () =>
+                    navigate(
+                      `/brokers?broker=${encodeURIComponent(invoice.broker_id || invoice.broker_name)}`
+                    )
+                : undefined
+            }
+            onOpenCarrier={
+              isAdminPortal && invoice.client_id
+                ? () => navigate(`/clients?client=${encodeURIComponent(invoice.client_id)}`)
+                : undefined
+            }
           />
         ) : detailSurface === 'blueprints' ? (
           <section

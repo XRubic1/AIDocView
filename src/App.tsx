@@ -106,7 +106,7 @@ function App() {
                 path="/terms"
                 element={withRouteSuspense(WebsiteTerms, 'Loading terms…')}
               />
-              <Route path="/login" element={<Login />} />
+              <Route path="/logistics.login" element={<Login />} />
               <Route path="/client/login" element={<ClientLogin />} />
               <Route path="/client/setup-password" element={<ClientSetupPassword />} />
               <Route path="/landing" element={<LandingPage />} />

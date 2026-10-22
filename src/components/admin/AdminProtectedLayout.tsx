@@ -46,7 +46,7 @@ export default function AdminProtectedLayout() {
   }
 
   if (!allowed) {
-    return <Navigate to="/login" state={{ from: location.pathname }} replace />
+    return <Navigate to="/logistics.login" state={{ from: location.pathname }} replace />
   }
 
   if (hydrationError) {

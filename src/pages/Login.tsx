@@ -144,7 +144,7 @@ export default function Login() {
                   setEmail(e.target.value)
                   setError('')
                 }}
-                placeholder="admin@credyx.net"
+                placeholder="Enter your email"
                 className={`credyx-auth__input ${inputErrorClass}`}
                 required
                 disabled={isLoading}
