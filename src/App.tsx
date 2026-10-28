@@ -112,10 +112,14 @@ function App() {
               <Route path="/landing" element={<LandingPage />} />
               <Route path="/home" element={withRouteSuspense(PlatformLandingPage)} />
               <Route path="/docsort" element={withRouteSuspense(DocSortLandingPage)} />
-              <Route path="/MC" element={withRouteSuspense(PublicMcCheck, 'Loading MC Check…')} />
-              <Route path="/mc" element={<Navigate to="/MC" replace />} />
-              <Route path="/mc-check" element={<Navigate to="/MC" replace />} />
-              <Route path="/mclookup" element={<Navigate to="/MC" replace />} />
+              <Route
+                path="/free-broker-mc-check"
+                element={withRouteSuspense(PublicMcCheck, 'Loading MC Check…')}
+              />
+              <Route path="/MC" element={<Navigate to="/free-broker-mc-check" replace />} />
+              <Route path="/mc" element={<Navigate to="/free-broker-mc-check" replace />} />
+              <Route path="/mc-check" element={<Navigate to="/free-broker-mc-check" replace />} />
+              <Route path="/mclookup" element={<Navigate to="/free-broker-mc-check" replace />} />
 
               <Route element={<ClientProtectedLayout />}>
                 <Route

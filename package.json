@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:waitlist": "vite --config vite.waitlist.config.ts",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && tsx scripts/prerender-seo.ts",
     "build:waitlist": "vite build --config vite.waitlist.config.ts",
     "test": "vitest run",
     "eval": "tsx scripts/eval/run.ts",

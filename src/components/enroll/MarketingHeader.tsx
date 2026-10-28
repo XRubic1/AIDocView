@@ -130,10 +130,10 @@ export function MarketingHeader() {
             trackWebsiteEvent('nav_click', 'nav_mc_check')
             setMenuOpen(false)
             if (isMarketingOnly) {
-              window.location.assign(`${getClientLoginHref().replace(/\/client\/login$/, '')}/MC`)
+              window.location.assign(`${getClientLoginHref().replace(/\/client\/login$/, '')}/free-broker-mc-check`)
               return
             }
-            navigate('/MC')
+            navigate('/free-broker-mc-check')
           }}
         >
           MC Check

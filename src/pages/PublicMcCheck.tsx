@@ -19,6 +19,7 @@ import {
   writePublicMcAccess,
   type PublicMcAccess,
 } from '../utils/publicMcAccess'
+import { McCheckSeoContent } from '../components/seo/McCheckSeoContent'
 import ClientMcLookup from './ClientMcLookup'
 
 function digitsOnly(value: string): string {
@@ -31,7 +32,7 @@ function welcomeWords(name: string | null | undefined, fallbackMc: string): stri
   return [fallbackMc]
 }
 
-/** Public /MC — gate, welcome overlay, carrier bar, broker lookup. */
+/** Public /free-broker-mc-check (legacy /MC redirects here) — gate, welcome overlay, carrier bar, broker lookup. */
 export default function PublicMcCheck() {
   const [access, setAccess] = useState<PublicMcAccess | null>(() => {
     const stored = readPublicMcAccess()
@@ -181,9 +182,9 @@ export default function PublicMcCheck() {
           <section className="credyx-mc-gate">
             <form className="credyx-mc-gate__card" onSubmit={(event) => void unlock(event)} noValidate>
               <p className="credyx-mc-eyebrow">Credyx MC Check</p>
-              <h1 className="credyx-mc-gate__title">
+              <h2 className="credyx-mc-gate__title">
                 Enter your <b>carrier MC</b>
-              </h1>
+              </h2>
               <p className="credyx-mc-gate__copy">
                 Confirm your motor carrier number to unlock free broker lookups.
               </p>
@@ -240,6 +241,7 @@ export default function PublicMcCheck() {
             <ClientMcLookup introduce visitorMcDigits={access.mcDigits} />
           </>
         ) : null}
+        <McCheckSeoContent />
       </main>
 
       <div
