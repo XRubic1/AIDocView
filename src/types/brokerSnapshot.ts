@@ -62,6 +62,9 @@ export interface BrokerSnapshotSummary {
   insuranceVerdict?: BrokerInsuranceVerdict
   /** Short human note, e.g. "Broker insurance is fine." */
   insuranceNote?: string | null
+  /** Where the insurance fields came from: MOTUS filings, or BrokerSnapshot when MOTUS had no record. */
+  insuranceSource?: 'motus' | 'brokersnapshot'
+  motusAccountUrl?: string | null
   safetyRating?: string | null
   safetyRatingDate?: string | null
   addDate?: string | null

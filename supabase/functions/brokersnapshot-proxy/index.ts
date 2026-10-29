@@ -1,5 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { authorizeLookup } from '../_shared/lookupAuth.ts'
+import { fetchMotusReport } from '../_shared/motusLookup.ts'
+import { applyMotusInsurance } from '../../../src/utils/motusSnapshotInsurance.ts'
 import {
   collectInsuranceRows,
   companyRecordScore,
@@ -754,6 +756,32 @@ function apiErrorText(body: unknown): string | null {
   return null
 }
 
+/**
+ * Insurance comes from public MOTUS filings, not BrokerSnapshot. When MOTUS has no
+ * record or is down, the BrokerSnapshot insurance fields stay as they were.
+ */
+async function withMotusInsurance(
+  summary: Record<string, unknown>,
+  prefix: string,
+  digits: string
+): Promise<Record<string, unknown>> {
+  try {
+    const dot = summary.dotNumber != null ? String(summary.dotNumber).replace(/\D/g, '') : ''
+    const docketPrefix = prefix === 'FF' || prefix === 'MX' ? prefix : 'MC'
+    const query = dot
+      ? ({ kind: 'dot', dot } as const)
+      : digits
+        ? ({ kind: 'docket', prefix: docketPrefix, number: digits } as const)
+        : null
+    if (!query) return summary
+    const result = await fetchMotusReport(query)
+    if (!result.ok) return { ...summary, insuranceSource: 'brokersnapshot' }
+    return applyMotusInsurance(summary, result.report)
+  } catch {
+    return { ...summary, insuranceSource: 'brokersnapshot' }
+  }
+}
+
 async function fetchSnapshotCompany(
   apiKey: string,
   prefix: string,
@@ -789,7 +817,7 @@ async function fetchSnapshotCompany(
 
   const searchRoot = search.body && typeof search.body === 'object' ? Object.keys(search.body as object) : []
 
-  const summary = chosen.summary
+  const summary = chosen.summary ? await withMotusInsurance(chosen.summary, prefix, digits) : null
   const insuranceDebug: Record<string, unknown> = {
     calls,
     error: calls.map((call) => call.error).filter(Boolean).join(' · ') || null,
@@ -1198,13 +1226,14 @@ Deno.serve(async (req) => {
         },
       })
       const body = await response.json().catch(() => ({}))
-      const summary = summaryFromBody(body)
-      if (!summary) {
+      const snapshotSummary = summaryFromBody(body)
+      if (!snapshotSummary) {
         return jsonResponse({
           Success: true,
           Data: { found: false, dotNumber: Number(dot), riskFlags: [] },
         })
       }
+      const summary = await withMotusInsurance(snapshotSummary, 'MC', '')
 
       return jsonResponse({
         Success: true,
